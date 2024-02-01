@@ -609,6 +609,59 @@ Building the program with BLAS support may lead to some performance improvements
 
   For detailed info, please refer to [llama.cpp for SYCL](README-sycl.md).
 
+- #### Vulkan
+
+  Please see the following PR for more details: [#2059](https://github.com/ggerganov/llama.cpp/pull/2059)
+
+- ##### Installing Required Packages
+
+  For Ubuntu or Debian, install the required packages like so:
+
+  ```sh
+    sudo apt install libvulkan-dev
+  ```
+  
+- ##### Building with Vulkan
+
+**Unix**:
+
+- Build with make:
+  ```sh
+    make -LLAMA_VULKAN=1
+  ```
+- Build with cmake:
+  ```sh
+    mkdir build
+    cd build
+    cmake .. -DLLAMA_VULKAN=ON
+    cmake --build . --config Release
+  ```
+**With docker**:
+
+
+
+- #### Vulkan Kompute
+
+  Please see the following PR for more details: [#4456](https://github.com/ggerganov/llama.cpp/pull/4456)
+
+- ##### Installing the Submodule
+
+ If you have cloned this repository without the `--recursive` flag, install the kompute submodule like so:
+ 
+  ```sh  
+    git submodule init
+    git submodule update
+  ```
+  
+- ##### Building with Vulkan Kompute
+
+- Build with cmake:
+  ```sh
+    mkdir build
+    cd build
+    cmake .. -DLLAMA_KOMPUTE=ON
+    cmake --build . --config Release
+  ```
 
 ### Prepare Data & Run
 
