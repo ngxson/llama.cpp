@@ -643,6 +643,29 @@ Building the program with BLAS support may lead to some performance improvements
   # ggml_vulkan: Using Intel(R) Graphics (ADL GT2) | uma: 1 | fp16: 1 | warp size: 32
   ```
 
+- #### Vulkan Kompute
+
+  Please see the following PR for more details: [#4456](https://github.com/ggerganov/llama.cpp/pull/4456)
+
+- ##### Installing the Submodule
+
+ If you have cloned this repository without the `--recursive` flag, install the kompute submodule like so:
+ 
+  ```sh  
+    git submodule init
+    git submodule update
+  ```
+  
+- ##### Building with Vulkan Kompute
+
+- Build with cmake:
+  ```sh
+    mkdir build
+    cd build
+    cmake .. -DLLAMA_KOMPUTE=ON
+    cmake --build . --config Release
+  ```
+
 ### Prepare Data & Run
 
 ```bash
