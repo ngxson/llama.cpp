@@ -56,19 +56,11 @@ static std::vector<std::string> get_list_tensors_name(std::string & model_path) 
     return results;
 }
 
-static void print_model_tensors_name(std::string & model_path) {
-    auto tensors = get_list_tensors_name(model_path);
-    std::cout << "\n\n===================\n";
-    std::cout << "Total number of tensors: " << tensors.size() << "\n";
-    std::vector<const char *> list(tensors.size(), nullptr);
-    for (size_t i = 0; i < tensors.size(); i++) {
-        char buf[128];
-        sprintf(buf, "%4ld: %s", i, tensors[i].c_str());
-        std::cout << buf << "\n";
-    }
-}
-
-/////////////////////////////////
+struct components_and_units {
+    std::vector<std::string> tensors; // list of all tensor names
+    std::set<std::string> components; // model components, for example "output", "token_embd",...
+    std::set<std::string> units; // name of units inside layer, for example "attn_output"
+};
 
 // get layer index from tensor name, for example "blk.x.attn_norm.weight"
 // returns -1 if it is non-layer
@@ -76,6 +68,47 @@ static int get_i_layer(std::string tensor_name) {
     int i_layer = -1;
     return sscanf(tensor_name.c_str(), "blk.%d.", &i_layer) == 1 ? i_layer : -1;
 };
+
+static struct components_and_units get_model_options(std::string & model_path) {
+    struct components_and_units result;
+    auto inp_names = get_list_tensors_name(model_path);
+    std::set<std::string> units;
+    for (auto & name : inp_names) {
+        result.tensors.push_back(name);
+        int il = get_i_layer(name);
+        auto parts = str_split(name, ".");
+        if (il < 0) {
+            // non-layer components
+            result.components.insert(parts[0]);
+        } else {
+            // tensor belong to layer
+            result.units.insert(parts[2]);
+        }
+    }
+    return result;
+}
+
+static void print_model_tensors_name(std::string & model_path) {
+    auto opt = get_model_options(model_path);
+    std::cout << "\n\n===================\n";
+    std::cout << "Total number of tensors: " << opt.tensors.size() << "\n";
+    for (size_t i = 0; i < opt.tensors.size(); i++) {
+        char buf[128];
+        sprintf(buf, "%4ld: %s", i, opt.tensors[i].c_str());
+        std::cout << buf << "\n";
+    }
+    std::cout << "\n\n===================\n";
+    std::cout << "\nComponents:\n";
+    for (auto & c : opt.components) {
+        std::cout << c << "\n";
+    }
+    std::cout << "\nList of layer units:\n";
+    for (auto & u : opt.units) {
+        std::cout << u << "\n";
+    }
+}
+
+/////////////////////////////////
 
 static void print_inst(struct llama_merge_inst inst) {
     std::cout << "Output: " << inst.name << "\n";
@@ -86,8 +119,7 @@ static void print_inst(struct llama_merge_inst inst) {
             std::cout << "    Model B: " << inst.scales[1] << " * " << inst.srcs[1] << "\n";
             break;
         case LLAMA_MERGE_SLERP:
-            std::cout << "    SLERP\n";
-            std::cout << "    t=" << inst.t << "\n";
+            std::cout << "    SLERP t=" << inst.t << "\n";
             std::cout << "    Model A: " << inst.srcs[0] << "\n";
             std::cout << "    Model B: " << inst.srcs[1] << "\n";
             break;
@@ -116,28 +148,20 @@ static std::vector<struct llama_merge_inst> parse_config(std::string & config_pa
     file.close();
 
     // get list of input tensors
-    auto inp_names = get_list_tensors_name(model_path);
-    std::set<std::string> units; // name of units, for example "attn_output"
-    for (auto & name : inp_names) {
-        int il = get_i_layer(name);
-        if (il < 0) {
-            // non-layer, only copy
-            struct llama_merge_inst ins;
-            ins.method = LLAMA_MERGE_COPY;
-            strcpy(ins.name, name.c_str());
-            strcpy(ins.srcs[0], name.c_str()); // always take the first model
-            strcpy(ins.srcs[1], "");
-            instructions.push_back(ins);
-        } else {
-            // tensor belong to layer
-            auto parts = str_split(name, ".");
-            units.insert(parts[2]);
-        }
-    }
+    struct components_and_units opt = get_model_options(model_path);
+    auto & units = opt.units;
+    std::unordered_map<std::string, struct llama_merge_inst> comp; // map tensor name to instruction
 
-    std::cout << "List of units:\n";
-    for (auto & u : units) std::cout << u << "\n";
-    std::cout << "\n";
+    for (auto & c : opt.components) {
+        struct llama_merge_inst ins;
+        std::string name(c + ".weight");
+        ins.method = LLAMA_MERGE_SLERP;
+        strcpy(ins.name, name.c_str());
+        strcpy(ins.srcs[0], name.c_str());
+        strcpy(ins.srcs[1], name.c_str());
+        ins.t = 0.5; // by default
+        comp[c] = ins;
+    }
 
     // process line by line, one line is one layer
     std::unordered_map<std::string, struct llama_merge_inst> layer; // map tensor name to instruction
@@ -170,10 +194,58 @@ static std::vector<struct llama_merge_inst> parse_config(std::string & config_pa
         throw std::runtime_error(ss.str());
     };
 
+    // process "component" part
     for (size_t i_line = 0 ; i_line < lines.size(); i_line++) {
         auto line = str_trim(lines[i_line]);
-        if (line.empty() || line.c_str()[0] == '#') {
-            continue; // skip empty line or comment
+        if (line.rfind("component", 0) != 0) {
+            continue; // skip empty line not starting with "component"
+        }
+
+        auto parts = str_split(line, " ");
+        auto verb = parts[1];
+        auto params = str_split(parts[2], ",");
+        struct llama_merge_inst ins;
+
+        if (verb == "linear") {
+            if (params.size() != 3) {
+                raise_err(i_line, "[component] verb \"linear\" requires exactly 3 parameters");
+            }
+            ins.method = LLAMA_MERGE_LINEAR;
+            std::string name(params[0] + ".weight");
+            strcpy(ins.name, name.c_str());
+            strcpy(ins.srcs[0], name.c_str());
+            strcpy(ins.srcs[1], name.c_str());
+            ins.scales[0] = std::stof(params[1]);
+            ins.scales[1] = std::stof(params[2]);
+            comp[params[0]] = ins;
+        } else if (verb == "slerp") {
+            if (params.size() != 2) {
+                raise_err(i_line, "[component] verb \"slerp\" requires exactly 2 parameters");
+            }
+            ins.method = LLAMA_MERGE_SLERP;
+            std::string name(params[0] + ".weight");
+            strcpy(ins.name, name.c_str());
+            strcpy(ins.srcs[0], name.c_str());
+            strcpy(ins.srcs[1], name.c_str());
+            ins.t = std::stof(params[1]);
+            comp[params[0]] = ins;
+        } else if (verb == "copy") {
+            raise_err(i_line, "verb \"copy\" is not supported for components, please use \"linear\" instead");
+        } else {
+            raise_err(i_line, "invalid verb: " + verb);
+        }
+    }
+
+    // push all components
+    for (auto & c : comp) {
+        instructions.push_back(c.second);
+    }
+
+    // process "layer" part
+    for (size_t i_line = 0 ; i_line < lines.size(); i_line++) {
+        auto line = str_trim(lines[i_line]);
+        if (line.empty() || line.c_str()[0] == '#' || line.rfind("component", 0) == 0) {
+            continue; // skip empty line, comment or component definition
         }
 
         auto parts = str_split(line, " ");

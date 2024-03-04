@@ -7,11 +7,21 @@
 # Supported verbs:
 # - linear: merge linearly, parameters: source_layer,source_layer,t
 # - slerp: spherical linear interpolation, parameters: source_layer,source_layer,scale,scale
-# - copy: copy from which model, which layer
+# - copy: simply copy (passthough) from source model, parameters: source_model,source_layer
+# Tips: to verify if your config file is correct, run with --dry-run to see a list of parsed results
 
 
 #########################
 # Example:
+
+# Components (embedding, output,...) must be specified first
+# By default, if unspecified, we merge components using slerp with t=0.5
+# Merge embedding and output layer using slerp with t=0.7
+# To get a list of components, please run ./merge -m model.gguf --print-list-tensor
+
+component slerp token_embd,0.7
+component slerp output_norm,0.7
+component linear output,0.3,0.7
 
 # This is the first layer of output model:
 # For all tensors, we want slerp(model[0].layer[0], model[1].layer[0], 0.1)

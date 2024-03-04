@@ -31,7 +31,7 @@ static void usage(const char * executable, int exit_code) {
     printf("\n");
     printf("NOTE:\n");
     printf("- Only support merging 2 models.\n");
-    printf("- The embedding and output layers of the first model will be used.\n");
+    printf("- Metadata (KV values) and tokenizer config of the first model will be used.\n");
     printf("- Currently, we accept both quantized and non-quantized models as input. The output model will be re-quantized into the same format of the first model.\n");
     printf("\n");
     printf("Options:\n");

@@ -11380,6 +11380,14 @@ int32_t llama_merge_models(const struct llama_merge_config * config) {
         gguf_free(ctx_out);
     };
 
+    auto is_rejected_quantize_type = [](struct ggml_tensor * tensor) {
+        return tensor->type == GGML_TYPE_IQ2_XXS ||
+            tensor->type == GGML_TYPE_IQ2_XS     ||
+            tensor->type == GGML_TYPE_IQ2_S      ||
+            tensor->type == GGML_TYPE_IQ1_S      ||
+            tensor->type == GGML_TYPE_Q2_K;
+    };
+
     // load the input models
     static const size_t n_models = 2;
     for (size_t i = 0; i < n_models; i++) {
@@ -11423,9 +11431,8 @@ int32_t llama_merge_models(const struct llama_merge_config * config) {
         };
         for (size_t i = 0; i < config->n_insts; i++) {
             const struct llama_merge_inst ins = config->insts[i];
-            struct ggml_tensor * t0;
-            struct ggml_tensor * t1;
-            // TODO: reject non-requantize-able type (one that requires imatrix)
+            struct ggml_tensor * t0 = nullptr;
+            struct ggml_tensor * t1 = nullptr;
             if (ins.method == LLAMA_MERGE_COPY) {
                 // simply copy from model A
                 size_t i_model;
@@ -11435,7 +11442,7 @@ int32_t llama_merge_models(const struct llama_merge_config * config) {
                 t0 = mls[0]->get_tensor_meta(ins.srcs[0]);
                 t1 = mls[1]->get_tensor_meta(ins.srcs[1]);
                 if (llama_format_tensor_shape(t0) != llama_format_tensor_shape(t1)) {
-                    LLAMA_LOG_ERROR("some tensors does not have the same shape");
+                    LLAMA_LOG_ERROR("Error: Some tensors does not have the same shape\n");
                     clean_up();
                     return -1;
                 }
@@ -11459,6 +11466,17 @@ int32_t llama_merge_models(const struct llama_merge_config * config) {
                 push_tensor(t0, ins.name);*/
             } else {
                 GGML_ASSERT(false); // should never happen
+            }
+            // check tensor type
+            // TODO: allow user to skip re-quant for low bit input
+            if (
+                (t0 != nullptr && is_rejected_quantize_type(t0)) ||
+                (t1 != nullptr && is_rejected_quantize_type(t1))
+            ) {
+                LLAMA_LOG_ERROR("Error: One of input models uses low bit quantization\n");
+                LLAMA_LOG_ERROR("Please use at least Q4 quantized model\n");
+                clean_up();
+                return -1;
             }
         }
 
@@ -11518,8 +11536,10 @@ int32_t llama_merge_models(const struct llama_merge_config * config) {
         const int n_per_row = out_tensor->ne[0];
         const int n_rows = n_elements / n_per_row;
 
+        LLAMA_LOG_INFO("Steps: ");
+
         if (ins.method == LLAMA_MERGE_COPY) {
-            LLAMA_LOG_INFO("copy\n");
+            LLAMA_LOG_INFO(" > Copy\n");
             size_t i_model;
             t0 = get_src_tensor_for_copy(ins, i_model);
             read_tensor_data(t0, *mls[i_model], in_buf0);
@@ -11530,11 +11550,11 @@ int32_t llama_merge_models(const struct llama_merge_config * config) {
         // dequantize the tensor to FP32
         auto dequantize = [&](struct ggml_tensor * in_tensor, std::vector<no_init<float>> & f32_in_buf) {
             if (in_tensor->type != GGML_TYPE_F32) {
-                LLAMA_LOG_INFO("dequant ");
+                LLAMA_LOG_INFO(" > Dequantize");
                 llama_convert_tensor_internal(in_tensor, f32_in_buf, workers, n_elements, n_threads);
             } else {
                 // if we already have f32, just copy it
-                LLAMA_LOG_INFO("f32_copy ");
+                LLAMA_LOG_INFO(" > F32_copy");
                 f32_in_buf.resize(n_elements);
                 memcpy((void *) f32_in_buf.data(), in_tensor->data, n_elements * sizeof(float));
             }
@@ -11551,7 +11571,7 @@ int32_t llama_merge_models(const struct llama_merge_config * config) {
         }
 
         if (ins.method == LLAMA_MERGE_LINEAR) {
-            LLAMA_LOG_INFO("linear ");
+            LLAMA_LOG_INFO(" > Merge linear");
             float * in0  = (float *) f32_in_buf0.data();
             float * in1  = (float *) f32_in_buf1.data();
             float * dest = (float *) f32_out_buf.data();
@@ -11562,19 +11582,25 @@ int32_t llama_merge_models(const struct llama_merge_config * config) {
 
         if (ins.method == LLAMA_MERGE_SLERP) {
             // Python code: https://gist.github.com/dvschultz/3af50c40df002da3b751efab1daddf2c
-            LLAMA_LOG_INFO("slerp ");
+            LLAMA_LOG_INFO(" > Merge SLERP");
             static const float dot_threshold = 0.9995;
-            auto lerp_row = [](float * in0, float * in1, float * out, size_t nelem, float t) {
+            bool tmp_logged = false;
+            auto lerp_row = [&tmp_logged](float * in0, float * in1, float * out, size_t nelem, float t) {
+                if (!tmp_logged) {
+                    LLAMA_LOG_INFO(" > LERP");
+                    tmp_logged = true;
+                }
                 for (size_t i = 0; i < nelem; i++) {
                     out[i] = in0[i] * (1.0 - t) + in1[i] * t;
                 }
             };
             auto slerp_row = [&lerp_row](float * in0, float * in1, float * out, size_t nelem, float t) {
-                float norm0 = std::sqrt(std::inner_product(in0, in0 + nelem, in0, 0.0));
-                float norm1 = std::sqrt(std::inner_product(in1, in1 + nelem, in1, 0.0));
-                // Normalize the vectors to get the directions and angles
+                // Allocate temporary v0 and v1 for calculating theta 
                 std::vector<float> v0(nelem);
                 std::vector<float> v1(nelem);
+                // Normalize the vectors to get the directions and angles
+                float norm0 = std::sqrt(std::inner_product(in0, in0 + nelem, in0, 0.0));
+                float norm1 = std::sqrt(std::inner_product(in1, in1 + nelem, in1, 0.0));
                 for (size_t i = 0; i < nelem; i++) {
                     v0[i] = in0[i] / norm0;
                     v1[i] = in1[i] / norm1;
@@ -11609,7 +11635,7 @@ int32_t llama_merge_models(const struct llama_merge_config * config) {
 
         // re-quantize it
         {
-            LLAMA_LOG_INFO("requant\n");
+            LLAMA_LOG_INFO(" > Re-quantize\n");
             std::array<int64_t, 1 << 4> hist_cur = {};
             static const int min_chunk_size = 32 * 512;
             const int chunk_size = n_per_row >= min_chunk_size ? n_per_row : n_per_row * ((min_chunk_size + n_per_row - 1)/n_per_row);
@@ -11627,8 +11653,8 @@ int32_t llama_merge_models(const struct llama_merge_config * config) {
             GGML_ASSERT(new_size == out_buf.size());
         }
 
-        LLAMA_LOG_INFO("===> INPUT  %f %f %f\n", f32_in_buf0[0].value, f32_in_buf0[1].value, f32_in_buf0[2].value);
-        LLAMA_LOG_INFO("===> OUTPUT %f %f %f\n", f32_out_buf[0], f32_out_buf[1], f32_out_buf[2]);
+        LLAMA_LOG_INFO("===> INPUT  [ %f %f %f ... ]\n", f32_in_buf0[0].value, f32_in_buf0[1].value, f32_in_buf0[2].value);
+        LLAMA_LOG_INFO("===> OUTPUT [ %f %f %f ... ]\n", f32_out_buf[0], f32_out_buf[1], f32_out_buf[2]);
 
         write_output_tensor(out_tensor, out_buf.data());
     }
