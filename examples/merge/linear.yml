@@ -1,0 +1,8 @@
+models:
+  - model: models/mistral-7b-instruct-v0.1.Q5_K_M.gguf
+    parameters:
+      weight: 0.7
+  - model: models/zephyr-7b-beta.Q5_K_M.gguf
+    parameters:
+      weight: 0.3
+merge_method: slerp
