@@ -1,0 +1,33 @@
+slices:
+- sources:
+  - layer_range: [0, 1]
+    model: models/mistral-7b-instruct-v0.1.Q5_K_M.gguf
+    weight: 0.6
+  - layer_range: [0, 1]
+    model: models/zephyr-7b-beta.Q5_K_M.gguf
+    weight: 0.4
+  merge_method: slerp
+- sources:
+  - layer_range: [1, 16]
+    model: models/mistral-7b-instruct-v0.1.Q5_K_M.gguf
+    weight: 0.2
+  - layer_range: [3, 18]
+    model: models/zephyr-7b-beta.Q5_K_M.gguf
+    weight: 0.8
+  merge_method: linear
+- sources:
+  - layer_range: [8, 24]
+    model: models/mistral-7b-instruct-v0.1.Q5_K_M.gguf
+  merge_method: copy
+- sources:
+  - layer_range: [16, 30]
+    model: models/zephyr-7b-beta.Q5_K_M.gguf
+  merge_method: copy
+- sources:
+  - layer_range: [31, 32]
+    model: models/mistral-7b-instruct-v0.1.Q5_K_M.gguf
+    weight: 0.1
+  - layer_range: [31, 32]
+    model: models/zephyr-7b-beta.Q5_K_M.gguf
+    weight: 0.9
+  merge_method: linear
