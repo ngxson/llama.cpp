@@ -36,6 +36,9 @@ def checkMergeMode(mergeInstructions):
 def getModelLength(model):
     """
     Load the gguf file and determine the length of the model
+    
+    Currently uses the "llama.block_count" field to determine the length of the model
+    This might need to be checked for other kinds of models?
 
     Parameters
     ----------
@@ -183,6 +186,76 @@ def getSliceLength(souces):
     return layerRanges
 
 
+def processFusion(config, layerIndex, slice, method, layerList):
+    """
+    Process the fusion of the slices
+    
+    Parameters
+    ----------
+    config : file
+        The config file to write to
+    layerIndex : int
+        The index of the layer
+    slice : dict
+        The slice to process
+    method : str
+        The method to use for the fusion
+    layerList : list
+        The layer ranges
+        
+    Returns
+    -------
+    None
+    """ 
+        
+    for i, j in zip(range(*layerList[0]), range(*layerList[1])):
+        config.write(f"output layer {layerIndex}\n")
+        config.write(f"all {method} ")
+        config.write(f"{i},{j},")
+        config.write(
+                        ",".join([str(source["weight"]) for source in slice["sources"]])
+                    )
+        config.write("\n\n")
+        layerIndex += 1
+    
+    return layerIndex
+
+
+def processCopy(modelNames, config, layerIndex, slice, method, layerList):
+    """
+    Process the copy of the slices
+    
+    Parameters
+    ----------
+    modelNames : list
+        The model names
+    config : file
+        The config file to write to
+    layerIndex : int
+        The index of the layer
+    slice : dict
+        The slice to process
+    method : str
+        The method to use for the fusion
+    layerList : list
+        The layer ranges
+        
+    Returns
+    -------
+    None
+    """
+        
+    for i in range(*layerList[0]):
+        config.write(f"output layer {layerIndex}\n")
+        config.write(
+                        f"all {method} {modelNames[slice['sources'][0]['model']]},{i}\n"
+                    )
+        config.write("\n")
+        layerIndex += 1
+        
+    return layerIndex
+
+
 def mergeSlices(mergeInstructions):
     """
     Merge the slices using the merge instructions
@@ -212,23 +285,13 @@ def mergeSlices(mergeInstructions):
             method = slice["merge_method"]
             layerList = getSliceLength(slice)
             if method == "copy" and len(slice["sources"]) == 1:
-                for j in range(*layerList[0]):
-                    config.write(f"output layer {layerIndex}\n")
-                    config.write(
-                        f"all {method} {modelNames[slice['sources'][0]['model']]},{j}\n"
-                    )
-                    config.write("\n")
-                    layerIndex += 1
+                layerIndex = processCopy(modelNames, config, layerIndex, slice, method, layerList)
             elif method in ["linear", "slerp"] and len(slice["sources"]) > 1:
-                for i, j in zip(range(*layerList[0]), range(*layerList[1])):
-                    config.write(f"output layer {layerIndex}\n")
-                    config.write(f"all {method} ")
-                    config.write(f"{i},{j},")
-                    config.write(
-                        ",".join([str(source["weight"]) for source in slice["sources"]])
-                    )
-                    config.write("\n\n")
-                    layerIndex += 1
+                layerIndex = processFusion(config, layerIndex, slice, method, layerList)
+            else:
+                raise ValueError(
+                    "Invalid merge method. Must be 'copy' or 'linear' or 'slerp', and the correct number of sources for the method."
+                )
 
 
 def mergeGGUF(mergeInstructions):
