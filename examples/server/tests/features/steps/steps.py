@@ -1025,7 +1025,8 @@ def start_server_background(context):
     server_args = [
         '--host', server_listen_addr,
         '--port', context.server_port,
-        '--model', context.model_file
+        '--model', context.model_file,
+        '--threads', '2', # only uses 2 threads on github CI to be faster
     ]
     if context.n_batch:
         server_args.extend(['--batch-size', context.n_batch])
