@@ -289,7 +289,7 @@ static std::string to_string(const T & val) {
     return ss.str();
 }
 
-static std::vector<std::string> ctrlvec_load_prompt_file(std::string path, bool skip_empty_lines = false) {
+static std::vector<std::string> ctrlvec_load_prompt_file(std::string path, bool skip_empty_lines = false, bool single_prompt = false) {
     std::vector<std::string> output;
     std::ifstream file(path);
     if (!file.is_open()) {
@@ -304,6 +304,14 @@ static std::vector<std::string> ctrlvec_load_prompt_file(std::string path, bool 
         }
     }
     file.close();
+    if (single_prompt) {
+        std::string single_prompt;
+        for (const auto & line : output) {
+            single_prompt += line + "\n";
+        }
+        output.clear();
+        output.push_back(single_prompt);
+    }
     return output;
 }
 
@@ -362,8 +370,8 @@ static void export_gguf(const std::vector<struct ggml_tensor *> & v_ctrl, const 
  */
 static int prepare_entries(gpt_params & params, train_context & ctx_train) {
     // load prompts
-    std::vector<std::string> positive_prompts = ctrlvec_load_prompt_file(params.cvector_positive_file);
-    std::vector<std::string> negative_prompts = ctrlvec_load_prompt_file(params.cvector_negative_file);
+    std::vector<std::string> positive_prompts = ctrlvec_load_prompt_file(params.cvector_positive_file, false, params.single_prompt);
+    std::vector<std::string> negative_prompts = ctrlvec_load_prompt_file(params.cvector_negative_file, false, params.single_prompt);
     if (positive_prompts.size() != negative_prompts.size()) {
         fprintf(stderr, "number of positive and negative prompts must be equal\n");
         return 1;

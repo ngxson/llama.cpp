@@ -241,6 +241,7 @@ struct gpt_params {
     std::string cvector_completions_file = "examples/control-vector-generator/completions.txt";
     std::string cvector_positive_file    = "examples/control-vector-generator/positive.txt";
     std::string cvector_negative_file    = "examples/control-vector-generator/negative.txt";
+    bool single_prompt = false;
 };
 
 void gpt_params_handle_model_default(gpt_params & params);
