@@ -21003,14 +21003,22 @@ static int32_t llama_chat_apply_template_internal(
         }
     } else if (tmpl == "llama2" || tmpl == "mistral" || tmpl_contains("[INST]")) {
         // llama2 template and its variants
+        // default values taken from https://github.com/meta-llama/llama/blob/main/llama/generation.py
         // [variant] support system message
-        bool support_system_message = tmpl_contains("<<SYS>>") || tmpl == "mistral";
+        bool support_system_message = true;
         // [variant] space before + after response
-        bool space_around_response = tmpl_contains("' ' + eos_token");
+        bool space_around_response  = false;
         // [variant] add BOS inside history
-        bool add_bos_inside_history = tmpl_contains("bos_token + '[INST]");
+        bool add_bos_inside_history = false;
         // [variant] trim spaces from the input message
-        bool strip_message = tmpl_contains("content.strip()");
+        bool strip_message          = true;
+        if (tmpl != "llama2" && tmpl != "mistral") {
+            // support for variants
+            support_system_message = tmpl_contains("<<SYS>>");
+            space_around_response  = tmpl_contains("' ' + eos_token");
+            add_bos_inside_history = tmpl_contains("bos_token + '[INST]");
+            strip_message          = tmpl_contains("content.strip()");
+        }
         // construct the prompt
         bool is_inside_turn = true; // skip BOS at the beginning
         ss << "[INST] ";
@@ -21228,10 +21236,15 @@ LLAMA_API int32_t llama_chat_apply_template(
         std::string template_key = "tokenizer.chat_template";
         int32_t res = llama_model_meta_val_str(model, template_key.c_str(), model_template.data(), model_template.size());
         if (res < 0) {
-            // worst case: there is no information about template, we will use chatml by default
-            curr_tmpl = "chatml"; // see llama_chat_apply_template_internal
+            if (model->arch == LLM_ARCH_LLAMA) {
+                // set default template for llama 2 if it is not found in model
+                curr_tmpl = "llama2";
+            } else {
+                // worst case: there is no information about template, we will use chatml by default
+                curr_tmpl = "chatml";
+            }
         } else {
-            curr_tmpl = std::string(model_template.data(), model_template.size());
+            curr_tmpl = std::string(model_template.data(), std::min(model_template.size(), (size_t)res));
         }
     }
 
