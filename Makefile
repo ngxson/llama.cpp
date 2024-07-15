@@ -40,6 +40,7 @@ BUILD_TARGETS = \
 	llama-train-text-from-scratch \
 	llama-vdot \
 	llama-cvector-generator \
+	llama-llamax \
 	tests/test-c.o
 
 # Binaries only useful for tests
@@ -857,7 +858,8 @@ OBJ_COMMON = \
 	common/train.o \
 	common/grammar-parser.o \
 	common/build-info.o \
-	common/json-schema-to-grammar.o
+	common/json-schema-to-grammar.o \
+	examples/llamax/llamax.o
 
 OBJ_ALL = $(OBJ_GGML) $(OBJ_LLAMA) $(OBJ_COMMON)
 
@@ -1086,6 +1088,10 @@ common/ngram-cache.o: \
 	common/ngram-cache.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
+examples/llamax/llamax.o: \
+	examples/llamax/llamax.cpp \
+	examples/llamax/llamax.h
+
 $(LIB_COMMON): \
 	$(OBJ_COMMON) \
 	$(LIB_LLAMA) \
@@ -1145,6 +1151,12 @@ llama-infill: examples/infill/infill.cpp \
 
 llama-simple: examples/simple/simple.cpp \
 	$(OBJ_ALL)
+	$(CXX) $(CXXFLAGS) -c $< -o $(call GET_OBJ_FILE, $<)
+	$(CXX) $(CXXFLAGS) $(filter-out %.h $<,$^) $(call GET_OBJ_FILE, $<) -o $@ $(LDFLAGS)
+
+llama-llamax: examples/llamax/demo.cpp \
+	$(OBJ_ALL)
+	examples/llamax/llamax.o
 	$(CXX) $(CXXFLAGS) -c $< -o $(call GET_OBJ_FILE, $<)
 	$(CXX) $(CXXFLAGS) $(filter-out %.h $<,$^) $(call GET_OBJ_FILE, $<) -o $@ $(LDFLAGS)
 
