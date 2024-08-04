@@ -53,6 +53,7 @@ static void print_usage(int argc, char ** argv, const gpt_params & params) {
 struct callback_data {
     ggml_context * ctx_ggml = nullptr;   // holds v_pos, v_neg, v_diff_filtered
 
+    int n_embd = 0;
     int n_layers = 0;
     int n_tokens = 0;
     bool is_eval_pos = true;
@@ -82,6 +83,7 @@ struct callback_data {
         t_layer->data = malloc(n_bytes); // TODO @ngxson : get rid of this malloc somehow
         ggml_backend_tensor_get(t, t_layer->data, 0, n_bytes);
         ggml_set_name(t_layer, ggml_get_name(t));
+        GGML_ASSERT(t_layer->ne[0] == n_embd);
         //print_debug_tensor(t_layer);
 
         if (is_eval_pos) {
@@ -107,6 +109,43 @@ struct callback_data {
             v_diff_filtered.push_back(diff_filtered);
         }
         return v_diff_filtered; // for convinient, we return the result std::vector
+    }
+
+    // remove identical rows between v_pos and v_neg
+    // these rows must be remove because it will produce zero rows when calculating diff
+    void remove_identical_rows(size_t i_layer) {
+        struct ggml_tensor * t_pos = v_pos[i_layer];
+        struct ggml_tensor * t_neg = v_neg[i_layer];
+        GGML_ASSERT(t_pos->type == GGML_TYPE_F32);
+        GGML_ASSERT(t_neg->type == GGML_TYPE_F32);
+        // check if given row containing all zero elements
+        auto is_row_all_zeros = [&](struct ggml_tensor * t, int row, float eps) -> bool {
+            for (int col = 0; col < n_embd; ++col) {
+                if (ggml_get_f32_nd(t, col, row, 0, 0) > eps) {
+                    return false;
+                }
+            }
+            return true;
+        };
+        // if i_row is non-zero, we shift it to i_out
+        // returns tensor with less or equal nb of row
+        auto shift_nonzero_rows = [](struct ggml_tensor * t) -> int {
+            int i_out = 0;
+            for (int i_row = 0; i_row < a->ne[1]; i_row++) {
+                if (!is_row_all_zeros(a, i_row, 1e-6)) {
+                    if (i_row != i_out) {
+                        int row_size = n_embd*sizeof(float);
+                        void * src_off = t->data + i_row*row_size;
+                        void * dst_off = t->data + i_out*row_size;
+                        memcpy(dst_off, src_off, row_size);
+                    }
+                    i_out++;
+                }
+            }
+            struct ggml_tensor * t_nonzero = ggml_new_tensor_2d(
+                ctx_ggml, GGML_TYPE_F32, n_embd, n_nonzero_rows);
+            ggml_format_name(diff_filtered, "diff_filtered_%s", a->name);
+        };
     }
 
     // delete zero rows from a given 2D tensor
@@ -424,6 +463,7 @@ int main(int argc, char ** argv) {
     // get model hint param (a.k.a model arch name)
     char model_hint[128];
     llama_model_meta_val_str(model, "general.architecture", model_hint, 128);
+    cb_data.n_embd = n_embd;
 
     // init train_context
     train_context ctx_train(n_embd, n_layers);
