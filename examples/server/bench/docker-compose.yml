@@ -17,6 +17,6 @@ services:
         export SERVER_BENCH_DATASET=/dataset.json
         export SERVER_BENCH_N_PROMPTS=50
         export SERVER_BENCH_MAX_TOKENS=50
-        ./k6 run /src/script.js --duration 1m --iterations 100
+        ./k6 run /src/script.js --duration 5m --iterations 250
     volumes:
       - ./:/src:Z
