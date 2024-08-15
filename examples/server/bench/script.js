@@ -5,7 +5,7 @@ import {Counter, Rate, Trend} from 'k6/metrics'
 import exec from 'k6/execution';
 
 // Number of virtual users
-const n_uvs = 50;
+const n_uvs = 16;
 
 // Server chat completions prefix
 const server_url = __ENV.SERVER_BENCH_URL ? __ENV.SERVER_BENCH_URL : 'http://localhost:8080/v1'
@@ -130,9 +130,6 @@ export default function () {
                 completions_tokens = chunk.usage.completion_tokens
                 metric_completion_tokens.add(completions_tokens)
                 metric_completion_tokens_total_counter.add(completions_tokens)
-            } else {
-                metric_completion_tokens.add(1)
-                metric_completion_tokens_total_counter.add(1)
             }
         })
 
