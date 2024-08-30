@@ -14,6 +14,7 @@ on:
   push:
     branches:
       - master
+      - debug_server_pref
     paths: ['.github/workflows/docker.yml', '.devops/*.Dockerfile', '**/CMakeLists.txt', '**/Makefile', '**/*.h', '**/*.hpp', '**/*.c', '**/*.cpp', '**/*.cu', '**/*.cuh', '**/*.swift', '**/*.m', '**/*.metal']
 
 concurrency:
