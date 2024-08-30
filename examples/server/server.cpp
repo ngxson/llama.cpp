@@ -352,6 +352,9 @@ struct server_metrics {
     uint64_t n_tokens_predicted  = 0;
     uint64_t t_tokens_generation = 0;
 
+    uint64_t n_decode_calls = 0;
+    uint64_t n_decode_slot_busy = 0;
+
     void init() {
         t_start = ggml_time_us();
     }
@@ -2347,6 +2350,12 @@ struct server_context {
                 0, 0, 0, // unused
             };
 
+            for (auto & slot : slots) {
+                if (slot.state == SLOT_STATE_PROCESSING) {
+                    metrics.n_decode_slot_busy++;
+                }
+            }
+            metrics.n_decode_calls++;
             const int ret = llama_decode(ctx, batch_view);
 
             if (ret != 0) {
@@ -2805,6 +2814,14 @@ int main(int argc, char ** argv) {
                     {"name",  "requests_deferred"},
                     {"help",  "Number of request deferred."},
                     {"value",  (uint64_t) data.at("deferred")}
+            },{
+                    {"name",  "n_decode_calls"},
+                    {"help",  "n_decode_calls"},
+                    {"value",  (uint64_t) ctx_server.metrics.n_decode_calls}
+            },{
+                    {"name",  "n_decode_slot_busy"},
+                    {"help",  "n_decode_slot_busy"},
+                    {"value",  (uint64_t) ctx_server.metrics.n_decode_slot_busy}
             }}}
         };
 
