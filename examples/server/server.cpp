@@ -2822,6 +2822,10 @@ int main(int argc, char ** argv) {
                     {"name",  "n_decode_slot_busy"},
                     {"help",  "n_decode_slot_busy"},
                     {"value",  (uint64_t) ctx_server.metrics.n_decode_slot_busy}
+            },{
+                    {"name",  "avg_busy_slots_per_decode"},
+                    {"help",  "avg_busy_slots_per_decode"},
+                    {"value",  (double) ctx_server.metrics.n_decode_slot_busy / (double) ctx_server.metrics.n_decode_calls}
             }}}
         };
 
