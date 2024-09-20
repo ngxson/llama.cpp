@@ -124,24 +124,56 @@ inline std::vector<llama_chat_msg> parse_chat_messages(const std::vector<json> &
 
         std::string role = json_value(curr_msg, "role", std::string(""));
 
+        bool content_found = false;
+        bool valid_content_found = false;
         std::string content;
         if (curr_msg.contains("content")) {
+            content_found = true;
             if (curr_msg["content"].is_string()) {
+                valid_content_found = true;
                 content = curr_msg["content"].get<std::string>();
             } else if (curr_msg["content"].is_array()) {
+                valid_content_found = true;
                 for (const auto & part : curr_msg["content"]) {
                     if (part.contains("text")) {
                         content += "\n" + part["text"].get<std::string>();
                     }
                 }
-            } else {
-                throw std::runtime_error("Invalid 'content' type (ref: https://github.com/ggerganov/llama.cpp/issues/8367)");
             }
-        } else {
-            throw std::runtime_error("Missing 'content' (ref: https://github.com/ggerganov/llama.cpp/issues/8367)");
         }
 
-        chat.push_back({role, content});
+        std::string tool_calls;
+        if (role == "assistant") {
+            const std::string tool_calls_field_name = "tool_calls";
+            std::string tool_calls_parsed_text;
+            if (curr_msg.contains(tool_calls_field_name)) {
+                content_found = true;
+                if (curr_msg[tool_calls_field_name].is_array()) {
+                    std::size_t tool_calls_count = curr_msg[tool_calls_field_name].size();
+                    if (tool_calls_count > 1) {
+                        throw std::runtime_error("Parallel tool calls are not supported yet");
+                    }
+                    else if (tool_calls_count == 1) {
+                        valid_content_found = true;
+                        json tool_call_function(curr_msg[tool_calls_field_name][0]["function"]);
+                        if (tool_call_function["arguments"].is_string()) {
+                            tool_calls = "{\"arguments\": " + tool_call_function["arguments"].get<std::string>() +
+                                ", \"name\": \"" + tool_call_function["name"].get<std::string>() + "\"}";
+                        }
+                        else tool_calls = tool_call_function["function"].dump();
+                    }
+                }
+            }
+        }
+
+        if (!content_found) {
+            throw std::runtime_error("Missing 'content' (ref: https://github.com/ggerganov/llama.cpp/issues/8367)");
+        }
+        else if (!valid_content_found) {
+            throw std::runtime_error("Invalid 'content' type (ref: https://github.com/ggerganov/llama.cpp/issues/8367)");
+        }
+
+        chat.push_back({role, content, tool_calls});
     }
     return chat;
 }

@@ -407,6 +407,10 @@ std::string llama_detokenize(
 struct llama_chat_msg {
     std::string role;
     std::string content;
+    std::string tool_calls;
+
+    llama_chat_msg(std::string role, std::string content, std::string tool_calls = "")
+        : role(role), content(content), tool_calls(tool_calls) {}
 };
 
 // Check if the template supplied via "--chat-template" is supported or not. Returns true if it's valid

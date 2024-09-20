@@ -51,11 +51,9 @@ inline std::string format_chat_with_tool(enum llama_tool_format format, const st
     std::stringstream ss;
     auto chat = parse_chat_messages(messages);
     if (format == LLAMA_TOOL_FORMAT_HERMES_3) {
-        ss << "<|im_start|>system\n\n";
-        ss << "You are a function calling AI model. You are provided with function signatures within <tools></tools> XML tags. You may call one or more functions to assist with the user query. Don't make assumptions about what values to plug into functions. Here are the available tools: <tools>\n\n";
-        for (auto tool : tools) {
-            ss << tool.dump(1, '\t') << "\n\n";
-        }
+        ss << "<|im_start|>system\n";
+        ss << "You are a function calling AI model. You are provided with function signatures within <tools></tools> XML tags. You may call one or more functions to assist with the user query. Don't make assumptions about what values to plug into functions. Here are the available tools: <tools> ";
+        ss << tools.dump() << " ";
         ss << "</tools> Use the following pydantic model json schema for each tool call you will make: {\"properties\": {\"arguments\": {\"title\": \"Arguments\", \"type\": \"object\"}, \"name\": {\"title\": \"Name\", \"type\": \"string\"}}, \"required\": [\"arguments\", \"name\"], \"title\": \"FunctionCall\", \"type\": \"object\"} For each function call return a json object with function name and arguments within <tool_call></tool_call> XML tags as follows:\n";
         ss << "<tool_call>\n";
         ss << "{\"arguments\": <args-dict>, \"name\": <function-name>}\n";
@@ -65,14 +63,22 @@ inline std::string format_chat_with_tool(enum llama_tool_format format, const st
             if (role == "system") {
                 continue; // for optimal performance, we skip user-defined system message
             }
-            ss << "<|im_start|>" << role << "\n\n";
+            ss << "<|im_start|>" << role << "\n";
             if (role == "tool") {
                 ss << "<tool_response>\n" << string_strip(message.content) << "\n</tool_response>\n";
-            } else {
-                ss << string_strip(message.content) << "<|im_end|>\n";
             }
+            else if (role == "user") {
+                ss << string_strip(message.content);
+            }
+            else if (role == "assistant") {
+                ss << string_strip(message.content);
+                if (!message.tool_calls.empty()) {
+                    ss << "<tool_call>\n" << string_strip(message.tool_calls) << "\n</tool_call>";
+                }
+            }
+            ss << "<|im_end|>\n";
         }
-        ss << "<|im_start|>assistant\n\n";
+        ss << "<|im_start|>assistant\n";
     } else {
         throw std::runtime_error("tool_call is not supported by this model");
     }
