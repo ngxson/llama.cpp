@@ -82,8 +82,9 @@ inline std::string format_chat_with_tool(enum llama_tool_format format, const st
     } else {
         throw std::runtime_error("tool_call is not supported by this model");
     }
-    LOG_VERBOSE("format_chat_with_tool", {{"text", ss.str()}});
-    return ss.str();
+    std::string result = ss.str();
+    LOG_DBG("%s: result %s", __func__, result.c_str());
+    return result;
 }
 
 // check if the response is text or tool_call
