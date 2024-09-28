@@ -1,323 +1,221 @@
 #include "arg.h"
-#include "log.h"
 #include "common.h"
-#include "sampling.h"
-#include "clip.h"
-#include "llava.h"
+#include "log.h"
 #include "llama.h"
-#include "ggml.h"
+#include "stb_image.h"
 
-#include <algorithm>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
 #include <vector>
-#include <iostream> // TODO: remove me
+#include <iostream>
+#include <fstream>
+#include <iterator>
 
-struct llava_context {
-    struct clip_ctx * ctx_clip = NULL;
-    struct llama_context * ctx_llama = NULL;
-    struct llama_model * model = NULL;
+struct image_rgb {
+    int ny; // dimension y
+    int nx; // dimension y
+    // the size must be nx*ny*3 ; we have 3 channels: rgb
+    std::vector<unsigned char> data;
 };
 
-static void show_additional_info(int /*argc*/, char ** argv) {
-    LOG("\nexample usage:\n\n%s -m <llava-v1.5-7b/ggml-model-q5_k.gguf> --mmproj <llava-v1.5-7b/mmproj-model-f16.gguf> --image <path/to/an/image.jpg> --image <path/to/another/image.jpg> [--temp 0.1] [-p \"describe the image in detail.\"]\n", argv[0]);
-    LOG("\nnote: a lower temperature value like 0.1 is recommended for better quality.\n");
+struct image_embd {
+    std::vector<float> data;
+};
+
+static image_embd get_image_embeddings() {
+    int num_max_patches = 10;
+    int n_embd = 1152; // from gguf
+    std::vector<float> data(num_max_patches*n_embd);
 }
 
-static struct llama_model * llava_init(gpt_params * params) {
-    llama_backend_init();
-    llama_numa_init(params->numa);
 
-    llama_model_params model_params = llama_model_params_from_gpt_params(*params);
-
-    llama_model * model = llama_load_model_from_file(params->model.c_str(), model_params);
-    if (model == NULL) {
-        LOG_ERR("%s: unable to load model\n" , __func__);
-        return NULL;
+static image_rgb load_image(const std::string & filename) {
+    std::ifstream file(filename, std::ios::binary);
+    if (!file) {
+        throw std::runtime_error("Unable to open file");
     }
-    return model;
-}
-
-static struct llava_context * llava_init_context(gpt_params * params, llama_model * model) {
-    auto prompt = params->prompt;
-    if (prompt.empty()) {
-        prompt = "describe the image in detail.";
+    std::vector<char> image_bytes = std::vector<char>(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+    // decode image to byte array
+    int nx, ny, nc;
+    auto * bytes = (unsigned char *) image_bytes.data();
+    auto * img = stbi_load_from_memory(bytes, image_bytes.size(), &nx, &ny, &nc, 3);
+    if (!img) {
+        throw std::runtime_error("failed to decode image bytes\n");
     }
-
-    llama_context_params ctx_params = llama_context_params_from_gpt_params(*params);
-    if (params->n_ctx < 2048) {
-        // warn user here, "Image processing requires at least 2048 context, setting context to 2048"
-        LOG_WRN("%s: Image processing requires at least 2048 context, setting context to 2048\n" , __func__);
-        ctx_params.n_ctx = 2048;
-    } else {
-        ctx_params.n_ctx = params->n_ctx;
-    }
-
-    llama_context * ctx_llama = llama_new_context_with_model(model, ctx_params);
-
-    if (ctx_llama == NULL) {
-        LOG_ERR("%s: failed to create the llama_context\n" , __func__);
-        return NULL;
-    }
-
-    auto * ctx_llava = (struct llava_context *)malloc(sizeof(llava_context));
-
-    ctx_llava->ctx_llama = ctx_llama;
-    ctx_llava->model = model;
-    return ctx_llava;
-}
-
-static void llava_free(struct llava_context * ctx_llava) {
-    if (ctx_llava->ctx_clip) {
-        clip_free(ctx_llava->ctx_clip);
-        ctx_llava->ctx_clip = NULL;
-    }
-
-    llama_free(ctx_llava->ctx_llama);
-    llama_free_model(ctx_llava->model);
-    llama_backend_free();
-}
-
-static struct clip_ctx * clip_init_context(gpt_params * params) {
-    const char * clip_path = params->mmproj.c_str();
-
-    auto prompt = params->prompt;
-    if (prompt.empty()) {
-        prompt = "describe the image in detail.";
-    }
-    auto * ctx_clip = clip_model_load(clip_path, /*verbosity=*/ 1);
-    return ctx_clip;
-}
-
-static bool eval_tokens(struct llama_context * ctx_llama, std::vector<llama_token> tokens, int n_batch, int * n_past) {
-    int N = (int) tokens.size();
-    for (int i = 0; i < N; i += n_batch) {
-        int n_eval = (int) tokens.size() - i;
-        if (n_eval > n_batch) {
-            n_eval = n_batch;
+    printf("nx=%d ny=%d nc=%d\n", nx, ny, nc);
+    GGML_ASSERT(nc == 3);
+    for (int y = 0; y < ny; y++) {
+        for (int x = 0; x < nx; x++) {
+            unsigned char * pix = img + x*nc + y*nc*nx;
+            printf("%02x%02x%02x ", pix[0], pix[1], pix[2]);
         }
-        if (llama_decode(ctx_llama, llama_batch_get_one(&tokens[i], n_eval, *n_past, 0))) {
-            LOG_ERR("%s : failed to eval. token %d/%d (batch size %d, n_past %d)\n", __func__, i, N, n_batch, *n_past);
-            return false;
-        }
-        *n_past += n_eval;
+        printf("\n");
     }
-    return true;
-}
-
-static bool eval_id(struct llama_context * ctx_llama, int id, int * n_past) {
-    std::vector<llama_token> tokens;
-    tokens.push_back(id);
-    return eval_tokens(ctx_llama, tokens, 1, n_past);
-}
-
-static bool eval_string(struct llama_context * ctx_llama, const char* str, int n_batch, int * n_past, bool add_bos){
-    std::string              str2     = str;
-    std::vector<llama_token> embd_inp = ::llama_tokenize(ctx_llama, str2, add_bos, true);
-    return eval_tokens(ctx_llama, embd_inp, n_batch, n_past);
-}
-
-static void process_eval_image_embed(struct llava_context * ctx_llava, const struct llava_image_embed * embeds, int n_batch, int * n_past, int idx) {
-    float * image_embed = (float *)malloc(clip_embd_nbytes(ctx_llava->ctx_clip));
-    std::memcpy(image_embed, embeds->embed + idx * clip_n_patches(ctx_llava->ctx_clip) * clip_n_mmproj_embd(ctx_llava->ctx_clip), clip_embd_nbytes(ctx_llava->ctx_clip));
-
-    auto * slice_embed = (llava_image_embed*)malloc(sizeof(llava_image_embed));
-    slice_embed->embed = image_embed;
-    slice_embed->n_image_pos = clip_n_patches(ctx_llava->ctx_clip);
-    llava_eval_image_embed(ctx_llava->ctx_llama, slice_embed, n_batch, n_past);
-    llava_image_embed_free(slice_embed);
-}
-
-static void process_image(struct llava_context * ctx_llava, struct llava_image_embed * embeds, gpt_params * params, int &n_past) {
-    std::string system_prompt;
-    int idx = 0;
-    int num_image_embeds = embeds->n_image_pos / clip_n_patches(ctx_llava->ctx_clip);
-    int has_minicpmv_projector = clip_is_minicpmv(ctx_llava->ctx_clip);
-    if (has_minicpmv_projector == 2) {
-        system_prompt = "<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n";
-    }
-    else if (has_minicpmv_projector == 3) {
-        system_prompt = "<|im_start|>user\n";
-    }
-    LOG_INF("%s: image token past: %d\n", __func__, n_past);
-    eval_string(ctx_llava->ctx_llama, (system_prompt+"<image>").c_str(), params->n_batch, &n_past, false);
-    process_eval_image_embed(ctx_llava, embeds, params->n_batch, &n_past, idx++);
-    eval_string(ctx_llava->ctx_llama, std::string("</image>").c_str(), params->n_batch, &n_past, false);
-    if (num_image_embeds > 1) {
-        size_t num_image_embeds_col = clip_uhd_num_image_embeds_col(ctx_llava->ctx_clip);
-        eval_string(ctx_llava->ctx_llama, std::string("<slice>").c_str(), params->n_batch, &n_past, false);
-        for (size_t i = 0; i < (num_image_embeds-1)/num_image_embeds_col; ++i) {
-            for (size_t j = 0; j < num_image_embeds_col; ++j) {
-                eval_string(ctx_llava->ctx_llama, std::string("<image>").c_str(), params->n_batch, &n_past, false);
-                process_eval_image_embed(ctx_llava, embeds, params->n_batch, &n_past, idx++);
-                eval_string(ctx_llava->ctx_llama, std::string("</image>").c_str(), params->n_batch, &n_past, false);
-                if (j == num_image_embeds_col - 1) {
-                    eval_string(ctx_llava->ctx_llama, std::string("\n").c_str(), params->n_batch, &n_past, false);
-                }
-            }
-        }
-        eval_string(ctx_llava->ctx_llama, std::string("</slice>").c_str(), params->n_batch, &n_past, false);
-    }
-    LOG_INF("%s: image token past: %d\n", __func__, n_past);
-}
-
-static const char * sample(struct gpt_sampler * smpl,
-                           struct llama_context * ctx_llama,
-                           int * n_past) {
-    const llama_token id = gpt_sampler_sample(smpl, ctx_llama, -1);
-    gpt_sampler_accept(smpl, id, true);
-    static std::string ret;
-    if (llama_token_is_eog(llama_get_model(ctx_llama), id)) {
-        ret = "</s>";
-    } else {
-        ret = llama_token_to_piece(ctx_llama, id);
-    }
-    eval_id(ctx_llama, id, n_past);
-    return ret.c_str();
-}
-
-static struct llava_context * minicpmv_init(gpt_params * params, const std::string & fname, int &n_past){
-    auto * ctx_clip = clip_init_context(params);
-    auto * embeds = llava_image_embed_make_with_filename(ctx_clip, params->cpuparams.n_threads, fname.c_str());
-    if (!embeds) {
-        LOG_ERR("failed to load image %s. Terminating\n\n", fname.c_str());
-        return NULL;
-    }
-
-    // process the prompt
-    if (params->prompt.empty() && params->interactive == false) {
-        LOG_ERR("prompt should be given or interactive mode should be on");
-        return NULL;
-    }
-
-    auto * model = llava_init(params);
-    if (model == NULL) {
-        fprintf(stderr, "%s: error: failed to init minicpmv model\n", __func__);
-        return NULL;
-    }
-    const int64_t t_llava_init_start_us = ggml_time_us();
-    auto * ctx_llava = llava_init_context(params, model);
-    ctx_llava->ctx_clip = ctx_clip;
-    const int64_t t_llava_init_end_us = ggml_time_us();
-    float t_llava_init_ms = (t_llava_init_end_us - t_llava_init_start_us) / 1000.0;
-    LOG_INF("%s: llava init in %8.2f ms.\n", __func__, t_llava_init_ms);
-
-    const int64_t t_process_image_start_us = ggml_time_us();
-    process_image(ctx_llava, embeds, params, n_past);
-    const int64_t t_process_image_end_us = ggml_time_us();
-    float t_process_image_ms = (t_process_image_end_us - t_process_image_start_us) / 1000.0;
-    LOG_INF("%s: llama process image in %8.2f ms.\n", __func__, t_process_image_ms);
-
-    llava_image_embed_free(embeds);
-    return ctx_llava;
-}
-
-static struct gpt_sampler * llama_init(struct llava_context * ctx_llava, gpt_params * params, const std::string & prompt, int & n_past, bool is_first = false){
-    std::string user_prompt = prompt;
-    int has_minicpmv_projector = clip_is_minicpmv(ctx_llava->ctx_clip);
-    if (!is_first) {
-        if (has_minicpmv_projector == 2) {
-            user_prompt = "<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\n" + prompt;
-        }
-        else if (has_minicpmv_projector == 3) {
-            user_prompt = "<|im_start|>user\n" + prompt;
-        }
-    }
-
-    eval_string(ctx_llava->ctx_llama, user_prompt.c_str(), params->n_batch, &n_past, false);
-    if (has_minicpmv_projector == 2) {
-        eval_string(ctx_llava->ctx_llama, "<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n", params->n_batch, &n_past, false);
-    }
-    else if (has_minicpmv_projector == 3) {
-        eval_string(ctx_llava->ctx_llama, "<|im_end|><|im_start|>assistant\n", params->n_batch, &n_past, false);
-    }
-
-    // generate the response
-
-    LOG_INF("\n");
-
-    struct gpt_sampler * smpl = gpt_sampler_init(ctx_llava->model, params->sparams);
-    return smpl;
-}
-
-static const char * llama_loop(struct llava_context * ctx_llava,struct gpt_sampler * smpl, int &n_past){
-
-    const char * tmp = sample(smpl, ctx_llava->ctx_llama, &n_past);
-    return tmp;
+    printf("\n");
+    image_rgb result;
+    result.nx = nx;
+    result.ny = ny;
+    result.data = std::vector<unsigned char>(img, nx*ny*3);
+    return result;
 }
 
 int main(int argc, char ** argv) {
-    ggml_time_init();
-
     gpt_params params;
 
-    if (!gpt_params_parse(argc, argv, params, LLAMA_EXAMPLE_LLAVA, show_additional_info)) {
+    params.prompt = "Hello my name is";
+    params.n_predict = 32;
+    params.n_ctx = 1024;
+
+    if (!gpt_params_parse(argc, argv, params, LLAMA_EXAMPLE_LLAVA)) {
         return 1;
     }
 
     gpt_init();
 
-    if (params.mmproj.empty() || (params.image.empty())) {
-        show_additional_info(argc, argv);
+    for (auto & image : params.image) {
+        load_image(image);
+    }
+    return 0;
+
+    // total length of the sequence including the prompt
+    const int n_predict = params.n_predict;
+
+    // init LLM
+
+    llama_backend_init();
+    llama_numa_init(params.numa);
+
+    // initialize the model
+
+    llama_model_params model_params = llama_model_params_from_gpt_params(params);
+
+    llama_model * model = llama_load_model_from_file(params.model.c_str(), model_params);
+
+    if (model == NULL) {
+        fprintf(stderr , "%s: error: unable to load model\n" , __func__);
         return 1;
     }
 
-    for (auto & image : params.image) {
-        int n_past = 0;
-        auto * ctx_llava = minicpmv_init(&params, image, n_past);
+    // initialize the context
 
-        if (!params.prompt.empty()) {
-            LOG("<user>%s\n", params.prompt.c_str());
-            LOG("<assistant>");
-            auto * smpl = llama_init(ctx_llava, &params, params.prompt, n_past, true);
-            const int max_tgt_len = params.n_predict < 0 ? 256 : params.n_predict;
-            std::string response;
-            bool have_tmp = false;
-            for (int i = 0; i < max_tgt_len; i++) {
-                const auto * tmp = llama_loop(ctx_llava, smpl, n_past);
-                response += tmp;
-                if (strcmp(tmp, "</s>") == 0){
-                    if (!have_tmp) {
-                        continue;
-                    }
-                    break;
-                }
-                if (strstr(tmp, "###")) break; // Yi-VL behavior
-                have_tmp = true;
-                printf("%s", tmp);
-                if (strstr(response.c_str(), "<user>")) break; // minicpm-v
+    llama_context_params ctx_params = llama_context_params_from_gpt_params(params);
 
-                fflush(stdout);
-            }
-            gpt_sampler_free(smpl);
-        }else {
-            while (true) {
-                LOG("<user>");
-                std::string prompt;
-                std::getline(std::cin, prompt);
-                LOG("<assistant>");
-                auto * smpl = llama_init(ctx_llava, &params, prompt, n_past, true);
-                const int max_tgt_len = params.n_predict < 0 ? 256 : params.n_predict;
-                std::string response;
-                for (int i = 0; i < max_tgt_len; i++) {
-                    const auto * tmp = llama_loop(ctx_llava, smpl, n_past);
-                    response += tmp;
-                    if (strcmp(tmp, "</s>") == 0) break;
-                    if (strstr(tmp, "###")) break; // Yi-VL behavior
-                    printf("%s", tmp);// mistral llava-1.6
-                    if (strstr(response.c_str(), "<user>")) break; // minicpm-v
-                    fflush(stdout);
-                }
-                gpt_sampler_free(smpl);
-            }
-        }
-        printf("\n");
-        llama_perf_context_print(ctx_llava->ctx_llama);
+    llama_context * ctx = llama_new_context_with_model(model, ctx_params);
 
-        ctx_llava->model = NULL;
-        llava_free(ctx_llava);
+    if (ctx == NULL) {
+        fprintf(stderr , "%s: error: failed to create the llama_context\n" , __func__);
+        return 1;
     }
+
+    auto sparams = llama_sampler_chain_default_params();
+
+    sparams.no_perf = false;
+
+    llama_sampler * smpl = llama_sampler_chain_init(sparams);
+
+    llama_sampler_chain_add(smpl, llama_sampler_init_greedy());
+
+    // tokenize the prompt
+
+    std::vector<llama_token> tokens_list;
+    tokens_list = ::llama_tokenize(ctx, params.prompt, true);
+
+    const int n_ctx    = llama_n_ctx(ctx);
+    const int n_kv_req = tokens_list.size() + (n_predict - tokens_list.size());
+
+    LOG("\n");
+    LOG_INF("%s: n_predict = %d, n_ctx = %d, n_kv_req = %d\n", __func__, n_predict, n_ctx, n_kv_req);
+
+    // make sure the KV cache is big enough to hold all the prompt and generated tokens
+    if (n_kv_req > n_ctx) {
+        LOG_ERR("%s: error: n_kv_req > n_ctx, the required KV cache size is not big enough\n", __func__);
+        LOG_ERR("%s:        either reduce n_predict or increase n_ctx\n", __func__);
+        return 1;
+    }
+
+    // print the prompt token-by-token
+
+    LOG("\n");
+
+    for (auto id : tokens_list) {
+        LOG("%s", llama_token_to_piece(ctx, id).c_str());
+    }
+
+    // create a llama_batch with size 512
+    // we use this object to submit token data for decoding
+
+    llama_batch batch = llama_batch_init(512, 0, 1);
+
+    // evaluate the initial prompt
+    for (size_t i = 0; i < tokens_list.size(); i++) {
+        llama_batch_add(batch, tokens_list[i], i, { 0 }, false);
+    }
+
+    // llama_decode will output logits only for the last token of the prompt
+    batch.logits[batch.n_tokens - 1] = true;
+
+    if (llama_decode(ctx, batch) != 0) {
+        LOG("%s: llama_decode() failed\n", __func__);
+        return 1;
+    }
+
+    // main loop
+
+    int n_cur    = batch.n_tokens;
+    int n_decode = 0;
+
+    const auto t_main_start = ggml_time_us();
+
+    while (n_cur <= n_predict) {
+        // sample the next token
+        {
+            const llama_token new_token_id = llama_sampler_sample(smpl, ctx, -1);
+
+            // is it an end of generation?
+            if (llama_token_is_eog(model, new_token_id) || n_cur == n_predict) {
+                LOG("\n");
+
+                break;
+            }
+
+            LOG("%s", llama_token_to_piece(ctx, new_token_id).c_str());
+            fflush(stdout);
+
+            // prepare the next batch
+            llama_batch_clear(batch);
+
+            // push this new token for next evaluation
+            llama_batch_add(batch, new_token_id, n_cur, { 0 }, true);
+
+            n_decode += 1;
+        }
+
+        n_cur += 1;
+
+        // evaluate the current batch with the transformer model
+        if (llama_decode(ctx, batch)) {
+            LOG_ERR("%s : failed to eval, return code %d\n", __func__, 1);
+            return 1;
+        }
+    }
+
+    LOG("\n");
+
+    const auto t_main_end = ggml_time_us();
+
+    LOG_INF("%s: decoded %d tokens in %.2f s, speed: %.2f t/s\n",
+            __func__, n_decode, (t_main_end - t_main_start) / 1000000.0f, n_decode / ((t_main_end - t_main_start) / 1000000.0f));
+
+    LOG("\n");
+    llama_perf_sampler_print(smpl);
+    llama_perf_context_print(ctx);
+
+    LOG("\n");
+
+    llama_batch_free(batch);
+    llama_sampler_free(smpl);
+    llama_free(ctx);
+    llama_free_model(model);
+
+    llama_backend_free();
 
     return 0;
 }
