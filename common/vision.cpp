@@ -26,7 +26,7 @@ llama_img * load_image_from_file(const char * fname) {
     // for (int y = 0; y < ny; y++) {
     //     for (int x = 0; x < nx; x++) {
     //         unsigned char * pix = img + x*nc + y*nc*nx;
-    //         printf("%02x%02x%02x ", pix[0], pix[1], pix[2]);
+    //         printf("%02x%02x%02xload_image_from_file ", pix[0], pix[1], pix[2]);
     //     }
     //     printf("\n");
     // }
