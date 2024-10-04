@@ -531,6 +531,19 @@ struct server_response {
     std::mutex mutex_results;
     std::condition_variable condition_results;
 
+    // mapping task_id --> sink
+    // for tracking HTTP connection state
+    std::unordered_map<int, httplib::DataSink *> map_id_to_sink;
+
+    bool can_send(int id_task) {
+        std::unique_lock<std::mutex> lock(mutex_results);
+        auto it = map_id_to_sink.find(id_task);
+        if (it != map_id_to_sink.end()) {
+            return it->second->is_writable();
+        }
+        return false;
+    }
+
     // add the id_task to the list of tasks waiting for response
     void add_waiting_task_id(int id_task) {
         SRV_DBG("add task %d to waiting list. current waiting = %d (before add)\n", id_task, (int) waiting_task_ids.size());
@@ -548,12 +561,20 @@ struct server_response {
         }
     }
 
+    void add_waiting_sink(const std::unordered_set<int> & task_ids, httplib::DataSink * sink) {
+        std::unique_lock<std::mutex> lock(mutex_results);
+        for (auto id : task_ids) {
+            map_id_to_sink[id] = sink;
+        }
+    }
+
     // when the request is finished, we can remove task associated with it
     void remove_waiting_task_id(int id_task) {
         SRV_DBG("remove task %d from waiting list. current waiting = %d (before remove)\n", id_task, (int) waiting_task_ids.size());
 
         std::unique_lock<std::mutex> lock(mutex_results);
         waiting_task_ids.erase(id_task);
+        map_id_to_sink.erase(id_task);
     }
 
     void remove_waiting_task_ids(const std::unordered_set<int> & id_tasks) {
@@ -562,6 +583,7 @@ struct server_response {
         for (const auto & id_task : id_tasks) {
             SRV_DBG("remove task %d from waiting list. current waiting = %d (before remove)\n", id_task, (int) waiting_task_ids.size());
             waiting_task_ids.erase(id_task);
+            map_id_to_sink.erase(id_task);
         }
     }
 
@@ -1117,6 +1139,12 @@ struct server_context {
     }
 
     bool process_token(completion_token_output & result, server_slot & slot) {
+        // check if connection is still alive
+        if (!queue_results.can_send(slot.id_task)) {
+            slot.release();
+            return false;
+        }
+
         // remember which tokens were sampled - used for repetition penalties during sampling
         const std::string token_str = llama_token_to_piece(ctx, result.tok, params.special);
         slot.sampled = result.tok;
@@ -2920,6 +2948,7 @@ int main(int argc, char ** argv) {
             ctx_server.queue_results.remove_waiting_task_ids(task_ids);
         } else {
             const auto chunked_content_provider = [task_ids, &ctx_server](size_t, httplib::DataSink & sink) {
+                ctx_server.queue_results.add_waiting_sink(task_ids, &sink);
                 ctx_server.receive_cmpl_results_stream(task_ids, [&](const server_task_result & result) -> bool {
                     return server_sent_event(sink, "data", result.data);
                 }, [&](const json & error_data) {
@@ -2930,7 +2959,7 @@ int main(int argc, char ** argv) {
             };
 
             auto on_complete = [task_ids, &ctx_server] (bool) {
-                ctx_server.queue_results.remove_waiting_task_ids(task_ids);
+                ctx_server.queue_results.remove_waiting_task_ids(task_ids); // will also remove the sink
             };
 
             res.set_chunked_content_provider("text/event-stream", chunked_content_provider, on_complete);
