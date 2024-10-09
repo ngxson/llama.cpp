@@ -11,10 +11,12 @@ enum vision_arch {
 };
 
 enum clip_projector_type {
+    CLIP_PROJECTOR_TYPE_UNKNOWN,
     CLIP_PROJECTOR_TYPE_MLP,
 };
 
 enum mm_patch_merge {
+    MM_PATCH_MERGE_UNKNOWN,
     MM_PATCH_MERGE_FLAT,
     MM_PATCH_MERGE_SPATIAL_UNPAD,
 };
@@ -30,11 +32,12 @@ struct clip_hparams {
     uint32_t n_head;
     uint32_t n_layer;
     uint32_t max_pos_embd;
+    int32_t select_layer = 0;
     bool use_gelu = false;
 
     float eps;
 
-    clip_projector_type proj_type = CLIP_PROJECTOR_TYPE_MLP;
+    clip_projector_type proj_type = CLIP_PROJECTOR_TYPE_UNKNOWN;
     mm_patch_merge mm_patch_merge_type = MM_PATCH_MERGE_FLAT;
 
     std::array<float, 3> image_mean;
@@ -92,10 +95,10 @@ struct clip_vision_model {
     struct ggml_tensor * projection = NULL;
 
     // LLaVA projection
-    struct ggml_tensor * mm_a_w = NULL;
-    struct ggml_tensor * mm_a_b = NULL;
-    struct ggml_tensor * mm_b_w = NULL;
-    struct ggml_tensor * mm_b_b = NULL;
+    struct ggml_tensor * mm_1_w = NULL;
+    struct ggml_tensor * mm_1_b = NULL;
+    struct ggml_tensor * mm_2_w = NULL;
+    struct ggml_tensor * mm_2_b = NULL;
 
     struct ggml_tensor * image_newline = NULL;
 };
@@ -107,13 +110,15 @@ struct clip_context {
 
     const clip_vision_model * model;
 
-    // temporary output data
-    int n_output;
-    std::vector<float> output; // size == n_output * n_embd
+    // temporary output data, to be picked up by llama_decode()
+    std::vector<float>     out_embd;  // size == n_tokens * n_embd
+    std::vector<llama_pos> out_pos;   // position of each token
 };
 
+mm_patch_merge mm_patch_merge_from_name(std::string & name);
+clip_projector_type projector_type_from_name(std::string & name);
 int clip_n_patches(const clip_context & ctx);
 int clip_n_mmproj_embd(const clip_context & ctx);
-int clip_n_embd(const clip_context & ctx);
 
-int32_t llama_vision_encode_internal(clip_context & ctx, llama_img_batch * batch);
+int32_t llama_encode_vision_internal(clip_context & ctx, llama_batch_img * batch);
+void llama_vision_clear_output(clip_context & ctx);
