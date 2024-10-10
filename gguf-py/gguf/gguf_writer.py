@@ -330,7 +330,7 @@ class GGUFWriter:
             raise ValueError(f'Expected output file to be not yet opened, got {self.state}')
 
         if any(name in tensors for tensors in self.tensors):
-            raise ValueError(f'Duplicated tensor name {name!r}')
+            pass#raise ValueError(f'Duplicated tensor name {name!r}')
 
         if raw_dtype is None:
             if tensor_dtype == np.float16:

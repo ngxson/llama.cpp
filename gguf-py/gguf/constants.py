@@ -267,6 +267,7 @@ class MODEL_ARCH(IntEnum):
     CHAMELEON    = auto()
     # vision models
     LLAVA_VISION = auto()
+    MLLAMA = auto()
 
 
 class MODEL_TENSOR(IntEnum):
@@ -389,7 +390,39 @@ class MODEL_TENSOR(IntEnum):
     V_ENC_FFN_DOWN       = auto()
     V_PRE_NORM           = auto()
     V_POST_NORM          = auto()
-
+    # MLLama
+    V_MM_PROJECTOR  = auto()
+    V_MM_CROSS_ATTN = auto()
+    V_MM_CROSS_ATTN_O = auto()
+    V_MM_CROSS_ATTN_GATE = auto()
+    V_MM_CROSS_ATTN_MLP_GATE = auto()
+    V_MM_CLASS_EMB = auto()
+    V_MODEL = auto()
+    V_MM_GATED_POS_EMB = auto()
+    V_MM_GATED_POS_EMB_GATE = auto()
+    V_MM_GATED_POS_EMB_TILE = auto()
+    V_MM_GATE_ATTN = auto()
+    V_MM_GATE_FFN = auto()
+    V_MM_INPUT_NORM_GLOB = auto()
+    V_MM_MLP_FC1 = auto()
+    V_MM_MLP_FC2 = auto()
+    V_MM_POST_ATTN_NORM = auto()
+    V_MM_GLOBAL_SELF_ATN_K_PROJ = auto()
+    V_MM_GLOBAL_SELF_ATN_Q_PROJ = auto()
+    V_MM_GLOBAL_SELF_ATN_V_PROJ = auto()
+    V_MM_GLOBAL_SELF_ATN_O_PROJ = auto()
+    V_MM_SELF_ATN_K_PROJ = auto()
+    V_MM_SELF_ATN_Q_PROJ = auto()
+    V_MM_SELF_ATN_V_PROJ = auto()
+    V_MM_SELF_ATN_O_PROJ = auto()
+    V_MM_LAYER_NORM_POST = auto()
+    V_MM_LAYER_NORM_PRE = auto()
+    V_MM_PATCH_EMB = auto()
+    V_MM_POST_TILE_POS_EMB = auto()
+    V_MM_POST_TILE_POS_EMB_GATE = auto()
+    V_MM_PRE_TILE_POS_EMB = auto()
+    V_MM_PRE_TILE_POS_EMB_GATE = auto()
+    V_MM_INPUT_NORM = auto()
 
 MODEL_ARCH_NAMES: dict[MODEL_ARCH, str] = {
     MODEL_ARCH.LLAMA:          "llama",
@@ -565,6 +598,37 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.V_ENC_FFN_DOWN:            "v.enc.blk.{bid}.ffn_down",
     MODEL_TENSOR.V_PRE_NORM:                "v.pre_norm",
     MODEL_TENSOR.V_POST_NORM:               "v.post_norm",
+    MODEL_TENSOR.V_MM_PROJECTOR:            "v.multi_modal_projector",
+    MODEL_TENSOR.V_MM_CROSS_ATTN:    "model.layers.{bid}.cross_attn.k_norm",
+    MODEL_TENSOR.V_MM_CROSS_ATTN_O:    "model.layers.{bid}.cross_attn.o_norm",
+    MODEL_TENSOR.V_MM_CROSS_ATTN_GATE: "model.layers.{bid}.cross_attn_attn_gate",
+    MODEL_TENSOR.V_MM_CROSS_ATTN_MLP_GATE: "model.layers.{bid}.cross_attn_mlp_gate",
+    MODEL_TENSOR.V_MM_CLASS_EMB: "vision_model.class_embedding",
+    MODEL_TENSOR.V_MM_GATED_POS_EMB: "vision_model.gated_positional_embedding.embedding",
+    MODEL_TENSOR.V_MM_GATED_POS_EMB_GATE : "vision_model.gated_positional_embedding.gate",
+    MODEL_TENSOR.V_MM_GATED_POS_EMB_TILE: "vision_model.gated_positional_embedding.tile_embedding",
+    MODEL_TENSOR.V_MM_GATE_ATTN: "vision_model.global_transformer.layers.{bid}.gate_attn",
+    MODEL_TENSOR.V_MM_GATE_FFN: "vision_model.global_transformer.layers.{bid}.gate_ffn",
+    MODEL_TENSOR.V_MM_INPUT_NORM_GLOB: "vision_model.global_transformer.layers.{bid}.input_layernorm",
+    MODEL_TENSOR.V_MM_MLP_FC1: "vision_model.global_transformer.layers.{bid}.mlp.fc1",
+    MODEL_TENSOR.V_MM_MLP_FC2: "vision_model.global_transformer.layers.{bid}.mlp.fc2",
+    MODEL_TENSOR.V_MM_POST_ATTN_NORM: "vision_model.global_transformer.layers.{bid}.post_attention_layernorm",
+    MODEL_TENSOR.V_MM_GLOBAL_SELF_ATN_K_PROJ: "vision_model.global_transformer.layers.{bid}.self_attn.k_proj",
+    MODEL_TENSOR.V_MM_GLOBAL_SELF_ATN_V_PROJ: "vision_model.global_transformer.layers.{bid}.self_attn.v_proj",
+    MODEL_TENSOR.V_MM_GLOBAL_SELF_ATN_Q_PROJ: "vision_model.global_transformer.layers.{bid}.self_attn.q_proj",
+    MODEL_TENSOR.V_MM_GLOBAL_SELF_ATN_O_PROJ: "vision_model.global_transformer.layers.{bid}.self_attn.o_proj",
+    MODEL_TENSOR.V_MM_SELF_ATN_K_PROJ: "vision_model.transformer.layers.{bid}.self_attn.k_proj",
+    MODEL_TENSOR.V_MM_SELF_ATN_V_PROJ: "vision_model.transformer.layers.{bid}.self_attn.v_proj",
+    MODEL_TENSOR.V_MM_SELF_ATN_Q_PROJ: "vision_model.transformer.layers.{bid}.self_attn.q_proj",
+    MODEL_TENSOR.V_MM_SELF_ATN_O_PROJ: "vision_model.transformer.layers.{bid}.self_attn.o_proj",   
+    MODEL_TENSOR.V_MM_LAYER_NORM_POST: "vision_model.layernorm_post",
+    MODEL_TENSOR.V_MM_LAYER_NORM_PRE: "vision_model.layernorm_pre",
+    MODEL_TENSOR.V_MM_PATCH_EMB: "vision_model.patch_embedding",
+    MODEL_TENSOR.V_MM_POST_TILE_POS_EMB: "vision_model.post_tile_positional_embedding.embedding",
+    MODEL_TENSOR.V_MM_POST_TILE_POS_EMB_GATE: "vision_model.post_tile_positional_embedding.gate",
+    MODEL_TENSOR.V_MM_PRE_TILE_POS_EMB: "vision_model.pre_tile_positional_embedding.embedding",
+    MODEL_TENSOR.V_MM_PRE_TILE_POS_EMB_GATE: "vision_model.pre_tile_positional_embedding.gate",
+    MODEL_TENSOR.V_MM_INPUT_NORM: "vision_model.transformer.layers.{bid}.input_layernorm",
 }
 
 MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
@@ -587,6 +651,37 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.FFN_GATE_EXP,
         MODEL_TENSOR.FFN_DOWN_EXP,
         MODEL_TENSOR.FFN_UP_EXP,
+        MODEL_TENSOR.V_MM_PROJECTOR,
+        MODEL_TENSOR.V_MM_CROSS_ATTN,
+        MODEL_TENSOR.V_MM_CROSS_ATTN_O,
+        MODEL_TENSOR.V_MM_CROSS_ATTN_MLP_GATE,
+        MODEL_TENSOR.V_MM_CROSS_ATTN_GATE,
+        MODEL_TENSOR.V_MM_CLASS_EMB,
+        MODEL_TENSOR.V_MM_GATED_POS_EMB,
+        MODEL_TENSOR.V_MM_GATED_POS_EMB_GATE,
+        MODEL_TENSOR.V_MM_GATED_POS_EMB_TILE,
+        MODEL_TENSOR.V_MM_GATE_ATTN,
+        MODEL_TENSOR.V_MM_GATE_FFN,
+        MODEL_TENSOR.V_MM_INPUT_NORM_GLOB,
+        MODEL_TENSOR.V_MM_MLP_FC1,
+        MODEL_TENSOR.V_MM_MLP_FC2,
+        MODEL_TENSOR.V_MM_POST_ATTN_NORM,
+        MODEL_TENSOR.V_MM_SELF_ATN_K_PROJ,
+        MODEL_TENSOR.V_MM_SELF_ATN_Q_PROJ,
+        MODEL_TENSOR.V_MM_SELF_ATN_V_PROJ,
+        MODEL_TENSOR.V_MM_SELF_ATN_O_PROJ,
+        MODEL_TENSOR.V_MM_GLOBAL_SELF_ATN_K_PROJ,
+        MODEL_TENSOR.V_MM_GLOBAL_SELF_ATN_Q_PROJ,
+        MODEL_TENSOR.V_MM_GLOBAL_SELF_ATN_V_PROJ,
+        MODEL_TENSOR.V_MM_GLOBAL_SELF_ATN_O_PROJ,
+        MODEL_TENSOR.V_MM_LAYER_NORM_POST,
+        MODEL_TENSOR.V_MM_LAYER_NORM_PRE,
+        MODEL_TENSOR.V_MM_PATCH_EMB,
+        MODEL_TENSOR.V_MM_POST_TILE_POS_EMB,
+        MODEL_TENSOR.V_MM_POST_TILE_POS_EMB_GATE,
+        MODEL_TENSOR.V_MM_PRE_TILE_POS_EMB,
+        MODEL_TENSOR.V_MM_PRE_TILE_POS_EMB_GATE,
+        MODEL_TENSOR.V_MM_INPUT_NORM,
     ],
     MODEL_ARCH.GROK: [
         MODEL_TENSOR.TOKEN_EMBD,
@@ -1355,6 +1450,8 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.V_ENC_FFN_DOWN,
         MODEL_TENSOR.V_PRE_NORM,
         MODEL_TENSOR.V_POST_NORM,
+        MODEL_TENSOR.ATTN_K,
+        MODEL_TENSOR.ATTN_Q_NORM,
     ],
     # TODO
 }

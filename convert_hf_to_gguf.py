@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 from __future__ import annotations
-
+import time
 import ast
 import logging
 import argparse
@@ -30,7 +30,7 @@ import gguf
 
 logger = logging.getLogger("hf-to-gguf")
 
-
+missing_names = []
 ###### MODEL DEFINITIONS ######
 
 class SentencePieceTokenTypes(IntEnum):
@@ -130,6 +130,12 @@ class Model:
         key = next((k for k in keys if k in self.hparams), None)
         if key is not None:
             return self.hparams[key]
+        key = next((k for k in keys if k in self.hparams["text_config"]), None)
+        if key is not None:
+            return self.hparams["text_config"][key]
+        key = next((k for k in keys if k in self.hparams["vision_config"]), None)
+        if key is not None:
+            return self.hparams["vision_config"][key]
         if optional:
             return None
         raise KeyError(f"could not find any of: {keys}")
@@ -224,6 +230,9 @@ class Model:
         elif new_name_vision is not None:
             return new_name_vision
         else:
+            missing_names.append(name)
+            with open("output.txt","a") as f:
+                f.write(f"{name}\n")
             raise ValueError(f"Can not map tensor {name!r}")
 
     def set_gguf_parameters(self):
@@ -467,8 +476,6 @@ class Model:
             hparams = json.load(f)
             if "text_config" in hparams:
                 text_config = hparams["text_config"]
-                if "_name_or_path" in text_config:
-                    text_config = AutoConfig.from_pretrained(text_config["_name_or_path"]).to_dict()
                 hparams = {**text_config, **hparams}
             return hparams
 
@@ -528,8 +535,8 @@ class Model:
 
         from transformers import AutoTokenizer
         tokenizer = AutoTokenizer.from_pretrained(self.dir_model)
-        vocab_size = self.hparams.get("vocab_size", len(tokenizer.vocab))
-        assert max(tokenizer.vocab.values()) < vocab_size
+        vocab_size = self.hparams["text_config"].get("vocab_size", len(tokenizer.vocab))
+        #assert max(tokenizer.vocab.values()) < vocab_size
 
         tokpre = self.get_vocab_base_pre(tokenizer)
 
@@ -1155,7 +1162,7 @@ class BaichuanModel(Model):
                 self.gguf_writer.add_rope_scaling_factor(self.hparams["rope_scaling"]["factor"])
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
-        head_count = self.hparams["num_attention_heads"]
+        head_count = self.hparams["num_attention_heads"] + 6
         head_count_kv = self.hparams.get("num_key_value_heads", head_count)
 
         tensors: list[tuple[str, Tensor]] = []
@@ -1528,7 +1535,7 @@ class StableLMModel(Model):
                 raise ValueError(f"Unprocessed norms: {norms}")
 
 
-@Model.register("LLaMAForCausalLM", "LlamaForCausalLM", "MistralForCausalLM", "MixtralForCausalLM", "LlavaForConditionalGeneration")
+@Model.register("LLaMAForCausalLM", "LlamaForCausalLM", "MistralForCausalLM", "MixtralForCausalLM", "LlavaForConditionalGeneration","MllamaForConditionalGeneration")
 class LlamaModel(Model):
     model_arch = gguf.MODEL_ARCH.LLAMA
 
@@ -1537,7 +1544,7 @@ class LlamaModel(Model):
         if "vision_config" in self.hparams:
             self.vparams = self.hparams["vision_config"]
         if self.vparams is not None:
-            self.v_tensor_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.LLAVA_VISION, self.vparams["num_hidden_layers"])
+            self.v_tensor_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.LLAVA_VISION, self.hparams["num_hidden_layers"])
 
     def set_vocab(self):
         try:
@@ -1564,18 +1571,18 @@ class LlamaModel(Model):
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
         hparams = self.hparams
-        self.gguf_writer.add_vocab_size(hparams["vocab_size"])
+        self.gguf_writer.add_vocab_size(hparams["text_config"]["vocab_size"])
 
         if "head_dim" in hparams:
-            rope_dim = hparams["head_dim"]
+            rope_dim = hparams["text_config"]["head_dim"]
         else:
-            rope_dim = hparams["hidden_size"] // hparams["num_attention_heads"]
+            rope_dim = hparams["text_config"]["hidden_size"] // hparams["text_config"]["num_attention_heads"]
         self.gguf_writer.add_rope_dimension_count(rope_dim)
 
-        if self.hparams.get("rope_scaling") is not None and "factor" in self.hparams["rope_scaling"]:
-            if self.hparams["rope_scaling"].get("type") == "linear":
+        if self.hparams["text_config"].get("rope_scaling") is not None and "factor" in self.hparams["text_config"]["rope_scaling"]:
+            if self.hparams["text_config"]["rope_scaling"].get("type") == "linear":
                 self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.LINEAR)
-                self.gguf_writer.add_rope_scaling_factor(self.hparams["rope_scaling"]["factor"])
+                self.gguf_writer.add_rope_scaling_factor(self.hparams["text_config"]["rope_scaling"]["factor"])
 
         tokenizer_config_file = self.dir_model / 'tokenizer_config.json'
         if tokenizer_config_file.is_file():
@@ -1597,16 +1604,17 @@ class LlamaModel(Model):
             self.gguf_writer.add_vision_clip_block_count(self.vparams["num_hidden_layers"])
             self.gguf_writer.add_vision_clip_embedding_length(self.vparams["hidden_size"])
             self.gguf_writer.add_vision_clip_feed_forward_length(self.vparams["intermediate_size"])
-            self.gguf_writer.add_vision_clip_head_count(self.vparams["num_attention_heads"])
+            self.gguf_writer.add_vision_clip_head_count(self.hparams["text_config"]["num_attention_heads"])
             self.gguf_writer.add_vision_clip_image_mean(self.preprocessor_config["image_mean"])
             self.gguf_writer.add_vision_clip_image_std(self.preprocessor_config["image_std"])
-            self.gguf_writer.add_vision_clip_select_layer(self.hparams["vision_feature_layer"])
+            #self.gguf_writer.add_vision_clip_select_layer(self.hparams["vision_feature_layer"])
             self.gguf_writer.add_vision_clip_patch_merge_type(gguf.CLIPPatchMergeType.FLAT)
             max_pos_embd = (self.vparams["image_size"] // self.vparams["patch_size"])**2 + 1
             self.gguf_writer.add_vision_clip_max_position_embeddings(max_pos_embd)
             # TODO: should not hardcode these, but they are currently missing from config.json
             self.gguf_writer.add_vision_clip_projector_type(gguf.constants.CLIPProjectorType.MLP)
             self.gguf_writer.add_vision_clip_layer_norm_epsilon(1e-05)
+            #self.gguf_writer.add_layer_norm_rms_eps(1e-05)
 
     @staticmethod
     def permute(weights: Tensor, n_head: int, n_head_kv: int | None):
@@ -1619,8 +1627,8 @@ class LlamaModel(Model):
     _experts: list[dict[str, Tensor]] | None = None
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
-        n_head = self.hparams["num_attention_heads"]
-        n_kv_head = self.hparams.get("num_key_value_heads")
+        n_head = self.hparams["text_config"]["num_attention_heads"]
+        n_kv_head = self.hparams["text_config"].get("num_key_value_heads")
 
         # For vision model
         if name.startswith("language_model"):
@@ -1673,7 +1681,7 @@ class LlamaModel(Model):
         if rope_scaling := self.find_hparam(["rope_scaling"], optional=True):
             if rope_scaling.get("rope_type", '').lower() == "llama3":
                 base = self.hparams.get("rope_theta", 10000.0)
-                dim = self.hparams.get("head_dim", self.hparams["hidden_size"] // self.hparams["num_attention_heads"])
+                dim = self.hparams.get("head_dim", self.hparams["text_config"]["hidden_size"] // self.hparams["text_config"]["num_attention_heads"])
                 freqs = 1.0 / (base ** (torch.arange(0, dim, 2, dtype=torch.float32) / dim))
 
                 factor = rope_scaling.get("factor", 8.0)

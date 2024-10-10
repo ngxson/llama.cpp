@@ -68,6 +68,8 @@ add_library(${TARGET} STATIC
     sampling.h
     train.cpp
     train.h
+    vision.h
+    vision.cpp
     )
 
 if (BUILD_SHARED_LIBS)

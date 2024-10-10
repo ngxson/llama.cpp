@@ -37,7 +37,8 @@
 #include <vector>
 #include <sstream>
 #include <cinttypes>
-#include <limits>
+#include <limits.h>
+#include <cstdarg>
 
 #define LOG_INF(...) do { fprintf(stdout, __VA_ARGS__); } while (0)
 #define LOG_WRN(...) do { fprintf(stderr, __VA_ARGS__); } while (0)
