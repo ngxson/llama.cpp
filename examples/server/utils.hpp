@@ -21,7 +21,7 @@
 #include <string>
 #include <vector>
 
-#define DEFAULT_OAICOMPAT_MODEL "gpt-3.5-turbo-0613"
+#define DEFAULT_OAICOMPAT_MODEL "llama-cpp"
 
 using json = nlohmann::ordered_json;
 using llama_tokens = std::vector<llama_token>;
@@ -588,6 +588,12 @@ static json oaicompat_completion_params_parse(
     int n_choices = json_value(body, "n", 1);
     if (n_choices != 1) {
         throw std::runtime_error("Only one completion choice is allowed");
+    }
+
+    // Handle "model" field
+    if (body.contains("model")) {
+        // this is used by format_*_response_oaicompat
+        llama_params["model"] = body.at("model").get<std::string>();
     }
 
     // Handle "logprobs" field
