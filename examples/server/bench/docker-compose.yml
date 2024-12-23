@@ -1,0 +1,22 @@
+services:
+  llamacpp_bench:
+    environment:
+      SERVER_BENCH_URL: ${SERVER_BENCH_URL:-http://127.0.0.1:8080/v1}
+    network_mode: host # allow accessing the same localhost with host
+    build:
+      context: .
+      dockerfile_inline: |
+        FROM golang:1.21-bullseye
+        RUN go install go.k6.io/xk6/cmd/xk6@v0.12.0 && \
+          xk6 build v0.51.0 --with github.com/phymbert/xk6-sse
+        RUN wget https://huggingface.co/datasets/anon8231489123/ShareGPT_Vicuna_unfiltered/resolve/main/ShareGPT_V3_unfiltered_cleaned_split.json -O /dataset.json
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - |
+        export SERVER_BENCH_DATASET=/dataset.json
+        export SERVER_BENCH_N_PROMPTS=50
+        export SERVER_BENCH_MAX_TOKENS=50
+        ./k6 run /src/script.js --duration 5m --iterations 100
+    volumes:
+      - ./:/src:Z

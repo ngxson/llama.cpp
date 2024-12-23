@@ -4,11 +4,14 @@ import {SharedArray} from 'k6/data'
 import {Counter, Rate, Trend} from 'k6/metrics'
 import exec from 'k6/execution';
 
+// Number of virtual users
+const n_uvs = 16;
+
 // Server chat completions prefix
 const server_url = __ENV.SERVER_BENCH_URL ? __ENV.SERVER_BENCH_URL : 'http://localhost:8080/v1'
 
 // Number of total prompts in the dataset - default 10m / 10 seconds/request * number of users
-const n_prompt = __ENV.SERVER_BENCH_N_PROMPTS ? parseInt(__ENV.SERVER_BENCH_N_PROMPTS) : 600 / 10 * 8
+const n_prompt = __ENV.SERVER_BENCH_N_PROMPTS ? parseInt(__ENV.SERVER_BENCH_N_PROMPTS) : 600 / 10 * NUMBER_UVS
 
 // Model name to request
 const model = __ENV.SERVER_BENCH_MODEL_ALIAS ? __ENV.SERVER_BENCH_MODEL_ALIAS : 'my-model'
@@ -51,27 +54,28 @@ const data = new SharedArray('conversations', function () {
         .slice(0, n_prompt)
 })
 
-const llamacpp_prompt_tokens = new Trend('llamacpp_prompt_tokens')
-const llamacpp_completion_tokens = new Trend('llamacpp_completion_tokens')
+const metric_prompt_tokens = new Trend('metric_prompt_tokens')
+const metric_completion_tokens = new Trend('metric_completion_tokens')
 
-const llamacpp_tokens_second = new Trend('llamacpp_tokens_second')
-const llamacpp_prompt_processing_second = new Trend('llamacpp_prompt_processing_second')
+const metric_tokens_second = new Trend('metric_tokens_second')
+const metric_prompt_processing_second = new Trend('metric_prompt_processing_second')
 
-const llamacpp_prompt_tokens_total_counter = new Counter('llamacpp_prompt_tokens_total_counter')
-const llamacpp_completion_tokens_total_counter = new Counter('llamacpp_completion_tokens_total_counter')
+const metric_prompt_tokens_total_counter = new Counter('metric_prompt_tokens_total_counter')
+const metric_completion_tokens_total_counter = new Counter('metric_completion_tokens_total_counter')
 
-const llamacpp_completions_truncated_rate = new Rate('llamacpp_completions_truncated_rate')
-const llamacpp_completions_stop_rate = new Rate('llamacpp_completions_stop_rate')
+const metric_completions_truncated_rate = new Rate('metric_completions_truncated_rate')
+const metric_completions_stop_rate = new Rate('metric_completions_stop_rate')
 
 export const options = {
     thresholds: {
-        llamacpp_completions_truncated_rate: [
+        metric_completions_truncated_rate: [
             // more than 80% of truncated input will abort the test
-            {threshold: 'rate < 0.8', abortOnFail: true, delayAbortEval: '1m'},
+            //{threshold: 'rate < 0.8', abortOnFail: true, delayAbortEval: '1m'},
         ],
     },
+    executor: 'constant-vus',
     duration: '10m',
-    vus: 8,
+    vus: n_uvs,
 }
 
 export default function () {
@@ -89,12 +93,14 @@ export default function () {
         ],
         "model": model,
         "stream": true,
-        "seed": 42,
+        //"seed": 42,
         "max_tokens": max_tokens,
-        "stop": ["<|im_end|>"] // This is temporary for phi-2 base (i.e. not instructed) since the server expects that the model always to emit BOS
+        //"stop": ["<|im_end|>"] // This is temporary for phi-2 base (i.e. not instructed) since the server expects that the model always to emit BOS
     }
 
-    const params = {method: 'POST', body: JSON.stringify(payload)};
+    const params = {method: 'POST', body: JSON.stringify(payload), headers: {
+        'Content-Type': 'application/json'
+    }};
 
     const startTime = new Date()
     let promptEvalEndTime = null
@@ -107,6 +113,9 @@ export default function () {
                 promptEvalEndTime = new Date()
             }
 
+            if (event.data == '[DONE]') {
+                return
+            }
             let chunk = JSON.parse(event.data)
             let choice = chunk.choices[0]
             if (choice.finish_reason) {
@@ -115,12 +124,12 @@ export default function () {
 
             if (chunk.usage) {
                 prompt_tokens = chunk.usage.prompt_tokens
-                llamacpp_prompt_tokens.add(prompt_tokens)
-                llamacpp_prompt_tokens_total_counter.add(prompt_tokens)
+                metric_prompt_tokens.add(prompt_tokens)
+                metric_prompt_tokens_total_counter.add(prompt_tokens)
 
                 completions_tokens = chunk.usage.completion_tokens
-                llamacpp_completion_tokens.add(completions_tokens)
-                llamacpp_completion_tokens_total_counter.add(completions_tokens)
+                metric_completion_tokens.add(completions_tokens)
+                metric_completion_tokens_total_counter.add(completions_tokens)
             }
         })
 
@@ -136,15 +145,15 @@ export default function () {
 
     const promptEvalTime = promptEvalEndTime - startTime
     if (promptEvalTime > 0) {
-        llamacpp_prompt_processing_second.add(prompt_tokens / (promptEvalEndTime - startTime) * 1.e3)
+        metric_prompt_processing_second.add(prompt_tokens / (promptEvalEndTime - startTime) * 1.e3)
     }
 
     const completion_time = endTime - promptEvalEndTime
     if (completions_tokens > 0 && completion_time > 0) {
-        llamacpp_tokens_second.add(completions_tokens / completion_time * 1.e3)
+        metric_tokens_second.add(completions_tokens / completion_time * 1.e3)
     }
-    llamacpp_completions_truncated_rate.add(finish_reason === 'length')
-    llamacpp_completions_stop_rate.add(finish_reason === 'stop')
+    metric_completions_truncated_rate.add(finish_reason === 'length')
+    metric_completions_stop_rate.add(finish_reason === 'stop')
 
     sleep(0.3)
 }
