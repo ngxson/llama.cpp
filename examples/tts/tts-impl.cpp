@@ -350,6 +350,10 @@ static void prompt_init(llama_tokens & prompt, const llama_model * model) {
 }
 
 llama_tokens tts_preprocess_prompt(const llama_model * model_ttc, const std::string & prompt_str) {
+    return common_tokenize(model_ttc, "<|text_start|>" + prompt_str + "<|text_end|><|audio_start|>", false, true);
+}
+
+llama_tokens ______tts_preprocess_prompt(const llama_model * model_ttc, const std::string & prompt_str) {
     llama_tokens prompt_inp;
 
     prompt_init(prompt_inp, model_ttc);

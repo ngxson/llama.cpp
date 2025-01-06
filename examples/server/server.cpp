@@ -4177,6 +4177,7 @@ int main(int argc, char ** argv) {
             task.params.return_tokens  = true;
             task.params.sampling.temp  = 0.0;
             task.params.sampling.top_k = 1;
+            task.params.n_predict = 256*4;
 
             ctx_server.queue_results.add_waiting_tasks({task});
             ctx_server.queue_tasks.post(task);
@@ -4193,7 +4194,7 @@ int main(int argc, char ** argv) {
             codes = std::move(result->tokens);
 
             // debug
-            // SRV_DBG("codes str (before filter) = %s\n", common_detokenize(ctx_server.ctx, codes, true).c_str());
+            SRV_DBG("codes str (before filter) = %s\n", common_detokenize(ctx_server.ctx, codes, true).c_str());
 
             // post-process codes
             // remove all non-audio tokens (i.e. < 151672 || > 155772)
@@ -4208,7 +4209,7 @@ int main(int argc, char ** argv) {
         }
 
         // debug
-        // SRV_DBG("codes str = %s\n", common_detokenize(ctx_server.ctx, codes, true).c_str());
+        SRV_DBG("codes str = %s\n", common_detokenize(ctx_server.ctx, codes, true).c_str());
 
         // convert codes to embeddings
         int n_embd = llama_n_embd(ctx_server.llama_init_vocoder.model.get());
