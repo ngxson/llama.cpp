@@ -511,9 +511,9 @@ lovely<|t_0.56|><|code_start|><|634|><|596|><|1766|><|1556|><|1306|><|1285|><|14
 
 // TODO: do not dumplicate this from tts.cpp
 int tts_get_embd(struct llama_context * ctx_cts, llama_tokens & codes, std::vector<float> & output) {
-    for (auto & token : codes) {
-        token -= 151672;
-    }
+    //for (auto & token : codes) {
+    //    token -= 151672;
+    //}
 
     int n_codes = codes.size();
     llama_batch batch = llama_batch_init(n_codes, 0, 1);
