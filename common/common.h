@@ -248,8 +248,9 @@ struct common_params {
     std::string logits_file          = ""; // file for saving *all* logits                                  // NOLINT
     std::string rpc_servers          = ""; // comma separated list of RPC servers                           // NOLINT
 
-    std::vector<std::string> in_files;   // all input files
-    std::vector<std::string> antiprompt; // strings upon which more user input is prompted (a.k.a. reverse prompts)
+    std::vector<std::string> model_splits; // custom list of GGUF splits
+    std::vector<std::string> in_files;     // all input files
+    std::vector<std::string> antiprompt;   // strings upon which more user input is prompted (a.k.a. reverse prompts)
     std::vector<llama_model_kv_override> kv_overrides;
 
     bool lora_init_without_apply = false; // only load lora to memory, but do not apply it to ctx (user can manually apply lora later using llama_adapter_lora_apply)

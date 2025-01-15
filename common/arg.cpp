@@ -1582,10 +1582,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
             ? std::string("model path from which to load base model")
             : string_format(
                 "model path (default: `models/$filename` with filename from `--hf-file` "
-                "or `--model-url` if set, otherwise %s)", DEFAULT_MODEL_PATH
+                "or `--model-url` if set, otherwise %s)\n"
+                "can be repeated to specify multiple GGUF splits, in case they don't follow naming convention",
+                DEFAULT_MODEL_PATH
             ),
         [](common_params & params, const std::string & value) {
             params.model = value;
+            params.model_splits.push_back(value);
         }
     ).set_examples({LLAMA_EXAMPLE_COMMON, LLAMA_EXAMPLE_EXPORT_LORA}).set_env("LLAMA_ARG_MODEL"));
     add_opt(common_arg(

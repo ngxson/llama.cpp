@@ -864,8 +864,14 @@ struct common_init_result common_init_from_params(common_params & params) {
         model = common_load_model_from_hf(params.hf_repo, params.hf_file, params.model, params.hf_token, mparams);
     } else if (!params.model_url.empty()) {
         model = common_load_model_from_url(params.model_url, params.model, params.hf_token, mparams);
-    } else {
+    } else if (params.model_splits.size() == 1) {
         model = llama_model_load_from_file(params.model.c_str(), mparams);
+    } else {
+        std::vector<const char *> splits;
+        for (const auto & split : params.model_splits) {
+            splits.push_back(split.data());
+        }
+        model = llama_model_load_from_splits(splits.data(), splits.size(), mparams);
     }
 
     if (model == NULL) {
