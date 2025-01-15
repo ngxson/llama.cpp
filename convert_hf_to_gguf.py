@@ -696,6 +696,9 @@ class Model:
         if chkhsh == "877081d19cf6996e2c4ff0e1236341e9b7bde288f5311a56a937f0afbbb3aeb5":
             # ref: https://huggingface.co/deepseek-ai/DeepSeek-V3
             res = "deepseek-v3"
+        if chkhsh == "1b8c872b06b15bbd59870e70d5d689fa8af17c689f857667d06f7338d0d64f39":
+            # ref: https://huggingface.co/kyutai/helium-1-preview-2b
+            res = "helium"
 
         if res is None:
             logger.warning("\n")
@@ -1557,19 +1560,47 @@ class StableLMModel(Model):
                 raise ValueError(f"Unprocessed norms: {norms}")
 
 
-@Model.register("LLaMAForCausalLM", "LlamaForCausalLM", "MistralForCausalLM", "MixtralForCausalLM")
+@Model.register("LLaMAForCausalLM", "LlamaForCausalLM", "MistralForCausalLM", "MixtralForCausalLM", "HeliumForCausalLM")
 class LlamaModel(Model):
     model_arch = gguf.MODEL_ARCH.LLAMA
 
+    def set_vocab_helium(self):
+        with open(self.dir_model / 'tokenizer.json', "r", encoding="utf-8") as f:
+            tokenizer_json = json.load(f)
+            tok_model = tokenizer_json["model"]
+            assert tok_model["type"] == "Unigram"
+
+            tokens = [tok[0] for tok in tok_model["vocab"]]
+            scores = [tok[1] for tok in tok_model["vocab"]]
+            toktypes = [gguf.TokenType.CONTROL if i <= 105 else gguf.TokenType.NORMAL for i in range(len(tokens))]
+
+            self.gguf_writer.add_tokenizer_model("t5")
+            self.gguf_writer.add_tokenizer_pre("default")
+            self.gguf_writer.add_token_list(tokens)
+            self.gguf_writer.add_token_scores(scores)
+            self.gguf_writer.add_token_types(toktypes)
+            # self.gguf_writer.add_add_space_prefix(add_prefix)
+            self.gguf_writer.add_token_type_count(self.hparams.get("type_vocab_size", 1))
+            # self.gguf_writer.add_remove_extra_whitespaces(remove_whitespaces)
+            # if precompiled_charsmap:
+            #     self.gguf_writer.add_precompiled_charsmap(precompiled_charsmap)
+
+            special_vocab = gguf.SpecialVocab(self.dir_model, n_vocab=len(tokens))
+            special_vocab.add_to_gguf(self.gguf_writer)
+
+            self.gguf_writer.add_add_bos_token(True)
+            self.gguf_writer.add_add_eos_token(False)
+
     def set_vocab(self):
-        try:
-            self._set_vocab_sentencepiece()
-        except FileNotFoundError:
-            try:
-                self._set_vocab_llama_hf()
-            except (FileNotFoundError, TypeError):
-                # Llama 3
-                self._set_vocab_gpt2()
+        # try:
+        #     self._set_vocab_sentencepiece()
+        # except FileNotFoundError:
+        #     try:
+        #         self._set_vocab_llama_hf()
+        #     except (FileNotFoundError, TypeError):
+        #         # Llama 3
+        #         self._set_vocab_gpt2()
+        self.set_vocab_helium()
 
         # Apply to CodeLlama only (and ignore for Llama 3 with a vocab size of 128256)
         if self.hparams.get("vocab_size", 32000) == 32016:
