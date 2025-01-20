@@ -4,6 +4,7 @@
 
 #include <map>
 #include <exception>
+#include <stdexcept>
 
 static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_LLAMA,            "llama"            },
