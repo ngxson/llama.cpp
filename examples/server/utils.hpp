@@ -11,6 +11,8 @@
 #endif
 // increase max payload length to allow use of larger context size
 #define CPPHTTPLIB_FORM_URL_ENCODED_PAYLOAD_MAX_LENGTH 1048576
+// temporary fix until https://github.com/yhirose/cpp-httplib/issues/2028 is resolved
+#define CPPHTTPLIB_ALLOW_LF_AS_LINE_TERMINATOR
 #include "httplib.h"
 
 // Change JSON_ASSERT from assert() to GGML_ASSERT:
