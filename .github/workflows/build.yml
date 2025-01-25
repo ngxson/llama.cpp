@@ -163,7 +163,7 @@ jobs:
           name: llama-bin-macos-x64.zip
 
   ubuntu-cpu-cmake:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-20.04
 
     steps:
       - name: Clone
