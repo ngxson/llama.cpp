@@ -38,6 +38,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#ifdef  __cplusplus
+#include <memory>
+#endif
+
 #define GGUF_MAGIC   "GGUF"
 #define GGUF_VERSION 3
 
@@ -199,4 +203,27 @@ extern "C" {
 
 #ifdef  __cplusplus
 }
+#endif
+
+#ifdef  __cplusplus
+// header for C++ API
+
+namespace gguf {
+
+struct gguf_context_deleter { void operator()(gguf_context * ctx) { gguf_free(ctx); } };
+using context_ptr = std::unique_ptr<gguf_context, gguf_context_deleter>;
+
+// this throw std::runtime_error if the key is not found
+template<typename T>
+T get_val(gguf_context * ctx, const std::string & key);
+
+// same as above, but returns false if the key is not found while keeping the output value unchanged
+template<typename T>
+bool get_val(gguf_context * ctx, const std::string & key, T & output);
+
+template<typename T>
+void set_val(gguf_context * ctx, const std::string & key, T val);
+
+} // namespace gguf
+
 #endif

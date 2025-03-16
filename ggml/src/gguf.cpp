@@ -1327,3 +1327,72 @@ void gguf_get_meta_data(const struct gguf_context * ctx, void * data) {
     gguf_write_to_buf(ctx, buf, /*only_meta =*/ true);
     memcpy(data, buf.data(), buf.size());
 }
+
+// C++ API
+
+template<typename T>
+T gguf::get_val(gguf_context * ctx, const std::string & key) {
+    for (const auto & kv : ctx->kv) {
+        if (kv.get_key() == key) {
+            return kv.get_val<T>();
+        }
+    }
+    throw std::runtime_error("key not found: " + key);
+}
+
+template uint8_t     gguf::get_val(gguf_context * ctx, const std::string & key);
+template int8_t      gguf::get_val(gguf_context * ctx, const std::string & key);
+template uint16_t    gguf::get_val(gguf_context * ctx, const std::string & key);
+template int16_t     gguf::get_val(gguf_context * ctx, const std::string & key);
+template uint32_t    gguf::get_val(gguf_context * ctx, const std::string & key);
+template int32_t     gguf::get_val(gguf_context * ctx, const std::string & key);
+template float       gguf::get_val(gguf_context * ctx, const std::string & key);
+template uint64_t    gguf::get_val(gguf_context * ctx, const std::string & key);
+template int64_t     gguf::get_val(gguf_context * ctx, const std::string & key);
+template double      gguf::get_val(gguf_context * ctx, const std::string & key);
+template bool        gguf::get_val(gguf_context * ctx, const std::string & key);
+template std::string gguf::get_val(gguf_context * ctx, const std::string & key);
+
+template<typename T>
+bool gguf::get_val(gguf_context * ctx, const std::string & key, T & output) {
+    for (const auto & kv : ctx->kv) {
+        if (kv.get_key() == key) {
+            output = kv.get_val<T>();
+            return true;
+        }
+    }
+    return false;
+}
+
+template bool gguf::get_val(gguf_context * ctx, const std::string & key, uint8_t     & output);
+template bool gguf::get_val(gguf_context * ctx, const std::string & key, int8_t      & output);
+template bool gguf::get_val(gguf_context * ctx, const std::string & key, uint16_t    & output);
+template bool gguf::get_val(gguf_context * ctx, const std::string & key, int16_t     & output);
+template bool gguf::get_val(gguf_context * ctx, const std::string & key, uint32_t    & output);
+template bool gguf::get_val(gguf_context * ctx, const std::string & key, int32_t     & output);
+template bool gguf::get_val(gguf_context * ctx, const std::string & key, float       & output);
+template bool gguf::get_val(gguf_context * ctx, const std::string & key, uint64_t    & output);
+template bool gguf::get_val(gguf_context * ctx, const std::string & key, int64_t     & output);
+template bool gguf::get_val(gguf_context * ctx, const std::string & key, double      & output);
+template bool gguf::get_val(gguf_context * ctx, const std::string & key, bool        & output);
+template bool gguf::get_val(gguf_context * ctx, const std::string & key, std::string & output);
+
+template<typename T>
+void gguf::set_val(gguf_context * ctx, const std::string & key, T val) {
+    gguf_check_reserved_keys(key, val);
+    gguf_remove_key(ctx, key.c_str());
+    ctx->kv.emplace_back(key, val);
+}
+
+template void gguf::set_val(gguf_context * ctx, const std::string & key, uint8_t     val);
+template void gguf::set_val(gguf_context * ctx, const std::string & key, int8_t      val);
+template void gguf::set_val(gguf_context * ctx, const std::string & key, uint16_t    val);
+template void gguf::set_val(gguf_context * ctx, const std::string & key, int16_t     val);
+template void gguf::set_val(gguf_context * ctx, const std::string & key, uint32_t    val);
+template void gguf::set_val(gguf_context * ctx, const std::string & key, int32_t     val);
+template void gguf::set_val(gguf_context * ctx, const std::string & key, float       val);
+template void gguf::set_val(gguf_context * ctx, const std::string & key, uint64_t    val);
+template void gguf::set_val(gguf_context * ctx, const std::string & key, int64_t     val);
+template void gguf::set_val(gguf_context * ctx, const std::string & key, double      val);
+template void gguf::set_val(gguf_context * ctx, const std::string & key, bool        val);
+template void gguf::set_val(gguf_context * ctx, const std::string & key, std::string val);

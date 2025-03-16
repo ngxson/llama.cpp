@@ -1286,6 +1286,74 @@ static std::pair<int, int> test_gguf_set_kv(ggml_backend_dev_t dev, const unsign
     return std::make_pair(npass, ntest);
 }
 
+template <typename T>
+static void test_gguf_cpp_api_read(int & ntest, int & npass, gguf::context_ptr & ctx, const std::string & key, T expected_val) {
+    ntest++;
+    printf("%s: key '%s': ", __func__, key.c_str());
+    if (gguf::get_val<T>(ctx.get(), key) == expected_val) {
+        printf("\033[1;32mOK\033[0m\n");
+        npass++;
+    } else {
+        printf("\033[1;31mFAIL\033[0m\n");
+    }
+}
+
+static std::pair<int, int> test_gguf_cpp_api() {
+    int npass = 0;
+    int ntest = 0;
+
+    gguf::context_ptr ctx(gguf_init_empty());
+
+    ntest++;
+    printf("%s: cpp_write: ", __func__);
+    gguf::set_val<uint8_t>    (ctx.get(), "my_key_uint8",  1);
+    gguf::set_val<int8_t>     (ctx.get(), "my_key_int8",   2);
+    gguf::set_val<uint16_t>   (ctx.get(), "my_key_uint16", 3);
+    gguf::set_val<int16_t>    (ctx.get(), "my_key_int16",  4);
+    gguf::set_val<uint32_t>   (ctx.get(), "my_key_uint32", 5);
+    gguf::set_val<int32_t>    (ctx.get(), "my_key_int32",  6);
+    gguf::set_val<float>      (ctx.get(), "my_key_float",  7.0f);
+    gguf::set_val<std::string>(ctx.get(), "my_key_string", "hello");
+    printf("\033[1;32mOK\033[0m\n");
+    npass++;
+
+    FILE * file = tmpfile();
+
+    #ifdef _WIN32
+        if (!file) {
+            printf("failed to create tmpfile(), needs elevated privileges on Windows");
+            printf("skipping tests");
+            return std::make_pair(0, 0);
+        }
+    #else
+        GGML_ASSERT(file);
+    #endif // _WIN32
+    
+    {
+        std::vector<int8_t> buf;
+        gguf_write_to_buf(ctx.get(), buf, true);
+        GGML_ASSERT(fwrite(buf.data(), 1, buf.size(), file) == buf.size());
+        rewind(file);
+    }
+
+    struct gguf_init_params gguf_params = {
+        /*no_alloc =*/ false,
+        /*ctx      =*/ nullptr,
+    };
+    gguf::context_ptr ctx2(gguf_init_from_file_impl(file, gguf_params));
+
+    test_gguf_cpp_api_read<uint8_t>    (ntest, npass, ctx2, "my_key_uint8",  1);
+    test_gguf_cpp_api_read<int8_t>     (ntest, npass, ctx2, "my_key_int8",   2);
+    test_gguf_cpp_api_read<uint16_t>   (ntest, npass, ctx2, "my_key_uint16", 3);
+    test_gguf_cpp_api_read<int16_t>    (ntest, npass, ctx2, "my_key_int16",  4);
+    test_gguf_cpp_api_read<uint32_t>   (ntest, npass, ctx2, "my_key_uint32", 5);
+    test_gguf_cpp_api_read<int32_t>    (ntest, npass, ctx2, "my_key_int32",  6);
+    test_gguf_cpp_api_read<float>      (ntest, npass, ctx2, "my_key_float",  7.0f);
+    test_gguf_cpp_api_read<std::string>(ntest, npass, ctx2, "my_key_string", "hello");
+
+    return std::make_pair(npass, ntest);
+}
+
 static void print_usage() {
     printf("usage: test-gguf [seed]\n");
     printf("  if no seed is unspecified then a random seed is used\n");
@@ -1326,6 +1394,12 @@ int main(int argc, char ** argv) {
             npass += result.first;
             ntest += result.second;
         }
+    }
+
+    {
+        std::pair<int, int> result = test_gguf_cpp_api();
+        npass += result.first;
+        ntest += result.second;
     }
 
     printf("%d/%d tests passed\n", npass, ntest);
