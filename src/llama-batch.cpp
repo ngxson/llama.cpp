@@ -337,22 +337,6 @@ struct llama_batch llama_batch_get_one(
     };
 }
 
-struct llama_batch_ext * llama_batch_ext_init_from_text(
-            llama_token * tokens,
-                int32_t   n_tokens,
-                int32_t   pos0,
-                int32_t   seq_id,
-                  bool    output_last) {
-    llama_batch_ext * batch = llama_batch_ext_init(n_tokens, 1);
-    for (int32_t i = 0; i < n_tokens; i++) {
-        llama_batch_ext_add_text(batch, tokens[i], pos0 + i, &seq_id, 1, false);
-    }
-    if (output_last) {
-        llama_batch_ext_set_output_last(batch);
-    }
-    return batch;
-}
-
 static struct llama_batch_ext * llama_batch_ext_init_impl(int32_t n_tokens_alloc, int32_t n_embd, int32_t n_seq_max) {
     llama_batch_ext * batch = new llama_batch_ext{
         /*n_tokens       =*/ 0,
@@ -390,11 +374,11 @@ struct llama_batch_ext * llama_batch_ext_init(int32_t n_tokens_alloc, int32_t n_
 }
 
 struct llama_batch_ext * llama_batch_ext_init_from_embd(
-              float * embd,
-            size_t    n_tokens,
-            size_t    n_embd,
-            int32_t   pos0,
-            int32_t   seq_id) {
+        const float * embd,
+             size_t   n_tokens,
+             size_t   n_embd,
+          llama_pos   pos0,
+       llama_seq_id   seq_id) {
     struct llama_batch_ext * batch = llama_batch_ext_init_impl(n_tokens, n_embd, 1);
     memcpy(batch->embd, embd, n_tokens * n_embd * sizeof(float));
     for (size_t i = 0; i < n_tokens; i++) {

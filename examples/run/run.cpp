@@ -1017,7 +1017,7 @@ static int generate(LlamaData & llama_data, const std::string & prompt, std::str
         print_word_and_concatenate_to_response(piece, response);
 
         // prepare the next batch with the sampled token
-        batch.reset(llama_batch_ext_init_from_text(&new_token_id, 1, llama_data.n_past, 0, true));
+        batch = llama_batch_ext_ptr::init_from_text(&new_token_id, 1, llama_data.n_past, 0, true);
     }
 
     printf(LOG_COL_DEFAULT);

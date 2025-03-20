@@ -1016,7 +1016,7 @@ struct common_init_result common_init_from_params(common_params & params) {
         }
 
         if (llama_model_has_encoder(model)) {
-            llama_batch_ext_ptr batch(llama_batch_ext_init_from_text(tmp.data(), tmp.size(), 0, 0, true));
+            auto batch = llama_batch_ext_ptr::init_from_text(tmp.data(), tmp.size(), 0, 0, true);
             llama_encode_ext(lctx, batch.get());
             llama_token decoder_start_token_id = llama_model_decoder_start_token(model);
             if (decoder_start_token_id == LLAMA_TOKEN_NULL) {
@@ -1026,7 +1026,7 @@ struct common_init_result common_init_from_params(common_params & params) {
             tmp.push_back(decoder_start_token_id);
         }
         if (llama_model_has_decoder(model)) {
-            llama_batch_ext_ptr batch(llama_batch_ext_init_from_text(tmp.data(), std::min(tmp.size(), (size_t) params.n_batch), 0, 0, true));
+            auto batch = llama_batch_ext_ptr::init_from_text(tmp.data(), std::min(tmp.size(), (size_t) params.n_batch), 0, 0, true);
             llama_decode_ext(lctx, batch.get());
         }
         llama_kv_self_clear(lctx);

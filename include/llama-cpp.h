@@ -37,21 +37,31 @@ struct llama_batch_ext_ptr : std::unique_ptr<llama_batch_ext, llama_batch_ext_de
     llama_batch_ext_ptr() : std::unique_ptr<llama_batch_ext, llama_batch_ext_deleter>() {}
     llama_batch_ext_ptr(llama_batch_ext * batch) : std::unique_ptr<llama_batch_ext, llama_batch_ext_deleter>(batch) {}
 
-    // convenience function to create a batch from text tokens, without worrying about manually freeing it
+    // Convenience C++ wrapper to create a batch from text tokens, without worrying about manually freeing it
+    // First token will be at position pos0
+    // The sequence ID will be fixed to seq_id
+    // If output_last is true, the last token will have output set
     static llama_batch_ext_ptr init_from_text(llama_token * tokens,
-                                             int32_t   n_tokens,
-                                             int32_t   pos0,
-                                             int32_t   seq_id,
-                                                bool   output_last) {
-        return llama_batch_ext_ptr(llama_batch_ext_init_from_text(tokens, n_tokens, pos0, seq_id, output_last));
+                                                  int32_t   n_tokens,
+                                                llama_pos   pos0,
+                                             llama_seq_id   seq_id,
+                                                     bool   output_last) {
+        llama_batch_ext * batch = llama_batch_ext_init(n_tokens, 1);
+        for (int32_t i = 0; i < n_tokens; i++) {
+            llama_batch_ext_add_text(batch, tokens[i], pos0 + i, &seq_id, 1, false);
+        }
+        if (output_last) {
+            llama_batch_ext_set_output_last(batch);
+        }
+        return llama_batch_ext_ptr(batch);
     }
 
-    // convenience function to create a batch from text embeddings, without worrying about manually freeing it
+    // Convenience C++ wrapper to create a batch from text embeddings, without worrying about manually freeing it
     static llama_batch_ext_ptr init_from_embd(float * embd,
-                                        size_t   n_tokens,
-                                        size_t   n_embd,
-                                       int32_t   pos0,
-                                       int32_t   seq_id) {
+                                             size_t   n_tokens,
+                                             size_t   n_embd,
+                                          llama_pos   pos0,
+                                       llama_seq_id   seq_id) {
         return llama_batch_ext_ptr(llama_batch_ext_init_from_embd(embd, n_tokens, n_embd, pos0, seq_id));
     }
 };

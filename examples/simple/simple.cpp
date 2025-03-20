@@ -1,4 +1,5 @@
 #include "llama.h"
+#include "llama-cpp.h"
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -143,7 +144,7 @@ int main(int argc, char ** argv) {
 
     // prepare a batch for the prompt
 
-    llama_batch_ext * batch = llama_batch_ext_init_from_text(prompt_tokens.data(), prompt_tokens.size(), 0, 0, true);
+    auto batch = llama_batch_ext_ptr::init_from_text(prompt_tokens.data(), prompt_tokens.size(), 0, 0, true);
 
     // main loop
 
@@ -151,14 +152,14 @@ int main(int argc, char ** argv) {
     int n_decode = 0;
     llama_token new_token_id;
 
-    for (int n_pos = 0; n_pos + llama_batch_ext_get_n_tokens(batch) < n_prompt + n_predict; ) {
+    for (int n_pos = 0; n_pos + llama_batch_ext_get_n_tokens(batch.get()) < n_prompt + n_predict; ) {
         // evaluate the current batch with the transformer model
-        if (llama_decode_ext(ctx, batch)) {
+        if (llama_decode_ext(ctx, batch.get())) {
             fprintf(stderr, "%s : failed to eval, return code %d\n", __func__, 1);
             return 1;
         }
 
-        n_pos += llama_batch_ext_get_n_tokens(batch);
+        n_pos += llama_batch_ext_get_n_tokens(batch.get());
 
         // sample the next token
         {
@@ -180,9 +181,9 @@ int main(int argc, char ** argv) {
             fflush(stdout);
 
             // prepare the next batch with the sampled token
-            llama_batch_ext_clear(batch);
+            llama_batch_ext_clear(batch.get());
             llama_seq_id seq_id = 0;
-            llama_batch_ext_add_text(batch, new_token_id, n_pos, &seq_id, 1, true);
+            llama_batch_ext_add_text(batch.get(), new_token_id, n_pos, &seq_id, 1, true);
 
             n_decode += 1;
         }
@@ -200,7 +201,6 @@ int main(int argc, char ** argv) {
     llama_perf_context_print(ctx);
     fprintf(stderr, "\n");
 
-    llama_batch_ext_free(batch);
     llama_sampler_free(smpl);
     llama_free(ctx);
     llama_model_free(model);

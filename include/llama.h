@@ -900,7 +900,7 @@ extern "C" {
     //
     DEPRECATED(LLAMA_API struct llama_batch llama_batch_get_one(
                   llama_token * tokens,
-                      int32_t   n_tokens), "use llama_batch_ext_init_from_text instead");
+                      int32_t   n_tokens), "use llama_batch_ext API instead");
 
     // Allocates a batch of tokens on the heap that can hold a maximum of n_tokens
     // Each token can be assigned up to n_seq_max sequence ids
@@ -925,18 +925,6 @@ extern "C" {
             int32_t n_tokens,
             int32_t n_seq_max);
 
-    // Same with llama_batch_init, but initializes the batch with the provided text tokens
-    // First token will be at position pos0
-    // The sequence ID will be fixed to seq_id
-    // If output_last is true, the last token will have output set
-    // The batch has to be freed with llama_batch_ext_free()
-    LLAMA_API struct llama_batch_ext * llama_batch_ext_init_from_text(
-            llama_token * tokens,
-                int32_t   n_tokens,
-                int32_t   pos0,
-                int32_t   seq_id,
-                   bool   output_last);
-
     // Same with llama_batch_init, but initializes the batch with the provided raw embeddings
     // Size of embd should be n_tokens * n_embd
     // n_embd is the number of embeddings per token, can be obtained from llama_model_n_embd()
@@ -944,11 +932,11 @@ extern "C" {
     // The sequence ID will be fixed to seq_id
     // The batch has to be freed with llama_batch_ext_free()
     LLAMA_API struct llama_batch_ext * llama_batch_ext_init_from_embd(
-              float * embd,
-             size_t   n_tokens,
-             size_t   n_embd,
-            int32_t   pos0,
-            int32_t   seq_id);
+                  const float * embd,
+                       size_t   n_tokens,
+                       size_t   n_embd,
+                    llama_pos   pos0,
+                 llama_seq_id   seq_id);
 
     // Set arbitrary token to the embeddings batch
     // Note: this is only to be used in conjunction with llama_batch_ext_init_from_embd()
