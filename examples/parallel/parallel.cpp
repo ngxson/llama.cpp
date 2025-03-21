@@ -217,7 +217,7 @@ int main(int argc, char ** argv) {
             common_kv_cache_dump_view_seqs(kvc_view, 40);
         }
 
-        llama_batch_ext_clear(batch.get());
+        batch.clear();
 
         // decode any currently ongoing sequences
         for (auto & client : clients) {
@@ -225,7 +225,7 @@ int main(int argc, char ** argv) {
                 continue;
             }
 
-            client.i_batch = llama_batch_ext_get_n_tokens(batch.get());
+            client.i_batch = batch.n_tokens();
 
             llama_seq_id seq_id = client.id + 1;
             batch.add_text(client.sampled, n_tokens_system + client.n_prompt + client.n_decoded, seq_id, true);
@@ -233,7 +233,7 @@ int main(int argc, char ** argv) {
             client.n_decoded += 1;
         }
 
-        if (llama_batch_ext_get_n_tokens(batch.get()) == 0) {
+        if (batch.n_tokens() == 0) {
             // all sequences have ended - clear the entire KV cache
             for (int i = 1; i <= n_clients; ++i) {
                 llama_kv_self_seq_rm(ctx, i, -1, -1);
@@ -245,7 +245,7 @@ int main(int argc, char ** argv) {
         }
 
         // insert new sequences for decoding
-        if (cont_batching || llama_batch_ext_get_n_tokens(batch.get()) == 0) {
+        if (cont_batching || batch.n_tokens() == 0) {
             for (auto & client : clients) {
                 if (client.seq_id == -1 && g_seq_id < n_seq) {
                     client.seq_id = g_seq_id;
@@ -269,13 +269,13 @@ int main(int argc, char ** argv) {
                     }
 
                     // extract the logits only for the last token
-                    if (llama_batch_ext_get_n_tokens(batch.get()) > 0) {
+                    if (batch.n_tokens() > 0) {
                         llama_batch_ext_set_output_last(batch.get());
                     }
 
                     client.n_prompt  = tokens_prompt.size();
                     client.n_decoded = 0;
-                    client.i_batch   = llama_batch_ext_get_n_tokens(batch.get()) - 1;
+                    client.i_batch   = batch.n_tokens() - 1;
 
                     LOG_INF("\033[31mClient %3d, seq %4d, started decoding ...\033[0m\n", client.id, client.seq_id);
 
@@ -289,14 +289,14 @@ int main(int argc, char ** argv) {
             }
         }
 
-        if (llama_batch_ext_get_n_tokens(batch.get()) == 0) {
+        if (batch.n_tokens() == 0) {
             break;
         }
 
         // process in chunks of params.n_batch
         int32_t n_batch = params.n_batch;
 
-        int32_t n_tokens_in_batch = llama_batch_ext_get_n_tokens(batch.get());
+        int32_t n_tokens_in_batch = batch.n_tokens();
         for (int32_t i = 0; i < (int32_t) n_tokens_in_batch; i += n_batch) {
             // experiment: process in powers of 2
             //if (i + n_batch > (int32_t) batch.n_tokens && n_batch > 32) {

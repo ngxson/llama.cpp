@@ -197,7 +197,7 @@ int main(int argc, char ** argv){
         // clean the cache of draft tokens that weren't accepted
         llama_kv_self_seq_rm(ctx, 0, n_past, -1);
 
-        llama_batch_ext_clear(batch_tgt.get());
+        batch_tgt.clear();
         batch_tgt.add_text(draft[0], n_past, 0, true);
 
         // Draft already contains a single token sampled from the model:

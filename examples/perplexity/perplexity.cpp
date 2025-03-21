@@ -369,7 +369,7 @@ static results_perplexity perplexity_v2(llama_context * ctx, const common_params
             const int batch_start = start + j * n_batch;
             const int batch_size  = std::min(end - batch_start, n_batch);
 
-            llama_batch_ext_clear(batch.get());
+            batch.clear();
             for (int i = 0; i < batch_size; i++) {
                 batch.add_text(tokens[batch_start + i], j*n_batch + i, 0, true);
             }
@@ -552,7 +552,7 @@ static results_perplexity perplexity(llama_context * ctx, const common_params & 
 
             int n_outputs = 0;
 
-            llama_batch_ext_clear(batch.get());
+            batch.clear();
             for (int seq = 0; seq < n_seq_batch; seq++) {
                 int seq_start = batch_start + seq*n_ctx;
 
@@ -846,7 +846,7 @@ static void hellaswag_score(llama_context * ctx, const common_params & params) {
         size_t i1 = i0;
         size_t i_logits = 0; // this tells us how many logits were needed before this point in the batch
 
-        llama_batch_ext_clear(batch.get());
+        batch.clear();
 
         // batch as much tasks as possible into the available context
         // each task has 4 unique sequence ids - one for each ending
@@ -1131,7 +1131,7 @@ static void winogrande_score(llama_context * ctx, const common_params & params) 
         size_t i1 = i0;
         size_t i_logits = 0;
 
-        llama_batch_ext_clear(batch.get());
+        batch.clear();
 
         while (n_cur + (int) data[i1].required_tokens <= n_ctx) {
             int n_logits = 0;
@@ -1485,7 +1485,7 @@ static void multiple_choice_score(llama_context * ctx, const common_params & par
         size_t i1 = i0;
         size_t i_logits = 0; // this tells us how many logits were needed before this point in the batch
 
-        llama_batch_ext_clear(batch.get());
+        batch.clear();
 
         // batch as much tasks as possible into the available context
         // each task has 4 unique sequence ids - one for each ending
@@ -1744,7 +1744,7 @@ static void kl_divergence(llama_context * ctx, const common_params & params) {
                 tokens[batch_start] = llama_vocab_bos(vocab);
             }
 
-            llama_batch_ext_clear(batch.get());
+            batch.clear();
             for (int i = 0; i < batch_size; i++) {
                 batch.add_text(tokens[batch_start + i], j*n_batch + i, 0, true);
             }

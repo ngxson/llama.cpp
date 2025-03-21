@@ -52,7 +52,7 @@ int main(int argc, char ** argv) {
 
     // evaluate prompt
     llama_decode_ext(ctx, batch.get());
-    n_past += llama_batch_ext_get_n_tokens(batch.get());
+    n_past += batch.n_tokens();
 
     // save state (rng, logits, embedding and kv_cache) to file
     {
@@ -79,7 +79,7 @@ int main(int argc, char ** argv) {
         printf("%s", next_token_str.c_str());
         result0 += next_token_str;
 
-        llama_batch_ext_clear(batch.get());
+        batch.clear();
         batch.add_text(next_token, 0, 0, true);
 
         if (llama_decode_ext(ctx, batch.get())) {
@@ -131,7 +131,7 @@ int main(int argc, char ** argv) {
         printf("%s", next_token_str.c_str());
         result1 += next_token_str;
 
-        llama_batch_ext_clear(batch.get());
+        batch.clear();
         batch.add_text(next_token, 0, 0, true);
 
         if (llama_decode_ext(ctx2, batch.get())) {
@@ -212,7 +212,7 @@ int main(int argc, char ** argv) {
         printf("%s", next_token_str.c_str());
         result2 += next_token_str;
 
-        llama_batch_ext_clear(batch.get());
+        batch.clear();
         batch.add_text(next_token, 0, 1, true);
 
         if (llama_decode_ext(ctx3, batch.get())) {

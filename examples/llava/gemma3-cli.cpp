@@ -90,7 +90,7 @@ struct gemma3_context {
 
 static int eval_text(gemma3_context & ctx, std::string input, bool logits_last = false) {
     llama_tokens tokens = common_tokenize(ctx.lctx, input, false, true);
-    llama_batch_ext_clear(ctx.batch.get());
+    ctx.batch.clear();
     for (llama_token & t : tokens) {
         ctx.batch.add_text(t, ctx.n_past++, 0, false);
     }
@@ -178,7 +178,7 @@ static int generate_response(gemma3_context & ctx, common_sampler * smpl, int n_
         fflush(stdout);
 
         // eval the token
-        llama_batch_ext_clear(ctx.batch.get());
+        ctx.batch.clear();
         ctx.batch.add_text(token_id, ctx.n_past++, 0, true);
         if (llama_decode_ext(ctx.lctx, ctx.batch.get())) {
             LOG_ERR("failed to decode token\n");

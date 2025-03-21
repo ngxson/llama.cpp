@@ -17,7 +17,7 @@ static std::vector<std::vector<float>> encode(llama_context * ctx, const std::ve
     llama_batch_ext_ptr batch(llama_batch_ext_init(llama_n_batch(ctx), 1));
 
     for (uint64_t i = 0; i < sentences.size(); i++) {
-        llama_batch_ext_clear(batch.get());
+        batch.clear();
 
         const std::string input_string = instruction + sentences[i];
 
@@ -111,7 +111,7 @@ static std::string generate(llama_context * ctx, llama_sampler * smpl, const std
     int32_t i_current_token = 0;
 
     while (true) {
-        llama_batch_ext_clear(batch.get());
+        batch.clear();
         {
             const int32_t n_inputs = inputs.size();
 
@@ -123,7 +123,7 @@ static std::string generate(llama_context * ctx, llama_sampler * smpl, const std
 
         llama_decode_ext(ctx, batch.get());
 
-        llama_token token = llama_sampler_sample(smpl, ctx, llama_batch_ext_get_n_tokens(batch.get()) - 1);
+        llama_token token = llama_sampler_sample(smpl, ctx, batch.n_tokens() - 1);
 
         if (token == eos_token) {
             break;

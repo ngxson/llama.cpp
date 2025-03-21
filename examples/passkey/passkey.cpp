@@ -141,7 +141,7 @@ int main(int argc, char ** argv) {
             n_past = llama_kv_self_seq_pos_max(ctx, 0) + 1;
         }
 
-        llama_batch_ext_clear(batch.get());
+        batch.clear();
 
         for (int j = 0; j < n_batch && i + j < n_tokens_all; j++) {
             batch.add_text(tokens_list[i + j], n_past++, 0, false);
@@ -175,7 +175,7 @@ int main(int argc, char ** argv) {
 
         n_past = llama_kv_self_seq_pos_max(ctx, 0) + 1;
 
-        llama_batch_ext_clear(batch.get());
+        batch.clear();
 
         for (int j = 0; j < n_batch && i + j < n_tokens_all; j++) {
             batch.add_text(tokens_list[i + j], n_past++, 0, false);
@@ -224,7 +224,7 @@ int main(int argc, char ** argv) {
     while (n_cur <= n_len) {
         // sample the next token
         {
-            const llama_token new_token_id = llama_sampler_sample(smpl, ctx, llama_batch_ext_get_n_tokens(batch.get()) - 1);
+            const llama_token new_token_id = llama_sampler_sample(smpl, ctx, batch.n_tokens() - 1);
 
             // is it an end of generation?
             if (llama_vocab_is_eog(vocab, new_token_id) || n_cur == n_len) {
@@ -238,7 +238,7 @@ int main(int argc, char ** argv) {
             n_decode += 1;
 
             // prepare the next batch
-            llama_batch_ext_clear(batch.get());
+            batch.clear();
 
             // push this new token for next evaluation
             llama_seq_id seq_id = 0;

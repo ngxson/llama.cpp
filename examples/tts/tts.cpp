@@ -837,7 +837,7 @@ lovely<|t_0.56|><|code_start|><|634|><|596|><|1766|><|1556|><|1306|><|1285|><|14
         for (size_t i = 0; i < prompt_inp.size(); ++i) {
             batch.add_text(prompt_inp[i], i, seq_ids, false);
         }
-        GGML_ASSERT(llama_batch_ext_get_n_tokens(batch.get()) == (int) prompt_inp.size());
+        GGML_ASSERT(batch.n_tokens() == (int) prompt_inp.size());
 
         // llama_decode will output logits only for the last token of the prompt
         llama_batch_ext_set_output_last(batch.get());
@@ -861,16 +861,16 @@ lovely<|t_0.56|><|code_start|><|634|><|596|><|1766|><|1556|><|1306|><|1285|><|14
 
         // remember the batch index of the last token for each parallel sequence
         // we need this to determine which logits to sample from
-        std::vector<int32_t> i_batch(n_parallel, llama_batch_ext_get_n_tokens(batch.get()) - 1);
+        std::vector<int32_t> i_batch(n_parallel, batch.n_tokens() - 1);
 
-        int n_past   = llama_batch_ext_get_n_tokens(batch.get());
+        int n_past   = batch.n_tokens();
         int n_decode = 0;
 
         bool next_token_uses_guide_token = true;
 
         while (n_decode <= n_predict) {
             // prepare the next batch
-            llama_batch_ext_clear(batch.get());
+            batch.clear();
 
             // sample the next token for each parallel sequence / stream
             for (int32_t i = 0; i < n_parallel; ++i) {
@@ -926,14 +926,14 @@ lovely<|t_0.56|><|code_start|><|634|><|596|><|1766|><|1556|><|1306|><|1285|><|14
                     //LOG_CNT("%d", i);
                 }
 
-                i_batch[i] = llama_batch_ext_get_n_tokens(batch.get());
+                i_batch[i] = batch.n_tokens();
 
                 // push this new token for next evaluation
                 batch.add_text(new_token_id, n_past, i, true);
             }
 
             // all streams are finished
-            if (llama_batch_ext_get_n_tokens(batch.get()) == 0) {
+            if (batch.n_tokens() == 0) {
                 break;
             }
 
@@ -1019,7 +1019,7 @@ lovely<|t_0.56|><|code_start|><|634|><|596|><|1766|><|1556|><|1306|><|1285|><|14
     for (size_t i = 0; i < codes.size(); ++i) {
         batch.add_text(codes[i], i, 0, true); // TODO: all logits?
     }
-    GGML_ASSERT(llama_batch_ext_get_n_tokens(batch.get()) == n_codes);
+    GGML_ASSERT(batch.n_tokens() == n_codes);
 
     if (llama_decode_ext(ctx_cts, batch.get()) != 0) {
         LOG_ERR("%s: llama_decode() failed\n", __func__);

@@ -111,14 +111,14 @@ int main(int argc, char ** argv) {
         // prepare a batch for the prompt
         llama_pos n_past = 0;
         auto batch = llama_batch_ext_ptr::init_from_text(prompt_tokens.data(), prompt_tokens.size(), n_past, 0, true);
-        n_past += llama_batch_ext_get_n_tokens(batch.get());
+        n_past += batch.n_tokens();
 
         llama_token new_token_id;
         while (true) {
             // check if we have enough space in the context to evaluate this batch
             int n_ctx = llama_n_ctx(ctx);
             int n_ctx_used = llama_kv_self_used_cells(ctx);
-            if (n_ctx_used + llama_batch_ext_get_n_tokens(batch.get()) > n_ctx) {
+            if (n_ctx_used + batch.n_tokens() > n_ctx) {
                 printf("\033[0m\n");
                 fprintf(stderr, "context size exceeded\n");
                 exit(0);
@@ -148,7 +148,7 @@ int main(int argc, char ** argv) {
             response += piece;
 
             // prepare the next batch with the sampled token
-            llama_batch_ext_clear(batch.get());
+            batch.clear();
             batch.add_text(new_token_id, n_past, 0, true);
             n_past++;
         }

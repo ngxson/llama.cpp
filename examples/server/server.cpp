@@ -2428,7 +2428,7 @@ struct server_context {
             res->embedding.push_back(embd_res);
         } else {
             GGML_ABORT("embeddings without pooling is not supported yet");
-            //for (int i = 0; i < llama_batch_ext_get_n_tokens(batch.get()); ++i) {
+            //for (int i = 0; i < batch.n_tokens(); ++i) {
             //    auto tok = batch.tokens[i];
             //    if (!tok.logits || tok.seq_id != slot.id) {
             //        continue;
@@ -2850,7 +2850,7 @@ struct server_context {
         }
 
         // start populating the batch for this iteration
-        llama_batch_ext_clear(batch.get());
+        batch.clear();
 
         // track if given slot can be batched with slots already in the batch
         server_slot * slot_batched = nullptr;
@@ -2872,7 +2872,7 @@ struct server_context {
                 continue;
             }
 
-            slot.i_batch = llama_batch_ext_get_n_tokens(batch.get());
+            slot.i_batch = batch.n_tokens();
 
             batch.add_text(slot.sampled, slot.n_past, slot.id, true);
 
@@ -2891,7 +2891,7 @@ struct server_context {
         int32_t n_ubatch = llama_n_ubatch(ctx);
 
         // next, batch any pending prompts without exceeding n_batch
-        if (params_base.cont_batching || llama_batch_ext_get_n_tokens(batch.get()) == 0) {
+        if (params_base.cont_batching || batch.n_tokens() == 0) {
             for (auto & slot : slots) {
                 // check if we can batch this slot with the previous one
                 if (slot.is_processing()) {
@@ -3057,7 +3057,7 @@ struct server_context {
                     // non-causal tasks require to fit the entire prompt in the physical batch
                     if (slot.is_non_causal()) {
                         // cannot fit the prompt in the current batch - will try next iter
-                        if (llama_batch_ext_get_n_tokens(batch.get()) + slot.n_prompt_tokens > n_batch) {
+                        if (batch.n_tokens() + slot.n_prompt_tokens > n_batch) {
                             continue;
                         }
                     }
@@ -3077,7 +3077,7 @@ struct server_context {
                     slot.cache_tokens.resize(slot.n_past);
 
                     // add prompt tokens for processing in the current batch
-                    while (slot.n_past < slot.n_prompt_tokens && llama_batch_ext_get_n_tokens(batch.get()) < n_batch) {
+                    while (slot.n_past < slot.n_prompt_tokens && batch.n_tokens() < n_batch) {
                         // without pooling, we want to output the embeddings for all the tokens in the batch
                         const bool need_embd = slot.task_type == SERVER_TASK_TYPE_EMBEDDING && llama_pooling_type(slot.ctx) == LLAMA_POOLING_TYPE_NONE;
 
@@ -3092,13 +3092,13 @@ struct server_context {
                     }
 
                     SLT_INF(slot, "prompt processing progress, n_past = %d, n_tokens = %d, progress = %f\n",
-                            slot.n_past, llama_batch_ext_get_n_tokens(batch.get()), (float) slot.n_prompt_tokens_processed / slot.n_prompt_tokens);
+                            slot.n_past, batch.n_tokens(), (float) slot.n_prompt_tokens_processed / slot.n_prompt_tokens);
 
                     // entire prompt has been processed
                     if (slot.n_past == slot.n_prompt_tokens) {
                         slot.state = SLOT_STATE_DONE_PROMPT;
 
-                        GGML_ASSERT(llama_batch_ext_get_n_tokens(batch.get()) > 0);
+                        GGML_ASSERT(batch.n_tokens() > 0);
 
                         common_sampler_reset(slot.smpl);
 
@@ -3111,24 +3111,24 @@ struct server_context {
                         llama_batch_ext_set_output_last(batch.get());
 
                         slot.n_decoded = 0;
-                        slot.i_batch   = llama_batch_ext_get_n_tokens(batch.get()) - 1;
+                        slot.i_batch   = batch.n_tokens() - 1;
 
-                        SLT_INF(slot, "prompt done, n_past = %d, n_tokens = %d\n", slot.n_past, llama_batch_ext_get_n_tokens(batch.get()));
+                        SLT_INF(slot, "prompt done, n_past = %d, n_tokens = %d\n", slot.n_past, batch.n_tokens());
                     }
                 }
 
-                if (llama_batch_ext_get_n_tokens(batch.get()) >= n_batch) {
+                if (batch.n_tokens() >= n_batch) {
                     break;
                 }
             }
         }
 
-        if (llama_batch_ext_get_n_tokens(batch.get()) == 0) {
+        if (batch.n_tokens() == 0) {
             SRV_WRN("%s", "no tokens to decode\n");
             return;
         }
 
-        SRV_DBG("decoding batch, n_tokens = %d\n", llama_batch_ext_get_n_tokens(batch.get()));
+        SRV_DBG("decoding batch, n_tokens = %d\n", batch.n_tokens());
 
         if (slot_batched) {
             // make sure we're in the right embedding mode
@@ -3138,8 +3138,8 @@ struct server_context {
         }
 
         // process the created batch of tokens
-        for (int32_t i = 0; i < llama_batch_ext_get_n_tokens(batch.get()); i += n_batch) {
-            const int32_t n_tokens = std::min(n_batch, llama_batch_ext_get_n_tokens(batch.get()) - i);
+        for (int32_t i = 0; i < batch.n_tokens(); i += n_batch) {
+            const int32_t n_tokens = std::min(n_batch, batch.n_tokens() - i);
 
             llama_batch_ext_ptr batch_view(llama_batch_ext_get_view(batch.get(), i, n_tokens));
 
@@ -3278,14 +3278,14 @@ struct server_context {
                 }
 
                 // construct the speculation batch
-                llama_batch_ext_clear(slot.batch_spec.get());
+                slot.batch_spec.clear();
                 slot.batch_spec.add_text(id, slot.n_past, slot.id, true);
 
                 for (size_t i = 0; i < draft.size(); ++i) {
                     slot.batch_spec.add_text(draft[i], slot.n_past + 1 + i, slot.id, true);
                 }
 
-                SLT_DBG(slot, "decoding speculative batch, size = %d\n", llama_batch_ext_get_n_tokens(slot.batch_spec.get()));
+                SLT_DBG(slot, "decoding speculative batch, size = %d\n", slot.batch_spec.n_tokens());
 
                 llama_decode_ext(ctx, slot.batch_spec.get());
 

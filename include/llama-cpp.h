@@ -83,4 +83,12 @@ struct llama_batch_ext_ptr : std::unique_ptr<llama_batch_ext, llama_batch_ext_de
         }
         return output_id;
     }
+
+    void clear() {
+        llama_batch_ext_clear(this->get());
+    }
+
+    int32_t n_tokens() const {
+        return llama_batch_ext_get_n_tokens(this->get());
+    }
 };

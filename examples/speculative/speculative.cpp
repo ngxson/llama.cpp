@@ -444,7 +444,7 @@ int main(int argc, char ** argv) {
             drafts[0].dists.push_back(std::vector<llama_token_data>());
             drafts[0].i_batch_tgt.push_back(0);
 
-            llama_batch_ext_clear(batch_dft.get());
+            batch_dft.clear();
             batch_dft.add_text(token_id, n_past_dft, 0, true);
 
             llama_kv_self_seq_rm(ctx_dft, 0, n_past_dft, -1);
@@ -486,7 +486,7 @@ int main(int argc, char ** argv) {
 
         // sample n_draft tokens from the draft model using tree-based sampling
         for (int i = 0; i < n_draft; ++i) {
-            llama_batch_ext_clear(batch_dft.get());
+            batch_dft.clear();
 
             for (int s = 0; s < n_seq_dft; ++s) {
                 drafts[s].skip = false;
@@ -576,7 +576,7 @@ int main(int argc, char ** argv) {
             }
 
             // no sequence is drafting anymore
-            if (llama_batch_ext_get_n_tokens(batch_dft.get()) == 0) {
+            if (batch_dft.n_tokens() == 0) {
                 break;
             }
 
@@ -597,7 +597,7 @@ int main(int argc, char ** argv) {
                 llama_kv_self_seq_cp(ctx_tgt, 0, s, -1, -1);
             }
 
-            llama_batch_ext_clear(batch_tgt.get());
+            batch_tgt.clear();
             for (int i = 0; i < (int) batch_tgt_data.size(); ++i) {
                 const auto & data = batch_tgt_data[i];
 

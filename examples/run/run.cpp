@@ -954,7 +954,7 @@ static int tokenize_prompt(const llama_vocab * vocab, const std::string & prompt
 static int check_context_size(const llama_context_ptr & ctx, const llama_batch_ext_ptr & batch) {
     const int n_ctx      = llama_n_ctx(ctx.get());
     const int n_ctx_used = llama_kv_self_used_cells(ctx.get());
-    if (n_ctx_used + llama_batch_ext_get_n_tokens(batch.get()) > n_ctx) {
+    if (n_ctx_used + batch.n_tokens() > n_ctx) {
         printf(LOG_COL_DEFAULT "\n");
         printe("context size exceeded\n");
         return 1;
@@ -1001,7 +1001,7 @@ static int generate(LlamaData & llama_data, const std::string & prompt, std::str
             return 1;
         }
 
-        llama_data.n_past += llama_batch_ext_get_n_tokens(batch.get());
+        llama_data.n_past += batch.n_tokens();
 
         // sample the next token, check is it an end of generation?
         new_token_id = llama_sampler_sample(llama_data.sampler.get(), llama_data.context.get(), -1);

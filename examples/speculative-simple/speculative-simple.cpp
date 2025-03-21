@@ -153,7 +153,7 @@ int main(int argc, char ** argv) {
         //LOG_DBG("draft: %s\n", string_from(ctx_dft, draft).c_str());
 
         // always have a token to evaluate from before - id_last
-        llama_batch_ext_clear(batch_tgt.get());
+        batch_tgt.clear();
         batch_tgt.add_text(id_last, n_past++, 0, true);
 
         // evaluate the target model on [id_last, draft0, draft1, ..., draftN-1]

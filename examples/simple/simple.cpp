@@ -152,14 +152,14 @@ int main(int argc, char ** argv) {
     int n_decode = 0;
     llama_token new_token_id;
 
-    for (int n_pos = 0; n_pos + llama_batch_ext_get_n_tokens(batch.get()) < n_prompt + n_predict; ) {
+    for (int n_pos = 0; n_pos + batch.n_tokens() < n_prompt + n_predict; ) {
         // evaluate the current batch with the transformer model
         if (llama_decode_ext(ctx, batch.get())) {
             fprintf(stderr, "%s : failed to eval, return code %d\n", __func__, 1);
             return 1;
         }
 
-        n_pos += llama_batch_ext_get_n_tokens(batch.get());
+        n_pos += batch.n_tokens();
 
         // sample the next token
         {
@@ -181,7 +181,7 @@ int main(int argc, char ** argv) {
             fflush(stdout);
 
             // prepare the next batch with the sampled token
-            llama_batch_ext_clear(batch.get());
+            batch.clear();
             batch.add_text(new_token_id, n_pos, 0, true);
 
             n_decode += 1;
