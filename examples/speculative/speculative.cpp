@@ -333,7 +333,7 @@ int main(int argc, char ** argv) {
                         }
 
                         active_seqs.erase(s);
-                        for(int i = 0; i < n_seq_dft; i++) {
+                        for (int i = 0; i < n_seq_dft; i++) {
                             if (i == s) {
                                 continue;
                             }

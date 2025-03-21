@@ -1154,6 +1154,8 @@ int llama_context::encode(llama_batch_ext & inp_batch) {
     if (model.arch == LLM_ARCH_T5 && t_embd) {
         //cross.t_embd = t_embd;
 
+        synchronize();
+
         cross.n_embd = t_embd->ne[0];
         cross.n_enc  = t_embd->ne[1];
         cross.v_embd.resize(cross.n_embd*cross.n_enc);
@@ -1162,6 +1164,7 @@ int llama_context::encode(llama_batch_ext & inp_batch) {
         // remember the sequence ids used during the encoding - needed for cross attention later
         cross.seq_ids_enc.resize(n_tokens);
         for (int32_t i = 0; i < n_tokens; i++) {
+            cross.seq_ids_enc[i].clear();
             for (int s = 0; s < ubatch.n_seq_id[i]; s++) {
                 llama_seq_id seq_id = ubatch.seq_id[i][s];
                 cross.seq_ids_enc[i].insert(seq_id);
