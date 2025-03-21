@@ -64,4 +64,31 @@ struct llama_batch_ext_ptr : std::unique_ptr<llama_batch_ext, llama_batch_ext_de
                                        llama_seq_id   seq_id) {
         return llama_batch_ext_ptr(llama_batch_ext_init_from_embd(embd, n_tokens, n_embd, pos0, seq_id));
     }
+
+    // Wrapper to add a sequence of tokens to the batch
+    void add_seq(const std::vector<llama_token> & tokens, llama_pos pos0, llama_seq_id seq_id, bool output_last) {
+        size_t n_tokens = tokens.size();
+        for (size_t i = 0; i < n_tokens; i++) {
+            llama_batch_ext_add_text(this->get(), tokens[i], i + pos0, &seq_id, 1, false);
+        }
+        if (output_last) {
+            llama_batch_ext_set_output_last(this->get());
+        }
+    }
+
+    // Wrapper to add a single token to the batch, support multiple sequence IDs
+    void add_text(llama_token token, llama_pos pos, std::vector<llama_seq_id> & seq_id, bool output_last) {
+        llama_batch_ext_add_text(this->get(), token, pos, seq_id.data(), seq_id.size(), false);
+        if (output_last) {
+            llama_batch_ext_set_output_last(this->get());
+        }
+    }
+
+    // Wrapper to add a single token to the batch (single sequence ID)
+    void add_text(llama_token token, llama_pos pos, llama_seq_id seq_id, bool output_last) {
+        llama_batch_ext_add_text(this->get(), token, pos, &seq_id, 1, false);
+        if (output_last) {
+            llama_batch_ext_set_output_last(this->get());
+        }
+    }
 };

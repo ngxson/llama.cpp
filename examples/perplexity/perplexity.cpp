@@ -371,8 +371,7 @@ static results_perplexity perplexity_v2(llama_context * ctx, const common_params
 
             llama_batch_ext_clear(batch.get());
             for (int i = 0; i < batch_size; i++) {
-                llama_seq_id seq_id = 0;
-                llama_batch_ext_add_text(batch.get(), tokens[batch_start + i], j*n_batch + i, &seq_id, 1, true);
+                batch.add_text(tokens[batch_start + i], j*n_batch + i, 0, true);
             }
 
             //LOG_DBG("    Batch %d: starts at %d, size is %d, n_past is %d\n",j,batch_start,batch_size,j * n_batch);
@@ -568,7 +567,7 @@ static results_perplexity perplexity(llama_context * ctx, const common_params & 
                 for (int k = 0; k < batch_size; ++k) {
                     const llama_pos pos = j*n_batch + k;
                     bool output = pos >= first;
-                    llama_batch_ext_add_text(batch.get(), tokens[seq_start + k], pos, &seq, 1, output);
+                    batch.add_text(tokens[seq_start + k], pos, seq, output);
 
                     n_outputs += output ? 1 : 0;
                 }
@@ -864,7 +863,7 @@ static void hellaswag_score(llama_context * ctx, const common_params & params) {
 
             for (size_t i = 0; i < hs_cur.common_prefix; ++i) {
                 std::vector<llama_seq_id> seq_ids = { s0 + 0, s0 + 1, s0 + 2, s0 + 3 };
-                llama_batch_ext_add_text(batch.get(), hs_cur.seq_tokens[0][i], i, seq_ids.data(), seq_ids.size(), false);
+                batch.add_text(hs_cur.seq_tokens[0][i], i, seq_ids, false);
             }
             llama_batch_ext_set_output_last(batch.get());
             n_logits += 1;
@@ -875,7 +874,7 @@ static void hellaswag_score(llama_context * ctx, const common_params & params) {
                 for (size_t i = hs_cur.common_prefix; i < seq_tokens_size; ++i) {
                     const bool needs_logits = i < seq_tokens_size - 1;
                     llama_seq_id seq_id = s0 + s;
-                    llama_batch_ext_add_text(batch.get(), hs_cur.seq_tokens[s][i], i, &seq_id, 1, needs_logits);
+                    batch.add_text(hs_cur.seq_tokens[s][i], i, seq_id, needs_logits);
                     n_logits += needs_logits;
                 }
             }
@@ -1143,7 +1142,7 @@ static void winogrande_score(llama_context * ctx, const common_params & params) 
 
             for (size_t i = 0; i < data[i1].common_prefix; ++i) {
                 std::vector<llama_seq_id> seq_ids{ s0 + 0, s0 + 1 };
-                llama_batch_ext_add_text(batch.get(), data[i1].seq_tokens[0][i], i, seq_ids.data(), seq_ids.size(), false);
+                batch.add_text(data[i1].seq_tokens[0][i], i, seq_ids, false);
             }
             llama_batch_ext_set_output_last(batch.get());
             n_logits += 1;
@@ -1151,8 +1150,7 @@ static void winogrande_score(llama_context * ctx, const common_params & params) 
             for (int s = 0; s < 2; ++s) {
                 // TODO: end before the last token, no need to predict past the end of the sequences
                 for (size_t i = data[i1].common_prefix; i < data[i1].seq_tokens[s].size(); ++i) {
-                    llama_seq_id seq_id = s0 + s;
-                    llama_batch_ext_add_text(batch.get(), data[i1].seq_tokens[s][i], i, &seq_id, 1, true);
+                    batch.add_text(data[i1].seq_tokens[s][i], i, s0 + s, true);
                     n_logits += 1;
                 }
             }
@@ -1511,7 +1509,7 @@ static void multiple_choice_score(llama_context * ctx, const common_params & par
             }
 
             for (size_t i = 0; i < cur_task.common_prefix; ++i) {
-                llama_batch_ext_add_text(batch.get(), cur_task.seq_tokens[0][i], i, batch_indeces.data(), batch_indeces.size(), false);
+                batch.add_text(cur_task.seq_tokens[0][i], i, batch_indeces, false);
             }
             llama_batch_ext_set_output_last(batch.get()); // we need logits for the last token of the common prefix
             n_logits += 1;
@@ -1521,8 +1519,7 @@ static void multiple_choice_score(llama_context * ctx, const common_params & par
                 // TODO: don't evaluate the last token of each sequence
                 for (size_t i = cur_task.common_prefix; i < seq_tokens_size; ++i) {
                     const bool needs_logits = i < seq_tokens_size - 1;
-                    llama_seq_id seq_id = { s0 + s };
-                    llama_batch_ext_add_text(batch.get(), cur_task.seq_tokens[s][i], i, &seq_id, 1, needs_logits);
+                    batch.add_text(cur_task.seq_tokens[s][i], i, s0 + s, needs_logits);
                     n_logits += needs_logits;
                 }
             }
@@ -1749,8 +1746,7 @@ static void kl_divergence(llama_context * ctx, const common_params & params) {
 
             llama_batch_ext_clear(batch.get());
             for (int i = 0; i < batch_size; i++) {
-                llama_seq_id seq_id = 0;
-                llama_batch_ext_add_text(batch.get(), tokens[batch_start + i], j*n_batch + i, &seq_id, 1, true);
+                batch.add_text(tokens[batch_start + i], j*n_batch + i, 0, true);
             }
 
             if (llama_decode_ext(ctx, batch.get())) {
