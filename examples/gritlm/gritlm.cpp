@@ -1,6 +1,7 @@
 #include "arg.h"
 #include "common.h"
 #include "llama.h"
+#include "llama-cpp.h"
 
 #include <string>
 #include <vector>
@@ -13,10 +14,10 @@ static std::vector<std::vector<float>> encode(llama_context * ctx, const std::ve
     const llama_model * model = llama_get_model(ctx);
     const llama_vocab * vocab = llama_model_get_vocab(model);
 
-    llama_batch_ext * batch = llama_batch_ext_init(llama_n_batch(ctx), 1);
+    llama_batch_ext_ptr batch(llama_batch_ext_init(llama_n_batch(ctx), 1));
 
     for (uint64_t i = 0; i < sentences.size(); i++) {
-        llama_batch_ext_clear(batch);
+        llama_batch_ext_clear(batch.get());
 
         const std::string input_string = instruction + sentences[i];
 
@@ -41,8 +42,7 @@ static std::vector<std::vector<float>> encode(llama_context * ctx, const std::ve
 
         // add input to batch (this increments n_tokens)
         for (int32_t j = 0; j < n_toks; j++) {
-            const llama_seq_id seq_id = 0;
-            llama_batch_ext_add_text(batch, inputs[j], j, &seq_id, 1 , j >= n_inst);
+            batch.add_text(inputs[j], j, 0, j >= n_inst);
         }
 
         // clear previous kv_cache values (irrelevant for embeddings)
@@ -51,7 +51,7 @@ static std::vector<std::vector<float>> encode(llama_context * ctx, const std::ve
         llama_set_causal_attn(ctx, false);
 
         // run model
-        llama_decode_ext(ctx, batch);
+        llama_decode_ext(ctx, batch.get());
 
         // get embedding dimensions
         uint64_t n_embd = llama_model_n_embd(model);
@@ -90,8 +90,6 @@ static std::vector<std::vector<float>> encode(llama_context * ctx, const std::ve
 #endif
     }
 
-    llama_batch_ext_free(batch);
-
     return result;
 }
 
@@ -107,26 +105,25 @@ static std::string generate(llama_context * ctx, llama_sampler * smpl, const std
     llama_set_embeddings(ctx, false);
     llama_set_causal_attn(ctx, true);
 
-    llama_batch_ext * bat = llama_batch_ext_init(llama_n_batch(ctx), 1);
+    llama_batch_ext_ptr batch(llama_batch_ext_init(llama_n_batch(ctx), 1));
 
     std::vector<llama_token> inputs = common_tokenize(vocab, prompt, false, true);
     int32_t i_current_token = 0;
 
     while (true) {
-        llama_batch_ext_clear(bat);
+        llama_batch_ext_clear(batch.get());
         {
             const int32_t n_inputs = inputs.size();
 
             for (int32_t i = 0; i < n_inputs; i++) {
-                const llama_seq_id seq_id = 0;
-                llama_batch_ext_add_text(bat, inputs[i], i_current_token++, &seq_id, 1, i == n_inputs - 1);
+                batch.add_text(inputs[i], i_current_token++, 0, i == n_inputs - 1);
             }
         }
         inputs.clear();
 
-        llama_decode_ext(ctx, bat);
+        llama_decode_ext(ctx, batch.get());
 
-        llama_token token = llama_sampler_sample(smpl, ctx, llama_batch_ext_get_n_tokens(bat) - 1);
+        llama_token token = llama_sampler_sample(smpl, ctx, llama_batch_ext_get_n_tokens(batch.get()) - 1);
 
         if (token == eos_token) {
             break;
@@ -146,8 +143,6 @@ static std::string generate(llama_context * ctx, llama_sampler * smpl, const std
     if (stream) {
         std::printf("\n");
     }
-
-    llama_batch_ext_free(bat);
 
     return result;
 }

@@ -149,8 +149,7 @@ int main(int argc, char ** argv) {
 
             // prepare the next batch with the sampled token
             llama_batch_ext_clear(batch.get());
-            llama_seq_id seq_id = 0;
-            llama_batch_ext_add_text(batch.get(), new_token_id, n_past, &seq_id, 1, true);
+            batch.add_text(new_token_id, n_past, 0, true);
             n_past++;
         }
 

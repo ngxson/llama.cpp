@@ -101,8 +101,7 @@ static bool eval_tokens(struct llama_context * ctx_llama, std::vector<llama_toke
         llama_batch_ext_ptr batch(llama_batch_ext_init(n_eval, 1));
         for (int j = 0; j < n_eval; j++) {
             llama_token token = tokens[i + j];
-            llama_seq_id seq_id = 0;
-            llama_batch_ext_add_text(batch.get(), token, pos[j], &seq_id, 1, false);
+            batch.add_text(token, pos[j], 0, false);
         }
         llama_batch_ext_set_output_last(batch.get());
 

@@ -4,6 +4,7 @@
 #include "speculative.h"
 #include "log.h"
 #include "llama.h"
+#include "llama-cpp.h"
 
 #include <cstdio>
 #include <cstring>
@@ -133,7 +134,7 @@ int main(int argc, char ** argv) {
 
     struct common_speculative * spec = common_speculative_init(ctx_dft);
 
-    llama_batch_ext * batch_tgt = llama_batch_ext_init(llama_n_batch(ctx_tgt), 1);
+    llama_batch_ext_ptr batch_tgt(llama_batch_ext_init(llama_n_batch(ctx_tgt), 1));
 
     const auto t_enc_end = ggml_time_us();
 
@@ -152,9 +153,8 @@ int main(int argc, char ** argv) {
         //LOG_DBG("draft: %s\n", string_from(ctx_dft, draft).c_str());
 
         // always have a token to evaluate from before - id_last
-        llama_batch_ext_clear(batch_tgt);
-        llama_seq_id seq_id = 0;
-        llama_batch_ext_add_text(batch_tgt, id_last, n_past++, &seq_id, 1, true);
+        llama_batch_ext_clear(batch_tgt.get());
+        batch_tgt.add_text(id_last, n_past++, 0, true);
 
         // evaluate the target model on [id_last, draft0, draft1, ..., draftN-1]
         {
@@ -164,12 +164,12 @@ int main(int argc, char ** argv) {
             }
 
             for (size_t i = 0; i < draft.size(); ++i) {
-                llama_batch_ext_add_text(batch_tgt, draft[i], n_past + i, &seq_id, 1, true);
+                batch_tgt.add_text(draft[i], n_past + i, 0, true);
             }
 
             //LOG_DBG("target batch: %s\n", string_from(ctx_tgt, batch_tgt).c_str());
 
-            llama_decode_ext(ctx_tgt, batch_tgt);
+            llama_decode_ext(ctx_tgt, batch_tgt.get());
         }
 
         // sample from the full target batch and return the accepted tokens based on the target sampler
@@ -255,7 +255,6 @@ int main(int argc, char ** argv) {
     common_sampler_free(smpl);
     common_speculative_free(spec);
 
-    llama_batch_ext_free(batch_tgt);
     llama_backend_free();
 
     LOG("\n\n");

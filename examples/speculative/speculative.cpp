@@ -3,6 +3,7 @@
 #include "sampling.h"
 #include "log.h"
 #include "llama.h"
+#include "llama-cpp.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -201,8 +202,8 @@ int main(int argc, char ** argv) {
         drafts[s].smpl = common_sampler_init(model_dft, params.sampling);
     }
 
-    llama_batch_ext * batch_dft = llama_batch_ext_init(llama_n_batch(ctx_dft), 1);
-    llama_batch_ext * batch_tgt = llama_batch_ext_init(llama_n_batch(ctx_tgt), n_seq_dft);
+    llama_batch_ext_ptr batch_dft(llama_batch_ext_init(llama_n_batch(ctx_dft), 1));
+    llama_batch_ext_ptr batch_tgt(llama_batch_ext_init(llama_n_batch(ctx_tgt), n_seq_dft));
 
     const auto t_dec_start = ggml_time_us();
 
@@ -443,13 +444,12 @@ int main(int argc, char ** argv) {
             drafts[0].dists.push_back(std::vector<llama_token_data>());
             drafts[0].i_batch_tgt.push_back(0);
 
-            llama_batch_ext_clear(batch_dft);
-            llama_seq_id seq_id = 0;
-            llama_batch_ext_add_text(batch_dft, token_id, n_past_dft, &seq_id, 1, true);
+            llama_batch_ext_clear(batch_dft.get());
+            batch_dft.add_text(token_id, n_past_dft, 0, true);
 
             llama_kv_self_seq_rm(ctx_dft, 0, n_past_dft, -1);
             // LOG_DBG("dft batch: %s\n", LOG_BATCH_TOSTR_PRETTY(ctx_dft, batch_dft).c_str());
-            llama_decode_ext(ctx_dft, batch_dft);
+            llama_decode_ext(ctx_dft, batch_dft.get());
 
             ++n_past_dft;
         }
@@ -486,7 +486,7 @@ int main(int argc, char ** argv) {
 
         // sample n_draft tokens from the draft model using tree-based sampling
         for (int i = 0; i < n_draft; ++i) {
-            llama_batch_ext_clear(batch_dft);
+            llama_batch_ext_clear(batch_dft.get());
 
             for (int s = 0; s < n_seq_dft; ++s) {
                 drafts[s].skip = false;
@@ -567,7 +567,7 @@ int main(int argc, char ** argv) {
                     batch_tgt_data.push_back({ id, n_past_tgt + i + 1, { s }});
 
                     // add the token to the batch for batched decoding with the draft model
-                    drafts[s].i_batch_dft = llama_batch_ext_add_text(batch_dft, id, n_past_cur, &s, 1, true);
+                    drafts[s].i_batch_dft = batch_dft.add_text(id, n_past_cur, s, true);
 
                     if (batch_tgt_data.size() > (size_t) n_draft) {
                         drafts[s].drafting = false;
@@ -576,12 +576,12 @@ int main(int argc, char ** argv) {
             }
 
             // no sequence is drafting anymore
-            if (llama_batch_ext_get_n_tokens(batch_dft) == 0) {
+            if (llama_batch_ext_get_n_tokens(batch_dft.get()) == 0) {
                 break;
             }
 
             // evaluate the drafted tokens on the draft model
-            llama_decode_ext(ctx_dft, batch_dft);
+            llama_decode_ext(ctx_dft, batch_dft.get());
             ++n_past_cur;
             ++n_drafted;
 
@@ -597,15 +597,15 @@ int main(int argc, char ** argv) {
                 llama_kv_self_seq_cp(ctx_tgt, 0, s, -1, -1);
             }
 
-            llama_batch_ext_clear(batch_tgt);
+            llama_batch_ext_clear(batch_tgt.get());
             for (int i = 0; i < (int) batch_tgt_data.size(); ++i) {
                 const auto & data = batch_tgt_data[i];
 
-                llama_batch_ext_add_text(batch_tgt, data.id, data.pos, data.seq_id.data(), data.seq_id.size(), true);
+                batch_tgt.add_text(data.id, data.pos, data.seq_id, true);
             }
 
             // LOG_DBG("target batch: %s\n", LOG_BATCH_TOSTR_PRETTY(ctx_tgt, batch_tgt).c_str());
-            llama_decode_ext(ctx_tgt, batch_tgt);
+            llama_decode_ext(ctx_tgt, batch_tgt.get());
             ++n_past_tgt;
         }
 
@@ -647,9 +647,6 @@ int main(int argc, char ** argv) {
     for (int s = 0; s < n_seq_dft; ++s) {
         common_sampler_free(drafts[s].smpl);
     }
-
-    llama_batch_ext_free(batch_dft);
-    llama_batch_ext_free(batch_tgt);
 
     llama_backend_free();
 

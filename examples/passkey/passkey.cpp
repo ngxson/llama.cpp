@@ -144,8 +144,7 @@ int main(int argc, char ** argv) {
         llama_batch_ext_clear(batch.get());
 
         for (int j = 0; j < n_batch && i + j < n_tokens_all; j++) {
-            llama_seq_id seq_id = 0;
-            llama_batch_ext_add_text(batch.get(), tokens_list[i + j], n_past++, &seq_id, 1, false);
+            batch.add_text(tokens_list[i + j], n_past++, 0, false);
         }
 
         if (i + n_batch >= n_tokens_all) {
@@ -179,8 +178,7 @@ int main(int argc, char ** argv) {
         llama_batch_ext_clear(batch.get());
 
         for (int j = 0; j < n_batch && i + j < n_tokens_all; j++) {
-            llama_seq_id seq_id = 0;
-            llama_batch_ext_add_text(batch.get(), tokens_list[i + j], n_past++, &seq_id, 1, false);
+            batch.add_text(tokens_list[i + j], n_past++, 0, false);
         }
 
         if (i + n_batch >= n_tokens_all) {

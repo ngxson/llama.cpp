@@ -2874,7 +2874,7 @@ struct server_context {
 
             slot.i_batch = llama_batch_ext_get_n_tokens(batch.get());
 
-            llama_batch_ext_add_text(batch.get(), slot.sampled, slot.n_past, &slot.id, 1, true);
+            batch.add_text(slot.sampled, slot.n_past, slot.id, true);
 
             slot.n_past += 1;
 
@@ -3081,7 +3081,7 @@ struct server_context {
                         // without pooling, we want to output the embeddings for all the tokens in the batch
                         const bool need_embd = slot.task_type == SERVER_TASK_TYPE_EMBEDDING && llama_pooling_type(slot.ctx) == LLAMA_POOLING_TYPE_NONE;
 
-                        llama_batch_ext_add_text(batch.get(), prompt_tokens[slot.n_past], slot.n_past, &slot.id, 1, need_embd);
+                        batch.add_text(prompt_tokens[slot.n_past], slot.n_past, slot.id, need_embd);
 
                         if (slot.params.cache_prompt) {
                             slot.cache_tokens.push_back(prompt_tokens[slot.n_past]);
@@ -3279,10 +3279,10 @@ struct server_context {
 
                 // construct the speculation batch
                 llama_batch_ext_clear(slot.batch_spec.get());
-                llama_batch_ext_add_text(slot.batch_spec.get(), id, slot.n_past, &slot.id, 1, true);
+                slot.batch_spec.add_text(id, slot.n_past, slot.id, true);
 
                 for (size_t i = 0; i < draft.size(); ++i) {
-                    llama_batch_ext_add_text(slot.batch_spec.get(), draft[i], slot.n_past + 1 + i, &slot.id, 1, true);
+                    slot.batch_spec.add_text(draft[i], slot.n_past + 1 + i, slot.id, true);
                 }
 
                 SLT_DBG(slot, "decoding speculative batch, size = %d\n", llama_batch_ext_get_n_tokens(slot.batch_spec.get()));

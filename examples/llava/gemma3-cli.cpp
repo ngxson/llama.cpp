@@ -92,8 +92,7 @@ static int eval_text(gemma3_context & ctx, std::string input, bool logits_last =
     llama_tokens tokens = common_tokenize(ctx.lctx, input, false, true);
     llama_batch_ext_clear(ctx.batch.get());
     for (llama_token & t : tokens) {
-        llama_seq_id seq_id = 0;
-        llama_batch_ext_add_text(ctx.batch.get(), t, ctx.n_past++, &seq_id, 1, false);
+        ctx.batch.add_text(t, ctx.n_past++, 0, false);
     }
     if (logits_last) {
         llama_batch_ext_set_output_last(ctx.batch.get());
@@ -180,8 +179,7 @@ static int generate_response(gemma3_context & ctx, common_sampler * smpl, int n_
 
         // eval the token
         llama_batch_ext_clear(ctx.batch.get());
-        llama_seq_id seq_id = 0;
-        llama_batch_ext_add_text(ctx.batch.get(), token_id, ctx.n_past++, &seq_id, 1, true);
+        ctx.batch.add_text(token_id, ctx.n_past++, 0, true);
         if (llama_decode_ext(ctx.lctx, ctx.batch.get())) {
             LOG_ERR("failed to decode token\n");
             return 1;

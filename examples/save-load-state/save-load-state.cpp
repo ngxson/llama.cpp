@@ -80,8 +80,7 @@ int main(int argc, char ** argv) {
         result0 += next_token_str;
 
         llama_batch_ext_clear(batch.get());
-        llama_seq_id seq_id = 0;
-        llama_batch_ext_add_text(batch.get(), next_token, 0, &seq_id, 1, true);
+        batch.add_text(next_token, 0, 0, true);
 
         if (llama_decode_ext(ctx, batch.get())) {
             fprintf(stderr, "\n%s : failed to evaluate\n", __func__);
@@ -133,8 +132,7 @@ int main(int argc, char ** argv) {
         result1 += next_token_str;
 
         llama_batch_ext_clear(batch.get());
-        llama_seq_id seq_id = 0;
-        llama_batch_ext_add_text(batch.get(), next_token, 0, &seq_id, 1, true);
+        batch.add_text(next_token, 0, 0, true);
 
         if (llama_decode_ext(ctx2, batch.get())) {
             fprintf(stderr, "\n%s : failed to evaluate\n", __func__);
@@ -215,8 +213,7 @@ int main(int argc, char ** argv) {
         result2 += next_token_str;
 
         llama_batch_ext_clear(batch.get());
-        llama_seq_id seq_id = 1; // seq 1 instead of 0
-        llama_batch_ext_add_text(batch.get(), next_token, 0, &seq_id, 1, true);
+        batch.add_text(next_token, 0, 1, true);
 
         if (llama_decode_ext(ctx3, batch.get())) {
             fprintf(stderr, "\n%s : failed to evaluate\n", __func__);
