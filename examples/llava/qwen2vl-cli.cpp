@@ -68,7 +68,7 @@ static bool qwen2vl_eval_image_embed(llama_context * ctx_llama, const struct lla
 
         float * batch_embd = image_embed->embed+i*n_embd;
         auto batch = llama_batch_ext_ptr::init_from_embd(batch_embd, n_eval, n_embd, 0, 0);
-        llama_batch_ext_set_pos(batch.get(), batch_mrope_pos.data(), n_eval);
+        llama_batch_ext_set_pos(batch.get(), batch_mrope_pos.data(), n_eval * 4);
 
         if (llama_decode_ext(ctx_llama, batch.get())) {
             LOG_ERR("%s : failed to eval\n", __func__);
@@ -91,18 +91,18 @@ static bool eval_tokens(struct llama_context * ctx_llama, std::vector<llama_toke
         }
 
         // TODO: add mrope pos ids somewhere else
-        int n_tokens = n_eval;
-        pos.resize(n_tokens * 4);
+        pos.resize(n_eval * 4);
         std::fill(pos.begin(), pos.end(), 0);
-        for (int j = 0; j < n_tokens * 3; j ++) {
-            pos[j] = *st_pos_id + (j % n_tokens);
+        for (int j = 0; j < n_eval * 3; j ++) {
+            pos[j] = *st_pos_id + (j % n_eval);
         }
 
         llama_batch_ext_ptr batch(llama_batch_ext_init(n_eval, 1));
         for (int j = 0; j < n_eval; j++) {
             llama_token token = tokens[i + j];
-            batch.add_text(token, pos[j], 0, false);
+            batch.add_text(token, 0, 0, false); // position is set in the next step
         }
+        llama_batch_ext_set_pos(batch.get(), pos.data(), pos.size());
         llama_batch_ext_set_output_last(batch.get());
 
         if (llama_decode_ext(ctx_llama, batch.get())) {

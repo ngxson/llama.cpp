@@ -603,7 +603,9 @@ llm_graph_context::llm_graph_context(const llm_graph_params & params) :
     }
 
 int64_t llm_graph_context::n_pos_per_token() const {
-    return arch == LLM_ARCH_QWEN2VL ? 4 : 1;
+    constexpr int64_t n_pos_per_token_qwen2vl = 4;
+    static_assert(n_pos_per_token_qwen2vl <= MAX_POS_PER_TOKEN);
+    return arch == LLM_ARCH_QWEN2VL ? n_pos_per_token_qwen2vl : 1;
 }
 
 void llm_graph_context::cb(ggml_tensor * cur, const char * name, int il) const {

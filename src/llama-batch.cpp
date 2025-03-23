@@ -1,4 +1,5 @@
 #include "llama-batch.h"
+#include "llama-graph.h"
 
 #include <cstring>
 #include <algorithm>
@@ -356,7 +357,7 @@ static struct llama_batch_ext * llama_batch_ext_init_impl(int32_t n_tokens_alloc
         batch->token = (llama_token *) malloc(sizeof(llama_token) * n_tokens_alloc);
     }
 
-    batch->pos      = (llama_pos *)     malloc(sizeof(llama_pos)      * n_tokens_alloc);
+    batch->pos      = (llama_pos *)     malloc(sizeof(llama_pos)      * n_tokens_alloc * MAX_POS_PER_TOKEN);
     batch->n_seq_id = (int32_t *)       malloc(sizeof(int32_t)        * n_tokens_alloc);
     batch->seq_id   = (llama_seq_id **) malloc(sizeof(llama_seq_id *) * (n_tokens_alloc + 1));
     for (int i = 0; i < n_tokens_alloc; ++i) {
@@ -390,7 +391,7 @@ struct llama_batch_ext * llama_batch_ext_init_from_embd(
 }
 
 int32_t llama_batch_ext_set_pos(struct llama_batch_ext * batch, llama_pos * pos, size_t n_pos) {
-    if ((size_t) batch->n_tokens != n_pos) {
+    if ((size_t) batch->n_tokens * MAX_POS_PER_TOKEN < n_pos) {
         return -1;
     }
     memcpy(batch->pos, pos, n_pos * sizeof(llama_pos));

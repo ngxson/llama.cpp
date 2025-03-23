@@ -10,6 +10,8 @@
 #include <set>
 #include <functional>
 
+#define MAX_POS_PER_TOKEN 4
+
 struct ggml_cgraph;
 struct ggml_context;
 struct ggml_tensor;
