@@ -158,8 +158,6 @@ int main(int argc, char ** argv) {
 
     LOG_INF("\n\n");
 
-    const int n_ctx = llama_n_ctx(ctx);
-
     std::vector<client> clients(n_clients);
     for (size_t i = 0; i < clients.size(); ++i) {
         auto & client = clients[i];

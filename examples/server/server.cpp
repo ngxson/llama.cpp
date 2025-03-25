@@ -1959,13 +1959,7 @@ struct server_context {
 
         // the update_slots() logic will always submit a maximum of n_batch or n_parallel tokens
         // note that n_batch can be > n_ctx (e.g. for non-causal attention models such as BERT where the KV cache is not used)
-        {
-            const int32_t n_batch = llama_n_batch(ctx);
-
-            // only a single seq_id per token is needed
-            batch.clear();
-        }
-
+        batch.clear();
         metrics.init();
     }
 
