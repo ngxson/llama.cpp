@@ -6075,6 +6075,11 @@ struct llm_build_qwen2vl : public llm_graph_context {
         // inp_pos - contains the positions
         ggml_tensor * inp_pos = build_inp_pos();
 
+        // TODO @ngxson : transpose layout 0000111122223333 to 0123012301230123, we should improve this in the future
+        inp_pos = ggml_reshape_2d(ctx0, inp_pos, n_tokens, n_pos_per_token);
+        inp_pos = ggml_cont(ctx0, ggml_transpose(ctx0, inp_pos));
+        inp_pos = ggml_reshape_1d(ctx0, inp_pos, n_pos_per_token * n_tokens);
+
         auto * inp_attn = build_attn_inp_kv_unified();
 
         int sections[4];

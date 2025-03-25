@@ -21,11 +21,12 @@
 struct llama_batch_ext {
     int32_t n_tokens;
     int32_t max_tokens;
+    int32_t n_pos_per_token = 1;
     bool is_view;
 
     llama_token  *  token;
     float        *  embd;
-    llama_pos    *  pos;
+    llama_pos    *  pos; // if multi pos per token: 000011112222...
     int32_t      *  n_seq_id;
     llama_seq_id ** seq_id;
     int8_t       *  logits; // TODO: rename this to "output"

@@ -276,15 +276,16 @@ void llama_sbatch::from_batch(const llama_batch_ext & batch, size_t n_embd, bool
 
 llama_batch_allocr::llama_batch_allocr(struct llama_batch & in_batch, llama_pos p0) {
     batch = new llama_batch_ext{
-        /*n_tokens       =*/ in_batch.n_tokens,
-        /*max_tokens     =*/ in_batch.n_tokens,
-        /*is_view        =*/ false,
-        /*tokens         =*/ in_batch.token,
-        /*embd           =*/ in_batch.embd,
-        /*pos            =*/ in_batch.pos,
-        /*n_seq_id       =*/ in_batch.n_seq_id,
-        /*seq_id         =*/ in_batch.seq_id,
-        /*logits         =*/ in_batch.logits,
+        /*n_tokens        =*/ in_batch.n_tokens,
+        /*max_tokens      =*/ in_batch.n_tokens,
+        /*n_pos_per_token =*/ 1,
+        /*is_view         =*/ false,
+        /*tokens          =*/ in_batch.token,
+        /*embd            =*/ in_batch.embd,
+        /*pos             =*/ in_batch.pos,
+        /*n_seq_id        =*/ in_batch.n_seq_id,
+        /*seq_id          =*/ in_batch.seq_id,
+        /*logits          =*/ in_batch.logits,
     };
     GGML_ASSERT(batch->n_tokens > 0);
     if (!in_batch.pos) {
@@ -338,17 +339,18 @@ struct llama_batch llama_batch_get_one(
     };
 }
 
-static struct llama_batch_ext * llama_batch_ext_init_impl(int32_t n_tokens_alloc, int32_t n_embd, int32_t n_seq_max) {
+static struct llama_batch_ext * llama_batch_ext_init_impl(int32_t n_tokens_alloc, int32_t n_embd, int32_t n_seq_max, int32_t n_pos_per_token) {
     llama_batch_ext * batch = new llama_batch_ext{
-        /*n_tokens       =*/ 0,
-        /*max_tokens     =*/ n_tokens_alloc,
-        /*is_view        =*/ false,
-        /*tokens         =*/ nullptr,
-        /*embd           =*/ nullptr,
-        /*pos            =*/ nullptr,
-        /*n_seq_id       =*/ nullptr,
-        /*seq_id         =*/ nullptr,
-        /*logits         =*/ nullptr,
+        /*n_tokens        =*/ 0,
+        /*max_tokens      =*/ n_tokens_alloc,
+        /*n_pos_per_token =*/ n_pos_per_token,
+        /*is_view         =*/ false,
+        /*tokens          =*/ nullptr,
+        /*embd            =*/ nullptr,
+        /*pos             =*/ nullptr,
+        /*n_seq_id        =*/ nullptr,
+        /*seq_id          =*/ nullptr,
+        /*logits          =*/ nullptr,
     };
 
     if (n_embd) {
@@ -371,7 +373,8 @@ static struct llama_batch_ext * llama_batch_ext_init_impl(int32_t n_tokens_alloc
 }
 
 struct llama_batch_ext * llama_batch_ext_init(struct llama_context * ctx) {
-    return llama_batch_ext_init_impl(llama_n_batch(ctx), 0, llama_n_seq_max(ctx));
+    int32_t n_pos_per_token = llama_n_pos_per_token(llama_get_model(ctx));
+    return llama_batch_ext_init_impl(llama_n_batch(ctx), 0, llama_n_seq_max(ctx), n_pos_per_token);
 }
 
 struct llama_batch_ext * llama_batch_ext_init_from_embd(
@@ -381,10 +384,10 @@ struct llama_batch_ext * llama_batch_ext_init_from_embd(
                   size_t   n_embd,
          const llama_pos * pos,
             llama_seq_id   seq_id) {
-    auto model = llama_get_model(ctx);
-    struct llama_batch_ext * batch = llama_batch_ext_init_impl(n_tokens, n_embd, 1);
+    int32_t n_pos_per_token = llama_n_pos_per_token(llama_get_model(ctx));
+    struct llama_batch_ext * batch = llama_batch_ext_init_impl(n_tokens, n_embd, 1, n_pos_per_token);
     memcpy(batch->embd, embd, n_tokens * n_embd * sizeof(float));
-    memcpy(batch->pos,  pos,  n_tokens * llama_n_pos_per_token(model) * sizeof(llama_pos));
+    memcpy(batch->pos,  pos,  n_tokens * n_pos_per_token * sizeof(llama_pos));
     for (size_t i = 0; i < n_tokens; i++) {
         batch->n_seq_id[i]    = 1;
         batch->seq_id  [i][0] = seq_id;
@@ -411,12 +414,16 @@ int32_t llama_batch_ext_add_text(
     }
     const int32_t output_id = batch->n_tokens;
     batch->token   [output_id] = token;
-    batch->pos     [output_id] = pos;
+    batch->n_seq_id[output_id] = n_seq_ids;
+    batch->logits  [output_id] = output;
+    for (int32_t i = 0; i < batch->n_pos_per_token; i++) {
+        // TODO: this is only used by qwen2vl for now, and text tokens only have 3 pos, the last is set to 0; we should improve this code in the future
+        batch->pos[output_id * batch->n_pos_per_token + i] = i < 3 ? pos : 0;
+    }
     batch->n_seq_id[output_id] = n_seq_ids;
     for (size_t j = 0; j < n_seq_ids; j++) {
         batch->seq_id[batch->n_tokens][j] = seq_ids[j];
     }
-    batch->logits  [output_id] = output;
     batch->n_tokens++;
     return output_id;
 }
@@ -461,15 +468,16 @@ struct llama_batch_ext * llama_batch_ext_get_view(
         return nullptr; // not yet supported
     }
     llama_batch_ext * batch_view = new llama_batch_ext{
-        /*n_tokens       =*/ n_tokens,
-        /*max_tokens     =*/ n_tokens,
-        /*is_view        =*/ true,
-        /*tokens         =*/ batch->token    + offset,
-        /*embd           =*/ nullptr,
-        /*pos            =*/ batch->pos      + offset,
-        /*n_seq_id       =*/ batch->n_seq_id + offset,
-        /*seq_id         =*/ batch->seq_id   + offset,
-        /*logits         =*/ batch->logits   + offset,
+        /*n_tokens        =*/ n_tokens,
+        /*max_tokens      =*/ n_tokens,
+        /*n_pos_per_token =*/ batch->n_pos_per_token,
+        /*is_view         =*/ true,
+        /*tokens          =*/ batch->token    + offset,
+        /*embd            =*/ nullptr,
+        /*pos             =*/ batch->pos      + offset * batch->n_pos_per_token,
+        /*n_seq_id        =*/ batch->n_seq_id + offset,
+        /*seq_id          =*/ batch->seq_id   + offset,
+        /*logits          =*/ batch->logits   + offset,
     };
     return batch_view;
 }

@@ -66,8 +66,17 @@ static bool qwen2vl_eval_image_embed(llama_context * ctx_llama, const struct lla
         memcpy(&batch_mrope_pos[n_eval * 2], &mrope_pos[img_tokens * 2 + processed], n_eval * sizeof(llama_pos));
         memcpy(&batch_mrope_pos[n_eval * 3], &mrope_pos[img_tokens * 3 + processed], n_eval * sizeof(llama_pos));
 
+        // tranpose from layout 0123012301230123 to 0000111122223333
+        // TODO @ngxson : this is a low-effort solution, generated with the help of LLM; we should improve this in the future
+        std::vector<llama_pos> batch_mrope_pos_T(n_eval * 4);
+        for (int r = 0; r < 4; r++) {
+            for (int c = 0; c < n_eval; c++) {
+                batch_mrope_pos_T[c*4 + r] = batch_mrope_pos[r*n_eval + c];
+            }
+        }
+
         float * batch_embd = image_embed->embed+i*n_embd;
-        const llama_pos * pos = batch_mrope_pos.data();
+        const llama_pos * pos = batch_mrope_pos_T.data();
         auto batch = llama_batch_ext_ptr::init_from_embd(ctx_llama, batch_embd, n_eval, n_embd, pos, 0);
 
         if (llama_decode_ext(ctx_llama, batch.get())) {
@@ -88,13 +97,6 @@ static bool eval_tokens(struct llama_context * ctx_llama, std::vector<llama_toke
         int n_eval = (int) tokens.size() - i;
         if (n_eval > n_batch) {
             n_eval = n_batch;
-        }
-
-        // TODO: add mrope pos ids somewhere else
-        pos.resize(n_eval * 4);
-        std::fill(pos.begin(), pos.end(), 0);
-        for (int j = 0; j < n_eval * 3; j ++) {
-            pos[j] = *st_pos_id + (j % n_eval);
         }
 
         llama_batch_ext_ptr batch(ctx_llama);

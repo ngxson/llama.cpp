@@ -928,6 +928,7 @@ extern "C" {
     // Same with llama_batch_init, but initializes the batch with the provided raw embeddings
     // Size of embd should be n_tokens * n_embd
     // Size of pos  should be n_tokens * n_pos_per_token
+    // If one token has multiple pos, the pos must follow the order: 000011112222...
     // n_embd is the number of embeddings per token, can be obtained from llama_model_n_embd()
     // The sequence ID will be fixed to seq_id
     // The batch has to be freed with llama_batch_ext_free()
