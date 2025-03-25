@@ -1925,6 +1925,7 @@ struct server_context {
             slot.ctx = ctx;
             slot.n_ctx = n_ctx_slot;
             slot.n_predict = params_base.n_predict;
+            slot.batch_spec = llama_batch_ext_ptr(ctx);
 
             if (model_dft) {
                 slot.batch_spec.clear();
