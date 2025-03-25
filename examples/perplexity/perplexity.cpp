@@ -363,7 +363,7 @@ static results_perplexity perplexity_v2(llama_context * ctx, const common_params
         // clear the KV cache
         llama_kv_self_clear(ctx);
 
-        llama_batch_ext_ptr batch(llama_batch_ext_init(n_batch, 1));
+        llama_batch_ext_ptr batch(ctx);
 
         for (int j = 0; j < num_batches; ++j) {
             const int batch_start = start + j * n_batch;
@@ -501,7 +501,7 @@ static results_perplexity perplexity(llama_context * ctx, const common_params & 
     GGML_ASSERT(n_batch < n_ctx || n_batch % n_ctx == 0);
     GGML_ASSERT(params.n_ctx == n_seq * n_ctx);
 
-    llama_batch_ext_ptr batch(llama_batch_ext_init(std::min(n_batch, n_ctx*n_seq), 1));
+    llama_batch_ext_ptr batch(ctx);
 
     std::vector<float> logits;
     if (num_batches > 1) {
@@ -830,7 +830,7 @@ static void hellaswag_score(llama_context * ctx, const common_params & params) {
     const int max_tasks_per_batch = 32;
     const int max_seq = std::min(4*max_tasks_per_batch, (int) llama_n_seq_max(ctx));
 
-    llama_batch_ext_ptr batch(llama_batch_ext_init(n_ctx, 4));
+    llama_batch_ext_ptr batch(ctx);
 
     std::vector<float> tok_logits(n_vocab);
     // TODO: this could be made smaller; it's currently the worst-case size
@@ -1112,7 +1112,7 @@ static void winogrande_score(llama_context * ctx, const common_params & params) 
     const int max_tasks_per_batch = 128;
     const int max_seq = std::min(2*max_tasks_per_batch, (int) llama_n_seq_max(ctx));
 
-    llama_batch_ext_ptr batch(llama_batch_ext_init(n_ctx, 2));
+    llama_batch_ext_ptr batch(ctx);
 
     std::vector<float> tok_logits(n_vocab);
     // TODO: this could be made smaller; it's currently the worst-case size
@@ -1465,7 +1465,7 @@ static void multiple_choice_score(llama_context * ctx, const common_params & par
     const int max_tasks_per_batch = 32;
     const int max_seq = std::min(4*max_tasks_per_batch, (int) llama_n_seq_max(ctx));
 
-    llama_batch_ext_ptr batch(llama_batch_ext_init(n_ctx, max_seq));
+    llama_batch_ext_ptr batch(ctx);
 
     std::vector<float> tok_logits(n_vocab);
     std::vector<float> batch_logits(size_t(n_ctx)*n_vocab);
@@ -1730,7 +1730,7 @@ static void kl_divergence(llama_context * ctx, const common_params & params) {
         // clear the KV cache
         llama_kv_self_clear(ctx);
 
-        llama_batch_ext_ptr batch(llama_batch_ext_init(n_batch, 1));
+        llama_batch_ext_ptr batch(ctx);
 
         for (int j = 0; j < num_batches; ++j) {
             const int batch_start = start + j * n_batch;

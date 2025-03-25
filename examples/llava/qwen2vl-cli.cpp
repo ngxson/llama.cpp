@@ -67,8 +67,8 @@ static bool qwen2vl_eval_image_embed(llama_context * ctx_llama, const struct lla
         memcpy(&batch_mrope_pos[n_eval * 3], &mrope_pos[img_tokens * 3 + processed], n_eval * sizeof(llama_pos));
 
         float * batch_embd = image_embed->embed+i*n_embd;
-        auto batch = llama_batch_ext_ptr::init_from_embd(batch_embd, n_eval, n_embd, 0, 0);
-        llama_batch_ext_set_pos(batch.get(), batch_mrope_pos.data(), n_eval * 4);
+        const llama_pos * pos = batch_mrope_pos.data();
+        auto batch = llama_batch_ext_ptr::init_from_embd(ctx_llama, batch_embd, n_eval, n_embd, pos, 0);
 
         if (llama_decode_ext(ctx_llama, batch.get())) {
             LOG_ERR("%s : failed to eval\n", __func__);
@@ -97,12 +97,11 @@ static bool eval_tokens(struct llama_context * ctx_llama, std::vector<llama_toke
             pos[j] = *st_pos_id + (j % n_eval);
         }
 
-        llama_batch_ext_ptr batch(llama_batch_ext_init(n_eval, 1));
+        llama_batch_ext_ptr batch(ctx_llama);
         for (int j = 0; j < n_eval; j++) {
             llama_token token = tokens[i + j];
-            batch.add_text(token, 0, 0, false); // position is set in the next step
+            batch.add_text(token, *st_pos_id + i + j, 0, false);
         }
-        llama_batch_ext_set_pos(batch.get(), pos.data(), pos.size());
         llama_batch_ext_set_output_last(batch.get());
 
         if (llama_decode_ext(ctx_llama, batch.get())) {

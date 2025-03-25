@@ -497,7 +497,7 @@ static bool compute_imatrix(llama_context * ctx, const common_params & params) {
         // clear the KV cache
         llama_kv_self_clear(ctx);
 
-        llama_batch_ext * batch = llama_batch_ext_init(n_batch, 1);
+        llama_batch_ext * batch = llama_batch_ext_init(ctx);
 
         for (int j = 0; j < num_batches; ++j) {
             const int batch_start = start + j * n_batch;

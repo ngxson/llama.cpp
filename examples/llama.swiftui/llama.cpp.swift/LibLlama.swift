@@ -26,7 +26,7 @@ actor LlamaContext {
         self.model = model
         self.context = context
         self.tokens_list = []
-        self.batch = llama_batch_ext_init(512, 1)
+        self.batch = llama_batch_ext_init(context)
         self.temporary_invalid_cchars = []
         let sparams = llama_sampler_chain_default_params()
         self.sampling = llama_sampler_chain_init(sparams)

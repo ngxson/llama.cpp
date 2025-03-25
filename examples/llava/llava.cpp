@@ -448,7 +448,7 @@ bool llava_eval_image_embed(llama_context * ctx_llama, const struct llava_image_
             n_eval = n_batch;
         }
         float * embd = image_embed->embed+i*n_embd;
-        auto batch = llama_batch_ext_ptr::init_from_embd(embd, n_eval, n_embd, 0, 0);
+        auto batch = llama_batch_ext_ptr::init_from_embd(ctx_llama, embd, n_eval, n_embd, 0, 0);
         if (llama_decode_ext(ctx_llama, batch.get())) {
             LOG_ERR("%s : failed to eval\n", __func__);
             return false;

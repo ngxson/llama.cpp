@@ -110,7 +110,7 @@ int main(int argc, char ** argv) {
 
         // prepare a batch for the prompt
         llama_pos n_past = 0;
-        auto batch = llama_batch_ext_ptr::init_from_text(prompt_tokens.data(), prompt_tokens.size(), n_past, 0, true);
+        auto batch = llama_batch_ext_ptr::init_from_text(ctx, prompt_tokens.data(), prompt_tokens.size(), n_past, 0, true);
         n_past += batch.n_tokens();
 
         llama_token new_token_id;

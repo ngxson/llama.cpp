@@ -1444,7 +1444,7 @@ static void test_prompt(llama_context * ctx, int n_prompt, int n_past, int n_bat
         for (int i = 1; i < n_tokens; i++) {
             tokens[i] = std::rand() % n_vocab;
         }
-        auto batch = llama_batch_ext_ptr::init_from_text(tokens.data(), n_tokens, n_past + n_processed, 0, true);
+        auto batch = llama_batch_ext_ptr::init_from_text(ctx, tokens.data(), n_tokens, n_past + n_processed, 0, true);
         llama_decode_ext(ctx, batch.get());
         n_processed += n_tokens;
     }
@@ -1462,7 +1462,7 @@ static void test_gen(llama_context * ctx, int n_gen, int n_past, int n_threads) 
     llama_token token = llama_vocab_get_add_bos(vocab) ? llama_vocab_bos(vocab) : std::rand() % n_vocab;
 
     for (int i = 0; i < n_gen; i++) {
-        auto batch = llama_batch_ext_ptr::init_from_text(&token, 1, n_past + i, 0, true);
+        auto batch = llama_batch_ext_ptr::init_from_text(ctx, &token, 1, n_past + i, 0, true);
         llama_decode_ext(ctx, batch.get());
         llama_synchronize(ctx);
         token = std::rand() % n_vocab;

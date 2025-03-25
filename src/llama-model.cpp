@@ -12057,6 +12057,14 @@ llama_rope_type llama_model_rope_type(const llama_model * model) {
     return LLAMA_ROPE_TYPE_NONE;
 }
 
+uint32_t llama_n_pos_per_token(llm_arch arch) {
+    return arch == LLM_ARCH_QWEN2VL ? 4 : 1;
+}
+
+uint32_t llama_n_pos_per_token(const struct llama_model * model) {
+    return llama_n_pos_per_token(model->arch);
+}
+
 float llama_model_rope_freq_scale_train(const llama_model * model) {
     return model->hparams.rope_freq_scale_train;
 }

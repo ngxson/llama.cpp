@@ -144,7 +144,7 @@ int main(int argc, char ** argv) {
 
     // prepare a batch for the prompt
 
-    auto batch = llama_batch_ext_ptr::init_from_text(prompt_tokens.data(), prompt_tokens.size(), 0, 0, true);
+    auto batch = llama_batch_ext_ptr::init_from_text(ctx, prompt_tokens.data(), prompt_tokens.size(), 0, 0, true);
 
     // main loop
 

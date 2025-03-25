@@ -92,8 +92,8 @@ int main(int argc, char ** argv){
 
     const auto t_enc_start = ggml_time_us();
 
-    auto batch0 = llama_batch_ext_ptr::init_from_text( inp.data(), n_input - 1, 0,           0, true);
-    auto batch1 = llama_batch_ext_ptr::init_from_text(&inp.back(),           1, n_input - 1, 0, true);
+    auto batch0 = llama_batch_ext_ptr::init_from_text(ctx,  inp.data(), n_input - 1, 0,           0, true);
+    auto batch1 = llama_batch_ext_ptr::init_from_text(ctx, &inp.back(),           1, n_input - 1, 0, true);
     llama_decode_ext(ctx, batch0.get());
     llama_decode_ext(ctx, batch1.get());
 
@@ -111,7 +111,7 @@ int main(int argc, char ** argv){
 
     std::vector<llama_token> draft;
 
-    llama_batch_ext_ptr batch_tgt(llama_batch_ext_init(params.n_ctx, 1));
+    llama_batch_ext_ptr batch_tgt(ctx);
 
     // debug
     struct llama_kv_cache_view kvc_view = llama_kv_cache_view_init(ctx, 1);

@@ -1927,7 +1927,7 @@ struct server_context {
             slot.n_predict = params_base.n_predict;
 
             if (model_dft) {
-                slot.batch_spec.reset(llama_batch_ext_init(params_base.speculative.n_max + 1, 1));
+                slot.batch_spec.clear();
 
                 slot.ctx_dft = llama_init_from_model(model_dft, cparams_dft);
                 if (slot.ctx_dft == nullptr) {
@@ -1963,7 +1963,7 @@ struct server_context {
             const int32_t n_batch = llama_n_batch(ctx);
 
             // only a single seq_id per token is needed
-            batch.reset(llama_batch_ext_init(std::max(n_batch, params_base.n_parallel), 1));
+            batch.clear();
         }
 
         metrics.init();
@@ -2098,7 +2098,7 @@ struct server_context {
         }
 
         if (slot.ctx_dft) {
-            slot.batch_spec.reset(llama_batch_ext_init(slot.params.speculative.n_max + 1, 1));
+            slot.batch_spec.clear();
         }
 
         slot.state = SLOT_STATE_STARTED;

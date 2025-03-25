@@ -166,9 +166,9 @@ int main(int argc, char ** argv) {
     const auto t_enc_start = ggml_time_us();
 
     // eval the prompt with both models
-    auto batch0 = llama_batch_ext_ptr::init_from_text( inp.data(), n_input - 1, 0,           0, true);
-    auto batch1 = llama_batch_ext_ptr::init_from_text(&inp.back(),           1, n_input - 1, 0, true);
-    auto batch2 = llama_batch_ext_ptr::init_from_text( inp.data(), n_input    , 0,           0, true);
+    auto batch0 = llama_batch_ext_ptr::init_from_text(ctx_tgt,  inp.data(), n_input - 1, 0,           0, true);
+    auto batch1 = llama_batch_ext_ptr::init_from_text(ctx_tgt, &inp.back(),           1, n_input - 1, 0, true);
+    auto batch2 = llama_batch_ext_ptr::init_from_text(ctx_dft,  inp.data(), n_input    , 0,           0, true);
     llama_decode_ext(ctx_tgt, batch0.get());
     llama_decode_ext(ctx_tgt, batch1.get());
     llama_decode_ext(ctx_dft, batch2.get());
@@ -202,8 +202,8 @@ int main(int argc, char ** argv) {
         drafts[s].smpl = common_sampler_init(model_dft, params.sampling);
     }
 
-    llama_batch_ext_ptr batch_dft(llama_batch_ext_init(llama_n_batch(ctx_dft), 1));
-    llama_batch_ext_ptr batch_tgt(llama_batch_ext_init(llama_n_batch(ctx_tgt), n_seq_dft));
+    llama_batch_ext_ptr batch_dft(ctx_dft);
+    llama_batch_ext_ptr batch_tgt(ctx_tgt);
 
     const auto t_dec_start = ggml_time_us();
 

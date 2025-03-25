@@ -370,32 +370,26 @@ static struct llama_batch_ext * llama_batch_ext_init_impl(int32_t n_tokens_alloc
     return batch;
 }
 
-struct llama_batch_ext * llama_batch_ext_init(int32_t n_tokens_alloc, int32_t n_seq_max) {
-    return llama_batch_ext_init_impl(n_tokens_alloc, 0, n_seq_max);
+struct llama_batch_ext * llama_batch_ext_init(struct llama_context * ctx) {
+    return llama_batch_ext_init_impl(llama_n_batch(ctx), 0, llama_n_seq_max(ctx));
 }
 
 struct llama_batch_ext * llama_batch_ext_init_from_embd(
-        const float * embd,
-             size_t   n_tokens,
-             size_t   n_embd,
-          llama_pos   pos0,
-       llama_seq_id   seq_id) {
+    struct llama_context * ctx,
+             const float * embd,
+                  size_t   n_tokens,
+                  size_t   n_embd,
+         const llama_pos * pos,
+            llama_seq_id   seq_id) {
+    auto model = llama_get_model(ctx);
     struct llama_batch_ext * batch = llama_batch_ext_init_impl(n_tokens, n_embd, 1);
     memcpy(batch->embd, embd, n_tokens * n_embd * sizeof(float));
+    memcpy(batch->pos,  pos,  n_tokens * llama_n_pos_per_token(model) * sizeof(llama_pos));
     for (size_t i = 0; i < n_tokens; i++) {
-        batch->pos     [i]    = pos0 + i;
         batch->n_seq_id[i]    = 1;
         batch->seq_id  [i][0] = seq_id;
     }
     return batch;
-}
-
-int32_t llama_batch_ext_set_pos(struct llama_batch_ext * batch, llama_pos * pos, size_t n_pos) {
-    if ((size_t) batch->n_tokens * MAX_POS_PER_TOKEN < n_pos) {
-        return -1;
-    }
-    memcpy(batch->pos, pos, n_pos * sizeof(llama_pos));
-    return 0;
 }
 
 int32_t llama_batch_ext_get_n_tokens(const struct llama_batch_ext * batch) {

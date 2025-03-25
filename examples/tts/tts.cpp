@@ -826,7 +826,7 @@ lovely<|t_0.56|><|code_start|><|634|><|596|><|1766|><|1556|><|1306|><|1285|><|14
 
         // create a llama_batch
         // we use this object to submit token data for decoding
-        llama_batch_ext_ptr batch(llama_batch_ext_init(std::max(prompt_inp.size(), (size_t) n_parallel), n_parallel));
+        llama_batch_ext_ptr batch(ctx_ttc);
 
         std::vector<llama_seq_id> seq_ids(n_parallel, 0);
         for (int32_t i = 0; i < n_parallel; ++i) {
@@ -1014,7 +1014,7 @@ lovely<|t_0.56|><|code_start|><|634|><|596|><|1766|><|1556|><|1306|><|1285|><|14
 
     const int n_codes = codes.size();
 
-    llama_batch_ext_ptr batch(llama_batch_ext_init(n_codes, 1));
+    llama_batch_ext_ptr batch(ctx_cts);
 
     for (size_t i = 0; i < codes.size(); ++i) {
         batch.add_text(codes[i], i, 0, true); // TODO: all logits?

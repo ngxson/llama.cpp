@@ -353,7 +353,7 @@ int main(int argc, char ** argv) {
 
                 LOG_DBG("eval: %s\n", string_from(ctx, embd).c_str());
 
-                auto batch = llama_batch_ext_ptr::init_from_text(&embd[i], n_eval, n_past, 0, true);
+                auto batch = llama_batch_ext_ptr::init_from_text(ctx, &embd[i], n_eval, n_past, 0, true);
                 if (llama_decode_ext(ctx, batch.get())) {
                     LOG_ERR("%s : failed to eval\n", __func__);
                     return 1;

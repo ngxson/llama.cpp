@@ -92,8 +92,8 @@ int main(int argc, char ** argv) {
     const auto t_enc_start = ggml_time_us();
 
     // eval the prompt
-    auto batch0 = llama_batch_ext_ptr::init_from_text( inp.data(), n_input - 1, 0,           0, true);
-    auto batch1 = llama_batch_ext_ptr::init_from_text(&inp.back(),           1, n_input - 1, 0, true);
+    auto batch0 = llama_batch_ext_ptr::init_from_text(ctx,  inp.data(), n_input - 1, 0,           0, true);
+    auto batch1 = llama_batch_ext_ptr::init_from_text(ctx, &inp.back(),           1, n_input - 1, 0, true);
     llama_decode_ext(ctx, batch0.get());
     llama_decode_ext(ctx, batch1.get());
 
@@ -117,7 +117,7 @@ int main(int argc, char ** argv) {
     // seq_id == 0           : the current input token
     // seq_id [1, W]         : tokens from the past N - 1 Jacobi iterations
     // seq_id [W + 1, W + G] : verification n-grams
-    llama_batch_ext * batch = llama_batch_ext_init(params.n_ctx, W + G + 1);
+    llama_batch_ext * batch = llama_batch_ext_init(ctx);
 
     // target model sampling context
     struct common_sampler * smpl = common_sampler_init(model, params.sampling);

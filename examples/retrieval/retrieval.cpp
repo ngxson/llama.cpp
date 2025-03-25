@@ -213,7 +213,7 @@ int main(int argc, char ** argv) {
 
     // initialize batch
     const int n_chunks = chunks.size();
-    llama_batch_ext * batch = llama_batch_ext_init(n_batch, 1);
+    llama_batch_ext * batch = llama_batch_ext_init(ctx);
 
     // allocate output
     const int n_embd = llama_model_n_embd(model);
@@ -253,7 +253,7 @@ int main(int argc, char ** argv) {
         chunks[i].tokens.clear();
     }
 
-    llama_batch_ext * query_batch = llama_batch_ext_init(n_batch, 1);
+    llama_batch_ext * query_batch = llama_batch_ext_init(ctx);
 
     // start loop, receive query and return top k similar chunks based on cosine similarity
     std::string query;

@@ -273,8 +273,9 @@ Java_android_llama_cpp_LLamaAndroid_bench_1model(
 
 extern "C"
 JNIEXPORT jlong JNICALL
-Java_android_llama_cpp_LLamaAndroid_new_1batch(JNIEnv *, jobject, jint n_tokens, jint embd, jint n_seq_max) {
-    llama_batch_ext * batch = llama_batch_ext_init(n_tokens, n_seq_max);
+Java_android_llama_cpp_LLamaAndroid_new_1batch(JNIEnv *, jobject, jlong context_pointer) {
+    const auto context = reinterpret_cast<llama_context *>(context_pointer);
+    llama_batch_ext * batch = llama_batch_ext_init(context);
 
     return reinterpret_cast<jlong>(batch);
 }

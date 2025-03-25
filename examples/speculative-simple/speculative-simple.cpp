@@ -114,7 +114,7 @@ int main(int argc, char ** argv) {
     struct common_sampler * smpl = common_sampler_init(model_tgt, params.sampling);
 
     // eval the prompt
-    auto batch = llama_batch_ext_ptr::init_from_text(inp.data(), inp.size() - 1, 0, 0, true);
+    auto batch = llama_batch_ext_ptr::init_from_text(ctx_tgt, inp.data(), inp.size() - 1, 0, 0, true);
     llama_decode_ext(ctx_tgt, batch.get());
 
     // note: keep the last token separate!
@@ -134,7 +134,7 @@ int main(int argc, char ** argv) {
 
     struct common_speculative * spec = common_speculative_init(ctx_dft);
 
-    llama_batch_ext_ptr batch_tgt(llama_batch_ext_init(llama_n_batch(ctx_tgt), 1));
+    llama_batch_ext_ptr batch_tgt(ctx_tgt);
 
     const auto t_enc_end = ggml_time_us();
 

@@ -23,7 +23,7 @@ struct common_speculative * common_speculative_init(
     auto * result = new common_speculative {
         /* .ctx    = */ ctx_dft,
         /* .smpl   = */ nullptr,
-        /* .batch  = */ llama_batch_ext_ptr(llama_batch_ext_init(llama_n_batch(ctx_dft), 1)),
+        /* .batch  = */ llama_batch_ext_ptr(ctx_dft),
         /* .prompt = */ {},
     };
 

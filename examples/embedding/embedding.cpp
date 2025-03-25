@@ -167,7 +167,7 @@ int main(int argc, char ** argv) {
 
     // initialize batch
     const int n_prompts = prompts.size();
-    llama_batch_ext * batch = llama_batch_ext_init(n_batch, 1);
+    llama_batch_ext * batch = llama_batch_ext_init(ctx);
 
     // count number of embeddings
     int n_embd_count = 0;

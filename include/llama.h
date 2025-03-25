@@ -483,6 +483,7 @@ extern "C" {
 
     LLAMA_API const struct llama_vocab * llama_model_get_vocab(const struct llama_model * model);
     LLAMA_API enum llama_rope_type       llama_model_rope_type(const struct llama_model * model);
+    LLAMA_API uint32_t                   llama_n_pos_per_token(const struct llama_model * model);
 
     LLAMA_API int32_t llama_model_n_ctx_train(const struct llama_model * model);
     LLAMA_API int32_t llama_model_n_embd     (const struct llama_model * model);
@@ -922,28 +923,21 @@ extern "C" {
     // Allocates a batch of tokens on the heap that can hold a maximum of n_tokens
     // Each token can be assigned up to n_seq_max sequence ids
     // The batch has to be freed with llama_batch_ext_free()
-    LLAMA_API struct llama_batch_ext * llama_batch_ext_init(
-            int32_t n_tokens,
-            int32_t n_seq_max);
+    LLAMA_API struct llama_batch_ext * llama_batch_ext_init(struct llama_context * ctx);
 
     // Same with llama_batch_init, but initializes the batch with the provided raw embeddings
     // Size of embd should be n_tokens * n_embd
+    // Size of pos  should be n_tokens * n_pos_per_token
     // n_embd is the number of embeddings per token, can be obtained from llama_model_n_embd()
-    // First token will be at position pos0
     // The sequence ID will be fixed to seq_id
     // The batch has to be freed with llama_batch_ext_free()
     LLAMA_API struct llama_batch_ext * llama_batch_ext_init_from_embd(
+         struct llama_context * ctx,
                   const float * embd,
                        size_t   n_tokens,
                        size_t   n_embd,
-                    llama_pos   pos0,
+              const llama_pos * pos,
                  llama_seq_id   seq_id);
-
-    // Set arbitrary token to the embeddings batch
-    // Note: this is only to be used in conjunction with llama_batch_ext_init_from_embd()
-    // n_pos must match the n_tokens of the batch
-    // Returns -1 if n_pos does not match the n_tokens of the batch
-    LLAMA_API int32_t llama_batch_ext_set_pos(struct llama_batch_ext * batch, llama_pos * pos, size_t n_pos);
 
     // Get the number of tokens in the batch
     LLAMA_API int32_t llama_batch_ext_get_n_tokens(const struct llama_batch_ext * batch);

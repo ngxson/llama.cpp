@@ -102,7 +102,7 @@ int main(int argc, char ** argv) {
 
     // create a llama_batch
     // we use this object to submit token data for decoding
-    llama_batch_ext * batch = llama_batch_ext_init(std::max(tokens_list.size(), (size_t) n_parallel), n_parallel);
+    llama_batch_ext * batch = llama_batch_ext_init(ctx);
 
     std::vector<llama_seq_id> seq_ids(n_parallel, 0);
     for (int32_t i = 0; i < n_parallel; ++i) {

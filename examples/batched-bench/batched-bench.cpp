@@ -59,7 +59,7 @@ int main(int argc, char ** argv) {
 
     const int32_t n_kv_max = llama_n_ctx(ctx);
 
-    llama_batch_ext * batch = llama_batch_ext_init(n_kv_max, 1);
+    llama_batch_ext * batch = llama_batch_ext_init(ctx);
 
     // decode in batches of ctx_params.n_batch tokens
     auto decode_helper = [](llama_context * ctx, llama_batch_ext * batch, int32_t n_batch) {

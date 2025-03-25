@@ -74,7 +74,7 @@ struct gemma3_context {
         lctx = llama_init.context.get();
         vocab = llama_model_get_vocab(model);
         n_threads = params.cpuparams.n_threads;
-        batch.reset(llama_batch_ext_init(params.n_batch, 1));
+        batch.reset(llama_batch_ext_init(lctx));
         init_clip_model(params);
     }
 
@@ -147,7 +147,8 @@ static int eval_image(gemma3_context & ctx, std::string & fname) {
     int64_t t1 = ggml_time_ms();
     eval_text(ctx, "<start_of_image>");
     llama_set_causal_attn(ctx.lctx, false);
-    llama_batch_ext_ptr batch_img(llama_batch_ext_init_from_embd(image_embd_v.data(), n_tokens, n_embd, ctx.n_past, 0));
+    llama_batch_ext_ptr batch_img = llama_batch_ext_ptr::init_from_embd(
+        ctx.lctx, image_embd_v.data(), n_tokens, n_embd, ctx.n_past, 0);
     if (llama_decode_ext(ctx.lctx, batch_img.get())) {
         LOG_ERR("failed to decode image\n");
         return 1;

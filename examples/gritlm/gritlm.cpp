@@ -14,7 +14,7 @@ static std::vector<std::vector<float>> encode(llama_context * ctx, const std::ve
     const llama_model * model = llama_get_model(ctx);
     const llama_vocab * vocab = llama_model_get_vocab(model);
 
-    llama_batch_ext_ptr batch(llama_batch_ext_init(llama_n_batch(ctx), 1));
+    llama_batch_ext_ptr batch(ctx);
 
     for (uint64_t i = 0; i < sentences.size(); i++) {
         batch.clear();
@@ -105,7 +105,7 @@ static std::string generate(llama_context * ctx, llama_sampler * smpl, const std
     llama_set_embeddings(ctx, false);
     llama_set_causal_attn(ctx, true);
 
-    llama_batch_ext_ptr batch(llama_batch_ext_init(llama_n_batch(ctx), 1));
+    llama_batch_ext_ptr batch(ctx);
 
     std::vector<llama_token> inputs = common_tokenize(vocab, prompt, false, true);
     int32_t i_current_token = 0;
