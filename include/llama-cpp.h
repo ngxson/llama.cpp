@@ -101,6 +101,18 @@ struct llama_batch_ext_ptr : std::unique_ptr<llama_batch_ext, llama_batch_ext_de
         return output_id;
     }
 
+    // Return output ID of the last token. Position starts from pos0
+    int32_t add_seq(std::vector<llama_token> & tokens, llama_pos pos0, llama_seq_id seq_id, bool output_last) {
+        int32_t output_id = -1;
+        for (size_t i = 0; i < tokens.size(); i++) {
+            output_id = llama_batch_ext_add_text(this->get(), tokens[i], pos0 + i, &seq_id, 1, false);
+        }
+        if (output_last) {
+            llama_batch_ext_set_output_last(this->get());
+        }
+        return output_id;
+    }
+
     void clear() {
         llama_batch_ext_clear(this->get());
     }

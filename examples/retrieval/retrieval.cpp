@@ -74,13 +74,6 @@ static std::vector<chunk> chunk_file(const std::string & filename, int chunk_siz
     return chunks;
 }
 
-static void batch_add_seq(llama_batch_ext * batch, const std::vector<int32_t> & tokens, llama_seq_id seq_id) {
-    const size_t n_tokens = tokens.size();
-    for (size_t i = 0; i < n_tokens; i++) {
-        llama_batch_ext_add_text(batch, tokens[i], i, &seq_id, 1, true);
-    }
-}
-
 static void batch_decode(llama_context * ctx, llama_batch_ext * batch, float * output, int n_seq, int n_embd, int embd_norm = 2) {
     const llama_model * model = llama_get_model(ctx);
 
@@ -213,7 +206,7 @@ int main(int argc, char ** argv) {
 
     // initialize batch
     const int n_chunks = chunks.size();
-    llama_batch_ext * batch = llama_batch_ext_init(ctx);
+    llama_batch_ext_ptr batch(ctx);
 
     // allocate output
     const int n_embd = llama_model_n_embd(model);
@@ -230,21 +223,21 @@ int main(int argc, char ** argv) {
         const uint64_t n_toks = inp.size();
 
         // encode if at capacity
-        if (llama_batch_ext_get_n_tokens(batch) + n_toks > n_batch) {
-            batch_decode(ctx, batch, emb + p * n_embd, s, n_embd);
-            llama_batch_ext_clear(batch);
+        if (batch.n_tokens() + n_toks > n_batch) {
+            batch_decode(ctx, batch.get(), emb + p * n_embd, s, n_embd);
+            batch.clear();
 
             p += s;
             s = 0;
         }
 
         // add to batch
-        batch_add_seq(batch, inp, s);
+        batch.add_seq(inp, 0, s, true);
         s += 1;
     }
 
     // final batch
-    batch_decode(ctx, batch, emb + p * n_embd, s, n_embd);
+    batch_decode(ctx, batch.get(), emb + p * n_embd, s, n_embd);
 
     // save embeddings to chunks
     for (int i = 0; i < n_chunks; i++) {
@@ -253,7 +246,7 @@ int main(int argc, char ** argv) {
         chunks[i].tokens.clear();
     }
 
-    llama_batch_ext * query_batch = llama_batch_ext_init(ctx);
+    llama_batch_ext_ptr query_batch(ctx);
 
     // start loop, receive query and return top k similar chunks based on cosine similarity
     std::string query;
@@ -262,12 +255,12 @@ int main(int argc, char ** argv) {
         std::getline(std::cin, query);
         std::vector<int32_t> query_tokens = common_tokenize(ctx, query, true);
 
-        batch_add_seq(query_batch, query_tokens, 0);
+        batch.add_seq(query_tokens, 0, 0, true);
 
         std::vector<float> query_emb(n_embd, 0);
-        batch_decode(ctx, query_batch, query_emb.data(), 1, n_embd);
+        batch_decode(ctx, query_batch.get(), query_emb.data(), 1, n_embd);
 
-        llama_batch_ext_clear(query_batch);
+        query_batch.clear();
 
         // compute cosine similarities
         {
@@ -295,9 +288,6 @@ int main(int argc, char ** argv) {
 
     LOG("\n");
     llama_perf_context_print(ctx);
-
-    llama_batch_ext_free(batch);
-    llama_batch_ext_free(query_batch);
 
     // clean up
     llama_backend_free();

@@ -26,13 +26,6 @@ static std::vector<std::string> split_lines(const std::string & s, const std::st
     return lines;
 }
 
-static void batch_add_seq(llama_batch_ext * batch, const std::vector<int32_t> & tokens, llama_seq_id seq_id) {
-    size_t n_tokens = tokens.size();
-    for (size_t i = 0; i < n_tokens; i++) {
-        llama_batch_ext_add_text(batch, tokens[i], i, &seq_id, 1, true);
-    }
-}
-
 static void batch_decode(llama_context * ctx, llama_batch_ext * batch, float * output, int n_seq, int n_embd, int embd_norm) {
     const enum llama_pooling_type pooling_type = llama_pooling_type(ctx);
     const llama_model * model = llama_get_model(ctx);
@@ -167,7 +160,7 @@ int main(int argc, char ** argv) {
 
     // initialize batch
     const int n_prompts = prompts.size();
-    llama_batch_ext * batch = llama_batch_ext_init(ctx);
+    llama_batch_ext_ptr batch(ctx);
 
     // count number of embeddings
     int n_embd_count = 0;
@@ -194,21 +187,21 @@ int main(int argc, char ** argv) {
         const uint64_t n_toks = inp.size();
 
         // encode if at capacity
-        if (llama_batch_ext_get_n_tokens(batch) + n_toks > n_batch) {
-            batch_decode(ctx, batch, emb + e * n_embd, s, n_embd, params.embd_normalize);
-            llama_batch_ext_clear(batch);
+        if (batch.n_tokens() + n_toks > n_batch) {
+            batch_decode(ctx, batch.get(), emb + e * n_embd, s, n_embd, params.embd_normalize);
+            batch.clear();
 
-            e += pooling_type == LLAMA_POOLING_TYPE_NONE ? llama_batch_ext_get_n_tokens(batch) : s;
+            e += pooling_type == LLAMA_POOLING_TYPE_NONE ? batch.n_tokens() : s;
             s = 0;
         }
 
         // add to batch
-        batch_add_seq(batch, inp, s);
+        batch.add_seq(inp, 0, s, true);
         s += 1;
     }
 
     // final batch
-    batch_decode(ctx, batch, emb + e * n_embd, s, n_embd, params.embd_normalize);
+    batch_decode(ctx, batch.get(), emb + e * n_embd, s, n_embd, params.embd_normalize);
 
     if (params.embd_out.empty()) {
         LOG("\n");
@@ -312,8 +305,6 @@ int main(int argc, char ** argv) {
 
     LOG("\n");
     llama_perf_context_print(ctx);
-
-    llama_batch_ext_free(batch);
 
     // clean up
     llama_backend_free();
