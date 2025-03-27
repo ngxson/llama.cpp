@@ -2410,7 +2410,7 @@ void llama_set_embeddings(llama_context * ctx, bool embeddings) {
     ctx->set_embeddings(embeddings);
 }
 
-void llama_set_attn_type(llama_context * ctx, llama_attention_type type) {
+void llama_set_attn_type(llama_context * ctx, enum llama_attention_type type) {
     ctx->set_attn_type(type);
 }
 

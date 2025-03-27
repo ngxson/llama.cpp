@@ -944,7 +944,7 @@ extern "C" {
     LLAMA_API void llama_set_embeddings(struct llama_context * ctx, bool embeddings);
 
     // Set the attention type
-    LLAMA_API void llama_set_attn_type(struct llama_context * ctx, llama_attention_type type);
+    LLAMA_API void llama_set_attn_type(struct llama_context * ctx, enum llama_attention_type type);
 
     // Set whether to use causal attention or not
     // - true:  the model will only attend to the past tokens, alias of LLAMA_ATTENTION_TYPE_CAUSAL
