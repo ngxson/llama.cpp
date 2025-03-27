@@ -208,6 +208,7 @@ extern "C" {
         LLAMA_ATTENTION_TYPE_UNSPECIFIED = -1,
         LLAMA_ATTENTION_TYPE_CAUSAL      = 0,
         LLAMA_ATTENTION_TYPE_NON_CAUSAL  = 1,
+        LLAMA_ATTENTION_TYPE_CAUSAL_FULL = 2, // used by gemma 3, allowing image to attention to past tokens
     };
 
     enum llama_split_mode {
@@ -942,8 +943,12 @@ extern "C" {
     // If true, embeddings will be returned but logits will not
     LLAMA_API void llama_set_embeddings(struct llama_context * ctx, bool embeddings);
 
+    // Set the attention type
+    LLAMA_API void llama_set_attn_type(struct llama_context * ctx, llama_attention_type type);
+
     // Set whether to use causal attention or not
-    // If set to true, the model will only attend to the past tokens
+    // - true:  the model will only attend to the past tokens, alias of LLAMA_ATTENTION_TYPE_CAUSAL
+    // - false: alias of LLAMA_ATTENTION_TYPE_FULL
     LLAMA_API void llama_set_causal_attn(struct llama_context * ctx, bool causal_attn);
 
     // Set whether the model is in warmup mode or not

@@ -25,13 +25,18 @@ struct llama_cparams {
     float defrag_thold;
 
     bool embeddings;
-    bool causal_attn;
     bool offload_kqv;
     bool flash_attn;
     bool no_perf;
     bool warmup;
 
+    enum llama_attention_type attn_type;
+
     enum llama_pooling_type pooling_type;
+
+    bool use_past_tokens() const {
+        return attn_type == LLAMA_ATTENTION_TYPE_CAUSAL || attn_type == LLAMA_ATTENTION_TYPE_CAUSAL_FULL;
+    }
 
     ggml_backend_sched_eval_callback cb_eval;
     void * cb_eval_user_data;

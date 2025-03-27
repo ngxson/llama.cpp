@@ -76,13 +76,13 @@ llama_context::llama_context(
     }
 
     if (params.attention_type == LLAMA_ATTENTION_TYPE_UNSPECIFIED) {
-        cparams.causal_attn = hparams.causal_attn;
+        cparams.attn_type = hparams.causal_attn ? LLAMA_ATTENTION_TYPE_CAUSAL : LLAMA_ATTENTION_TYPE_NON_CAUSAL;
     } else {
-        cparams.causal_attn = params.attention_type == LLAMA_ATTENTION_TYPE_CAUSAL;
+        cparams.attn_type = params.attention_type;
     }
 
     // with causal attention, the batch size is limited by the context size
-    cparams.n_batch = cparams.causal_attn ? std::min(cparams.n_ctx, params.n_batch) : params.n_batch;
+    cparams.n_batch = cparams.use_past_tokens() ? std::min(cparams.n_ctx, params.n_batch) : params.n_batch;
 
     // the batch has to be at least GGML_KQ_MASK_PAD because we will be padding the KQ_mask
     // this is required by GPU kernels in order to avoid out-of-bounds accesses (e.g. ggml_flash_attn_ext)
@@ -102,7 +102,7 @@ llama_context::llama_context(
     LLAMA_LOG_INFO("%s: n_ctx_per_seq = %u\n",   __func__, n_ctx_per_seq);
     LLAMA_LOG_INFO("%s: n_batch       = %u\n",   __func__, cparams.n_batch);
     LLAMA_LOG_INFO("%s: n_ubatch      = %u\n",   __func__, cparams.n_ubatch);
-    LLAMA_LOG_INFO("%s: causal_attn   = %d\n",   __func__, cparams.causal_attn);
+    LLAMA_LOG_INFO("%s: attn_type     = %d\n",   __func__, cparams.attn_type);
     LLAMA_LOG_INFO("%s: flash_attn    = %d\n",   __func__, cparams.flash_attn);
     LLAMA_LOG_INFO("%s: freq_base     = %.1f\n", __func__, cparams.rope_freq_base);
     LLAMA_LOG_INFO("%s: freq_scale    = %g\n",   __func__, cparams.rope_freq_scale);
@@ -966,10 +966,10 @@ void llama_context::set_embeddings(bool value) {
     cparams.embeddings = value;
 }
 
-void llama_context::set_causal_attn(bool value) {
+void llama_context::set_attn_type(enum llama_attention_type value) {
     LLAMA_LOG_DEBUG("%s: value = %d\n", __func__, value);
 
-    cparams.causal_attn = value;
+    cparams.attn_type = value;
 }
 
 void llama_context::set_warmup(bool value) {
@@ -1074,12 +1074,12 @@ int llama_context::encode(llama_batch & inp_batch) {
     ggml_backend_sched_reset(sched.get());
     ggml_backend_sched_set_eval_callback(sched.get(), cparams.cb_eval, cparams.cb_eval_user_data);
 
-    const auto causal_attn_org = cparams.causal_attn;
+    const auto attn_type_org = cparams.attn_type;
 
     // always use non-causal attention for encoder graphs
     // TODO: this is a tmp solution until we have a proper way to support enc-dec models
     //       ref: https://github.com/ggml-org/llama.cpp/pull/12181#issuecomment-2730451223
-    cparams.causal_attn = false;
+    cparams.attn_type = LLAMA_ATTENTION_TYPE_NON_CAUSAL;
 
     auto * gf = graph_init();
     auto res = graph_build(ctx_compute.get(), gf, ubatch, LLM_GRAPH_TYPE_ENCODER);
@@ -1088,7 +1088,7 @@ int llama_context::encode(llama_batch & inp_batch) {
 
     res->set_inputs(&ubatch);
 
-    cparams.causal_attn = causal_attn_org;
+    cparams.attn_type = attn_type_org;
 
     const auto compute_status = graph_compute(gf, n_tokens > 1);
     switch (compute_status) {
@@ -1242,7 +1242,7 @@ int llama_context::decode(llama_batch & inp_batch) {
 
     GGML_ASSERT(n_tokens_all <= cparams.n_batch);
 
-    GGML_ASSERT((cparams.causal_attn || cparams.n_ubatch >= n_tokens_all) && "non-causal attention requires n_ubatch >= n_tokens");
+    GGML_ASSERT((!cparams.use_past_tokens() || cparams.n_ubatch >= n_tokens_all) && "non-causal attention requires n_ubatch >= n_tokens");
 
     if (t_compute_start_us == 0) {
         t_compute_start_us = ggml_time_us();
@@ -1495,7 +1495,7 @@ int llama_context::decode(llama_batch & inp_batch) {
     //synchronize();
 
     // decide if we need to defrag the kv cache
-    if (cparams.causal_attn && cparams.defrag_thold > 0.0f) {
+    if (cparams.use_past_tokens() && cparams.defrag_thold > 0.0f) {
         // - do not defrag small contexts (i.e. < 2048 tokens)
         // - count the padding towards the number of used tokens
         const float fragmentation = kv_self->n >= 2048 ? std::max(0.0f, 1.0f - float(kv_self->used + kv_self->get_padding(cparams))/float(kv_self->n)) : 0.0f;
@@ -2410,8 +2410,12 @@ void llama_set_embeddings(llama_context * ctx, bool embeddings) {
     ctx->set_embeddings(embeddings);
 }
 
+void llama_set_attn_type(llama_context * ctx, llama_attention_type type) {
+    ctx->set_attn_type(type);
+}
+
 void llama_set_causal_attn(llama_context * ctx, bool causal_attn) {
-    ctx->set_causal_attn(causal_attn);
+    ctx->set_attn_type(causal_attn ? LLAMA_ATTENTION_TYPE_CAUSAL : LLAMA_ATTENTION_TYPE_NON_CAUSAL);
 }
 
 void llama_set_warmup(llama_context * ctx, bool warmup) {

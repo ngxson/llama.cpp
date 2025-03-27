@@ -315,7 +315,7 @@ void llm_graph_input_cross_embd::set_input(const llama_ubatch * ubatch) {
 
 void llm_graph_input_attn_no_cache::set_input(const llama_ubatch * ubatch) {
     if (kq_mask) {
-        if (cparams.causal_attn) {
+        if (cparams.use_past_tokens()) {
             const int64_t n_kv         = ubatch->n_tokens;
             const int64_t n_tokens     = ubatch->n_tokens;
             const int64_t n_seq_tokens = ubatch->n_seq_tokens;
@@ -403,11 +403,13 @@ void llm_graph_input_attn_no_cache::set_input(const llama_ubatch * ubatch) {
 void llm_graph_input_attn_kv_unified::set_input(const llama_ubatch * ubatch) {
     if (self_kq_mask || self_kq_mask_swa) {
         // NOTE: hparams.causal_attn indicates the model is capable of generation and uses the kv cache.
-        if (cparams.causal_attn) {
+        if (cparams.use_past_tokens()) {
             const int64_t n_kv         = kv_self->n;
             const int64_t n_tokens     = ubatch->n_tokens;
             const int64_t n_seq_tokens = ubatch->n_seq_tokens;
             const int64_t n_seqs       = ubatch->n_seqs;
+
+            bool full_mask = cparams.attn_type == LLAMA_ATTENTION_TYPE_CAUSAL_FULL;
 
             float * data     = nullptr;
             float * data_swa = nullptr;
@@ -434,7 +436,9 @@ void llm_graph_input_attn_kv_unified::set_input(const llama_ubatch * ubatch) {
 
                         for (int i = 0; i < n_kv; ++i) {
                             float f;
-                            if (!kv_self->cells[i].has_seq_id(seq_id) || kv_self->cells[i].pos > pos) {
+                            // If bidirectional masking is enabled, ignore the ordering check
+                            if (!kv_self->cells[i].has_seq_id(seq_id) ||
+                                    (!full_mask && kv_self->cells[i].pos > pos)) {
                                 f = -INFINITY;
                             } else {
                                 if (hparams.use_alibi) {

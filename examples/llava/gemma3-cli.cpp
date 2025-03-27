@@ -178,14 +178,14 @@ static int eval_image(gemma3_context & ctx, std::string & fname) {
     // decode image embeddings
     int64_t t1 = ggml_time_ms();
     eval_text(ctx, "<start_of_image>");
-    llama_set_causal_attn(ctx.lctx, false);
+    llama_set_attn_type(ctx.lctx, LLAMA_ATTENTION_TYPE_CAUSAL_FULL);
     decode_embd_batch batch_img(image_embd_v.data(), n_tokens, ctx.n_past, 0);
     if (llama_decode(ctx.lctx, batch_img.batch)) {
         LOG_ERR("failed to decode image\n");
         return 1;
     }
     ctx.n_past += n_tokens;
-    llama_set_causal_attn(ctx.lctx, true);
+    llama_set_attn_type(ctx.lctx, LLAMA_ATTENTION_TYPE_CAUSAL);
     eval_text(ctx, "<end_of_image>");
     LOG("Image decoded in %" PRId64 " ms\n", ggml_time_ms() - t1);
     return 0;
