@@ -54,6 +54,7 @@ struct llama_batch_ext_ptr : std::unique_ptr<llama_batch_ext, llama_batch_ext_de
             llama_batch_ext_add_text(batch, tokens[i], pos0 + i, &seq_id, 1, false);
         }
         if (output_last) {
+            // TODO: somehow return the output ID
             llama_batch_ext_set_output_last(batch);
         }
         return llama_batch_ext_ptr(batch);
@@ -85,18 +86,20 @@ struct llama_batch_ext_ptr : std::unique_ptr<llama_batch_ext, llama_batch_ext_de
 
     // Wrapper to add a single token to the batch, support multiple sequence IDs
     int32_t add_text(llama_token token, llama_pos pos, const std::vector<llama_seq_id> & seq_id, bool output_last) {
-        int32_t output_id = llama_batch_ext_add_text(this->get(), token, pos, seq_id.data(), seq_id.size(), false);
+        int32_t output_id = -1;
+        llama_batch_ext_add_text(this->get(), token, pos, seq_id.data(), seq_id.size(), false);
         if (output_last) {
-            llama_batch_ext_set_output_last(this->get());
+            output_id = llama_batch_ext_set_output_last(this->get());
         }
         return output_id;
     }
 
     // Wrapper to add a single token to the batch (single sequence ID)
     int32_t add_text(llama_token token, llama_pos pos, llama_seq_id seq_id, bool output_last) {
-        int32_t output_id = llama_batch_ext_add_text(this->get(), token, pos, &seq_id, 1, false);
+        int32_t output_id = -1;
+        llama_batch_ext_add_text(this->get(), token, pos, &seq_id, 1, false);
         if (output_last) {
-            llama_batch_ext_set_output_last(this->get());
+            output_id = llama_batch_ext_set_output_last(this->get());
         }
         return output_id;
     }
@@ -105,10 +108,10 @@ struct llama_batch_ext_ptr : std::unique_ptr<llama_batch_ext, llama_batch_ext_de
     int32_t add_seq(std::vector<llama_token> & tokens, llama_pos pos0, llama_seq_id seq_id, bool output_last) {
         int32_t output_id = -1;
         for (size_t i = 0; i < tokens.size(); i++) {
-            output_id = llama_batch_ext_add_text(this->get(), tokens[i], pos0 + i, &seq_id, 1, false);
+            llama_batch_ext_add_text(this->get(), tokens[i], pos0 + i, &seq_id, 1, false);
         }
         if (output_last) {
-            llama_batch_ext_set_output_last(this->get());
+            output_id = llama_batch_ext_set_output_last(this->get());
         }
         return output_id;
     }
