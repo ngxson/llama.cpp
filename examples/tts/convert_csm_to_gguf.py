@@ -89,8 +89,6 @@ class CSMModelConverter:
     fname_out: Path
     ftype: gguf.LlamaFileType
 
-    projection_tensor: Tensor # projecting from n_embd_backbone (2048) to n_embd_decoder (1024)
-
     def __init__(self,
                  safetensors_path: Union[Path, str],
                  path_to_vocab_gguf: Path,
@@ -110,23 +108,17 @@ class CSMModelConverter:
         # backbone
         self.gguf_writer_backbone = gguf.GGUFWriter(
             path=None,
-            arch="llama",
+            arch="llama-csm",
             endianess=endianess)
 
         # decoder
         self.gguf_writer_decoder = gguf.GGUFWriter(
             path=None,
-            arch="llama",
+            arch="llama-csm",
             endianess=endianess)
 
         Llama_3_2_1B().write_gguf_metadata(self.gguf_writer_backbone, self.gguf_reader_vocab)
         Llama_3_2_100M().write_gguf_metadata(self.gguf_writer_decoder, self.gguf_reader_vocab)
-
-        # get projection tensor)
-        for name, data_torch in self.state_dict.items():
-            if name == "projection.weight":
-                self.projection_tensor = data_torch
-                break
 
         # load tensors
         for component in ("backbone", "decoder"):
@@ -165,10 +157,7 @@ class CSMModelConverter:
 
         if "audio_embeddings." in name:
             is_decoder = True
-            if component == "decoder":
-                name = name.replace("audio_embeddings.", "token_embd.")
-                data_torch = torch.mm(data_torch, self.projection_tensor.T)
-                print("Applied projection to audio_embeddings", data_torch.shape)
+            name = name.replace("audio_embeddings.", "audio_embd.")
 
         elif "text_embeddings." in name:
             is_backbone = True
@@ -189,11 +178,18 @@ class CSMModelConverter:
         elif name == "audio_head":
             is_decoder = True
             name = "audio_head.weight"
+            if component == "decoder":
+                # add padding at the beginning so that build_lora_mm_id can be used
+                zero_tensor = torch.zeros(1, 1024, 2051)
+                data_torch = torch.cat([zero_tensor, data_torch], dim=0)
+                assert data_torch.shape == (32, 1024, 2051)
+                # then, transpose it
+                data_torch = data_torch.transpose(1, 2)
 
         elif name == "projection.weight":
             is_decoder = True
-            name = "inp_proj.weight"
-            self.projection_tensor = data_torch
+            is_backbone = True
+            name = "csm_proj.weight"
 
         if can_quantize:
             if self.ftype == gguf.LlamaFileType.ALL_F32:
@@ -203,7 +199,9 @@ class CSMModelConverter:
             elif self.ftype == gguf.LlamaFileType.MOSTLY_BF16:
                 data_qtype = gguf.GGMLQuantizationType.BF16
             elif self.ftype == gguf.LlamaFileType.MOSTLY_Q8_0:
-                data_qtype = gguf.GGMLQuantizationType.Q8_0
+                # decoder is very sensitive to quantization, do not quantize it lower than F16
+                data_qtype = gguf.GGMLQuantizationType.Q8_0 if component != "decoder" \
+                                else gguf.GGMLQuantizationType.F16
             else:
                 raise ValueError(f"Unsupported file type: {self.ftype}")
 
