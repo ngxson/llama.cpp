@@ -24,7 +24,8 @@
  *
  * Background:
  * - The audio codes can be generated using any Mimi-based model, for example: Moshi, Hibiki, Sesame, etc
- * - Audio codes must be in the order: (1 semantic component, 31 acoustic components) repeated N times
+ * - Audio codes must be in the order: N semantic codes followed by (N*31) acoustic codes
+ *   (In other words, input matrix has shape 32 cols x N rows)
  *
  * How it works?
  * 1. Audio code passed to RVQ (mimi_residual_vector_quantizer) to get the latent code
@@ -653,23 +654,22 @@ std::vector<float> mimi_model::decode_frame(const std::vector<int> & codes, int 
     for (int i = 0; i < (int)pos_data.size(); i++) {
         pos_data[i] = i + n_past;
     }
-    n_past += n_pos;
     if (verbose) {
         printf("%s: n_pos: %d, n_past: %d\n", __func__, n_pos, n_past);
     }
+    n_past += n_pos;
     ctx->set_tensor_data("pos_dec", pos_data.data());
 
-    // code data (need to transpose it)
-    // code [n_codes, n_codes_per_embd] -> [n_codes_per_embd, n_codes]
-    std::vector<int> codes_t(n_codes_per_embd * n_codes);
+    // code data
+    /*std::vector<int> codes_t(n_codes_per_embd * n_codes);
     for (int i = 0; i < n_codes / n_codes_per_embd; i++) {
         for (int j = 0; j < n_codes_per_embd; j++) {
             int src_idx = i * n_codes_per_embd + j;
             int dst_idx = j * (n_codes / n_codes_per_embd) + i;
             codes_t[dst_idx] = codes[src_idx];
         }
-    }
-    ctx->set_tensor_data("inp_dec", codes_t.data());
+    }*/
+    ctx->set_tensor_data("inp_dec", codes.data());
 
     ctx->compute();
 

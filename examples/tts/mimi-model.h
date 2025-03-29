@@ -22,6 +22,7 @@ struct mimi_model {
 
     int get_sample_rate() const;
 
+    // layout of codes: N semantic codes followed by (N*31) acoustic codes
     std::vector<float> decode(const std::vector<int> & codes);
 
     // TODO: implement encoding pass
