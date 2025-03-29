@@ -24,7 +24,7 @@ cmake --build build -j --target llama-mimi
 
 # output: output.wav
 
-# alternatively, use "dummy1" to get a "hey hello there" sample output file
+# alternatively, use "dummy1" to get a "wah hello there" sample output file
 ./build/bin/llama-mimi kyutai-mimi.gguf dummy1
 ```
 
