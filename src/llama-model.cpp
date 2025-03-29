@@ -1622,6 +1622,17 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
                     }
 
+                    // csm sesame model
+                    {
+                        // TODO: maybe store these in gguf metadata
+                        int64_t csm_audio_cbook_size = 2051; // audio codebook size
+                        int64_t csm_acoustic_tokens  = 31;   // == number of acoutic tokens for Mimi
+                        int64_t csm_backbone_n_embd  = 2048; // used by decoder (n_embd_decoder != n_embd_backbone)
+                        csm_output_cbook = create_tensor(tn(LLM_TENSOR_CSM_CBOOK_OUTPUT, "weight"), {n_embd, csm_audio_cbook_size}, TENSOR_NOT_REQUIRED);
+                        csm_output_audio = create_tensor(tn(LLM_TENSOR_CSM_AUDIO_OUTPUT, "weight"), {csm_audio_cbook_size, n_embd, csm_acoustic_tokens}, TENSOR_NOT_REQUIRED);
+                        csm_input_proj   = create_tensor(tn(LLM_TENSOR_CSM_INP_PROJ,     "weight"), {csm_backbone_n_embd, n_embd}, TENSOR_NOT_REQUIRED);
+                    }
+
                     for (int i = 0; i < n_layer; ++i) {
                         auto & layer = layers[i];
 
@@ -4265,8 +4276,17 @@ struct llm_build_llama : public llm_graph_context {
         cb(cur, "result_norm", -1);
         res->t_embd = cur;
 
-        // lm_head
-        cur = build_lora_mm(model.output, cur);
+        if (model.csm_output_cbook) {
+            // Sesame csm backbone
+            // hack: because n_cbook < n_vocab, we use the first logits for the codebook output
+            int64_t n_vocab = model.tok_embd->ne[1];
+            int64_t n_codes = model.csm_output_cbook->ne[1];
+            cur = build_lora_mm(model.csm_output_cbook, cur);
+            cur = ggml_pad(ctx0, cur, n_vocab - n_codes, 0, 0, 0);
+        } else {
+            // lm_head (normal case)
+            cur = build_lora_mm(model.output, cur);
+        }
 
         // For Granite architecture
         if (hparams.f_logit_scale) {
