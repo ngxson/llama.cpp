@@ -270,6 +270,8 @@ int main(int argc, char ** argv) {
     generated_codes = mimi.transpose_input(generated_codes);
     std::vector<float> wav_data = mimi.decode(generated_codes);
 
+    printf("output wav file: %s\n", params.out_file.c_str());
+
     if (!save_wav16(params.out_file.c_str(), wav_data, mimi.get_sample_rate())) {
         LOG_ERR("Failed to save wav file\n");
         return 1;

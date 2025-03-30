@@ -79,6 +79,7 @@ int main(int argc, const char ** argv) {
         while (std::getline(fin, line)) {
             // Skip empty lines
             if (line.empty()) continue;
+            // TODO: support both comma (with spaces) and new line
             try {
                 int code = std::stoi(line);
                 codes.push_back(code);
