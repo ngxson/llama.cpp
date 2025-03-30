@@ -6,6 +6,10 @@
 #include <vector>
 #include <fstream>
 #include <float.h>
+#include <cstring> // memcpy and strcmp
+#include <inttypes.h>
+
+// For more details on how this works, see: https://github.com/ggml-org/llama.cpp/pull/12648
 
 static void print_usage(int, char ** argv) {
     LOG("\nexample usage:\n");
@@ -30,6 +34,8 @@ static llama_token sample_greedy(const float * logits, int n_vocab) {
 static bool ggml_callback(struct ggml_tensor * t, bool ask, void * user_data) {
     std::vector<float> * embd = (std::vector<float> *) user_data;
 
+    // output_csm_proj is the embeddings output from backbone
+    // output_audio_embd is the embeddings output from decoder
     if (t && (strcmp(t->name, "output_csm_proj") == 0 || strcmp(t->name, "output_audio_embd") == 0)) {
         if (ask) return true;
 
@@ -45,13 +51,10 @@ static bool ggml_callback(struct ggml_tensor * t, bool ask, void * user_data) {
 int main(int argc, char ** argv) {
     common_params params;
 
-    params.model    = "sesame-csm-backbone.gguf";
-    params.out_file = "output.wav";
-    params.prompt   = "[0]Hello from Sesame.";
-
-    params.n_predict = 4096;
-    params.n_batch   = 8192;
-    params.n_ctx     = 8192;
+    params.model     = "sesame-csm-backbone.gguf";
+    params.out_file  = "output.wav";
+    params.prompt    = "[0]Hello from Sesame.";
+    params.n_predict = 2048; // CSM's max trained seq length
 
     if (!common_params_parse(argc, argv, params, LLAMA_EXAMPLE_TTS, print_usage)) {
         return 1;
@@ -66,6 +69,7 @@ int main(int argc, char ** argv) {
     params.warmup = false;
 
     common_params params_decoder(params); // duplicate the params
+    params_decoder.n_ctx = 64; // we never use more than this
     string_replace_all(params_decoder.model, "-backbone", "-decoder");
 
     common_init_result llama_backbone = common_init_from_params(params);
@@ -96,77 +100,114 @@ int main(int argc, char ** argv) {
     printf("\n");
 
     llama_pos n_past_bb = 0;
-    llama_batch batch = llama_batch_init(params.n_batch, 0, 1);
-    common_batch_clear(batch);
+    llama_batch batch_prompt = llama_batch_init(params.n_batch, 0, 1);
+    common_batch_clear(batch_prompt);
     for (size_t i = 0; i < prompt_tokens.size(); ++i) {
-        common_batch_add(batch, prompt_tokens[i], n_past_bb++, { 0 }, false);
+        common_batch_add(batch_prompt, prompt_tokens[i], n_past_bb++, { 0 }, false);
     }
-    batch.logits[batch.n_tokens - 1] = true;
+    batch_prompt.logits[batch_prompt.n_tokens - 1] = true;
 
+    // inp_past_embd is the "squashed" embeddings from the decoder
     std::vector<float> inp_past_embd(2048, 0.0f);
     llama_batch batch_past_embd = llama_batch_init(1, inp_past_embd.size(), 1);
 
-    for (int k = 0; k < 32; ++k) {
-        if (llama_decode(ctx_bb, k == 0 ? batch : batch_past_embd) != 0) {
-            LOG_ERR("%s: llama_decode() failed\n", __func__);
-            return 1;
+    int64_t t_gb_start = ggml_time_ms(); // global start time
+    int64_t t_bb       = 0; // backbone time
+    int64_t n_bb_gen   = 0; // backbone generation count
+    int64_t t_dc       = 0; // decoder time
+    int64_t n_dc_gen   = 0; // decoder generation count
+
+    bool is_stop = false;
+
+    // backbone generation loop
+    for (int k = 0; k < params.n_predict; ++k) {
+        bool is_prompt_processing = k == 0;
+
+        if (!is_prompt_processing) {
+            // generate the next RVQ semantic token
+            batch_past_embd.n_tokens     = 1;
+            batch_past_embd.pos[0]       = n_past_bb++;
+            batch_past_embd.seq_id[0][0] = 0;
+            batch_past_embd.n_seq_id[0]  = 1;
+            batch_past_embd.logits[0]    = true;
+            std::memcpy(batch_past_embd.embd, inp_past_embd.data(), inp_past_embd.size() * sizeof(float));
         }
 
+        int64_t t_bb_start = ggml_time_ms();
+        if (llama_decode(ctx_bb, is_prompt_processing ? batch_prompt : batch_past_embd) != 0) {
+            LOG_ERR("%s: backbone llama_decode() failed\n", __func__);
+            return 1;
+        }
+        n_bb_gen++;
+        t_bb += ggml_time_ms() - t_bb_start;
+
         auto vocab_dc = llama_model_get_vocab(model_dc);
-        auto logits   = llama_get_logits_ith(ctx_bb, k == 0 ? (batch.n_tokens - 1) : 0);
+        auto logits   = llama_get_logits_ith(ctx_bb, is_prompt_processing ? (batch_prompt.n_tokens - 1) : 0);
         // for (size_t i = 0; i < 10; ++i) {
         //     printf("%4.2f, ", logits[i]);
         // }
         // printf("\n");
 
-        llama_token latent_token = sample_greedy(logits, llama_vocab_n_tokens(vocab_dc));
-        // printf("latent_token: %d\n", latent_token);
-        printf("%d,", latent_token);
+        llama_token semantic_tok = sample_greedy(logits, llama_vocab_n_tokens(vocab_dc));
+        printf("%d,", semantic_tok);
 
         // for (size_t i = 0; i < 10; ++i) {
         //     printf("%4.2f, ", embd[i]);
         // }
         // printf("\n");
 
-        
 
-        // decode
-        prompt_tokens.clear();
-        prompt_tokens.push_back(latent_token);
+        // decoder generation loop
         inp_past_embd = std::vector<float>(inp_past_embd.size(), 0.0f);
         {
             llama_kv_self_clear(ctx_dc);
             llama_batch batch_embd  = llama_batch_init(1, embd.size(), 1);
             llama_batch batch_token = llama_batch_init(1, 0, 1);
+
+            // first "token" is the latent embeddings from backbone
             {
                 batch_embd.n_tokens     = 1;
                 batch_embd.pos[0]       = 0;
                 batch_embd.seq_id[0][0] = 0;
                 batch_embd.n_seq_id[0]  = 1;
                 batch_embd.logits[0]    = false;
-                memcpy(batch_embd.embd, embd.data(), embd.size() * sizeof(float));
+                std::memcpy(batch_embd.embd, embd.data(), embd.size() * sizeof(float));
             }
-            llama_decode(ctx_dc, batch_embd);
-        
-            llama_token audio_token = latent_token;
+            if (llama_decode(ctx_dc, batch_embd) != 0) {
+                LOG_ERR("%s: decoder llama_decode(embd) failed\n", __func__);
+                return 1;
+            }
+
+            // then, decode the semantic_tok to generate acoustic tokens
+            llama_token tok = semantic_tok;
             int n_codes = 32;
-            int sum_codes = 0;
+            int sum_codes = 0; // to check if all codes are 0
             for (int i = 0; i < n_codes; ++i) {
                 common_batch_clear(batch_token);
                 // encoder vocab is further divided into 32 codebooks, each with 2051 entries
-                llama_token inp_tok = audio_token + 2051*i;
+                llama_token inp_tok = tok + 2051*i;
                 common_batch_add(batch_token, inp_tok, i+1, { 0 }, true);
-                llama_decode(ctx_dc, batch_token);
-                auto logits = llama_get_logits_ith(ctx_dc, 0);
-                audio_token = sample_greedy(logits, llama_vocab_n_tokens(vocab_dc));
 
-                // discard last code
+                int64_t t_bb_start = ggml_time_ms();
+                if (llama_decode(ctx_dc, batch_token) != 0) {
+                    LOG_ERR("%s: decoder llama_decode(token) failed\n", __func__);
+                    return 1;
+                }
+                n_dc_gen++;
+                t_dc += ggml_time_ms() - t_bb_start;
+
+                // sample the acoustic token
+                auto logits = llama_get_logits_ith(ctx_dc, 0);
+                llama_token acoustic_tok = sample_greedy(logits, llama_vocab_n_tokens(vocab_dc));
+
+                // discard last code (only for embeddings)
                 if (i < n_codes - 1) {
-                    printf("%d,", audio_token);
-                    prompt_tokens.push_back(audio_token);
-                    sum_codes += audio_token;
+                    printf("%d,", acoustic_tok);
+                    tok = acoustic_tok; // next input token
+                    sum_codes += acoustic_tok;
                 }
 
+                // do progressive hsum of embeddings
                 GGML_ASSERT(inp_past_embd.size() == embd.size());
                 for (size_t i = 0; i < inp_past_embd.size(); ++i) {
                     inp_past_embd[i] += embd[i];
@@ -177,9 +218,8 @@ int main(int argc, char ** argv) {
             llama_batch_free(batch_embd);
             llama_batch_free(batch_token);
 
-            if (sum_codes == 0) {
-                return 0; // done
-            }
+            // if all codes are 0, then we are done
+            is_stop = sum_codes == 0;
         }
 
         // printf("inp_past_embd, n_past_bb = %d\n", n_past_bb);
@@ -192,17 +232,19 @@ int main(int argc, char ** argv) {
         // }
         // printf("\n");
 
-        // prepare for the next iteration
-        {
-            batch_past_embd.n_tokens     = 1;
-            batch_past_embd.pos[0]       = n_past_bb;
-            batch_past_embd.seq_id[0][0] = 0;
-            batch_past_embd.n_seq_id[0]  = 1;
-            batch_past_embd.logits[0]    = true;
-            memcpy(batch_past_embd.embd, inp_past_embd.data(), inp_past_embd.size() * sizeof(float));
+        if (is_stop) {
+            break;
         }
-        n_past_bb++;
     }
+
+    // print timing info
+    printf("\ntimings:\n");
+    printf("  backbone: %" PRId64 " ms, %" PRId64 " generated token (%.2f tok/s)\n", t_bb, n_bb_gen, (float)n_bb_gen*1000/(float)t_bb);
+    printf("  decoder:  %" PRId64 " ms, %" PRId64 " generated token (%.2f tok/s)\n", t_dc, n_dc_gen, (float)n_dc_gen*1000/(float)t_dc);
+    printf("  total:    %" PRId64 " ms\n\n", ggml_time_ms() - t_gb_start);
+
+    llama_batch_free(batch_prompt);
+    llama_batch_free(batch_past_embd);
 
     return 0;
 }

@@ -95,7 +95,7 @@ class CSMModelConverter:
                  fname_out: Path,
                  ftype: gguf.LlamaFileType,
                  is_big_endian: bool,):
-        
+
         if "<component>" not in fname_out.name:
             raise ValueError("Output file name must contain '<component>' placeholder, for example: 'sesame-csm-<component>.gguf'")
 
