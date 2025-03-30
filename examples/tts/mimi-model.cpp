@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <unordered_map>
 #include <float.h>
+#include <cmath>
 
 /**
  * Implementation of Kyutai's Mimi model using GGML.
@@ -344,10 +345,10 @@ struct mimi_encoder_decoder {
         bool is_elu = false;
         bool is_resnet = false;
         bool is_transposed_conv = false;
-        ggml_tensor * conv_0_w;
-        ggml_tensor * conv_0_b;
-        ggml_tensor * conv_1_w;
-        ggml_tensor * conv_1_b;
+        ggml_tensor * conv_0_w = nullptr;
+        ggml_tensor * conv_0_b = nullptr;
+        ggml_tensor * conv_1_w = nullptr;
+        ggml_tensor * conv_1_b = nullptr;
         int stride = 1;
     };
     std::vector<layer> layers;
@@ -415,20 +416,20 @@ struct mimi_encoder_decoder {
 
 struct mimi_transformer {
     struct layer {
-        ggml_tensor * inp_norm_w;
-        ggml_tensor * inp_norm_b;
+        ggml_tensor * inp_norm_w = nullptr;
+        ggml_tensor * inp_norm_b = nullptr;
 
-        ggml_tensor * attn_q;
-        ggml_tensor * attn_k;
-        ggml_tensor * attn_v;
-        ggml_tensor * attn_o;
-        ggml_tensor * attn_post_norm_w;
-        ggml_tensor * attn_post_norm_b;
-        ggml_tensor * attn_layer_scale;
+        ggml_tensor * attn_q = nullptr;
+        ggml_tensor * attn_k = nullptr;
+        ggml_tensor * attn_v = nullptr;
+        ggml_tensor * attn_o = nullptr;
+        ggml_tensor * attn_post_norm_w = nullptr;
+        ggml_tensor * attn_post_norm_b = nullptr;
+        ggml_tensor * attn_layer_scale = nullptr;
 
-        ggml_tensor * ffn_up;
-        ggml_tensor * ffn_down;
-        ggml_tensor * mlp_layer_scale;
+        ggml_tensor * ffn_up = nullptr;
+        ggml_tensor * ffn_down = nullptr;
+        ggml_tensor * mlp_layer_scale = nullptr;
     };
     std::vector<layer> layers;
 
