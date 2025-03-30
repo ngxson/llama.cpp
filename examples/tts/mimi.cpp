@@ -69,6 +69,8 @@ int main(int argc, const char ** argv) {
             1740 ,1154 ,1839 ,912  ,731  ,602  ,1064 ,1508 ,834  ,1387 ,252  ,745  ,1034 ,1102 ,965  ,696  ,
             1971 ,1729 ,666  ,282  ,1993 ,1551 ,1703 ,1124 ,1628 ,1725 ,107  ,808  ,1096 ,1753 ,500  ,677  ,
         };
+        // this particular example is pre-transposed, we need to undo that
+        codes = mimi_model::transpose_input(codes);
     } else {
         std::ifstream fin(codes_path);
         if (!fin) {

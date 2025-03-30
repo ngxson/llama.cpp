@@ -665,7 +665,8 @@ std::vector<float> mimi_model::decode_frame(const std::vector<int> & codes, int 
     ctx->set_tensor_data("pos_dec", pos_data.data());
 
     // code data
-    ctx->set_tensor_data("inp_dec", codes.data());
+    auto codes_T = mimi_model::transpose_input(codes);
+    ctx->set_tensor_data("inp_dec", codes_T.data());
 
     ctx->compute();
 

@@ -282,7 +282,6 @@ int main(int argc, char ** argv) {
     llama_batch_free(batch_past_embd);
 
     printf("decode %zu RVQ tokens into wav...\n", generated_codes.size());
-    generated_codes = mimi.transpose_input(generated_codes);
     std::vector<float> wav_data = mimi.decode(generated_codes);
 
     printf("output wav file: %s\n", params.out_file.c_str());
