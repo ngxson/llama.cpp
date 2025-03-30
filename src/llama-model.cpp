@@ -1662,7 +1662,7 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                 {
                     // TODO: maybe store these in gguf metadata
                     int64_t csm_audio_cbook_size = 2051; // audio codebook size
-                    int64_t csm_acoustic_tokens  = 32;   // equal to number of acoutic tokens for Mimi
+                    int64_t csm_audio_tokens     = 32;   // equal to number of audio tokens for Mimi
                     //int64_t csm_n_audio_vocab    = csm_audio_cbook_size*csm_acoustic_tokens;
 
                     csm_output_cbook = create_tensor(tn(LLM_TENSOR_CSM_CBOOK_OUTPUT, "weight"), {n_embd, csm_audio_cbook_size}, TENSOR_NOT_REQUIRED);
@@ -1670,7 +1670,7 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                     bool is_backbone = csm_output_cbook != nullptr;
 
                     csm_output_audio = is_backbone ? nullptr
-                        : create_tensor(tn(LLM_TENSOR_CSM_AUDIO_OUTPUT, "weight"), {n_embd, csm_audio_cbook_size, csm_acoustic_tokens}, 0);
+                        : create_tensor(tn(LLM_TENSOR_CSM_AUDIO_OUTPUT, "weight"), {n_embd, csm_audio_cbook_size, csm_audio_tokens+1}, 0);
 
                     tok_embd = is_backbone
                         ? create_tensor(tn(LLM_TENSOR_TOKEN_EMBD,     "weight"), {n_embd, n_vocab}, 0)

@@ -179,10 +179,10 @@ class CSMModelConverter:
             is_decoder = True
             name = "audio_head.weight"
             if component == "decoder":
-                # add padding at the beginning so that build_lora_mm_id can be used
+                # add padding at the beginning and the end so that build_lora_mm_id can be used
                 zero_tensor = torch.zeros(1, 1024, 2051)
-                data_torch = torch.cat([zero_tensor, data_torch], dim=0)
-                assert data_torch.shape == (32, 1024, 2051)
+                data_torch = torch.cat([zero_tensor, data_torch, zero_tensor], dim=0)
+                assert data_torch.shape == (33, 1024, 2051)
                 # then, transpose it
                 data_torch = data_torch.transpose(1, 2)
 
