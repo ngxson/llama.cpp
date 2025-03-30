@@ -617,7 +617,7 @@ std::vector<float> mimi_model::decode_frame(const std::vector<int> & codes, int 
     int n_pos            = -1;
     int n_codes          = codes.size();
     int n_codes_per_embd = mimi_config.n_semantic_components + mimi_config.n_acoustic_components;
-    GGML_ASSERT(n_codes % n_codes_per_embd == 0 && "number of codes must be a multiple of n_codes_per_embd");
+    GGML_ASSERT(n_codes % n_codes_per_embd == 0 && "number of codes must be a multiply of n_codes_per_embd");
 
     ctx->build_graph([&](ggml_context * ctx_gf, ggml_cgraph * gf) {
         ggml_tensor * inp_dec = ggml_new_tensor_1d(ctx_gf, GGML_TYPE_I32, n_codes);
@@ -661,14 +661,6 @@ std::vector<float> mimi_model::decode_frame(const std::vector<int> & codes, int 
     ctx->set_tensor_data("pos_dec", pos_data.data());
 
     // code data
-    /*std::vector<int> codes_t(n_codes_per_embd * n_codes);
-    for (int i = 0; i < n_codes / n_codes_per_embd; i++) {
-        for (int j = 0; j < n_codes_per_embd; j++) {
-            int src_idx = i * n_codes_per_embd + j;
-            int dst_idx = j * (n_codes / n_codes_per_embd) + i;
-            codes_t[dst_idx] = codes[src_idx];
-        }
-    }*/
     ctx->set_tensor_data("inp_dec", codes.data());
 
     ctx->compute();
@@ -713,6 +705,23 @@ std::vector<float> mimi_model::decode(const std::vector<int> & codes) {
     }
 
     return output;
+}
+
+std::vector<int> mimi_model::transpose_input(const std::vector<int> & codes) {
+    int n_codes          = codes.size();
+    int n_codes_per_embd = mimi_config.n_semantic_components + mimi_config.n_acoustic_components;
+    GGML_ASSERT(n_codes % n_codes_per_embd == 0 && "number of codes must be a multiply of n_codes_per_embd");
+
+    std::vector<int> codes_T(n_codes_per_embd * n_codes);
+    for (int i = 0; i < n_codes / n_codes_per_embd; i++) {
+        for (int j = 0; j < n_codes_per_embd; j++) {
+            int src_idx = i * n_codes_per_embd + j;
+            int dst_idx = j * (n_codes / n_codes_per_embd) + i;
+            codes_T[dst_idx] = codes[src_idx];
+        }
+    }
+
+    return codes_T;
 }
 
 int mimi_model::get_sample_rate() const {

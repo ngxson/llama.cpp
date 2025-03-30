@@ -22,6 +22,11 @@ struct mimi_model {
 
     int get_sample_rate() const;
 
+    // transpose layout:
+    // - from: (1 semantic code followed by 31 acoustic codes) repeast N times
+    // - to:   N semantic codes followed by (N*31) acoustic codes
+    std::vector<int> transpose_input(const std::vector<int> & codes);
+
     // layout of codes: N semantic codes followed by (N*31) acoustic codes
     std::vector<float> decode(const std::vector<int> & codes);
 
