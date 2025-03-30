@@ -5,13 +5,13 @@ import torch
 from typing import Union
 from pathlib import Path
 from torch import Tensor
-from transformers import MimiModel
+from transformers import MimiModel, PreTrainedModel
 
 logger = logging.getLogger("mimi")
 
 
 class MimiModelConverter:
-    mimi_model: MimiModel
+    mimi_model: PreTrainedModel
     gguf_writer: gguf.GGUFWriter
     fname_out: Path
     ftype: gguf.LlamaFileType

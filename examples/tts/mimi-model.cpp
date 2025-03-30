@@ -17,6 +17,8 @@
 #include <float.h>
 #include <cmath>
 #include <cstdarg>
+#include <functional>
+#include <array>
 
 /**
  * Implementation of Kyutai's Mimi model using GGML.
