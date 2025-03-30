@@ -106,7 +106,7 @@ int main(int argc, char ** argv) {
     std::vector<float> inp_past_embd(2048, 0.0f);
     llama_batch batch_past_embd = llama_batch_init(1, inp_past_embd.size(), 1);
 
-    for (int k = 0; k < 4; ++k) {
+    for (int k = 0; k < 32; ++k) {
         if (llama_decode(ctx_bb, k == 0 ? batch : batch_past_embd) != 0) {
             LOG_ERR("%s: llama_decode() failed\n", __func__);
             return 1;
@@ -121,7 +121,7 @@ int main(int argc, char ** argv) {
 
         llama_token latent_token = sample_greedy(logits, llama_vocab_n_tokens(vocab_dc));
         // printf("latent_token: %d\n", latent_token);
-        printf("%5d, ", latent_token);
+        printf("%d,", latent_token);
 
         // for (size_t i = 0; i < 10; ++i) {
         //     printf("%4.2f, ", embd[i]);
@@ -149,7 +149,9 @@ int main(int argc, char ** argv) {
             llama_decode(ctx_dc, batch_embd);
         
             llama_token audio_token = latent_token;
-            for (int i = 0; i < 31; ++i) {
+            int n_codes = 32;
+            int sum_codes = 0;
+            for (int i = 0; i < n_codes; ++i) {
                 common_batch_clear(batch_token);
                 // encoder vocab is further divided into 32 codebooks, each with 2051 entries
                 llama_token inp_tok = audio_token + 2051*i;
@@ -157,8 +159,13 @@ int main(int argc, char ** argv) {
                 llama_decode(ctx_dc, batch_token);
                 auto logits = llama_get_logits_ith(ctx_dc, 0);
                 audio_token = sample_greedy(logits, llama_vocab_n_tokens(vocab_dc));
-                printf("%d,", audio_token);
-                prompt_tokens.push_back(audio_token);
+
+                // discard last code
+                if (i < n_codes - 1) {
+                    printf("%d,", audio_token);
+                    prompt_tokens.push_back(audio_token);
+                    sum_codes += audio_token;
+                }
 
                 GGML_ASSERT(inp_past_embd.size() == embd.size());
                 for (size_t i = 0; i < inp_past_embd.size(); ++i) {
@@ -169,7 +176,21 @@ int main(int argc, char ** argv) {
 
             llama_batch_free(batch_embd);
             llama_batch_free(batch_token);
+
+            if (sum_codes == 0) {
+                return 0; // done
+            }
         }
+
+        // printf("inp_past_embd, n_past_bb = %d\n", n_past_bb);
+        // for (size_t i = 0; i < inp_past_embd.size(); ++i) {
+        //     printf("%4.4f, ", inp_past_embd[i]);
+        //     if (i == 2) {
+        //         printf("... ");
+        //         i = inp_past_embd.size() - 4;
+        //     }
+        // }
+        // printf("\n");
 
         // prepare for the next iteration
         {
