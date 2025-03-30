@@ -2,6 +2,7 @@
 #include "common.h"
 #include "log.h"
 #include "arg.h"
+#include "mimi-model.h"
 
 #include <vector>
 #include <fstream>
@@ -13,7 +14,13 @@
 
 static void print_usage(int, char ** argv) {
     LOG("\nexample usage:\n");
-    LOG("\n    %s   TODO    ", argv[0]);
+    LOG("\n    By default, model will be downloaded from https://huggingface.co/ggml-org/sesame-csm-1b-GGUF");
+    LOG("\n    %s -p \"[0]I have a dream that one day every valley shall be exalted\" -o output.wav", argv[0]);
+    LOG("\n");
+    LOG("\n    To use a local model, specify the path to the model file:");
+    LOG("\n    %s -p ... -m sesame-csm-backbone.gguf -mv kyutai-mimi.gguf -o output.wav", argv[0]);
+    LOG("\n");
+    LOG("\n    Note: the model need 2 files to run, one ends with '-backbone-<quant>.gguf' and the other ends with '-decoder<quant>.gguf'");
     LOG("\n");
 }
 
@@ -51,10 +58,15 @@ static bool ggml_callback(struct ggml_tensor * t, bool ask, void * user_data) {
 int main(int argc, char ** argv) {
     common_params params;
 
-    params.model     = "sesame-csm-backbone.gguf";
-    params.out_file  = "output.wav";
-    params.prompt    = "[0]Hello from Sesame.";
-    params.n_predict = 2048; // CSM's max trained seq length
+    params.model         = "sesame-csm-backbone.gguf";
+    params.vocoder.model = "kyutai-mimi.gguf";
+    params.out_file      = "output.wav";
+    params.prompt        = "[0]Hello from Sesame.";
+    params.n_predict     = 2048; // CSM's max trained seq length
+
+    // HF model
+    params.model_url         = "https://huggingface.co/ggml-org/sesame-csm-1b-GGUF/resolve/main/sesame-csm-backbone.gguf";
+    params.vocoder.model_url = "https://huggingface.co/ggml-org/sesame-csm-1b-GGUF/resolve/main/kyutai-mimi.gguf";
 
     if (!common_params_parse(argc, argv, params, LLAMA_EXAMPLE_TTS, print_usage)) {
         return 1;
@@ -71,6 +83,9 @@ int main(int argc, char ** argv) {
     common_params params_decoder(params); // duplicate the params
     params_decoder.n_ctx = 64; // we never use more than this
     string_replace_all(params_decoder.model, "-backbone", "-decoder");
+    if (!params_decoder.model_url.empty()) {
+        string_replace_all(params_decoder.model_url, "-backbone", "-decoder");
+    }
 
     common_init_result llama_backbone = common_init_from_params(params);
     llama_model   * model_bb = llama_backbone.model.get();
@@ -87,6 +102,8 @@ int main(int argc, char ** argv) {
     if (model_dc == nullptr || ctx_dc == nullptr) {
         return ENOENT;
     }
+
+    mimi_model mimi(params.vocoder.model.c_str(), true);
 
     const llama_vocab * vocab = llama_model_get_vocab(model_bb);
     llama_tokens prompt_tokens = common_tokenize(vocab, params.prompt, false, true);
@@ -118,6 +135,7 @@ int main(int argc, char ** argv) {
     int64_t n_dc_gen   = 0; // decoder generation count
 
     bool is_stop = false;
+    std::vector<int> generated_codes;
 
     // backbone generation loop
     for (int k = 0; k < params.n_predict; ++k) {
@@ -150,6 +168,7 @@ int main(int argc, char ** argv) {
 
         llama_token semantic_tok = sample_greedy(logits, llama_vocab_n_tokens(vocab_dc));
         printf("%d,", semantic_tok);
+        generated_codes.push_back(semantic_tok);
 
         // for (size_t i = 0; i < 10; ++i) {
         //     printf("%4.2f, ", embd[i]);
@@ -205,6 +224,7 @@ int main(int argc, char ** argv) {
                     printf("%d,", acoustic_tok);
                     tok = acoustic_tok; // next input token
                     sum_codes += acoustic_tok;
+                    generated_codes.push_back(acoustic_tok);
                 }
 
                 // do progressive hsum of embeddings
@@ -245,6 +265,17 @@ int main(int argc, char ** argv) {
 
     llama_batch_free(batch_prompt);
     llama_batch_free(batch_past_embd);
+
+    printf("decode %zu RVQ tokens into wav...\n", generated_codes.size());
+    generated_codes = mimi.transpose_input(generated_codes);
+    std::vector<float> wav_data = mimi.decode(generated_codes);
+
+    if (!save_wav16(params.out_file.c_str(), wav_data, mimi.get_sample_rate())) {
+        LOG_ERR("Failed to save wav file\n");
+        return 1;
+    }
+
+    printf("\n");
 
     return 0;
 }

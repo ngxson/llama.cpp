@@ -27,7 +27,7 @@ class MimiModelConverter:
         endianess = gguf.GGUFEndian.BIG if is_big_endian else gguf.GGUFEndian.LITTLE
         self.gguf_writer = gguf.GGUFWriter(
             path=None,
-            arch="if you see this, you are using the wrong file",
+            arch="this model cannot be used as LLM, use it via --model-vocoder in TTS examples",
             endianess=endianess)
 
         assert self.mimi_model.config.architectures[0] == "MimiModel"

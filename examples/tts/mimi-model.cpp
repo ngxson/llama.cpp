@@ -716,7 +716,7 @@ std::vector<int> mimi_model::transpose_input(const std::vector<int> & codes) {
     int n_codes_per_embd = mimi_config.n_semantic_components + mimi_config.n_acoustic_components;
     GGML_ASSERT(n_codes % n_codes_per_embd == 0 && "number of codes must be a multiply of n_codes_per_embd");
 
-    std::vector<int> codes_T(n_codes_per_embd * n_codes);
+    std::vector<int> codes_T(n_codes);
     for (int i = 0; i < n_codes / n_codes_per_embd; i++) {
         for (int j = 0; j < n_codes_per_embd; j++) {
             int src_idx = i * n_codes_per_embd + j;
