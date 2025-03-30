@@ -13,7 +13,7 @@
 // For more details on how this works, see: https://github.com/ggml-org/llama.cpp/pull/12648
 
 static void print_usage(int, char ** argv) {
-    LOG("\nexample usage:\n");
+    LOG("\nExample usage:\n");
     LOG("\n    By default, model will be downloaded from https://huggingface.co/ggml-org/sesame-csm-1b-GGUF");
     LOG("\n    %s -p \"[0]I have a dream that one day every valley shall be exalted\" -o output.wav", argv[0]);
     LOG("\n");
@@ -21,6 +21,11 @@ static void print_usage(int, char ** argv) {
     LOG("\n    %s -p ... -m sesame-csm-backbone.gguf -mv kyutai-mimi.gguf -o output.wav", argv[0]);
     LOG("\n");
     LOG("\n    Note: the model need 2 files to run, one ends with '-backbone-<quant>.gguf' and the other ends with '-decoder<quant>.gguf'");
+    LOG("\n");
+    LOG("\nPrompt format:");
+    LOG("\n    Each line must start with speaker ID in square brackets, followed by the text. A full stop is recommended at the end of each turn");
+    LOG("\n    Example: [0]Hello world.");
+    LOG("\n    If you want to enter long text, use -f file.txt to read from file");
     LOG("\n");
 }
 
@@ -61,7 +66,7 @@ int main(int argc, char ** argv) {
     params.model         = "sesame-csm-backbone.gguf";
     params.vocoder.model = "kyutai-mimi.gguf";
     params.out_file      = "output.wav";
-    params.prompt        = "[0]Hello from Sesame.";
+    params.prompt        = "";
     params.n_predict     = 2048; // CSM's max trained seq length
 
     // HF model
@@ -74,6 +79,11 @@ int main(int argc, char ** argv) {
 
     llama_backend_init();
     llama_numa_init(params.numa);
+
+    if (params.prompt.empty()) {
+        LOG_ERR("prompt is empty\n");
+        return 1;
+    }
 
     std::vector<float> embd;
     params.cb_eval = ggml_callback;
@@ -167,7 +177,7 @@ int main(int argc, char ** argv) {
         // printf("\n");
 
         llama_token semantic_tok = sample_greedy(logits, llama_vocab_n_tokens(vocab_dc));
-        printf("%d,", semantic_tok);
+        printf("Sem token %5d : %d,", 1+(int)generated_codes.size()/32, semantic_tok);
         generated_codes.push_back(semantic_tok);
 
         // for (size_t i = 0; i < 10; ++i) {
@@ -200,7 +210,7 @@ int main(int argc, char ** argv) {
             // then, decode the semantic_tok to generate acoustic tokens
             llama_token tok = semantic_tok;
             int n_codes = 32;
-            int sum_codes = 0; // to check if all codes are 0
+            int sum_codes = semantic_tok; // to check if all codes are 0
             for (int i = 0; i < n_codes; ++i) {
                 common_batch_clear(batch_token);
                 // encoder vocab is further divided into 32 codebooks, each with 2051 entries
@@ -228,9 +238,12 @@ int main(int argc, char ** argv) {
                 }
 
                 // do progressive hsum of embeddings
-                GGML_ASSERT(inp_past_embd.size() == embd.size());
-                for (size_t i = 0; i < inp_past_embd.size(); ++i) {
-                    inp_past_embd[i] += embd[i];
+                // skip first semantic code
+                if (i > 0) {
+                    GGML_ASSERT(inp_past_embd.size() == embd.size());
+                    for (size_t i = 0; i < inp_past_embd.size(); ++i) {
+                        inp_past_embd[i] += embd[i];
+                    }
                 }
             }
             printf("\n");
@@ -253,6 +266,8 @@ int main(int argc, char ** argv) {
         // printf("\n");
 
         if (is_stop) {
+            // remove last 32 codes since they will be all zeros
+            generated_codes.resize(generated_codes.size() - 32);
             break;
         }
     }
