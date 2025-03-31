@@ -4328,7 +4328,27 @@ struct llm_build_llama_csm : public llm_graph_context {
         ggml_tensor * cur;
         ggml_tensor * inpL;
 
-        inpL = build_inp_embd(model.tok_embd);
+        // for decoder, inp_tokens_i32.shape = [32]
+        // only the first token is the actual input, the rest is used for storing intermediate results
+        ggml_tensor * inp_tokens_i32;
+
+        // copied from build_inp_embd()
+        {
+            const int64_t n_embd = hparams.n_embd;
+            auto inp = std::make_unique<llm_graph_input_embd>();
+            if (ubatch.token) {
+                inp->tokens = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, ubatch.n_tokens);
+                ggml_set_input(inp->tokens);
+                inpL = ggml_get_rows(ctx0, model.tok_embd, inp->tokens);
+                inp_tokens_i32 = inp->tokens;
+            } else {
+                inp->embd = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, n_embd, ubatch.n_tokens);
+                ggml_set_input(inp->embd);
+                inpL = inp->embd;
+            }
+            cb(inpL, "inp_embd", -1);
+            res->add_input(std::move(inp));
+        }
 
         ggml_tensor * input_embd = inpL;
 
@@ -4339,151 +4359,168 @@ struct llm_build_llama_csm : public llm_graph_context {
             inpL = build_lora_mm(model.csm_proj, inpL);
         }
 
-        auto * inp_attn = build_attn_inp_kv_unified();
+        // small hack: this allow decoder model to generate all 31 tokens in one pass
+        // for backbone model, we only need to generate one next token
+        for (int ipass = 0; ipass < (is_backbone ? 1 : 32); ++ipass) {
+            auto * inp_attn = build_attn_inp_kv_unified();
 
-        const float kq_scale = 1.0f/sqrtf(float(n_embd_head));
-        for (int il = 0; il < n_layer; ++il) {
-            ggml_tensor * inpSA = inpL;
+            const float kq_scale = 1.0f/sqrtf(float(n_embd_head));
+            for (int il = 0; il < n_layer; ++il) {
+                ggml_tensor * inpSA = inpL;
 
-            // norm
-            cur = build_norm(inpL,
-                    model.layers[il].attn_norm, NULL,
-                    LLM_NORM_RMS, il);
-            cb(cur, "attn_norm", il);
-
-            // self-attention
-            {
-                // rope freq factors for llama3; may return nullptr for llama2 and other models
-                ggml_tensor * rope_factors = static_cast<const llama_kv_cache_unified *>(memory)->cbs.get_rope_factors(n_ctx_per_seq, il);
-
-                // compute Q and K and RoPE them
-                ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
-                cb(Qcur, "Qcur", il);
-                if (model.layers[il].bq) {
-                    Qcur = ggml_add(ctx0, Qcur, model.layers[il].bq);
-                    cb(Qcur, "Qcur", il);
-                }
-
-                ggml_tensor * Kcur = build_lora_mm(model.layers[il].wk, cur);
-                cb(Kcur, "Kcur", il);
-                if (model.layers[il].bk) {
-                    Kcur = ggml_add(ctx0, Kcur, model.layers[il].bk);
-                    cb(Kcur, "Kcur", il);
-                }
-
-                ggml_tensor * Vcur = build_lora_mm(model.layers[il].wv, cur);
-                cb(Vcur, "Vcur", il);
-                if (model.layers[il].bv) {
-                    Vcur = ggml_add(ctx0, Vcur, model.layers[il].bv);
-                    cb(Vcur, "Vcur", il);
-                }
-
-                Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head,    n_tokens);
-                Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
-                Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head, n_head_kv, n_tokens);
-
-                Qcur = ggml_rope_ext(
-                        ctx0, Qcur, inp_pos, rope_factors,
-                        n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
-                        ext_factor, attn_factor, beta_fast, beta_slow
-                        );
-
-                Kcur = ggml_rope_ext(
-                        ctx0, Kcur, inp_pos, rope_factors,
-                        n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
-                        ext_factor, attn_factor, beta_fast, beta_slow
-                        );
-
-                cb(Qcur, "Qcur", il);
-                cb(Kcur, "Kcur", il);
-                cb(Vcur, "Vcur", il);
-
-                cur = build_attn(inp_attn, gf,
-                        model.layers[il].wo, model.layers[il].bo,
-                        Qcur, Kcur, Vcur, nullptr, kq_scale, il);
-            }
-
-            if (il == n_layer - 1) {
-                // skip computing output for unused tokens
-                ggml_tensor * inp_out_ids = build_inp_out_ids();
-                cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);
-                inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
-            }
-
-            // For Granite architecture
-            if (hparams.f_residual_scale) {
-                cur = ggml_scale(ctx0, cur, hparams.f_residual_scale);
-            }
-
-            ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
-            cb(ffn_inp, "ffn_inp", il);
-
-            // feed-forward network
-            if (model.layers[il].ffn_gate_inp == nullptr) {
-
-                cur = build_norm(ffn_inp,
-                        model.layers[il].ffn_norm, NULL,
+                // norm
+                cur = build_norm(inpL,
+                        model.layers[il].attn_norm, NULL,
                         LLM_NORM_RMS, il);
-                cb(cur, "ffn_norm", il);
+                cb(cur, "attn_norm", il);
 
-                cur = build_ffn(cur,
-                        model.layers[il].ffn_up,   model.layers[il].ffn_up_b,   NULL,
-                        model.layers[il].ffn_gate, model.layers[il].ffn_gate_b, NULL,
-                        model.layers[il].ffn_down, model.layers[il].ffn_down_b, NULL,
-                        NULL,
-                        LLM_FFN_SILU, LLM_FFN_PAR, il);
+                // self-attention
+                {
+                    // rope freq factors for llama3; may return nullptr for llama2 and other models
+                    ggml_tensor * rope_factors = static_cast<const llama_kv_cache_unified *>(memory)->cbs.get_rope_factors(n_ctx_per_seq, il);
+
+                    // compute Q and K and RoPE them
+                    ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
+                    cb(Qcur, "Qcur", il);
+                    if (model.layers[il].bq) {
+                        Qcur = ggml_add(ctx0, Qcur, model.layers[il].bq);
+                        cb(Qcur, "Qcur", il);
+                    }
+
+                    ggml_tensor * Kcur = build_lora_mm(model.layers[il].wk, cur);
+                    cb(Kcur, "Kcur", il);
+                    if (model.layers[il].bk) {
+                        Kcur = ggml_add(ctx0, Kcur, model.layers[il].bk);
+                        cb(Kcur, "Kcur", il);
+                    }
+
+                    ggml_tensor * Vcur = build_lora_mm(model.layers[il].wv, cur);
+                    cb(Vcur, "Vcur", il);
+                    if (model.layers[il].bv) {
+                        Vcur = ggml_add(ctx0, Vcur, model.layers[il].bv);
+                        cb(Vcur, "Vcur", il);
+                    }
+
+                    Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head,    n_tokens);
+                    Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
+                    Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head, n_head_kv, n_tokens);
+
+                    Qcur = ggml_rope_ext(
+                            ctx0, Qcur, inp_pos, rope_factors,
+                            n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+                            ext_factor, attn_factor, beta_fast, beta_slow
+                            );
+
+                    Kcur = ggml_rope_ext(
+                            ctx0, Kcur, inp_pos, rope_factors,
+                            n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+                            ext_factor, attn_factor, beta_fast, beta_slow
+                            );
+
+                    cb(Qcur, "Qcur", il);
+                    cb(Kcur, "Kcur", il);
+                    cb(Vcur, "Vcur", il);
+
+                    cur = build_attn(inp_attn, gf,
+                            model.layers[il].wo, model.layers[il].bo,
+                            Qcur, Kcur, Vcur, nullptr, kq_scale, il);
+                }
+
+                if (il == n_layer - 1) {
+                    // skip computing output for unused tokens
+                    ggml_tensor * inp_out_ids = build_inp_out_ids();
+                    cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);
+                    inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
+                }
+
+                // For Granite architecture
+                if (hparams.f_residual_scale) {
+                    cur = ggml_scale(ctx0, cur, hparams.f_residual_scale);
+                }
+
+                ggml_tensor * ffn_inp = ggml_add(ctx0, cur, inpSA);
+                cb(ffn_inp, "ffn_inp", il);
+
+                // feed-forward network
+                if (model.layers[il].ffn_gate_inp == nullptr) {
+
+                    cur = build_norm(ffn_inp,
+                            model.layers[il].ffn_norm, NULL,
+                            LLM_NORM_RMS, il);
+                    cb(cur, "ffn_norm", il);
+
+                    cur = build_ffn(cur,
+                            model.layers[il].ffn_up,   model.layers[il].ffn_up_b,   NULL,
+                            model.layers[il].ffn_gate, model.layers[il].ffn_gate_b, NULL,
+                            model.layers[il].ffn_down, model.layers[il].ffn_down_b, NULL,
+                            NULL,
+                            LLM_FFN_SILU, LLM_FFN_PAR, il);
+                    cb(cur, "ffn_out", il);
+                }
+
+                cur = ggml_add(ctx0, cur, ffn_inp);
                 cb(cur, "ffn_out", il);
+
+                cur = build_cvec(cur, il);
+                cb(cur, "l_out", il);
+
+                // input for next layer
+                inpL = cur;
             }
 
-            cur = ggml_add(ctx0, cur, ffn_inp);
-            cb(cur, "ffn_out", il);
+            cur = inpL;
 
-            cur = build_cvec(cur, il);
-            cb(cur, "l_out", il);
+            cur = build_norm(cur,
+                    model.output_norm, NULL,
+                    LLM_NORM_RMS, -1);
 
-            // input for next layer
-            inpL = cur;
-        }
+            cb(cur, "result_norm", -1);
+            res->t_embd = cur;
 
-        cur = inpL;
+            if (model.csm_output_cbook) {
+                // Sesame csm backbone
+                // hack: because n_cbook < n_vocab, we use the first logits for the output
+                int64_t n_vocab = model.tok_embd->ne[1];
+                int64_t n_codes = model.csm_output_cbook->ne[1];
+                ggml_tensor * last_h = cur;
+                cur = build_lora_mm(model.csm_output_cbook, cur);
+                cur = ggml_pad(ctx0, cur, n_vocab - n_codes, 0, 0, 0);
 
-        cur = build_norm(cur,
-                model.output_norm, NULL,
-                LLM_NORM_RMS, -1);
+                // project to csm decoder dim
+                last_h = build_lora_mm(model.csm_proj, last_h);
+                cb(last_h, "output_csm_proj", -1); // use callback to retrieve the result
+                ggml_build_forward_expand(gf, last_h);
 
-        cb(cur, "result_norm", -1);
-        res->t_embd = cur;
+                break; // redundant, but just to make the code clear
 
-        if (model.csm_output_cbook) {
-            // Sesame csm backbone
-            // hack: because n_cbook < n_vocab, we use the first logits for the output
-            int64_t n_vocab = model.tok_embd->ne[1];
-            int64_t n_codes = model.csm_output_cbook->ne[1];
-            ggml_tensor * last_h = cur;
-            cur = build_lora_mm(model.csm_output_cbook, cur);
-            cur = ggml_pad(ctx0, cur, n_vocab - n_codes, 0, 0, 0);
+            } else if (model.csm_output_audio && ggml_nelements(cur)) {
+                // Sesame csm decoder
+                // hack: because n_audio < n_vocab, we use the first logits for the output
+                cur = build_lora_mm_id(model.csm_output_audio, cur, inp_pos);
+                int64_t n_vocab = model.tok_embd->ne[1];
+                int64_t n_codes = cur->ne[0];
+                //cur = ggml_pad(ctx0, cur, n_vocab - n_codes, cur->ne[1], 0, 0);
 
-            // project to csm decoder dim
-            last_h = build_lora_mm(model.csm_proj, last_h);
-            cb(last_h, "output_csm_proj", -1); // use callback to retrieve the result
-            ggml_build_forward_expand(gf, last_h);
+                // also get audio embeddings, which will be passed back to backbone to keep track of generation progress
+                if (ubatch.token) {
+                    cb(input_embd, "output_audio_embd", -1);
+                    ggml_build_forward_expand(gf, input_embd);
+                }
 
-        } else if (model.csm_output_audio && ggml_nelements(cur)) {
-            // Sesame csm decoder
-            // hack: because n_audio < n_vocab, we use the first logits for the output
-            cur = build_lora_mm_id(model.csm_output_audio, cur, inp_pos);
-            int64_t n_vocab = model.tok_embd->ne[1];
-            int64_t n_codes = cur->ne[0];
-            cur = ggml_pad(ctx0, cur, n_vocab - n_codes, cur->ne[1], 0, 0);
+                if (ipass != 31 && ggml_nelements(inp_tokens_i32) >= 32) {
+                    // sampling
+                    cur = ggml_top_k(ctx0, cur, 1); // reduced to [1, n_vocab]
+                    ggml_tensor * src_view = ggml_view_1d(ctx0, cur, 1, 0);
+                    ggml_tensor * dst_view = ggml_view_1d(ctx0, inp_tokens_i32, 1, ipass + 1);
+                    ggml_build_forward_expand(gf, ggml_cpy(ctx0, src_view, dst_view));
+                } else {
+                    // last pass, dummy output
+                    cur = ggml_pad(ctx0, cur, n_vocab - n_codes, cur->ne[1], 0, 0);
+                }
 
-            // also get audio embeddings, which will be passed back to backbone to keep track of generation progress
-            if (ubatch.token) {
-                cb(input_embd, "output_audio_embd", -1);
-                ggml_build_forward_expand(gf, input_embd);
+            } else {
+                // otherwise, dummy output
             }
-
-        } else {
-            // otherwise, dummy output
         }
 
         cb(cur, "result_output", -1);
