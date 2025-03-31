@@ -22,11 +22,6 @@ struct mimi_model {
 
     int get_sample_rate() const;
 
-    // transpose layout:
-    // - from: (1 semantic code followed by 31 acoustic codes) repeast N times
-    // - to:   N semantic codes followed by (N*31) acoustic codes
-    static std::vector<int> transpose_input(const std::vector<int> & codes);
-
     // layout of codes: (1 semantic code followed by 31 acoustic codes) repeast N times
     std::vector<float> decode(const std::vector<int> & codes);
 
@@ -35,4 +30,10 @@ struct mimi_model {
 
 private:
     std::vector<float> decode_frame(const std::vector<int> & codes, int & n_past);
+
+    // transpose layout (from streaming layout to non-streaming):
+    // - from: (1 semantic code followed by 31 acoustic codes) repeast N times
+    // - to:   N semantic codes followed by (N*31) acoustic codes
+    // streaming layout is 1-31, 1-31, 1-31, ..., used for real-time processing
+    static std::vector<int> transpose_input(const std::vector<int> & codes);
 };
