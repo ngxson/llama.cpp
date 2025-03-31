@@ -29,17 +29,27 @@ static void print_usage(int, char ** argv) {
     LOG("\n");
 }
 
-// greedy sampling with custom n_vocab
-static llama_token sample_greedy(const float * logits, int n_vocab) {
-    llama_token max_idx = -1;
-    float max_val = -FLT_MAX;
-    for (int i = 0; i < n_vocab; ++i) {
-        if (logits[i] > max_val) {
-            max_val = logits[i];
-            max_idx = i;
-        }
+// sampling with custom n_vocab
+// modified version of llama_sampler_sample()
+static llama_token sample_token(struct llama_sampler * smpl, const float * logits, int n_vocab) {
+    std::vector<llama_token_data> cur;
+    cur.reserve(n_vocab);
+    for (llama_token token_id = 0; token_id < n_vocab; token_id++) {
+        cur.emplace_back(llama_token_data{token_id, logits[token_id], 0.0f});
     }
-    return max_idx;
+
+    llama_token_data_array cur_p = {
+        /* .data       = */ cur.data(),
+        /* .size       = */ cur.size(),
+        /* .selected   = */ -1,
+        /* .sorted     = */ false,
+    };
+
+    llama_sampler_apply(smpl, &cur_p);
+    GGML_ASSERT(cur_p.selected >= 0 && cur_p.selected < (int32_t) cur_p.size);
+    auto token = cur_p.data[cur_p.selected].id;
+    llama_sampler_accept(smpl, token);
+    return token;
 }
 
 // hook to retrieve the embeddings
@@ -63,11 +73,13 @@ static bool ggml_callback(struct ggml_tensor * t, bool ask, void * user_data) {
 int main(int argc, char ** argv) {
     common_params params;
 
-    params.model         = "sesame-csm-backbone.gguf";
-    params.vocoder.model = "kyutai-mimi.gguf";
-    params.out_file      = "output.wav";
-    params.prompt        = "";
-    params.n_predict     = 2048; // CSM's max trained seq length
+    params.model          = "sesame-csm-backbone.gguf";
+    params.vocoder.model  = "kyutai-mimi.gguf";
+    params.out_file       = "output.wav";
+    params.prompt         = "";
+    params.n_predict      = 2048; // CSM's max trained seq length
+    params.sampling.top_k = 50;   // default param from CSM python code
+    params.sampling.temp  = 0.9;  // default param from CSM python code
 
     // HF model
     params.model_url         = "https://huggingface.co/ggml-org/sesame-csm-1b-GGUF/resolve/main/sesame-csm-backbone.gguf";
@@ -115,10 +127,18 @@ int main(int argc, char ** argv) {
 
     mimi_model mimi(params.vocoder.model.c_str(), true);
 
+    // tokenize the prompt
     const llama_vocab * vocab = llama_model_get_vocab(model_bb);
     llama_tokens prompt_tokens = common_tokenize(vocab, params.prompt, false, true);
     prompt_tokens.insert(prompt_tokens.begin(), llama_vocab_bos(vocab));
     prompt_tokens.insert(prompt_tokens.end(),   llama_vocab_eos(vocab));
+
+    // init sampler
+    // the python implementation only has top-k and temperature sampling, so we'll use just that
+    llama_sampler_ptr sampler(llama_sampler_chain_init(llama_sampler_chain_default_params()));
+    llama_sampler_chain_add(sampler.get(), llama_sampler_init_top_k(params.sampling.top_k));
+    llama_sampler_chain_add(sampler.get(), llama_sampler_init_temp(params.sampling.temp));
+    llama_sampler_chain_add(sampler.get(), llama_sampler_init_dist(params.sampling.seed));
 
     printf("prompt tokens: \n");
     for (size_t i = 0; i < prompt_tokens.size(); ++i) {
@@ -176,7 +196,7 @@ int main(int argc, char ** argv) {
         // }
         // printf("\n");
 
-        llama_token semantic_tok = sample_greedy(logits, llama_vocab_n_tokens(vocab_dc));
+        llama_token semantic_tok = sample_token(sampler.get(), logits, llama_vocab_n_tokens(vocab_dc));
         printf("Sem token %5d : %d,", 1+(int)generated_codes.size()/32, semantic_tok);
         generated_codes.push_back(semantic_tok);
 
@@ -227,7 +247,7 @@ int main(int argc, char ** argv) {
 
                 // sample the acoustic token
                 auto logits = llama_get_logits_ith(ctx_dc, 0);
-                llama_token acoustic_tok = sample_greedy(logits, llama_vocab_n_tokens(vocab_dc));
+                llama_token acoustic_tok = sample_token(sampler.get(), logits, llama_vocab_n_tokens(vocab_dc));
 
                 // discard last code (only for embeddings)
                 if (i < n_codes - 1) {
