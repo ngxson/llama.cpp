@@ -815,8 +815,9 @@ static bool common_params_parse_ex(int argc, char ** argv, common_params_context
     common_params_handle_model(params.speculative.model, params.hf_token, "");
     common_params_handle_model(params.vocoder.model,     params.hf_token, "");
 
-    // mmproj is always in the same repo with text model
-    if (!params.model.hf_repo.empty()) {
+    // allow --mmproj to be set from -hf
+    // assuming that mmproj is always in the same repo as text model
+    if (!params.model.hf_repo.empty() && ctx_arg.ex == LLAMA_EXAMPLE_LLAVA) {
         params.mmproj.hf_repo = params.model.hf_repo;
     }
     common_params_handle_model(params.mmproj,            params.hf_token, "", true);
