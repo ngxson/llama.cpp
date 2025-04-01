@@ -480,7 +480,7 @@ static bool common_download_model(
                 return false;
             }
 
-            if (!llama_split_prefix(split_url_prefix, sizeof(split_url_prefix), model.path.c_str(), 0, n_split)) {
+            if (!llama_split_prefix(split_url_prefix, sizeof(split_url_prefix), model.url.c_str(), 0, n_split)) {
                 LOG_ERR("\n%s: unexpected model url: %s n_split=%d\n", __func__, model.url.c_str(), n_split);
                 return false;
             }
