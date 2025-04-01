@@ -58,7 +58,7 @@ static T json_value(const json & body, const std::string & key, const T & defaul
 
 const static std::string build_info("b" + std::to_string(LLAMA_BUILD_NUMBER) + "-" + LLAMA_COMMIT);
 
-// thin wrapper around server_grammar_trigger with (de)serialization functions
+// thin wrapper around common_grammar_trigger with (de)serialization functions
 struct server_grammar_trigger {
     common_grammar_trigger value;
 
