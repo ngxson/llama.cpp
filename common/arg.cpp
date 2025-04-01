@@ -5,6 +5,15 @@
 #include "sampling.h"
 #include "chat.h"
 
+// fix problem with std::min and std::max
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#   define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include <algorithm>
 #include <climits>
 #include <cstdarg>
@@ -21,14 +30,6 @@
 #include <curl/curl.h>
 #include <curl/easy.h>
 #include <future>
-#endif
-
-// fix problem with std::min and std::max
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#ifndef NOMINMAX
-#   define NOMINMAX
-#endif
 #endif
 
 #include "json-schema-to-grammar.h"
