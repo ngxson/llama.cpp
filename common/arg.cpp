@@ -628,7 +628,7 @@ static void common_params_handle_model(
         struct common_params_model & model,
         const std::string & bearer_token,
         const std::string & model_path_default,
-        bool is_mmproj = false) {
+        bool is_mmproj = false) { // TODO: move is_mmproj to an enum when we have more files?
     // handle pre-fill default model path and url based on hf_repo and hf_file
     {
         if (!model.hf_repo.empty()) {
@@ -818,7 +818,6 @@ static bool common_params_parse_ex(int argc, char ** argv, common_params_context
     // mmproj is always in the same repo with text model
     if (!params.model.hf_repo.empty()) {
         params.mmproj.hf_repo = params.model.hf_repo;
-        params.mmproj.hf_file = params.model.hf_file;
     }
     common_params_handle_model(params.mmproj,            params.hf_token, "", true);
 
