@@ -23,6 +23,14 @@
 #include <future>
 #endif
 
+// fix problem with std::min and std::max
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#   define NOMINMAX
+#endif
+#endif
+
 #include "json-schema-to-grammar.h"
 
 using json = nlohmann::ordered_json;
