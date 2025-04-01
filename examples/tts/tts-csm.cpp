@@ -258,12 +258,9 @@ int main(int argc, char ** argv) {
                 }
 
                 // do progressive hsum of embeddings
-                // skip first semantic code
-                if (i > 0) {
-                    GGML_ASSERT(inp_past_embd.size() == embd.size());
-                    for (size_t i = 0; i < inp_past_embd.size(); ++i) {
-                        inp_past_embd[i] += embd[i];
-                    }
+                GGML_ASSERT(inp_past_embd.size() == embd.size());
+                for (size_t i = 0; i < inp_past_embd.size(); ++i) {
+                    inp_past_embd[i] += embd[i];
                 }
             }
             printf("\n");
