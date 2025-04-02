@@ -73,17 +73,17 @@ static bool ggml_callback(struct ggml_tensor * t, bool ask, void * user_data) {
 int main(int argc, char ** argv) {
     common_params params;
 
-    params.model          = "sesame-csm-backbone.gguf";
-    params.vocoder.model  = "kyutai-mimi.gguf";
-    params.out_file       = "output.wav";
-    params.prompt         = "";
-    params.n_predict      = 2048; // CSM's max trained seq length
-    params.sampling.top_k = 50;   // default param from CSM python code
-    params.sampling.temp  = 0.9;  // default param from CSM python code
+    params.model.path         = "sesame-csm-backbone.gguf";
+    params.vocoder.model.path = "kyutai-mimi.gguf";
+    params.out_file           = "output.wav";
+    params.prompt             = "";
+    params.n_predict          = 2048; // CSM's max trained seq length
+    params.sampling.top_k     = 50;   // default param from CSM python code
+    params.sampling.temp      = 0.9;  // default param from CSM python code
 
     // HF model
-    params.model_url         = "https://huggingface.co/ggml-org/sesame-csm-1b-GGUF/resolve/main/sesame-csm-backbone.gguf";
-    params.vocoder.model_url = "https://huggingface.co/ggml-org/sesame-csm-1b-GGUF/resolve/main/kyutai-mimi.gguf";
+    params.model.url         = "https://huggingface.co/ggml-org/sesame-csm-1b-GGUF/resolve/main/sesame-csm-backbone.gguf";
+    params.vocoder.model.url = "https://huggingface.co/ggml-org/sesame-csm-1b-GGUF/resolve/main/kyutai-mimi.gguf";
 
     if (!common_params_parse(argc, argv, params, LLAMA_EXAMPLE_TTS, print_usage)) {
         return 1;
@@ -104,10 +104,8 @@ int main(int argc, char ** argv) {
 
     common_params params_decoder(params); // duplicate the params
     params_decoder.n_ctx = 64; // we never use more than this
-    string_replace_all(params_decoder.model, "-backbone", "-decoder");
-    if (!params_decoder.model_url.empty()) {
-        string_replace_all(params_decoder.model_url, "-backbone", "-decoder");
-    }
+    string_replace_all(params_decoder.model.path, "-backbone", "-decoder");
+    string_replace_all(params_decoder.model.url,  "-backbone", "-decoder");
 
     common_init_result llama_backbone = common_init_from_params(params);
     llama_model   * model_bb = llama_backbone.model.get();
@@ -125,7 +123,7 @@ int main(int argc, char ** argv) {
         return ENOENT;
     }
 
-    mimi_model mimi(params.vocoder.model.c_str(), true);
+    mimi_model mimi(params.vocoder.model.path.c_str(), true);
 
     // tokenize the prompt
     const llama_vocab * vocab = llama_model_get_vocab(model_bb);
