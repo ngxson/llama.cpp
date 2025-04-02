@@ -85,6 +85,7 @@ enum llm_type {
     LLM_TYPE_10B_128x3_66B,
     LLM_TYPE_57B_A14B,
     LLM_TYPE_27B,
+    LLM_TYPE_290B,
 };
 
 struct llama_layer_posnet {
@@ -385,6 +386,8 @@ struct llama_model {
     ggml_backend_dev_t dev_output() const;
 
     ggml_backend_buffer_type_t select_buft(int il) const;
+
+    bool has_tensor_overrides() const;
 
     const struct ggml_tensor * get_tensor(const char * name) const;
 
