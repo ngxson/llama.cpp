@@ -225,6 +225,11 @@ int main(int argc, char ** argv) {
             n_bb_gen++;
             t_bb += ggml_time_ms() - t_bb_start;
 
+            if (is_end_of_turn) {
+                // done decoding audio's EOS token
+                break;
+            }
+
             auto vocab_dc = llama_model_get_vocab(model_dc);
             auto logits   = llama_get_logits_ith(ctx_bb, is_prompt_processing ? (batch_prompt.n_tokens - 1) : 0);
             // for (size_t i = 0; i < 10; ++i) {
@@ -304,8 +309,13 @@ int main(int argc, char ** argv) {
                 llama_batch_free(batch_embd);
                 llama_batch_free(batch_token);
 
-                // if all codes are 0, then we are done
+                // if all codes are 0, then we are done (got audio EOS token)
+                // note: we still need to run backbone decode one more time to decode the audio's EOS token
                 is_end_of_turn = sum_codes == 0;
+                if (is_end_of_turn) {
+                    // remove last 32 codes since they will be all zeros
+                    generated_codes.resize(generated_codes.size() - 32);
+                }
             }
 
             // printf("inp_past_embd, n_past_bb = %d\n", n_past_bb);
@@ -317,12 +327,6 @@ int main(int argc, char ** argv) {
             //     }
             // }
             // printf("\n");
-
-            if (is_end_of_turn) {
-                // remove last 32 codes since they will be all zeros
-                generated_codes.resize(generated_codes.size() - 32);
-                break;
-            }
         }
     }
 
