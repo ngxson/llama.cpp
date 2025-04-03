@@ -176,6 +176,11 @@ class Keys:
     class Whisper:
         N_MEL_BINS       = "{arch}.n_mel_bins"
 
+    class MM:
+        STACK_FACTOR  = "{arch}.mm.stack_factor" # for ultravox projector
+        EMBD_DIM      = "{arch}.mm.embd_dim"     # for ultravox projector
+        OUTPUT_DIM    = "{arch}.mm.output_dim"   # for ultravox projector
+
     class Tokenizer:
         MODEL                = "tokenizer.ggml.model"
         PRE                  = "tokenizer.ggml.pre"

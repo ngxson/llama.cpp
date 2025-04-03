@@ -5297,6 +5297,9 @@ class UltravoxEncoderModel(Model):
         self.gguf_writer.add_layer_norm_eps(1e-5) # default from whisper
         self.gguf_writer.add_block_count(audio_config["encoder_layers"])
         self.gguf_writer.add_n_mel_bins(audio_config["num_mel_bins"])
+        self.gguf_writer.add_mm_stack_factor(self.hparams["stack_factor"])
+        self.gguf_writer.add_mm_embd_dim(self.hparams["hidden_size"])
+        self.gguf_writer.add_mm_output_dim(2048) # TODO: read from text_model_id
         # We only have encoder, so we will always use non-causal attention
         self.gguf_writer.add_causal_attention(False)
 
