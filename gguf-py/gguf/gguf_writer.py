@@ -887,6 +887,9 @@ class GGUFWriter:
     def add_precompiled_charsmap(self, charsmap: Sequence[bytes]) -> None:
         self.add_array(Keys.Tokenizer.PRECOMPILED_CHARSMAP, charsmap)
 
+    def add_n_mel_bins(self, value: int) -> None:
+        self.add_uint32(Keys.Whisper.N_MEL_BINS, value)
+
     def add_chat_template(self, value: str | Sequence[Mapping[str, str]]) -> None:
         if not isinstance(value, str):
             template_default = None
