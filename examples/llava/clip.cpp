@@ -343,11 +343,6 @@ struct clip_ctx {
     bool use_silu = false;
     int32_t ftype = 1;
 
-    bool has_class_embedding = true;
-    bool has_pre_norm = true;
-    bool has_post_norm = false;
-    bool has_patch_bias = false;
-
     struct gguf_context * ctx_gguf = nullptr;
     struct ggml_context * ctx_data = nullptr;
 
@@ -510,7 +505,7 @@ static ggml_cgraph * clip_image_build_graph_siglip(clip_ctx * ctx, const clip_im
     }
 
     // post-layernorm
-    if (ctx->has_post_norm) {
+    if (model.post_ln_w) {
         embeddings = ggml_norm(ctx0, embeddings, eps);
         ggml_set_name(embeddings, "post_ln");
 
@@ -586,7 +581,7 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
     const int num_patches          = ((image_size_width / patch_size) * (image_size_height / patch_size));
     const int patches_w            = image_size_width / patch_size;
     const int patches_h            = image_size_height / patch_size;
-    const int num_positions        = num_patches + (ctx->has_class_embedding ? 1 : 0);
+    const int num_positions        = num_patches + (model.class_embedding ? 1 : 0);
     const int num_position_ids     = ctx->has_qwen2vl_merger ? num_positions * 4 : num_positions;
     const int hidden_size          = hparams.hidden_size;
     const int n_head               = hparams.n_head;
@@ -638,7 +633,7 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
         inp = ggml_cont(ctx0, ggml_permute(ctx0, inp, 1, 0, 2, 3));
     }
 
-    if (ctx->has_patch_bias) {
+    if (model.patch_bias) {
         // inp = ggml_add(ctx0, inp, ggml_repeat(ctx0, model.patch_bias, inp));
         inp = ggml_add(ctx0, inp, model.patch_bias);
     }
@@ -647,7 +642,7 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
 
     if (ctx->has_llava_projector) {
         // concat class_embeddings and patch_embeddings
-        if (ctx->has_class_embedding) {
+        if (model.class_embedding) {
             embeddings = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, hidden_size, num_positions, batch_size);
             ggml_set_name(embeddings, "embeddings");
             ggml_set_input(embeddings);
@@ -684,7 +679,7 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
     }
 
     // pre-layernorm
-    if (ctx->has_pre_norm) {
+    if (model.pre_ln_w) {
         embeddings = ggml_norm(ctx0, embeddings, eps);
         ggml_set_name(embeddings, "pre_ln");
 
@@ -794,7 +789,7 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
     }
 
     // post-layernorm
-    if (ctx->has_post_norm) {
+    if (model.post_ln_w) {
         embeddings = ggml_norm(ctx0, embeddings, eps);
         ggml_set_name(embeddings, "post_ln");
 
@@ -1469,12 +1464,6 @@ struct clip_model_loader {
             default:
                 GGML_ASSERT(false && "unknown projector type");
         }
-
-        // TODO @ngxson : this is legacy code, need to be removed
-        ctx_clip.has_class_embedding = vision_model.class_embedding != nullptr;
-        ctx_clip.has_pre_norm = vision_model.pre_ln_w != nullptr;
-        ctx_clip.has_post_norm = vision_model.post_ln_w != nullptr;
-        ctx_clip.has_patch_bias = vision_model.patch_bias != nullptr;
 
         // load data
         {
@@ -2506,7 +2495,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
     }
     const int patch_size    = hparams.patch_size;
     const int num_patches   = ((image_size_width / patch_size) * (image_size_height / patch_size));
-    const int num_positions = num_patches + (ctx->has_class_embedding ? 1 : 0);
+    const int num_positions = num_patches + (model.class_embedding ? 1 : 0);
     if(ctx->load_image_size==nullptr){
         ctx->load_image_size= clip_image_size_init();
     }
@@ -2591,16 +2580,14 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
             free(pos_embed_data);
         }
     }
-    else{
-        {
-            if (ctx->has_class_embedding) {
-                struct ggml_tensor * embeddings = ggml_graph_get_tensor(gf, "embeddings");
+    else {
+        if (model.class_embedding) {
+            struct ggml_tensor * embeddings = ggml_graph_get_tensor(gf, "embeddings");
 
-                void* zero_mem = malloc(ggml_nbytes(embeddings));
-                memset(zero_mem, 0, ggml_nbytes(embeddings));
-                ggml_backend_tensor_set(embeddings, zero_mem, 0, ggml_nbytes(embeddings));
-                free(zero_mem);
-            }
+            void* zero_mem = malloc(ggml_nbytes(embeddings));
+            memset(zero_mem, 0, ggml_nbytes(embeddings));
+            ggml_backend_tensor_set(embeddings, zero_mem, 0, ggml_nbytes(embeddings));
+            free(zero_mem);
         }
 
         if (ctx->has_qwen2vl_merger) {
@@ -2648,7 +2635,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 // The patches vector is used to get rows to index into the embeds with;
                 // we should skip dim 0 only if we have CLS to avoid going out of bounds
                 // when retrieving the rows.
-                int patch_offset = ctx->has_class_embedding ? 1 : 0;
+                int patch_offset = model.class_embedding ? 1 : 0;
                 int* patches_data = (int*)malloc(ggml_nbytes(patches));
                 for (int i = 0; i < num_patches; i++) {
                     patches_data[i] = i + patch_offset;
