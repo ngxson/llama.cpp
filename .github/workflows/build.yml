@@ -54,6 +54,7 @@ jobs:
         continue-on-error: true
         run: |
           brew update
+          brew install curl
 
       - name: Build
         id: cmake_build
@@ -122,6 +123,7 @@ jobs:
         continue-on-error: true
         run: |
           brew update
+          brew install curl
 
       - name: Build
         id: cmake_build
@@ -278,7 +280,7 @@ jobs:
         id: depends
         run: |
           sudo apt-get update
-          sudo apt-get install build-essential
+          sudo apt-get install build-essential libcurl4-openssl-dev
 
       - name: Build
         id: cmake_build
@@ -319,7 +321,7 @@ jobs:
         id: depends
         run: |
           sudo apt-get update
-          sudo apt-get install build-essential
+          sudo apt-get install build-essential libcurl4-openssl-dev
 
       - name: Build
         id: cmake_build
@@ -357,7 +359,7 @@ jobs:
         id: depends
         run: |
           sudo apt-get update
-          sudo apt-get install build-essential
+          sudo apt-get install build-essential libcurl4-openssl-dev
 
       - name: Build
         id: cmake_build
@@ -394,7 +396,7 @@ jobs:
           wget -qO - https://packages.lunarg.com/lunarg-signing-key-pub.asc | sudo apt-key add -
           sudo wget -qO /etc/apt/sources.list.d/lunarg-vulkan-jammy.list https://packages.lunarg.com/vulkan/lunarg-vulkan-jammy.list
           sudo apt-get update -y
-          sudo apt-get install -y build-essential mesa-vulkan-drivers vulkan-sdk
+          sudo apt-get install -y build-essential mesa-vulkan-drivers vulkan-sdk libcurl4-openssl-dev
 
       - name: Build
         id: cmake_build
@@ -451,7 +453,7 @@ jobs:
         id: depends
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential git cmake rocblas-dev hipblas-dev
+          sudo apt-get install -y build-essential git cmake rocblas-dev hipblas-dev libcurl4-openssl-dev
 
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2.16
@@ -527,7 +529,7 @@ jobs:
         shell: bash
         run: |
           sudo apt update
-          sudo apt install intel-oneapi-compiler-dpcpp-cpp
+          sudo apt install intel-oneapi-compiler-dpcpp-cpp libcurl4-openssl-dev
 
       - name: install oneAPI MKL library
         shell: bash
@@ -575,7 +577,7 @@ jobs:
         shell: bash
         run: |
           sudo apt update
-          sudo apt install intel-oneapi-compiler-dpcpp-cpp
+          sudo apt install intel-oneapi-compiler-dpcpp-cpp libcurl4-openssl-dev
 
       - name: install oneAPI MKL library
         shell: bash
@@ -987,7 +989,7 @@ jobs:
             DEBIAN_FRONTEND: noninteractive
           run: |
               apt update
-              apt install -y cmake build-essential ninja-build libgomp1 git
+              apt install -y cmake build-essential ninja-build libgomp1 git libcurl4-openssl-dev
 
         - name: ccache
           uses: hendrikmuhs/ccache-action@v1.2.16
