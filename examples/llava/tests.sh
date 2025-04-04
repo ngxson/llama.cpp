@@ -8,6 +8,8 @@ cd $SCRIPT_DIR
 
 set -eu
 
+mkdir -p $SCRIPT_DIR/output
+
 PROJ_ROOT="$SCRIPT_DIR/../.."
 cd $PROJ_ROOT
 
@@ -37,6 +39,8 @@ add_test "llama-qwen2vl-cli"  "bartowski/Qwen2-VL-2B-Instruct-GGUF"
 
 cmake --build build -j --target "${arr_bin[@]}"
 
+arr_res=()
+
 for i in "${!arr_bin[@]}"; do
     bin="${arr_bin[$i]}"
     hf="${arr_hf[$i]}"
@@ -45,7 +49,17 @@ for i in "${!arr_bin[@]}"; do
     echo ""
     echo ""
 
-    "$PROJ_ROOT/build/bin/$bin" -hf "$hf" --image $PROJ_ROOT/media/llama1-logo.png -p "what do you see"
+    output=$("$PROJ_ROOT/build/bin/$bin" -hf "$hf" --image $SCRIPT_DIR/test-1.jpeg -p "what is the publisher name of the newspaper?" --temp 0 | tee /dev/tty)
+
+    echo "$output" > $SCRIPT_DIR/output/$bin-$(echo "$hf" | tr '/' '-').log
+
+    if echo "$output" | grep -iq "new york"; then
+        result="\033[32mOK\033[0m:   $bin $hf"
+    else
+        result="\033[31mFAIL\033[0m: $bin $hf"
+    fi
+    echo -e "$result"
+    arr_res+=("$result")
 
     echo ""
     echo ""
@@ -55,3 +69,8 @@ for i in "${!arr_bin[@]}"; do
     echo ""
     echo ""
 done
+
+for i in "${!arr_res[@]}"; do
+    echo -e "${arr_res[$i]}"
+done
+echo ""
