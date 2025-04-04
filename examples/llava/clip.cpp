@@ -1154,7 +1154,7 @@ struct clip_model_loader {
         // print gguf info
         if (verbosity >= CLIP_LOG_ERROR) {
             int ftype = -1;
-            get_i32(KEY_FTYPE, ftype, false);
+            get_u32(KEY_FTYPE, ftype, false);
             const std::string ftype_str = ggml_type_name(static_cast<ggml_type>(ftype));
             std::string name;
             get_string(KEY_NAME, name, false);
