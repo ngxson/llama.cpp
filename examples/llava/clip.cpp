@@ -172,6 +172,11 @@ static void clip_image_convert_f32_to_u8(const clip_image_f32& src, clip_image_u
 // clip layers
 //
 
+enum patch_merge_type {
+    PATCH_MERGE_FLAT,
+    PATCH_MERGE_SPATIAL_UNPAD,
+};
+
 struct clip_hparams {
     int32_t image_size;
     int32_t patch_size;
@@ -181,9 +186,9 @@ struct clip_hparams {
     int32_t n_head;
     int32_t n_layer;
 
-    float eps;
+    patch_merge_type mm_patch_merge_type = PATCH_MERGE_FLAT;
 
-    char mm_patch_merge_type[32] = "flat"; // spatial_unpad or flat (default)
+    float eps;
 
     std::vector<int32_t> image_grid_pinpoints;
     int32_t image_crop_resolution;
@@ -1230,7 +1235,13 @@ struct clip_model_loader {
             get_u32(KEY_IMAGE_CROP_RESOLUTION, hparams.image_crop_resolution, false);
             get_arr_int(KEY_IMAGE_GRID_PINPOINTS, hparams.image_grid_pinpoints, false);
 
-            // TODO @ngxson : missing KEY_MM_PATCH_MERGE_TYPE
+            {
+                std::string mm_patch_merge_type;
+                get_string(KEY_MM_PATCH_MERGE_TYPE, mm_patch_merge_type, false);
+                if (mm_patch_merge_type == "spatial_unpad") {
+                    hparams.mm_patch_merge_type = PATCH_MERGE_SPATIAL_UNPAD;
+                }
+            }
 
             {
                 int idx_mean = gguf_find_key(ctx_gguf.get(), KEY_IMAGE_MEAN);
@@ -2115,7 +2126,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, cli
     }
     auto & params = ctx->vision_model.hparams;
     // The model config actually contains all we need to decide on how to preprocess, here we automatically switch to the new llava-1.6 preprocessing
-    if (strcmp(params.mm_patch_merge_type, "spatial_unpad") == 0) {
+    if (params.mm_patch_merge_type == PATCH_MERGE_SPATIAL_UNPAD) {
         pad_to_square = false;
     }
     // free the previous res_imgs if any set
@@ -2311,7 +2322,7 @@ int32_t clip_hidden_size(const struct clip_ctx * ctx) {
 }
 
 const char * clip_patch_merge_type(const struct clip_ctx * ctx) {
-    return ctx->vision_model.hparams.mm_patch_merge_type;
+    return ctx->vision_model.hparams.mm_patch_merge_type == PATCH_MERGE_SPATIAL_UNPAD ? "spatial_unpad" : "flat";
 }
 
 const int32_t * clip_image_grid(const struct clip_ctx * ctx) {
