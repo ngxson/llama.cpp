@@ -5325,7 +5325,8 @@ class UltravoxEncoderModel(Model):
         name = name.replace(".final_layer_norm", ".post_attention_layernorm")
 
         if "conv1.bias" in name or "conv2.bias" in name:
-            data_torch = data_torch.unsqueeze(-1).transpose(0, 1)
+            # transpose conv1 and conv2 bias
+            data_torch = data_torch.unsqueeze(-1)
 
         return [(self.map_tensor_name(name), data_torch)]
 

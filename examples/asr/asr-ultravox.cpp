@@ -144,7 +144,7 @@ int main(int argc, char ** argv) {
     {
         int n_ctx  = llama_model_n_ctx_train(enc_model);
         int n_embd = llama_model_n_embd(enc_model);
-        std::vector<float> embd(n_ctx * n_embd, 0.0f);
+        std::vector<float> embd(2*n_ctx * mel.n_mel, 0.0f);
         // set the input
         {
             int mel_offset = 0;
@@ -160,6 +160,7 @@ int main(int argc, char ** argv) {
         }
 
         // set the input
+        GGML_ASSERT((int)embd.size() < 2*n_ctx * n_embd);
         llama_batch batch_embd = llama_batch_init(n_ctx, n_embd, 1);
         batch_embd.n_tokens = n_ctx;
         for (int i = 0; i < batch_embd.n_tokens; i++) {

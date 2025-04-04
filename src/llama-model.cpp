@@ -3836,9 +3836,9 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
 
                     // conv1d
                     conv1d_1_w  = create_tensor(tn(LLM_TENSOR_WHISPER_CONV1, "weight"), {3, 128, n_embd}, 0);
-                    conv1d_1_b  = create_tensor(tn(LLM_TENSOR_WHISPER_CONV1, "bias"  ), {n_embd}, 0);
+                    conv1d_1_b  = create_tensor(tn(LLM_TENSOR_WHISPER_CONV1, "bias"  ), {1, n_embd}, 0);
                     conv1d_2_w  = create_tensor(tn(LLM_TENSOR_WHISPER_CONV2, "weight"), {3, n_embd, n_embd}, 0);
-                    conv1d_2_b  = create_tensor(tn(LLM_TENSOR_WHISPER_CONV2, "bias"  ), {n_embd}, 0);
+                    conv1d_2_b  = create_tensor(tn(LLM_TENSOR_WHISPER_CONV2, "bias"  ), {1, n_embd}, 0);
 
                     // mm projector
                     // https://huggingface.co/fixie-ai/ultravox-v0_5-llama-3_2-1b/blob/main/ultravox_model.py#L553
@@ -12131,6 +12131,25 @@ struct llm_build_ultravox_enc : public llm_graph_context {
             cb(inpL, "inp_embd", -1);
         }
         res->add_input(std::move(inp));
+
+        if (ubatch.embd) {
+            // reshape to [2*n_ctx, n_mel]
+            cur = ggml_view_2d(ctx0, inpL, 2*hparams.n_ctx_train, hparams.n_mel_bins,
+                                ggml_row_size(inpL->type, 2*hparams.n_ctx_train), 0);
+
+            // convolution + gelu
+            cur = ggml_conv_1d_ph(ctx0, model.conv1d_1_w, cur, 1, 1);
+            cur = ggml_add(ctx0, cur, model.conv1d_1_b);
+
+            cur = ggml_gelu(ctx0, cur);
+
+            cur = ggml_conv_1d_ph(ctx0, model.conv1d_2_w, cur, 2, 1);
+            cur = ggml_add(ctx0, cur, model.conv1d_2_b);
+
+            cur = ggml_gelu(ctx0, cur);
+            // transpose
+            inpL = ggml_cont(ctx0, ggml_transpose(ctx0, cur));
+        }
 
         // add position embeddings
         ggml_tensor * pos_embd_selected = ggml_view_2d(ctx0, model.pos_embd,
