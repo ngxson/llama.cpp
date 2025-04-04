@@ -1214,7 +1214,7 @@ struct clip_model_loader {
             get_bool(KEY_HAS_GLM_PROJ, ctx_clip.has_glm_projector, false);
             get_bool(KEY_HAS_QWEN2VL_MERGER, ctx_clip.has_qwen2vl_merger, false);
             // !!! do NOT extend the list above, use KEY_PROJ_TYPE instead
-            
+
             get_bool(KEY_USE_GELU, ctx_clip.use_gelu, false);
             get_bool(KEY_USE_SILU, ctx_clip.use_silu, false);
 
@@ -1231,7 +1231,7 @@ struct clip_model_loader {
             get_arr_int(KEY_IMAGE_GRID_PINPOINTS, hparams.image_grid_pinpoints, false);
 
             // TODO @ngxson : missing KEY_MM_PATCH_MERGE_TYPE
-            
+
             {
                 int idx_mean = gguf_find_key(ctx_gguf.get(), KEY_IMAGE_MEAN);
                 int idx_std  = gguf_find_key(ctx_gguf.get(), KEY_IMAGE_STD);
@@ -1473,7 +1473,7 @@ struct clip_model_loader {
             if (!fin) {
                 throw std::runtime_error(string_format("%s: failed to open %s\n", __func__, fname.c_str()));
             }
-    
+
             // alloc memory and offload data
             ggml_backend_buffer_type_t buft = ggml_backend_get_default_buffer_type(ctx_clip.backend);
             ctx_clip.buf = ggml_backend_alloc_ctx_tensors_from_buft(ctx_clip.ctx_data, buft);
