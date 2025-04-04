@@ -1,9 +1,12 @@
 #include "ggml.h"
 #include "gguf.h"
 
+#include <climits>
+#include <stdarg.h>
 #include <string>
 #include <map>
 #include <sstream>
+#include <vector>
 
 // Internal header for clip.cpp
 
