@@ -74,3 +74,4 @@ for i in "${!arr_res[@]}"; do
     echo -e "${arr_res[$i]}"
 done
 echo ""
+echo "Output logs are saved in $SCRIPT_DIR/output"
