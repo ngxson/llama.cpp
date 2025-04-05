@@ -168,8 +168,7 @@ add_subdirectory(src)
 # utils, programs, examples and tests
 #
 
-if (NOT LLAMA_BUILD_EXAMPLES)
-    # curl is only needed for examples
+if (NOT LLAMA_BUILD_EXAMPLES OR NOT LLAMA_BUILD_COMMON)
     set(LLAMA_CURL OFF)
 endif()
 
