@@ -898,10 +898,17 @@ jobs:
             -DCMAKE_INSTALL_PREFIX="$env:RUNNER_TEMP/opencl-arm64-release"
           cmake --build build-arm64-release --target install --config release
 
+      - name: libCURL
+        id: get_libcurl
+        uses: ./.github/actions/windows-setup-curl
+
       - name: Build
         id: cmake_build
+        env:
+          CURL_PATH: ${{ steps.get_libcurl.outputs.curl_path }}
         run: |
-          cmake -S . -B build ${{ matrix.defines }}
+          cmake -S . -B build ${{ matrix.defines }} `
+            -DCURL_LIBRARY="$env:CURL_PATH/lib/libcurl.dll.a" -DCURL_INCLUDE_DIR="$env:CURL_PATH/include"
           cmake --build build --config Release -j ${env:NUMBER_OF_PROCESSORS}
 
       - name: Add libopenblas.dll
@@ -1091,16 +1098,23 @@ jobs:
         run: |
           choco install ninja
 
+      - name: libCURL
+        id: get_libcurl
+        uses: ./.github/actions/windows-setup-curl
+
       - name: Build
         id: cmake_build
         shell: cmd
+        env:
+          CURL_PATH: ${{ steps.get_libcurl.outputs.curl_path }}
         run: |
           call "C:\Program Files (x86)\Microsoft Visual Studio\2019\Enterprise\VC\Auxiliary\Build\vcvars64.bat"
           cmake -S . -B build -G "Ninja Multi-Config" ^
             -DLLAMA_BUILD_SERVER=ON ^
             -DGGML_NATIVE=OFF ^
             -DGGML_CUDA=ON ^
-            -DGGML_RPC=ON
+            -DGGML_RPC=ON ^
+            -DCURL_LIBRARY="%CURL_PATH%/lib/libcurl.dll.a" -DCURL_INCLUDE_DIR="%CURL_PATH%/include"
           set /A NINJA_JOBS=%NUMBER_OF_PROCESSORS%-1
           cmake --build build --config Release -j %NINJA_JOBS% -t ggml
           cmake --build build --config Release
@@ -1261,8 +1275,14 @@ jobs:
           key: ${{ github.job }}
           evict-old-files: 1d
 
+      - name: libCURL
+        id: get_libcurl
+        uses: ./.github/actions/windows-setup-curl
+
       - name: Build
         id: cmake_build
+        env:
+          CURL_PATH: ${{ steps.get_libcurl.outputs.curl_path }}
         run: |
           $env:HIP_PATH=$(Resolve-Path 'C:\Program Files\AMD\ROCm\*\bin\clang.exe' | split-path | split-path)
           $env:CMAKE_PREFIX_PATH="${env:HIP_PATH}"
@@ -1273,9 +1293,11 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release `
             -DGGML_HIP=ON `
             -DGGML_HIP_ROCWMMA_FATTN=ON `
-            -DGGML_RPC=ON
+            -DGGML_RPC=ON `
+            -DCURL_LIBRARY="$env:CURL_PATH/lib/libcurl.dll.a" -DCURL_INCLUDE_DIR="$env:CURL_PATH/include"
           cmake --build build -j ${env:NUMBER_OF_PROCESSORS}
 
+  # TODO: reuse windows-latest-cmake-hip instead of duplicating this job
   windows-latest-cmake-hip-release:
     if: ${{ ( github.event_name == 'push' && github.ref == 'refs/heads/master' ) || github.event.inputs.create_release == 'true' }}
     runs-on: windows-latest
@@ -1317,8 +1339,14 @@ jobs:
         run: |
           & 'C:\Program Files\AMD\ROCm\*\bin\clang.exe' --version
 
+      - name: libCURL
+        id: get_libcurl
+        uses: ./.github/actions/windows-setup-curl
+
       - name: Build
         id: cmake_build
+        env:
+          CURL_PATH: ${{ steps.get_libcurl.outputs.curl_path }}
         run: |
           $env:HIP_PATH=$(Resolve-Path 'C:\Program Files\AMD\ROCm\*\bin\clang.exe' | split-path | split-path)
           $env:CMAKE_PREFIX_PATH="${env:HIP_PATH}"
@@ -1330,7 +1358,8 @@ jobs:
             -DAMDGPU_TARGETS=${{ matrix.gpu_target }} `
             -DGGML_HIP_ROCWMMA_FATTN=ON `
             -DGGML_HIP=ON `
-            -DGGML_RPC=ON
+            -DGGML_RPC=ON `
+            -DCURL_LIBRARY="$env:CURL_PATH/lib/libcurl.dll.a" -DCURL_INCLUDE_DIR="$env:CURL_PATH/include"
           cmake --build build -j ${env:NUMBER_OF_PROCESSORS}
           md "build\bin\rocblas\library\"
           cp "${env:HIP_PATH}\bin\hipblas.dll" "build\bin\"
