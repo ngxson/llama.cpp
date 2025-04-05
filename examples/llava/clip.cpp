@@ -817,8 +817,10 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
             embeddings = ggml_add(ctx0, embeddings, model.mm_0_b);
 
             embeddings = ggml_gelu(ctx0, embeddings);
-            embeddings = ggml_mul_mat(ctx0, model.mm_2_w, embeddings);
-            embeddings = ggml_add(ctx0, embeddings, model.mm_2_b);
+            if (model.mm_2_w) {
+                embeddings = ggml_mul_mat(ctx0, model.mm_2_w, embeddings);
+                embeddings = ggml_add(ctx0, embeddings, model.mm_2_b);
+            }
         }
         else if (ctx->proj_type == PROJECTOR_TYPE_MLP_NORM) {
             embeddings = ggml_mul_mat(ctx0, model.mm_0_w, embeddings);
@@ -1356,6 +1358,10 @@ struct clip_model_loader {
                     vision_model.mm_3_b = get_tensor(string_format(TN_LLAVA_PROJ, 3, "bias"), false);
                     vision_model.mm_4_w = get_tensor(string_format(TN_LLAVA_PROJ, 4, "weight"), false);
                     vision_model.mm_4_b = get_tensor(string_format(TN_LLAVA_PROJ, 4, "bias"), false);
+                    if (vision_model.mm_3_w) {
+                        // TODO: this is a hack to support Yi-type llava
+                        ctx_clip.proj_type = PROJECTOR_TYPE_MLP_NORM;
+                    }
                     vision_model.image_newline = get_tensor(TN_IMAGE_NEWLINE, false);
                 } break;
             case PROJECTOR_TYPE_LDP:
