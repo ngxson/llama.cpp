@@ -6,7 +6,7 @@ cd $SCRIPT_DIR
 
 #export LLAMA_CACHE="$SCRIPT_DIR/tmp"
 
-set -eu
+set -eux
 
 mkdir -p $SCRIPT_DIR/output
 

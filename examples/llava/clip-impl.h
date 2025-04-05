@@ -2,7 +2,7 @@
 #include "gguf.h"
 
 #include <climits>
-#include <stdarg.h>
+#include <cstdarg>
 #include <string>
 #include <map>
 #include <sstream>
