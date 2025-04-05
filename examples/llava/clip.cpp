@@ -1272,8 +1272,8 @@ struct clip_model_loader {
                 LOG_INF("%s: minicpmv_projector: %d\n", __func__, ctx_clip.has_minicpmv_projector);
                 LOG_INF("%s: minicpmv_version:   %d\n", __func__, ctx_clip.minicpmv_version);
                 LOG_INF("%s: glm_projector:      %d\n", __func__, ctx_clip.has_glm_projector);
-                LOG_INF("%s: model size:         %.2f MB\n", __func__, model_size / 1024.0 / 1024.0);
-                LOG_INF("%s: metadata size:      %.2f MB\n", __func__, ggml_get_mem_size(ctx_meta.get()) / 1024.0 / 1024.0);
+                LOG_INF("%s: model size:         %.2f MiB\n", __func__, model_size / 1024.0 / 1024.0);
+                LOG_INF("%s: metadata size:      %.2f MiB\n", __func__, ggml_get_mem_size(ctx_meta.get()) / 1024.0 / 1024.0);
             }
         }
     }
