@@ -33,6 +33,7 @@ add_test "llama-llava-cli"    "cjpais/llava-1.6-mistral-7b-gguf:Q3_K"
 add_test "llama-llava-cli"    "ibm-research/granite-vision-3.2-2b-GGUF"
 add_test "llama-minicpmv-cli" "second-state/MiniCPM-Llama3-V-2_5-GGUF:Q2_K" # model from openbmb is corrupted
 add_test "llama-minicpmv-cli" "openbmb/MiniCPM-V-2_6-gguf:Q2_K"
+add_test "llama-minicpmv-cli" "openbmb/MiniCPM-o-2_6-gguf:Q4_0"
 add_test "llama-qwen2vl-cli"  "bartowski/Qwen2-VL-2B-Instruct-GGUF"
 
 ###############
@@ -69,6 +70,8 @@ for i in "${!arr_bin[@]}"; do
     echo ""
     echo ""
 done
+
+set +x
 
 for i in "${!arr_res[@]}"; do
     echo -e "${arr_res[$i]}"
