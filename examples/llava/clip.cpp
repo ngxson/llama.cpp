@@ -187,44 +187,44 @@ struct clip_hparams {
 
 struct clip_layer {
     // attention
-    struct ggml_tensor * k_w = NULL;
-    struct ggml_tensor * k_b = NULL;
-    struct ggml_tensor * q_w = NULL;
-    struct ggml_tensor * q_b = NULL;
-    struct ggml_tensor * v_w = NULL;
-    struct ggml_tensor * v_b = NULL;
+    struct ggml_tensor * k_w = nullptr;
+    struct ggml_tensor * k_b = nullptr;
+    struct ggml_tensor * q_w = nullptr;
+    struct ggml_tensor * q_b = nullptr;
+    struct ggml_tensor * v_w = nullptr;
+    struct ggml_tensor * v_b = nullptr;
 
-    struct ggml_tensor * o_w = NULL;
-    struct ggml_tensor * o_b = NULL;
+    struct ggml_tensor * o_w = nullptr;
+    struct ggml_tensor * o_b = nullptr;
 
     // layernorm 1
-    struct ggml_tensor * ln_1_w = NULL;
-    struct ggml_tensor * ln_1_b = NULL;
+    struct ggml_tensor * ln_1_w = nullptr;
+    struct ggml_tensor * ln_1_b = nullptr;
 
     // ff
-    struct ggml_tensor * ff_i_w = NULL;
-    struct ggml_tensor * ff_i_b = NULL;
+    struct ggml_tensor * ff_i_w = nullptr;
+    struct ggml_tensor * ff_i_b = nullptr;
 
-    struct ggml_tensor * ff_o_w = NULL;
-    struct ggml_tensor * ff_o_b = NULL;
+    struct ggml_tensor * ff_o_w = nullptr;
+    struct ggml_tensor * ff_o_b = nullptr;
 
     // layernorm 2
-    struct ggml_tensor * ln_2_w = NULL;
-    struct ggml_tensor * ln_2_b = NULL;
+    struct ggml_tensor * ln_2_w = nullptr;
+    struct ggml_tensor * ln_2_b = nullptr;
 };
 
 struct clip_vision_model {
     struct clip_hparams hparams;
 
     // embeddings
-    struct ggml_tensor * class_embedding = NULL;
-    struct ggml_tensor * patch_embeddings_0 = NULL;
-    struct ggml_tensor * patch_embeddings_1 = NULL;  // second Conv2D kernel when we decouple Conv3D along temproal dimension (Qwen2VL)
-    struct ggml_tensor * patch_bias = NULL;
-    struct ggml_tensor * position_embeddings = NULL;
+    struct ggml_tensor * class_embedding = nullptr;
+    struct ggml_tensor * patch_embeddings_0 = nullptr;
+    struct ggml_tensor * patch_embeddings_1 = nullptr;  // second Conv2D kernel when we decouple Conv3D along temproal dimension (Qwen2VL)
+    struct ggml_tensor * patch_bias = nullptr;
+    struct ggml_tensor * position_embeddings = nullptr;
 
-    struct ggml_tensor * pre_ln_w = NULL;
-    struct ggml_tensor * pre_ln_b = NULL;
+    struct ggml_tensor * pre_ln_w = nullptr;
+    struct ggml_tensor * pre_ln_b = nullptr;
 
     std::vector<clip_layer> layers;
 
@@ -234,84 +234,84 @@ struct clip_vision_model {
     struct ggml_tensor * projection;
 
     // LLaVA projection
-    struct ggml_tensor * mm_0_w = NULL;
-    struct ggml_tensor * mm_0_b = NULL;
-    struct ggml_tensor * mm_2_w = NULL;
-    struct ggml_tensor * mm_2_b = NULL;
+    struct ggml_tensor * mm_0_w = nullptr;
+    struct ggml_tensor * mm_0_b = nullptr;
+    struct ggml_tensor * mm_2_w = nullptr;
+    struct ggml_tensor * mm_2_b = nullptr;
 
-    struct ggml_tensor * image_newline = NULL;
+    struct ggml_tensor * image_newline = nullptr;
 
     // Yi type models with mlp+normalization projection
-    struct ggml_tensor * mm_1_w = NULL; // Yi type models have 0, 1, 3, 4
-    struct ggml_tensor * mm_1_b = NULL;
-    struct ggml_tensor * mm_3_w = NULL;
-    struct ggml_tensor * mm_3_b = NULL;
-    struct ggml_tensor * mm_4_w = NULL;
-    struct ggml_tensor * mm_4_b = NULL;
+    struct ggml_tensor * mm_1_w = nullptr; // Yi type models have 0, 1, 3, 4
+    struct ggml_tensor * mm_1_b = nullptr;
+    struct ggml_tensor * mm_3_w = nullptr;
+    struct ggml_tensor * mm_3_b = nullptr;
+    struct ggml_tensor * mm_4_w = nullptr;
+    struct ggml_tensor * mm_4_b = nullptr;
 
     //GLMV-Edge projection
-    struct ggml_tensor * mm_model_adapter_conv_w = NULL;
-    struct ggml_tensor * mm_model_adapter_conv_b = NULL;
-    struct ggml_tensor * boi_w = NULL;
-    struct ggml_tensor * eoi_w = NULL;
+    struct ggml_tensor * mm_model_adapter_conv_w = nullptr;
+    struct ggml_tensor * mm_model_adapter_conv_b = nullptr;
+    struct ggml_tensor * boi_w = nullptr;
+    struct ggml_tensor * eoi_w = nullptr;
 
     // MobileVLM projection
-    struct ggml_tensor * mm_model_mlp_1_w = NULL;
-    struct ggml_tensor * mm_model_mlp_1_b = NULL;
-    struct ggml_tensor * mm_model_mlp_3_w = NULL;
-    struct ggml_tensor * mm_model_mlp_3_b = NULL;
-    struct ggml_tensor * mm_model_block_1_block_0_0_w = NULL;
-    struct ggml_tensor * mm_model_block_1_block_0_1_w = NULL;
-    struct ggml_tensor * mm_model_block_1_block_0_1_b = NULL;
-    struct ggml_tensor * mm_model_block_1_block_1_fc1_w = NULL;
-    struct ggml_tensor * mm_model_block_1_block_1_fc1_b = NULL;
-    struct ggml_tensor * mm_model_block_1_block_1_fc2_w = NULL;
-    struct ggml_tensor * mm_model_block_1_block_1_fc2_b = NULL;
-    struct ggml_tensor * mm_model_block_1_block_2_0_w = NULL;
-    struct ggml_tensor * mm_model_block_1_block_2_1_w = NULL;
-    struct ggml_tensor * mm_model_block_1_block_2_1_b = NULL;
-    struct ggml_tensor * mm_model_block_2_block_0_0_w = NULL;
-    struct ggml_tensor * mm_model_block_2_block_0_1_w = NULL;
-    struct ggml_tensor * mm_model_block_2_block_0_1_b = NULL;
-    struct ggml_tensor * mm_model_block_2_block_1_fc1_w = NULL;
-    struct ggml_tensor * mm_model_block_2_block_1_fc1_b = NULL;
-    struct ggml_tensor * mm_model_block_2_block_1_fc2_w = NULL;
-    struct ggml_tensor * mm_model_block_2_block_1_fc2_b = NULL;
-    struct ggml_tensor * mm_model_block_2_block_2_0_w = NULL;
-    struct ggml_tensor * mm_model_block_2_block_2_1_w = NULL;
-    struct ggml_tensor * mm_model_block_2_block_2_1_b = NULL;
+    struct ggml_tensor * mm_model_mlp_1_w = nullptr;
+    struct ggml_tensor * mm_model_mlp_1_b = nullptr;
+    struct ggml_tensor * mm_model_mlp_3_w = nullptr;
+    struct ggml_tensor * mm_model_mlp_3_b = nullptr;
+    struct ggml_tensor * mm_model_block_1_block_0_0_w = nullptr;
+    struct ggml_tensor * mm_model_block_1_block_0_1_w = nullptr;
+    struct ggml_tensor * mm_model_block_1_block_0_1_b = nullptr;
+    struct ggml_tensor * mm_model_block_1_block_1_fc1_w = nullptr;
+    struct ggml_tensor * mm_model_block_1_block_1_fc1_b = nullptr;
+    struct ggml_tensor * mm_model_block_1_block_1_fc2_w = nullptr;
+    struct ggml_tensor * mm_model_block_1_block_1_fc2_b = nullptr;
+    struct ggml_tensor * mm_model_block_1_block_2_0_w = nullptr;
+    struct ggml_tensor * mm_model_block_1_block_2_1_w = nullptr;
+    struct ggml_tensor * mm_model_block_1_block_2_1_b = nullptr;
+    struct ggml_tensor * mm_model_block_2_block_0_0_w = nullptr;
+    struct ggml_tensor * mm_model_block_2_block_0_1_w = nullptr;
+    struct ggml_tensor * mm_model_block_2_block_0_1_b = nullptr;
+    struct ggml_tensor * mm_model_block_2_block_1_fc1_w = nullptr;
+    struct ggml_tensor * mm_model_block_2_block_1_fc1_b = nullptr;
+    struct ggml_tensor * mm_model_block_2_block_1_fc2_w = nullptr;
+    struct ggml_tensor * mm_model_block_2_block_1_fc2_b = nullptr;
+    struct ggml_tensor * mm_model_block_2_block_2_0_w = nullptr;
+    struct ggml_tensor * mm_model_block_2_block_2_1_w = nullptr;
+    struct ggml_tensor * mm_model_block_2_block_2_1_b = nullptr;
 
     // MobileVLM_V2 projection
-    struct ggml_tensor * mm_model_mlp_0_w = NULL;
-    struct ggml_tensor * mm_model_mlp_0_b = NULL;
-    struct ggml_tensor * mm_model_mlp_2_w = NULL;
-    struct ggml_tensor * mm_model_mlp_2_b = NULL;
-    struct ggml_tensor * mm_model_peg_0_w = NULL;
-    struct ggml_tensor * mm_model_peg_0_b = NULL;
+    struct ggml_tensor * mm_model_mlp_0_w = nullptr;
+    struct ggml_tensor * mm_model_mlp_0_b = nullptr;
+    struct ggml_tensor * mm_model_mlp_2_w = nullptr;
+    struct ggml_tensor * mm_model_mlp_2_b = nullptr;
+    struct ggml_tensor * mm_model_peg_0_w = nullptr;
+    struct ggml_tensor * mm_model_peg_0_b = nullptr;
 
     // MINICPMV projection
-    struct ggml_tensor * mm_model_pos_embed_k = NULL;
-    struct ggml_tensor * mm_model_query = NULL;
-    struct ggml_tensor * mm_model_proj = NULL;
-    struct ggml_tensor * mm_model_kv_proj = NULL;
-    struct ggml_tensor * mm_model_attn_q_w = NULL;
-    struct ggml_tensor * mm_model_attn_q_b = NULL;
-    struct ggml_tensor * mm_model_attn_k_w = NULL;
-    struct ggml_tensor * mm_model_attn_k_b = NULL;
-    struct ggml_tensor * mm_model_attn_v_w = NULL;
-    struct ggml_tensor * mm_model_attn_v_b = NULL;
-    struct ggml_tensor * mm_model_attn_o_w = NULL;
-    struct ggml_tensor * mm_model_attn_o_b = NULL;
-    struct ggml_tensor * mm_model_ln_q_w = NULL;
-    struct ggml_tensor * mm_model_ln_q_b = NULL;
-    struct ggml_tensor * mm_model_ln_kv_w = NULL;
-    struct ggml_tensor * mm_model_ln_kv_b = NULL;
-    struct ggml_tensor * mm_model_ln_post_w = NULL;
-    struct ggml_tensor * mm_model_ln_post_b = NULL;
+    struct ggml_tensor * mm_model_pos_embed_k = nullptr;
+    struct ggml_tensor * mm_model_query = nullptr;
+    struct ggml_tensor * mm_model_proj = nullptr;
+    struct ggml_tensor * mm_model_kv_proj = nullptr;
+    struct ggml_tensor * mm_model_attn_q_w = nullptr;
+    struct ggml_tensor * mm_model_attn_q_b = nullptr;
+    struct ggml_tensor * mm_model_attn_k_w = nullptr;
+    struct ggml_tensor * mm_model_attn_k_b = nullptr;
+    struct ggml_tensor * mm_model_attn_v_w = nullptr;
+    struct ggml_tensor * mm_model_attn_v_b = nullptr;
+    struct ggml_tensor * mm_model_attn_o_w = nullptr;
+    struct ggml_tensor * mm_model_attn_o_b = nullptr;
+    struct ggml_tensor * mm_model_ln_q_w = nullptr;
+    struct ggml_tensor * mm_model_ln_q_b = nullptr;
+    struct ggml_tensor * mm_model_ln_kv_w = nullptr;
+    struct ggml_tensor * mm_model_ln_kv_b = nullptr;
+    struct ggml_tensor * mm_model_ln_post_w = nullptr;
+    struct ggml_tensor * mm_model_ln_post_b = nullptr;
 
     // gemma3
-    struct ggml_tensor * mm_input_proj_w = NULL;
-    struct ggml_tensor * mm_soft_emb_norm_w = NULL;
+    struct ggml_tensor * mm_input_proj_w = nullptr;
+    struct ggml_tensor * mm_soft_emb_norm_w = nullptr;
 };
 
 struct clip_ctx {
@@ -1121,7 +1121,7 @@ struct clip_model_loader {
 
     // TODO @ngxson : we should not pass clip_ctx here, it should be clip_vision_model
     clip_model_loader(const char * fname, clip_ctx & ctx_clip) : ctx_clip(ctx_clip), fname(fname) {
-        struct ggml_context * meta = NULL;
+        struct ggml_context * meta = nullptr;
 
         struct gguf_init_params params = {
             /*.no_alloc = */ true,
