@@ -1,6 +1,7 @@
 #ifndef CLIP_H
 #define CLIP_H
 
+#include "ggml.h"
 #include <stddef.h>
 #include <stdint.h>
 
@@ -24,14 +25,6 @@ extern "C" {
 
 struct clip_ctx;
 
-enum clip_log_level {
-    CLIP_LOG_NONE    = 0,
-    CLIP_LOG_ERROR   = 1,
-    CLIP_LOG_WARNING = 2,
-    CLIP_LOG_INFO    = 3,
-    CLIP_LOG_DEBUG   = 4,
-};
-
 struct clip_image_size {
     int width;
     int height;
@@ -49,7 +42,7 @@ struct clip_image_f32_batch {
 
 struct clip_context_params {
     bool use_gpu;
-    clip_log_level verbosity;
+    ggml_log_level verbosity;
 };
 
 // deprecated, use clip_init

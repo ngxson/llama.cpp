@@ -28,17 +28,7 @@
 #include <cinttypes>
 #include <limits>
 
-#if defined(LLAVA_LOG_OFF)
-#   define LOG_INF(...)
-#   define LOG_WRN(...)
-#   define LOG_ERR(...)
-#   define LOG_DBG(...)
-#else // defined(LLAVA_LOG_OFF)
-#   define LOG_INF(...) do { fprintf(stdout, __VA_ARGS__); } while (0)
-#   define LOG_WRN(...) do { fprintf(stderr, __VA_ARGS__); } while (0)
-#   define LOG_ERR(...) do { fprintf(stderr, __VA_ARGS__); } while (0)
-#   define LOG_DBG(...) do { fprintf(stdout, __VA_ARGS__); } while (0)
-#endif // defined(LLAVA_LOG_OFF)
+struct clip_logger_state g_logger_state = {GGML_LOG_LEVEL_CONT, clip_log_callback_default, NULL};
 
 //#define CLIP_DEBUG_FUNCTIONS
 
@@ -1121,7 +1111,6 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
 }
 
 struct clip_model_loader {
-    clip_log_level verbosity;
     ggml_context_ptr ctx_meta;
     gguf_context_ptr ctx_gguf;
 
@@ -1131,7 +1120,7 @@ struct clip_model_loader {
     size_t model_size; // in bytes
 
     // TODO @ngxson : we should not pass clip_ctx here, it should be clip_vision_model
-    clip_model_loader(const char * fname, struct clip_context_params ctx_params, clip_ctx & ctx_clip) : verbosity(ctx_params.verbosity), ctx_clip(ctx_clip), fname(fname) {
+    clip_model_loader(const char * fname, clip_ctx & ctx_clip) : ctx_clip(ctx_clip), fname(fname) {
         struct ggml_context * meta = NULL;
 
         struct gguf_init_params params = {
@@ -1149,7 +1138,7 @@ struct clip_model_loader {
         const int n_tensors = gguf_get_n_tensors(ctx_gguf.get());
 
         // print gguf info
-        if (verbosity >= CLIP_LOG_ERROR) {
+        {
             int ftype = -1;
             get_u32(KEY_FTYPE, ftype, false);
             const std::string ftype_str = ggml_type_name(static_cast<ggml_type>(ftype));
@@ -1176,10 +1165,8 @@ struct clip_model_loader {
                 struct ggml_tensor * cur = ggml_get_tensor(meta, name);
                 size_t tensor_size = ggml_nbytes(cur);
                 model_size += tensor_size;
-                if (verbosity >= CLIP_LOG_DEBUG) {
-                    LOG_INF("%s: tensor[%d]: n_dims = %d, name = %s, tensor_size=%zu, offset=%zu, shape:[%" PRIu64 ", %" PRIu64 ", %" PRIu64 ", %" PRIu64 "], type = %s\n",
-                        __func__, i, ggml_n_dims(cur), cur->name, tensor_size, offset, cur->ne[0], cur->ne[1], cur->ne[2], cur->ne[3], ggml_type_name(type));
-                }
+                LOG_DBG("%s: tensor[%d]: n_dims = %d, name = %s, tensor_size=%zu, offset=%zu, shape:[%" PRIu64 ", %" PRIu64 ", %" PRIu64 ", %" PRIu64 "], type = %s\n",
+                    __func__, i, ggml_n_dims(cur), cur->name, tensor_size, offset, cur->ne[0], cur->ne[1], cur->ne[2], cur->ne[3], ggml_type_name(type));
             }
         }
     }
@@ -1262,16 +1249,14 @@ struct clip_model_loader {
             // Calculate the deepest feature layer based on hparams and projector type
             ctx_clip.max_feature_layer = get_deepest_feature_layer(&ctx_clip);
 
-            if (verbosity >= CLIP_LOG_ERROR) {
-                LOG_INF("%s: text_encoder:       %d\n", __func__, ctx_clip.has_text_encoder);
-                LOG_INF("%s: vision_encoder:     %d\n", __func__, ctx_clip.has_vision_encoder);
-                LOG_INF("%s: llava_projector:    %d\n", __func__, ctx_clip.has_llava_projector);
-                LOG_INF("%s: minicpmv_projector: %d\n", __func__, ctx_clip.has_minicpmv_projector);
-                LOG_INF("%s: minicpmv_version:   %d\n", __func__, ctx_clip.minicpmv_version);
-                LOG_INF("%s: glm_projector:      %d\n", __func__, ctx_clip.has_glm_projector);
-                LOG_INF("%s: model size:         %.2f MiB\n", __func__, model_size / 1024.0 / 1024.0);
-                LOG_INF("%s: metadata size:      %.2f MiB\n", __func__, ggml_get_mem_size(ctx_meta.get()) / 1024.0 / 1024.0);
-            }
+            LOG_INF("%s: text_encoder:       %d\n", __func__, ctx_clip.has_text_encoder);
+            LOG_INF("%s: vision_encoder:     %d\n", __func__, ctx_clip.has_vision_encoder);
+            LOG_INF("%s: llava_projector:    %d\n", __func__, ctx_clip.has_llava_projector);
+            LOG_INF("%s: minicpmv_projector: %d\n", __func__, ctx_clip.has_minicpmv_projector);
+            LOG_INF("%s: minicpmv_version:   %d\n", __func__, ctx_clip.minicpmv_version);
+            LOG_INF("%s: glm_projector:      %d\n", __func__, ctx_clip.has_glm_projector);
+            LOG_INF("%s: model size:         %.2f MiB\n", __func__, model_size / 1024.0 / 1024.0);
+            LOG_INF("%s: metadata size:      %.2f MiB\n", __func__, ggml_get_mem_size(ctx_meta.get()) / 1024.0 / 1024.0);
         }
     }
 
@@ -1495,9 +1480,7 @@ struct clip_model_loader {
             }
             fin.close();
 
-            if (verbosity >= CLIP_LOG_INFO) {
-                LOG_INF("%s: loaded %zu tensors from %s\n", __func__, tensors_to_load.size(), fname.c_str());
-            }
+            LOG_DBG("%s: loaded %zu tensors from %s\n", __func__, tensors_to_load.size(), fname.c_str());
         }
     }
 
@@ -1581,18 +1564,19 @@ struct clip_model_loader {
 };
 
 // read and create ggml_context containing the tensors and their data
-struct clip_ctx * clip_model_load(const char * fname, const int verbosity = 1) {
+struct clip_ctx * clip_model_load(const char * fname, const int verbosity) {
     return clip_init(fname, clip_context_params{
         /* use_gpu */   true,
-        /* verbosity */ static_cast<clip_log_level>(verbosity),
+        /* verbosity */ static_cast<ggml_log_level>(verbosity),
     });
 }
 
 struct clip_ctx * clip_init(const char * fname, struct clip_context_params ctx_params) {
+    g_logger_state.verbosity_thold = ctx_params.verbosity;
     clip_ctx * ctx_clip = new clip_ctx(ctx_params);
 
     try {
-        clip_model_loader loader(fname, ctx_params, *ctx_clip);
+        clip_model_loader loader(fname, *ctx_clip);
         loader.load_hparams();
         loader.load_tensors();
         loader.alloc_compute_meta();
@@ -1974,7 +1958,7 @@ static std::vector<std::vector<clip_image_u8 *>> uhd_slice_image(const clip_imag
     const int multiple = fmin(ceil(ratio), max_slice_nums);
 
     std::vector<std::vector<clip_image_u8 *>> images;
-    LOG_INF("%s: multiple %d\n", __func__, multiple);
+    LOG_DBG("%s: multiple %d\n", __func__, multiple);
     images.push_back(std::vector<clip_image_u8 *>());
 
     if (multiple <= 1) {
@@ -1989,17 +1973,17 @@ static std::vector<std::vector<clip_image_u8 *>> uhd_slice_image(const clip_imag
         clip_image_u8 * source_image = clip_image_u8_init();
         bicubic_resize(*img, *source_image, best_size.first, best_size.second);
         // source_image = image.copy().resize(best_resize, Image.Resampling.BICUBIC)
-        LOG_INF("%s: image_size: %d %d; source_image size: %d %d\n", __func__, img->nx, img->ny, best_size.first, best_size.second);
+        LOG_DBG("%s: image_size: %d %d; source_image size: %d %d\n", __func__, img->nx, img->ny, best_size.first, best_size.second);
         images[images.size()-1].push_back(source_image);
 
         std::pair<int, int> best_grid = uhd_best_grid(max_slice_nums, multiple, log_ratio);
-        LOG_INF("%s: image_size: %d %d; best_grid: %d %d\n", __func__, img->nx, img->ny, best_grid.first, best_grid.second);
+        LOG_DBG("%s: image_size: %d %d; best_grid: %d %d\n", __func__, img->nx, img->ny, best_grid.first, best_grid.second);
 
         auto refine_size = uhd_get_refine_size(original_size, best_grid, scale_resolution, patch_size, true);
         clip_image_u8 * refine_image = clip_image_u8_init();
         bicubic_resize(*img, *refine_image, refine_size.first, refine_size.second);
 
-        LOG_INF("%s: refine_image_size: %d %d; refine_size: %d %d\n", __func__, refine_image->nx, refine_image->ny, refine_size.first, refine_size.second);
+        LOG_DBG("%s: refine_image_size: %d %d; refine_size: %d %d\n", __func__, refine_image->nx, refine_image->ny, refine_size.first, refine_size.second);
 
         // split_to_patches
         int width = refine_image->nx;
@@ -2107,7 +2091,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, cli
 
     bool pad_to_square = true;
     if (!ctx->has_vision_encoder) {
-        LOG_ERR("This gguf file seems to have no vision encoder\n");
+        LOG_ERR("%s: This gguf file seems to have no vision encoder\n", __func__);
         return false;
     }
     auto & params = ctx->vision_model.hparams;
@@ -2444,7 +2428,7 @@ static std::vector<std::vector<float>> get_2d_sincos_pos_embed(int embed_dim, co
 
 bool clip_image_encode(struct clip_ctx * ctx, const int n_threads, clip_image_f32 * img, float * vec) {
     if (!ctx->has_vision_encoder) {
-        LOG_ERR("This gguf file seems to have no vision encoder\n");
+        LOG_ERR("%s: This gguf file seems to have no vision encoder\n", __func__);
         return false;
     }
 
@@ -2456,7 +2440,7 @@ bool clip_image_encode(struct clip_ctx * ctx, const int n_threads, clip_image_f3
 
 bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_image_f32_batch * imgs, float * vec) {
     if (!ctx->has_vision_encoder) {
-        LOG_ERR("This gguf file seems to have no vision encoder\n");
+        LOG_ERR("%s: This gguf file seems to have no vision encoder\n", __func__);
         return false;
     }
 
@@ -2673,7 +2657,7 @@ bool clip_model_quantize(const char * fname_inp, const char * fname_out, const i
 
     auto * ctx_clip = clip_init(fname_inp, clip_context_params{
         /* use_gpu */   false,
-        /* verbosity */ CLIP_LOG_ERROR,
+        /* verbosity */ GGML_LOG_LEVEL_ERROR,
     });
 
     const auto & ctx_src = ctx_clip->ctx_gguf;
@@ -2751,7 +2735,7 @@ bool clip_model_quantize(const char * fname_inp, const char * fname_out, const i
                 f32_data = (float *)conv_buf.data();
                 break;
             default:
-                LOG_ERR("Please use an input file in f32 or f16\n");
+                LOG_ERR("%s: Please use an input file in f32 or f16\n", __func__);
                 gguf_free(ctx_out);
                 return false;
             }

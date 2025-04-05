@@ -121,6 +121,64 @@ static projector_type clip_projector_type_from_string(const std::string & str) {
 }
 
 //
+// logging
+//
+
+static void clip_log_callback_default(enum ggml_log_level level, const char * text, void * user_data) {
+    (void) level;
+    (void) user_data;
+    fputs(text, stderr);
+    fflush(stderr);
+}
+
+struct clip_logger_state {
+    ggml_log_level verbosity_thold;
+    ggml_log_callback log_callback;
+    void * log_callback_user_data;
+};
+
+extern struct clip_logger_state g_logger_state;
+
+static void clip_log_internal_v(enum ggml_log_level level, const char * format, va_list args) {
+    if (format == NULL) {
+        return;
+    }
+    va_list args_copy;
+    va_copy(args_copy, args);
+    char buffer[128];
+    int len = vsnprintf(buffer, 128, format, args);
+    if (len < 128) {
+        g_logger_state.log_callback(level, buffer, g_logger_state.log_callback_user_data);
+    } else {
+        char * buffer2 = (char *) calloc(len + 1, sizeof(char));
+        vsnprintf(buffer2, len + 1, format, args_copy);
+        buffer2[len] = 0;
+        g_logger_state.log_callback(level, buffer2, g_logger_state.log_callback_user_data);
+        free(buffer2);
+    }
+    va_end(args_copy);
+}
+
+static void clip_log_internal(enum ggml_log_level level, const char * format, ...) {
+    va_list args;
+    va_start(args, format);
+    clip_log_internal_v(level, format, args);
+    va_end(args);
+}
+
+#define LOG_TMPL(level, ...) \
+    do { \
+        if ((level) >= g_logger_state.verbosity_thold) { \
+            clip_log_internal((level), __VA_ARGS__); \
+        } \
+    } while (0)
+#define LOG_INF(...) LOG_TMPL(GGML_LOG_LEVEL_INFO,  __VA_ARGS__)
+#define LOG_WRN(...) LOG_TMPL(GGML_LOG_LEVEL_WARN,  __VA_ARGS__)
+#define LOG_ERR(...) LOG_TMPL(GGML_LOG_LEVEL_ERROR, __VA_ARGS__)
+#define LOG_DBG(...) LOG_TMPL(GGML_LOG_LEVEL_DEBUG, __VA_ARGS__)
+#define LOG_CNT(...) LOG_TMPL(GGML_LOG_LEVEL_CONT,  __VA_ARGS__)
+
+//
 // common utils
 //
 
