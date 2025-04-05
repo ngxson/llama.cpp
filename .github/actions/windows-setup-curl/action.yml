@@ -18,6 +18,7 @@ runs:
   steps:
     - name: libCURL
       id: get_libcurl
+      shell: powershell
       env:
         CURL_VERSION: 8.6.0_6
       run: |
