@@ -1190,6 +1190,8 @@ jobs:
         run:  |
           scripts/install-oneapi.bat $WINDOWS_BASEKIT_URL $WINDOWS_DPCPP_MKL
 
+      # TODO: add libcurl support ; we will also need to modify win-build-sycl.bat to accept user-specified args
+
       - name: Build
         id: cmake_build
         run:  examples/sycl/win-build-sycl.bat
