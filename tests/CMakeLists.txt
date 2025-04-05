@@ -131,8 +131,12 @@ if (NOT WIN32)
 endif()
 
 llama_target_and_test(test-log.cpp)
-llama_target_and_test(test-arg-parser.cpp)
 llama_target_and_test(test-chat-template.cpp)
+
+# this fails on windows (github hosted runner) due to missing .NET, so we disable it
+if (NOT WIN32)
+    llama_target_and_test(test-arg-parser.cpp)
+endif()
 
 # llama_target_and_test(test-opt.cpp) # SLOW
 llama_target_and_test(test-gguf.cpp)
