@@ -9,9 +9,6 @@ outputs:
   curl_path:
     description: "Path to the downloaded libcurl"
     value: ${{ steps.get_libcurl.outputs.curl_path }}
-  curl_cmake_arg:
-    description: "Arguments to be added to cmake command which allow finding libcurl"
-    value: ${{ steps.get_libcurl.outputs.curl_cmake_arg }}
 
 runs:
   using: "composite"
@@ -20,10 +17,9 @@ runs:
       id: get_libcurl
       shell: powershell
       env:
-        CURL_VERSION: 8.6.0_6
+        CURL_VERSION: ${{ inputs.curl_version }}
       run: |
         curl.exe -o $env:RUNNER_TEMP/curl.zip -L "https://curl.se/windows/dl-${env:CURL_VERSION}/curl-${env:CURL_VERSION}-win64-mingw.zip"
         mkdir $env:RUNNER_TEMP/libcurl
         tar.exe -xvf $env:RUNNER_TEMP/curl.zip --strip-components=1 -C $env:RUNNER_TEMP/libcurl
         echo "curl_path=$env:RUNNER_TEMP/libcurl" >> $env:GITHUB_OUTPUT
-        echo "curl_cmake_arg=' -DCURL_LIBRARY=\`"$env:RUNNER_TEMP/libcurl/lib/libcurl.dll.a\`" -DCURL_INCLUDE_DIR=\`"$env:RUNNER_TEMP/libcurl/include\`" '" >> $env:GITHUB_OUTPUT

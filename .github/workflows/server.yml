@@ -197,9 +197,9 @@ jobs:
       - name: Build
         id: cmake_build
         env:
-          CURL_CMAKE_ARG: ${{ steps.get_libcurl.outputs.curl_cmake_arg }}
+          CURL_PATH: ${{ steps.get_libcurl.outputs.curl_path }}
         run: |
-          cmake -B build $env:CURL_CMAKE_ARG
+          cmake -B build -DCURL_LIBRARY="$env:CURL_PATH/lib/libcurl.dll.a" -DCURL_INCLUDE_DIR="$env:CURL_PATH/include"
           cmake --build build --config Release -j ${env:NUMBER_OF_PROCESSORS} --target llama-server
 
       - name: Python setup
