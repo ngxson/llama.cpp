@@ -968,9 +968,12 @@ jobs:
       - name: Pack artifacts
         id: pack_artifacts
         if: ${{ ( github.event_name == 'push' && github.ref == 'refs/heads/master' ) || github.event.inputs.create_release == 'true' }}
+        env:
+          CURL_PATH: ${{ steps.get_libcurl.outputs.curl_path }}
         run: |
           Copy-Item LICENSE .\build\bin\Release\llama.cpp.txt
           Copy-Item .\examples\run\linenoise.cpp\LICENSE .\build\bin\Release\linenoise.cpp.txt
+          Copy-Item $env:CURL_PATH\bin\libcurl-x64.dll .\build\bin\Release\libcurl-x64.dll
           7z a llama-${{ steps.tag.outputs.name }}-bin-win-${{ matrix.build }}.zip .\build\bin\Release\*
 
       - name: Upload artifacts
@@ -1135,7 +1138,10 @@ jobs:
       - name: Pack artifacts
         id: pack_artifacts
         if: ${{ ( github.event_name == 'push' && github.ref == 'refs/heads/master' ) || github.event.inputs.create_release == 'true' }}
+        env:
+          CURL_PATH: ${{ steps.get_libcurl.outputs.curl_path }}
         run: |
+          cp $env:CURL_PATH\bin\libcurl-x64.dll .\build\bin\Release\libcurl-x64.dll
           7z a llama-${{ steps.tag.outputs.name }}-bin-win-${{ matrix.build }}-cu${{ matrix.cuda }}-x64.zip .\build\bin\Release\*
 
       - name: Upload artifacts
@@ -1383,7 +1389,10 @@ jobs:
 
       - name: Pack artifacts
         id: pack_artifacts
+        env:
+          CURL_PATH: ${{ steps.get_libcurl.outputs.curl_path }}
         run: |
+          cp $env:CURL_PATH\bin\libcurl-x64.dll .\build\bin\libcurl-x64.dll
           7z a llama-${{ steps.tag.outputs.name }}-bin-win-hip-x64-${{ matrix.gpu_target }}.zip .\build\bin\*
 
       - name: Upload artifacts
