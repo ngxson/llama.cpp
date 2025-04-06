@@ -112,6 +112,11 @@ struct llama_hparams {
     bool use_alibi     = false;
     bool attn_soft_cap = false;
 
+    // TODO @ngxson : variable names taken from python code, we can rename it later
+    uint32_t interleave_moe_layer_step = 2; // TODO read from gguf
+    uint32_t no_rope_layer_interval = 4; // TODO read from gguf
+    uint32_t attn_temperature_tuning = 4; // TODO read from gguf
+
     // needed by encoder-decoder models (e.g. T5, FLAN-T5)
     // ref: https://github.com/ggerganov/llama.cpp/pull/8141
     llama_token dec_start_token_id = LLAMA_TOKEN_NULL;

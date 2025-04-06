@@ -10,6 +10,7 @@
 
 enum llm_arch {
     LLM_ARCH_LLAMA,
+    LLM_ARCH_LLAMA4,
     LLM_ARCH_DECI,
     LLM_ARCH_FALCON,
     LLM_ARCH_BAICHUAN,

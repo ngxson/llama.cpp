@@ -841,6 +841,12 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
         cb(selection_probs, "ffn_moe_probs_biased", il);
     }
 
+    // llama4 doesn't have exp_probs_b, and sigmoid is only used after top_k
+    // see: https://github.com/meta-llama/llama-models/blob/699a02993512fb36936b1b0741e13c06790bcf98/models/llama4/moe.py#L183-L198
+    if (arch == LLM_ARCH_LLAMA4) {
+        selection_probs = logits;
+    }
+
     // select experts
     ggml_tensor * selected_experts = ggml_top_k(ctx0, selection_probs, n_expert_used); // [n_expert_used, n_tokens]
     cb(selected_experts->src[0], "ffn_moe_argsort", il);
@@ -913,6 +919,8 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
         // avoid returning a non-contiguous tensor
         moe_out = ggml_cont(ctx0, moe_out);
     }
+
+    cb(moe_out, "ffn_moe_out", il);
 
     return moe_out;
 }
