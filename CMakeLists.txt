@@ -168,7 +168,8 @@ add_subdirectory(src)
 # utils, programs, examples and tests
 #
 
-if (NOT LLAMA_BUILD_EXAMPLES OR NOT LLAMA_BUILD_COMMON)
+if (NOT LLAMA_BUILD_COMMON)
+    message(STATUS "LLAMA_BUILD_COMMON is OFF, disabling LLAMA_CURL")
     set(LLAMA_CURL OFF)
 endif()
 
