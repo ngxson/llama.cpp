@@ -1778,6 +1778,9 @@ class Llama4Model(LlamaModel):
         self.hparams["intermediate_size_moe"] = self.hparams["intermediate_size"]
         self.hparams["intermediate_size"] = self.hparams["intermediate_size_mlp"]
 
+    def set_vocab(self):
+        self._set_vocab_gpt2()
+
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
         # TODO @ngxson : this is for testing, will be cleaned up later
