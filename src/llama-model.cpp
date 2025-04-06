@@ -90,6 +90,7 @@ const char * llm_type_name(llm_type type) {
         case LLM_TYPE_57B_A14B:      return "57B.A14B";
         case LLM_TYPE_27B:           return "27B";
         case LLM_TYPE_290B:          return "290B";
+        case LLM_TYPE_17B_16E:       return "17Bx16E";
         default:                     return "?B";
     }
 }
@@ -524,10 +525,8 @@ void llama_model::load_hparams(llama_model_loader & ml) {
     // arch-specific KVs
     switch (arch) {
         case LLM_ARCH_LLAMA:
-        case LLM_ARCH_LLAMA4:
             {
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
-                ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,  hparams.n_ff_exp, false);
 
                 if (hparams.n_expert == 8) {
                     switch (hparams.n_layer) {
@@ -550,6 +549,17 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                         case 80: type = hparams.n_head() == hparams.n_head_kv() ? LLM_TYPE_65B : LLM_TYPE_70B; break;
                         default: type = LLM_TYPE_UNKNOWN;
                     }
+                }
+            } break;
+        case LLM_ARCH_LLAMA4:
+            {
+                ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
+                ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,  hparams.n_ff_exp);
+                hparams.f_attention_scale = 0.1;
+
+                switch (hparams.n_layer) {
+                    case 48: type = LLM_TYPE_17B_16E; break;
+                    default: type = LLM_TYPE_UNKNOWN;
                 }
             } break;
         case LLM_ARCH_DECI:
@@ -4266,10 +4276,10 @@ struct llm_build_llama : public llm_graph_context {
 
                 if (use_rope) {
                     Qcur = ggml_rope_ext(
-                        ctx0, Qcur, inp_pos, rope_factors,
-                        n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
-                        ext_factor, attn_factor, beta_fast, beta_slow
-                        );
+                            ctx0, Qcur, inp_pos, rope_factors,
+                            n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+                            ext_factor, attn_factor, beta_fast, beta_slow
+                            );
 
                     Kcur = ggml_rope_ext(
                             ctx0, Kcur, inp_pos, rope_factors,
@@ -4278,6 +4288,10 @@ struct llm_build_llama : public llm_graph_context {
                             );
                 } else {
                     // TODO: support temperature tuning (attn_temperature_tuning)
+                    // Problem: we are missing 2 things:
+                    // - ggml_cast from I32 to F32
+                    // - ggml_floor
+                    // Ref implementation: https://github.com/ml-explore/mlx-lm/blob/9df43c9863c28065fecf87c9be2c5fd7e6f3864c/mlx_lm/models/llama4.py#L122-L130
                 }
 
                 cb(Qcur, "Qcur", il);

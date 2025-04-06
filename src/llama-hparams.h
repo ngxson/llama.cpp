@@ -116,6 +116,7 @@ struct llama_hparams {
     uint32_t interleave_moe_layer_step = 2; // TODO read from gguf
     uint32_t no_rope_layer_interval = 4; // TODO read from gguf
     uint32_t attn_temperature_tuning = 4; // TODO read from gguf
+    uint32_t floor_scale = 8192; // TODO read from gguf
 
     // needed by encoder-decoder models (e.g. T5, FLAN-T5)
     // ref: https://github.com/ggerganov/llama.cpp/pull/8141
