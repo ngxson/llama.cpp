@@ -722,7 +722,7 @@ jobs:
         uses: hendrikmuhs/ccache-action@v1.2.16
         with:
           key: macOS-latest-swift
-          evict-old-files: 1s
+          evict-old-files: 1d
 
       - name: Dependencies
         id: depends
