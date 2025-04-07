@@ -474,7 +474,7 @@ void llm_graph_input_attn_kv_unified::set_input(const llama_ubatch * ubatch) {
                         }
 
                         // may need to cut off old tokens for sliding window
-                        // TODO @ngxson : the check for n_attn_chunk is temporary, need to optimize it
+                        // TODO @ngxson : we are currently re-using the swa logic to store the chunked mask, we should rename SWA to something more generic like "aux mask"
                         if (data_swa) {
                             if (hparams.n_attn_chunk) {
                                 llama_pos pos_chunk_start = (pos / hparams.n_attn_chunk) * hparams.n_attn_chunk;
