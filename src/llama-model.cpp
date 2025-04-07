@@ -4364,13 +4364,15 @@ struct llm_build_llama : public llm_graph_context {
                         il);
 
                 // Shared experts
-                cur = build_ffn(cur,
+                ggml_tensor * shexp_out = build_ffn(cur,
                     model.layers[il].ffn_up_shexp,   NULL, NULL,
                     model.layers[il].ffn_gate_shexp, NULL, NULL,
                     model.layers[il].ffn_down_shexp, NULL, NULL,
                     NULL,
                     LLM_FFN_SILU, LLM_FFN_PAR, il);
-                cb(cur, "ffn_moe_shexp", il);
+                cb(shexp_out, "ffn_moe_shexp", il);
+
+                cur = ggml_add(ctx0, cur, shexp_out);
 
             } else {
                 // MoE branch
