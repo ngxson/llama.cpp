@@ -4346,12 +4346,12 @@ struct llm_build_llama : public llm_graph_context {
 
             } else if (arch == LLM_ARCH_LLAMA4) {
                 // llama4 MoE
-                cur = build_norm(ffn_inp,
+                ggml_tensor * ffn_inp_normed = build_norm(ffn_inp,
                         model.layers[il].ffn_norm, NULL,
                         LLM_NORM_RMS, il);
                 cb(cur, "ffn_norm", il);
 
-                cur = build_moe_ffn(cur,
+                ggml_tensor * moe_out = build_moe_ffn(ffn_inp_normed,
                         model.layers[il].ffn_gate_inp,
                         model.layers[il].ffn_up_exps,
                         model.layers[il].ffn_gate_exps,
@@ -4364,7 +4364,7 @@ struct llm_build_llama : public llm_graph_context {
                         il);
 
                 // Shared experts
-                ggml_tensor * shexp_out = build_ffn(ffn_inp,
+                ggml_tensor * shexp_out = build_ffn(ffn_inp_normed,
                     model.layers[il].ffn_up_shexp,   NULL, NULL,
                     model.layers[il].ffn_gate_shexp, NULL, NULL,
                     model.layers[il].ffn_down_shexp, NULL, NULL,
@@ -4372,7 +4372,7 @@ struct llm_build_llama : public llm_graph_context {
                     LLM_FFN_SILU, LLM_FFN_PAR, il);
                 cb(shexp_out, "ffn_moe_shexp", il);
 
-                cur = ggml_add(ctx0, cur, shexp_out);
+                cur = ggml_add(ctx0, moe_out, shexp_out);
 
             } else {
                 // MoE branch
