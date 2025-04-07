@@ -4271,6 +4271,16 @@ struct llm_build_llama : public llm_graph_context {
         // inp_pos - contains the positions
         ggml_tensor * inp_pos = build_inp_pos();
 
+        // temperature tuning
+        ggml_tensor * inp_attn_scale = nullptr;
+        if (arch == LLM_ARCH_LLAMA4) {
+            auto inp = std::make_unique<llm_graph_input_attn_temp>(n_pos_per_token(), hparams.n_attn_temp_floor_scale, hparams.f_attn_temp_scale);
+            inp_attn_scale = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, 1, 1, n_tokens*n_pos_per_token());
+            ggml_set_input(inp_attn_scale);
+            inp->attn_scale = inp_attn_scale;
+            res->add_input(std::move(inp));
+        }
+
         auto * inp_attn = build_attn_inp_kv_unified();
 
         const float kq_scale = hparams.f_attention_scale == 0.0f ? 1.0f/sqrtf(float(n_embd_head)) : hparams.f_attention_scale;
@@ -4330,12 +4340,8 @@ struct llm_build_llama : public llm_graph_context {
                             n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
                             ext_factor, attn_factor, beta_fast, beta_slow
                             );
-                } else {
-                    // TODO: support temperature tuning (attn_temperature_tuning)
-                    // Problem: we are missing 2 things:
-                    // - ggml_cast from I32 to F32
-                    // - ggml_floor
-                    // Ref implementation: https://github.com/ml-explore/mlx-lm/blob/9df43c9863c28065fecf87c9be2c5fd7e6f3864c/mlx_lm/models/llama4.py#L122-L130
+                } else if (inp_attn_scale) {
+                    Qcur = ggml_mul(ctx0, Qcur, inp_attn_scale);
                 }
 
                 cb(Qcur, "Qcur", il);

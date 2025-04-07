@@ -59,6 +59,22 @@ void llm_graph_input_pos::set_input(const llama_ubatch * ubatch) {
     }
 }
 
+void llm_graph_input_attn_temp::set_input(const llama_ubatch * ubatch) {
+    if (ubatch->pos && attn_scale) {
+        const int64_t n_tokens = ubatch->n_tokens;
+
+        std::vector<float> attn_scale_data(n_tokens, 0.0f);
+        for (int i = 0; i < n_tokens; ++i) {
+            const float pos = ubatch->pos[i];
+            attn_scale_data[i] = std::log(
+                std::floor((pos + 1.0f) / n_attn_temp_floor_scale) + 1.0
+            ) * f_attn_temp_scale + 1.0;
+        }
+
+        ggml_backend_tensor_set(attn_scale, attn_scale_data.data(), 0, n_tokens*n_pos_per_token*ggml_element_size(attn_scale));
+    }
+}
+
 void llm_graph_input_pos_bucket::set_input(const llama_ubatch * ubatch) {
     if (pos_bucket) {
         const int64_t n_tokens = ubatch->n_tokens;

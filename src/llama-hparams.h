@@ -116,7 +116,6 @@ struct llama_hparams {
     bool     use_kq_norm             = true;
     // values below seems to be fixed on llama4
     uint32_t n_no_rope_layer_step    = 4;
-    uint32_t n_attn_temp_tuning      = 4;
     uint32_t n_attn_temp_floor_scale = 8192;
     float    f_attn_temp_scale       = 0.1;
 
