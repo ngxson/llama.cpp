@@ -399,6 +399,7 @@ cmake -B build-ios-sim -G Xcode \
     -DCMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS=iphonesimulator \
     -DCMAKE_C_FLAGS="${COMMON_C_FLAGS}" \
     -DCMAKE_CXX_FLAGS="${COMMON_CXX_FLAGS}" \
+    -DLLAMA_CURL=OFF \
     -S .
 cmake --build build-ios-sim --config Release -- -quiet
 
@@ -411,6 +412,7 @@ cmake -B build-ios-device -G Xcode \
     -DCMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS=iphoneos \
     -DCMAKE_C_FLAGS="${COMMON_C_FLAGS}" \
     -DCMAKE_CXX_FLAGS="${COMMON_CXX_FLAGS}" \
+    -DLLAMA_CURL=OFF \
     -S .
 cmake --build build-ios-device --config Release -- -quiet
 
@@ -421,6 +423,7 @@ cmake -B build-macos -G Xcode \
     -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
     -DCMAKE_C_FLAGS="${COMMON_C_FLAGS}" \
     -DCMAKE_CXX_FLAGS="${COMMON_CXX_FLAGS}" \
+    -DLLAMA_CURL=OFF \
     -S .
 cmake --build build-macos --config Release -- -quiet
 
@@ -462,6 +465,7 @@ cmake -B build-tvos-sim -G Xcode \
     -DCMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS=appletvsimulator \
     -DCMAKE_C_FLAGS="${COMMON_C_FLAGS}" \
     -DCMAKE_CXX_FLAGS="${COMMON_CXX_FLAGS}" \
+    -DLLAMA_CURL=OFF \
     -S .
 cmake --build build-tvos-sim --config Release -- -quiet
 
@@ -476,6 +480,7 @@ cmake -B build-tvos-device -G Xcode \
     -DCMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS=appletvos \
     -DCMAKE_C_FLAGS="${COMMON_C_FLAGS}" \
     -DCMAKE_CXX_FLAGS="${COMMON_CXX_FLAGS}" \
+    -DLLAMA_CURL=OFF \
     -S .
 cmake --build build-tvos-device --config Release -- -quiet
 
