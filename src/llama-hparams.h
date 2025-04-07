@@ -113,7 +113,7 @@ struct llama_hparams {
     bool attn_soft_cap = false;
 
     // TODO @ngxson : variable names taken from python code, we can rename it later
-    uint32_t interleave_moe_layer_step = 2; // TODO read from gguf
+    uint32_t interleave_moe_layer_step = 1; // TODO read from gguf
     uint32_t no_rope_layer_interval = 4; // TODO read from gguf
     uint32_t attn_temperature_tuning = 4; // TODO read from gguf
     uint32_t floor_scale = 8192; // TODO read from gguf
