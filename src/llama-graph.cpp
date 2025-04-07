@@ -875,12 +875,12 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
 
     cur = ggml_reshape_3d(ctx0, cur, n_embd, 1, n_tokens);
 
-    if (scale_before_ffn) {
-        cur = ggml_mul(ctx0, cur, weights);
-    }
-
     ggml_tensor * up = build_lora_mm_id(up_exps, cur, selected_experts); // [n_ff, n_expert_used, n_tokens]
     cb(up, "ffn_moe_up", il);
+
+    if (scale_before_ffn) {
+        up = ggml_mul(ctx0, up, weights);
+    }
 
     ggml_tensor * gate = build_lora_mm_id(gate_exps, cur, selected_experts); // [n_ff, n_expert_used, n_tokens]
     cb(gate, "ffn_moe_gate", il);
