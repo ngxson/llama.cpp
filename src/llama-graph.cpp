@@ -1024,6 +1024,19 @@ ggml_tensor * llm_graph_context::build_inp_pos() const {
     return cur;
 }
 
+ggml_tensor * llm_graph_context::build_inp_attn_scale() const {
+    auto inp = std::make_unique<llm_graph_input_attn_temp>(n_pos_per_token());
+
+    auto & cur = inp->attn_scale;
+
+    cur = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, 1, 1, n_tokens*n_pos_per_token());
+    ggml_set_input(cur);
+
+    res->add_input(std::move(inp));
+
+    return cur;
+}
+
 ggml_tensor * llm_graph_context::build_inp_out_ids() const {
     auto inp = std::make_unique<llm_graph_input_out_ids>(hparams, cparams, n_outputs);
 

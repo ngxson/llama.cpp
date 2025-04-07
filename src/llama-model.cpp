@@ -4279,11 +4279,7 @@ struct llm_build_llama : public llm_graph_context {
         // temperature tuning
         ggml_tensor * inp_attn_scale = nullptr;
         if (arch == LLM_ARCH_LLAMA4) {
-            auto inp = std::make_unique<llm_graph_input_attn_temp>(n_pos_per_token(), hparams.n_attn_temp_floor_scale, hparams.f_attn_temp_scale);
-            inp_attn_scale = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, 1, 1, n_tokens*n_pos_per_token());
-            ggml_set_input(inp_attn_scale);
-            inp->attn_scale = inp_attn_scale;
-            res->add_input(std::move(inp));
+            inp_attn_scale = build_inp_attn_scale();
         }
 
         auto * inp_attn = build_attn_inp_kv_unified();
