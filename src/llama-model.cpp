@@ -4416,6 +4416,7 @@ struct llm_build_llama : public llm_graph_context {
                 cb(shexp_out, "ffn_moe_shexp", il);
 
                 cur = ggml_add(ctx0, moe_out, shexp_out);
+                cb(shexp_out, "ffn_moe_out_merged", il);
 
             } else {
                 // MoE branch
