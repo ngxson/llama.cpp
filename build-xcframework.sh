@@ -437,6 +437,7 @@ cmake -B build-visionos -G Xcode \
     -DCMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS=xros \
     -DCMAKE_C_FLAGS="-D_XOPEN_SOURCE=700 ${COMMON_C_FLAGS}" \
     -DCMAKE_CXX_FLAGS="-D_XOPEN_SOURCE=700 ${COMMON_CXX_FLAGS}" \
+    -DLLAMA_CURL=OFF \
     -S .
 cmake --build build-visionos --config Release -- -quiet
 
@@ -450,6 +451,7 @@ cmake -B build-visionos-sim -G Xcode \
     -DCMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS=xrsimulator \
     -DCMAKE_C_FLAGS="-D_XOPEN_SOURCE=700 ${COMMON_C_FLAGS}" \
     -DCMAKE_CXX_FLAGS="-D_XOPEN_SOURCE=700 ${COMMON_CXX_FLAGS}" \
+    -DLLAMA_CURL=OFF \
     -S .
 cmake --build build-visionos-sim --config Release -- -quiet
 
