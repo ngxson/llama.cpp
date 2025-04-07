@@ -4364,7 +4364,7 @@ struct llm_build_llama : public llm_graph_context {
                         il);
 
                 // Shared experts
-                ggml_tensor * shexp_out = build_ffn(cur,
+                ggml_tensor * shexp_out = build_ffn(ffn_inp,
                     model.layers[il].ffn_up_shexp,   NULL, NULL,
                     model.layers[il].ffn_gate_shexp, NULL, NULL,
                     model.layers[il].ffn_down_shexp, NULL, NULL,
