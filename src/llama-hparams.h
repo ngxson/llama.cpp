@@ -112,11 +112,13 @@ struct llama_hparams {
     bool use_alibi     = false;
     bool attn_soft_cap = false;
 
-    // TODO @ngxson : variable names taken from python code, we can rename it later
-    uint32_t interleave_moe_layer_step = 1; // TODO read from gguf
-    uint32_t no_rope_layer_interval = 4; // TODO read from gguf
-    uint32_t attn_temperature_tuning = 4; // TODO read from gguf
-    uint32_t floor_scale = 8192; // TODO read from gguf
+    uint32_t n_moe_layer_step        = 0;
+    bool     use_kq_norm             = true;
+    // values below seems to be fixed on llama4
+    uint32_t n_no_rope_layer_step    = 4;
+    uint32_t n_attn_temp_tuning      = 4;
+    uint32_t n_attn_temp_floor_scale = 8192;
+    float    f_attn_temp_scale       = 0.1;
 
     // needed by encoder-decoder models (e.g. T5, FLAN-T5)
     // ref: https://github.com/ggerganov/llama.cpp/pull/8141

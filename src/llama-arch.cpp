@@ -115,6 +115,7 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
     { LLM_KV_RESIDUAL_SCALE,                    "%s.residual_scale"                    },
     { LLM_KV_EMBEDDING_SCALE,                   "%s.embedding_scale"                   },
     { LLM_KV_TOKEN_SHIFT_COUNT,                 "%s.token_shift_count"                 },
+    { LLM_KV_INTERLEAVE_MOE_LAYER_STEP,         "%s.interleave_moe_layer_step"         },
 
     { LLM_KV_ATTENTION_HEAD_COUNT,                   "%s.attention.head_count"                   },
     { LLM_KV_ATTENTION_HEAD_COUNT_KV,                "%s.attention.head_count_kv"                },

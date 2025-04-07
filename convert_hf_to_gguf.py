@@ -1774,7 +1774,7 @@ class Llama4Model(LlamaModel):
         if "vision_config" in hparams:
             logger.info("Has vision encoder, but it will be ignored")
             self.has_vision = True
-        # hacky renaming
+        # IMPORTANT: the normal "intermediate_size" is renamed to "intermediate_size_mlp", we need to undo this
         self.hparams["intermediate_size_moe"] = self.hparams["intermediate_size"]
         self.hparams["intermediate_size"] = self.hparams["intermediate_size_mlp"]
 
@@ -1783,16 +1783,15 @@ class Llama4Model(LlamaModel):
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
-        # TODO @ngxson : this is for testing, will be cleaned up later
-        self.gguf_writer.add_uint32("llama4.interleave_moe_layer_step", self.hparams["interleave_moe_layer_step"])
-        self.gguf_writer.add_uint32("llama4.no_rope_layer_interval", 4) # every 4th layer
-        self.gguf_writer.add_uint32("llama4.expert_feed_forward_length", self.hparams["intermediate_size_moe"])
+        self.gguf_writer.add_interleave_moe_layer_step(self.hparams["interleave_moe_layer_step"])
+        self.gguf_writer.add_expert_feed_forward_length(self.hparams["intermediate_size_moe"])
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None):
         name = name.replace("language_model.", "")
         name = name.replace("feed_forward.", "mlp.") # a bit hacky for now
         name = name.replace(".router.weight", ".gate.weight") # a bit hacky for now
 
+        # split the gate_up into gate and up
         if "gate_up_proj" in name:
             name_up = name.replace("gate_up_proj", "up_proj.weight")
             name_gate = name.replace("gate_up_proj", "gate_proj.weight")
@@ -1802,7 +1801,7 @@ class Llama4Model(LlamaModel):
                 (self.map_tensor_name(name_gate), gate_proj_weight),
                 (self.map_tensor_name(name_up), up_proj_weight)
             ]
-        
+
         if name.endswith("down_proj"):
             name += ".weight"
             data_torch = data_torch.transpose(-1, -2)
