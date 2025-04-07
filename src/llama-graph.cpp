@@ -812,8 +812,9 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
                float   w_scale,
          llama_expert_gating_func_type gating_op,
                  int   il) const {
-    int64_t n_embd = cur->ne[0];
-    int64_t n_tokens = cur->ne[1];
+    const int64_t n_embd   = cur->ne[0];
+    const int64_t n_tokens = cur->ne[1];
+    const bool scale_before_ffn = arch == LLM_ARCH_LLAMA4;
 
     ggml_tensor * logits = build_lora_mm(gate_inp, cur); // [n_expert, n_tokens]
     cb(logits, "ffn_moe_logits", il);
@@ -873,6 +874,11 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
     }
 
     cur = ggml_reshape_3d(ctx0, cur, n_embd, 1, n_tokens);
+
+    if (scale_before_ffn) {
+        cur = ggml_mul(ctx0, cur, weights);
+    }
+
     ggml_tensor * up = build_lora_mm_id(up_exps, cur, selected_experts); // [n_ff, n_expert_used, n_tokens]
     cb(up, "ffn_moe_up", il);
 
@@ -900,7 +906,9 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
     ggml_tensor * experts = build_lora_mm_id(down_exps, par, selected_experts); // [n_embd, n_expert_used, n_tokens]
     cb(experts, "ffn_moe_down", il);
 
-    experts = ggml_mul(ctx0, experts, weights);
+    if (!scale_before_ffn) {
+        experts = ggml_mul(ctx0, experts, weights);
+    }
 
     // aggregate experts
     ggml_tensor * moe_out = nullptr;
