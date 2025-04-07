@@ -474,9 +474,17 @@ void llm_graph_input_attn_kv_unified::set_input(const llama_ubatch * ubatch) {
                         }
 
                         // may need to cut off old tokens for sliding window
+                        // TODO @ngxson : the check for n_attn_chunk is temporary, need to optimize it
                         if (data_swa) {
-                            if (pos - kv_self->cells[i].pos >= (int32_t)hparams.n_swa) {
-                                f = -INFINITY;
+                            if (hparams.n_attn_chunk) {
+                                llama_pos pos_chunk_start = (pos / hparams.n_attn_chunk) * hparams.n_attn_chunk;
+                                if (kv_self->cells[i].pos < pos_chunk_start || pos < pos_chunk_start) {
+                                    f = -INFINITY;
+                                }
+                            } else {
+                                if (pos - kv_self->cells[i].pos >= (int32_t)hparams.n_swa) {
+                                    f = -INFINITY;
+                                }
                             }
                             data_swa[h*(n_kv*n_tokens) + s*(n_kv*n_seq_tokens) + j*n_kv + i] = f;
                         }
