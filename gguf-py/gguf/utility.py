@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
+import os
 import json
 
 
@@ -94,7 +95,7 @@ class SafetensorRemote:
     Example (one model has single safetensor file, the other has multiple):
         for model_id in ["ngxson/TEST-Tiny-Llama4", "Qwen/Qwen2.5-7B-Instruct"]:
             tensors = SafetensorRemote.get_list_tensors_hf_model(model_id)
-            print(json.dumps(tensors, indent=2))
+            print(tensors)
 
     Example reading tensor data:
         tensors = SafetensorRemote.get_list_tensors_hf_model(model_id)
@@ -223,8 +224,10 @@ class SafetensorRemote:
             raise ValueError(f"Invalid URL: {url}")
 
         headers = {}
+        if os.environ.get("HF_TOKEN"):
+            headers["Authorization"] = f"Bearer {os.environ['HF_TOKEN']}"
         if size > -1:
-            headers = {"Range": f"bytes={start}-{start + size}"}
+            headers["Range"] = f"bytes={start}-{start + size}"
         response = requests.get(url, allow_redirects=True, headers=headers)
         response.raise_for_status()
 
@@ -246,6 +249,8 @@ class SafetensorRemote:
 
         try:
             headers = {"Range": "bytes=0-0"}
+            if os.environ.get("HF_TOKEN"):
+                headers["Authorization"] = f"Bearer {os.environ['HF_TOKEN']}"
             response = requests.head(url, allow_redirects=True, headers=headers)
             # Success (2xx) or redirect (3xx)
             return 200 <= response.status_code < 400
