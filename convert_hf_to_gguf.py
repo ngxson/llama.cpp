@@ -73,7 +73,7 @@ class Model:
                  use_temp_file: bool = False, eager: bool = False,
                  metadata_override: Path | None = None, model_name: str | None = None,
                  split_max_tensors: int = 0, split_max_size: int = 0, dry_run: bool = False,
-                 small_first_shard: bool = False, hparams: dict[str, Any] | None = None):
+                 small_first_shard: bool = False, hparams: dict[str, Any] | None = None, remote_hf_model_id: str | None = None):
         if type(self) is Model:
             raise TypeError(f"{type(self).__name__!r} should not be directly instantiated")
 
@@ -83,11 +83,23 @@ class Model:
         self.is_big_endian = is_big_endian
         self.endianess = gguf.GGUFEndian.BIG if is_big_endian else gguf.GGUFEndian.LITTLE
         self.use_temp_file = use_temp_file
-        self.lazy = not eager
-        self.part_names = Model.get_model_part_names(self.dir_model, "model", ".safetensors")
-        self.is_safetensors = len(self.part_names) > 0
-        if not self.is_safetensors:
-            self.part_names = Model.get_model_part_names(self.dir_model, "pytorch_model", ".bin")
+        self.lazy = not eager or (remote_hf_model_id is not None)
+        if remote_hf_model_id is not None:
+            self.is_safetensors = True
+
+            def get_remote_tensors() -> Iterator[tuple[str, Tensor]]:
+                logger.info(f"Using remote model with HuggingFace id: {remote_hf_model_id}")
+                remote_tensors = gguf.utility.SafetensorRemote.get_list_tensors_hf_model(remote_hf_model_id)
+                self.tensor_names = set(name for name in remote_tensors.keys())
+                for name, remote_tensor in gguf.utility.SafetensorRemote.get_list_tensors_hf_model(remote_hf_model_id).items():
+                    yield (name, LazyTorchTensor.from_remote_tensor(remote_tensor))
+
+            self.get_tensors = get_remote_tensors
+        else:
+            self.part_names = Model.get_model_part_names(self.dir_model, "model", ".safetensors")
+            self.is_safetensors = len(self.part_names) > 0
+            if not self.is_safetensors:
+                self.part_names = Model.get_model_part_names(self.dir_model, "pytorch_model", ".bin")
         self.hparams = Model.load_hparams(self.dir_model) if hparams is None else hparams
         self.block_count = self.find_hparam(["n_layers", "num_hidden_layers", "n_layer", "num_layers"])
         self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
@@ -5394,6 +5406,14 @@ class LazyTorchTensor(gguf.LazyBase):
         return cast(torch.Tensor, lazy)
 
     @classmethod
+    def from_remote_tensor(cls, remote_tensor: gguf.utility.RemoteTensor):
+        dtype = cls._dtype_str_map[remote_tensor.dtype]
+        shape = remote_tensor.shape
+        meta = cls.meta_with_dtype_and_shape(dtype, shape)
+        lazy = cls(meta=meta, args=(remote_tensor,), func=lambda r: torch.frombuffer(r.data(), dtype=dtype).reshape(shape))
+        return cast(torch.Tensor, lazy)
+
+    @classmethod
     def __torch_function__(cls, func, types, args=(), kwargs=None):
         del types  # unused
 
@@ -5516,8 +5536,9 @@ def main() -> None:
 
     if args.remote:
         from huggingface_hub import snapshot_download
+        args.remote = str(dir_model)
         local_dir = snapshot_download(
-            repo_id=str(dir_model),
+            repo_id=args.remote,
             allow_patterns=["LICENSE", "*.json", "*.md", "*.txt", "tokenizer.model"])
         dir_model = Path(local_dir)
         logger.info(f"Downloaded config and tokenizer to {local_dir}")
@@ -5569,7 +5590,7 @@ def main() -> None:
                                      metadata_override=args.metadata, model_name=args.model_name,
                                      split_max_tensors=args.split_max_tensors,
                                      split_max_size=split_str_to_n_bytes(args.split_max_size), dry_run=args.dry_run,
-                                     small_first_shard=args.no_tensor_first_split)
+                                     small_first_shard=args.no_tensor_first_split, remote_hf_model_id=args.remote or None)
 
         if args.vocab_only:
             logger.info("Exporting model vocab...")
