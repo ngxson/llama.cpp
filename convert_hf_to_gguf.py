@@ -5416,7 +5416,8 @@ class LazyTorchTensor(gguf.LazyBase):
         dtype = cls._dtype_str_map[remote_tensor.dtype]
         shape = remote_tensor.shape
         meta = cls.meta_with_dtype_and_shape(dtype, shape)
-        lazy = cls(meta=meta, args=(remote_tensor,), func=lambda r: torch.frombuffer(r.data(), dtype=dtype).reshape(shape))
+        func = lambda r: torch.frombuffer(r.data(), dtype=dtype).reshape(shape)
+        lazy = cls(meta=meta, args=(remote_tensor,), func=func)
         return cast(torch.Tensor, lazy)
 
     @classmethod

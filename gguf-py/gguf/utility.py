@@ -81,9 +81,10 @@ class RemoteTensor:
     size: int
     url: str
 
-    def data(self) -> bytes:
+    def data(self) -> bytearray:
         # TODO: handle request errors (maybe with limited retries?)
-        data = SafetensorRemote.get_data_by_range(url=self.url, start=self.offset_start, size=self.size)
+        # NOTE: using a bytearray, otherwise PyTorch complains the buffer is not writeable
+        data = bytearray(SafetensorRemote.get_data_by_range(url=self.url, start=self.offset_start, size=self.size))
         return data
 
 
