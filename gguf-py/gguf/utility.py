@@ -243,7 +243,7 @@ class SafetensorRemote:
 
         # --- Multithreading Path ---
         if size >= cls.MULTITHREAD_THREDSHOLD and cls.MULTITHREAD_COUNT > 1:
-            # print(f"Using {cls.MULTITHREAD_COUNT} threads for size {size / (1024*1024):.2f} MB")
+            print(f"Using {cls.MULTITHREAD_COUNT} threads to download range of {size / (1024*1024):.2f} MB")
             num_threads = cls.MULTITHREAD_COUNT
             results: list[Any] = [None] * num_threads # Store results or exceptions
             threads: list[threading.Thread] = []
