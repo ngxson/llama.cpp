@@ -7,6 +7,7 @@ import os
 import json
 import requests
 import threading
+import logging
 from urllib.parse import urlparse
 
 
@@ -109,6 +110,8 @@ class SafetensorRemote:
             data = SafetensorRemote.get_data_by_range(remote_safetensor_url, offset_start, size)
             print(data)
     """
+
+    logger = logging.getLogger("safetensor_remote")
 
     BASE_DOMAIN = "https://huggingface.co"
     ALIGNMENT = 8 # bytes
@@ -243,7 +246,7 @@ class SafetensorRemote:
 
         # --- Multithreading Path ---
         if size >= cls.MULTITHREAD_THREDSHOLD and cls.MULTITHREAD_COUNT > 1:
-            print(f"Using {cls.MULTITHREAD_COUNT} threads to download range of {size / (1024*1024):.2f} MB")
+            cls.logger.info(f"Using {cls.MULTITHREAD_COUNT} threads to download range of {size / (1024*1024):.2f} MB")
             num_threads = cls.MULTITHREAD_COUNT
             results: list[Any] = [None] * num_threads # Store results or exceptions
             threads: list[threading.Thread] = []
@@ -308,9 +311,9 @@ class SafetensorRemote:
                     # Check if it was supposed to download anything
                     expected_chunk_size = base_chunk_size + (1 if i < remainder else 0)
                     if expected_chunk_size > 0:
-                         raise RuntimeError(f"Thread {i} finished without providing data or exception for a non-zero chunk.")
+                        raise RuntimeError(f"Thread {i} finished without providing data or exception for a non-zero chunk.")
                     else:
-                         final_data_parts.append(b"") # Append empty bytes for zero-size chunk
+                        final_data_parts.append(b"") # Append empty bytes for zero-size chunk
                 else:
                     final_data_parts.append(result)
 
@@ -319,7 +322,7 @@ class SafetensorRemote:
 
             # Final validation: Does the combined size match the requested size?
             if len(final_data) != size:
-                 raise IOError(f"Final assembled data size mismatch. Expected {size}, got {len(final_data)}. URL: {url}, Range: {start}-{start+size-1}")
+                raise IOError(f"Final assembled data size mismatch. Expected {size}, got {len(final_data)}. URL: {url}, Range: {start}-{start+size-1}")
 
             return final_data
 
