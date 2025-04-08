@@ -5470,6 +5470,10 @@ def parse_args() -> argparse.Namespace:
         "--print-supported-models", action="store_true",
         help="Print the supported models"
     )
+    parser.add_argument(
+        "--remote", action="store_true",
+        help="(Experimental) Read safetensors file remotely without downloading to disk. Config and tokenizer files will still be downloaded. To use this feature, you need to specify Hugging Face model repo name instead of a local directory. For example: 'HuggingFaceTB/SmolLM2-1.7B'",
+    )
 
     args = parser.parse_args()
     if not args.print_supported_models and args.model is None:
@@ -5510,6 +5514,14 @@ def main() -> None:
 
     dir_model = args.model
 
+    if args.remote:
+        from huggingface_hub import snapshot_download
+        local_dir = snapshot_download(
+            repo_id=str(dir_model),
+            allow_patterns=["LICENSE", "*.json", "*.md", "*.txt", "tokenizer.model"])
+        dir_model = Path(local_dir)
+        logger.info(f"Downloaded config and tokenizer to {local_dir}")
+
     if not dir_model.is_dir():
         logger.error(f'Error: {args.model} is not a directory')
         sys.exit(1)
@@ -5531,6 +5543,9 @@ def main() -> None:
 
     if args.outfile is not None:
         fname_out = args.outfile
+    elif args.remote:
+        # if remote, use the model ID as the output file name
+        fname_out = Path("./" + str(args.model).replace("/", "-") + "-{ftype}.gguf")
     else:
         fname_out = dir_model
 
