@@ -70,6 +70,7 @@ def naming_convention(model_name: str | None, base_name: str | None, finetune_st
 
     return f"{name}{parameters}{finetune}{version}{encoding}{kind}"
 
+
 class SafetensorRemote:
     """
     Uility class to handle remote safetensor files.
@@ -232,7 +233,7 @@ class SafetensorRemote:
             raise ValueError(f"Invalid URL: {url}")
 
         try:
-            headers = {"Range": f"bytes=0-0"}
+            headers = {"Range": "bytes=0-0"}
             response = requests.head(url, allow_redirects=True, headers=headers)
             # Success (2xx) or redirect (3xx)
             return 200 <= response.status_code < 400
