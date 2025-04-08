@@ -65,6 +65,7 @@ class Model:
     model_name: str | None
     metadata_override: Path | None
     dir_model_card: Path
+    remote_hf_model_id: str | None
 
     # subclasses should define this!
     model_arch: gguf.MODEL_ARCH
@@ -84,6 +85,7 @@ class Model:
         self.endianess = gguf.GGUFEndian.BIG if is_big_endian else gguf.GGUFEndian.LITTLE
         self.use_temp_file = use_temp_file
         self.lazy = not eager or (remote_hf_model_id is not None)
+        self.remote_hf_model_id = remote_hf_model_id
         if remote_hf_model_id is not None:
             self.is_safetensors = True
 
@@ -404,6 +406,10 @@ class Model:
         total_params, shared_params, expert_params, expert_count = self.gguf_writer.get_total_parameter_count()
 
         self.metadata = gguf.Metadata.load(self.metadata_override, self.dir_model_card, self.model_name, total_params)
+
+        # If we are using HF model id, set the metadata name to the model id
+        if self.remote_hf_model_id:
+            self.metadata.name = self.remote_hf_model_id
 
         # Fallback to model directory name if metadata name is still missing
         if self.metadata.name is None:
