@@ -5498,7 +5498,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--remote", action="store_true",
-        help="(Experimental) Read safetensors file remotely without downloading to disk. Config and tokenizer files will still be downloaded. To use this feature, you need to specify Hugging Face model repo name instead of a local directory. For example: 'HuggingFaceTB/SmolLM2-1.7B'",
+        help="(Experimental) Read safetensors file remotely without downloading to disk. Config and tokenizer files will still be downloaded. To use this feature, you need to specify Hugging Face model repo name instead of a local directory. For example: 'HuggingFaceTB/SmolLM2-1.7B-Instruct'",
     )
 
     args = parser.parse_args()
@@ -5542,9 +5542,8 @@ def main() -> None:
 
     if args.remote:
         from huggingface_hub import snapshot_download
-        args.remote = str(dir_model)
         local_dir = snapshot_download(
-            repo_id=args.remote,
+            repo_id=str(dir_model),
             allow_patterns=["LICENSE", "*.json", "*.md", "*.txt", "tokenizer.model"])
         dir_model = Path(local_dir)
         logger.info(f"Downloaded config and tokenizer to {local_dir}")
@@ -5596,7 +5595,8 @@ def main() -> None:
                                      metadata_override=args.metadata, model_name=args.model_name,
                                      split_max_tensors=args.split_max_tensors,
                                      split_max_size=split_str_to_n_bytes(args.split_max_size), dry_run=args.dry_run,
-                                     small_first_shard=args.no_tensor_first_split, remote_hf_model_id=args.remote or None)
+                                     small_first_shard=args.no_tensor_first_split,
+                                     remote_hf_model_id=str(args.model) if args.remote else None)
 
         if args.vocab_only:
             logger.info("Exporting model vocab...")
