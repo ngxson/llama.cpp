@@ -151,8 +151,8 @@ int32_t llava2_tokenize(llava2_context_ptr & ctx,
             }
 
             llava2_image_tokens image_tokens;
-            //image_tokens.nx = ...;
-            //image_tokens.ny = ...;
+            image_tokens.nx = 0; // TODO
+            image_tokens.ny = 0; // TODO
             image_tokens.n_tokens = clip_n_patches(ctx->ctx_clip); // TODO @ngxson : use clip_n_patches_by_image
             image_tokens.data = std::unique_ptr<llava2_image_tokens_data>(
                 new llava2_image_tokens_data{
