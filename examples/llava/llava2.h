@@ -62,25 +62,29 @@ struct llava2_context_params {
     bool use_gpu = true;
     int n_threads = 4;
     enum ggml_log_level verbosity = GGML_LOG_LEVEL_INFO;
+    const char * image_marker = "<__image__>";
 };
 
+// initialize the llava2 context
+// return nullptr on failure
 LLAVA2_API llava2_context_ptr llava2_init_from_file(const char * mmproj_fname,
                                                 const llama_model * text_model,
                                                 const llava2_context_params ctx_params);
 
 // helper function to load an image from a file
+// returns 0 on success
 LLAVA2_API int32_t llava2_bitmap_init_from_file(const char * fname, llava2_bitmap & output);
 
 // tokenize an input text prompt and an image
-// the prompt must have the input image marker <image> in it
+// the prompt must have the input image marker (default: "<__image__>") in it
 // the marker will be replaced with the image tokens
 // for example:
-//   "here is an image: <image>\ndescribe it in detail."
+//   "here is an image: <__image__>\ndescribe it in detail."
 //   this will gives 3 chunks:
 //   1. "here is an image: <start_of_image>"
-//   2. <image> (image tokens)
+//   2. (image tokens)
 //   3. "<end_of_image>\ndescribe it in detail."
-// number of bitmaps must be equal to the number of <image> markers in the prompt
+// number of bitmaps must be equal to the number of image markers in the prompt
 LLAVA2_API int32_t llava2_tokenize(llava2_context_ptr & ctx,
                                 std::vector<llava2_input_chunk> & output,
                                 const std::string & prompt,
@@ -88,10 +92,27 @@ LLAVA2_API int32_t llava2_tokenize(llava2_context_ptr & ctx,
                                 bool parse_special,
                                 const std::vector<llava2_bitmap> & bitmaps);
 
+// returns 0 on success
 LLAVA2_API int32_t llava2_encode(llava2_context_ptr & ctx,
                             const llava2_image_tokens & image_tokens);
 
+// get output embeddings from the last encode pass
 LLAVA2_API float * llava2_get_output_embd(llava2_context_ptr & ctx);
+
+// simple helper to count the total number of tokens from a list of chunks, useful to keep track of n_past
+LLAVA2_API size_t llava2_helper_get_n_tokens(std::vector<llava2_input_chunk> & chunks);
+
+// helper function that automatically:
+// 1. run llama_decode() on text chunks
+// 2. run llava2_encode() on image chunks, then llava2_get_output_embd() and then llama_decode()
+// if any of the llava2_encode() or llama_decode() calls return non-zero, stop and forward the error
+// otherwise, returns 0 on success
+LLAVA2_API int32_t llava2_helper_eval(llava2_context_ptr & ctx,
+                                llama_context * lctx,
+                                std::vector<llava2_input_chunk> & chunks,
+                                llama_pos pos0,
+                                llama_seq_id seq_id,
+                                int32_t n_batch);
 
 #else
 

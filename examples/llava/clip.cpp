@@ -2330,6 +2330,8 @@ int clip_n_patches_by_img(const struct clip_ctx * ctx, struct clip_image_f32 * i
         int x_patch = img->nx / patch_size + (int)(img->nx % patch_size > 0);
         int y_patch = img->ny / patch_size + (int)(img->ny % patch_size > 0);
         n_patches = x_patch * y_patch;
+    } else if (ctx->proj_type == PROJECTOR_TYPE_GEMMA3) {
+        n_patches = 256;
     }
 
     return n_patches;
