@@ -1,5 +1,6 @@
 #include "ggml.h"
 #include "gguf.h"
+#include "clip.h"
 
 #include <climits>
 #include <cstdarg>
@@ -177,6 +178,42 @@ static void clip_log_internal(enum ggml_log_level level, const char * format, ..
 #define LOG_ERR(...) LOG_TMPL(GGML_LOG_LEVEL_ERROR, __VA_ARGS__)
 #define LOG_DBG(...) LOG_TMPL(GGML_LOG_LEVEL_DEBUG, __VA_ARGS__)
 #define LOG_CNT(...) LOG_TMPL(GGML_LOG_LEVEL_CONT,  __VA_ARGS__)
+
+//
+// cpp wrappers
+//
+
+struct clip_image_u8_deleter {
+    void operator()(clip_image_u8 * val) { clip_image_u8_free(val); }
+};
+
+struct clip_image_f32_deleter {
+    void operator()(clip_image_f32 * val) { clip_image_f32_free(val); }
+};
+
+struct clip_image_size_deleter {
+    void operator()(clip_image_size * val) { clip_image_size_free(val); }
+};
+
+struct clip_image_u8_ptr : std::unique_ptr<clip_image_u8, clip_image_u8_deleter> {
+    clip_image_u8_ptr() : std::unique_ptr<clip_image_u8, clip_image_u8_deleter>(clip_image_u8_init()) {}
+};
+
+struct clip_image_f32_ptr : std::unique_ptr<clip_image_f32, clip_image_f32_deleter> {
+    clip_image_f32_ptr() : std::unique_ptr<clip_image_f32, clip_image_f32_deleter>(clip_image_f32_init()) {}
+};
+
+typedef std::unique_ptr<clip_image_size, clip_image_size_deleter> clip_image_size_ptr;
+
+// these need to be struct to maintain compatibility with C interface
+struct clip_image_u8_batch : std::vector<clip_image_u8_ptr> {
+    clip_image_u8_batch() : std::vector<clip_image_u8_ptr>() {}
+};
+struct clip_image_f32_batch : std::vector<clip_image_f32_ptr> {
+    clip_image_f32_batch() : std::vector<clip_image_f32_ptr>() {}
+    ~clip_image_f32_batch() {}
+};
+
 
 //
 // common utils

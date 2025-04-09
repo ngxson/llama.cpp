@@ -156,27 +156,27 @@ static int eval_image(gemma3_context & ctx, std::string & fname) {
         return 2; // non-fatal error
     }
 
-    clip_image_f32_batch batch_f32;
-    ok = clip_image_preprocess(ctx.ctx_clip, img_u8, &batch_f32);
+    clip_image_f32_batch * batch_f32 = clip_image_f32_batch_init();
+    ok = clip_image_preprocess(ctx.ctx_clip, img_u8, batch_f32);
     if (!ok) {
         LOG_ERR("Unable to preprocess image\n");
-        clip_image_f32_batch_free(&batch_f32);
+        clip_image_f32_batch_free(batch_f32);
         clip_image_u8_free(img_u8);
         return 1;
     }
 
     int64_t t0 = ggml_time_ms();
     LOG("Encoding image %s\n", fname.c_str());
-    ok = clip_image_batch_encode(ctx.ctx_clip, ctx.n_threads, &batch_f32, image_embd_v.data());
+    ok = clip_image_batch_encode(ctx.ctx_clip, ctx.n_threads, batch_f32, image_embd_v.data());
     if (!ok) {
         LOG_ERR("Unable to encode image\n");
-        clip_image_f32_batch_free(&batch_f32);
+        clip_image_f32_batch_free(batch_f32);
         clip_image_u8_free(img_u8);
         return 1;
     }
     LOG("Image encoded in %" PRId64 " ms\n", ggml_time_ms() - t0);
 
-    clip_image_f32_batch_free(&batch_f32);
+    clip_image_f32_batch_free(batch_f32);
     clip_image_u8_free(img_u8);
 
     // decode image embeddings
