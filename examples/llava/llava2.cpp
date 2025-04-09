@@ -91,13 +91,11 @@ static std::vector<llama_token> llava2_tokenize_text_internal(
 
 int32_t llava2_tokenize(llava2_context_ptr & ctx,
         std::vector<llava2_input_chunk> & output,
-        const std::string & prompt,
-        bool add_special,
-        bool parse_special,
+        const llava2_input_text & text,
         const std::vector<llava2_bitmap> & bitmaps) {
     auto vocab = llama_model_get_vocab(ctx->text_model);
 
-    std::string prompt_modified(prompt);
+    std::string prompt_modified(text.text);
     std::string marker_modified(ctx->image_marker);
     projector_type proj_type = clip_get_projector_type(ctx->ctx_clip);
     // a bit hacky here, but works for now
@@ -108,7 +106,7 @@ int32_t llava2_tokenize(llava2_context_ptr & ctx,
         string_replace_all(prompt_modified, ctx->image_marker, marker_modified);
     }
 
-    std::vector<std::string> parts = string_split_str(prompt, ctx->image_marker);
+    std::vector<std::string> parts = string_split_str(text.text, ctx->image_marker);
     output.clear();
     output.reserve(parts.size());
 
@@ -117,7 +115,7 @@ int32_t llava2_tokenize(llava2_context_ptr & ctx,
     for (const auto & part : parts) {
         //printf("tokenizing part: %s\n", part.c_str());
         bool add_bos = &parts.front() == &part;
-        auto tokens = llava2_tokenize_text_internal(vocab, part, add_special && add_bos, parse_special);
+        auto tokens = llava2_tokenize_text_internal(vocab, part, text.add_special && add_bos, text.parse_special);
         if (tokens.empty()) {
             continue;
         }
@@ -273,6 +271,9 @@ int32_t llava2_helper_eval(llava2_context_ptr & ctx,
         } else if (chunk.type == LLAVA2_INPUT_CHUNK_TYPE_IMAGE) {
             GGML_ASSERT(!is_last && "logits for last image chunk is not yet support");
             int64_t t0 = ggml_time_ms();
+            if (ctx->print_timings) {
+                LOG_INF("encoding image...\n");
+            }
             ret = llava2_encode(ctx, chunk.tokens_image);
             if (ret != 0) {
                 LOG_ERR("failed to encode image\n");
@@ -280,7 +281,7 @@ int32_t llava2_helper_eval(llava2_context_ptr & ctx,
                 return ret;
             }
             if (ctx->print_timings) {
-                LOG_INF("Image encoded in %" PRId64 " ms\n", ggml_time_ms() - t0);
+                LOG_INF("image encoded in %" PRId64 " ms\n", ggml_time_ms() - t0);
             }
 
             int32_t n_tokens = chunk.tokens_image.n_tokens;
@@ -294,7 +295,7 @@ int32_t llava2_helper_eval(llava2_context_ptr & ctx,
                 return ret;
             }
             if (ctx->print_timings) {
-                LOG_INF("Image decoded in %" PRId64 " ms\n", ggml_time_ms() - t1);
+                LOG_INF("image decoded in %" PRId64 " ms\n", ggml_time_ms() - t1);
             }
 
             n_past += n_tokens;

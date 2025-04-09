@@ -66,6 +66,12 @@ struct llava2_context_params {
     const char * image_marker = "<__image__>";
 };
 
+struct llava2_input_text {
+    std::string text;
+    bool add_special;
+    bool parse_special;
+};
+
 // initialize the llava2 context
 // return nullptr on failure
 LLAVA2_API llava2_context_ptr llava2_init_from_file(const char * mmproj_fname,
@@ -74,6 +80,7 @@ LLAVA2_API llava2_context_ptr llava2_init_from_file(const char * mmproj_fname,
 
 // helper function to load an image from a file
 // returns 0 on success
+// this function is thread-safe
 LLAVA2_API int32_t llava2_bitmap_init_from_file(const char * fname, llava2_bitmap & output);
 
 // tokenize an input text prompt and an image
@@ -86,11 +93,10 @@ LLAVA2_API int32_t llava2_bitmap_init_from_file(const char * fname, llava2_bitma
 //   2. (image tokens)
 //   3. "<end_of_image>\ndescribe it in detail."
 // number of bitmaps must be equal to the number of image markers in the prompt
+// this function is thread-safe (shared ctx)
 LLAVA2_API int32_t llava2_tokenize(llava2_context_ptr & ctx,
                                 std::vector<llava2_input_chunk> & output,
-                                const std::string & prompt,
-                                bool add_special,
-                                bool parse_special,
+                                const llava2_input_text & text,
                                 const std::vector<llava2_bitmap> & bitmaps);
 
 // returns 0 on success

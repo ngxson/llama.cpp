@@ -181,7 +181,11 @@ static int eval_message(gemma3_context & ctx, common_chat_msg & msg, std::vector
     }
 
     std::vector<llava2_input_chunk> chunks;
-    if (llava2_tokenize(ctx.ctx_vision, chunks, formatted_chat.prompt, add_bos, true, bitmaps)) {
+    llava2_input_text text;
+    text.text          = formatted_chat.prompt;
+    text.add_special   = add_bos;
+    text.parse_special = true;
+    if (llava2_tokenize(ctx.ctx_vision, chunks, text, bitmaps)) {
         LOG_ERR("Unable to tokenize prompt\n");
         return 1;
     }
