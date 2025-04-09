@@ -97,6 +97,17 @@ int32_t llava2_tokenize(llava2_context_ptr & ctx,
         const std::vector<llava2_bitmap> & bitmaps) {
     auto vocab = llama_model_get_vocab(ctx->text_model);
 
+    std::string prompt_modified(prompt);
+    std::string marker_modified(ctx->image_marker);
+    projector_type proj_type = clip_get_projector_type(ctx->ctx_clip);
+    // a bit hacky here, but works for now
+    // for some models, we need to add prefix and suffix to the image embeddings
+    if (proj_type == PROJECTOR_TYPE_GEMMA3) {
+        // <start_of_image> ... (image embeddings) ... <end_of_image>
+        marker_modified = "<start_of_image>" + ctx->image_marker + "<end_of_image>";
+        string_replace_all(prompt_modified, ctx->image_marker, marker_modified);
+    }
+
     std::vector<std::string> parts = string_split_str(prompt, ctx->image_marker);
     output.clear();
     output.reserve(parts.size());

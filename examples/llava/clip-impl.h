@@ -326,3 +326,9 @@ static std::string gguf_kv_to_str(const struct gguf_context * ctx_gguf, int i) {
             return gguf_data_to_str(type, gguf_get_val_data(ctx_gguf, i), 0);
     }
 }
+
+//
+// API used internally with llava2
+//
+
+projector_type clip_get_projector_type(const struct clip_ctx * ctx);

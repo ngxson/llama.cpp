@@ -2884,3 +2884,11 @@ bool clip_encode_float_image (struct clip_ctx * ctx, int n_threads, float * img,
     clip_image_encode(ctx, n_threads, &clip_img, vec);
     return true;
 }
+
+//
+// API used internally with llava2
+//
+
+projector_type clip_get_projector_type(const struct clip_ctx * ctx) {
+    return ctx->proj_type;
+}
