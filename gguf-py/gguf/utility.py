@@ -224,9 +224,7 @@ class SafetensorRemote:
         if not parsed_url.scheme or not parsed_url.netloc:
             raise ValueError(f"Invalid URL: {url}")
 
-        headers = {}
-        if os.environ.get("HF_TOKEN"):
-            headers["Authorization"] = f"Bearer {os.environ['HF_TOKEN']}"
+        headers = cls._get_request_headers()
         if size > -1:
             headers["Range"] = f"bytes={start}-{start + size}"
         response = requests.get(url, allow_redirects=True, headers=headers)
@@ -249,11 +247,18 @@ class SafetensorRemote:
             raise ValueError(f"Invalid URL: {url}")
 
         try:
-            headers = {"Range": "bytes=0-0"}
-            if os.environ.get("HF_TOKEN"):
-                headers["Authorization"] = f"Bearer {os.environ['HF_TOKEN']}"
+            headers = cls._get_request_headers()
+            headers["Range"] = "bytes=0-0"
             response = requests.head(url, allow_redirects=True, headers=headers)
             # Success (2xx) or redirect (3xx)
             return 200 <= response.status_code < 400
         except requests.RequestException:
             return False
+
+    @classmethod
+    def _get_request_headers(cls) -> dict[str, str]:
+        """Prepare common headers for requests."""
+        headers = {"User-Agent": "convert_hf_to_gguf"}
+        if os.environ.get("HF_TOKEN"):
+            headers["Authorization"] = f"Bearer {os.environ['HF_TOKEN']}"
+        return headers
