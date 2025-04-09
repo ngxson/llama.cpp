@@ -2,11 +2,10 @@
 #include "log.h"
 #include "common.h"
 #include "sampling.h"
-#include "clip.h"
-#include "stb_image.h"
 #include "llama.h"
 #include "ggml.h"
 #include "console.h"
+#include "llava2.h"
 
 #include <vector>
 #include <limits.h>
@@ -57,8 +56,8 @@ static void sigint_handler(int signo) {
 #endif
 
 struct gemma3_context {
-    struct clip_ctx    * ctx_clip = NULL;
-    common_init_result   llama_init;
+    llava2_context_ptr ctx_llava2;
+    common_init_result llama_init;
 
     llama_model       * model;
     llama_context     * lctx;
@@ -79,15 +78,15 @@ struct gemma3_context {
 
     void init_clip_model(common_params & params) {
         const char * clip_path = params.mmproj.path.c_str();
-        ctx_clip = clip_model_load(clip_path, GGML_LOG_LEVEL_INFO);
-        if (!ctx_clip) {
+        ctx_llava2 = llava2_init_from_file(clip_path, model, llava2_context_params{
+            /* use_gpu */   true,
+            /* n_threads */ params.cpuparams.n_threads,
+            /* verbosity */ GGML_LOG_LEVEL_INFO,
+        });
+        if (!ctx_llava2.get()) {
             LOG_ERR("Failed to load CLIP model from %s\n", clip_path);
             exit(1);
         }
-    }
-
-    ~gemma3_context() {
-        clip_free(ctx_clip);
     }
 };
 
@@ -271,6 +270,7 @@ int main(int argc, char ** argv) {
 
     if (is_single_turn) {
         g_is_generating = true;
+        std::string prompt = "<start_of_turn>user\n<image>" + params.prompt + "<end_of_turn><start_of_turn>model\n";
         if (eval_text(ctx, "<start_of_turn>user\n")) {
             return 1;
         }
