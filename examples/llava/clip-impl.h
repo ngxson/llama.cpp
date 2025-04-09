@@ -9,6 +9,7 @@
 #include <map>
 #include <sstream>
 #include <vector>
+#include <memory>
 
 // Internal header for clip.cpp
 
