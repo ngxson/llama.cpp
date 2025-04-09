@@ -88,6 +88,7 @@ struct gemma3_context {
         const char * clip_path = params.mmproj.path.c_str();
         ctx_vision = llava2_init_from_file(clip_path, model, llava2_context_params{
             /* use_gpu */   true,
+            /* timings */   true,
             /* n_threads */ params.cpuparams.n_threads,
             /* verbosity */ GGML_LOG_LEVEL_INFO,
         });

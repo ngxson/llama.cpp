@@ -38,6 +38,7 @@ target_link_libraries(llava2 PRIVATE ggml llama ${CMAKE_THREAD_LIBS_INIT})
 
 target_include_directories(llava2 PUBLIC .)
 target_include_directories(llava2 PUBLIC ../..)
+target_include_directories(llava2 PUBLIC ../../common) # for stb_image.h
 
 target_compile_features(llava2 PRIVATE cxx_std_17)
 

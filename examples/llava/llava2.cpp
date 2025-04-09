@@ -16,6 +16,7 @@ struct llava2_context {
     struct clip_ctx * ctx_clip;
     const struct llama_model * text_model;
     std::vector<float> image_embd_v; // image embedding vector
+    bool print_timings;
     int n_threads;
     std::string image_marker;
 
@@ -23,7 +24,7 @@ struct llava2_context {
 
     llava2_context(const char * mmproj_fname,
                    const struct llama_model * text_model,
-                   const struct llava2_context_params & ctx_params) : n_threads(ctx_params.n_threads), image_marker(ctx_params.image_marker) {
+                   const struct llava2_context_params & ctx_params) : print_timings(ctx_params.print_timings), n_threads(ctx_params.n_threads), image_marker(ctx_params.image_marker) {
         clip_context_params ctx_clip_params;
         ctx_clip_params.use_gpu   = ctx_params.use_gpu;
         ctx_clip_params.verbosity = ctx_params.verbosity;
@@ -260,21 +261,29 @@ int32_t llava2_helper_eval(llava2_context_ptr & ctx,
 
         } else if (chunk.type == LLAVA2_INPUT_CHUNK_TYPE_IMAGE) {
             GGML_ASSERT(!is_last && "logits for last image chunk is not yet support");
+            int64_t t0 = ggml_time_ms();
             ret = llava2_encode(ctx, chunk.tokens_image);
             if (ret != 0) {
                 LOG_ERR("failed to encode image\n");
                 llama_batch_free(text_batch);
                 return ret;
             }
+            if (ctx->print_timings) {
+                LOG_INF("Image encoded in %" PRId64 " ms\n", ggml_time_ms() - t0);
+            }
 
             int32_t n_tokens = chunk.tokens_image.n_tokens;
             float * embd = llava2_get_output_embd(ctx);
             decode_embd_batch batch_img(embd, n_tokens, n_past, 0);
+            int64_t t1 = ggml_time_ms();
             ret = llama_decode(lctx, batch_img.batch);
             if (ret != 0) {
                 LOG_ERR("failed to decode image\n");
                 llama_batch_free(text_batch);
                 return ret;
+            }
+            if (ctx->print_timings) {
+                LOG_INF("Image decoded in %" PRId64 " ms\n", ggml_time_ms() - t1);
             }
 
             n_past += n_tokens;

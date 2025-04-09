@@ -60,6 +60,7 @@ struct llava2_input_chunk {
 
 struct llava2_context_params {
     bool use_gpu = true;
+    bool print_timings = true;
     int n_threads = 4;
     enum ggml_log_level verbosity = GGML_LOG_LEVEL_INFO;
     const char * image_marker = "<__image__>";
