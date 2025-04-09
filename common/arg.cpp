@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <climits>
 #include <cstdarg>
+#include <filesystem>
 #include <fstream>
 #include <regex>
 #include <set>
@@ -162,6 +163,8 @@ struct common_hf_file_res {
 #   if !defined(PATH_MAX)
 #   define PATH_MAX MAX_PATH
 #   endif
+#elif defined(_AIX)
+#include <sys/limits.h>
 #else
 #include <sys/syslimits.h>
 #endif
