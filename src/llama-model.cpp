@@ -4639,6 +4639,14 @@ struct llm_build_llama_csm : public llm_graph_context {
 
         inpL = build_inp_embd(model.tok_embd);
 
+        // hacky way to get the audio embedding from user code (used in prompt processing)
+        // this will be triggered during warmup
+        if (is_decoder && n_tokens == 2) {
+            ggml_tensor * tmp = ggml_cast(ctx0, model.tok_embd, GGML_TYPE_F32);
+            cb(tmp, "audio_embd.weight", -1);
+            ggml_build_forward_expand(gf, tmp);
+        }
+
         ggml_tensor * input_embd = inpL;
 
         // inp_pos - contains the positions
