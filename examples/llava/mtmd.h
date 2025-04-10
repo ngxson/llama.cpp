@@ -1,5 +1,5 @@
-#ifndef LLAVA2_H
-#define LLAVA2_H
+#ifndef MTMD_H
+#define MTMD_H
 
 #include "ggml.h"
 #include "llama.h"
@@ -12,29 +12,26 @@
 #ifdef LLAMA_SHARED
 #    if defined(_WIN32) && !defined(__MINGW32__)
 #        ifdef LLAMA_BUILD
-#            define LLAVA2_API __declspec(dllexport)
+#            define MTMD_API __declspec(dllexport)
 #        else
-#            define LLAVA2_API __declspec(dllimport)
+#            define MTMD_API __declspec(dllimport)
 #        endif
 #    else
-#        define LLAVA2_API __attribute__ ((visibility ("default")))
+#        define MTMD_API __attribute__ ((visibility ("default")))
 #    endif
 #else
-#    define LLAVA2_API
+#    define MTMD_API
 #endif
 
 #ifdef __cplusplus
 
 enum mtmd_input_chunk_type {
-    LLAVA2_INPUT_CHUNK_TYPE_TEXT,
-    LLAVA2_INPUT_CHUNK_TYPE_IMAGE,
+    MTMD_INPUT_CHUNK_TYPE_TEXT,
+    MTMD_INPUT_CHUNK_TYPE_IMAGE,
 };
 
 struct mtmd_context;
-struct mtmd_image_tokens_data; // internal data
-
-using mtmd_context_ptr           = std::shared_ptr<struct mtmd_context>;
-using mtmd_image_tokens_data_ptr = std::shared_ptr<struct mtmd_image_tokens_data>;
+struct mtmd_image_tokens;
 
 // represents raw image data, layout is RGBRGBRGB...
 // length of data must be nx * ny * 3
@@ -44,19 +41,13 @@ struct mtmd_bitmap {
     std::vector<unsigned char> data;
 };
 
-// represents the processed image as tokens (to be encoded)
-struct mtmd_image_tokens {
-    uint32_t nx; // number of tokens in x direction
-    uint32_t ny; // number of tokens in y direction
-    uint32_t n_tokens; // == nx * ny
-    mtmd_image_tokens_data_ptr data; // internal data
-};
-
 struct mtmd_input_chunk {
     mtmd_input_chunk_type type;
-    std::vector<int32_t> tokens_text;
-    mtmd_image_tokens tokens_image;
+    std::vector<llama_token> tokens_text;
+    mtmd_image_tokens * tokens_image = nullptr;
 };
+
+using mtmd_input_chunks = std::vector<mtmd_input_chunk>;
 
 struct mtmd_context_params {
     bool use_gpu = true;
@@ -74,14 +65,16 @@ struct mtmd_input_text {
 
 // initialize the mtmd context
 // return nullptr on failure
-LLAVA2_API mtmd_context_ptr mtmd_init_from_file(const char * mmproj_fname,
+MTMD_API mtmd_context * mtmd_init_from_file(const char * mmproj_fname,
                                                 const llama_model * text_model,
                                                 const mtmd_context_params ctx_params);
+
+MTMD_API void mtmd_free(mtmd_context * ctx);
 
 // helper function to load an image from a file
 // returns 0 on success
 // this function is thread-safe
-LLAVA2_API int32_t mtmd_bitmap_init_from_file(const char * fname, mtmd_bitmap & output);
+MTMD_API int32_t mtmd_bitmap_init_from_file(const char * fname, mtmd_bitmap & output);
 
 // tokenize an input text prompt and an image
 // the prompt must have the input image marker (default: "<__image__>") in it
@@ -94,32 +87,46 @@ LLAVA2_API int32_t mtmd_bitmap_init_from_file(const char * fname, mtmd_bitmap & 
 //   3. "<end_of_image>\ndescribe it in detail."
 // number of bitmaps must be equal to the number of image markers in the prompt
 // this function is thread-safe (shared ctx)
-LLAVA2_API int32_t mtmd_tokenize(mtmd_context_ptr & ctx,
-                                std::vector<mtmd_input_chunk> & output,
+MTMD_API mtmd_input_chunks * mtmd_tokenize(mtmd_context * ctx,
                                 const mtmd_input_text & text,
                                 const std::vector<mtmd_bitmap> & bitmaps);
 
+// free image chunk data
+MTMD_API void mtmd_input_chunks_free(mtmd_input_chunks * chunks);
+
 // returns 0 on success
-LLAVA2_API int32_t mtmd_encode(mtmd_context_ptr & ctx,
-                            const mtmd_image_tokens & image_tokens);
+MTMD_API int32_t mtmd_encode(mtmd_context * ctx,
+                            const mtmd_image_tokens * image_tokens);
 
 // get output embeddings from the last encode pass
-LLAVA2_API float * mtmd_get_output_embd(mtmd_context_ptr & ctx);
+MTMD_API float * mtmd_get_output_embd(mtmd_context * ctx);
 
 // simple helper to count the total number of tokens from a list of chunks, useful to keep track of n_past
-LLAVA2_API size_t mtmd_helper_get_n_tokens(std::vector<mtmd_input_chunk> & chunks);
+MTMD_API size_t mtmd_helper_get_n_tokens(mtmd_input_chunks * chunks);
 
 // helper function that automatically:
 // 1. run llama_decode() on text chunks
 // 2. run mtmd_encode() on image chunks, then mtmd_get_output_embd() and then llama_decode()
 // if any of the mtmd_encode() or llama_decode() calls return non-zero, stop and forward the error
 // otherwise, returns 0 on success
-LLAVA2_API int32_t mtmd_helper_eval(mtmd_context_ptr & ctx,
+MTMD_API int32_t mtmd_helper_eval(mtmd_context * ctx,
                                 llama_context * lctx,
-                                std::vector<mtmd_input_chunk> & chunks,
+                                mtmd_input_chunks * chunks,
                                 llama_pos pos0,
                                 llama_seq_id seq_id,
                                 int32_t n_batch);
+
+
+// convenient unique_ptr wrappers
+struct mtmd_context_deleter {
+    void operator()(mtmd_context * val) { mtmd_free(val); }
+};
+using mtmd_context_ptr = std::unique_ptr<mtmd_context, mtmd_context_deleter>;
+
+struct mtmd_input_chunks_deleter {
+    void operator()(mtmd_input_chunks * val) { mtmd_input_chunks_free(val); }
+};
+using mtmd_input_chunks_ptr = std::unique_ptr<mtmd_input_chunks, mtmd_input_chunks_deleter>;
 
 #else
 

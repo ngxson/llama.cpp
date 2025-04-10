@@ -37,8 +37,8 @@ add_library(mtmd OBJECT
 target_link_libraries(mtmd PRIVATE ggml llama ${CMAKE_THREAD_LIBS_INIT})
 
 target_include_directories(mtmd PUBLIC .)
-target_include_directories(mtmd PUBLIC ../..)
-target_include_directories(mtmd PUBLIC ../../common) # for stb_image.h
+target_include_directories(mtmd PRIVATE ../..)
+target_include_directories(mtmd PRIVATE ../../common) # for stb_image.h
 
 target_compile_features(mtmd PRIVATE cxx_std_17)
 

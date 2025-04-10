@@ -44,15 +44,27 @@ struct mtmd_image_tokens_data {
     clip_image_f32_batch_ptr batch_f32; // preprocessed image patches
 };
 
-mtmd_context_ptr mtmd_init_from_file(const char * mmproj_fname,
+struct mtmd_image_tokens {
+    uint32_t nx; // number of tokens in x direction
+    uint32_t ny; // number of tokens in y direction
+    uint32_t n_tokens() const { return nx * ny; }
+    clip_image_f32_batch_ptr batch_f32; // preprocessed image patches
+};
+
+mtmd_context * mtmd_init_from_file(const char * mmproj_fname,
         const struct llama_model * text_model,
         const struct mtmd_context_params ctx_params) {
     try {
-        auto ctx = std::make_shared<mtmd_context>(mmproj_fname, text_model, ctx_params);
-        return ctx;
+        return new mtmd_context(mmproj_fname, text_model, ctx_params);
     } catch (const std::exception & e) {
         LOG_ERR("%s: error: %s\n", __func__, e.what());
         return nullptr;
+    }
+}
+
+void mtmd_free(mtmd_context * ctx) {
+    if (ctx) {
+        delete ctx;
     }
 }
 
@@ -89,10 +101,10 @@ static std::vector<llama_token> mtmd_tokenize_text_internal(
     return result;
 }
 
-int32_t mtmd_tokenize(mtmd_context_ptr & ctx,
-        std::vector<mtmd_input_chunk> & output,
-        const mtmd_input_text & text,
-        const std::vector<mtmd_bitmap> & bitmaps) {
+mtmd_input_chunks * mtmd_tokenize(mtmd_context * ctx,
+                                const mtmd_input_text & text,
+                                const std::vector<mtmd_bitmap> & bitmaps) {
+    mtmd_input_chunks * output = new mtmd_input_chunks;
     auto vocab = llama_model_get_vocab(ctx->text_model);
 
     std::string prompt_modified(text.text);
@@ -107,8 +119,8 @@ int32_t mtmd_tokenize(mtmd_context_ptr & ctx,
     }
 
     std::vector<std::string> parts = string_split_str(text.text, ctx->image_marker);
-    output.clear();
-    output.reserve(parts.size());
+    output->clear();
+    output->reserve(parts.size());
 
     size_t i_img = 0;
 
@@ -119,18 +131,19 @@ int32_t mtmd_tokenize(mtmd_context_ptr & ctx,
         if (tokens.empty()) {
             continue;
         }
-        output.push_back({
-            LLAVA2_INPUT_CHUNK_TYPE_TEXT,
+        mtmd_input_chunk chunk{
+            MTMD_INPUT_CHUNK_TYPE_TEXT,
             std::move(tokens),
             {},
-        });
+        };
+        output->emplace_back(std::move(chunk));
 
         if (&parts.back() != &part) {
             // add image token to middle of 2 parts
 
             if (i_img >= bitmaps.size()) {
                 LOG_ERR("%s: error: not enough images for %d parts\n", __func__, (int)parts.size());
-                return 2;
+                return nullptr;
             }
 
             // shim layer
@@ -145,54 +158,58 @@ int32_t mtmd_tokenize(mtmd_context_ptr & ctx,
             bool ok = clip_image_preprocess(ctx->ctx_clip, img_u8.get(), batch_f32.get());
             if (!ok) {
                 LOG_ERR("Unable to preprocess image\n");
-                return 1;
+                return nullptr;
             }
 
-            mtmd_image_tokens image_tokens;
-            image_tokens.nx = 0; // TODO
-            image_tokens.ny = 0; // TODO
-            image_tokens.n_tokens = clip_n_patches(ctx->ctx_clip); // TODO @ngxson : use clip_n_patches_by_image
-            image_tokens.data = std::unique_ptr<mtmd_image_tokens_data>(
-                new mtmd_image_tokens_data{
-                    std::move(batch_f32),
-                }
-            );
+            mtmd_image_tokens * image_tokens = new mtmd_image_tokens;
+            image_tokens->nx = clip_n_patches(ctx->ctx_clip); // TODO @ngxson : use clip_n_patches_by_image
+            image_tokens->ny = 1; // TODO
+            image_tokens->batch_f32 = std::move(batch_f32);
 
-            output.push_back({
-                LLAVA2_INPUT_CHUNK_TYPE_IMAGE,
+            mtmd_input_chunk chunk{
+                MTMD_INPUT_CHUNK_TYPE_IMAGE,
                 {},
-                std::move(image_tokens),
-            });
+                image_tokens,
+            };
+            output->emplace_back(std::move(chunk));
             i_img++;
         }
     }
 
-    return 0;
+    return output;
 }
 
-LLAVA2_API int32_t mtmd_encode(mtmd_context_ptr & ctx,
-                            const mtmd_image_tokens & image_tokens) {
+void mtmd_input_chunks_free(mtmd_input_chunks * chunks) {
+    for (auto & chunk : *chunks) {
+        if (chunk.type == MTMD_INPUT_CHUNK_TYPE_IMAGE && chunk.tokens_image) {
+            delete chunk.tokens_image;
+        }
+    }
+    delete chunks;
+}
+
+int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) {
     int n_mmproj_embd = clip_n_mmproj_embd(ctx->ctx_clip);
-    ctx->image_embd_v.resize(image_tokens.n_tokens * n_mmproj_embd);
+    ctx->image_embd_v.resize(image_tokens->n_tokens() * n_mmproj_embd);
     bool ok = clip_image_batch_encode(
         ctx->ctx_clip,
         ctx->n_threads,
-        image_tokens.data->batch_f32.get(),
+        image_tokens->batch_f32.get(),
         ctx->image_embd_v.data());
     return ok ? 0 : 1;
 }
 
-LLAVA2_API float * mtmd_get_output_embd(mtmd_context_ptr & ctx) {
+float * mtmd_get_output_embd(mtmd_context * ctx) {
     return ctx->image_embd_v.data();
 }
 
-size_t mtmd_helper_get_n_tokens(std::vector<mtmd_input_chunk> & chunks) {
+size_t mtmd_helper_get_n_tokens(mtmd_input_chunks * chunks) {
     size_t n_tokens = 0;
-    for (auto & chunk : chunks) {
-        if (chunk.type == LLAVA2_INPUT_CHUNK_TYPE_TEXT) {
+    for (auto & chunk : *chunks) {
+        if (chunk.type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
             n_tokens += chunk.tokens_text.size();
-        } else if (chunk.type == LLAVA2_INPUT_CHUNK_TYPE_IMAGE) {
-            n_tokens += chunk.tokens_image.n_tokens;
+        } else if (chunk.type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+            n_tokens += chunk.tokens_image->n_tokens();
         } else {
             GGML_ASSERT(false && "chunk type not supported");
         }
@@ -235,9 +252,9 @@ struct decode_embd_batch {
     }
 };
 
-int32_t mtmd_helper_eval(mtmd_context_ptr & ctx,
+int32_t mtmd_helper_eval(mtmd_context * ctx,
         llama_context * lctx,
-        std::vector<mtmd_input_chunk> & chunks,
+        mtmd_input_chunks * chunks,
         llama_pos pos0,
         llama_seq_id seq_id,
         int32_t n_batch) {
@@ -245,9 +262,9 @@ int32_t mtmd_helper_eval(mtmd_context_ptr & ctx,
     llama_pos n_past = pos0;
     llama_batch text_batch = llama_batch_init(n_batch, 0, 1);
 
-    for (auto & chunk : chunks) {
-        bool is_last = &chunk == &chunks.back();
-        if (chunk.type == LLAVA2_INPUT_CHUNK_TYPE_TEXT) {
+    for (auto & chunk : *chunks) {
+        bool is_last = &chunk == &chunks->back();
+        if (chunk.type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
             // TODO @ngxson : may need to split into smaller batches
             text_batch.n_tokens = chunk.tokens_text.size();
             for (size_t i = 0; i < chunk.tokens_text.size(); i++) {
@@ -268,8 +285,9 @@ int32_t mtmd_helper_eval(mtmd_context_ptr & ctx,
                 return ret;
             }
 
-        } else if (chunk.type == LLAVA2_INPUT_CHUNK_TYPE_IMAGE) {
+        } else if (chunk.type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
             GGML_ASSERT(!is_last && "logits for last image chunk is not yet support");
+            GGML_ASSERT(chunk.tokens_image != nullptr);
             int64_t t0 = ggml_time_ms();
             if (ctx->print_timings) {
                 LOG_INF("encoding image...\n");
@@ -284,7 +302,7 @@ int32_t mtmd_helper_eval(mtmd_context_ptr & ctx,
                 LOG_INF("image encoded in %" PRId64 " ms\n", ggml_time_ms() - t0);
             }
 
-            int32_t n_tokens = chunk.tokens_image.n_tokens;
+            int32_t n_tokens = chunk.tokens_image->n_tokens();
             float * embd = mtmd_get_output_embd(ctx);
             decode_embd_batch batch_img(embd, n_tokens, n_past, 0);
             int64_t t1 = ggml_time_ms();
