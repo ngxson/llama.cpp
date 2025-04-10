@@ -10,6 +10,7 @@
 #include <cstring>
 #include <limits>
 #include <vector>
+#include <memory>
 
 #if defined(LLAVA_LOG_OFF)
 #   define LOG_INF(...)
