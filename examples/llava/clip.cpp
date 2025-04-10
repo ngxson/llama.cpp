@@ -388,7 +388,7 @@ static ggml_cgraph * clip_image_build_graph_siglip(clip_ctx * ctx, const clip_im
     const int n_layer              = hparams.n_layer;
     const float eps                = hparams.eps;
 
-    GGML_ASSERT(imgs.size() == 1); // batch_size == 1
+    GGML_ASSERT(imgs.entries.size() == 1); // batch_size == 1
 
     struct ggml_init_params params = {
         /*.mem_size   =*/ ctx->buf_compute_meta.size(),
@@ -540,16 +540,16 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
         image_size_width  = load_image_size.width;
         image_size_height = load_image_size.height;
         if (is_inf) {
-            image_size_width  = imgs[0]->nx;
-            image_size_height = imgs[0]->ny;
+            image_size_width  = imgs.entries[0]->nx;
+            image_size_height = imgs.entries[0]->ny;
         }
     }
     else if (ctx->has_qwen2vl_merger) {
         // use the image's native resolution when image is avaible
         if (is_inf) {
         // if (imgs->data->nx && imgs->data->ny) {
-            image_size_width  = imgs[0]->nx;
-            image_size_height = imgs[0]->ny;
+            image_size_width  = imgs.entries[0]->nx;
+            image_size_height = imgs.entries[0]->ny;
         }
     }
     const int patch_size           = hparams.patch_size;
@@ -564,7 +564,7 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
     const float eps                = hparams.eps;
     int mrope_sections[4] = {d_head/4, d_head/4, d_head/4, d_head/4};
 
-    const int batch_size = imgs.size();
+    const int batch_size = imgs.entries.size();
 
     if (ctx->has_llava_projector || ctx->has_minicpmv_projector || ctx->has_glm_projector) {
         GGML_ASSERT(batch_size == 1);
@@ -1477,7 +1477,7 @@ struct clip_model_loader {
 
         // create a fake batch
         clip_image_f32_batch batch;
-        clip_image_f32_ptr img;
+        clip_image_f32_ptr img(clip_image_f32_init());
         clip_image_size image_size;
         image_size.width  = clip_get_image_size(&ctx_clip);
         image_size.height = clip_get_image_size(&ctx_clip);
@@ -1485,7 +1485,7 @@ struct clip_model_loader {
         img->nx = n_patches;
         img->ny = n_patches;
         img->buf.resize(n_patches * image_size.width * image_size.height * 3);
-        batch.push_back(std::move(img));
+        batch.entries.push_back(std::move(img));
 
         ggml_cgraph * gf = clip_image_build_graph(&ctx_clip, batch, image_size, false);
         ggml_backend_sched_reserve(ctx_clip.sched.get(), gf);
@@ -1626,31 +1626,31 @@ void clip_image_u8_batch_free(struct clip_image_u8_batch * batch) { if (batch) d
 void clip_image_f32_batch_free(struct clip_image_f32_batch * batch) { if (batch) delete batch; }
 
 size_t clip_image_f32_batch_n_images(const struct clip_image_f32_batch * batch) {
-    return batch->size();
+    return batch->entries.size();
 }
 
 size_t clip_image_f32_batch_nx(const struct clip_image_f32_batch * batch, int idx) {
-    if (idx < 0 || idx >= (int)batch->size()) {
+    if (idx < 0 || idx >= (int)batch->entries.size()) {
         LOG_ERR("%s: invalid index %d\n", __func__, idx);
         return 0;
     }
-    return batch->at(idx)->nx;
+    return batch->entries[idx]->nx;
 }
 
 size_t clip_image_f32_batch_ny(const struct clip_image_f32_batch * batch, int idx) {
-    if (idx < 0 || idx >= (int)batch->size()) {
+    if (idx < 0 || idx >= (int)batch->entries.size()) {
         LOG_ERR("%s: invalid index %d\n", __func__, idx);
         return 0;
     }
-    return batch->at(idx)->ny;
+    return batch->entries[idx]->ny;
 }
 
 clip_image_f32 * clip_image_f32_get_img(const struct clip_image_f32_batch * batch, int idx) {
-    if (idx < 0 || idx >= (int)batch->size()) {
+    if (idx < 0 || idx >= (int)batch->entries.size()) {
         LOG_ERR("%s: invalid index %d\n", __func__, idx);
         return nullptr;
     }
-    return batch->at(idx).get();
+    return batch->entries[idx].get();
 }
 
 void clip_build_img_from_pixels(const unsigned char * rgb_pixels, int nx, int ny, clip_image_u8 * img) {
@@ -1884,7 +1884,7 @@ static std::vector<clip_image_u8_ptr> divide_to_patches_u8(const clip_image_u8 &
     int height = image.ny;
     for (int i = 0; i < height; i += patch_size) {
         for (int j = 0; j < width; j += patch_size) {
-            clip_image_u8_ptr patch;
+            clip_image_u8_ptr patch(clip_image_u8_init());
             patch->nx = std::min(patch_size, width - j);
             patch->ny = std::min(patch_size, height - i);
             patch->buf.resize(3 * patch->nx * patch->ny);
@@ -1990,14 +1990,14 @@ static std::vector<std::vector<clip_image_u8_ptr>> uhd_slice_image(const clip_im
 
     if (multiple <= 1) {
         auto best_size = uhd_find_best_resize(original_size, scale_resolution, patch_size, true);
-        clip_image_u8_ptr source_image;
+        clip_image_u8_ptr source_image(clip_image_u8_init());
         bicubic_resize(*img, *source_image, best_size.first, best_size.second);
         // source_image = image.resize(best_size, Image.Resampling.BICUBIC)
         images.back().push_back(std::move(source_image));
     }
     else if (multiple > 1) {
         auto best_size = uhd_find_best_resize(original_size, scale_resolution, patch_size);
-        clip_image_u8_ptr source_image;
+        clip_image_u8_ptr source_image(clip_image_u8_init());
         bicubic_resize(*img, *source_image, best_size.first, best_size.second);
         // source_image = image.copy().resize(best_resize, Image.Resampling.BICUBIC)
         LOG_DBG("%s: image_size: %d %d; source_image size: %d %d\n", __func__, img->nx, img->ny, best_size.first, best_size.second);
@@ -2007,7 +2007,7 @@ static std::vector<std::vector<clip_image_u8_ptr>> uhd_slice_image(const clip_im
         LOG_DBG("%s: image_size: %d %d; best_grid: %d %d\n", __func__, img->nx, img->ny, best_grid.first, best_grid.second);
 
         auto refine_size = uhd_get_refine_size(original_size, best_grid, scale_resolution, patch_size, true);
-        clip_image_u8_ptr refine_image;
+        clip_image_u8_ptr refine_image(clip_image_u8_init());
         bicubic_resize(*img, *refine_image, refine_size.first, refine_size.second);
 
         LOG_DBG("%s: refine_image_size: %d %d; refine_size: %d %d\n", __func__, refine_image->nx, refine_image->ny, refine_size.first, refine_size.second);
@@ -2020,7 +2020,7 @@ static std::vector<std::vector<clip_image_u8_ptr>> uhd_slice_image(const clip_im
         for (int patches_i = 0, ic = 0; patches_i < height && ic < best_grid.second; patches_i += grid_y, ic += 1){
             images.push_back(std::vector<clip_image_u8_ptr>());
             for(int patches_j = 0, jc = 0; patches_j < width && jc < best_grid.first; patches_j += grid_x, jc += 1){
-                clip_image_u8_ptr patch;
+                clip_image_u8_ptr patch(clip_image_u8_init());
                 patch->nx = grid_x;
                 patch->ny = grid_y;
                 patch->buf.resize(3 * patch->nx * patch->ny);
@@ -2062,25 +2062,25 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         for (size_t i = 0; i < imgs.size(); ++i) {
             for (size_t j = 0; j < imgs[i].size(); ++j) {
                 LOG_DBG("%s: %d %d\n", __func__,imgs[i][j]->nx,imgs[i][j]->ny);
-                clip_image_f32_ptr res;
+                clip_image_f32_ptr res(clip_image_f32_init());
                 normalize_image_u8_to_f32(*imgs[i][j], *res, ctx->image_mean, ctx->image_std);
-                res_imgs->push_back(std::move(res));
+                res_imgs->entries.push_back(std::move(res));
             }
         }
         return true;
     }
     else if (ctx->has_qwen2vl_merger) {
-        clip_image_u8_ptr resized;
+        clip_image_u8 resized;
         auto patch_size = clip_get_patch_size(ctx) * 2;
         int nx = ceil((float)img->nx / patch_size) * patch_size;
         int ny = ceil((float)img->ny / patch_size) * patch_size;
-        bicubic_resize(*img, *resized, nx, ny);
+        bicubic_resize(*img, resized, nx, ny);
 
-        clip_image_f32_ptr img_f32;
-        // clip_image_f32_ptr res;
-        normalize_image_u8_to_f32(*resized, *img_f32, ctx->image_mean, ctx->image_std);
+        clip_image_f32_ptr img_f32(clip_image_f32_init());
+        // clip_image_f32_ptr res(clip_image_f32_init());
+        normalize_image_u8_to_f32(resized, *img_f32, ctx->image_mean, ctx->image_std);
         // res_imgs->data[0] = *res;
-        res_imgs->push_back(std::move(img_f32));
+        res_imgs->entries.push_back(std::move(img_f32));
         return true;
     }
 
@@ -2088,10 +2088,10 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         clip_image_u8 resized_image;
         int32_t sz=ctx->vision_model.hparams.image_size;
         bicubic_resize(*img, resized_image,sz,sz);
-        clip_image_f32_ptr img_f32;
+        clip_image_f32_ptr img_f32(clip_image_f32_init());
         //clip_image_save_to_bmp(resized_image, "resized.bmp");
         normalize_image_u8_to_f32(resized_image, *img_f32, ctx->image_mean, ctx->image_std);
-        res_imgs->push_back(std::move(img_f32));
+        res_imgs->entries.push_back(std::move(img_f32));
         return true;
     }
 
@@ -2106,12 +2106,12 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         pad_to_square = false;
     }
     // free the previous res_imgs if any set
-    res_imgs->clear();
+    res_imgs->entries.clear();
 
     // the logic below is to pad the shorter side to the longer side with a background color: rgb(122, 116, 104)
     // see https://github.com/haotian-liu/LLaVA/blob/e854a2bf85118c504f6f16bf5c3c7c92f8fa8c6b/llava/conversation.py#L113-L156
 
-    clip_image_u8_ptr temp; // we will keep the input image data here temporarily
+    clip_image_u8_ptr temp(clip_image_u8_init()); // we will keep the input image data here temporarily
     if (pad_to_square && img->nx != img->ny) {
         int longer_side = std::max(img->nx, img->ny);
         temp->nx = longer_side;
@@ -2156,14 +2156,14 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
 
             std::vector<clip_image_u8_ptr> patches = divide_to_patches_u8(*temp, params.image_size); // prepare spatial sorted main patches of image_size each (336 in llava-1.6)
 
-            clip_image_u8_ptr image_original_resize;
+            clip_image_u8_ptr image_original_resize(clip_image_u8_init());
             // bilinear_resize(*img, *image_original_resize, params.image_size, params.image_size); // in python this is "shortest_edge", but all CLIP are square
             bicubic_resize(*img, *image_original_resize, params.image_size, params.image_size); // in python this is "shortest_edge", but all CLIP are square
             patches.insert(patches.begin(), std::move(image_original_resize));
             for (auto & patch : patches) {
-                clip_image_f32_ptr res;
+                clip_image_f32_ptr res(clip_image_f32_init());
                 normalize_image_u8_to_f32(*patch, *res, ctx->image_mean, ctx->image_std);
-                res_imgs->push_back(std::move(res));
+                res_imgs->entries.push_back(std::move(res));
             }
 
             return true;
@@ -2181,7 +2181,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
 
     const int nx2 = ctx->vision_model.hparams.image_size;
     const int ny2 = ctx->vision_model.hparams.image_size;
-    clip_image_f32_ptr res;
+    clip_image_f32_ptr res(clip_image_f32_init());
     res->nx = nx2;
     res->ny = ny2;
     res->buf.resize(3 * nx2 * ny2);
@@ -2242,7 +2242,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
     // }
     // res_imgs.push_back(res);
 
-    res_imgs->push_back(std::move(res));
+    res_imgs->entries.push_back(std::move(res));
 
     return true;
 }
@@ -2424,9 +2424,9 @@ bool clip_image_encode(struct clip_ctx * ctx, const int n_threads, clip_image_f3
     }
 
     clip_image_f32_batch imgs;
-    clip_image_f32_ptr img_copy;
+    clip_image_f32_ptr img_copy(clip_image_f32_init());
     *img_copy = *img;
-    imgs.push_back(std::move(img_copy));
+    imgs.entries.push_back(std::move(img_copy));
 
     return clip_image_batch_encode(ctx, n_threads, &imgs, vec);
 }
@@ -2439,7 +2439,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         return false;
     }
 
-    int batch_size = imgs.size();
+    int batch_size = imgs.entries.size();
     if (ctx->has_llava_projector) {
         GGML_ASSERT(batch_size == 1); // TODO: support multiple images
     }
@@ -2466,8 +2466,8 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
     int image_size_width  = image_size;
     int image_size_height = image_size;
     if (ctx->has_minicpmv_projector | ctx->has_qwen2vl_merger) {
-        image_size_width  = imgs[0]->nx;
-        image_size_height = imgs[0]->ny;
+        image_size_width  = imgs.entries[0]->nx;
+        image_size_height = imgs.entries[0]->ny;
     }
     const int patch_size    = hparams.patch_size;
     const int num_patches   = ((image_size_width / patch_size) * (image_size_height / patch_size));
@@ -2479,9 +2479,9 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         struct ggml_tensor * inp_raw = ggml_graph_get_tensor(gf, "inp_raw");
         float * data = (float *)malloc(ggml_nbytes(inp_raw));
 
-        for (size_t i = 0; i < imgs.size(); i++) {
-            const int nx = imgs[i]->nx;
-            const int ny = imgs[i]->ny;
+        for (size_t i = 0; i < imgs.entries.size(); i++) {
+            const int nx = imgs.entries[i]->nx;
+            const int ny = imgs.entries[i]->ny;
             if (!(ctx->has_minicpmv_projector | ctx->has_qwen2vl_merger)) {
                 GGML_ASSERT(nx == image_size && ny == image_size);
             }
@@ -2492,7 +2492,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 for (int k = 0; k < 3; k++) {
                     for (int y = 0; y < ny; y++) {
                         for (int x = 0; x < nx; x++) {
-                            data[(b * 3 * n) + k * n + y * nx + x] = imgs[b]->buf[3 * (y * nx + x) + k];
+                            data[(b * 3 * n) + k * n + y * nx + x] = imgs.entries[b]->buf[3 * (y * nx + x) + k];
                         }
                     }
                 }
