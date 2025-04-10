@@ -173,7 +173,7 @@ static int eval_message(gemma3_context & ctx, common_chat_msg & msg, std::vector
 
     for (auto & fname : images_fname) {
         mtmd_bitmap bitmap;
-        if (mtmd_bitmap_init_from_file(fname.c_str(), bitmap)) {
+        if (mtmd_helper_bitmap_init_from_file(fname.c_str(), bitmap)) {
             LOG_ERR("Unable to load image %s\n", fname.c_str());
             return 2; // image not found
         }

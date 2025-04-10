@@ -71,11 +71,6 @@ MTMD_API mtmd_context * mtmd_init_from_file(const char * mmproj_fname,
 
 MTMD_API void mtmd_free(mtmd_context * ctx);
 
-// helper function to load an image from a file
-// returns 0 on success
-// this function is thread-safe
-MTMD_API int32_t mtmd_bitmap_init_from_file(const char * fname, mtmd_bitmap & output);
-
 // tokenize an input text prompt and an image
 // the prompt must have the input image marker (default: "<__image__>") in it
 // the marker will be replaced with the image tokens
@@ -101,7 +96,11 @@ MTMD_API int32_t mtmd_encode(mtmd_context * ctx,
 // get output embeddings from the last encode pass
 MTMD_API float * mtmd_get_output_embd(mtmd_context * ctx);
 
-// simple helper to count the total number of tokens from a list of chunks, useful to keep track of n_past
+//
+// helper functions (can be implemented based on other functions)
+//
+
+// helper to count the total number of tokens from a list of chunks, useful to keep track of n_past
 MTMD_API size_t mtmd_helper_get_n_tokens(mtmd_input_chunks * chunks);
 
 // helper function that automatically:
@@ -116,6 +115,16 @@ MTMD_API int32_t mtmd_helper_eval(mtmd_context * ctx,
                                 llama_seq_id seq_id,
                                 int32_t n_batch);
 
+// helper function to construct a mtmd_bitmap from a file
+// returns 0 on success
+// this function is thread-safe
+MTMD_API int32_t mtmd_helper_bitmap_init_from_file(const char * fname, mtmd_bitmap & output);
+
+// helper function to construct a mtmd_bitmap from a buffer
+// the buffer must be an image in format supported by stb_image (jpg, png, bmp, gif, etc.)
+// returns 0 on success
+// this function is thread-safe
+MTMD_API int32_t mtmd_helper_bitmap_init_from_buf(const unsigned char * buf, size_t len, mtmd_bitmap & output);
 
 // convenient unique_ptr wrappers
 struct mtmd_context_deleter {

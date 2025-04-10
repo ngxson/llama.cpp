@@ -68,19 +68,6 @@ void mtmd_free(mtmd_context * ctx) {
     }
 }
 
-int32_t mtmd_bitmap_init_from_file(const char * fname, mtmd_bitmap & output) {
-    clip_image_u8_ptr img_u8(clip_image_u8_init());
-    bool ok = clip_image_load_from_file(fname, img_u8.get());
-    if (!ok) {
-        LOG_ERR("Unable to load image %s\n", fname);
-        return 1;
-    }
-    unsigned char * data = clip_image_u8_get_data(img_u8.get(), &output.nx, &output.ny);
-    output.data.resize(output.nx * output.ny * 3);
-    std::memcpy(output.data.data(), data, output.nx * output.ny * 3);
-    return 0;
-}
-
 // copied from common_tokenize
 static std::vector<llama_token> mtmd_tokenize_text_internal(
     const struct llama_vocab * vocab,
@@ -324,5 +311,31 @@ int32_t mtmd_helper_eval(mtmd_context * ctx,
     }
 
     llama_batch_free(text_batch);
+    return 0;
+}
+
+int32_t mtmd_helper_bitmap_init_from_buf(const unsigned char * buf, size_t len, mtmd_bitmap & output) {
+    clip_image_u8_ptr img_u8(clip_image_u8_init());
+    bool ok = clip_image_load_from_bytes(buf, len, img_u8.get());
+    if (!ok) {
+        LOG_ERR("Unable to load image from buffer\n");
+        return 1;
+    }
+    unsigned char * data = clip_image_u8_get_data(img_u8.get(), &output.nx, &output.ny);
+    output.data.resize(output.nx * output.ny * 3);
+    std::memcpy(output.data.data(), data, output.nx * output.ny * 3);
+    return 0;
+}
+
+int32_t mtmd_helper_bitmap_init_from_file(const char * fname, mtmd_bitmap & output) {
+    clip_image_u8_ptr img_u8(clip_image_u8_init());
+    bool ok = clip_image_load_from_file(fname, img_u8.get());
+    if (!ok) {
+        LOG_ERR("Unable to load image %s\n", fname);
+        return 1;
+    }
+    unsigned char * data = clip_image_u8_get_data(img_u8.get(), &output.nx, &output.ny);
+    output.data.resize(output.nx * output.ny * 3);
+    std::memcpy(output.data.data(), data, output.nx * output.ny * 3);
     return 0;
 }
