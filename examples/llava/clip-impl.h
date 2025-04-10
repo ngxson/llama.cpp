@@ -189,35 +189,76 @@ static void clip_log_internal(enum ggml_log_level level, const char * format, ..
 // cpp wrappers
 //
 
-struct clip_image_u8_deleter {
-    void operator()(clip_image_u8 * val) { clip_image_u8_free(val); }
-};
-
-struct clip_image_f32_deleter {
-    void operator()(clip_image_f32 * val) { clip_image_f32_free(val); }
-};
-
+// wrapper for clip_image_size
 struct clip_image_size_deleter {
     void operator()(clip_image_size * val) { clip_image_size_free(val); }
 };
-
-struct clip_image_u8_ptr : std::unique_ptr<clip_image_u8, clip_image_u8_deleter> {
-    clip_image_u8_ptr() : std::unique_ptr<clip_image_u8, clip_image_u8_deleter>(clip_image_u8_init()) {}
-};
-
-struct clip_image_f32_ptr : std::unique_ptr<clip_image_f32, clip_image_f32_deleter> {
-    clip_image_f32_ptr() : std::unique_ptr<clip_image_f32, clip_image_f32_deleter>(clip_image_f32_init()) {}
-};
-
 typedef std::unique_ptr<clip_image_size, clip_image_size_deleter> clip_image_size_ptr;
 
-// these need to be struct to maintain compatibility with C interface
-struct clip_image_u8_batch : std::vector<clip_image_u8_ptr> {
-    clip_image_u8_batch() : std::vector<clip_image_u8_ptr>() {}
+// use composition to avoid problems with inheritance from STL classes
+template <typename T, typename Initializer, typename Deleter>
+struct clip_image_buffer_base {
+    std::unique_ptr<T, Deleter> ptr;
+    clip_image_buffer_base() : ptr(Initializer()()) {}
+    explicit clip_image_buffer_base(T* p) : ptr(p) {}
+    clip_image_buffer_base(const clip_image_buffer_base& other) = delete;
+    clip_image_buffer_base& operator=(const clip_image_buffer_base& other) = delete;
+    clip_image_buffer_base(clip_image_buffer_base&& other) noexcept = default;
+    clip_image_buffer_base& operator=(clip_image_buffer_base&& other) noexcept = default;
+    ~clip_image_buffer_base() = default;
+    void reset(T* p = nullptr) { ptr.reset(p); }
+    T* get() const noexcept { return ptr.get(); }
+    T& operator*() const { return *ptr; }
+    T* operator->() const noexcept { return ptr.get(); }
+    explicit operator bool() const noexcept { return static_cast<bool>(ptr); }
 };
-struct clip_image_f32_batch : std::vector<clip_image_f32_ptr> {
-    clip_image_f32_batch() : std::vector<clip_image_f32_ptr>() {}
-    ~clip_image_f32_batch() {}
+
+// wrapper for clip_image_u8
+struct clip_image_u8_initializer {
+    clip_image_u8 * operator()() { return clip_image_u8_init(); }
+};
+struct clip_image_u8_deleter {
+    void operator()(clip_image_u8 * val) { clip_image_u8_free(val); }
+};
+using clip_image_u8_ptr = clip_image_buffer_base<clip_image_u8, clip_image_u8_initializer, clip_image_u8_deleter>;
+
+// wrapper for clip_image_f32
+struct clip_image_f32_initializer {
+    clip_image_f32 * operator()() { return clip_image_f32_init(); }
+};
+struct clip_image_f32_deleter {
+    void operator()(clip_image_f32 * val) { clip_image_f32_free(val); }
+};
+using clip_image_f32_ptr = clip_image_buffer_base<clip_image_f32, clip_image_f32_initializer, clip_image_f32_deleter>;
+
+// use composition to avoid problems with inheritance from STL classes
+template <typename ImagePtrType>
+struct clip_image_batch_base {
+    std::vector<ImagePtrType> images;
+    clip_image_batch_base() = default;
+    void push_back(ImagePtrType&& value) { images.push_back(std::move(value)); }
+    void clear() noexcept { images.clear(); }
+    void reserve(size_t n) { images.reserve(n); }
+
+    // Capacity
+    size_t size() const noexcept { return images.size(); }
+    bool empty() const noexcept { return images.empty(); }
+
+    // Element access
+    ImagePtrType& operator[](size_t pos) { return images[pos]; }
+    const ImagePtrType& operator[](size_t pos) const { return images[pos]; }
+    ImagePtrType& at(size_t pos) { return images.at(pos); }
+    const ImagePtrType& at(size_t pos) const { return images.at(pos); }
+};
+
+struct clip_image_u8_batch : clip_image_batch_base<clip_image_u8_ptr> {
+    clip_image_u8_batch() = default;
+    ~clip_image_u8_batch() = default;
+};
+
+struct clip_image_f32_batch : clip_image_batch_base<clip_image_f32_ptr> {
+    clip_image_f32_batch() = default;
+    ~clip_image_f32_batch() = default;
 };
 
 
