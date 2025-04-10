@@ -8,6 +8,7 @@
 #include <map>
 #include <sstream>
 #include <vector>
+#include <memory>
 
 // forward declarations
 struct clip_image_u8;
