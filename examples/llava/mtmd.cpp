@@ -23,8 +23,8 @@ struct mtmd_context {
     // TODO @ngxson : add timings
 
     mtmd_context(const char * mmproj_fname,
-                   const struct llama_model * text_model,
-                   const struct mtmd_context_params & ctx_params) : print_timings(ctx_params.print_timings), n_threads(ctx_params.n_threads), image_marker(ctx_params.image_marker) {
+                   const llama_model * text_model,
+                   const mtmd_context_params & ctx_params) : print_timings(ctx_params.print_timings), n_threads(ctx_params.n_threads), image_marker(ctx_params.image_marker) {
         clip_context_params ctx_clip_params;
         ctx_clip_params.use_gpu   = ctx_params.use_gpu;
         ctx_clip_params.verbosity = ctx_params.verbosity;
