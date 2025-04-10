@@ -9,6 +9,11 @@
 #include <sstream>
 #include <vector>
 
+// forward declarations
+struct clip_image_u8;
+struct clip_image_f32;
+struct clip_image_size;
+
 // Internal header for clip.cpp
 
 #define KEY_FTYPE               "general.file_type"

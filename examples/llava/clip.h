@@ -77,10 +77,11 @@ CLIP_API void clip_image_f32_free      (struct clip_image_f32       * img);
 CLIP_API void clip_image_u8_batch_free (struct clip_image_u8_batch  * batch);
 CLIP_API void clip_image_f32_batch_free(struct clip_image_f32_batch * batch);
 
-CLIP_API size_t clip_image_f32_batch_n_images(const struct clip_image_f32_batch * batch); // only used by libllava
-CLIP_API size_t clip_image_f32_batch_nx(const struct clip_image_f32_batch * batch, int idx); // only used by libllava
-CLIP_API size_t clip_image_f32_batch_ny(const struct clip_image_f32_batch * batch, int idx); // only used by libllava
-CLIP_API clip_image_f32 * clip_image_f32_get_img(const struct clip_image_f32_batch * batch, int idx); // only used by libllava
+// use for accessing underlay data of clip_image_f32_batch
+CLIP_API size_t clip_image_f32_batch_n_images(const struct clip_image_f32_batch * batch); // equivalent to batch->size()
+CLIP_API size_t clip_image_f32_batch_nx(const struct clip_image_f32_batch * batch, int idx); // equivalent to batch[idx]->nx
+CLIP_API size_t clip_image_f32_batch_ny(const struct clip_image_f32_batch * batch, int idx); // equivalent to batch[idx]->ny
+CLIP_API clip_image_f32 * clip_image_f32_get_img(const struct clip_image_f32_batch * batch, int idx); // equivalent to batch[idx]->data
 
 /**
  * Build image from pixels decoded by other libraries instead of stb_image.h for better performance.
