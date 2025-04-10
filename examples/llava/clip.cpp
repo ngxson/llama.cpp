@@ -1474,10 +1474,20 @@ struct clip_model_loader {
 
     void alloc_compute_meta() {
         ctx_clip.buf_compute_meta.resize(GGML_DEFAULT_GRAPH_SIZE * ggml_tensor_overhead() + ggml_graph_overhead());
+
+        // create a fake batch
         clip_image_f32_batch batch;
         clip_image_f32_ptr img;
+        clip_image_size image_size;
+        image_size.width  = clip_get_image_size(&ctx_clip);
+        image_size.height = clip_get_image_size(&ctx_clip);
+        int n_patches = clip_get_image_size(&ctx_clip) / image_size.width;
+        img->nx = n_patches;
+        img->ny = n_patches;
+        img->buf.resize(n_patches * image_size.width * image_size.height * 3);
         batch.push_back(std::move(img));
-        ggml_cgraph * gf = clip_image_build_graph(&ctx_clip, batch, clip_image_size{}, false);
+
+        ggml_cgraph * gf = clip_image_build_graph(&ctx_clip, batch, image_size, false);
         ggml_backend_sched_reserve(ctx_clip.sched.get(), gf);
         for (size_t i = 0; i < ctx_clip.backend_ptrs.size(); ++i) {
             ggml_backend_t backend = ctx_clip.backend_ptrs[i];
@@ -2150,10 +2160,10 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
             // bilinear_resize(*img, *image_original_resize, params.image_size, params.image_size); // in python this is "shortest_edge", but all CLIP are square
             bicubic_resize(*img, *image_original_resize, params.image_size, params.image_size); // in python this is "shortest_edge", but all CLIP are square
             patches.insert(patches.begin(), std::move(image_original_resize));
-            int num = 0;
             for (auto & patch : patches) {
-                normalize_image_u8_to_f32(*patch, *res_imgs->at(num), ctx->image_mean, ctx->image_std);
-                num++;
+                clip_image_f32_ptr res;
+                normalize_image_u8_to_f32(*patch, *res, ctx->image_mean, ctx->image_std);
+                res_imgs->push_back(std::move(res));
             }
 
             return true;
