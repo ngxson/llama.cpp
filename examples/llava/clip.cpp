@@ -2886,7 +2886,7 @@ bool clip_encode_float_image (struct clip_ctx * ctx, int n_threads, float * img,
 }
 
 //
-// API used internally with llava2
+// API used internally with mtmd
 //
 
 projector_type clip_get_projector_type(const struct clip_ctx * ctx) {

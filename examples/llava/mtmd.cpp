@@ -1,6 +1,6 @@
 #include "clip.h"
 #include "clip-impl.h"
-#include "llava2.h"
+#include "mtmd.h"
 
 #include "llama.h"
 
@@ -12,7 +12,7 @@
 #include <limits>
 #include <vector>
 
-struct llava2_context {
+struct mtmd_context {
     struct clip_ctx * ctx_clip;
     const struct llama_model * text_model;
     std::vector<float> image_embd_v; // image embedding vector
@@ -22,9 +22,9 @@ struct llava2_context {
 
     // TODO @ngxson : add timings
 
-    llava2_context(const char * mmproj_fname,
+    mtmd_context(const char * mmproj_fname,
                    const struct llama_model * text_model,
-                   const struct llava2_context_params & ctx_params) : print_timings(ctx_params.print_timings), n_threads(ctx_params.n_threads), image_marker(ctx_params.image_marker) {
+                   const struct mtmd_context_params & ctx_params) : print_timings(ctx_params.print_timings), n_threads(ctx_params.n_threads), image_marker(ctx_params.image_marker) {
         clip_context_params ctx_clip_params;
         ctx_clip_params.use_gpu   = ctx_params.use_gpu;
         ctx_clip_params.verbosity = ctx_params.verbosity;
@@ -35,20 +35,20 @@ struct llava2_context {
         this->text_model = text_model;
     }
 
-    ~llava2_context() {
+    ~mtmd_context() {
         clip_free(ctx_clip);
     }
 };
 
-struct llava2_image_tokens_data {
+struct mtmd_image_tokens_data {
     clip_image_f32_batch_ptr batch_f32; // preprocessed image patches
 };
 
-llava2_context_ptr llava2_init_from_file(const char * mmproj_fname,
+mtmd_context_ptr mtmd_init_from_file(const char * mmproj_fname,
         const struct llama_model * text_model,
-        const struct llava2_context_params ctx_params) {
+        const struct mtmd_context_params ctx_params) {
     try {
-        auto ctx = std::make_shared<llava2_context>(mmproj_fname, text_model, ctx_params);
+        auto ctx = std::make_shared<mtmd_context>(mmproj_fname, text_model, ctx_params);
         return ctx;
     } catch (const std::exception & e) {
         LOG_ERR("%s: error: %s\n", __func__, e.what());
@@ -56,7 +56,7 @@ llava2_context_ptr llava2_init_from_file(const char * mmproj_fname,
     }
 }
 
-int32_t llava2_bitmap_init_from_file(const char * fname, llava2_bitmap & output) {
+int32_t mtmd_bitmap_init_from_file(const char * fname, mtmd_bitmap & output) {
     clip_image_u8_ptr img_u8(clip_image_u8_init());
     bool ok = clip_image_load_from_file(fname, img_u8.get());
     if (!ok) {
@@ -70,7 +70,7 @@ int32_t llava2_bitmap_init_from_file(const char * fname, llava2_bitmap & output)
 }
 
 // copied from common_tokenize
-static std::vector<llama_token> llava2_tokenize_text_internal(
+static std::vector<llama_token> mtmd_tokenize_text_internal(
     const struct llama_vocab * vocab,
            const std::string & text,
                         bool   add_special,
@@ -89,10 +89,10 @@ static std::vector<llama_token> llava2_tokenize_text_internal(
     return result;
 }
 
-int32_t llava2_tokenize(llava2_context_ptr & ctx,
-        std::vector<llava2_input_chunk> & output,
-        const llava2_input_text & text,
-        const std::vector<llava2_bitmap> & bitmaps) {
+int32_t mtmd_tokenize(mtmd_context_ptr & ctx,
+        std::vector<mtmd_input_chunk> & output,
+        const mtmd_input_text & text,
+        const std::vector<mtmd_bitmap> & bitmaps) {
     auto vocab = llama_model_get_vocab(ctx->text_model);
 
     std::string prompt_modified(text.text);
@@ -115,7 +115,7 @@ int32_t llava2_tokenize(llava2_context_ptr & ctx,
     for (const auto & part : parts) {
         //printf("tokenizing part: %s\n", part.c_str());
         bool add_bos = &parts.front() == &part;
-        auto tokens = llava2_tokenize_text_internal(vocab, part, text.add_special && add_bos, text.parse_special);
+        auto tokens = mtmd_tokenize_text_internal(vocab, part, text.add_special && add_bos, text.parse_special);
         if (tokens.empty()) {
             continue;
         }
@@ -148,12 +148,12 @@ int32_t llava2_tokenize(llava2_context_ptr & ctx,
                 return 1;
             }
 
-            llava2_image_tokens image_tokens;
+            mtmd_image_tokens image_tokens;
             image_tokens.nx = 0; // TODO
             image_tokens.ny = 0; // TODO
             image_tokens.n_tokens = clip_n_patches(ctx->ctx_clip); // TODO @ngxson : use clip_n_patches_by_image
-            image_tokens.data = std::unique_ptr<llava2_image_tokens_data>(
-                new llava2_image_tokens_data{
+            image_tokens.data = std::unique_ptr<mtmd_image_tokens_data>(
+                new mtmd_image_tokens_data{
                     std::move(batch_f32),
                 }
             );
@@ -170,8 +170,8 @@ int32_t llava2_tokenize(llava2_context_ptr & ctx,
     return 0;
 }
 
-LLAVA2_API int32_t llava2_encode(llava2_context_ptr & ctx,
-                            const llava2_image_tokens & image_tokens) {
+LLAVA2_API int32_t mtmd_encode(mtmd_context_ptr & ctx,
+                            const mtmd_image_tokens & image_tokens) {
     int n_mmproj_embd = clip_n_mmproj_embd(ctx->ctx_clip);
     ctx->image_embd_v.resize(image_tokens.n_tokens * n_mmproj_embd);
     bool ok = clip_image_batch_encode(
@@ -182,11 +182,11 @@ LLAVA2_API int32_t llava2_encode(llava2_context_ptr & ctx,
     return ok ? 0 : 1;
 }
 
-LLAVA2_API float * llava2_get_output_embd(llava2_context_ptr & ctx) {
+LLAVA2_API float * mtmd_get_output_embd(mtmd_context_ptr & ctx) {
     return ctx->image_embd_v.data();
 }
 
-size_t llava2_helper_get_n_tokens(std::vector<llava2_input_chunk> & chunks) {
+size_t mtmd_helper_get_n_tokens(std::vector<mtmd_input_chunk> & chunks) {
     size_t n_tokens = 0;
     for (auto & chunk : chunks) {
         if (chunk.type == LLAVA2_INPUT_CHUNK_TYPE_TEXT) {
@@ -235,9 +235,9 @@ struct decode_embd_batch {
     }
 };
 
-int32_t llava2_helper_eval(llava2_context_ptr & ctx,
+int32_t mtmd_helper_eval(mtmd_context_ptr & ctx,
         llama_context * lctx,
-        std::vector<llava2_input_chunk> & chunks,
+        std::vector<mtmd_input_chunk> & chunks,
         llama_pos pos0,
         llama_seq_id seq_id,
         int32_t n_batch) {
@@ -274,7 +274,7 @@ int32_t llava2_helper_eval(llava2_context_ptr & ctx,
             if (ctx->print_timings) {
                 LOG_INF("encoding image...\n");
             }
-            ret = llava2_encode(ctx, chunk.tokens_image);
+            ret = mtmd_encode(ctx, chunk.tokens_image);
             if (ret != 0) {
                 LOG_ERR("failed to encode image\n");
                 llama_batch_free(text_batch);
@@ -285,7 +285,7 @@ int32_t llava2_helper_eval(llava2_context_ptr & ctx,
             }
 
             int32_t n_tokens = chunk.tokens_image.n_tokens;
-            float * embd = llava2_get_output_embd(ctx);
+            float * embd = mtmd_get_output_embd(ctx);
             decode_embd_batch batch_img(embd, n_tokens, n_past, 0);
             int64_t t1 = ggml_time_ms();
             ret = llama_decode(lctx, batch_img.batch);

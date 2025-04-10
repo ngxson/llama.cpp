@@ -6,7 +6,7 @@
 #include "ggml.h"
 #include "console.h"
 #include "chat.h"
-#include "llava2.h"
+#include "mtmd.h"
 
 #include <vector>
 #include <limits.h>
@@ -57,7 +57,7 @@ static void sigint_handler(int signo) {
 #endif
 
 struct gemma3_context {
-    llava2_context_ptr ctx_vision;
+    mtmd_context_ptr ctx_vision;
     common_init_result llama_init;
 
     llama_model       * model;
@@ -86,7 +86,7 @@ struct gemma3_context {
 
     void init_vision_context(common_params & params) {
         const char * clip_path = params.mmproj.path.c_str();
-        ctx_vision = llava2_init_from_file(clip_path, model, llava2_context_params{
+        ctx_vision = mtmd_init_from_file(clip_path, model, mtmd_context_params{
             /* use_gpu */   true,
             /* timings */   true,
             /* n_threads */ params.cpuparams.n_threads,
@@ -162,7 +162,7 @@ static int generate_response(gemma3_context & ctx, common_sampler * smpl, int n_
 }
 
 static int eval_message(gemma3_context & ctx, common_chat_msg & msg, std::vector<std::string> & images_fname, bool add_bos = false) {
-    std::vector<llava2_bitmap> bitmaps;
+    std::vector<mtmd_bitmap> bitmaps;
 
     common_chat_templates_inputs tmpl_inputs;
     tmpl_inputs.messages = {msg};
@@ -172,30 +172,30 @@ static int eval_message(gemma3_context & ctx, common_chat_msg & msg, std::vector
     LOG_DBG("formatted_chat.prompt: %s\n", formatted_chat.prompt.c_str());
 
     for (auto & fname : images_fname) {
-        llava2_bitmap bitmap;
-        if (llava2_bitmap_init_from_file(fname.c_str(), bitmap)) {
+        mtmd_bitmap bitmap;
+        if (mtmd_bitmap_init_from_file(fname.c_str(), bitmap)) {
             LOG_ERR("Unable to load image %s\n", fname.c_str());
             return 2; // image not found
         }
         bitmaps.push_back(std::move(bitmap));
     }
 
-    std::vector<llava2_input_chunk> chunks;
-    llava2_input_text text;
+    std::vector<mtmd_input_chunk> chunks;
+    mtmd_input_text text;
     text.text          = formatted_chat.prompt;
     text.add_special   = add_bos;
     text.parse_special = true;
-    if (llava2_tokenize(ctx.ctx_vision, chunks, text, bitmaps)) {
+    if (mtmd_tokenize(ctx.ctx_vision, chunks, text, bitmaps)) {
         LOG_ERR("Unable to tokenize prompt\n");
         return 1;
     }
 
-    if (llava2_helper_eval(ctx.ctx_vision, ctx.lctx, chunks, ctx.n_past, 0, ctx.n_batch)) {
+    if (mtmd_helper_eval(ctx.ctx_vision, ctx.lctx, chunks, ctx.n_past, 0, ctx.n_batch)) {
         LOG_ERR("Unable to eval prompt\n");
         return 1;
     }
 
-    ctx.n_past += llava2_helper_get_n_tokens(chunks);
+    ctx.n_past += mtmd_helper_get_n_tokens(chunks);
 
     return 0;
 }

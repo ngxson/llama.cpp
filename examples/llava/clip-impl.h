@@ -329,7 +329,7 @@ static std::string gguf_kv_to_str(const struct gguf_context * ctx_gguf, int i) {
 }
 
 //
-// API used internally with llava2
+// API used internally with mtmd
 //
 
 projector_type clip_get_projector_type(const struct clip_ctx * ctx);
