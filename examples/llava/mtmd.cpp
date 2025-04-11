@@ -16,15 +16,22 @@ struct mtmd_context {
     struct clip_ctx * ctx_clip;
     const struct llama_model * text_model;
     std::vector<float> image_embd_v; // image embedding vector
+
     bool print_timings;
     int n_threads;
     std::string image_marker;
+    bool calc_image_hash;
 
     // TODO @ngxson : add timings
 
     mtmd_context(const char * mmproj_fname,
                    const llama_model * text_model,
-                   const mtmd_context_params & ctx_params) : print_timings(ctx_params.print_timings), n_threads(ctx_params.n_threads), image_marker(ctx_params.image_marker) {
+                   const mtmd_context_params & ctx_params) :
+        print_timings  (ctx_params.print_timings),
+        n_threads      (ctx_params.n_threads),
+        image_marker   (ctx_params.image_marker),
+        calc_image_hash(ctx_params.calc_image_hash)
+    {
         clip_context_params ctx_clip_params;
         ctx_clip_params.use_gpu   = ctx_params.use_gpu;
         ctx_clip_params.verbosity = ctx_params.verbosity;
@@ -49,6 +56,7 @@ struct mtmd_image_tokens {
     uint32_t ny; // number of tokens in y direction
     uint32_t n_tokens() const { return nx * ny; }
     clip_image_f32_batch batch_f32; // preprocessed image patches
+    size_t image_hash = 0; // hash of the image, useful for KV cache tracking
 };
 
 mtmd_context * mtmd_init_from_file(const char * mmproj_fname,
@@ -86,6 +94,16 @@ static std::vector<llama_token> mtmd_tokenize_text_internal(
         result.resize(n_tokens);
     }
     return result;
+}
+
+static uint64_t hash_vector_float(const std::vector<float> & vec) {
+    uint64_t seed = vec.size();
+    std::hash<float> hasher;
+    for (float val : vec) {
+        // inspired by boost::hash_combine
+        seed ^= hasher(val) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    }
+    return seed;
 }
 
 mtmd_input_chunks * mtmd_tokenize(mtmd_context * ctx,
@@ -153,6 +171,11 @@ mtmd_input_chunks * mtmd_tokenize(mtmd_context * ctx,
             image_tokens->ny = 1; // TODO
             image_tokens->batch_f32 = std::move(batch_f32);
 
+            // optionally calculate the hash
+            if (ctx->calc_image_hash) {
+                image_tokens->image_hash = hash_vector_float(image_tokens->batch_f32.entries[0]->buf);
+            }
+
             mtmd_input_chunk chunk{
                 MTMD_INPUT_CHUNK_TYPE_IMAGE,
                 {},
@@ -194,6 +217,10 @@ size_t mtmd_image_tokens_get_nx(const mtmd_image_tokens * image_tokens) {
 
 size_t mtmd_image_tokens_get_ny(const mtmd_image_tokens * image_tokens) {
     return image_tokens->ny;
+}
+
+uint64_t mtmd_image_tokens_get_hash(const mtmd_image_tokens * image_tokens) {
+    return image_tokens->image_hash;
 }
 
 int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) {
