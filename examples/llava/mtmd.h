@@ -39,6 +39,7 @@ struct mtmd_bitmap {
     uint32_t nx;
     uint32_t ny;
     std::vector<unsigned char> data;
+    std::string id; // optional user-defined id, for ex: can be set to image hash, useful for KV cache tracking
 };
 
 struct mtmd_image_tokens_deleter {
@@ -57,9 +58,6 @@ using mtmd_input_chunks = std::vector<mtmd_input_chunk>;
 struct mtmd_context_params {
     bool use_gpu = true;
     bool print_timings = true;
-    // calc_image_hash is useful for tracking KV cache
-    // if not set, mtmd_image_tokens_get_hash will return 0
-    bool calc_image_hash = false;
     int n_threads = 4;
     enum ggml_log_level verbosity = GGML_LOG_LEVEL_INFO;
     const char * image_marker = "<__image__>";
@@ -100,11 +98,11 @@ MTMD_API int32_t mtmd_tokenize(mtmd_context * ctx,
                                 const std::vector<mtmd_bitmap> & bitmaps);
 
 // access mtmd_image_tokens
-MTMD_API size_t   mtmd_image_tokens_get_n_tokens(const mtmd_image_tokens * image_tokens);
-MTMD_API size_t   mtmd_image_tokens_get_nx(const mtmd_image_tokens * image_tokens);
-MTMD_API size_t   mtmd_image_tokens_get_ny(const mtmd_image_tokens * image_tokens);
-MTMD_API uint64_t mtmd_image_tokens_get_hash(const mtmd_image_tokens * image_tokens);
-MTMD_API void     mtmd_image_tokens_free(mtmd_image_tokens * image_tokens);
+MTMD_API size_t      mtmd_image_tokens_get_n_tokens(const mtmd_image_tokens * image_tokens);
+MTMD_API size_t      mtmd_image_tokens_get_nx(const mtmd_image_tokens * image_tokens);
+MTMD_API size_t      mtmd_image_tokens_get_ny(const mtmd_image_tokens * image_tokens);
+MTMD_API std::string mtmd_image_tokens_get_id(const mtmd_image_tokens * image_tokens);
+MTMD_API void        mtmd_image_tokens_free(mtmd_image_tokens * image_tokens);
 
 // returns 0 on success
 MTMD_API int32_t mtmd_encode(mtmd_context * ctx,

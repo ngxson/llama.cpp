@@ -89,7 +89,6 @@ struct gemma3_context {
         ctx_vision.reset(mtmd_init_from_file(clip_path, model, mtmd_context_params{
             /* use_gpu */   true,
             /* timings */   true,
-            /* hash */      false,
             /* n_threads */ params.cpuparams.n_threads,
             /* verbosity */ GGML_LOG_LEVEL_INFO,
         }));
