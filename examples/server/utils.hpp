@@ -964,18 +964,26 @@ static std::vector<common_adapter_lora_info> parse_lora_request(
 //
 
 struct server_inp_chunk {
+    size_t n_tokens = 1; // always 1 in case of text
     llama_token tok_text;
     mtmd_image_tokens_ptr tok_image;
-    std::string str() {
+    std::string str() const {
         // for debugging
         if (tok_image) {
-            return "<image> ";
+            return string_format("(<image> at %p) ", (void *)tok_image.get());
         } else {
             return std::to_string(tok_text) + " ";
         }
     }
 };
 
+/**
+ * server_inputs is a helper to manage the input tokens and image for the server.
+ * 
+ * the difference between server_inputs and mtmd_input_chunks is that each chunk of server_inputs only contains a single text token, but text chunk of mtmd_input_chunks can contain multiple tokens.
+ * 
+ * it is made this way to simplify the logic of KV cache management.
+ */
 struct server_inputs {
     std::vector<server_inp_chunk> chunks;
 
@@ -990,13 +998,14 @@ struct server_inputs {
     server_inputs(server_inputs&&) = default;
     server_inputs& operator=(server_inputs&&) = default;
 
-    server_inputs(mtmd_input_chunks * mtmd_chunks) {
-        for (auto & c : *mtmd_chunks) {
+    server_inputs(mtmd_input_chunks & mtmd_chunks) {
+        for (auto & c : mtmd_chunks) {
             if (c.type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
-                chunks.push_back({LLAMA_TOKEN_NULL, mtmd_image_tokens_ptr(c.tokens_image)});
+                size_t n_tokens = mtmd_image_tokens_get_n_tokens(c.tokens_image.get());
+                chunks.push_back({n_tokens, LLAMA_TOKEN_NULL, std::move(c.tokens_image)});
             } else if (c.type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
                 for (auto & tok : c.tokens_text) {
-                    chunks.push_back({tok, nullptr});
+                    chunks.push_back({1, tok, nullptr});
                 }
             } else {
                 GGML_ASSERT(false && "Invalid chunk type");
@@ -1004,11 +1013,20 @@ struct server_inputs {
         }
     }
 
+    std::string str() {
+        // for debugging
+        std::string ret;
+        for (const auto & chunk : chunks) {
+            ret += chunk.str();
+        }
+        return ret;
+    }
+
     size_t n_tokens() const {
         size_t res = 0;
         for (const auto & chunk : chunks) {
             if (chunk.tok_image) {
-                res += mtmd_image_tokens_get_n_tokens(chunk.tok_image.get());
+                res += chunk.n_tokens;
             } else {
                 res++;
             }
@@ -1026,7 +1044,13 @@ struct server_inputs {
 
     void add_text_token(llama_token tok) {
         GGML_ASSERT(tok != LLAMA_TOKEN_NULL);
-        chunks.push_back({tok, nullptr});
+        chunks.push_back({1, tok, nullptr});
+    }
+
+    void add_image_tokens(mtmd_image_tokens_ptr & image) {
+        GGML_ASSERT(image != nullptr);
+        size_t n_tokens = mtmd_image_tokens_get_n_tokens(image.get());
+        chunks.push_back({n_tokens, LLAMA_TOKEN_NULL, std::move(image)});
     }
 
     size_t get_common_prefix(const server_inputs & b) const {
@@ -1068,8 +1092,7 @@ struct server_inputs {
         size_t current_pos = 0;
         for (size_t i = 0; i < chunks.size(); ++i) {
             const auto & chunk = chunks[i];
-            size_t chunk_size = chunk.tok_image ? mtmd_image_tokens_get_n_tokens(chunk.tok_image.get()) : 1;
-            size_t chunk_end_pos = current_pos + chunk_size;
+            size_t chunk_end_pos = current_pos + chunk.n_tokens;
             if (pos < chunk_end_pos) {
                 // The target position 'pos' falls within this chunk
                 return i;
@@ -1123,57 +1146,88 @@ struct server_inputs {
 
 // helper struct to make working with embd batch easier
 // note: this will be removed after llama_batch_ext refactoring
-struct server_embd_batch {
+struct server_batch {
     std::vector<llama_pos>      pos;
+    std::vector<llama_token>    token;
     std::vector<int32_t>        n_seq_id;
-    std::vector<llama_seq_id>   seq_id_0;
+    std::vector<llama_seq_id>   seq_id;
     std::vector<llama_seq_id *> seq_ids;
     std::vector<int8_t>         logits;
+
     llama_batch batch;
-    server_embd_batch() = default;
-    server_embd_batch(float * embd, int32_t n_tokens, llama_pos pos_0, llama_seq_id seq_id) {
+
+    server_batch() : server_batch(1) {}
+    server_batch(int32_t n_tokens) {
+        token   .resize(n_tokens);
         pos     .resize(n_tokens);
         n_seq_id.resize(n_tokens);
-        seq_ids .resize(n_tokens + 1);
         logits  .resize(n_tokens);
-        seq_id_0.resize(1);
-        seq_id_0[0] = seq_id;
-        seq_ids [n_tokens] = nullptr;
+        seq_id  .resize(n_tokens);
+        seq_ids .resize(n_tokens + 1);
+        seq_ids[n_tokens] = nullptr;
+
         batch = {
-            /*n_tokens       =*/ n_tokens,
-            /*tokens         =*/ nullptr,
-            /*embd           =*/ embd,
+            /*n_tokens       =*/ 0,
+            /*tokens         =*/ token.data(),
+            /*embd           =*/ nullptr,
             /*pos            =*/ pos.data(),
             /*n_seq_id       =*/ n_seq_id.data(),
             /*seq_id         =*/ seq_ids.data(),
             /*logits         =*/ logits.data(),
         };
+
         for (int i = 0; i < n_tokens; i++) {
-            batch.pos     [i] = pos_0 + i;
-            batch.n_seq_id[i] = 1;
-            batch.seq_id  [i] = seq_id_0.data();
-            batch.logits  [i] = false;
+            batch.n_seq_id[i] = 1; // only a single seq_id per token is needed
+            batch.seq_id  [i] = seq_id.data() + i;
         }
+    }
+
+    void reserve_embd_batch(float * embd, int32_t n_tokens, llama_pos pos_0, llama_seq_id seq_id) {
+        GGML_ASSERT(n_tokens <= (int32_t)pos.size());
+        seq_ids[n_tokens] = nullptr;
+        batch.n_tokens = n_tokens;
+        batch.embd     = embd;
+        batch.token    = nullptr;
+        for (int i = 0; i < n_tokens; i++) {
+            batch.pos     [i]    = pos_0 + i;
+            batch.n_seq_id[i]    = 1;
+            batch.seq_id  [i][0] = seq_id;
+            batch.logits  [i]    = false;
+        }
+    }
+
+    void clear() {
+        batch.n_tokens = 0;
+        batch.embd     = nullptr;
+        batch.token    = token.data();
+    }
+
+    int32_t n_tokens() const {
+        return batch.n_tokens;
+    }
+
+    bool has_embd() const {
+        return batch.embd != nullptr;
     }
 };
 
 // TODO @ngxson : quite hacky for now, but just to see if it works
-static int32_t server_encode_image(mtmd_context * mctx, server_embd_batch & batch_out, server_inp_chunk & chunk, llama_pos n_past, llama_seq_id seq_id) {
+static int32_t server_encode_image(mtmd_context * mctx, server_batch & batch_out, server_inp_chunk & chunk, llama_pos n_past, llama_seq_id seq_id) {
     GGML_ASSERT(chunk.tok_image);
+    batch_out.clear();
 
     int64_t t0 = ggml_time_ms();
     LOG_INF("encoding image...\n");
     int32_t ret = mtmd_encode(mctx, chunk.tok_image.get());
     if (ret != 0) {
         LOG_ERR("failed to encode image\n");
-        batch_out = server_embd_batch{};
         return ret;
     }
     LOG_INF("image encoded in %" PRId64 " ms\n", ggml_time_ms() - t0);
 
     int32_t n_tokens = mtmd_image_tokens_get_n_tokens(chunk.tok_image.get());
     float * embd = mtmd_get_output_embd(mctx);
-    batch_out = server_embd_batch(embd, n_tokens, n_past, seq_id);
+    batch_out.reserve_embd_batch(embd, n_tokens, n_past, seq_id);
     return ret;
 }
 

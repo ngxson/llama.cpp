@@ -112,7 +112,7 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
         string_replace_all(prompt_modified, ctx->image_marker, marker_modified);
     }
 
-    std::vector<std::string> parts = string_split_str(text.text, ctx->image_marker);
+    std::vector<std::string> parts = string_split_str(prompt_modified, ctx->image_marker);
     output.clear();
     output.reserve(parts.size());
 
@@ -194,18 +194,6 @@ size_t mtmd_image_tokens_get_ny(const mtmd_image_tokens * image_tokens) {
 
 std::string mtmd_image_tokens_get_id(const mtmd_image_tokens * image_tokens) {
     return image_tokens->id;
-}
-
-size_t mtmd_image_tokens_get_n_tokens(const mtmd_image_tokens * image_tokens) {
-    return image_tokens->n_tokens();
-}
-
-size_t mtmd_image_tokens_get_nx(const mtmd_image_tokens * image_tokens) {
-    return image_tokens->nx;
-}
-
-size_t mtmd_image_tokens_get_ny(const mtmd_image_tokens * image_tokens) {
-    return image_tokens->ny;
 }
 
 int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) {
