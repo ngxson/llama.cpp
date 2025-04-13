@@ -112,7 +112,7 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
         string_replace_all(prompt_modified, ctx->image_marker, marker_modified);
     }
 
-    std::vector<std::string> parts = string_split_str(text.text, ctx->image_marker);
+    std::vector<std::string> parts = string_split_str(prompt_modified, ctx->image_marker);
     output.clear();
     output.reserve(parts.size());
 
