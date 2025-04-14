@@ -1552,11 +1552,11 @@ struct server_queue {
     std::condition_variable condition_tasks;
 
     // callback functions
-    std::function<void(server_task&)> callback_new_task;
+    std::function<void(server_task&&)> callback_new_task;
     std::function<void(void)>         callback_update_slots;
 
     // Add a new task to the end of the queue
-    int post(server_task & task, bool front = false) {
+    int post(server_task && task, bool front = false) {
         std::unique_lock<std::mutex> lock(mutex_tasks);
         GGML_ASSERT(task.id != -1);
         // if this is cancel task make sure to clean up pending tasks
@@ -1565,16 +1565,16 @@ struct server_queue {
         }
         QUE_DBG("new task, id = %d, front = %d\n", task.id, front);
         if (front) {
-            queue_tasks.push_front(std::move(task));
+            queue_tasks.push_front(task);
         } else {
-            queue_tasks.push_back(std::move(task));
+            queue_tasks.push_back(task);
         }
         condition_tasks.notify_one();
         return task.id;
     }
 
     // multi-task version of post()
-    int post(std::vector<server_task> & tasks, bool front = false) {
+    int post(std::vector<server_task> && tasks, bool front = false) {
         std::unique_lock<std::mutex> lock(mutex_tasks);
         for (auto & task : tasks) {
             if (task.id == -1) {
@@ -1596,10 +1596,10 @@ struct server_queue {
     }
 
     // Add a new task, but defer until one slot is available
-    void defer(server_task & task) {
+    void defer(server_task && task) {
         std::unique_lock<std::mutex> lock(mutex_tasks);
         QUE_DBG("defer task, id = %d\n", task.id);
-        queue_tasks_deferred.push_back(std::move(task));
+        queue_tasks_deferred.push_back(task);
         condition_tasks.notify_one();
     }
 
@@ -1611,7 +1611,7 @@ struct server_queue {
     }
 
     // Register function to process a new task
-    void on_new_task(std::function<void(server_task&)> callback) {
+    void on_new_task(std::function<void(server_task&&)> callback) {
         callback_new_task = std::move(callback);
     }
 
@@ -1665,7 +1665,7 @@ struct server_queue {
                 lock.unlock();
 
                 QUE_DBG("processing task, id = %d\n", task.id);
-                callback_new_task(task);
+                callback_new_task(std::move(task));
             }
 
             // all tasks in the current loop is processed, slots data is now ready
@@ -2105,7 +2105,7 @@ struct server_context {
         return true;
     }
 
-    bool launch_slot_with_task(server_slot & slot, const server_task & task) {
+    bool launch_slot_with_task(server_slot & slot, const server_task && task) {
         slot.reset();
         slot.id_task       = task.id;
         slot.index         = task.index;
@@ -2550,7 +2550,7 @@ struct server_context {
             cancel_tasks.push_back(std::move(task));
         }
         // push to beginning of the queue, so it has highest priority
-        queue_tasks.post(cancel_tasks, true);
+        queue_tasks.post(std::move(cancel_tasks), true);
     }
 
     // receive the results from task(s)
@@ -2637,7 +2637,7 @@ struct server_context {
     // Functions to process the task
     //
 
-    void process_single_task(server_task & task) {
+    void process_single_task(server_task && task) {
         switch (task.type) {
             case SERVER_TASK_TYPE_COMPLETION:
             case SERVER_TASK_TYPE_INFILL:
@@ -2651,17 +2651,17 @@ struct server_context {
                     if (slot == nullptr) {
                         // if no slot is available, we defer this task for processing later
                         SRV_DBG("no slot is available, defer task, id_task = %d\n", task.id);
-                        queue_tasks.defer(task);
+                        queue_tasks.defer(std::move(task));
                         break;
                     }
                     if (slot->is_processing()) {
                         // if requested slot is unavailable, we defer this task for processing later
                         SRV_DBG("requested slot is unavailable, defer task, id_task = %d\n", task.id);
-                        queue_tasks.defer(task);
+                        queue_tasks.defer(std::move(task));
                         break;
                     }
 
-                    if (!launch_slot_with_task(*slot, task)) {
+                    if (!launch_slot_with_task(*slot, std::move(task))) {
                         SRV_ERR("failed to launch slot with task, id_task = %d\n", task.id);
                         break;
                     }
@@ -2740,7 +2740,7 @@ struct server_context {
                     if (slot->is_processing()) {
                         // if requested slot is unavailable, we defer this task for processing later
                         SRV_DBG("requested slot is unavailable, defer task, id_task = %d\n", task.id);
-                        queue_tasks.defer(task);
+                        queue_tasks.defer(std::move(task));
                         break;
                     }
 
@@ -2776,7 +2776,7 @@ struct server_context {
                     if (slot->is_processing()) {
                         // if requested slot is unavailable, we defer this task for processing later
                         SRV_DBG("requested slot is unavailable, defer task, id_task = %d\n", task.id);
-                        queue_tasks.defer(task);
+                        queue_tasks.defer(std::move(task));
                         break;
                     }
 
@@ -2819,7 +2819,7 @@ struct server_context {
                     if (slot->is_processing()) {
                         // if requested slot is unavailable, we defer this task for processing later
                         SRV_DBG("requested slot is unavailable, defer task, id_task = %d\n", task.id);
-                        queue_tasks.defer(task);
+                        queue_tasks.defer(std::move(task));
                         break;
                     }
 
@@ -2871,7 +2871,7 @@ struct server_context {
 
             server_task task(SERVER_TASK_TYPE_NEXT_RESPONSE);
             task.id = queue_tasks.get_new_id();
-            queue_tasks.post(task);
+            queue_tasks.post(std::move(task));
         }
 
         // apply context-shift if needed
@@ -3636,7 +3636,7 @@ int main(int argc, char ** argv) {
         server_task task(SERVER_TASK_TYPE_METRICS);
         task.id = ctx_server.queue_tasks.get_new_id();
         ctx_server.queue_results.add_waiting_task_id(task.id);
-        ctx_server.queue_tasks.post(task, true); // high-priority task
+        ctx_server.queue_tasks.post(std::move(task), true); // high-priority task
 
         // get the result
         server_task_result_ptr result = ctx_server.queue_results.recv(task.id);
@@ -3674,7 +3674,7 @@ int main(int argc, char ** argv) {
         task.metrics_reset_bucket = true;
 
         ctx_server.queue_results.add_waiting_task_id(task.id);
-        ctx_server.queue_tasks.post(task, true); // high-priority task
+        ctx_server.queue_tasks.post(std::move(task), true); // high-priority task
 
         // get the result
         server_task_result_ptr result = ctx_server.queue_results.recv(task.id);
@@ -3782,7 +3782,7 @@ int main(int argc, char ** argv) {
         task.slot_action.filepath = filepath;
 
         ctx_server.queue_results.add_waiting_task_id(task.id);
-        ctx_server.queue_tasks.post(task);
+        ctx_server.queue_tasks.post(std::move(task));
 
         server_task_result_ptr result = ctx_server.queue_results.recv(task.id);
         ctx_server.queue_results.remove_waiting_task_id(task.id);
@@ -3811,7 +3811,7 @@ int main(int argc, char ** argv) {
         task.slot_action.filepath = filepath;
 
         ctx_server.queue_results.add_waiting_task_id(task.id);
-        ctx_server.queue_tasks.post(task);
+        ctx_server.queue_tasks.post(std::move(task));
 
         server_task_result_ptr result = ctx_server.queue_results.recv(task.id);
         ctx_server.queue_results.remove_waiting_task_id(task.id);
@@ -3831,7 +3831,7 @@ int main(int argc, char ** argv) {
         task.slot_action.slot_id = id_slot;
 
         ctx_server.queue_results.add_waiting_task_id(task.id);
-        ctx_server.queue_tasks.post(task);
+        ctx_server.queue_tasks.post(std::move(task));
 
         server_task_result_ptr result = ctx_server.queue_results.recv(task.id);
         ctx_server.queue_results.remove_waiting_task_id(task.id);
@@ -3973,7 +3973,7 @@ int main(int argc, char ** argv) {
         }
 
         ctx_server.queue_results.add_waiting_tasks(tasks);
-        ctx_server.queue_tasks.post(tasks);
+        ctx_server.queue_tasks.post(std::move(tasks));
 
         bool stream = json_value(data, "stream", false);
         const auto task_ids = server_task::get_list_id(tasks);
@@ -4284,7 +4284,7 @@ int main(int argc, char ** argv) {
             }
 
             ctx_server.queue_results.add_waiting_tasks(tasks);
-            ctx_server.queue_tasks.post(tasks);
+            ctx_server.queue_tasks.post(std::move(tasks));
 
             // get the result
             std::unordered_set<int> task_ids = server_task::get_list_id(tasks);
@@ -4380,7 +4380,7 @@ int main(int argc, char ** argv) {
             }
 
             ctx_server.queue_results.add_waiting_tasks(tasks);
-            ctx_server.queue_tasks.post(tasks);
+            ctx_server.queue_tasks.post(std::move(tasks));
 
             // get the result
             std::unordered_set<int> task_ids = server_task::get_list_id(tasks);
@@ -4435,7 +4435,7 @@ int main(int argc, char ** argv) {
         task.id = ctx_server.queue_tasks.get_new_id();
         task.set_lora = parse_lora_request(ctx_server.params_base.lora_adapters, body);
         ctx_server.queue_results.add_waiting_task_id(task.id);
-        ctx_server.queue_tasks.post(task);
+        ctx_server.queue_tasks.post(std::move(task));
 
         server_task_result_ptr result = ctx_server.queue_results.recv(task.id);
         ctx_server.queue_results.remove_waiting_task_id(task.id);
@@ -4582,8 +4582,8 @@ int main(int argc, char ** argv) {
         common_chat_templates_source(ctx_server.chat_templates.get()),
         common_chat_format_example(ctx_server.chat_templates.get(), ctx_server.params_base.use_jinja).c_str());
 
-    ctx_server.queue_tasks.on_new_task([&ctx_server](server_task & task) {
-        ctx_server.process_single_task(task);
+    ctx_server.queue_tasks.on_new_task([&ctx_server](server_task && task) {
+        ctx_server.process_single_task(std::move(task));
     });
 
     ctx_server.queue_tasks.on_update_slots([&ctx_server]() {
