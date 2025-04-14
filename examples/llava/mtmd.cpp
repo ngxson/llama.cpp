@@ -20,16 +20,15 @@ struct mtmd_context {
     bool print_timings;
     int n_threads;
     std::string image_marker;
-    bool calc_image_hash;
 
     // TODO @ngxson : add timings
 
     mtmd_context(const char * mmproj_fname,
                    const llama_model * text_model,
                    const mtmd_context_params & ctx_params) :
-        print_timings  (ctx_params.print_timings),
-        n_threads      (ctx_params.n_threads),
-        image_marker   (ctx_params.image_marker)
+        print_timings(ctx_params.print_timings),
+        n_threads    (ctx_params.n_threads),
+        image_marker (ctx_params.image_marker)
     {
         clip_context_params ctx_clip_params;
         ctx_clip_params.use_gpu   = ctx_params.use_gpu;
