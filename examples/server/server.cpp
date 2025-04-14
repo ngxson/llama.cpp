@@ -1552,11 +1552,11 @@ struct server_queue {
     std::condition_variable condition_tasks;
 
     // callback functions
-    std::function<void(server_task)> callback_new_task;
-    std::function<void(void)>        callback_update_slots;
+    std::function<void(server_task&)> callback_new_task;
+    std::function<void(void)>         callback_update_slots;
 
     // Add a new task to the end of the queue
-    int post(server_task task, bool front = false) {
+    int post(server_task & task, bool front = false) {
         std::unique_lock<std::mutex> lock(mutex_tasks);
         GGML_ASSERT(task.id != -1);
         // if this is cancel task make sure to clean up pending tasks
@@ -1596,7 +1596,7 @@ struct server_queue {
     }
 
     // Add a new task, but defer until one slot is available
-    void defer(server_task task) {
+    void defer(server_task & task) {
         std::unique_lock<std::mutex> lock(mutex_tasks);
         QUE_DBG("defer task, id = %d\n", task.id);
         queue_tasks_deferred.push_back(std::move(task));
@@ -1611,7 +1611,7 @@ struct server_queue {
     }
 
     // Register function to process a new task
-    void on_new_task(std::function<void(server_task)> callback) {
+    void on_new_task(std::function<void(server_task&)> callback) {
         callback_new_task = std::move(callback);
     }
 
@@ -1660,12 +1660,12 @@ struct server_queue {
                     lock.unlock();
                     break;
                 }
-                server_task task = queue_tasks.front();
+                server_task task = std::move(queue_tasks.front());
                 queue_tasks.pop_front();
                 lock.unlock();
 
                 QUE_DBG("processing task, id = %d\n", task.id);
-                callback_new_task(std::move(task));
+                callback_new_task(task);
             }
 
             // all tasks in the current loop is processed, slots data is now ready
@@ -2004,7 +2004,7 @@ struct server_context {
 
             slot.reset();
 
-            slots.push_back(slot);
+            slots.push_back(std::move(slot));
         }
 
         default_generation_settings_for_props = slots[0].to_json();
@@ -2547,7 +2547,7 @@ struct server_context {
             server_task task(SERVER_TASK_TYPE_CANCEL);
             task.id_target = id_task;
             queue_results.remove_waiting_task_id(id_task);
-            cancel_tasks.push_back(task);
+            cancel_tasks.push_back(std::move(task));
         }
         // push to beginning of the queue, so it has highest priority
         queue_tasks.post(cancel_tasks, true);
@@ -2637,7 +2637,7 @@ struct server_context {
     // Functions to process the task
     //
 
-    void process_single_task(server_task task) {
+    void process_single_task(server_task & task) {
         switch (task.type) {
             case SERVER_TASK_TYPE_COMPLETION:
             case SERVER_TASK_TYPE_INFILL:
@@ -3965,7 +3965,7 @@ int main(int argc, char ** argv) {
                 task.params.oaicompat_cmpl_id         = completion_id;
                 // oaicompat_model is already populated by params_from_json_cmpl
 
-                tasks.push_back(task);
+                tasks.push_back(std::move(task));
             }
         } catch (const std::exception & e) {
             res_error(res, format_error_response(e.what(), ERROR_TYPE_INVALID_REQUEST));
@@ -4280,7 +4280,7 @@ int main(int argc, char ** argv) {
                 // OAI-compat
                 task.params.oaicompat = oaicompat;
 
-                tasks.push_back(task);
+                tasks.push_back(std::move(task));
             }
 
             ctx_server.queue_results.add_waiting_tasks(tasks);
@@ -4376,7 +4376,7 @@ int main(int argc, char ** argv) {
                 task.id            = ctx_server.queue_tasks.get_new_id();
                 task.index         = i;
                 task.prompt_tokens = format_rerank(ctx_server.vocab, tokenized_query, tokenized_docs[i]);
-                tasks.push_back(task);
+                tasks.push_back(std::move(task));
             }
 
             ctx_server.queue_results.add_waiting_tasks(tasks);
@@ -4582,7 +4582,7 @@ int main(int argc, char ** argv) {
         common_chat_templates_source(ctx_server.chat_templates.get()),
         common_chat_format_example(ctx_server.chat_templates.get(), ctx_server.params_base.use_jinja).c_str());
 
-    ctx_server.queue_tasks.on_new_task([&ctx_server](const server_task & task) {
+    ctx_server.queue_tasks.on_new_task([&ctx_server](server_task & task) {
         ctx_server.process_single_task(task);
     });
 
