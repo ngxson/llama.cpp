@@ -3782,7 +3782,7 @@ int main(int argc, char ** argv) {
         int task_id = ctx_server.queue_tasks.get_new_id();
         {
             server_task task(SERVER_TASK_TYPE_SLOT_SAVE);
-            task.id = ctx_server.queue_tasks.get_new_id();
+            task.id = task_id;
             task.slot_action.slot_id  = id_slot;
             task.slot_action.filename = filename;
             task.slot_action.filepath = filepath;
@@ -3814,7 +3814,7 @@ int main(int argc, char ** argv) {
         int task_id = ctx_server.queue_tasks.get_new_id();
         {
             server_task task(SERVER_TASK_TYPE_SLOT_RESTORE);
-            task.id = ctx_server.queue_tasks.get_new_id();
+            task.id = task_id;
             task.slot_action.slot_id  = id_slot;
             task.slot_action.filename = filename;
             task.slot_action.filepath = filepath;
@@ -3839,7 +3839,7 @@ int main(int argc, char ** argv) {
         int task_id = ctx_server.queue_tasks.get_new_id();
         {
             server_task task(SERVER_TASK_TYPE_SLOT_ERASE);
-            task.id = ctx_server.queue_tasks.get_new_id();
+            task.id = task_id;
             task.slot_action.slot_id = id_slot;
 
             ctx_server.queue_results.add_waiting_task_id(task_id);
