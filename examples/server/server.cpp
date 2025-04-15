@@ -1552,8 +1552,8 @@ struct server_queue {
     std::condition_variable condition_tasks;
 
     // callback functions
-    std::function<void(server_task&&)> callback_new_task;
-    std::function<void(void)>         callback_update_slots;
+    std::function<void(server_task &&)> callback_new_task;
+    std::function<void(void)>           callback_update_slots;
 
     // Add a new task to the end of the queue
     int post(server_task && task, bool front = false) {
@@ -1611,7 +1611,7 @@ struct server_queue {
     }
 
     // Register function to process a new task
-    void on_new_task(std::function<void(server_task&&)> callback) {
+    void on_new_task(std::function<void(server_task &&)> callback) {
         callback_new_task = std::move(callback);
     }
 
