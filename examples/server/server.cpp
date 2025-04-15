@@ -3633,14 +3633,17 @@ int main(int argc, char ** argv) {
         }
 
         // request slots data using task queue
-        server_task task(SERVER_TASK_TYPE_METRICS);
-        task.id = ctx_server.queue_tasks.get_new_id();
-        ctx_server.queue_results.add_waiting_task_id(task.id);
-        ctx_server.queue_tasks.post(std::move(task), true); // high-priority task
+        int task_id = ctx_server.queue_tasks.get_new_id();
+        {
+            server_task task(SERVER_TASK_TYPE_METRICS);
+            task.id = task_id;
+            ctx_server.queue_results.add_waiting_task_id(task_id);
+            ctx_server.queue_tasks.post(std::move(task), true); // high-priority task
+        }
 
         // get the result
-        server_task_result_ptr result = ctx_server.queue_results.recv(task.id);
-        ctx_server.queue_results.remove_waiting_task_id(task.id);
+        server_task_result_ptr result = ctx_server.queue_results.recv(task_id);
+        ctx_server.queue_results.remove_waiting_task_id(task_id);
 
         if (result->is_error()) {
             res_error(res, result->to_json());
@@ -3669,16 +3672,17 @@ int main(int argc, char ** argv) {
         }
 
         // request slots data using task queue
-        server_task task(SERVER_TASK_TYPE_METRICS);
-        task.id = ctx_server.queue_tasks.get_new_id();
-        task.metrics_reset_bucket = true;
-
-        ctx_server.queue_results.add_waiting_task_id(task.id);
-        ctx_server.queue_tasks.post(std::move(task), true); // high-priority task
+        int task_id = ctx_server.queue_tasks.get_new_id();
+        {
+            server_task task(SERVER_TASK_TYPE_METRICS);
+            task.id = task_id;
+            ctx_server.queue_results.add_waiting_task_id(task_id);
+            ctx_server.queue_tasks.post(std::move(task), true); // high-priority task
+        }
 
         // get the result
-        server_task_result_ptr result = ctx_server.queue_results.recv(task.id);
-        ctx_server.queue_results.remove_waiting_task_id(task.id);
+        server_task_result_ptr result = ctx_server.queue_results.recv(task_id);
+        ctx_server.queue_results.remove_waiting_task_id(task_id);
 
         if (result->is_error()) {
             res_error(res, result->to_json());
@@ -3775,17 +3779,20 @@ int main(int argc, char ** argv) {
         }
         std::string filepath = params.slot_save_path + filename;
 
-        server_task task(SERVER_TASK_TYPE_SLOT_SAVE);
-        task.id = ctx_server.queue_tasks.get_new_id();
-        task.slot_action.slot_id  = id_slot;
-        task.slot_action.filename = filename;
-        task.slot_action.filepath = filepath;
+        int task_id = ctx_server.queue_tasks.get_new_id();
+        {
+            server_task task(SERVER_TASK_TYPE_SLOT_SAVE);
+            task.id = ctx_server.queue_tasks.get_new_id();
+            task.slot_action.slot_id  = id_slot;
+            task.slot_action.filename = filename;
+            task.slot_action.filepath = filepath;
 
-        ctx_server.queue_results.add_waiting_task_id(task.id);
-        ctx_server.queue_tasks.post(std::move(task));
+            ctx_server.queue_results.add_waiting_task_id(task_id);
+            ctx_server.queue_tasks.post(std::move(task));
+        }
 
-        server_task_result_ptr result = ctx_server.queue_results.recv(task.id);
-        ctx_server.queue_results.remove_waiting_task_id(task.id);
+        server_task_result_ptr result = ctx_server.queue_results.recv(task_id);
+        ctx_server.queue_results.remove_waiting_task_id(task_id);
 
         if (result->is_error()) {
             res_error(res, result->to_json());
@@ -3804,17 +3811,20 @@ int main(int argc, char ** argv) {
         }
         std::string filepath = params.slot_save_path + filename;
 
-        server_task task(SERVER_TASK_TYPE_SLOT_RESTORE);
-        task.id = ctx_server.queue_tasks.get_new_id();
-        task.slot_action.slot_id  = id_slot;
-        task.slot_action.filename = filename;
-        task.slot_action.filepath = filepath;
+        int task_id = ctx_server.queue_tasks.get_new_id();
+        {
+            server_task task(SERVER_TASK_TYPE_SLOT_RESTORE);
+            task.id = ctx_server.queue_tasks.get_new_id();
+            task.slot_action.slot_id  = id_slot;
+            task.slot_action.filename = filename;
+            task.slot_action.filepath = filepath;
 
-        ctx_server.queue_results.add_waiting_task_id(task.id);
-        ctx_server.queue_tasks.post(std::move(task));
+            ctx_server.queue_results.add_waiting_task_id(task_id);
+            ctx_server.queue_tasks.post(std::move(task));
+        }
 
-        server_task_result_ptr result = ctx_server.queue_results.recv(task.id);
-        ctx_server.queue_results.remove_waiting_task_id(task.id);
+        server_task_result_ptr result = ctx_server.queue_results.recv(task_id);
+        ctx_server.queue_results.remove_waiting_task_id(task_id);
 
         if (result->is_error()) {
             res_error(res, result->to_json());
@@ -3826,15 +3836,18 @@ int main(int argc, char ** argv) {
     };
 
     const auto handle_slots_erase = [&ctx_server, &res_error, &res_ok](const httplib::Request & /* req */, httplib::Response & res, int id_slot) {
-        server_task task(SERVER_TASK_TYPE_SLOT_ERASE);
-        task.id = ctx_server.queue_tasks.get_new_id();
-        task.slot_action.slot_id = id_slot;
+        int task_id = ctx_server.queue_tasks.get_new_id();
+        {
+            server_task task(SERVER_TASK_TYPE_SLOT_ERASE);
+            task.id = ctx_server.queue_tasks.get_new_id();
+            task.slot_action.slot_id = id_slot;
 
-        ctx_server.queue_results.add_waiting_task_id(task.id);
-        ctx_server.queue_tasks.post(std::move(task));
+            ctx_server.queue_results.add_waiting_task_id(task_id);
+            ctx_server.queue_tasks.post(std::move(task));
+        }
 
-        server_task_result_ptr result = ctx_server.queue_results.recv(task.id);
-        ctx_server.queue_results.remove_waiting_task_id(task.id);
+        server_task_result_ptr result = ctx_server.queue_results.recv(task_id);
+        ctx_server.queue_results.remove_waiting_task_id(task_id);
 
         if (result->is_error()) {
             res_error(res, result->to_json());
@@ -3938,45 +3951,48 @@ int main(int argc, char ** argv) {
         }
 
         auto completion_id = gen_chatcmplid();
-        std::vector<server_task> tasks;
+        std::unordered_set<int> task_ids;
+        {
+            std::vector<server_task> tasks;
 
-        try {
-            const auto & prompt = data.at("prompt");
-            // TODO: this log can become very long, put it behind a flag or think about a more compact format
-            //SRV_DBG("Prompt: %s\n", prompt.is_string() ? prompt.get<std::string>().c_str() : prompt.dump(2).c_str());
+            try {
+                const auto & prompt = data.at("prompt");
+                // TODO: this log can become very long, put it behind a flag or think about a more compact format
+                //SRV_DBG("Prompt: %s\n", prompt.is_string() ? prompt.get<std::string>().c_str() : prompt.dump(2).c_str());
 
-            std::vector<llama_tokens> tokenized_prompts = tokenize_input_prompts(ctx_server.vocab, prompt, true, true);
-            tasks.reserve(tokenized_prompts.size());
-            for (size_t i = 0; i < tokenized_prompts.size(); i++) {
-                server_task task = server_task(type);
+                std::vector<llama_tokens> tokenized_prompts = tokenize_input_prompts(ctx_server.vocab, prompt, true, true);
+                tasks.reserve(tokenized_prompts.size());
+                for (size_t i = 0; i < tokenized_prompts.size(); i++) {
+                    server_task task = server_task(type);
 
-                task.id    = ctx_server.queue_tasks.get_new_id();
-                task.index = i;
+                    task.id    = ctx_server.queue_tasks.get_new_id();
+                    task.index = i;
 
-                task.prompt_tokens    = std::move(tokenized_prompts[i]);
-                task.params           = server_task::params_from_json_cmpl(
-                                            ctx_server.ctx,
-                                            ctx_server.params_base,
-                                            data);
-                task.id_selected_slot = json_value(data, "id_slot", -1);
+                    task.prompt_tokens    = std::move(tokenized_prompts[i]);
+                    task.params           = server_task::params_from_json_cmpl(
+                                                ctx_server.ctx,
+                                                ctx_server.params_base,
+                                                data);
+                    task.id_selected_slot = json_value(data, "id_slot", -1);
 
-                // OAI-compat
-                task.params.oaicompat                 = oaicompat;
-                task.params.oaicompat_cmpl_id         = completion_id;
-                // oaicompat_model is already populated by params_from_json_cmpl
+                    // OAI-compat
+                    task.params.oaicompat                 = oaicompat;
+                    task.params.oaicompat_cmpl_id         = completion_id;
+                    // oaicompat_model is already populated by params_from_json_cmpl
 
-                tasks.push_back(std::move(task));
+                    tasks.push_back(std::move(task));
+                }
+            } catch (const std::exception & e) {
+                res_error(res, format_error_response(e.what(), ERROR_TYPE_INVALID_REQUEST));
+                return;
             }
-        } catch (const std::exception & e) {
-            res_error(res, format_error_response(e.what(), ERROR_TYPE_INVALID_REQUEST));
-            return;
+
+            task_ids = server_task::get_list_id(tasks);
+            ctx_server.queue_results.add_waiting_tasks(tasks);
+            ctx_server.queue_tasks.post(std::move(tasks));
         }
 
-        ctx_server.queue_results.add_waiting_tasks(tasks);
-        ctx_server.queue_tasks.post(std::move(tasks));
-
         bool stream = json_value(data, "stream", false);
-        const auto task_ids = server_task::get_list_id(tasks);
 
         if (!stream) {
             ctx_server.receive_multi_results(task_ids, [&](std::vector<server_task_result_ptr> & results) {
@@ -4268,6 +4284,7 @@ int main(int argc, char ** argv) {
         // create and queue the task
         json responses = json::array();
         bool error = false;
+        std::unordered_set<int> task_ids;
         {
             std::vector<server_task> tasks;
             for (size_t i = 0; i < tokenized_prompts.size(); i++) {
@@ -4283,24 +4300,23 @@ int main(int argc, char ** argv) {
                 tasks.push_back(std::move(task));
             }
 
+            task_ids = server_task::get_list_id(tasks);
             ctx_server.queue_results.add_waiting_tasks(tasks);
             ctx_server.queue_tasks.post(std::move(tasks));
-
-            // get the result
-            std::unordered_set<int> task_ids = server_task::get_list_id(tasks);
-
-            ctx_server.receive_multi_results(task_ids, [&](std::vector<server_task_result_ptr> & results) {
-                for (auto & res : results) {
-                    GGML_ASSERT(dynamic_cast<server_task_result_embd*>(res.get()) != nullptr);
-                    responses.push_back(res->to_json());
-                }
-            }, [&](const json & error_data) {
-                res_error(res, error_data);
-                error = true;
-            }, req.is_connection_closed);
-
-            ctx_server.queue_results.remove_waiting_task_ids(task_ids);
         }
+
+        // get the result
+        ctx_server.receive_multi_results(task_ids, [&](std::vector<server_task_result_ptr> & results) {
+            for (auto & res : results) {
+                GGML_ASSERT(dynamic_cast<server_task_result_embd*>(res.get()) != nullptr);
+                responses.push_back(res->to_json());
+            }
+        }, [&](const json & error_data) {
+            res_error(res, error_data);
+            error = true;
+        }, req.is_connection_closed);
+
+        ctx_server.queue_results.remove_waiting_task_ids(task_ids);
 
         if (error) {
             return;
@@ -4367,6 +4383,7 @@ int main(int argc, char ** argv) {
         // create and queue the task
         json responses = json::array();
         bool error = false;
+        std::unordered_set<int> task_ids;
         {
             std::vector<server_task> tasks;
             std::vector<llama_tokens> tokenized_docs = tokenize_input_prompts(ctx_server.vocab, documents, /* add_special */ false, true);
@@ -4379,22 +4396,20 @@ int main(int argc, char ** argv) {
                 tasks.push_back(std::move(task));
             }
 
+            task_ids = server_task::get_list_id(tasks);
             ctx_server.queue_results.add_waiting_tasks(tasks);
             ctx_server.queue_tasks.post(std::move(tasks));
-
-            // get the result
-            std::unordered_set<int> task_ids = server_task::get_list_id(tasks);
-
-            ctx_server.receive_multi_results(task_ids, [&](std::vector<server_task_result_ptr> & results) {
-                for (auto & res : results) {
-                    GGML_ASSERT(dynamic_cast<server_task_result_rerank*>(res.get()) != nullptr);
-                    responses.push_back(res->to_json());
-                }
-            }, [&](const json & error_data) {
-                res_error(res, error_data);
-                error = true;
-            }, req.is_connection_closed);
         }
+
+        ctx_server.receive_multi_results(task_ids, [&](std::vector<server_task_result_ptr> & results) {
+            for (auto & res : results) {
+                GGML_ASSERT(dynamic_cast<server_task_result_rerank*>(res.get()) != nullptr);
+                responses.push_back(res->to_json());
+            }
+        }, [&](const json & error_data) {
+            res_error(res, error_data);
+            error = true;
+        }, req.is_connection_closed);
 
         if (error) {
             return;
@@ -4431,14 +4446,19 @@ int main(int argc, char ** argv) {
             res_error(res, format_error_response("Request body must be an array", ERROR_TYPE_INVALID_REQUEST));
             return;
         }
-        server_task task(SERVER_TASK_TYPE_SET_LORA);
-        task.id = ctx_server.queue_tasks.get_new_id();
-        task.set_lora = parse_lora_request(ctx_server.params_base.lora_adapters, body);
-        ctx_server.queue_results.add_waiting_task_id(task.id);
-        ctx_server.queue_tasks.post(std::move(task));
 
-        server_task_result_ptr result = ctx_server.queue_results.recv(task.id);
-        ctx_server.queue_results.remove_waiting_task_id(task.id);
+        int task_id = ctx_server.queue_tasks.get_new_id();
+        {
+            server_task task(SERVER_TASK_TYPE_SET_LORA);
+            task.id = ctx_server.queue_tasks.get_new_id();
+            task.set_lora = parse_lora_request(ctx_server.params_base.lora_adapters, body);
+            ctx_server.queue_results.add_waiting_task_id(task_id);
+            ctx_server.queue_tasks.post(std::move(task));
+        }
+
+        // get the result
+        server_task_result_ptr result = ctx_server.queue_results.recv(task_id);
+        ctx_server.queue_results.remove_waiting_task_id(task_id);
 
         if (result->is_error()) {
             res_error(res, result->to_json());
