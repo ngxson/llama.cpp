@@ -1565,9 +1565,9 @@ struct server_queue {
         }
         QUE_DBG("new task, id = %d, front = %d\n", task.id, front);
         if (front) {
-            queue_tasks.push_front(task);
+            queue_tasks.push_front(std::move(task));
         } else {
-            queue_tasks.push_back(task);
+            queue_tasks.push_back(std::move(task));
         }
         condition_tasks.notify_one();
         return task.id;
@@ -1599,7 +1599,7 @@ struct server_queue {
     void defer(server_task && task) {
         std::unique_lock<std::mutex> lock(mutex_tasks);
         QUE_DBG("defer task, id = %d\n", task.id);
-        queue_tasks_deferred.push_back(task);
+        queue_tasks_deferred.push_back(std::move(task));
         condition_tasks.notify_one();
     }
 
@@ -4450,7 +4450,7 @@ int main(int argc, char ** argv) {
         int task_id = ctx_server.queue_tasks.get_new_id();
         {
             server_task task(SERVER_TASK_TYPE_SET_LORA);
-            task.id = ctx_server.queue_tasks.get_new_id();
+            task.id = task_id;
             task.set_lora = parse_lora_request(ctx_server.params_base.lora_adapters, body);
             ctx_server.queue_results.add_waiting_task_id(task_id);
             ctx_server.queue_tasks.post(std::move(task));
