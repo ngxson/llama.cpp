@@ -1696,15 +1696,6 @@ static void normalize_image_u8_to_f32(const clip_image_u8 & src, clip_image_f32 
 // set of tools to manupulate images
 // in the future, we can have HW acceleration by allowing this struct to access 3rd party lib like imagick or opencv
 struct image_manipulation {
-    static inline int clip(int x, int lower, int upper) {
-        return std::max(lower, std::min(x, upper));
-    }
-
-    // Linear interpolation between two points
-    static inline float lerp(float s, float e, float t) {
-        return s + (e - s) * t;
-    }
-
     // Bilinear resize function
     static void bilinear_resize(const clip_image_u8& src, clip_image_u8& dst, int target_width, int target_height) {
         dst.nx = target_width;
@@ -1740,6 +1731,8 @@ struct image_manipulation {
         }
     }
 
+    // Bicubic resize function
+    // part of image will be cropped if the aspect ratio is different
     static bool bicubic_resize(const clip_image_u8 & img, clip_image_u8 & dst, int target_width, int target_height) {
         const int nx = img.nx;
         const int ny = img.ny;
@@ -1804,8 +1797,9 @@ struct image_manipulation {
     }
 
     // llava-1.6 type of resize_and_pad
+    // if the ratio is not 1:1, padding with fill_color will be applied
     // fill_color is single channel, default is 0 (black)
-    static void resize_and_pad_image(const clip_image_u8 & image, clip_image_u8 & dst, const clip_image_size & target_resolution, uint8_t fill_color = 0) {
+    static void resize_and_pad_image(const clip_image_u8 & image, clip_image_u8 & dst, const clip_image_size & target_resolution, std::array<uint8_t, 3> fill_color = {0, 0, 0}) {
         int target_width  = target_resolution.width;
         int target_height = target_resolution.height;
 
@@ -1828,7 +1822,14 @@ struct image_manipulation {
         clip_image_u8 padded_image;
         padded_image.nx = target_width;
         padded_image.ny = target_height;
-        padded_image.buf.resize(3 * target_width * target_height, fill_color);
+        padded_image.buf.resize(3 * target_width * target_height);
+
+        // Fill the padded image with the fill color
+        for (size_t i = 0; i < padded_image.buf.size(); i += 3) {
+            padded_image.buf[i]     = fill_color[0];
+            padded_image.buf[i + 1] = fill_color[1];
+            padded_image.buf[i + 2] = fill_color[2];
+        }
 
         // Calculate padding offsets
         int pad_x = (target_width  - new_width)  / 2;
@@ -1843,6 +1844,32 @@ struct image_manipulation {
             }
         }
         dst = std::move(padded_image);
+    }
+
+    static void crop_image(const clip_image_u8 & image, clip_image_u8 & dst, int x, int y, int w, int h) {
+        dst.nx = w;
+        dst.ny = h;
+        dst.buf.resize(3 * w * h);
+
+        for (int i = 0; i < h; ++i) {
+            for (int j = 0; j < w; ++j) {
+                int src_idx = 3 * ((y + i)*image.nx + (x + j));
+                int dst_idx = 3 * (i*w + j);
+                dst.buf[dst_idx]     = image.buf[src_idx];
+                dst.buf[dst_idx + 1] = image.buf[src_idx + 1];
+                dst.buf[dst_idx + 2] = image.buf[src_idx + 2];
+            }
+        }
+    }
+
+private:
+    static inline int clip(int x, int lower, int upper) {
+        return std::max(lower, std::min(x, upper));
+    }
+
+    // Linear interpolation between two points
+    static inline float lerp(float s, float e, float t) {
+        return s + (e - s) * t;
     }
 };
 
@@ -1875,6 +1902,7 @@ struct llava_uhd {
         clip_image_size refined_size;  // size of image right before slicing (must be multiple of slice size)
         clip_image_size grid_size;     // grid_size.width * grid_size.height = number of slices
         std::vector<slice_coordinates> slices;
+        bool padding_refined = false;  // if true, refine image will be padded to the grid size (e.g. llava-1.6)
     };
 
     static int get_max_slices(struct clip_ctx * ctx) {
@@ -1886,47 +1914,79 @@ struct llava_uhd {
 
     static slice_instructions get_slice_instructions(struct clip_ctx * ctx, const clip_image_size & original_size) {
         slice_instructions res;
-        const int patch_size       = clip_get_patch_size(ctx);
-        const int scale_resolution = clip_get_image_size(ctx);
-        const int max_slice_nums   = get_max_slices(ctx);
-        const int original_width   = original_size.width;
-        const int original_height  = original_size.height;
+        const int patch_size      = clip_get_patch_size(ctx);
+        const int slice_size      = clip_get_image_size(ctx);
+        const int max_slice_nums  = get_max_slices(ctx);
+        const int original_width  = original_size.width;
+        const int original_height = original_size.height;
         const float log_ratio = log((float)original_width / original_height);
-        const float ratio = (float)original_width * original_height / (scale_resolution * scale_resolution);
+        const float ratio = (float)original_width * original_height / (slice_size * slice_size);
         const int multiple = fmin(ceil(ratio), max_slice_nums);
         const bool has_slices = (multiple > 1);
+        const bool has_pinpoints = !ctx->vision_model.hparams.image_grid_pinpoints.empty();
 
-        auto best_size    = get_best_resize(original_size, scale_resolution, patch_size, has_slices);
+        if (has_pinpoints) {
+            // has pinpoints, use them to calculate the grid size (e.g. llava-1.6)
+            auto refine_size = llava_uhd::select_best_resolution(
+                ctx->vision_model.hparams.image_grid_pinpoints,
+                original_size);
+            res.overview_size   = clip_image_size{slice_size, slice_size};
+            res.refined_size    = refine_size;
+            res.grid_size       = clip_image_size{0, 0};
+            res.padding_refined = true;
+
+            for (int y = 0; y < refine_size.height; y += slice_size) {
+                for (int x = 0; x < refine_size.width; x += slice_size) {
+                    slice_coordinates slice;
+                    slice.x = x;
+                    slice.y = y;
+                    slice.size.width  = std::min(slice_size, refine_size.width  - x);
+                    slice.size.height = std::min(slice_size, refine_size.height - y);
+                    res.slices.push_back(slice);
+                    if (x == 0) {
+                        res.grid_size.width++;
+                    }
+                }
+                res.grid_size.height++;
+            }
+
+            return res;
+        }
+
+        // no pinpoints, dynamically calculate the grid size (e.g. minicpmv)
+
+        auto best_size    = get_best_resize(original_size, slice_size, patch_size, has_slices);
         res.overview_size = best_size;
+
         if (!has_slices) {
             // skip slicing logic
             res.refined_size = clip_image_size{0, 0};
             res.grid_size    = clip_image_size{0, 0};
-            return res;
-        }
 
-        auto best_grid   = get_best_grid(max_slice_nums, multiple, log_ratio);
-        auto refine_size = get_refine_size(original_size, best_grid, scale_resolution, patch_size, true);
-        res.grid_size    = best_grid;
-        res.refined_size = refine_size;
+        } else {
+            auto best_grid   = get_best_grid(max_slice_nums, multiple, log_ratio);
+            auto refine_size = get_refine_size(original_size, best_grid, slice_size, patch_size, true);
+            res.grid_size    = best_grid;
+            res.refined_size = refine_size;
 
-        int width  = refine_size.width;
-        int height = refine_size.height;
-        int grid_x = int(width  / best_grid.width);
-        int grid_y = int(height / best_grid.height);
-        for (int patches_y = 0,                    ic = 0;
-                 patches_y < refine_size.height && ic < best_grid.height;
-                 patches_y += grid_y,              ic += 1) {
-            for (int patches_x = 0,                   jc = 0;
-                     patches_x < refine_size.width && jc < best_grid.width;
-                     patches_x += grid_x,             jc += 1) {
-                slice_coordinates slice;
-                slice.x = patches_x;
-                slice.y = patches_y;
-                slice.size.width  = grid_x;
-                slice.size.height = grid_y;
-                res.slices.push_back(slice);
-                // LOG_INF("slice %d: %d %d %d %d\n", ic, patches_i, patches_j, grid_x, grid_y);
+            int width  = refine_size.width;
+            int height = refine_size.height;
+            int grid_x = int(width  / best_grid.width);
+            int grid_y = int(height / best_grid.height);
+            for (int patches_y = 0,                    ic = 0;
+                    patches_y < refine_size.height && ic < best_grid.height;
+                    patches_y += grid_y,              ic += 1) {
+                for (int patches_x = 0,                   jc = 0;
+                        patches_x < refine_size.width && jc < best_grid.width;
+                        patches_x += grid_x,             jc += 1) {
+                    slice_coordinates slice;
+                    slice.x = patches_x;
+                    slice.y = patches_y;
+                    slice.size.width  = grid_x;
+                    slice.size.height = grid_y;
+                    res.slices.push_back(slice);
+                    // LOG_INF("slice %d: %d %d %d %d\n", ic, patches_i, patches_j, grid_x, grid_y);
+                }
             }
         }
 
@@ -1947,7 +2007,11 @@ struct llava_uhd {
 
         // resize to refined size
         clip_image_u8_ptr refined_img(clip_image_u8_init());
-        image_manipulation::bicubic_resize(*img, *refined_img, inst.refined_size.width, inst.refined_size.height);
+        if (inst.padding_refined) {
+            image_manipulation::resize_and_pad_image(*img, *refined_img, inst.refined_size);
+        } else {
+            image_manipulation::bilinear_resize(*img, *refined_img, inst.refined_size.width, inst.refined_size.height);
+        }
 
         // create slices
         for (const auto & slice : inst.slices) {
@@ -1957,31 +2021,11 @@ struct llava_uhd {
             int h = slice.size.height;
 
             clip_image_u8_ptr img_slice(clip_image_u8_init());
-            img_slice->nx = w;
-            img_slice->ny = h;
-            img_slice->buf.resize(3 * w * h);
-            for (int i = 0; i < h; ++i) {
-                for (int j = 0; j < w; ++j) {
-                    int src_idx = 3 * ((y + i)*refined_img->nx + (x + j));
-                    int dst_idx = 3 * (i*w + j);
-                    img_slice->buf[dst_idx]     = refined_img->buf[src_idx];
-                    img_slice->buf[dst_idx + 1] = refined_img->buf[src_idx + 1];
-                    img_slice->buf[dst_idx + 2] = refined_img->buf[src_idx + 2];
-                }
-            }
+            image_manipulation::crop_image(*refined_img, *img_slice, x, y, w, h);
             output.push_back(std::move(img_slice));
         }
 
         return output;
-    }
-
-    // used by llava 1.6 with custom list of pinpoints
-    static clip_image_size select_best_resolution(const std::vector<int32_t> & pinpoints, const clip_image_size & original_size) {
-        std::vector<clip_image_size> possible_resolutions;
-        for (size_t i = 0; i < pinpoints.size(); i += 2) {
-            possible_resolutions.push_back(clip_image_size{pinpoints[i], pinpoints[i+1]});
-        }
-        return select_best_resolution(original_size, possible_resolutions);
     }
 
 private:
@@ -2030,6 +2074,15 @@ private:
         }
 
         return best_fit;
+    }
+
+    // used by llava 1.6 with custom list of pinpoints
+    static clip_image_size select_best_resolution(const std::vector<int32_t> & pinpoints, const clip_image_size & original_size) {
+        std::vector<clip_image_size> possible_resolutions;
+        for (size_t i = 0; i < pinpoints.size(); i += 2) {
+            possible_resolutions.push_back(clip_image_size{pinpoints[i], pinpoints[i+1]});
+        }
+        return select_best_resolution(original_size, possible_resolutions);
     }
 
     static int ensure_divide(int length, int patch_size) {
@@ -2092,30 +2145,6 @@ private:
     }
 };
 
-// used by llava-1.6, TODO: merge this logic with minicpmv
-static std::vector<clip_image_u8_ptr> divide_to_slices_u8(const clip_image_u8 & image, int slice_size) {
-    std::vector<clip_image_u8_ptr> slices;
-    int width  = image.nx;
-    int height = image.ny;
-    for (int i = 0; i < height; i += slice_size) {
-        for (int j = 0; j < width; j += slice_size) {
-            clip_image_u8_ptr patch(clip_image_u8_init());
-            patch->nx = std::min(slice_size, width - j);
-            patch->ny = std::min(slice_size, height - i);
-            patch->buf.resize(3 * patch->nx * patch->ny);
-            for (int y = 0; y < patch->ny; ++y) {
-                for (int x = 0; x < patch->nx; ++x) {
-                    for (int c = 0; c < 3; ++c) {
-                        patch->buf[3 * (y * patch->nx + x) + c] = image.buf[3 * ((i + y) * width + (j + x)) + c];
-                    }
-                }
-            }
-            slices.push_back(std::move(patch));
-        }
-    }
-    return slices;
-}
-
 // TODO @ngxson : decprecate the load_image_size singleton pattern
 int clip_uhd_num_image_embeds_col(struct clip_ctx * ctx_clip) {
     const auto inst = llava_uhd::get_slice_instructions(ctx_clip, ctx_clip->load_image_size);
@@ -2125,14 +2154,16 @@ int clip_uhd_num_image_embeds_col(struct clip_ctx * ctx_clip) {
 // returns the normalized float tensor for llava-1.5, for spatial_unpad with anyres processing for llava-1.6 it returns the normalized image patch tensors as a vector
 // res_imgs memory is being allocated here, previous allocations will be freed if found
 bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, struct clip_image_f32_batch * res_imgs) {
+    clip_image_size original_size{img->nx, img->ny};
 
     if (clip_is_minicpmv(ctx)) {
-        auto const inst = llava_uhd::get_slice_instructions(ctx, ctx->load_image_size);
+        auto const inst = llava_uhd::get_slice_instructions(ctx, original_size);
         std::vector<clip_image_u8_ptr> imgs = llava_uhd::slice_image(img, inst);
-        for (auto & img : imgs) {
-            // clip_image_save_to_bmp(*img, "slice_" + std::to_string(i++) + ".bmp");
+
+        for (size_t i = 0; i < imgs.size(); ++i) {
+            // clip_image_save_to_bmp(*imgs[i], "slice_" + std::to_string(i) + ".bmp");
             clip_image_f32_ptr res(clip_image_f32_init());
-            normalize_image_u8_to_f32(*img, *res, ctx->image_mean, ctx->image_std);
+            normalize_image_u8_to_f32(*imgs[i], *res, ctx->image_mean, ctx->image_std);
             res_imgs->entries.push_back(std::move(res));
         }
         return true;
@@ -2205,21 +2236,13 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
     } else {
         if (!params.image_grid_pinpoints.empty()) {
             // "spatial_unpad" with "anyres" processing for llava-1.6
-            clip_image_size best_resolution = llava_uhd::select_best_resolution(
-                params.image_grid_pinpoints,
-                clip_image_size{img->nx, img->ny});
+            auto const inst = llava_uhd::get_slice_instructions(ctx, original_size);
+            std::vector<clip_image_u8_ptr> imgs = llava_uhd::slice_image(img, inst);
 
-            image_manipulation::resize_and_pad_image(*img, *temp, best_resolution);  // we do not pad with mean-bg color anymore in llava-1.6
-
-            std::vector<clip_image_u8_ptr> slices = divide_to_slices_u8(*temp, params.image_size); // prepare spatial sorted main slices of image_size each (336 in llava-1.6)
-
-            clip_image_u8_ptr image_original_resize(clip_image_u8_init());
-            // bilinear_resize(*img, *image_original_resize, params.image_size, params.image_size); // in python this is "shortest_edge", but all CLIP are square
-            image_manipulation::bicubic_resize(*img, *image_original_resize, params.image_size, params.image_size); // in python this is "shortest_edge", but all CLIP are square
-            slices.insert(slices.begin(), std::move(image_original_resize));
-            for (auto & slice : slices) {
+            for (size_t i = 0; i < imgs.size(); ++i) {
+                // clip_image_save_to_bmp(*imgs[i], "slice_" + std::to_string(i) + ".bmp");
                 clip_image_f32_ptr res(clip_image_f32_init());
-                normalize_image_u8_to_f32(*slice, *res, ctx->image_mean, ctx->image_std);
+                normalize_image_u8_to_f32(*imgs[i], *res, ctx->image_mean, ctx->image_std);
                 res_imgs->entries.push_back(std::move(res));
             }
 
