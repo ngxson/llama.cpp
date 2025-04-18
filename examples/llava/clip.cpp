@@ -1797,9 +1797,9 @@ struct image_manipulation {
     }
 
     // llava-1.6 type of resize_and_pad
-    // if the ratio is not 1:1, padding with fill_color will be applied
-    // fill_color is single channel, default is 0 (black)
-    static void resize_and_pad_image(const clip_image_u8 & image, clip_image_u8 & dst, const clip_image_size & target_resolution, std::array<uint8_t, 3> fill_color = {0, 0, 0}) {
+    // if the ratio is not 1:1, padding with pad_color will be applied
+    // pad_color is single channel, default is 0 (black)
+    static void resize_and_pad_image(const clip_image_u8 & image, clip_image_u8 & dst, const clip_image_size & target_resolution, std::array<uint8_t, 3> pad_color = {0, 0, 0}) {
         int target_width  = target_resolution.width;
         int target_height = target_resolution.height;
 
@@ -1826,9 +1826,9 @@ struct image_manipulation {
 
         // Fill the padded image with the fill color
         for (size_t i = 0; i < padded_image.buf.size(); i += 3) {
-            padded_image.buf[i]     = fill_color[0];
-            padded_image.buf[i + 1] = fill_color[1];
-            padded_image.buf[i + 2] = fill_color[2];
+            padded_image.buf[i]     = pad_color[0];
+            padded_image.buf[i + 1] = pad_color[1];
+            padded_image.buf[i + 2] = pad_color[2];
         }
 
         // Calculate padding offsets
@@ -2154,7 +2154,18 @@ int clip_uhd_num_image_embeds_col(struct clip_ctx * ctx_clip) {
 // returns the normalized float tensor for llava-1.5, for spatial_unpad with anyres processing for llava-1.6 it returns the normalized image patch tensors as a vector
 // res_imgs memory is being allocated here, previous allocations will be freed if found
 bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, struct clip_image_f32_batch * res_imgs) {
+    if (!ctx->has_vision_encoder) {
+        LOG_ERR("%s: This gguf file seems to have no vision encoder\n", __func__);
+        return false;
+    }
+
     clip_image_size original_size{img->nx, img->ny};
+    bool pad_to_square = true;
+    auto & params = ctx->vision_model.hparams;
+    // The model config actually contains all we need to decide on how to preprocess, here we automatically switch to the new llava-1.6 preprocessing
+    if (params.mm_patch_merge_type == PATCH_MERGE_SPATIAL_UNPAD) {
+        pad_to_square = false;
+    }
 
     if (clip_is_minicpmv(ctx)) {
         auto const inst = llava_uhd::get_slice_instructions(ctx, original_size);
@@ -2185,7 +2196,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
 
     if (ctx->has_glm_projector || ctx->proj_type == PROJECTOR_TYPE_GEMMA3) {
         clip_image_u8 resized_image;
-        int32_t sz = ctx->vision_model.hparams.image_size;
+        int sz = params.image_size;
         image_manipulation::bicubic_resize(*img, resized_image, sz, sz);
         clip_image_f32_ptr img_f32(clip_image_f32_init());
         //clip_image_save_to_bmp(resized_image, "resized.bmp");
@@ -2194,137 +2205,47 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         return true;
     }
 
-    bool pad_to_square = true;
-    if (!ctx->has_vision_encoder) {
-        LOG_ERR("%s: This gguf file seems to have no vision encoder\n", __func__);
-        return false;
-    }
-    auto & params = ctx->vision_model.hparams;
-    // The model config actually contains all we need to decide on how to preprocess, here we automatically switch to the new llava-1.6 preprocessing
-    if (params.mm_patch_merge_type == PATCH_MERGE_SPATIAL_UNPAD) {
-        pad_to_square = false;
-    }
-    // free the previous res_imgs if any set
-    res_imgs->entries.clear();
-
     // the logic below is to pad the shorter side to the longer side with a background color: rgb(122, 116, 104)
     // see https://github.com/haotian-liu/LLaVA/blob/e854a2bf85118c504f6f16bf5c3c7c92f8fa8c6b/llava/conversation.py#L113-L156
 
     clip_image_u8_ptr temp(clip_image_u8_init()); // we will keep the input image data here temporarily
-    if (pad_to_square && img->nx != img->ny) {
-        int longer_side = std::max(img->nx, img->ny);
+
+    if (pad_to_square) {
+        // for llava-1.5, we resize image to a square, and pad the shorter side with a background color
+        // see https://github.com/haotian-liu/LLaVA/blob/e854a2bf85118c504f6f16bf5c3c7c92f8fa8c6b/llava/conversation.py#L113-L156
+        const int longer_side = std::max(img->nx, img->ny);
         temp->nx = longer_side;
         temp->ny = longer_side;
         temp->buf.resize(3 * longer_side * longer_side);
-        const uint8_t bc[3] = {122, 116, 104}; // background color in RGB from LLaVA (this is the mean rgb color * 255)
 
-        // fill with background color
-        for (size_t i = 0; i < temp->buf.size(); i++) {
-            temp->buf[i] = bc[i % 3];
+        // background color in RGB from LLaVA (this is the mean rgb color * 255)
+        const std::array<uint8_t, 3> pad_color = {122, 116, 104};
+
+        // resize the image to the target_size
+        image_manipulation::resize_and_pad_image(*img, *temp, clip_image_size{params.image_size, params.image_size}, pad_color);
+
+        clip_image_f32_ptr res(clip_image_f32_init());
+        normalize_image_u8_to_f32(*temp, *res, ctx->image_mean, ctx->image_std);
+        res_imgs->entries.push_back(std::move(res));
+        return true;
+
+    } else if (!params.image_grid_pinpoints.empty()) {
+        // "spatial_unpad" with "anyres" processing for llava-1.6
+        auto const inst = llava_uhd::get_slice_instructions(ctx, original_size);
+        std::vector<clip_image_u8_ptr> imgs = llava_uhd::slice_image(img, inst);
+
+        for (size_t i = 0; i < imgs.size(); ++i) {
+            // clip_image_save_to_bmp(*imgs[i], "slice_" + std::to_string(i) + ".bmp");
+            clip_image_f32_ptr res(clip_image_f32_init());
+            normalize_image_u8_to_f32(*imgs[i], *res, ctx->image_mean, ctx->image_std);
+            res_imgs->entries.push_back(std::move(res));
         }
 
-        // copy from the input image
-        for (int y = 0; y < img->ny; y++) {
-            for (int x = 0; x < img->nx; x++) {
-                const int i = 3 * (y * img->nx + x);
-                const int j = 3 * (y * temp->nx + x);
-                temp->buf[j]   = img->buf[i];
-                temp->buf[j+1] = img->buf[i+1];
-                temp->buf[j+2] = img->buf[i+2];
-            }
-        }
-    } else {
-        if (!params.image_grid_pinpoints.empty()) {
-            // "spatial_unpad" with "anyres" processing for llava-1.6
-            auto const inst = llava_uhd::get_slice_instructions(ctx, original_size);
-            std::vector<clip_image_u8_ptr> imgs = llava_uhd::slice_image(img, inst);
+        return true;
 
-            for (size_t i = 0; i < imgs.size(); ++i) {
-                // clip_image_save_to_bmp(*imgs[i], "slice_" + std::to_string(i) + ".bmp");
-                clip_image_f32_ptr res(clip_image_f32_init());
-                normalize_image_u8_to_f32(*imgs[i], *res, ctx->image_mean, ctx->image_std);
-                res_imgs->entries.push_back(std::move(res));
-            }
-
-            return true;
-        } else {
-            temp->nx = img->nx;
-            temp->ny = img->ny;
-            temp->buf.resize(img->buf.size());
-            memcpy(temp->buf.data(), img->buf.data(), temp->buf.size());
-        }
     }
 
-    const int nx = temp->nx;
-    const int ny = temp->ny;
-    // clip_image_save_to_bmp(*temp, "resized_vanilla.bmp");
-
-    const int nx2 = ctx->vision_model.hparams.image_size;
-    const int ny2 = ctx->vision_model.hparams.image_size;
-    clip_image_f32_ptr res(clip_image_f32_init());
-    res->nx = nx2;
-    res->ny = ny2;
-    res->buf.resize(3 * nx2 * ny2);
-
-    const float scale = std::max(nx, ny) / (float)ctx->vision_model.hparams.image_size;
-
-    const int nx3 = int(nx / scale + 0.5f);
-    const int ny3 = int(ny / scale + 0.5f);
-
-    const auto & m3 = ctx->image_mean; // {0.48145466f, 0.4578275f, 0.40821073f};
-    const auto & s3 = ctx->image_std;  // {0.26862954f, 0.26130258f, 0.27577711f};
-
-    for (int y = 0; y < ny3; y++) {
-        for (int x = 0; x < nx3; x++) {
-            for (int c = 0; c < 3; c++) {
-                // linear interpolation
-                const float sx = (x + 0.5f) * scale - 0.5f;
-                const float sy = (y + 0.5f) * scale - 0.5f;
-
-                const int x0 = std::max(0, (int)std::floor(sx));
-                const int y0 = std::max(0, (int)std::floor(sy));
-
-                const int x1 = std::min(x0 + 1, nx - 1);
-                const int y1 = std::min(y0 + 1, ny - 1);
-
-                const float dx = sx - x0;
-                const float dy = sy - y0;
-
-                const int j00 = 3 * (y0 * nx + x0) + c;
-                const int j01 = 3 * (y0 * nx + x1) + c;
-                const int j10 = 3 * (y1 * nx + x0) + c;
-                const int j11 = 3 * (y1 * nx + x1) + c;
-
-                const float v00 = temp->buf[j00];
-                const float v01 = temp->buf[j01];
-                const float v10 = temp->buf[j10];
-                const float v11 = temp->buf[j11];
-
-                const float v0 = v00 * (1.0f - dx) + v01 * dx;
-                const float v1 = v10 * (1.0f - dx) + v11 * dx;
-
-                const float v = v0 * (1.0f - dy) + v1 * dy;
-
-                const uint8_t v2 = std::min(std::max(std::round(v), 0.0f), 255.0f);
-
-                const int i = 3 * (y * nx3 + x) + c;
-
-                res->buf[i] = ((float(v2) / 255.0f) - m3[c]) / s3[c];
-            }
-        }
-    }
-
-    // {
-    //     clip_image_u8 * temp2 = clip_image_u8_init();
-    //     clip_image_convert_f32_to_u8(*res, *temp2);
-    //     clip_image_save_to_bmp(*temp2, "resized_normalized_f32_vanilla.bmp");
-    //     clip_image_u8_free(temp2);
-    // }
-    // res_imgs.push_back(res);
-
-    res_imgs->entries.push_back(std::move(res));
-
-    return true;
+    GGML_ASSERT(false && "Unknown image preprocessing type");
 }
 
 ggml_tensor * clip_get_newline_tensor(const struct clip_ctx * ctx) {
