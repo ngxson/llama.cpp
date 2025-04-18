@@ -1563,14 +1563,15 @@ struct server_queue {
         if (task.type == SERVER_TASK_TYPE_CANCEL) {
             cleanup_pending_task(task.id_target);
         }
-        QUE_DBG("new task, id = %d, front = %d\n", task.id, front);
+        const int task_id = task.id;
+        QUE_DBG("new task, id = %d, front = %d\n", task_id, front);
         if (front) {
             queue_tasks.push_front(std::move(task));
         } else {
             queue_tasks.push_back(std::move(task));
         }
         condition_tasks.notify_one();
-        return task.id;
+        return task_id;
     }
 
     // multi-task version of post()
@@ -2105,7 +2106,7 @@ struct server_context {
         return true;
     }
 
-    bool launch_slot_with_task(server_slot & slot, const server_task && task) {
+    bool launch_slot_with_task(server_slot & slot, server_task && task) {
         slot.reset();
         slot.id_task       = task.id;
         slot.index         = task.index;
@@ -2113,10 +2114,10 @@ struct server_context {
         slot.params        = std::move(task.params);
         slot.prompt_tokens = std::move(task.prompt_tokens);
 
-        if (!are_lora_equal(task.params.lora, slot.lora)) {
+        if (!are_lora_equal(slot.params.lora, slot.lora)) {
             // if lora is changed, we cannot reuse cached tokens
             slot.cache_tokens.clear();
-            slot.lora = task.params.lora;
+            slot.lora = slot.params.lora;
         }
 
         bool can_detokenize = can_be_detokenized(ctx, slot.prompt_tokens);
@@ -3952,44 +3953,42 @@ int main(int argc, char ** argv) {
 
         auto completion_id = gen_chatcmplid();
         std::unordered_set<int> task_ids;
-        {
+        try {
             std::vector<server_task> tasks;
 
-            try {
-                const auto & prompt = data.at("prompt");
-                // TODO: this log can become very long, put it behind a flag or think about a more compact format
-                //SRV_DBG("Prompt: %s\n", prompt.is_string() ? prompt.get<std::string>().c_str() : prompt.dump(2).c_str());
+            const auto & prompt = data.at("prompt");
+            // TODO: this log can become very long, put it behind a flag or think about a more compact format
+            //SRV_DBG("Prompt: %s\n", prompt.is_string() ? prompt.get<std::string>().c_str() : prompt.dump(2).c_str());
 
-                std::vector<llama_tokens> tokenized_prompts = tokenize_input_prompts(ctx_server.vocab, prompt, true, true);
-                tasks.reserve(tokenized_prompts.size());
-                for (size_t i = 0; i < tokenized_prompts.size(); i++) {
-                    server_task task = server_task(type);
+            std::vector<llama_tokens> tokenized_prompts = tokenize_input_prompts(ctx_server.vocab, prompt, true, true);
+            tasks.reserve(tokenized_prompts.size());
+            for (size_t i = 0; i < tokenized_prompts.size(); i++) {
+                server_task task = server_task(type);
 
-                    task.id    = ctx_server.queue_tasks.get_new_id();
-                    task.index = i;
+                task.id    = ctx_server.queue_tasks.get_new_id();
+                task.index = i;
 
-                    task.prompt_tokens    = std::move(tokenized_prompts[i]);
-                    task.params           = server_task::params_from_json_cmpl(
-                                                ctx_server.ctx,
-                                                ctx_server.params_base,
-                                                data);
-                    task.id_selected_slot = json_value(data, "id_slot", -1);
+                task.prompt_tokens    = std::move(tokenized_prompts[i]);
+                task.params           = server_task::params_from_json_cmpl(
+                        ctx_server.ctx,
+                        ctx_server.params_base,
+                        data);
+                task.id_selected_slot = json_value(data, "id_slot", -1);
 
-                    // OAI-compat
-                    task.params.oaicompat                 = oaicompat;
-                    task.params.oaicompat_cmpl_id         = completion_id;
-                    // oaicompat_model is already populated by params_from_json_cmpl
+                // OAI-compat
+                task.params.oaicompat                 = oaicompat;
+                task.params.oaicompat_cmpl_id         = completion_id;
+                // oaicompat_model is already populated by params_from_json_cmpl
 
-                    tasks.push_back(std::move(task));
-                }
-            } catch (const std::exception & e) {
-                res_error(res, format_error_response(e.what(), ERROR_TYPE_INVALID_REQUEST));
-                return;
+                tasks.push_back(std::move(task));
             }
 
             task_ids = server_task::get_list_id(tasks);
             ctx_server.queue_results.add_waiting_tasks(tasks);
             ctx_server.queue_tasks.post(std::move(tasks));
+        } catch (const std::exception & e) {
+            res_error(res, format_error_response(e.what(), ERROR_TYPE_INVALID_REQUEST));
+            return;
         }
 
         bool stream = json_value(data, "stream", false);
