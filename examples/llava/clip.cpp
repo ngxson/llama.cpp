@@ -27,6 +27,7 @@
 #include <sstream>
 #include <cinttypes>
 #include <limits>
+#include <array>
 
 struct clip_logger_state g_logger_state = {GGML_LOG_LEVEL_CONT, clip_log_callback_default, NULL};
 
