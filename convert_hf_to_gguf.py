@@ -1959,7 +1959,7 @@ class Llama4Model(LlamaModel):
             name += ".weight"
             data_torch = data_torch.transpose(-1, -2)
 
-        if "multi_modal_projector" in name or "mtmd_model" in name:
+        if "multi_modal_projector" in name or "vision_model" in name:
             return []
         return super().modify_tensors(data_torch, name, bid)
 
@@ -3661,7 +3661,7 @@ class Gemma3Model(Model):
             name = name.replace("language_model.", "")
 
         elif name.startswith("multi_modal_projector.") or name.startswith("vision_tower.") \
-                or name.startswith("multimodal_projector.") or name.startswith("mtmd_model."):
+                or name.startswith("multimodal_projector.") or name.startswith("vision_model."):
             if self.mmproj:
                 assert self.mtmd_model is not None
                 # process vision tensors
