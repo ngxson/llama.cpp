@@ -231,6 +231,7 @@ class Keys:
         IMAGE_MEAN          = "clip.vision.image_mean"
         IMAGE_STD           = "clip.vision.image_std"
         USE_GELU            = "clip.use_gelu"
+
         class Attention:
             HEAD_COUNT      = "clip.vision.attention.head_count"
             LAYERNORM_EPS   = "clip.vision.attention.layer_norm_epsilon"
@@ -315,6 +316,7 @@ class MODEL_ARCH(IntEnum):
     PLM              = auto()
     BAILINGMOE       = auto()
 
+
 class VISION_PROJECTOR_TYPE(IntEnum):
     MLP       = auto()
     LDP       = auto()
@@ -323,6 +325,7 @@ class VISION_PROJECTOR_TYPE(IntEnum):
     GLM_EDGE  = auto()
     MERGER    = auto()
     GEMMA3    = auto()
+
 
 class MODEL_TENSOR(IntEnum):
     TOKEN_EMBD           = auto()
