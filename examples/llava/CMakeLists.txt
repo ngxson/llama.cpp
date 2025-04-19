@@ -61,15 +61,9 @@ if(TARGET BUILD_INFO)
     add_dependencies(mtmd BUILD_INFO)
 endif()
 
-add_executable(llama-llava-cli  deprecation-warning.cpp)
-add_executable(llama-gemma3-cli deprecation-warning.cpp)
-
-set(TARGET llama-minicpmv-cli)
-add_executable(${TARGET} minicpmv-cli.cpp)
-set_target_properties(${TARGET} PROPERTIES OUTPUT_NAME llama-minicpmv-cli)
-install(TARGETS ${TARGET} RUNTIME)
-target_link_libraries(${TARGET} PRIVATE common llava ${CMAKE_THREAD_LIBS_INIT})
-target_compile_features(${TARGET} PRIVATE cxx_std_17)
+add_executable(llama-llava-cli    deprecation-warning.cpp)
+add_executable(llama-gemma3-cli   deprecation-warning.cpp)
+add_executable(llama-minicpmv-cli deprecation-warning.cpp)
 
 set(TARGET llama-qwen2vl-cli)
 add_executable(${TARGET} qwen2vl-cli.cpp)

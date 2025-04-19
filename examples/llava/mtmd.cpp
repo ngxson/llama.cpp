@@ -12,6 +12,15 @@
 #include <limits>
 #include <vector>
 
+// slice template, used by some llava-uhd models to correctly place the special tokens around image embeddings
+// models not having it (llava-1.6) will process embeddings without any special tokens in-between
+enum mtmd_slice_tmpl {
+    MTMD_SLICE_TMPL_NONE,
+    MTMD_SLICE_TMPL_MINICPMV_2_5,
+    MTMD_SLICE_TMPL_MINICPMV_2_6,
+    // TODO @ngxson : add support for idefics (SmolVLM)
+};
+
 struct mtmd_context {
     struct clip_ctx * ctx_clip;
     const struct llama_model * text_model;
@@ -20,6 +29,16 @@ struct mtmd_context {
     bool print_timings;
     int n_threads;
     std::string image_marker;
+
+    // for minicpmv, we need special tokens in-between slices
+    mtmd_slice_tmpl slice_tmpl    = MTMD_SLICE_TMPL_NONE;
+    llama_token tok_ov_img_start  = LLAMA_TOKEN_NULL; // overview image
+    llama_token tok_ov_img_end    = LLAMA_TOKEN_NULL; // overview image
+    llama_token tok_slices_start  = LLAMA_TOKEN_NULL; // start of all slices
+    llama_token tok_slices_end    = LLAMA_TOKEN_NULL; // end of all slices
+    llama_token tok_sli_img_start = LLAMA_TOKEN_NULL; // single slice
+    llama_token tok_sli_img_end   = LLAMA_TOKEN_NULL; // single slice
+    llama_token tok_row_end       = LLAMA_TOKEN_NULL; // end of row
 
     // TODO @ngxson : add timings
 
@@ -38,10 +57,63 @@ struct mtmd_context {
             throw std::runtime_error(string_format("Failed to load CLIP model from %s\n", mmproj_fname));
         }
         this->text_model = text_model;
+
+        int minicpmv_version = clip_is_minicpmv(ctx_clip);
+        if (minicpmv_version == 2) {
+            // minicpmv 2.5 format:
+            // <image> (overview) </image><slice><image> (slice) </image><image> (slice) </image>\n ... </slice>
+            slice_tmpl        = MTMD_SLICE_TMPL_MINICPMV_2_5;
+            tok_ov_img_start  = lookup_token("<image>");
+            tok_ov_img_end    = lookup_token("</image>");
+            tok_slices_start  = lookup_token("<slice>");
+            tok_slices_end    = lookup_token("</slice>");
+            tok_sli_img_start = tok_ov_img_start;
+            tok_sli_img_end   = tok_ov_img_end;
+            tok_row_end       = lookup_token("\n");
+
+        } else if (minicpmv_version == 3 || minicpmv_version == 4) {
+            // minicpmv 2.6 format:
+            // <image> (overview) </image><slice> (slice) </slice><slice> (slice) </slice>\n ...
+            slice_tmpl        = MTMD_SLICE_TMPL_MINICPMV_2_6;
+            tok_ov_img_start  = lookup_token("<image>");
+            tok_ov_img_end    = lookup_token("</image>");
+            tok_sli_img_start = lookup_token("<slice>");
+            tok_sli_img_end   = lookup_token("</slice>");
+            tok_row_end       = lookup_token("\n");
+
+        } else if (minicpmv_version != 0) {
+            GGML_ASSERT(false && "unsupported minicpmv version");
+        }
     }
 
     ~mtmd_context() {
         clip_free(ctx_clip);
+    }
+
+private:
+    llama_token lookup_token(const std::string & token_text) {
+        const llama_vocab * vocab = llama_model_get_vocab(text_model);
+        const int n_vocab = llama_vocab_n_tokens(vocab);
+        for (int i = 0; i < n_vocab; i++) {
+            if (token_to_piece(vocab, i, true) == token_text) {
+                return i;
+            }
+        }
+        return LLAMA_TOKEN_NULL;
+    }
+
+    std::string token_to_piece(const struct llama_vocab * vocab, llama_token token, bool special) {
+        std::string piece;
+        piece.resize(piece.capacity());  // using string internal cache, 15 bytes + '\n'
+        const int n_chars = llama_token_to_piece(vocab, token, &piece[0], piece.size(), 0, special);
+        if (n_chars < 0) {
+            piece.resize(-n_chars);
+            int check = llama_token_to_piece(vocab, token, &piece[0], piece.size(), 0, special);
+            GGML_ASSERT(check == -n_chars);
+        } else {
+            piece.resize(n_chars);
+        }
+        return piece;
     }
 };
 
@@ -122,6 +194,38 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
 
     size_t i_img = 0;
 
+    // utility for adding raw tokens
+    auto add_text_chunk = [&output](std::vector<llama_token> && tokens) {
+        mtmd_input_chunk chunk{
+            MTMD_INPUT_CHUNK_TYPE_TEXT,
+            std::move(tokens),
+            {},
+        };
+        output.emplace_back(std::move(chunk));
+    };
+
+    // utility for splitting batch of multiple images into chunks of batch having single images
+    auto split_batch_to_chunk = [&ctx](clip_image_f32_batch && batch_f32, const std::string & id) {
+        std::vector<mtmd_input_chunk> chunks;
+
+        for (auto & entry : batch_f32.entries) {
+            mtmd_image_tokens_ptr image_tokens(new mtmd_image_tokens);
+            image_tokens->nx = clip_n_patches(ctx->ctx_clip);
+            image_tokens->ny = 1;
+            image_tokens->batch_f32.entries.push_back(std::move(entry));
+            image_tokens->id = id;
+
+            mtmd_input_chunk chunk{
+                MTMD_INPUT_CHUNK_TYPE_IMAGE,
+                {},
+                std::move(image_tokens),
+            };
+            chunks.emplace_back(std::move(chunk));
+        }
+
+        return chunks;
+    };
+
     for (const auto & part : parts) {
         //printf("tokenizing part: %s\n", part.c_str());
         bool add_bos = &parts.front() == &part;
@@ -144,12 +248,13 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                 return 1;
             }
 
-            // shim layer
+            // convert mtmd_bitmap to clip_image_u8
             clip_image_u8_ptr img_u8(clip_image_u8_init());
             img_u8->nx = bitmaps[i_img].nx;
             img_u8->ny = bitmaps[i_img].ny;
             img_u8->buf.resize(bitmaps[i_img].data.size());
             std::memcpy(img_u8->buf.data(), bitmaps[i_img].data.data(), img_u8->nx * img_u8->ny * 3);
+            clip_image_size img_u8_size{img_u8->nx, img_u8->ny};
 
             // preprocess image
             clip_image_f32_batch batch_f32;
@@ -159,28 +264,70 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                 return 2;
             }
 
-            mtmd_image_tokens_ptr image_tokens(new mtmd_image_tokens);
-            image_tokens->nx = clip_n_patches(ctx->ctx_clip) * batch_f32.entries.size(); // TODO @ngxson : use clip_n_patches_by_image
-            image_tokens->ny = 1; // TODO
-            image_tokens->batch_f32 = std::move(batch_f32);
-            image_tokens->id = bitmaps[i_img].id; // optional
+            if (ctx->slice_tmpl == MTMD_SLICE_TMPL_MINICPMV_2_5 || ctx->slice_tmpl == MTMD_SLICE_TMPL_MINICPMV_2_6) {
+                // split batch into chunks of single images
+                auto chunks = split_batch_to_chunk(std::move(batch_f32), bitmaps[i_img].id);
+                GGML_ASSERT(chunks.size() > 0);
 
-            LOG_DBG("image_tokens->nx = %d\n", image_tokens->nx);
-            LOG_DBG("image_tokens->ny = %d\n", image_tokens->ny);
-            LOG_DBG("batch_f32 size = %d\n", (int)image_tokens->batch_f32.entries.size());
+                // add overview image
+                add_text_chunk({ctx->tok_ov_img_start});
+                output.emplace_back(std::move(chunks.front()));
+                chunks.erase(chunks.begin());
+                add_text_chunk({ctx->tok_ov_img_end});
 
-            if (clip_is_glm(ctx->ctx_clip)) {
-                // glm-edge
-                image_tokens->nx += 2; // add 2 for the begin_of_image and end_of_image token embeddings
+                // add slices
+                if (!chunks.empty()) {
+                    clip_add_load_image_size(ctx->ctx_clip, &img_u8_size);
+                    int n_col = clip_uhd_num_image_embeds_col(ctx->ctx_clip);
+                    int n_row = (int)chunks.size() / n_col;
+                    GGML_ASSERT(n_row * n_col == (int)chunks.size());
+                    if (ctx->tok_slices_start != LLAMA_TOKEN_NULL) {
+                        add_text_chunk({ctx->tok_slices_start});
+                    }
+                    for (int y = 0; y < n_row; y++) {
+                        for (int x = 0; x < n_col; x++) {
+                            if (ctx->tok_sli_img_start != LLAMA_TOKEN_NULL) {
+                                add_text_chunk({ctx->tok_sli_img_start});
+                            }
+                            output.emplace_back(std::move(chunks[y * n_col + x]));
+                            if (ctx->tok_sli_img_end != LLAMA_TOKEN_NULL) {
+                                add_text_chunk({ctx->tok_sli_img_end});
+                            }
+                        }
+                        if (ctx->tok_row_end != LLAMA_TOKEN_NULL && y != n_row - 1) {
+                            add_text_chunk({ctx->tok_row_end});
+                        }
+                    }
+                    if (ctx->tok_slices_end != LLAMA_TOKEN_NULL) {
+                        add_text_chunk({ctx->tok_slices_end});
+                    }
+                }
+
+            } else {
+                mtmd_image_tokens_ptr image_tokens(new mtmd_image_tokens);
+                image_tokens->nx = clip_n_patches(ctx->ctx_clip) * batch_f32.entries.size(); // TODO @ngxson : use clip_n_patches_by_image
+                image_tokens->ny = 1; // TODO
+                image_tokens->batch_f32 = std::move(batch_f32);
+                image_tokens->id = bitmaps[i_img].id; // optional
+
+                LOG_DBG("image_tokens->nx = %d\n", image_tokens->nx);
+                LOG_DBG("image_tokens->ny = %d\n", image_tokens->ny);
+                LOG_DBG("batch_f32 size = %d\n", (int)image_tokens->batch_f32.entries.size());
+
+                if (clip_is_glm(ctx->ctx_clip)) {
+                    // glm-edge
+                    image_tokens->nx += 2; // add 2 for the begin_of_image and end_of_image token embeddings
+                }
+
+                mtmd_input_chunk chunk{
+                    MTMD_INPUT_CHUNK_TYPE_IMAGE,
+                    {},
+                    std::move(image_tokens),
+                };
+                output.emplace_back(std::move(chunk));
             }
 
-            mtmd_input_chunk chunk{
-                MTMD_INPUT_CHUNK_TYPE_IMAGE,
-                {},
-                std::move(image_tokens),
-            };
-            output.emplace_back(std::move(chunk));
-            i_img++;
+            i_img++; // move to next image
         }
     }
 
@@ -214,7 +361,15 @@ int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) 
     ctx->image_embd_v.resize(image_tokens->n_tokens() * n_mmproj_embd);
     bool ok = false;
 
-    if (clip_is_llava(ctx->ctx_clip)) {
+    // only effective for minicpmv and qwen2vl, other models will ignore load_image_size
+    {
+        clip_image_size slice_size{
+            image_tokens->batch_f32.entries[0]->nx,
+            image_tokens->batch_f32.entries[0]->ny};
+        clip_add_load_image_size(ctx->ctx_clip, &slice_size);
+    }
+
+    if (clip_is_llava(ctx->ctx_clip) || clip_is_minicpmv(ctx->ctx_clip) || clip_is_glm(ctx->ctx_clip)) {
         // TODO @ngxson : llava does not support batched encoding ; this should be fixed inside clip_image_batch_encode()
         const auto & entries = image_tokens->batch_f32.entries;
         for (size_t i = 0; i < entries.size(); i++) {
@@ -330,7 +485,7 @@ int32_t mtmd_helper_eval(mtmd_context * ctx,
             GGML_ASSERT(chunk.tokens_image != nullptr);
             int64_t t0 = ggml_time_ms();
             if (ctx->print_timings) {
-                LOG_INF("encoding image...\n");
+                LOG_INF("encoding image or slice...\n");
             }
             ret = mtmd_encode(ctx, chunk.tokens_image.get());
             if (ret != 0) {
@@ -339,7 +494,7 @@ int32_t mtmd_helper_eval(mtmd_context * ctx,
                 return ret;
             }
             if (ctx->print_timings) {
-                LOG_INF("image encoded in %" PRId64 " ms\n", ggml_time_ms() - t0);
+                LOG_INF("image/slice encoded in %" PRId64 " ms\n", ggml_time_ms() - t0);
             }
 
             int32_t n_tokens = mtmd_image_tokens_get_n_tokens(chunk.tokens_image.get());

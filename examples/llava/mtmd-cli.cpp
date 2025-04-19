@@ -85,6 +85,13 @@ struct mtmd_cli_context {
         batch = llama_batch_init(params.n_batch, 0, 1);
         n_batch = params.n_batch;
 
+        if (!llama_model_chat_template(model, nullptr) && params.chat_template.empty()) {
+            LOG_ERR("Model does not have chat template.\n");
+            LOG_ERR("  For old llava models, you may need to use '--chat-template vicuna'\n");
+            LOG_ERR("  For MobileVLM models, use '--chat-template deepseek'\n");
+            exit(1);
+        }
+
         tmpls = common_chat_templates_init(model, params.chat_template);
         LOG_INF("%s: chat template example:\n%s\n", __func__, common_chat_format_example(tmpls.get(), params.use_jinja).c_str());
 
