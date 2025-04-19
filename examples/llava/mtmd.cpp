@@ -58,6 +58,8 @@ struct mtmd_context {
         }
         this->text_model = text_model;
 
+        GGML_ASSERT(!clip_is_qwen2vl(ctx_clip) && "Qwen2VL model is not supported yet, use llama-qwen2vl-cli instead");
+
         int minicpmv_version = clip_is_minicpmv(ctx_clip);
         if (minicpmv_version == 2) {
             // minicpmv 2.5 format:
@@ -504,6 +506,7 @@ int32_t mtmd_helper_eval(mtmd_context * ctx,
 
             if (mtmd_decode_use_non_causal(ctx)) {
                 llama_set_causal_attn(lctx, false);
+                // TODO @ngxson : need to make sure only one image is processed at a time, and n_ubatch must be enough to hold the image
             }
 
             while (i_batch < n_img_batches) { // split into batches
