@@ -1856,10 +1856,7 @@ class LlamaModel(TextModel):
 class Llama4Model(LlamaModel):
     model_arch = gguf.MODEL_ARCH.LLAMA4
     undo_permute = False
-    ignore_vision = True
 
-    # TODO @ngxson : avoid duplicate this code everywhere by at least support "text_config"
-    # same with llama, but we need to merge the text_config into the root level of hparams
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # IMPORTANT: the normal "intermediate_size" is renamed to "intermediate_size_mlp", we need to undo this
