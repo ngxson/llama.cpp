@@ -3619,7 +3619,7 @@ class Gemma3VisionModel(VisionModel):
             else:
                 name = name.replace("fc2", "fc1")
 
-            # corrent norm value ; only this "soft_emb_norm" need to be corrected as it's part of Gemma projector
+            # correct norm value ; only this "soft_emb_norm" need to be corrected as it's part of Gemma projector
             # the other norm values are part of SigLIP model, and they are already correct
             # ref code: Gemma3RMSNorm
             if "soft_emb_norm.weight" in name:
