@@ -1897,14 +1897,6 @@ class Llama4Model(LlamaModel):
 class Mistral3Model(LlamaModel):
     model_arch = gguf.MODEL_ARCH.LLAMA
 
-    # we need to merge the text_config into the root level of hparams
-    def __init__(self, *args, **kwargs):
-        hparams = kwargs["hparams"] if "hparams" in kwargs else ModelBase.load_hparams(args[0])
-        if "text_config" in hparams:
-            hparams = {**hparams, **hparams["text_config"]}
-            kwargs["hparams"] = hparams
-        super().__init__(*args, **kwargs)
-
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None):
         name = name.replace("language_model.", "")
         if "multi_modal_projector" in name or "vision_tower" in name:
