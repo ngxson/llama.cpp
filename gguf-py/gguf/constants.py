@@ -500,7 +500,7 @@ class MODEL_TENSOR(IntEnum):
 
 
 MODEL_ARCH_NAMES: dict[MODEL_ARCH, str] = {
-    MODEL_ARCH.CLIP_VISION:      "clip_vision", # dummy arch for clip.cpp
+    MODEL_ARCH.CLIP_VISION:      "clip", # dummy arch for clip.cpp
     MODEL_ARCH.LLAMA:            "llama",
     MODEL_ARCH.LLAMA4:           "llama4",
     MODEL_ARCH.DECI:             "deci",
