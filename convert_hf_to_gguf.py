@@ -47,11 +47,11 @@ class ModelType(IntEnum):
     VISION = 2
 
 
-AnyModel = TypeVar("AnyModel", bound="type[Model]")
+AnyModel = TypeVar("AnyModel", bound="type[ModelBase]")
 
 
-class Model:
-    _model_classes: dict[ModelType, dict[str, type[Model]]] = {
+class ModelBase:
+    _model_classes: dict[ModelType, dict[str, type[ModelBase]]] = {
         ModelType.TEXT: {},
         ModelType.VISION: {},
     }
@@ -83,7 +83,9 @@ class Model:
                  metadata_override: Path | None = None, model_name: str | None = None,
                  split_max_tensors: int = 0, split_max_size: int = 0, dry_run: bool = False,
                  small_first_shard: bool = False, hparams: dict[str, Any] | None = None, remote_hf_model_id: str | None = None):
-        if type(self) is Model:
+        if type(self) is ModelBase or \
+                type(self) is TextModel or \
+                type(self) is VisionModel:
             raise TypeError(f"{type(self).__name__!r} should not be directly instantiated")
 
         self.dir_model = dir_model
@@ -106,11 +108,11 @@ class Model:
 
             self.get_tensors = get_remote_tensors
         else:
-            self.part_names = Model.get_model_part_names(self.dir_model, "model", ".safetensors")
+            self.part_names = ModelBase.get_model_part_names(self.dir_model, "model", ".safetensors")
             self.is_safetensors = len(self.part_names) > 0
             if not self.is_safetensors:
-                self.part_names = Model.get_model_part_names(self.dir_model, "pytorch_model", ".bin")
-        self.hparams = Model.load_hparams(self.dir_model) if hparams is None else hparams
+                self.part_names = ModelBase.get_model_part_names(self.dir_model, "pytorch_model", ".bin")
+        self.hparams = ModelBase.load_hparams(self.dir_model) if hparams is None else hparams
         self.block_count = self.find_hparam(["n_layers", "num_hidden_layers", "n_layer", "num_layers"])
         self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
         self.tensor_names = None
@@ -447,7 +449,7 @@ class Model:
             raise NotImplementedError(f'Architecture {arch!r} not supported!') from None
 
 
-class TextModel(Model):
+class TextModel(ModelBase):
     @classmethod
     def __init_subclass__(cls):
         # can't use an abstract property, because overriding it without type errors
@@ -1056,7 +1058,7 @@ class TextModel(Model):
             self.gguf_writer.add_add_eos_token(field.parts[-1].tolist()[0])
 
 
-class VisionModel(Model):
+class VisionModel(ModelBase):
     model_arch = gguf.MODEL_ARCH.CLIP_VISION
     n_text_embd = 0
 
@@ -1080,7 +1082,6 @@ class VisionModel(Model):
         self.gguf_writer.add_type(gguf.GGUFType.CLIP_VISION)
 
     def set_gguf_parameters(self):
-        """Function to be called by Model.set_gguf_parameters()"""
         self.gguf_writer.add_file_type(self.ftype)
         self.gguf_writer.add_uint32(gguf.Keys.ClipVision.PROJECTION_DIM, self.n_embd_text)
         self.gguf_writer.add_bool(gguf.Keys.ClipVision.HAS_VISION_ENCODER, True)
@@ -1097,7 +1098,7 @@ class VisionModel(Model):
         raise ValueError("VisionModel does not support vocab writing")
 
 
-@Model.register("GPTNeoXForCausalLM")
+@ModelBase.register("GPTNeoXForCausalLM")
 class GPTNeoXModel(TextModel):
     model_arch = gguf.MODEL_ARCH.GPTNEOX
 
@@ -1154,7 +1155,7 @@ class GPTNeoXModel(TextModel):
         return tensors
 
 
-@Model.register("BloomForCausalLM", "BloomModel")
+@ModelBase.register("BloomForCausalLM", "BloomModel")
 class BloomModel(TextModel):
     model_arch = gguf.MODEL_ARCH.BLOOM
 
@@ -1211,7 +1212,7 @@ class BloomModel(TextModel):
         return tensors
 
 
-@Model.register("MPTForCausalLM")
+@ModelBase.register("MPTForCausalLM")
 class MPTModel(TextModel):
     model_arch = gguf.MODEL_ARCH.MPT
 
@@ -1255,7 +1256,7 @@ class MPTModel(TextModel):
         return [(new_name, data_torch)]
 
 
-@Model.register("OrionForCausalLM")
+@ModelBase.register("OrionForCausalLM")
 class OrionModel(TextModel):
     model_arch = gguf.MODEL_ARCH.ORION
 
@@ -1290,7 +1291,7 @@ class OrionModel(TextModel):
         self.gguf_writer.add_layer_norm_eps(self.hparams["rms_norm_eps"])
 
 
-@Model.register("BaichuanForCausalLM", "BaiChuanForCausalLM")
+@ModelBase.register("BaichuanForCausalLM", "BaiChuanForCausalLM")
 class BaichuanModel(TextModel):
     model_arch = gguf.MODEL_ARCH.BAICHUAN
 
@@ -1370,7 +1371,7 @@ class BaichuanModel(TextModel):
         return weights[r * n_part:r * n_part + r, ...]
 
 
-@Model.register("XverseForCausalLM")
+@ModelBase.register("XverseForCausalLM")
 class XverseModel(TextModel):
     model_arch = gguf.MODEL_ARCH.XVERSE
 
@@ -1477,7 +1478,7 @@ class XverseModel(TextModel):
         )
 
 
-@Model.register("FalconForCausalLM", "RWForCausalLM")
+@ModelBase.register("FalconForCausalLM", "RWForCausalLM")
 class FalconModel(TextModel):
     model_arch = gguf.MODEL_ARCH.FALCON
 
@@ -1531,7 +1532,7 @@ class FalconModel(TextModel):
         return [(self.map_tensor_name(name), data_torch)]
 
 
-@Model.register("GPTBigCodeForCausalLM")
+@ModelBase.register("GPTBigCodeForCausalLM")
 class StarCoderModel(TextModel):
     model_arch = gguf.MODEL_ARCH.STARCODER
 
@@ -1548,7 +1549,7 @@ class StarCoderModel(TextModel):
         self.gguf_writer.add_file_type(self.ftype)
 
 
-@Model.register("GPTRefactForCausalLM")
+@ModelBase.register("GPTRefactForCausalLM")
 class RefactModel(TextModel):
     model_arch = gguf.MODEL_ARCH.REFACT
 
@@ -1612,7 +1613,7 @@ class RefactModel(TextModel):
         return tensors
 
 
-@Model.register("StableLmForCausalLM", "StableLMEpochForCausalLM", "LlavaStableLMEpochForCausalLM")
+@ModelBase.register("StableLmForCausalLM", "StableLMEpochForCausalLM", "LlavaStableLMEpochForCausalLM")
 class StableLMModel(TextModel):
     model_arch = gguf.MODEL_ARCH.STABLELM
 
@@ -1702,7 +1703,7 @@ class StableLMModel(TextModel):
                 raise ValueError(f"Unprocessed norms: {norms}")
 
 
-@Model.register("LLaMAForCausalLM", "LlamaForCausalLM", "MistralForCausalLM", "MixtralForCausalLM")
+@ModelBase.register("LLaMAForCausalLM", "LlamaForCausalLM", "MistralForCausalLM", "MixtralForCausalLM")
 class LlamaModel(TextModel):
     model_arch = gguf.MODEL_ARCH.LLAMA
     undo_permute = True
@@ -1851,7 +1852,7 @@ class LlamaModel(TextModel):
                 raise ValueError(f"Unprocessed experts: {experts}")
 
 
-@Model.register("Llama4ForConditionalGeneration")
+@ModelBase.register("Llama4ForConditionalGeneration")
 class Llama4Model(LlamaModel):
     model_arch = gguf.MODEL_ARCH.LLAMA4
     undo_permute = False
@@ -1895,13 +1896,13 @@ class Llama4Model(LlamaModel):
         return super().modify_tensors(data_torch, name, bid)
 
 
-@Model.register("Mistral3ForConditionalGeneration")
+@ModelBase.register("Mistral3ForConditionalGeneration")
 class Mistral3Model(LlamaModel):
     model_arch = gguf.MODEL_ARCH.LLAMA
 
     # we need to merge the text_config into the root level of hparams
     def __init__(self, *args, **kwargs):
-        hparams = kwargs["hparams"] if "hparams" in kwargs else Model.load_hparams(args[0])
+        hparams = kwargs["hparams"] if "hparams" in kwargs else ModelBase.load_hparams(args[0])
         if "text_config" in hparams:
             hparams = {**hparams, **hparams["text_config"]}
             kwargs["hparams"] = hparams
@@ -1914,7 +1915,7 @@ class Mistral3Model(LlamaModel):
         return super().modify_tensors(data_torch, name, bid)
 
 
-@Model.register("DeciLMForCausalLM")
+@ModelBase.register("DeciLMForCausalLM")
 class DeciModel(TextModel):
     model_arch = gguf.MODEL_ARCH.DECI
 
@@ -2086,7 +2087,7 @@ class DeciModel(TextModel):
         super().prepare_tensors()
 
 
-@Model.register("BitnetForCausalLM")
+@ModelBase.register("BitnetForCausalLM")
 class BitnetModel(TextModel):
     model_arch = gguf.MODEL_ARCH.BITNET
 
@@ -2127,7 +2128,7 @@ class BitnetModel(TextModel):
         yield (new_name, data_torch)
 
 
-@Model.register("GrokForCausalLM")
+@ModelBase.register("GrokForCausalLM")
 class GrokModel(TextModel):
     model_arch = gguf.MODEL_ARCH.GROK
 
@@ -2180,7 +2181,7 @@ class GrokModel(TextModel):
         return [(self.map_tensor_name(name), data_torch)]
 
 
-@Model.register("DbrxForCausalLM")
+@ModelBase.register("DbrxForCausalLM")
 class DbrxModel(TextModel):
     model_arch = gguf.MODEL_ARCH.DBRX
 
@@ -2249,7 +2250,7 @@ class DbrxModel(TextModel):
         return n_dims > 1
 
 
-@Model.register("MiniCPMForCausalLM")
+@ModelBase.register("MiniCPMForCausalLM")
 class MiniCPMModel(TextModel):
     model_arch = gguf.MODEL_ARCH.MINICPM
 
@@ -2304,7 +2305,7 @@ class MiniCPMModel(TextModel):
         return [(self.map_tensor_name(name), data_torch)]
 
 
-@Model.register("MiniCPM3ForCausalLM")
+@ModelBase.register("MiniCPM3ForCausalLM")
 class MiniCPM3Model(TextModel):
     model_arch = gguf.MODEL_ARCH.MINICPM3
 
@@ -2357,7 +2358,7 @@ class MiniCPM3Model(TextModel):
         )
 
 
-@Model.register("QWenLMHeadModel")
+@ModelBase.register("QWenLMHeadModel")
 class QwenModel(TextModel):
     model_arch = gguf.MODEL_ARCH.QWEN
 
@@ -2399,7 +2400,7 @@ class QwenModel(TextModel):
         self.gguf_writer.add_file_type(self.ftype)
 
 
-@Model.register("Qwen2ForCausalLM")
+@ModelBase.register("Qwen2ForCausalLM")
 class Qwen2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.QWEN2
 
@@ -2418,7 +2419,7 @@ class Qwen2Model(TextModel):
                 self.gguf_writer.add_rope_scaling_orig_ctx_len(self.hparams["rope_scaling"]["original_max_position_embeddings"])
 
 
-@Model.register("Qwen2VLForConditionalGeneration", "Qwen2_5_VLForConditionalGeneration")
+@ModelBase.register("Qwen2VLForConditionalGeneration", "Qwen2_5_VLForConditionalGeneration")
 class Qwen2VLModel(TextModel):
     model_arch = gguf.MODEL_ARCH.QWEN2VL
 
@@ -2441,7 +2442,7 @@ class Qwen2VLModel(TextModel):
             yield name, data
 
 
-@Model.register("WavTokenizerDec")
+@ModelBase.register("WavTokenizerDec")
 class WavTokenizerDecModel(TextModel):
     model_arch = gguf.MODEL_ARCH.WAVTOKENIZER_DEC
 
@@ -2479,7 +2480,7 @@ class WavTokenizerDecModel(TextModel):
         self.gguf_writer.add_causal_attention(False)
 
 
-@Model.register("Qwen2MoeForCausalLM")
+@ModelBase.register("Qwen2MoeForCausalLM")
 class Qwen2MoeModel(TextModel):
     model_arch = gguf.MODEL_ARCH.QWEN2MOE
 
@@ -2542,17 +2543,17 @@ class Qwen2MoeModel(TextModel):
                 raise ValueError(f"Unprocessed experts: {experts}")
 
 
-@Model.register("Qwen3ForCausalLM")
+@ModelBase.register("Qwen3ForCausalLM")
 class Qwen3Model(Qwen2Model):
     model_arch = gguf.MODEL_ARCH.QWEN3
 
 
-@Model.register("Qwen3MoeForCausalLM")
+@ModelBase.register("Qwen3MoeForCausalLM")
 class Qwen3MoeModel(Qwen2MoeModel):
     model_arch = gguf.MODEL_ARCH.QWEN3MOE
 
 
-@Model.register("GPT2LMHeadModel")
+@ModelBase.register("GPT2LMHeadModel")
 class GPT2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.GPT2
 
@@ -2584,7 +2585,7 @@ class GPT2Model(TextModel):
         return tensors
 
 
-@Model.register("PhiForCausalLM")
+@ModelBase.register("PhiForCausalLM")
 class Phi2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.PHI2
 
@@ -2608,7 +2609,7 @@ class Phi2Model(TextModel):
         self.gguf_writer.add_add_bos_token(False)
 
 
-@Model.register("Phi3ForCausalLM")
+@ModelBase.register("Phi3ForCausalLM")
 class Phi3MiniModel(TextModel):
     model_arch = gguf.MODEL_ARCH.PHI3
 
@@ -2786,7 +2787,7 @@ class Phi3MiniModel(TextModel):
         yield (self.format_tensor_name(gguf.MODEL_TENSOR.ROPE_FACTORS_SHORT), torch.tensor(short_factors, dtype=torch.float32))
 
 
-@Model.register("PhiMoEForCausalLM")
+@ModelBase.register("PhiMoEForCausalLM")
 class PhiMoeModel(Phi3MiniModel):
     model_arch = gguf.MODEL_ARCH.PHIMOE
 
@@ -2843,7 +2844,7 @@ class PhiMoeModel(Phi3MiniModel):
                 raise ValueError(f"Unprocessed experts: {experts}")
 
 
-@Model.register("PlamoForCausalLM")
+@ModelBase.register("PlamoForCausalLM")
 class PlamoModel(TextModel):
     model_arch = gguf.MODEL_ARCH.PLAMO
 
@@ -2891,7 +2892,7 @@ class PlamoModel(TextModel):
         return [(new_name, data_torch)]
 
 
-@Model.register("CodeShellForCausalLM")
+@ModelBase.register("CodeShellForCausalLM")
 class CodeShellModel(TextModel):
     model_arch = gguf.MODEL_ARCH.CODESHELL
 
@@ -2932,7 +2933,7 @@ class CodeShellModel(TextModel):
         return [(new_name, data_torch)]
 
 
-@Model.register("InternLM2ForCausalLM")
+@ModelBase.register("InternLM2ForCausalLM")
 class InternLM2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.INTERNLM2
 
@@ -3105,7 +3106,7 @@ class InternLM2Model(TextModel):
             return [(self.map_tensor_name(name), data_torch)]
 
 
-@Model.register("InternLM3ForCausalLM")
+@ModelBase.register("InternLM3ForCausalLM")
 class InternLM3Model(TextModel):
     model_arch = gguf.MODEL_ARCH.LLAMA
 
@@ -3165,7 +3166,7 @@ class InternLM3Model(TextModel):
         return [(self.map_tensor_name(name), data_torch)]
 
 
-@Model.register("BertModel", "BertForMaskedLM", "CamembertModel")
+@ModelBase.register("BertModel", "BertForMaskedLM", "CamembertModel")
 class BertModel(TextModel):
     model_arch = gguf.MODEL_ARCH.BERT
 
@@ -3253,7 +3254,7 @@ class BertModel(TextModel):
         return [(self.map_tensor_name(name), data_torch)]
 
 
-@Model.register("RobertaModel")
+@ModelBase.register("RobertaModel")
 class RobertaModel(BertModel):
     model_arch = gguf.MODEL_ARCH.BERT
 
@@ -3298,7 +3299,7 @@ class RobertaModel(BertModel):
         return super().modify_tensors(data_torch, name, bid)
 
 
-@Model.register("NomicBertModel")
+@ModelBase.register("NomicBertModel")
 class NomicBertModel(BertModel):
     model_arch = gguf.MODEL_ARCH.NOMIC_BERT
 
@@ -3328,7 +3329,7 @@ class NomicBertModel(BertModel):
         self.gguf_writer.add_rope_freq_base(self.hparams["rotary_emb_base"])
 
 
-@Model.register("XLMRobertaModel", "XLMRobertaForSequenceClassification")
+@ModelBase.register("XLMRobertaModel", "XLMRobertaForSequenceClassification")
 class XLMRobertaModel(BertModel):
     model_arch = gguf.MODEL_ARCH.BERT
 
@@ -3439,7 +3440,7 @@ class XLMRobertaModel(BertModel):
         return super().modify_tensors(data_torch, name, bid)
 
 
-@Model.register("GemmaForCausalLM")
+@ModelBase.register("GemmaForCausalLM")
 class GemmaModel(TextModel):
     model_arch = gguf.MODEL_ARCH.GEMMA
 
@@ -3490,7 +3491,7 @@ class GemmaModel(TextModel):
         return [(self.map_tensor_name(name), data_torch)]
 
 
-@Model.register("Gemma2ForCausalLM")
+@ModelBase.register("Gemma2ForCausalLM")
 class Gemma2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.GEMMA2
 
@@ -3537,7 +3538,7 @@ class Gemma2Model(TextModel):
         return [(self.map_tensor_name(name), data_torch)]
 
 
-@Model.register("Gemma3ForCausalLM", "Gemma3ForConditionalGeneration")
+@ModelBase.register("Gemma3ForCausalLM", "Gemma3ForConditionalGeneration")
 class Gemma3Model(TextModel):
     model_arch = gguf.MODEL_ARCH.GEMMA3
 
@@ -3596,7 +3597,7 @@ class Gemma3Model(TextModel):
         return [(self.map_tensor_name(name), data_torch)]
 
 
-@Model.register("Gemma3ForConditionalGeneration")
+@ModelBase.register("Gemma3ForConditionalGeneration")
 class Gemma3VisionModel(VisionModel):
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
@@ -3641,12 +3642,12 @@ class Gemma3VisionModel(VisionModel):
         return [] # skip other tensors
 
 
-@Model.register("Starcoder2ForCausalLM")
+@ModelBase.register("Starcoder2ForCausalLM")
 class StarCoder2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.STARCODER2
 
 
-@Model.register("Rwkv6ForCausalLM")
+@ModelBase.register("Rwkv6ForCausalLM")
 class Rwkv6Model(TextModel):
     model_arch = gguf.MODEL_ARCH.RWKV6
 
@@ -3719,7 +3720,7 @@ class Rwkv6Model(TextModel):
         yield (new_name, data_torch)
 
 
-@Model.register("RWKV6Qwen2ForCausalLM")
+@ModelBase.register("RWKV6Qwen2ForCausalLM")
 class RWKV6Qwen2Model(Rwkv6Model):
     model_arch = gguf.MODEL_ARCH.RWKV6QWEN2
 
@@ -3773,7 +3774,7 @@ class RWKV6Qwen2Model(Rwkv6Model):
             yield (new_name, data)
 
 
-@Model.register("Rwkv7ForCausalLM", "RWKV7ForCausalLM")
+@ModelBase.register("Rwkv7ForCausalLM", "RWKV7ForCausalLM")
 class Rwkv7Model(TextModel):
     model_arch = gguf.MODEL_ARCH.RWKV7
 
@@ -3892,7 +3893,7 @@ class Rwkv7Model(TextModel):
             yield (new_name, data_torch)
 
 
-@Model.register("RwkvHybridForCausalLM")
+@ModelBase.register("RwkvHybridForCausalLM")
 class ARwkv7Model(Rwkv7Model):
     model_arch = gguf.MODEL_ARCH.ARWKV7
 
@@ -3935,7 +3936,7 @@ class ARwkv7Model(Rwkv7Model):
         self.gguf_writer.add_head_count(0)
 
 
-@Model.register("MambaForCausalLM", "MambaLMHeadModel", "FalconMambaForCausalLM")
+@ModelBase.register("MambaForCausalLM", "MambaLMHeadModel", "FalconMambaForCausalLM")
 class MambaModel(TextModel):
     model_arch = gguf.MODEL_ARCH.MAMBA
 
@@ -4013,7 +4014,7 @@ class MambaModel(TextModel):
         return [(new_name, data_torch)]
 
 
-@Model.register("CohereForCausalLM")
+@ModelBase.register("CohereForCausalLM")
 class CommandR2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.COMMAND_R
 
@@ -4031,7 +4032,7 @@ class CommandR2Model(TextModel):
         self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.NONE)
 
 
-@Model.register("Cohere2ForCausalLM")
+@ModelBase.register("Cohere2ForCausalLM")
 class Cohere2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.COHERE2
 
@@ -4049,8 +4050,8 @@ class Cohere2Model(TextModel):
         self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.NONE)
 
 
-@Model.register("OlmoForCausalLM")
-@Model.register("OLMoForCausalLM")
+@ModelBase.register("OlmoForCausalLM")
+@ModelBase.register("OLMoForCausalLM")
 class OlmoModel(TextModel):
     model_arch = gguf.MODEL_ARCH.OLMO
 
@@ -4077,12 +4078,12 @@ class OlmoModel(TextModel):
         return [(self.map_tensor_name(name), data_torch)]
 
 
-@Model.register("Olmo2ForCausalLM")
+@ModelBase.register("Olmo2ForCausalLM")
 class Olmo2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.OLMO2
 
 
-@Model.register("OlmoeForCausalLM")
+@ModelBase.register("OlmoeForCausalLM")
 class OlmoeModel(TextModel):
     model_arch = gguf.MODEL_ARCH.OLMOE
 
@@ -4142,7 +4143,7 @@ class OlmoeModel(TextModel):
                 raise ValueError(f"Unprocessed experts: {experts}")
 
 
-@Model.register("JinaBertModel", "JinaBertForMaskedLM")
+@ModelBase.register("JinaBertModel", "JinaBertForMaskedLM")
 class JinaBertV2Model(BertModel):
     model_arch = gguf.MODEL_ARCH.JINA_BERT_V2
 
@@ -4189,7 +4190,7 @@ class JinaBertV2Model(BertModel):
         return super().modify_tensors(data_torch, name, bid)
 
 
-@Model.register("OpenELMForCausalLM")
+@ModelBase.register("OpenELMForCausalLM")
 class OpenELMModel(TextModel):
     model_arch = gguf.MODEL_ARCH.OPENELM
 
@@ -4264,7 +4265,7 @@ class OpenELMModel(TextModel):
         yield (self.map_tensor_name(name), data_torch)
 
 
-@Model.register("ArcticForCausalLM")
+@ModelBase.register("ArcticForCausalLM")
 class ArcticModel(TextModel):
     model_arch = gguf.MODEL_ARCH.ARCTIC
 
@@ -4415,7 +4416,7 @@ class ArcticModel(TextModel):
                 raise ValueError(f"Unprocessed experts: {experts}")
 
 
-@Model.register("DeepseekForCausalLM")
+@ModelBase.register("DeepseekForCausalLM")
 class DeepseekModel(TextModel):
     model_arch = gguf.MODEL_ARCH.DEEPSEEK
 
@@ -4506,8 +4507,8 @@ class DeepseekModel(TextModel):
                 raise ValueError(f"Unprocessed experts: {experts}")
 
 
-@Model.register("DeepseekV2ForCausalLM")
-@Model.register("DeepseekV3ForCausalLM")
+@ModelBase.register("DeepseekV2ForCausalLM")
+@ModelBase.register("DeepseekV3ForCausalLM")
 class DeepseekV2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.DEEPSEEK2
 
@@ -4634,7 +4635,7 @@ class DeepseekV2Model(TextModel):
                 raise ValueError(f"Unprocessed experts: {experts}")
 
 
-@Model.register("PLMForCausalLM")
+@ModelBase.register("PLMForCausalLM")
 class PLMModel(TextModel):
     model_arch = gguf.MODEL_ARCH.PLM
 
@@ -4657,10 +4658,10 @@ class PLMModel(TextModel):
         super().prepare_tensors()
 
 
-@Model.register("T5WithLMHeadModel")
-@Model.register("T5ForConditionalGeneration")
-@Model.register("MT5ForConditionalGeneration")
-@Model.register("UMT5ForConditionalGeneration")
+@ModelBase.register("T5WithLMHeadModel")
+@ModelBase.register("T5ForConditionalGeneration")
+@ModelBase.register("MT5ForConditionalGeneration")
+@ModelBase.register("UMT5ForConditionalGeneration")
 class T5Model(TextModel):
     model_arch = gguf.MODEL_ARCH.T5
 
@@ -4800,7 +4801,7 @@ class T5Model(TextModel):
         return [(self.map_tensor_name(name), data_torch)]
 
 
-@Model.register("T5EncoderModel")
+@ModelBase.register("T5EncoderModel")
 class T5EncoderModel(TextModel):
     model_arch = gguf.MODEL_ARCH.T5ENCODER
 
@@ -4939,7 +4940,7 @@ class T5EncoderModel(TextModel):
         return [(self.map_tensor_name(name), data_torch)]
 
 
-@Model.register("JAISLMHeadModel")
+@ModelBase.register("JAISLMHeadModel")
 class JaisModel(TextModel):
     model_arch = gguf.MODEL_ARCH.JAIS
 
@@ -5022,7 +5023,7 @@ class JaisModel(TextModel):
         self.gguf_writer.add_max_alibi_bias(self.max_alibi_bias)
 
 
-@Model.register("Glm4ForCausalLM")
+@ModelBase.register("Glm4ForCausalLM")
 class Glm4Model(TextModel):
     model_arch = gguf.MODEL_ARCH.GLM4
 
@@ -5038,7 +5039,7 @@ class Glm4Model(TextModel):
                 self.gguf_writer.add_rope_scaling_orig_ctx_len(self.hparams["rope_scaling"]["original_max_position_embeddings"])
 
 
-@Model.register("GlmForCausalLM", "ChatGLMModel", "ChatGLMForConditionalGeneration")
+@ModelBase.register("GlmForCausalLM", "ChatGLMModel", "ChatGLMForConditionalGeneration")
 class ChatGLMModel(TextModel):
     model_arch = gguf.MODEL_ARCH.CHATGLM
 
@@ -5193,7 +5194,7 @@ class ChatGLMModel(TextModel):
         return [(self.map_tensor_name(name), data_torch)]
 
 
-@Model.register("NemotronForCausalLM")
+@ModelBase.register("NemotronForCausalLM")
 class NemotronModel(TextModel):
     model_arch = gguf.MODEL_ARCH.NEMOTRON
 
@@ -5234,7 +5235,7 @@ class NemotronModel(TextModel):
         return [(self.map_tensor_name(name), data_torch)]
 
 
-@Model.register("ExaoneForCausalLM")
+@ModelBase.register("ExaoneForCausalLM")
 class ExaoneModel(TextModel):
     model_arch = gguf.MODEL_ARCH.EXAONE
 
@@ -5303,7 +5304,7 @@ class ExaoneModel(TextModel):
                 yield (self.format_tensor_name(gguf.MODEL_TENSOR.ROPE_FREQS), torch.tensor(rope_factors, dtype=torch.float32))
 
 
-@Model.register("GraniteForCausalLM")
+@ModelBase.register("GraniteForCausalLM")
 class GraniteModel(LlamaModel):
     """Conversion for IBM's GraniteForCausalLM"""
     model_arch = gguf.MODEL_ARCH.GRANITE
@@ -5337,7 +5338,7 @@ class GraniteModel(LlamaModel):
             logger.info("gguf: (granite) logits_scale = %s", logits_scale)
 
 
-@Model.register("GraniteMoeForCausalLM")
+@ModelBase.register("GraniteMoeForCausalLM")
 class GraniteMoeModel(GraniteModel):
     """Conversion for IBM's GraniteMoeForCausalLM"""
     model_arch = gguf.MODEL_ARCH.GRANITE_MOE
@@ -5361,7 +5362,7 @@ class GraniteMoeModel(GraniteModel):
         return super().modify_tensors(data_torch, name, bid)
 
 
-@Model.register("BailingMoeForCausalLM")
+@ModelBase.register("BailingMoeForCausalLM")
 class BailingMoeModel(TextModel):
     model_arch = gguf.MODEL_ARCH.BAILINGMOE
 
@@ -5460,8 +5461,8 @@ class BailingMoeModel(TextModel):
                 raise ValueError(f"Unprocessed experts: {experts}")
 
 
-@Model.register("ChameleonForConditionalGeneration")
-@Model.register("ChameleonForCausalLM")  # obsolete
+@ModelBase.register("ChameleonForConditionalGeneration")
+@ModelBase.register("ChameleonForCausalLM")  # obsolete
 class ChameleonModel(TextModel):
     model_arch = gguf.MODEL_ARCH.CHAMELEON
 
@@ -5681,7 +5682,7 @@ def main() -> None:
 
     if args.print_supported_models:
         logger.error("Supported models:")
-        Model.print_registered_models()
+        ModelBase.print_registered_models()
         sys.exit(0)
 
     if args.verbose:
@@ -5728,18 +5729,18 @@ def main() -> None:
 
     logger.info(f"Loading model: {dir_model.name}")
 
-    hparams = Model.load_hparams(dir_model)
+    hparams = ModelBase.load_hparams(dir_model)
 
     if args.mmproj:
         if "mmproj" not in fname_out.name:
-            fname_out = Model.add_prefix_to_filename(fname_out, "mmproj-")
+            fname_out = ModelBase.add_prefix_to_filename(fname_out, "mmproj-")
 
     with torch.inference_mode():
         output_type = ftype_map[args.outtype]
         model_architecture = hparams["architectures"][0]
         model_type = ModelType.VISION if args.mmproj else ModelType.TEXT
         try:
-            model_class = Model.from_model_architecture(model_architecture, model_type=model_type)
+            model_class = ModelBase.from_model_architecture(model_architecture, model_type=model_type)
         except NotImplementedError:
             logger.error(f"Model {model_architecture} is not supported")
             sys.exit(1)
