@@ -1670,7 +1670,7 @@ struct server_queue {
                 lock.unlock();
 
                 QUE_DBG("processing task, id = %d\n", task.id);
-                callback_new_task(task);
+                callback_new_task(std::move(task));
             }
 
             // all tasks in the current loop is processed, slots data is now ready
