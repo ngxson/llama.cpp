@@ -2859,7 +2859,7 @@ struct server_context {
                     res->id = task.id;
                     queue_results.send(std::move(res));
                 } break;
-                 
+
         }
     }
 
@@ -3159,48 +3159,50 @@ struct server_context {
                     // remove the non-common part from the cache
                     slot.cache_tokens.keep_until(slot.n_past);
 
+                    auto & curr_chunk = slot.prompt_tokens.get_chunk(slot.n_past);
+
+                    // check if we should process the image
+                    if (curr_chunk.tok_image) {
+                        if (batch.has_text()) {
+                            continue; // we cannot have both text batch and image batch
+                        }
+
+                        // encode the image
+                        server_encode_image(slot.mctx, batch, curr_chunk, slot.n_past, slot.id);
+                        GGML_ASSERT(batch.has_embd());
+                        SLT_INF(slot, "image encoded, n_past = %d, n_embd_tokens = %d\n", slot.n_past, batch.n_tokens());
+
+                        if (slot.params.cache_prompt) {
+                            slot.cache_tokens.add_image_tokens(curr_chunk.tok_image);
+                        }
+
+                        slot.n_past                    += batch.n_tokens();
+                        slot.n_prompt_tokens_processed += batch.n_tokens();
+
+                        break; // currently, we can only process one image at a time, so we skip ALL other slots
+                    }
+
                     // add prompt tokens for processing in the current batch
                     while (slot.n_past < slot.n_prompt_tokens && batch.n_tokens() < n_batch) {
+                        GGML_ASSERT(!batch.has_embd());
+                        auto & curr_chunk = slot.prompt_tokens.get_chunk(slot.n_past);
+                        if (curr_chunk.tok_text == LLAMA_TOKEN_NULL) {
+                            break; // end of text chunk
+                        }
+
                         // without pooling, we want to output the embeddings for all the tokens in the batch
                         const bool need_embd = slot.task_type == SERVER_TASK_TYPE_EMBEDDING && llama_pooling_type(slot.ctx) == LLAMA_POOLING_TYPE_NONE;
 
-                        auto & curr_chunk = slot.prompt_tokens.get_chunk(slot.n_past);
-                        if (curr_chunk.tok_image) {
-                            // if there are already TEXT tokens in the batch, we need to process them first
-                            if (batch.batch.n_tokens > 0) {
-                                break;
-                            }
-                            // encode the image
-                            server_encode_image(slot.mctx, batch, curr_chunk, slot.n_past, slot.id);
-                            GGML_ASSERT(batch.has_embd());
-                            SLT_INF(slot, "image encoded, n_past = %d, n_embd_tokens = %d\n", slot.n_past, batch.n_tokens());
-
-                            if (slot.params.cache_prompt) {
-                                slot.cache_tokens.add_image_tokens(curr_chunk.tok_image);
-                            }
-
-                            slot.n_past                    += batch.n_tokens();
-                            slot.n_prompt_tokens_processed += batch.n_tokens();
-                            break; // we cannot have both text batch and image batch
-
-                        } else {
-                            GGML_ASSERT(!batch.has_embd());
-                            common_batch_add(batch.batch, curr_chunk.tok_text, slot.n_past, { slot.id }, need_embd);
-                            if (slot.params.cache_prompt) {
-                                slot.cache_tokens.add_text_token(curr_chunk.tok_text);
-                            }
-
-                            slot.n_prompt_tokens_processed++;
-                            slot.n_past++;
+                        common_batch_add(batch.batch, curr_chunk.tok_text, slot.n_past, { slot.id }, need_embd);
+                        if (slot.params.cache_prompt) {
+                            slot.cache_tokens.add_text_token(curr_chunk.tok_text);
                         }
+
+                        slot.n_prompt_tokens_processed++;
+                        slot.n_past++;
                     }
 
                     SLT_INF(slot, "new cache_tokens: %s\n", slot.cache_tokens.str().c_str());
-
-                    if (batch.has_embd()) {
-                        // currently, we can only process one image at a time, so we skip other slots
-                        break;
-                    }
 
                     SLT_INF(slot, "prompt processing progress, n_past = %d, n_tokens = %d, progress = %f\n", slot.n_past, batch.n_tokens(), (float) slot.n_prompt_tokens_processed / slot.n_prompt_tokens);
 

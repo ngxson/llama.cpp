@@ -668,7 +668,7 @@ static json oaicompat_completion_params_parse(
                 p["text"] = "<__image__>";
                 p.erase("image_url");
             }
-        }        
+        }
     }
 
     common_chat_templates_inputs inputs;
@@ -979,9 +979,9 @@ struct server_inp_chunk {
 
 /**
  * server_inputs is a helper to manage the input tokens and image for the server.
- * 
+ *
  * the difference between server_inputs and mtmd_input_chunks is that each chunk of server_inputs only contains a single text token, but text chunk of mtmd_input_chunks can contain multiple tokens.
- * 
+ *
  * it is made this way to simplify the logic of KV cache management.
  */
 struct server_inputs {
@@ -1184,7 +1184,6 @@ struct server_batch {
 
     void reserve_embd_batch(float * embd, int32_t n_tokens, llama_pos pos_0, llama_seq_id seq_id) {
         GGML_ASSERT(n_tokens <= (int32_t)pos.size());
-        seq_ids[n_tokens] = nullptr;
         batch.n_tokens = n_tokens;
         batch.embd     = embd;
         batch.token    = nullptr;
@@ -1207,7 +1206,11 @@ struct server_batch {
     }
 
     bool has_embd() const {
-        return batch.embd != nullptr;
+        return batch.embd != nullptr && batch.n_tokens > 0;
+    }
+
+    bool has_text() const {
+        return batch.token != nullptr && batch.n_tokens > 0;
     }
 };
 
