@@ -1894,6 +1894,8 @@ class SmolVLMModel(VisionModel):
         if self.hparams["model_type"] == "smolvlm_vision":
             self.hparams["hidden_size"] = self.hparams.get("hidden_size", 1152)
             self.hparams["num_attention_heads"] = self.hparams.get("num_attention_heads", 16)
+            self.hparams["intermediate_size"] = self.hparams.get("intermediate_size", 3072)
+            self.hparams["num_hidden_layers"] = self.hparams.get("num_hidden_layers", 12)
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
