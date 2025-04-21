@@ -33,7 +33,7 @@ Built upon `clip.cpp` (similar to `llava.cpp`), `libmtmd` offers several advanta
 - **Improved UX/DX:** Features a more intuitive API, inspired by the `Processor` class in the Hugging Face `transformers` library.
 - **Flexibility:** Designed to support multiple input types (text, audio, images) while respecting the wide variety of chat templates used by different models.
 
-## How to bbtain `mmproj`
+## How to obtain `mmproj`
 
 Multimodal projector (`mmproj`) files are specific to each model architecture. Please refer to the relevant guide for instructions on how to obtain or create them:
 
