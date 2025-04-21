@@ -2385,6 +2385,8 @@ int clip_n_patches_by_img(const struct clip_ctx * ctx, struct clip_image_f32 * i
         n_patches = x_patch * y_patch;
     } else if (ctx->proj_type == PROJECTOR_TYPE_GEMMA3) {
         n_patches = 256;
+    } else if (ctx->proj_type == PROJECTOR_TYPE_IDEFICS3) {
+        n_patches /= (int)ctx->vision_model.hparams.proj_scale_factor;
     }
 
     return n_patches;
