@@ -104,7 +104,7 @@ private:
         return LLAMA_TOKEN_NULL;
     }
 
-    std::string token_to_piece(const struct llama_vocab * vocab, llama_token token, bool special) {
+    std::string token_to_piece(const llama_vocab * vocab, llama_token token, bool special) {
         std::string piece;
         piece.resize(piece.capacity());  // using string internal cache, 15 bytes + '\n'
         const int n_chars = llama_token_to_piece(vocab, token, &piece[0], piece.size(), 0, special);
