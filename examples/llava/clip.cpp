@@ -159,11 +159,11 @@ struct clip_hparams {
     int32_t projection_dim;
     int32_t n_head;
     int32_t n_layer;
+    int32_t proj_scale_factor = 0; // idefics3
 
     patch_merge_type mm_patch_merge_type = PATCH_MERGE_FLAT;
 
     float eps;
-    float proj_scale_factor = 0.0; // idefics3
 
     std::vector<int32_t> image_grid_pinpoints;
     int32_t image_crop_resolution;
@@ -518,7 +518,7 @@ static ggml_cgraph * clip_image_build_graph_siglip(clip_ctx * ctx, const clip_im
         const int bsz    = 1; // batch size, always 1 for now since we don't support batching
         const int height = std::sqrt(seq);
         const int width  = std::sqrt(seq);
-        GGML_ASSERT(scale_factor != 0.0);
+        GGML_ASSERT(scale_factor != 0);
         cur = ggml_reshape_4d(ctx0, cur, n_embd * scale_factor, width / scale_factor, height, bsz);
         cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
         cur = ggml_reshape_4d(ctx0, ggml_cont(ctx0, cur),
@@ -1277,7 +1277,7 @@ struct clip_model_loader {
         switch (ctx_clip.proj_type) {
             case PROJECTOR_TYPE_IDEFICS3:
                 {
-                    get_f32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
+                    get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
                 } break;
             default:
                 break;
@@ -2386,7 +2386,7 @@ int clip_n_patches_by_img(const struct clip_ctx * ctx, struct clip_image_f32 * i
     } else if (ctx->proj_type == PROJECTOR_TYPE_GEMMA3) {
         n_patches = 256;
     } else if (ctx->proj_type == PROJECTOR_TYPE_IDEFICS3) {
-        n_patches /= (int)ctx->vision_model.hparams.proj_scale_factor;
+        n_patches /= ctx->vision_model.hparams.proj_scale_factor;
     }
 
     return n_patches;
