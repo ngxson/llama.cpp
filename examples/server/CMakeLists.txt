@@ -35,8 +35,9 @@ add_executable(${TARGET} ${TARGET_SRCS})
 install(TARGETS ${TARGET} RUNTIME)
 
 target_include_directories(${TARGET} PRIVATE ../llava)
+target_include_directories(${TARGET} PRIVATE ../gguf-hash/deps/sha1) # TODO @ngxson : this is a hacky way to get this working, to be fixed before merging
 target_include_directories(${TARGET} PRIVATE ${CMAKE_SOURCE_DIR})
-target_link_libraries(${TARGET} PRIVATE common mtmd ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(${TARGET} PRIVATE common mtmd sha1 ${CMAKE_THREAD_LIBS_INIT})
 
 if (LLAMA_SERVER_SSL)
     find_package(OpenSSL REQUIRED)

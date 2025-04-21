@@ -1064,8 +1064,14 @@ struct server_inputs {
                 ret++;
                 continue;
             } else if (ai.tok_image && bi.tok_image) {
-                // TODO check image hash
-                break;
+                std::string ai_id = mtmd_image_tokens_get_id(ai.tok_image.get());
+                std::string bi_id = mtmd_image_tokens_get_id(bi.tok_image.get());
+                if (ai_id == bi_id) {
+                    ret += mtmd_image_tokens_get_n_tokens(ai.tok_image.get());
+                    continue;
+                } else {
+                    break;
+                }
             } else {
                 break;
             }

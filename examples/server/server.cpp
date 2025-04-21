@@ -8,6 +8,7 @@
 #include "sampling.h"
 #include "speculative.h"
 #include "mtmd.h"
+#include "sha1.h"
 
 // Change JSON_ASSERT from assert() to GGML_ASSERT:
 #define JSON_ASSERT GGML_ASSERT
@@ -3202,7 +3203,7 @@ struct server_context {
                         slot.n_past++;
                     }
 
-                    SLT_INF(slot, "new cache_tokens: %s\n", slot.cache_tokens.str().c_str());
+                    // SLT_INF(slot, "new cache_tokens: %s\n", slot.cache_tokens.str().c_str());
 
                     SLT_INF(slot, "prompt processing progress, n_past = %d, n_tokens = %d, progress = %f\n", slot.n_past, batch.n_tokens(), (float) slot.n_prompt_tokens_processed / slot.n_prompt_tokens);
 
@@ -3244,11 +3245,7 @@ struct server_context {
         }
 
         // debug
-        if (batch.has_embd()) {
-            SRV_INF("decoding embd batch, n_tokens = %d\n", batch.n_tokens());
-        } else {
-            SRV_INF("decoding batch, n_tokens = %d\n", batch.n_tokens());
-        }
+        SRV_DBG("decoding %s batch, n_tokens = %d\n", batch.has_embd() ? "embd" : "text", batch.n_tokens());
 
         if (slot_batched) {
             // make sure we're in the right embedding mode
@@ -4036,6 +4033,14 @@ int main(int argc, char ** argv) {
             {
                 for (auto & file : files) {
                     mtmd_bitmap bmp;
+                    // calculate hash (for KV caching)
+                    {
+                        SHA1_CTX sha1_ctx;
+                        SHA1Update(&sha1_ctx, (unsigned char const *)file.data(), file.size());
+                        unsigned char result[21];
+                        SHA1Final(result, &sha1_ctx);
+                        bmp.id = std::string((char *)result, 20);
+                    }
                     int32_t res = mtmd_helper_bitmap_init_from_buf(file.data(), file.size(), bmp);
                     if (res != 0) {
                         throw std::runtime_error("Failed to load image");
@@ -4049,7 +4054,7 @@ int main(int argc, char ** argv) {
                 if (!prompt.is_string()) {
                     throw std::runtime_error("prompt must be a string");
                 } else {
-                    printf("prompt: %s\n", prompt.get<std::string>().c_str());
+                    // SRV_INF("prompt: %s\n", prompt.get<std::string>().c_str());
                     mtmd_input_text inp_txt = {
                         prompt.get<std::string>(),
                         /* add_special */   true,
