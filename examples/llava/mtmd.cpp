@@ -190,6 +190,11 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
         // https://github.com/huggingface/transformers/blob/a42ba80fa520c784c8f11a973ca9034e5f859b79/src/transformers/models/idefics3/processing_idefics3.py#L192-L215
         marker_modified = "<fake_token_around_image><global-img>" + ctx->image_marker + "<fake_token_around_image>";
         string_replace_all(prompt_modified, ctx->image_marker, marker_modified);
+
+    } else if (proj_type == PROJECTOR_TYPE_PIXTRAL) {
+        // https://github.com/huggingface/transformers/blob/1cd110c6cb6a6237614130c470e9a902dbc1a4bd/docs/source/en/model_doc/pixtral.md
+        marker_modified = ctx->image_marker + "[IMG_END]";
+        string_replace_all(prompt_modified, ctx->image_marker, marker_modified);
     }
 
     // llava-1.5, llava-1.6, Yi-VL, Yi-34B, granite: don't need to add prefix and suffix
