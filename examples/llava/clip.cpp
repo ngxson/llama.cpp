@@ -555,6 +555,74 @@ static ggml_cgraph * clip_image_build_graph_siglip(clip_ctx * ctx, const clip_im
     return gf;
 }
 
+// implementation of the 2D RoPE without adding a new op in ggml
+static ggml_tensor * build_rope_2d(
+    ggml_cgraph * gf,
+    ggml_context * ctx0,
+    ggml_tensor * cur,
+    ggml_tensor * pos_h,
+    ggml_tensor * pos_w,
+    const float freq_base
+) {
+    ggml_tensor * tmp;
+    const int64_t n_dim  = cur->ne[0];
+    const int64_t n_head = cur->ne[1];
+    const int64_t n_pos  = cur->ne[2];
+
+    // for example, if we have a list of inv_freq: 1e-0, 1e-1, 1e-2, 1e-3
+    // first half will use 1e-0, 1e-2 (even)
+    // second half will use 1e-1, 1e-3 (odd)
+    // the trick here is to rotate just half of n_dim, so inv_freq will automatically be even
+    //  ^ don't ask me why, it's math! -2(2i) / n_dim == -2i / (n_dim/2))
+    // then for the second half, we use freq_scale to shift the inv_freq
+    //  ^ why? replace (2i) with (2i+1) in the above equation
+    const float freq_scale = std::pow(freq_base, (float)-2/n_dim);
+
+    // first half
+    {
+        tmp = ggml_view_3d(ctx0, cur,
+            n_dim/2, n_head, n_pos,
+            ggml_row_size(cur->type, n_dim),
+            ggml_row_size(cur->type, n_dim*n_head),
+            0);
+        tmp = ggml_rope_ext_inplace(
+            ctx0,
+            tmp,
+            pos_h,      // positions
+            nullptr,    // freq factors
+            tmp->ne[0], // n_dims
+            0, 0, freq_base,
+            1.0f, 0.0f, 1.0f, 0.0f, 0.0f
+        );
+        // calculate inplace (modify cur directly)
+        ggml_build_forward_expand(gf, tmp);
+    }
+
+    // second half
+    {
+        tmp = ggml_view_3d(ctx0, cur,
+            n_dim/2, n_head, n_pos,
+            ggml_row_size(cur->type, n_dim),
+            ggml_row_size(cur->type, n_dim*n_head),
+            n_dim/2 * ggml_element_size(cur));
+        tmp = ggml_rope_ext_inplace(
+            ctx0,
+            tmp,
+            pos_w,      // positions
+            nullptr,    // freq factors
+            tmp->ne[0], // n_dims
+            0, 0, freq_base,
+            freq_scale,
+            0.0f, 1.0f, 0.0f, 0.0f
+        );
+        GGML_ASSERT(freq_base == 10000.0f); // see above
+        // calculate inplace (modify cur directly)
+        ggml_build_forward_expand(gf, tmp);
+    }
+
+    return cur;
+}
+
 static ggml_cgraph * clip_image_build_graph_pixtral(clip_ctx * ctx, const clip_image_f32_batch & imgs) {
     const auto & model = ctx->vision_model;
     const auto & hparams = model.hparams;
@@ -596,10 +664,13 @@ static ggml_cgraph * clip_image_build_graph_pixtral(clip_ctx * ctx, const clip_i
     ggml_set_name(inp_raw, "inp_raw");
     ggml_set_input(inp_raw);
 
-    // input positions
-    struct ggml_tensor * positions = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_patches);
-    ggml_set_name(positions, "positions");
-    ggml_set_input(positions);
+    // 2D input positions
+    struct ggml_tensor * pos_h = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_patches);
+    ggml_set_name(pos_h, "pos_h");
+    ggml_set_input(pos_h);
+    struct ggml_tensor * pos_w = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_patches);
+    ggml_set_name(pos_w, "pos_w");
+    ggml_set_input(pos_w);
 
     struct ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
     inp = ggml_reshape_2d(ctx0, inp, num_patches, hidden_size);
@@ -622,15 +693,13 @@ static ggml_cgraph * clip_image_build_graph_pixtral(clip_ctx * ctx, const clip_i
             struct ggml_tensor * Q = ggml_mul_mat(ctx0, model.layers[il].q_w, cur);
 
             Q = ggml_reshape_3d(ctx0, Q, d_head, n_head, num_patches);
-            Q = ggml_rope_ext(ctx0, Q, positions, NULL, d_head,
-                0, num_patches, hparams.rope_theta, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f);
+            Q = build_rope_2d(gf, ctx0, Q, pos_h, pos_w, hparams.rope_theta);
             Q = ggml_cont(ctx0, ggml_permute(ctx0, Q, 0, 2, 1, 3));
 
             struct ggml_tensor * K = ggml_mul_mat(ctx0, model.layers[il].k_w, cur);
 
             K = ggml_reshape_3d(ctx0, K, d_head, n_head, num_patches);
-            K = ggml_rope_ext(ctx0, K, positions, NULL, d_head,
-                0, num_patches, hparams.rope_theta, 1.0f, 0.0f, 1.0f, 0.0f, 0.0f);
+            K = build_rope_2d(gf, ctx0, K, pos_h, pos_w, hparams.rope_theta);
             K = ggml_cont(ctx0, ggml_permute(ctx0, K, 0, 2, 1, 3));
 
             struct ggml_tensor * V = ggml_mul_mat(ctx0, model.layers[il].v_w, cur);
@@ -684,7 +753,11 @@ static ggml_cgraph * clip_image_build_graph_pixtral(clip_ctx * ctx, const clip_i
     }
 
     // arrangement of the [IMG_BREAK] token
-    {
+    // TODO @ngxson : why this is needed in transformers, but doesn't seem to work here?
+    GGML_UNUSED(n_tokens_output);
+    GGML_UNUSED(n_rows);
+    GGML_UNUSED(n_patches_per_row);
+    /*{
         // not efficient, but works
         // the trick is to view the embeddings as a 3D tensor with shape [hidden_size, n_patches_per_row, n_rows]
         // and then concatenate the [IMG_BREAK] token to the end of each row, aka n_patches_per_row dimension
@@ -698,7 +771,7 @@ static ggml_cgraph * clip_image_build_graph_pixtral(clip_ctx * ctx, const clip_i
         embeddings = ggml_view_2d(ctx0, cur,
             cur->ne[0], n_tokens_output,
             cur->nb[0], 0);
-    }
+    }*/
 
     // build the graph
     ggml_build_forward_expand(gf, embeddings);
@@ -2577,10 +2650,10 @@ int clip_n_patches_by_img(const struct clip_ctx * ctx, struct clip_image_f32 * i
         n_patches = 256;
     } else if (ctx->proj_type == PROJECTOR_TYPE_IDEFICS3) {
         n_patches /= ctx->vision_model.hparams.proj_scale_factor;
-    } else if (ctx->proj_type == PROJECTOR_TYPE_PIXTRAL) {
+    } /*else if (ctx->proj_type == PROJECTOR_TYPE_PIXTRAL) {
         int rows = params.image_size / params.patch_size; // TODO: support dynamic image size
         n_patches += rows - 1; // add one [IMG_BREAK] per row, except the last row
-    }
+    }*/
 
     return n_patches;
 }
@@ -2851,17 +2924,20 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
             // do nothing
         }
         else if (ctx->proj_type == PROJECTOR_TYPE_PIXTRAL) {
-            // we skip one pos at the end of each row (reserved for [IMG_BREAK] token)
-            // example:
-            // (0,0)->0   (0,1)->1   (0,2)->2
-            // (1,0)->4   (1,1)->5   (1,2)->6
+            // set the 2D positions
             int n_patches_per_col = image_size_width / patch_size;
-            struct ggml_tensor * pos = ggml_graph_get_tensor(gf, "positions");
             std::vector<int> pos_data(num_positions);
+            struct ggml_tensor * pos;
+            // dimension H
+            pos = ggml_graph_get_tensor(gf, "pos_h");
             for (int i = 0; i < num_positions; i++) {
-                int row = i / n_patches_per_col;
-                int col = i % n_patches_per_col;
-                pos_data[i] = row * n_patches_per_col + col + row;
+                pos_data[i] = i / n_patches_per_col;
+            }
+            ggml_backend_tensor_set(pos, pos_data.data(), 0, ggml_nbytes(pos));
+            // dimension W
+            pos = ggml_graph_get_tensor(gf, "pos_w");
+            for (int i = 0; i < num_positions; i++) {
+                pos_data[i] = i % n_patches_per_col;
             }
             ggml_backend_tensor_set(pos, pos_data.data(), 0, ggml_nbytes(pos));
         }
