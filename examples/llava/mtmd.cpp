@@ -224,7 +224,7 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
 
         for (auto & entry : batch_f32.entries) {
             mtmd_image_tokens_ptr image_tokens(new mtmd_image_tokens);
-            image_tokens->nx = clip_n_patches(ctx->ctx_clip);
+            image_tokens->nx = clip_n_patches_by_img(ctx->ctx_clip, entry.get());
             image_tokens->ny = 1;
             image_tokens->batch_f32.entries.push_back(std::move(entry));
             image_tokens->id = id;
@@ -318,8 +318,13 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                 }
 
             } else {
+                size_t n_tokens = 0;
+                for (const auto & entry : batch_f32.entries) {
+                    n_tokens += clip_n_patches_by_img(ctx->ctx_clip, entry.get());
+                }
+
                 mtmd_image_tokens_ptr image_tokens(new mtmd_image_tokens);
-                image_tokens->nx = clip_n_patches(ctx->ctx_clip) * batch_f32.entries.size(); // TODO @ngxson : use clip_n_patches_by_image
+                image_tokens->nx = n_tokens;
                 image_tokens->ny = 1; // TODO
                 image_tokens->batch_f32 = std::move(batch_f32);
                 image_tokens->id = bitmaps[i_img].id; // optional
@@ -387,7 +392,7 @@ int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) 
         // TODO @ngxson : llava does not support batched encoding ; this should be fixed inside clip_image_batch_encode()
         const auto & entries = image_tokens->batch_f32.entries;
         for (size_t i = 0; i < entries.size(); i++) {
-            int n_tokens_per_image = clip_n_patches(ctx->ctx_clip);
+            int n_tokens_per_image = clip_n_patches_by_img(ctx->ctx_clip, entries[i].get());
             ok = clip_image_encode(
                 ctx->ctx_clip,
                 ctx->n_threads,

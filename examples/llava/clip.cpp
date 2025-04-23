@@ -622,20 +622,20 @@ static ggml_cgraph * clip_image_build_graph_pixtral(clip_ctx * ctx, const clip_i
     const auto & hparams = model.hparams;
 
     GGML_ASSERT(ctx->proj_type == PROJECTOR_TYPE_PIXTRAL);
-
-    const int image_size = hparams.image_size;
-    int image_size_width  = image_size;
-    int image_size_height = image_size;
-
-    const int patch_size           = hparams.patch_size;
-    const int num_patches          = ((image_size_width / patch_size) * (image_size_height / patch_size));
-    const int hidden_size          = hparams.hidden_size;
-    const int n_head               = hparams.n_head;
-    const int d_head               = hidden_size / n_head;
-    const int n_layer              = hparams.n_layer;
-    const float eps                = hparams.eps;
-
     GGML_ASSERT(imgs.entries.size() == 1); // batch_size == 1
+
+    int image_size_width  = imgs.entries[0]->nx;
+    int image_size_height = imgs.entries[0]->ny;
+
+    const int patch_size  = hparams.patch_size;
+    const int n_patches_x = image_size_width  / patch_size;
+    const int n_patches_y = image_size_height / patch_size;
+    const int num_patches = n_patches_x * n_patches_y;
+    const int hidden_size = hparams.hidden_size;
+    const int n_head      = hparams.n_head;
+    const int d_head      = hidden_size / n_head;
+    const int n_layer     = hparams.n_layer;
+    const float eps       = hparams.eps;
 
     struct ggml_init_params params = {
         /*.mem_size   =*/ ctx->buf_compute_meta.size(),
@@ -748,13 +748,11 @@ static ggml_cgraph * clip_image_build_graph_pixtral(clip_ctx * ctx, const clip_i
         // and then concatenate the [IMG_BREAK] token to the end of each row, aka n_patches_per_row dimension
         // after the concatenation, we have a tensor with shape [hidden_size, n_patches_per_row + 1, n_rows]
 
-        const int n_embd_text       = embeddings->ne[0];
-        const int n_rows            = image_size_height / patch_size;
-        const int n_patches_per_row = image_size_width / patch_size;
-        const int n_tokens_output   = num_patches + n_rows - 1; // one [IMG_BREAK] token per row, except the last row
+        const int n_embd_text     = embeddings->ne[0];
+        const int n_tokens_output = num_patches + n_patches_y - 1; // one [IMG_BREAK] per row, except the last row
 
-        ggml_tensor * cur = ggml_reshape_3d(ctx0, embeddings, n_embd_text, n_patches_per_row, n_rows);
-        ggml_tensor * tok = ggml_new_tensor_3d(ctx0, embeddings->type, n_embd_text, 1, n_rows);
+        ggml_tensor * cur = ggml_reshape_3d(ctx0, embeddings, n_embd_text, n_patches_x, n_patches_y);
+        ggml_tensor * tok = ggml_new_tensor_3d(ctx0, embeddings->type, n_embd_text, 1, n_patches_y);
         tok = ggml_scale(ctx0, tok, 0.0); // clear the tensor
         tok = ggml_add(ctx0, tok, model.token_embd_img_break);
         cur = ggml_concat(ctx0, cur, tok, 1);
@@ -1775,12 +1773,11 @@ struct clip_model_loader {
         clip_image_f32_batch batch;
         clip_image_f32_ptr img(clip_image_f32_init());
         clip_image_size image_size;
-        image_size.width  = clip_get_image_size(&ctx_clip);
-        image_size.height = clip_get_image_size(&ctx_clip);
-        int n_patches = clip_get_image_size(&ctx_clip) / image_size.width;
-        img->nx = n_patches;
-        img->ny = n_patches;
-        img->buf.resize(n_patches * image_size.width * image_size.height * 3);
+        image_size.width  = ctx_clip.vision_model.hparams.image_size;
+        image_size.height = ctx_clip.vision_model.hparams.image_size;
+        img->nx = image_size.width;
+        img->ny = image_size.height;
+        img->buf.resize(image_size.width * image_size.height * 3);
         batch.entries.push_back(std::move(img));
 
         ggml_cgraph * gf = clip_image_build_graph(&ctx_clip, batch, image_size, false);
@@ -2168,6 +2165,26 @@ struct image_manipulation {
         }
     }
 
+    // calculate the size of the **resized** image, while preserving the aspect ratio
+    // the calculated size will be aligned to the nearest multiple of align_size
+    // if H or W size is larger than max_dimension, it will be resized to max_dimension
+    static clip_image_size calc_size_preserved_ratio(const clip_image_size & inp_size, const int align_size, const int max_dimension) {
+        if (inp_size.width <= 0 || inp_size.height <= 0 || align_size <= 0 || max_dimension <= 0) {
+            return {0, 0};
+        }
+
+        float scale = std::min(1.0f, std::min(static_cast<float>(max_dimension) / inp_size.width,
+                                              static_cast<float>(max_dimension) / inp_size.height));
+
+        float target_width_f  = static_cast<float>(inp_size.width)  * scale;
+        float target_height_f = static_cast<float>(inp_size.height) * scale;
+
+        int aligned_width  = GGML_PAD((int)target_width_f,  align_size);
+        int aligned_height = GGML_PAD((int)target_height_f, align_size);
+
+        return {aligned_width, aligned_height};
+    }
+
 private:
     static inline int clip(int x, int lower, int upper) {
         return std::max(lower, std::min(x, upper));
@@ -2499,16 +2516,23 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         res_imgs->entries.push_back(std::move(img_f32));
         return true;
     }
-
-    if (ctx->has_glm_projector
+    else if (ctx->has_glm_projector
             || ctx->proj_type == PROJECTOR_TYPE_GEMMA3
-            || ctx->proj_type == PROJECTOR_TYPE_IDEFICS3
-            || ctx->proj_type == PROJECTOR_TYPE_PIXTRAL) {
+            || ctx->proj_type == PROJECTOR_TYPE_IDEFICS3) {
         clip_image_u8 resized_image;
         int sz = params.image_size;
         image_manipulation::resize_and_pad_image(*img, resized_image, {sz, sz});
         clip_image_f32_ptr img_f32(clip_image_f32_init());
         //clip_image_save_to_bmp(resized_image, "resized.bmp");
+        normalize_image_u8_to_f32(resized_image, *img_f32, ctx->image_mean, ctx->image_std);
+        res_imgs->entries.push_back(std::move(img_f32));
+        return true;
+    }
+    else if (ctx->proj_type == PROJECTOR_TYPE_PIXTRAL) {
+        clip_image_u8 resized_image;
+        auto new_size = image_manipulation::calc_size_preserved_ratio(original_size, params.patch_size, params.image_size);
+        image_manipulation::bilinear_resize(*img, resized_image, new_size.width, new_size.height);
+        clip_image_f32_ptr img_f32(clip_image_f32_init());
         normalize_image_u8_to_f32(resized_image, *img_f32, ctx->image_mean, ctx->image_std);
         res_imgs->entries.push_back(std::move(img_f32));
         return true;
@@ -2641,8 +2665,9 @@ int clip_n_patches_by_img(const struct clip_ctx * ctx, struct clip_image_f32 * i
     } else if (ctx->proj_type == PROJECTOR_TYPE_IDEFICS3) {
         n_patches /= ctx->vision_model.hparams.proj_scale_factor;
     } else if (ctx->proj_type == PROJECTOR_TYPE_PIXTRAL) {
-        int rows = params.image_size / params.patch_size; // TODO: support dynamic image size
-        n_patches += rows - 1; // add one [IMG_BREAK] per row, except the last row
+        int n_patches_x = img->nx / params.patch_size;
+        int n_patches_y = img->ny / params.patch_size;
+        n_patches = n_patches_y*n_patches_x + n_patches_y - 1; // + one [IMG_BREAK] per row, except the last row
     }
 
     return n_patches;
@@ -2796,10 +2821,15 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         struct ggml_tensor * inp_raw = ggml_graph_get_tensor(gf, "inp_raw");
         float * data = (float *)malloc(ggml_nbytes(inp_raw));
 
+        // TODO @ngxson : this whole code block is ugly, will need to be refactored
         for (size_t i = 0; i < imgs.entries.size(); i++) {
             const int nx = imgs.entries[i]->nx;
             const int ny = imgs.entries[i]->ny;
-            if (!(ctx->has_minicpmv_projector | ctx->has_qwen2vl_merger)) {
+
+            if (ctx->has_glm_projector
+                    || ctx->has_llava_projector
+                    || ctx->proj_type == PROJECTOR_TYPE_GEMMA3
+                    || ctx->proj_type == PROJECTOR_TYPE_IDEFICS3) {
                 GGML_ASSERT(nx == image_size && ny == image_size);
             }
 
