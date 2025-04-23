@@ -3,6 +3,7 @@ from pathlib import Path
 from transformers import MimiModel, AutoFeatureExtractor
 from transformers.models.mimi.modeling_mimi import MimiEncoderOutput
 
+# pyright: reportMissingImports=false
 from scipy.io.wavfile import read
 from scipy.signal import resample
 import numpy as np
