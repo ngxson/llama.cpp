@@ -4783,7 +4783,7 @@ struct llm_build_llama_csm : public llm_graph_context {
 
                 cur = build_attn(inp_attn, gf,
                         model.layers[il].wo, model.layers[il].bo,
-                        Qcur, Kcur, Vcur, nullptr, kq_scale, il);
+                        Qcur, Kcur, Vcur, nullptr, nullptr, kq_scale, il);
             }
 
             if (il == n_layer - 1) {
