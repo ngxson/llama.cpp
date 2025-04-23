@@ -154,7 +154,7 @@ static bool ggml_callback(struct ggml_tensor * t, bool ask, void * user_data) {
     if (t && strncmp(t->name, "audio_embd.weight", 18) == 0) {
         if (ask) return true;
 
-        printf("%s tensor size: %lld, %lld\n", t->name, t->ne[0], t->ne[1]);
+        // printf("%s tensor size: %lld, %lld\n", t->name, t->ne[0], t->ne[1]);
         GGML_ASSERT(t->type == GGML_TYPE_F32);
         GGML_ASSERT(t->ne[0] == 2048); // backbone embd size
         data->codebook.resize(ggml_nelements(t));
