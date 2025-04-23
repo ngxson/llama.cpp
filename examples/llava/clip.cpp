@@ -569,33 +569,28 @@ static ggml_tensor * build_rope_2d(
     const int64_t n_head = cur->ne[1];
     const int64_t n_pos  = cur->ne[2];
 
-    // for example, if we have a list of inv_freq: 1e-0, 1e-1, 1e-2, 1e-3
-    // first half will use 1e-0, 1e-2 (even)
-    // second half will use 1e-1, 1e-3 (odd)
-    // the trick here is to rotate just half of n_dim, so inv_freq will automatically be even
-    //  ^ don't ask me why, it's math! -2(2i) / n_dim == -2i / (n_dim/2))
+    // for example, if we have cur tensor of shape (n_dim=8, n_head, n_pos)
+    // we will have a list of 4 inv_freq: 1e-0, 1e-1, 1e-2, 1e-3
+    // first half of cur will use 1e-0, 1e-2 (even)
+    // second half of cur will use 1e-1, 1e-3 (odd)
+    //
+    // for the first half, the trick here is to rotate n_dim/2, so inv_freq will be even
+    //  ^ don't ask me why, it's math! -2(2i) / n_dim == -2i / (n_dim/2)
     // then for the second half, we use freq_scale to shift the inv_freq
     //  ^ why? replace (2i) with (2i+1) in the above equation
-    const float freq_scale = std::pow(freq_base, (float)-2/n_dim);
+    const float freq_scale_odd = std::pow(freq_base, (float)-2/n_dim);
 
     // first half
     {
-        tmp = ggml_view_3d(ctx0, cur,
-            n_dim/2, n_head, n_pos,
-            ggml_row_size(cur->type, n_dim),
-            ggml_row_size(cur->type, n_dim*n_head),
-            0);
-        tmp = ggml_rope_ext_inplace(
+        cur = ggml_rope_ext_inplace(
             ctx0,
-            tmp,
+            cur,
             pos_h,      // positions
             nullptr,    // freq factors
-            tmp->ne[0], // n_dims
+            n_dim/2,    // n_dims
             0, 0, freq_base,
             1.0f, 0.0f, 1.0f, 0.0f, 0.0f
         );
-        // calculate inplace (modify cur directly)
-        ggml_build_forward_expand(gf, tmp);
     }
 
     // second half
@@ -610,12 +605,11 @@ static ggml_tensor * build_rope_2d(
             tmp,
             pos_w,      // positions
             nullptr,    // freq factors
-            tmp->ne[0], // n_dims
+            n_dim/2,    // n_dims
             0, 0, freq_base,
-            freq_scale,
+            freq_scale_odd,
             0.0f, 1.0f, 0.0f, 0.0f
         );
-        GGML_ASSERT(freq_base == 10000.0f); // see above
         // calculate inplace (modify cur directly)
         ggml_build_forward_expand(gf, tmp);
     }
@@ -640,11 +634,6 @@ static ggml_cgraph * clip_image_build_graph_pixtral(clip_ctx * ctx, const clip_i
     const int d_head               = hidden_size / n_head;
     const int n_layer              = hparams.n_layer;
     const float eps                = hparams.eps;
-
-    // For arrangement of the [IMG_BREAK] token
-    const int n_rows               = image_size_height / patch_size;
-    const int n_patches_per_row    = image_size_width / patch_size;
-    const int n_tokens_output      = num_patches + n_rows - 1; // one [IMG_BREAK] token per row, except the last row
 
     GGML_ASSERT(imgs.entries.size() == 1); // batch_size == 1
 
@@ -753,25 +742,26 @@ static ggml_cgraph * clip_image_build_graph_pixtral(clip_ctx * ctx, const clip_i
     }
 
     // arrangement of the [IMG_BREAK] token
-    // TODO @ngxson : why this is needed in transformers, but doesn't seem to work here?
-    GGML_UNUSED(n_tokens_output);
-    GGML_UNUSED(n_rows);
-    GGML_UNUSED(n_patches_per_row);
-    /*{
+    {
         // not efficient, but works
         // the trick is to view the embeddings as a 3D tensor with shape [hidden_size, n_patches_per_row, n_rows]
         // and then concatenate the [IMG_BREAK] token to the end of each row, aka n_patches_per_row dimension
         // after the concatenation, we have a tensor with shape [hidden_size, n_patches_per_row + 1, n_rows]
 
-        ggml_tensor * cur = ggml_reshape_3d(ctx0, embeddings, embeddings->ne[0], n_patches_per_row, n_rows);
-        ggml_tensor * tok = ggml_new_tensor_3d(ctx0, embeddings->type, embeddings->ne[0], 1, n_rows);
+        const int n_embd_text       = embeddings->ne[0];
+        const int n_rows            = image_size_height / patch_size;
+        const int n_patches_per_row = image_size_width / patch_size;
+        const int n_tokens_output   = num_patches + n_rows - 1; // one [IMG_BREAK] token per row, except the last row
+
+        ggml_tensor * cur = ggml_reshape_3d(ctx0, embeddings, n_embd_text, n_patches_per_row, n_rows);
+        ggml_tensor * tok = ggml_new_tensor_3d(ctx0, embeddings->type, n_embd_text, 1, n_rows);
         tok = ggml_scale(ctx0, tok, 0.0); // clear the tensor
         tok = ggml_add(ctx0, tok, model.token_embd_img_break);
         cur = ggml_concat(ctx0, cur, tok, 1);
         embeddings = ggml_view_2d(ctx0, cur,
-            cur->ne[0], n_tokens_output,
-            cur->nb[0], 0);
-    }*/
+            n_embd_text, n_tokens_output,
+            ggml_row_size(cur->type, n_embd_text), 0);
+    }
 
     // build the graph
     ggml_build_forward_expand(gf, embeddings);
@@ -2650,10 +2640,10 @@ int clip_n_patches_by_img(const struct clip_ctx * ctx, struct clip_image_f32 * i
         n_patches = 256;
     } else if (ctx->proj_type == PROJECTOR_TYPE_IDEFICS3) {
         n_patches /= ctx->vision_model.hparams.proj_scale_factor;
-    } /*else if (ctx->proj_type == PROJECTOR_TYPE_PIXTRAL) {
+    } else if (ctx->proj_type == PROJECTOR_TYPE_PIXTRAL) {
         int rows = params.image_size / params.patch_size; // TODO: support dynamic image size
         n_patches += rows - 1; // add one [IMG_BREAK] per row, except the last row
-    }*/
+    }
 
     return n_patches;
 }
