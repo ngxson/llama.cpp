@@ -8,7 +8,6 @@
 #include "sampling.h"
 #include "speculative.h"
 #include "mtmd.h"
-#include "sha1.h"
 
 // Change JSON_ASSERT from assert() to GGML_ASSERT:
 #define JSON_ASSERT GGML_ASSERT
@@ -4033,18 +4032,12 @@ int main(int argc, char ** argv) {
             {
                 for (auto & file : files) {
                     mtmd_bitmap bmp;
-                    // calculate hash (for KV caching)
-                    {
-                        SHA1_CTX sha1_ctx;
-                        SHA1Update(&sha1_ctx, (unsigned char const *)file.data(), file.size());
-                        unsigned char result[21];
-                        SHA1Final(result, &sha1_ctx);
-                        bmp.id = std::string((char *)result, 20);
-                    }
                     int32_t res = mtmd_helper_bitmap_init_from_buf(file.data(), file.size(), bmp);
                     if (res != 0) {
                         throw std::runtime_error("Failed to load image");
                     }
+                    // calculate bitmap hash (for KV caching)
+                    bmp.id = server_inputs::fnv_hash(bmp.data.data(), bmp.data.size());
                     bitmaps.push_back(std::move(bmp));
                 }
             }
