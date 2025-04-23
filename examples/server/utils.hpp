@@ -963,6 +963,8 @@ static std::vector<common_adapter_lora_info> parse_lora_request(
 // (may need to refactor in near future)
 //
 
+// each chunk can contain either one SINGLE text token or an image (multiple token embeddings)
+// this is to simplify the logic of KV cache management
 struct server_inp_chunk {
     size_t n_tokens = 1; // always 1 in case of text
     llama_token tok_text;
@@ -981,6 +983,15 @@ struct server_inp_chunk {
  * server_inputs is a helper to manage the input tokens and image for the server.
  *
  * the difference between server_inputs and mtmd_input_chunks is that each chunk of server_inputs only contains a single text token, but text chunk of mtmd_input_chunks can contain multiple tokens.
+ * 
+ * for example, server_inputs may contain 5 text tokens followed by 1 image chunk:
+ *   1 41 2635 325 463 <image of 15 tokens>
+ * 
+ * in this example:
+ *   - n_tokens() returns 5+15 = 20 total tokens
+ *   - get_chunk(1) returns chunk containing token ID 41
+ *   - get_chunk(5) returns image chunk (15 tokens)
+ *   - get_chunk(7) returns same image chunk
  *
  * it is made this way to simplify the logic of KV cache management.
  */
@@ -1079,6 +1090,7 @@ struct server_inputs {
         return ret;
     }
 
+    // make sure all text tokens are within the vocab range
     bool validate(llama_token max_vocab_id) const {
         for (const auto & chunk : chunks) {
             if (!chunk.tok_image) {
@@ -1090,24 +1102,26 @@ struct server_inputs {
         return true;
     }
 
+    // pos is also referred as logical index
     server_inp_chunk & get_chunk(size_t pos) {
-        return chunks[get_chunk_idx(pos)];
+        size_t physical_idx = get_chunk_physical_idx(pos);
+        return chunks[physical_idx];
     }
 
-    size_t get_chunk_idx(size_t pos) const {
+    // returns physical_index
+    size_t get_chunk_physical_idx(size_t logical_idx) const {
         size_t current_pos = 0;
         for (size_t i = 0; i < chunks.size(); ++i) {
             const auto & chunk = chunks[i];
             size_t chunk_end_pos = current_pos + chunk.n_tokens;
-            if (pos < chunk_end_pos) {
+            if (logical_idx < chunk_end_pos) {
                 // The target position 'pos' falls within this chunk
                 return i;
             }
-
             current_pos = chunk_end_pos;
         }
         // If the loop finishes, 'pos' is >= the total number of logical positions
-        return chunks.size();
+        throw std::out_of_range("Position out of range");
     }
 
     // same idea with std::vector<llama_token> resize()
@@ -1164,7 +1178,7 @@ struct server_inputs {
 
 // helper struct to make working with embd batch easier
 // note: this will be removed after llama_batch_ext refactoring
-struct server_batch {
+struct server_batch_embd {
     std::vector<llama_pos>      pos;
     std::vector<llama_token>    token;
     std::vector<int32_t>        n_seq_id;
@@ -1174,8 +1188,8 @@ struct server_batch {
 
     llama_batch batch;
 
-    server_batch() : server_batch(1) {}
-    server_batch(int32_t n_tokens) {
+    server_batch_embd() : server_batch_embd(1) {}
+    server_batch_embd(int32_t n_tokens) {
         token   .resize(n_tokens);
         pos     .resize(n_tokens);
         n_seq_id.resize(n_tokens);
@@ -1233,23 +1247,69 @@ struct server_batch {
 };
 
 // TODO @ngxson : quite hacky for now, but just to see if it works
-static int32_t server_encode_image(mtmd_context * mctx, server_batch & batch_out, server_inp_chunk & chunk, llama_pos n_past, llama_seq_id seq_id) {
+static int32_t server_img_process(
+        llama_context * ctx,
+        mtmd_context * mctx,
+        server_inp_chunk & chunk,
+        server_batch_embd & batch,
+        llama_pos n_past,
+        int slot_id) {
     GGML_ASSERT(chunk.tok_image);
-    batch_out.clear();
+    int32_t ret;
 
-    int64_t t0 = ggml_time_ms();
-    LOG_INF("encoding image...\n");
-    int32_t ret = mtmd_encode(mctx, chunk.tok_image.get());
-    if (ret != 0) {
-        LOG_ERR("failed to encode image\n");
-        return ret;
+    // encode the image
+    {
+        int64_t t0 = ggml_time_ms();
+        SRV_INF("encoding image (%d tokens)...\n", (int)chunk.n_tokens);
+        ret = mtmd_encode(mctx, chunk.tok_image.get());
+        if (ret != 0) {
+            SRV_ERR("failed to encode image, status = %d\n", ret);
+            return ret;
+        }
+        SRV_INF("image encoded in %" PRId64 " ms\n", ggml_time_ms() - t0);
     }
-    LOG_INF("image encoded in %" PRId64 " ms\n", ggml_time_ms() - t0);
 
-    int32_t n_tokens = mtmd_image_tokens_get_n_tokens(chunk.tok_image.get());
     float * embd = mtmd_get_output_embd(mctx);
-    batch_out.reserve_embd_batch(embd, n_tokens, n_past, seq_id);
-    return ret;
+    // decode the embeddings
+    int64_t t1            = ggml_time_ms();
+    int32_t n_embd        = llama_model_n_embd(llama_get_model(ctx));
+    int32_t n_tokens      = chunk.n_tokens;
+    int32_t n_batch       = batch.pos.size();
+    int32_t i_batch       = 0;
+    int32_t n_img_batches = GGML_PAD(n_tokens, n_batch) / n_batch;
+    // split into batches
+    while (i_batch < n_img_batches) {
+        int32_t pos_offset = i_batch*n_batch;
+        int32_t n_tokens_batch = std::min(n_batch, n_tokens - pos_offset);
+        float * embd_batch = embd + pos_offset*n_embd;
+        batch.clear();
+        batch.reserve_embd_batch(embd_batch, n_tokens_batch, n_past, slot_id);
+
+        SRV_INF("decoding embd batch %d/%d, n_tokens_batch = %d\n", i_batch+1, n_img_batches, n_tokens_batch);
+
+        // TODO @ngxson : maybe move this to llama_batch_ext
+        if (mtmd_decode_use_non_causal(mctx)) {
+            llama_set_causal_attn(ctx, false);
+        }
+
+        ret = llama_decode(ctx, batch.batch);
+        if (ret != 0) {
+            LOG_ERR("failed to decode image\n");
+            llama_set_causal_attn(ctx, true); // restore causal attn
+            return ret;
+        }
+
+        if (mtmd_decode_use_non_causal(mctx)) {
+            llama_set_causal_attn(ctx, true);
+        }
+
+        i_batch++;
+        n_past += n_tokens_batch;
+    }
+    SRV_INF("image decoded in %" PRId64 " ms\n", ggml_time_ms() - t1);
+
+    batch.clear();
+    return 0;
 }
 
 // hacky, support text-only for now

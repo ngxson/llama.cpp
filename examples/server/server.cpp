@@ -1860,7 +1860,8 @@ struct server_context {
 
     llama_context_params cparams_dft;
 
-    server_batch batch;
+    llama_batch batch;
+    server_batch_embd batch_embd;
 
     bool clean_kv_cache = true;
     bool add_bos_token  = true;
@@ -1898,6 +1899,8 @@ struct server_context {
 
             llama_batch_free(slot.batch_spec);
         }
+
+        llama_batch_free(batch);
     }
 
     bool load_model(const common_params & params) {
@@ -2034,7 +2037,8 @@ struct server_context {
         // note that n_batch can be > n_ctx (e.g. for non-causal attention models such as BERT where the KV cache is not used)
         {
             const int32_t n_batch = llama_n_batch(ctx);
-            batch = server_batch(std::max(n_batch, params_base.n_parallel));
+            batch      = llama_batch_init(std::max(n_batch, params_base.n_parallel), 0, 1);
+            batch_embd = server_batch_embd(std::max(n_batch, params_base.n_parallel));
         }
 
         metrics.init();
@@ -2931,7 +2935,7 @@ struct server_context {
         }*/
 
         // start populating the batch for this iteration
-        batch.clear();
+        common_batch_clear(batch);
 
         // track if given slot can be batched with slots already in the batch
         server_slot * slot_batched = nullptr;
@@ -2953,9 +2957,9 @@ struct server_context {
                 continue;
             }
 
-            slot.i_batch = batch.n_tokens();
+            slot.i_batch = batch.n_tokens;
 
-            common_batch_add(batch.batch, slot.sampled, slot.n_past, { slot.id }, true);
+            common_batch_add(batch, slot.sampled, slot.n_past, { slot.id }, true);
 
             slot.n_past += 1;
 
@@ -2972,7 +2976,7 @@ struct server_context {
         int32_t n_ubatch = llama_n_ubatch(ctx);
 
         // next, batch any pending prompts without exceeding n_batch
-        if (params_base.cont_batching || batch.n_tokens() == 0) {
+        if (params_base.cont_batching || batch.n_tokens == 0) {
             for (auto & slot : slots) {
                 // check if we can batch this slot with the previous one
                 if (slot.is_processing()) {
@@ -3140,7 +3144,7 @@ struct server_context {
                     // non-causal tasks require to fit the entire prompt in the physical batch
                     if (slot.is_non_causal()) {
                         // cannot fit the prompt in the current batch - will try next iter
-                        if (batch.n_tokens() + slot.n_prompt_tokens > n_batch) {
+                        if (batch.n_tokens + slot.n_prompt_tokens > n_batch) {
                             continue;
                         }
                     }
@@ -3163,28 +3167,26 @@ struct server_context {
 
                     // check if we should process the image
                     if (curr_chunk.tok_image) {
-                        if (batch.has_text()) {
-                            continue; // we cannot have both text batch and image batch
+                        // process the image
+                        int32_t res = server_img_process(ctx, mctx, curr_chunk, batch_embd, slot.n_past, slot.id);
+                        if (res != 0) {
+                            SLT_ERR(slot, "failed to process image, res = %d\n", res);
+                            slot.release();
+                            send_error(slot, "failed to process image", ERROR_TYPE_SERVER);
+                            continue;
                         }
-
-                        // encode the image
-                        server_encode_image(slot.mctx, batch, curr_chunk, slot.n_past, slot.id);
-                        GGML_ASSERT(batch.has_embd());
-                        SLT_INF(slot, "image encoded, n_past = %d, n_embd_tokens = %d\n", slot.n_past, batch.n_tokens());
 
                         if (slot.params.cache_prompt) {
                             slot.cache_tokens.add_image_tokens(curr_chunk.tok_image);
                         }
 
-                        slot.n_past                    += batch.n_tokens();
-                        slot.n_prompt_tokens_processed += batch.n_tokens();
-
-                        break; // currently, we can only process one image at a time, so we skip ALL other slots
+                        slot.n_past                    += curr_chunk.n_tokens;
+                        slot.n_prompt_tokens_processed += curr_chunk.n_tokens;
                     }
 
                     // add prompt tokens for processing in the current batch
-                    while (slot.n_past < slot.n_prompt_tokens && batch.n_tokens() < n_batch) {
-                        GGML_ASSERT(!batch.has_embd());
+                    while (slot.n_past < slot.n_prompt_tokens && batch.n_tokens < n_batch) {
+                        // get next token to process
                         auto & curr_chunk = slot.prompt_tokens.get_chunk(slot.n_past);
                         if (curr_chunk.tok_text == LLAMA_TOKEN_NULL) {
                             break; // end of text chunk
@@ -3193,7 +3195,7 @@ struct server_context {
                         // without pooling, we want to output the embeddings for all the tokens in the batch
                         const bool need_embd = slot.task_type == SERVER_TASK_TYPE_EMBEDDING && llama_pooling_type(slot.ctx) == LLAMA_POOLING_TYPE_NONE;
 
-                        common_batch_add(batch.batch, curr_chunk.tok_text, slot.n_past, { slot.id }, need_embd);
+                        common_batch_add(batch, curr_chunk.tok_text, slot.n_past, { slot.id }, need_embd);
                         if (slot.params.cache_prompt) {
                             slot.cache_tokens.add_text_token(curr_chunk.tok_text);
                         }
@@ -3204,47 +3206,47 @@ struct server_context {
 
                     // SLT_INF(slot, "new cache_tokens: %s\n", slot.cache_tokens.str().c_str());
 
-                    SLT_INF(slot, "prompt processing progress, n_past = %d, n_tokens = %d, progress = %f\n", slot.n_past, batch.n_tokens(), (float) slot.n_prompt_tokens_processed / slot.n_prompt_tokens);
+                    SLT_INF(slot, "prompt processing progress, n_past = %d, n_tokens = %d, progress = %f\n", slot.n_past, batch.n_tokens, (float) slot.n_prompt_tokens_processed / slot.n_prompt_tokens);
 
                     // entire prompt has been processed
                     if (slot.n_past == slot.n_prompt_tokens) {
                         slot.state = SLOT_STATE_DONE_PROMPT;
 
-                        GGML_ASSERT(batch.n_tokens() > 0);
+                        GGML_ASSERT(batch.n_tokens > 0);
 
                         common_sampler_reset(slot.smpl);
 
                         // Process all prompt tokens through sampler system
                         for (size_t i = 0; i < slot.cache_tokens.n_tokens(); ++i) {
-                            auto & curr_chunk = slot.cache_tokens.get_chunk(i);
+                            auto & curr_chunk = slot.prompt_tokens.get_chunk(i);
                             if (curr_chunk.tok_text != LLAMA_TOKEN_NULL) {
                                 common_sampler_accept(slot.smpl, curr_chunk.tok_text, false);
                             }
                         }
 
                         // extract the logits only for the last token
-                        batch.logits[batch.n_tokens() - 1] = true;
+                        batch.logits[batch.n_tokens - 1] = true;
 
                         slot.n_decoded = 0;
-                        slot.i_batch   = batch.n_tokens() - 1;
+                        slot.i_batch   = batch.n_tokens - 1;
 
-                        SLT_INF(slot, "prompt done, n_past = %d, n_tokens = %d\n", slot.n_past, batch.n_tokens());
+                        SLT_INF(slot, "prompt done, n_past = %d, n_tokens = %d\n", slot.n_past, batch.n_tokens);
                     }
                 }
 
-                if (batch.n_tokens() >= n_batch) {
+                if (batch.n_tokens >= n_batch) {
                     break;
                 }
             }
         }
 
-        if (batch.n_tokens() == 0) {
+        if (batch.n_tokens == 0) {
             SRV_WRN("%s", "no tokens to decode\n");
             return;
         }
 
         // debug
-        SRV_DBG("decoding %s batch, n_tokens = %d\n", batch.has_embd() ? "embd" : "text", batch.n_tokens());
+        SRV_DBG("decoding batch, n_tokens = %d\n", batch.n_tokens);
 
         if (slot_batched) {
             // make sure we're in the right embedding mode
@@ -3254,31 +3256,21 @@ struct server_context {
         }
 
         // process the created batch of tokens
-        for (int32_t i = 0; i < batch.n_tokens(); i += n_batch) {
-            const int32_t n_tokens = std::min(n_batch, batch.n_tokens() - i);
+        for (int32_t i = 0; i < batch.n_tokens; i += n_batch) {
+            const int32_t n_tokens = std::min(n_batch, batch.n_tokens - i);
 
-            // TODO @ngxson : hacky here, we don't want to split the embd batch
-            llama_batch batch_view = batch.has_embd() ? batch.batch : llama_batch{
+            llama_batch batch_view = llama_batch{
                 n_tokens,
-                batch.batch.token    + i,
+                batch.token    + i,
                 nullptr,
-                batch.batch.pos      + i,
-                batch.batch.n_seq_id + i,
-                batch.batch.seq_id   + i,
-                batch.batch.logits   + i,
+                batch.pos      + i,
+                batch.n_seq_id + i,
+                batch.seq_id   + i,
+                batch.logits   + i,
             };
-
-            // TODO @ngxson : maybe move this to llama_batch_ext
-            if (batch.has_embd() && mtmd_decode_use_non_causal(mctx)) {
-                llama_set_causal_attn(ctx, false);
-            }
 
             const int ret = llama_decode(ctx, batch_view);
             metrics.on_decoded(slots);
-
-            if (batch.has_embd() && mtmd_decode_use_non_causal(mctx)) {
-                llama_set_causal_attn(ctx, true);
-            }
 
             if (ret != 0) {
                 if (n_batch == 1 || ret < 0) {
