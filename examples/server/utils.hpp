@@ -983,10 +983,10 @@ struct server_inp_chunk {
  * server_inputs is a helper to manage the input tokens and image for the server.
  *
  * the difference between server_inputs and mtmd_input_chunks is that each chunk of server_inputs only contains a single text token, but text chunk of mtmd_input_chunks can contain multiple tokens.
- * 
+ *
  * for example, server_inputs may contain 5 text tokens followed by 1 image chunk:
  *   1 41 2635 325 463 <image of 15 tokens>
- * 
+ *
  * in this example:
  *   - n_tokens() returns 5+15 = 20 total tokens
  *   - get_chunk(1) returns chunk containing token ID 41
@@ -1163,16 +1163,16 @@ struct server_inputs {
         // No truncation needed, the vector remains unchanged.
     }
 
-    // Computes FNV-1a hash of the data 
-    static std::string fnv_hash(const uint8_t * data, size_t len) { 
-        const uint64_t fnv_prime = 0x100000001b3ULL; 
-        uint64_t hash = 0xcbf29ce484222325ULL; 
+    // Computes FNV-1a hash of the data
+    static std::string fnv_hash(const uint8_t * data, size_t len) {
+        const uint64_t fnv_prime = 0x100000001b3ULL;
+        uint64_t hash = 0xcbf29ce484222325ULL;
 
-        for (size_t i = 0; i < len; ++i) { 
-            hash ^= data[i]; 
-            hash *= fnv_prime; 
-        } 
-        return std::to_string(hash); 
+        for (size_t i = 0; i < len; ++i) {
+            hash ^= data[i];
+            hash *= fnv_prime;
+        }
+        return std::to_string(hash);
     }
 };
 
