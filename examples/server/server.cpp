@@ -1983,6 +1983,21 @@ struct server_context {
                 return false;
             }
             SRV_INF("loaded multimodal model, '%s'\n", mmproj_path.c_str());
+
+            if (params_base.ctx_shift) {
+                params_base.ctx_shift = false;
+                SRV_INF("%s\n", "ctx_shift is not supported by multimodal, it will be disabled");
+            }
+
+            if (params_base.n_cache_reuse) {
+                params_base.n_cache_reuse = 0;
+                SRV_INF("%s\n", "cache_reuse is not supported by multimodal, it will be disabled");
+            }
+
+            if (!params_base.speculative.model.path.empty()) {
+                SRV_ERR("%s\n", "err: speculative decode is not supported by multimodal");
+                return false;
+            }
         }
 
         return true;
@@ -2432,6 +2447,7 @@ struct server_context {
 
     void send_final_response(server_slot & slot) {
         auto res = std::make_unique<server_task_result_cmpl_final>();
+        llama_tokens text_tokens = slot.prompt_tokens.get_text_tokens();
         res->id              = slot.id_task;
         res->id_slot         = slot.id;
 
@@ -2439,7 +2455,7 @@ struct server_context {
         res->content         = std::move(slot.generated_text);
         res->tokens          = std::move(slot.generated_tokens);
         res->timings         = slot.get_timings();
-        //res->prompt          = common_detokenize(ctx, slot.prompt_tokens, true); // TODO @ngxson : hacky, need to fix
+        res->prompt          = common_detokenize(ctx, text_tokens, true);
         res->response_fields = std::move(slot.params.response_fields);
 
         res->truncated           = slot.truncated;
@@ -2747,10 +2763,14 @@ struct server_context {
                     }
                     queue_results.send(std::move(res));
                 } break;
-            /*case SERVER_TASK_TYPE_SLOT_SAVE:
+            case SERVER_TASK_TYPE_SLOT_SAVE:
                 {
                     int id_slot = task.slot_action.slot_id;
                     server_slot * slot = get_slot_by_id(id_slot);
+                    if (mctx) {
+                        send_error(task, "This feature is not supported by multimodal", ERROR_TYPE_NOT_SUPPORTED);
+                        break;
+                    }
                     if (slot == nullptr) {
                         send_error(task, "Invalid slot ID", ERROR_TYPE_INVALID_REQUEST);
                         break;
@@ -2762,13 +2782,14 @@ struct server_context {
                         break;
                     }
 
-                    const size_t token_count = slot->cache_tokens.size();
+                    const size_t token_count = slot->cache_tokens.n_tokens();
                     const int64_t t_start = ggml_time_us();
 
                     std::string filename = task.slot_action.filename;
                     std::string filepath = task.slot_action.filepath;
 
-                    const size_t nwrite = llama_state_seq_save_file(ctx, filepath.c_str(), slot->id, slot->cache_tokens.data(), token_count);
+                    const llama_tokens tokens = slot->cache_tokens.get_text_tokens();
+                    const size_t nwrite = llama_state_seq_save_file(ctx, filepath.c_str(), slot->id, tokens.data(), token_count);
 
                     const int64_t t_end = ggml_time_us();
                     const double t_save_ms = (t_end - t_start) / 1000.0;
@@ -2785,6 +2806,10 @@ struct server_context {
                 } break;
             case SERVER_TASK_TYPE_SLOT_RESTORE:
                 {
+                    if (mctx) {
+                        send_error(task, "This feature is not supported by multimodal", ERROR_TYPE_NOT_SUPPORTED);
+                        break;
+                    }
                     int id_slot = task.slot_action.slot_id;
                     server_slot * slot = get_slot_by_id(id_slot);
                     if (slot == nullptr) {
@@ -2803,15 +2828,17 @@ struct server_context {
                     std::string filename = task.slot_action.filename;
                     std::string filepath = task.slot_action.filepath;
 
-                    slot->cache_tokens.resize(slot->n_ctx);
+                    llama_tokens tokens;
+                    tokens.resize(slot->n_ctx);
                     size_t token_count = 0;
-                    size_t nread = llama_state_seq_load_file(ctx, filepath.c_str(), slot->id, slot->cache_tokens.data(), slot->cache_tokens.size(), &token_count);
+                    size_t nread = llama_state_seq_load_file(ctx, filepath.c_str(), slot->id, tokens.data(), tokens.size(), &token_count);
                     if (nread == 0) {
-                        slot->cache_tokens.resize(0);
+                        slot->cache_tokens.clear(); // KV may already been invalidated?
                         send_error(task, "Unable to restore slot, no available space in KV cache or invalid slot save file", ERROR_TYPE_INVALID_REQUEST);
                         break;
                     }
-                    slot->cache_tokens.resize(token_count);
+                    tokens.resize(token_count);
+                    slot->cache_tokens.set_text_tokens(tokens);
 
                     const int64_t t_end = ggml_time_us();
                     const double t_restore_ms = (t_end - t_start) / 1000.0;
@@ -2828,6 +2855,10 @@ struct server_context {
                 } break;
             case SERVER_TASK_TYPE_SLOT_ERASE:
                 {
+                    if (mctx) {
+                        send_error(task, "This feature is not supported by multimodal", ERROR_TYPE_NOT_SUPPORTED);
+                        break;
+                    }
                     int id_slot = task.slot_action.slot_id;
                     server_slot * slot = get_slot_by_id(id_slot);
                     if (slot == nullptr) {
@@ -2842,7 +2873,7 @@ struct server_context {
                     }
 
                     // Erase token cache
-                    const size_t n_erased = slot->cache_tokens.size();
+                    const size_t n_erased = slot->cache_tokens.n_tokens();
                     llama_kv_self_seq_rm(ctx, slot->id, -1, -1);
                     slot->cache_tokens.clear();
 
@@ -2851,11 +2882,7 @@ struct server_context {
                     res->id_slot  = id_slot;
                     res->n_erased = n_erased;
                     queue_results.send(std::move(res));
-                } break;*/
-            case SERVER_TASK_TYPE_SLOT_SAVE:
-            case SERVER_TASK_TYPE_SLOT_RESTORE:
-            case SERVER_TASK_TYPE_SLOT_ERASE:
-                GGML_ASSERT(false && "TODO @ngxson : removed due to not compat with multimodal");
+                } break;
             case SERVER_TASK_TYPE_SET_LORA:
                 {
                     params_base.lora_adapters = std::move(task.set_lora);
@@ -2899,8 +2926,7 @@ struct server_context {
 
         // apply context-shift if needed
         // TODO: simplify and improve
-        // TODO @ngxson : hacky, need to disable context shift for multimodal
-        /*for (server_slot & slot : slots) {
+        for (server_slot & slot : slots) {
             if (slot.is_processing() && slot.n_past + 1 >= slot.n_ctx) {
                 if (!params_base.ctx_shift) {
                     // this check is redundant (for good)
@@ -2908,6 +2934,12 @@ struct server_context {
                     slot.release();
                     send_error(slot, "context shift is disabled", ERROR_TYPE_SERVER);
                     continue;
+                }
+
+                if (mctx) {
+                    // we should never reach this because params_base.ctx_shift is automatically disabled if mmproj is loaded
+                    // we don't support ctx_shift because an image chunk may contains multiple tokens
+                    GGML_ABORT("not supported by multimodal");
                 }
 
                 // Shift context
@@ -2921,18 +2953,18 @@ struct server_context {
                 llama_kv_self_seq_add(ctx, slot.id, n_keep + n_discard, slot.n_past,        -n_discard);
 
                 if (slot.params.cache_prompt) {
-                    for (size_t i = n_keep + n_discard; i < slot.cache_tokens.size(); i++) {
-                        slot.cache_tokens[i - n_discard] = slot.cache_tokens[i];
+                    for (size_t i = n_keep + n_discard; i < slot.cache_tokens.chunks.size(); i++) {
+                        slot.cache_tokens.chunks[i - n_discard] = std::move(slot.cache_tokens.chunks[i]);
                     }
 
-                    slot.cache_tokens.resize(slot.cache_tokens.size() - n_discard);
+                    slot.cache_tokens.chunks.resize(slot.cache_tokens.chunks.size() - n_discard);
                 }
 
                 slot.n_past -= n_discard;
 
                 slot.truncated = true;
             }
-        }*/
+        }
 
         // start populating the batch for this iteration
         common_batch_clear(batch);
@@ -3054,51 +3086,59 @@ struct server_context {
                             slot.params.n_keep = std::min(slot.n_ctx - 4, slot.params.n_keep);
 
                             // if input prompt is too big, truncate it
-                            // TODO @ngxson : this won't work with multimodal
-                            /*if (slot.n_prompt_tokens >= slot.n_ctx) {
+                            if (slot.n_prompt_tokens >= slot.n_ctx) {
+                                if (mctx) {
+                                    // we should never reach this
+                                    GGML_ABORT("not supported by multimodal");
+                                }
+                                llama_tokens curr_tokens = slot.prompt_tokens.get_text_tokens();
                                 const int n_left = slot.n_ctx - slot.params.n_keep;
 
                                 const int n_block_size = n_left / 2;
                                 const int erased_blocks = (slot.n_prompt_tokens - slot.params.n_keep - n_block_size) / n_block_size;
 
                                 llama_tokens new_tokens(
-                                        prompt_tokens.begin(),
-                                        prompt_tokens.begin() + slot.params.n_keep);
+                                        curr_tokens.begin(),
+                                        curr_tokens.begin() + slot.params.n_keep);
 
                                 new_tokens.insert(
                                         new_tokens.end(),
-                                        prompt_tokens.begin() + slot.params.n_keep + erased_blocks * n_block_size,
-                                        prompt_tokens.end());
+                                        curr_tokens.begin() + slot.params.n_keep + erased_blocks * n_block_size,
+                                        curr_tokens.end());
 
-                                prompt_tokens = std::move(new_tokens);
+                                prompt_tokens.set_text_tokens(new_tokens);
 
                                 slot.truncated = true;
-                                slot.n_prompt_tokens = prompt_tokens.size();
+                                slot.n_prompt_tokens = prompt_tokens.n_tokens();
 
                                 SLT_WRN(slot, "input truncated, n_ctx = %d, n_keep = %d, n_left = %d, n_prompt_tokens = %d\n", slot.n_ctx, slot.params.n_keep, n_left, slot.n_prompt_tokens);
 
                                 GGML_ASSERT(slot.n_prompt_tokens < slot.n_ctx);
-                            }*/
+                            }
 
                             if (slot.params.cache_prompt) {
                                 // reuse any previously computed tokens that are common with the new prompt
                                 slot.n_past = slot.cache_tokens.get_common_prefix(prompt_tokens);
 
                                 // reuse chunks from the cached prompt by shifting their KV cache in the new position
-                                // TODO @ngxson : this won't work with multimodal
-                                /*if (params_base.n_cache_reuse > 0) {
+                                if (params_base.n_cache_reuse > 0) {
                                     size_t head_c = slot.n_past; // cache
                                     size_t head_p = slot.n_past; // current prompt
 
+                                    if (mctx) {
+                                        // we should never reach this
+                                        GGML_ABORT("not supported by multimodal");
+                                    }
+
                                     SLT_DBG(slot, "trying to reuse chunks with size > %d, slot.n_past = %d\n", params_base.n_cache_reuse, slot.n_past);
 
-                                    while (head_c < slot.cache_tokens.size() &&
-                                           head_p < prompt_tokens.size()) {
+                                    while (head_c < slot.cache_tokens.chunks.size() &&
+                                           head_p < prompt_tokens.chunks.size()) {
 
                                         size_t n_match = 0;
-                                        while (head_c + n_match < slot.cache_tokens.size() &&
-                                               head_p + n_match < prompt_tokens.size()     &&
-                                               slot.cache_tokens[head_c + n_match] == prompt_tokens[head_p + n_match]) {
+                                        while (head_c + n_match < slot.cache_tokens.chunks.size() &&
+                                               head_p + n_match < prompt_tokens.chunks.size()     &&
+                                               slot.cache_tokens.chunks[head_c + n_match].tok_text == prompt_tokens.chunks[head_p + n_match].tok_text) {
 
                                             n_match++;
                                         }
@@ -3115,7 +3155,7 @@ struct server_context {
                                             llama_kv_self_seq_add(ctx, slot.id, head_c, head_c + n_match, kv_shift);
 
                                             for (size_t i = 0; i < n_match; i++) {
-                                                slot.cache_tokens[head_p + i] = slot.cache_tokens[head_c + i];
+                                                slot.cache_tokens.chunks[head_p + i].tok_text = slot.cache_tokens.chunks[head_c + i].tok_text;
                                                 slot.n_past++;
                                             }
 
@@ -3127,7 +3167,7 @@ struct server_context {
                                     }
 
                                     SLT_DBG(slot, "after context reuse, new slot.n_past = %d\n", slot.n_past);
-                                }*/
+                                }
                             }
                         }
 
@@ -3359,14 +3399,18 @@ struct server_context {
             }
 
             // do speculative decoding
-            // TODO @ngxson : remove speculative decoding for multimodal
-            /*for (auto & slot : slots) {
+            for (auto & slot : slots) {
                 if (!slot.is_processing() || !slot.can_speculate()) {
                     continue;
                 }
 
                 if (slot.state != SLOT_STATE_GENERATING) {
                     continue;
+                }
+
+                if (mctx) {
+                    // we should never reach this
+                    GGML_ABORT("not supported by multimodal");
                 }
 
                 // determine the max draft that fits the current slot state
@@ -3395,7 +3439,8 @@ struct server_context {
                 params_spec.n_reuse   = llama_n_ctx(slot.ctx_dft) - slot.params.speculative.n_max;
                 params_spec.p_min     = slot.params.speculative.p_min;
 
-                llama_tokens draft = common_speculative_gen_draft(slot.spec, params_spec, slot.cache_tokens, id);
+                llama_tokens cached_text_tokens = slot.cache_tokens.get_text_tokens();
+                llama_tokens draft = common_speculative_gen_draft(slot.spec, params_spec, cached_text_tokens, id);
 
                 // keep track of total number of tokens generated in the draft
                 slot.n_draft_total += draft.size();
@@ -3428,8 +3473,10 @@ struct server_context {
                 // update how many tokens out of draft was accepted
                 slot.n_draft_accepted += ids.size() - 1;
 
-                slot.cache_tokens.push_back(id);
-                slot.cache_tokens.insert(slot.cache_tokens.end(), ids.begin(), ids.end() - 1);
+                slot.cache_tokens.add_text_token(id);
+                for (auto & t : ids) {
+                    slot.cache_tokens.add_text_token(t);
+                }
 
                 llama_kv_self_seq_rm(ctx, slot.id, slot.n_past, -1);
 
@@ -3453,7 +3500,7 @@ struct server_context {
                 }
 
                 SLT_DBG(slot, "accepted %d/%d draft tokens, new n_past = %d\n", (int) ids.size() - 1, (int) draft.size(), slot.n_past);
-            }*/
+            }
         }
 
         SRV_DBG("%s", "run slots completed\n");

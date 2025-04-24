@@ -1174,6 +1174,27 @@ struct server_inputs {
         }
         return std::to_string(hash);
     }
+
+    // TODO: maybe implement a (de)seralizer for this struct, so we can get rid of functions below
+
+    // return all text tokens (for legacy code), to be used by save/load slot
+    llama_tokens get_text_tokens() {
+        llama_tokens output;
+        for (auto & chunk : chunks) {
+            if (chunk.tok_text != LLAMA_TOKEN_NULL) {
+                output.push_back(chunk.tok_text);
+            }
+        }
+        return output;
+    }
+
+    // clear and set text tokens (for legacy code), to be used by save/load slot
+    void set_text_tokens(llama_tokens tokens) {
+        chunks.clear();
+        for (auto & tok : tokens) {
+            add_text_token(tok);
+        }
+    }
 };
 
 // helper struct to make working with embd batch easier
