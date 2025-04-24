@@ -842,8 +842,10 @@ static bool common_params_parse_ex(int argc, char ** argv, common_params_context
     // handle model and download
     {
         auto res = common_params_handle_model(params.model,  params.hf_token, DEFAULT_MODEL_PATH);
-        // optionally, handle mmproj model when -hf is specified
-        if (res.found_mmproj && params.mmproj.path.empty() && params.mmproj.url.empty()) {
+        if (params.no_mmproj) {
+            params.mmproj = {};
+        } else if (res.found_mmproj && params.mmproj.path.empty() && params.mmproj.url.empty()) {
+            // optionally, handle mmproj model when -hf is specified
             params.mmproj = res.mmproj;
         }
         common_params_handle_model(params.mmproj,            params.hf_token, "");
