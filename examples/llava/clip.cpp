@@ -2535,8 +2535,8 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
     }
     else if (ctx->proj_type == PROJECTOR_TYPE_PIXTRAL) {
         clip_image_u8 resized_image;
-        auto new_size = image_manipulation::calc_size_preserved_ratio(original_size, params.patch_size, params.image_size);
-        image_manipulation::bilinear_resize(*img, resized_image, new_size.width, new_size.height);
+        int sz = params.image_size;
+        image_manipulation::resize_and_pad_image(*img, resized_image, {sz, sz});
         clip_image_f32_ptr img_f32(clip_image_f32_init());
         normalize_image_u8_to_f32(resized_image, *img_f32, ctx->image_mean, ctx->image_std);
         res_imgs->entries.push_back(std::move(img_f32));
