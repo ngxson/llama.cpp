@@ -586,7 +586,6 @@ static ggml_tensor * build_rope_2d(
             ggml_row_size(cur->type, n_dim),
             ggml_row_size(cur->type, n_dim*n_head),
             0);
-        // first = ggml_cont(ctx0, first);
         first = ggml_rope_ext(
             ctx0,
             first,
@@ -599,7 +598,7 @@ static ggml_tensor * build_rope_2d(
     }
 
     // second half (write to tmp)
-    ggml_tensor * second = cur;
+    ggml_tensor * second;
     {
         second = ggml_view_3d(ctx0, cur,
             n_dim/2, n_head, n_pos,
@@ -2825,9 +2824,20 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
 
     {
         struct ggml_tensor * inp_raw = ggml_graph_get_tensor(gf, "inp_raw");
-        float * data = (float *)malloc(ggml_nbytes(inp_raw));
+        std::vector<float> inp_data(ggml_nelements(inp_raw));
+        float * data = inp_data.data();
 
-        // TODO @ngxson : this whole code block is ugly, will need to be refactored
+        // layout of data (note: the channel dim is unrolled to better visualize the layout):
+        //
+        // ┌──W──┐
+        // │     H │  channel = R
+        // ├─────┤ │
+        // │     H │  channel = G
+        // ├─────┤ │
+        // │     H │  channel = B
+        // └─────┘ │
+        //   ──────┘ x B
+
         for (size_t i = 0; i < imgs.entries.size(); i++) {
             const int nx = imgs.entries[i]->nx;
             const int ny = imgs.entries[i]->ny;
@@ -2842,17 +2852,19 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
             const int n = nx * ny;
 
             for (int b = 0; b < batch_size; b++) {
-                for (int k = 0; k < 3; k++) {
-                    for (int y = 0; y < ny; y++) {
-                        for (int x = 0; x < nx; x++) {
-                            data[(b * 3 * n) + k * n + y * nx + x] = imgs.entries[b]->buf[3 * (y * nx + x) + k];
-                        }
+                float * batch_entry = data + b * (3*n);
+                for (int y = 0; y < ny; y++) {
+                    for (int x = 0; x < nx; x++) {
+                        size_t base_src = 3*(y * nx + x); // idx of the first channel
+                        size_t base_dst =    y * nx + x;  // idx of the first channel
+                        batch_entry[      base_dst] = imgs.entries[b]->buf[base_src    ];
+                        batch_entry[1*n + base_dst] = imgs.entries[b]->buf[base_src + 1];
+                        batch_entry[2*n + base_dst] = imgs.entries[b]->buf[base_src + 2];
                     }
                 }
             }
         }
         ggml_backend_tensor_set(inp_raw, data, 0, ggml_nbytes(inp_raw));
-        free(data);
     }
     if (ctx->has_minicpmv_projector) {
         {
