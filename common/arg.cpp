@@ -38,6 +38,11 @@
 
 using json = nlohmann::ordered_json;
 
+std::initializer_list<enum llama_example> mmproj_examples = {
+    LLAMA_EXAMPLE_LLAVA,
+    // TODO: add LLAMA_EXAMPLE_SERVER when it's ready
+};
+
 common_arg & common_arg::set_examples(std::initializer_list<enum llama_example> examples) {
     this->examples = std::move(examples);
     return *this;
@@ -841,14 +846,20 @@ static bool common_params_parse_ex(int argc, char ** argv, common_params_context
 
     // handle model and download
     {
-        auto res = common_params_handle_model(params.model,  params.hf_token, DEFAULT_MODEL_PATH);
+        auto res = common_params_handle_model(params.model, params.hf_token, DEFAULT_MODEL_PATH);
         if (params.no_mmproj) {
             params.mmproj = {};
         } else if (res.found_mmproj && params.mmproj.path.empty() && params.mmproj.url.empty()) {
             // optionally, handle mmproj model when -hf is specified
             params.mmproj = res.mmproj;
         }
-        common_params_handle_model(params.mmproj,            params.hf_token, "");
+        // only download mmproj if the current example is using it
+        for (auto & ex : mmproj_examples) {
+            if (ctx_arg.ex == ex) {
+                common_params_handle_model(params.mmproj,    params.hf_token, "");
+                break;
+            }
+        }
         common_params_handle_model(params.speculative.model, params.hf_token, "");
         common_params_handle_model(params.vocoder.model,     params.hf_token, "");
     }
@@ -2114,21 +2125,21 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         [](common_params & params, const std::string & value) {
             params.mmproj.path = value;
         }
-    ).set_examples({LLAMA_EXAMPLE_LLAVA}));
+    ).set_examples(mmproj_examples));
     add_opt(common_arg(
         {"--mmproj-url"}, "URL",
         "URL to a multimodal projector file. see examples/llava/README.md",
         [](common_params & params, const std::string & value) {
             params.mmproj.url = value;
         }
-    ).set_examples({LLAMA_EXAMPLE_LLAVA}));
+    ).set_examples(mmproj_examples));
     add_opt(common_arg(
         {"--no-mmproj"},
         "explicitly disable multimodal projector, useful when using -hf",
         [](common_params & params) {
             params.no_mmproj = true;
         }
-    ).set_examples({LLAMA_EXAMPLE_LLAVA}));
+    ).set_examples(mmproj_examples));
     add_opt(common_arg(
         {"--image"}, "FILE",
         "path to an image file. use with multimodal models. Specify multiple times for batching",
