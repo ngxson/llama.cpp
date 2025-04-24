@@ -597,7 +597,7 @@ static ggml_tensor * build_rope_2d(
         );
     }
 
-    // second half (write to tmp)
+    // second half
     ggml_tensor * second;
     {
         second = ggml_view_3d(ctx0, cur,
