@@ -2121,13 +2121,6 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples({LLAMA_EXAMPLE_LLAVA}));
     add_opt(common_arg(
-        {"--no-mmproj"},
-        "explicitly disable multimodal projector, useful when using -hf",
-        [](common_params & params) {
-            params.no_mmproj = true;
-        }
-    ).set_examples({LLAMA_EXAMPLE_LLAVA}));
-    add_opt(common_arg(
         {"--image"}, "FILE",
         "path to an image file. use with multimodal models. Specify multiple times for batching",
         [](common_params & params, const std::string & value) {
