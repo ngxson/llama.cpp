@@ -633,9 +633,12 @@ static json oaicompat_completion_params_parse(
     }
 
     // get input files
-    json messages = json_value(body, "messages", json::array());
+    if (!body.contains("messages")) {
+        throw std::runtime_error("'messages' is required");
+    }
+    json messages = body.at("messages");
     if (!messages.is_array()) {
-        throw std::runtime_error("Expected 'messages' to be an array, got " + messages.dump());
+        throw std::runtime_error("Expected 'messages' to be an array");
     }
     for (auto & msg : messages) {
         json & content = msg.at("content");
