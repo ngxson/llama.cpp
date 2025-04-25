@@ -2809,10 +2809,15 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
     const auto & model = ctx->vision_model;
     const auto & hparams = model.hparams;
 
+    // TODO @ngxson : this is ugly, need to refactor later
+    bool support_dynamic_size = ctx->has_minicpmv_projector
+        || ctx->has_qwen2vl_merger
+        || ctx->proj_type == PROJECTOR_TYPE_PIXTRAL;
+
     const int image_size = hparams.image_size;
     int image_size_width  = image_size;
     int image_size_height = image_size;
-    if (ctx->has_minicpmv_projector | ctx->has_qwen2vl_merger) {
+    if (support_dynamic_size) {
         image_size_width  = imgs.entries[0]->nx;
         image_size_height = imgs.entries[0]->ny;
     }
