@@ -557,6 +557,7 @@ static ggml_cgraph * clip_image_build_graph_siglip(clip_ctx * ctx, const clip_im
 
 // implementation of the 2D RoPE without adding a new op in ggml
 // this is not efficient (use double the memory), but works on all backends
+// TODO: there was a more efficient which relies on ggml_view and ggml_rope_ext_inplace, but the rope inplace does not work well with non-contiguous tensors ; we should fix that and revert back to the original implementation in https://github.com/ggml-org/llama.cpp/pull/13065
 static ggml_tensor * build_rope_2d(
     ggml_context * ctx0,
     ggml_tensor * cur,
