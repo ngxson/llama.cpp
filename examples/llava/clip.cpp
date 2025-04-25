@@ -856,16 +856,14 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
     struct ggml_tensor * embeddings = inp;
     struct ggml_tensor * pos_embed = nullptr;
 
-    if (ctx->has_llava_projector) {
-        // concat class_embeddings and patch_embeddings
-        if (model.class_embedding) {
-            embeddings = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, hidden_size, num_positions, batch_size);
-            embeddings = ggml_scale(ctx0, embeddings, 0.0f); // set to all zeros
-            embeddings = ggml_acc(ctx0, embeddings, model.class_embedding,
-                    embeddings->nb[1], embeddings->nb[2], embeddings->nb[3], 0);
-            embeddings = ggml_acc(ctx0, embeddings, inp,
-                    embeddings->nb[1], embeddings->nb[2], embeddings->nb[3], model.class_embedding->nb[1]);
-        }
+    // concat class_embeddings and patch_embeddings
+    if (model.class_embedding) {
+        embeddings = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, hidden_size, num_positions, batch_size);
+        embeddings = ggml_scale(ctx0, embeddings, 0.0f); // set to all zeros
+        embeddings = ggml_acc(ctx0, embeddings, model.class_embedding,
+                embeddings->nb[1], embeddings->nb[2], embeddings->nb[3], 0);
+        embeddings = ggml_acc(ctx0, embeddings, inp,
+                embeddings->nb[1], embeddings->nb[2], embeddings->nb[3], model.class_embedding->nb[1]);
     }
 
     struct ggml_tensor * positions = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_position_ids);
@@ -1416,10 +1414,7 @@ struct clip_model_loader {
 
         // other hparams
         {
-            // legacy keys, use KEY_PROJ_TYPE instead
-            get_bool(KEY_HAS_LLAVA_PROJ, ctx_clip.has_llava_projector, false);
             get_i32(KEY_MINICPMV_VERSION, ctx_clip.minicpmv_version, false);
-            // !!! do NOT extend the list above, use KEY_PROJ_TYPE instead
 
             get_bool(KEY_USE_GELU, ctx_clip.use_gelu, false);
             get_bool(KEY_USE_SILU, ctx_clip.use_silu, false);
@@ -1434,6 +1429,11 @@ struct clip_model_loader {
             get_u32(KEY_PATCH_SIZE,     hparams.patch_size);
             get_u32(KEY_IMAGE_CROP_RESOLUTION,    hparams.image_crop_resolution, false);
             get_arr_int(KEY_IMAGE_GRID_PINPOINTS, hparams.image_grid_pinpoints, false);
+
+            ctx_clip.has_llava_projector = ctx_clip.proj_type == PROJECTOR_TYPE_MLP
+                                        || ctx_clip.proj_type == PROJECTOR_TYPE_MLP_NORM
+                                        || ctx_clip.proj_type == PROJECTOR_TYPE_LDP
+                                        || ctx_clip.proj_type == PROJECTOR_TYPE_LDPV2;
 
             {
                 std::string mm_patch_merge_type;
