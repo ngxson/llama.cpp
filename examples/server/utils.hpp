@@ -963,138 +963,140 @@ static std::vector<common_adapter_lora_info> parse_lora_request(
 // (may need to refactor in near future)
 //
 
-// each chunk can contain either one SINGLE text token or an image (multiple token embeddings)
+// each chunk can contain either one SINGLE text token or pointer to image
 // this is to simplify the logic of KV cache management
-struct server_inp_chunk {
-    size_t n_tokens = 1; // always 1 in case of text
-    llama_token tok_text;
-    mtmd_image_tokens_ptr tok_image;
+struct server_token {
+    llama_token txt;
+    std::shared_ptr<mtmd_image_tokens> img;
     std::string str() const {
         // for debugging
-        if (tok_image) {
-            return string_format("(<image> at %p) ", (void *)tok_image.get());
+        GGML_ASSERT(img || txt != LLAMA_TOKEN_NULL);
+        if (img) {
+            return "<embd> ";
         } else {
-            return std::to_string(tok_text) + " ";
+            return std::to_string(txt) + " ";
         }
     }
 };
 
 /**
- * server_inputs is a helper to manage the input tokens and image for the server.
- *
- * the difference between server_inputs and mtmd_input_chunks is that each chunk of server_inputs only contains a single text token, but text chunk of mtmd_input_chunks can contain multiple tokens.
- *
- * for example, server_inputs may contain 5 text tokens followed by 1 image chunk:
- *   1 41 2635 325 463 <image of 15 tokens>
- *
- * in this example:
- *   - n_tokens() returns 5+15 = 20 total tokens
- *   - get_chunk(1) returns chunk containing token ID 41
- *   - get_chunk(5) returns image chunk (15 tokens)
- *   - get_chunk(7) returns same image chunk
- *
+ * server_tokens is a helper to manage the input tokens and image for the server.
  * it is made this way to simplify the logic of KV cache management.
+ *
+ * each token can be either a text token or a pointer to an image.
+ * if image usually contains multiple tokens, each token contains a shared_ptr to the same image.
  */
-struct server_inputs {
-    std::vector<server_inp_chunk> chunks;
+struct server_tokens {
+    bool has_mtmd = false;
+    std::vector<server_token> values;
 
-    server_inputs() = default;
-    ~server_inputs() = default; // Important if unique_ptr is used
+    server_tokens() = default;
+    ~server_tokens() = default;
 
     // Prevent copying
-    server_inputs(const server_inputs&) = delete;
-    server_inputs& operator=(const server_inputs&) = delete;
+    server_tokens(const server_tokens&) = delete;
+    server_tokens& operator=(const server_tokens&) = delete;
 
     // Allow moving (usually implicitly generated if members are movable)
-    server_inputs(server_inputs&&) = default;
-    server_inputs& operator=(server_inputs&&) = default;
+    server_tokens(server_tokens&&) = default;
+    server_tokens& operator=(server_tokens&&) = default;
 
-    server_inputs(mtmd_input_chunks & mtmd_chunks) {
+    // Allow accessing elements using [] operator
+    server_token& operator[](size_t index) { return values[index]; }
+    const server_token& operator[](size_t index) const { return values[index]; }
+
+    server_tokens(mtmd_input_chunks & mtmd_chunks, bool has_mtmd) : has_mtmd(has_mtmd) {
         for (auto & c : mtmd_chunks) {
             if (c.type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
-                size_t n_tokens = mtmd_image_tokens_get_n_tokens(c.tokens_image.get());
-                chunks.push_back({n_tokens, LLAMA_TOKEN_NULL, std::move(c.tokens_image)});
+                add_image_tokens(std::move(c.tokens_image));
             } else if (c.type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
                 for (auto & tok : c.tokens_text) {
-                    chunks.push_back({1, tok, nullptr});
+                    add_text_token(tok);
                 }
             } else {
-                GGML_ASSERT(false && "Invalid chunk type");
+                GGML_ABORT("Invalid chunk type");
             }
         }
     }
 
-    std::string str() {
+    std::string str() const {
         // for debugging
         std::string ret;
-        for (const auto & chunk : chunks) {
-            ret += chunk.str();
+        for (const auto & t : values) {
+            ret += t.str();
         }
         return ret;
     }
 
-    size_t n_tokens() const {
-        size_t res = 0;
-        for (const auto & chunk : chunks) {
-            if (chunk.tok_image) {
-                res += chunk.n_tokens;
-            } else {
-                res++;
-            }
-        }
-        return res;
+    size_t size() const {
+        return values.size();
     }
 
     bool empty() const {
-        return n_tokens() == 0;
+        return values.empty();
     }
 
     void clear() {
-        chunks.clear();
+        values.clear();
+    }
+
+    void resize(size_t n) {
+        values.resize(n);
+    }
+
+    void add_token(server_token && t) {
+        if (t.img) GGML_ASSERT(has_mtmd);
+        values.push_back(std::move(t));
     }
 
     void add_text_token(llama_token tok) {
         GGML_ASSERT(tok != LLAMA_TOKEN_NULL);
-        chunks.push_back({1, tok, nullptr});
+        values.push_back({tok, nullptr});
     }
 
-    void add_image_tokens(mtmd_image_tokens_ptr & image) {
+    void add_image_tokens(mtmd_image_tokens_ptr && image) {
+        GGML_ASSERT(has_mtmd);
         GGML_ASSERT(image != nullptr);
-        size_t n_tokens = mtmd_image_tokens_get_n_tokens(image.get());
-        chunks.push_back({n_tokens, LLAMA_TOKEN_NULL, std::move(image)});
+        std::shared_ptr<mtmd_image_tokens> tok_image(std::move(image));
+        size_t n_tokens = mtmd_image_tokens_get_n_tokens(tok_image.get());
+        GGML_ASSERT(n_tokens > 0 && "Invalid image token"); // should never happen
+        for (size_t i = 0; i < n_tokens; ++i) {
+            values.push_back({LLAMA_TOKEN_NULL, tok_image});
+        }
     }
 
-    size_t get_common_prefix(const server_inputs & b) const {
-        size_t ret = 0;
-        size_t max_idx = std::min(chunks.size(), b.chunks.size());
+    size_t get_common_prefix(const server_tokens & b) const {
+        size_t max_idx = std::min(values.size(), b.values.size());
         for (size_t i = 0; i < max_idx; ++i) {
-            auto & ai =   chunks[i];
-            auto & bi = b.chunks[i];
+            auto & ai =   values[i];
+            auto & bi = b.values[i];
 
-            if (ai.tok_text == bi.tok_text && !ai.tok_image && !bi.tok_image) {
-                ret++;
+            if (ai.txt == bi.txt && !ai.img && !bi.img) {
                 continue;
-            } else if (ai.tok_image && bi.tok_image) {
-                std::string ai_id = mtmd_image_tokens_get_id(ai.tok_image.get());
-                std::string bi_id = mtmd_image_tokens_get_id(bi.tok_image.get());
+            } else if (ai.img && bi.img) {
+                GGML_ASSERT(has_mtmd);
+                std::string ai_id = mtmd_image_tokens_get_id(ai.img.get());
+                std::string bi_id = mtmd_image_tokens_get_id(bi.img.get());
                 if (ai_id == bi_id) {
-                    ret += mtmd_image_tokens_get_n_tokens(ai.tok_image.get());
+                    size_t n_tokens = mtmd_image_tokens_get_n_tokens(ai.img.get());
+                    GGML_ASSERT(n_tokens > 0 && "Invalid image token"); // should never happen
+                    i += mtmd_image_tokens_get_n_tokens(ai.img.get()) - 1;
                     continue;
                 } else {
-                    break;
+                    return i;
                 }
             } else {
-                break;
+                return i;
             }
         }
-        return ret;
+        return max_idx; // all tokens are equal
     }
 
     // make sure all text tokens are within the vocab range
     bool validate(llama_token max_vocab_id) const {
-        for (const auto & chunk : chunks) {
-            if (!chunk.tok_image) {
-                if (chunk.tok_text < 0 || chunk.tok_text >= max_vocab_id) {
+        for (const auto & t : values) {
+            if (!t.img) {
+                if (t.txt < 0 || t.txt >= max_vocab_id) {
                     return false;
                 }
             }
@@ -1102,65 +1104,11 @@ struct server_inputs {
         return true;
     }
 
-    // pos is also referred as logical index
-    server_inp_chunk & get_chunk(size_t pos) {
-        size_t physical_idx = get_chunk_physical_idx(pos);
-        return chunks[physical_idx];
-    }
-
-    // returns physical_index
-    size_t get_chunk_physical_idx(size_t logical_idx) const {
-        size_t current_pos = 0;
-        for (size_t i = 0; i < chunks.size(); ++i) {
-            const auto & chunk = chunks[i];
-            size_t chunk_end_pos = current_pos + chunk.n_tokens;
-            if (logical_idx < chunk_end_pos) {
-                // The target position 'pos' falls within this chunk
-                return i;
-            }
-            current_pos = chunk_end_pos;
-        }
-        // If the loop finishes, 'pos' is >= the total number of logical positions
-        throw std::out_of_range("Position out of range");
-    }
-
-    // same idea with std::vector<llama_token> resize()
+    // same idea with std::vector<llama_token>::resize()
     void keep_until(size_t pos) {
-        if (pos == 0) {
-            chunks.clear();
-            return;
-        }
-
-        size_t current_pos = 0;
-        for (size_t i = 0; i < chunks.size(); ++i) {
-            const auto & chunk = chunks[i];
-            size_t chunk_size = chunk.tok_image ? mtmd_image_tokens_get_n_tokens(chunk.tok_image.get()) : 1;
-            size_t chunk_end_pos = current_pos + chunk_size;
-            if (pos <= current_pos) {
-                // Truncation point is exactly at or before the start of this chunk.
-                // Keep only chunks before index 'i'.
-                chunks.resize(i);
-                return;
-            }
-            if (pos < chunk_end_pos) {
-                // Truncation point 'pos' falls within this chunk.
-                if (chunk.tok_image) {
-                    // It's an image chunk, keep the whole chunk.
-                    // Keep chunks up to and including index 'i'.
-                    chunks.resize(i + 1);
-                } else {
-                    // It's a text chunk. Since pos < chunk_end_pos and chunk_size is 1,
-                    // this means pos == current_pos.
-                    // Keep only chunks before index 'i'.
-                    chunks.resize(i);
-                }
-                return;
-            }
-            // pos >= chunk_end_pos, so keep this chunk entirely and continue.
-            current_pos = chunk_end_pos;
-        }
-        // If the loop completes, it means 'pos' is >= the total logical size.
-        // No truncation needed, the vector remains unchanged.
+        // TODO : maybe throw error we remove part of the image (only allow removing the whole image)
+        //        this cannot happen currently because get_common_prefix() only never returns such pos
+        values.resize(pos);
     }
 
     // Computes FNV-1a hash of the data
@@ -1180,9 +1128,9 @@ struct server_inputs {
     // return all text tokens (for legacy code), to be used by save/load slot
     llama_tokens get_text_tokens() {
         llama_tokens output;
-        for (auto & chunk : chunks) {
-            if (chunk.tok_text != LLAMA_TOKEN_NULL) {
-                output.push_back(chunk.tok_text);
+        for (auto & t : values) {
+            if (t.txt != LLAMA_TOKEN_NULL) {
+                output.push_back(t.txt);
             }
         }
         return output;
@@ -1190,7 +1138,7 @@ struct server_inputs {
 
     // clear and set text tokens (for legacy code), to be used by save/load slot
     void set_text_tokens(llama_tokens tokens) {
-        chunks.clear();
+        values.clear();
         for (auto & tok : tokens) {
             add_text_token(tok);
         }
@@ -1267,22 +1215,22 @@ struct server_batch_embd {
     }
 };
 
-// TODO @ngxson : quite hacky for now, but just to see if it works
 static int32_t server_img_process(
         llama_context * ctx,
         mtmd_context * mctx,
-        server_inp_chunk & chunk,
+        server_token & chunk,
         server_batch_embd & batch,
         llama_pos n_past,
         int slot_id) {
-    GGML_ASSERT(chunk.tok_image);
+    GGML_ASSERT(chunk.img);
+    int32_t n_tokens = mtmd_image_tokens_get_n_tokens(chunk.img.get());
     int32_t ret;
 
     // encode the image
     {
         int64_t t0 = ggml_time_ms();
-        SRV_INF("encoding image (%d tokens)...\n", (int)chunk.n_tokens);
-        ret = mtmd_encode(mctx, chunk.tok_image.get());
+        SRV_INF("encoding image (%d tokens)...\n", (int)n_tokens);
+        ret = mtmd_encode(mctx, chunk.img.get());
         if (ret != 0) {
             SRV_ERR("failed to encode image, status = %d\n", ret);
             return ret;
@@ -1294,7 +1242,6 @@ static int32_t server_img_process(
     // decode the embeddings
     int64_t t1            = ggml_time_ms();
     int32_t n_embd        = llama_model_n_embd(llama_get_model(ctx));
-    int32_t n_tokens      = chunk.n_tokens;
     int32_t n_batch       = batch.pos.size();
     int32_t i_batch       = 0;
     int32_t n_img_batches = GGML_PAD(n_tokens, n_batch) / n_batch;
@@ -1334,8 +1281,9 @@ static int32_t server_img_process(
 }
 
 // hacky, support text-only for now
-static server_inputs convert_legacy_to_mtmd(llama_tokens & tokenized) {
-    server_inputs res;
+static server_tokens convert_legacy_to_mtmd(llama_tokens & tokenized) {
+    server_tokens res;
+    res.has_mtmd = false;
     for (auto & tok : tokenized) {
         res.add_text_token(tok);
     }
