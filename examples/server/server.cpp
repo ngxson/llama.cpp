@@ -1977,7 +1977,7 @@ struct server_context {
         if (!mmproj_path.empty()) {
             mtmd_context_params mparams{
                 /* use_gpu */   params_base.mmproj_use_gpu,
-                /* timings */   true,
+                /* timings */   false,
                 /* n_threads */ params_base.cpuparams.n_threads,
                 /* verbosity */ params_base.verbosity > 0 ? GGML_LOG_LEVEL_DEBUG : GGML_LOG_LEVEL_INFO,
             };
