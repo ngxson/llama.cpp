@@ -1975,8 +1975,12 @@ struct server_context {
 
         std::string & mmproj_path = params_base.mmproj.path;
         if (!mmproj_path.empty()) {
-            mtmd_context_params mparams;
-            mparams.n_threads = params_base.cpuparams.n_threads;
+            mtmd_context_params mparams{
+                /* use_gpu */   params_base.mmproj_use_gpu,
+                /* timings */   true,
+                /* n_threads */ params_base.cpuparams.n_threads,
+                /* verbosity */ params_base.verbosity > 0 ? GGML_LOG_LEVEL_DEBUG : GGML_LOG_LEVEL_INFO,
+            };
             mctx = mtmd_init_from_file(mmproj_path.c_str(), model, mparams);
             if (mctx == nullptr) {
                 SRV_ERR("failed to load multimodal model, '%s'\n", mmproj_path.c_str());
