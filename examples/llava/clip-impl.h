@@ -18,7 +18,6 @@
 #define KEY_NAME                "general.name"
 #define KEY_DESCRIPTION         "general.description"
 #define KEY_MINICPMV_VERSION    "clip.minicpmv_version"
-#define KEY_HAS_QWEN2VL_MERGER  "clip.has_qwen2vl_merger"
 #define KEY_USE_GELU            "clip.use_gelu"
 #define KEY_USE_SILU            "clip.use_silu"
 #define KEY_N_EMBD              "clip.vision.embedding_length"
