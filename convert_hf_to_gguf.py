@@ -66,8 +66,6 @@ class ModelBase:
     part_names: list[str]
     is_safetensors: bool
     hparams: dict[str, Any]
-    block_count: int
-    tensor_map: gguf.TensorNameMap
     tensor_names: set[str] | None
     gguf_writer: gguf.GGUFWriter
     model_name: str | None
@@ -77,6 +75,10 @@ class ModelBase:
 
     # subclasses should define this!
     model_arch: gguf.MODEL_ARCH
+
+    # subclasses should initialize this!
+    block_count: int
+    tensor_map: gguf.TensorNameMap
 
     def __init__(self, dir_model: Path, ftype: gguf.LlamaFileType, fname_out: Path, is_big_endian: bool = False,
                  use_temp_file: bool = False, eager: bool = False,
@@ -113,8 +115,6 @@ class ModelBase:
             if not self.is_safetensors:
                 self.part_names = ModelBase.get_model_part_names(self.dir_model, "pytorch_model", ".bin")
         self.hparams = ModelBase.load_hparams(self.dir_model) if hparams is None else hparams
-        self.block_count = self.find_hparam(["n_layers", "num_hidden_layers", "n_layer", "num_layers"])
-        self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
         self.tensor_names = None
         self.metadata_override = metadata_override
         self.model_name = model_name
@@ -418,14 +418,7 @@ class ModelBase:
     @staticmethod
     def load_hparams(dir_model: Path):
         with open(dir_model / "config.json", "r", encoding="utf-8") as f:
-            hparams = json.load(f)
-            architectures = hparams.get("architectures")
-            if "text_config" in hparams:
-                hparams = {**hparams, **hparams["text_config"]}
-            if architectures is not None:
-                # preserve "architectures" from root level config
-                hparams["architectures"] = architectures
-            return hparams
+            return json.load(f)
 
     @classmethod
     def register(cls, *names: str) -> Callable[[AnyModel], AnyModel]:
@@ -454,6 +447,16 @@ class ModelBase:
 
 
 class TextModel(ModelBase):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if "text_config" in self.hparams:
+            # move the text_config to the root level
+            self.hparams = {**self.hparams, **self.hparams["text_config"]}
+
+        self.block_count = self.find_hparam(["n_layers", "num_hidden_layers", "n_layer", "num_layers"])
+        self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
+
     @classmethod
     def __init_subclass__(cls):
         # can't use an abstract property, because overriding it without type errors
@@ -1078,8 +1081,12 @@ class VisionModel(ModelBase):
             raise TypeError("VisionModel must be subclassed with model_arch = gguf.MODEL_ARCH.CLIP_VISION")
 
         # small hack to correct the number of layers
-        self.tensor_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.CLIP_VISION, 128)
-        self.n_embd_text = self.find_hparam(["hidden_size", "n_embd"])
+        self.block_count = 512 # vision models are small, this "ought to be enough for anybody"
+        self.tensor_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.CLIP_VISION, self.block_count)
+
+        # get n_embd of the text model
+        text_config = {**self.hparams, **self.hparams["text_config"]}
+        self.n_embd_text = text_config.get("hidden_size", text_config.get("n_embd", 0))
         assert self.n_embd_text > 0, "n_embd not found in hparams"
 
         if "vision_config" not in self.hparams:
@@ -1726,8 +1733,7 @@ class StableLMModel(TextModel):
     "LlamaForCausalLM",
     "MistralForCausalLM",
     "MixtralForCausalLM",
-    "Idefics3ForConditionalGeneration",
-    "SmolVLMForConditionalGeneration",
+    "VLlama3ForCausalLM",
     "LlavaForConditionalGeneration")
 class LlamaModel(TextModel):
     model_arch = gguf.MODEL_ARCH.LLAMA
@@ -1735,11 +1741,12 @@ class LlamaModel(TextModel):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        arch = get_model_architecture(self.dir_model, ModelType.TEXT, self.hparams)
         # fix for SmolVLM2, missing `num_attention_heads` in config.json
-        if self.hparams["architectures"][0] == "SmolVLMForConditionalGeneration":
+        if arch == "VLlama3ForCausalLM":
             self.hparams["num_attention_heads"] = self.hparams.get("num_attention_heads", 32)
         # fix for Pixtral, missing `num_attention_heads` in config.json
-        if self.hparams["architectures"][0] == "LlavaForConditionalGeneration" \
+        if arch == "LlavaForConditionalGeneration" \
                 and self.hparams.get("model_type") == "mistral":
             self.hparams["num_attention_heads"] = self.hparams.get("num_attention_heads", 32)
 
@@ -5805,6 +5812,19 @@ def split_str_to_n_bytes(split_str: str) -> int:
     return n
 
 
+def get_model_architecture(dir_model: Path, model_type: ModelType, hparams: Any = None) -> str:
+    hparams = ModelBase.load_hparams(dir_model) if hparams is None else hparams
+    text_config = hparams.get("text_config", {})
+    vision_config = hparams.get("vision_config", {})
+    arch = hparams["architectures"][0]
+    # if "architectures" is found in the sub-config, use that instead
+    if model_type == ModelType.TEXT and text_config.get("architectures") is not None:
+        arch = text_config["architectures"][0]
+    elif model_type == ModelType.VISION and vision_config.get("architectures") is not None:
+        arch = vision_config["architectures"][0]
+    return arch
+
+
 def main() -> None:
     args = parse_args()
 
@@ -5857,16 +5877,15 @@ def main() -> None:
 
     logger.info(f"Loading model: {dir_model.name}")
 
-    hparams = ModelBase.load_hparams(dir_model)
-
     if args.mmproj:
         if "mmproj" not in fname_out.name:
             fname_out = ModelBase.add_prefix_to_filename(fname_out, "mmproj-")
 
     with torch.inference_mode():
         output_type = ftype_map[args.outtype]
-        model_architecture = hparams["architectures"][0]
         model_type = ModelType.VISION if args.mmproj else ModelType.TEXT
+        model_architecture = get_model_architecture(dir_model, model_type)
+        logger.info(f"Model architecture: {model_architecture}")
         try:
             model_class = ModelBase.from_model_architecture(model_architecture, model_type=model_type)
         except NotImplementedError:
