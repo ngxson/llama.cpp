@@ -527,8 +527,7 @@ static bool common_download_model(
     return true;
 }
 
-// get remote file content, returns <http_code, content>
-std::pair<long, std::vector<char>> common_remote_get_content(const std::string & url, const std::vector<std::string> & headers) {
+std::pair<long, std::vector<char>> common_remote_get_content(const std::string & url, const common_remote_params & params) {
     curl_ptr       curl(curl_easy_init(), &curl_easy_cleanup);
     curl_slist_ptr http_headers;
     std::vector<char> res_buffer;
@@ -546,9 +545,14 @@ std::pair<long, std::vector<char>> common_remote_get_content(const std::string &
 #if defined(_WIN32)
     curl_easy_setopt(curl.get(), CURLOPT_SSL_OPTIONS, CURLSSLOPT_NATIVE_CA);
 #endif
-    // Important: the User-Agent must be "llama-cpp" to get the "ggufFile" field in the response
+    if (params.timeout > 0) {
+        curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT, params.timeout);
+    }
+    if (params.max_size > 0) {
+        curl_easy_setopt(curl.get(), CURLOPT_MAXFILESIZE, params.max_size);
+    }
     http_headers.ptr = curl_slist_append(http_headers.ptr, "User-Agent: llama-cpp");
-    for (const auto & header : headers) {
+    for (const auto & header : params.headers) {
         http_headers.ptr = curl_slist_append(http_headers.ptr, header.c_str());
     }
     curl_easy_setopt(curl.get(), CURLOPT_HTTPHEADER, http_headers.ptr);
@@ -556,13 +560,14 @@ std::pair<long, std::vector<char>> common_remote_get_content(const std::string &
     CURLcode res = curl_easy_perform(curl.get());
 
     if (res != CURLE_OK) {
-        throw std::runtime_error("error: cannot make GET request to HF API");
+        std::string error_msg = curl_easy_strerror(res);
+        throw std::runtime_error("error: cannot make GET request : " + error_msg);
     }
 
     long res_code;
     curl_easy_getinfo(curl.get(), CURLINFO_RESPONSE_CODE, &res_code);
 
-    return { res_code, res_buffer };
+    return { res_code, std::move(res_buffer) };
 }
 
 /**
@@ -592,9 +597,13 @@ static struct common_hf_file_res common_get_hf_file(const std::string & hf_repo_
     if (!bearer_token.empty()) {
         headers.push_back("Authorization: Bearer " + bearer_token);
     }
+    // Important: the User-Agent must be "llama-cpp" to get the "ggufFile" field in the response
+    // User-Agent header is already set in common_remote_get_content, no need to set it here
 
     // make the request
-    auto res = common_remote_get_content(url, headers);
+    common_remote_params params;
+    params.headers = headers;
+    auto res = common_remote_get_content(url, params);
     long res_code = res.first;
     std::string res_str(res.second.data(), res.second.size());
     std::string ggufFile;
@@ -655,7 +664,7 @@ static struct common_hf_file_res common_get_hf_file(const std::string &, const s
     return {};
 }
 
-std::pair<long, std::vector<char>> common_remote_get_content(const std::string & url, const std::vector<std::string> & headers) {
+std::pair<long, std::vector<char>> common_remote_get_content(const std::string & url, const common_remote_params & params) {
     throw std::runtime_error("error: built without CURL, cannot download model from the internet");
 }
 
