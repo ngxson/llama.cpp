@@ -16,6 +16,7 @@ from pathlib import Path
 from hashlib import sha256
 from typing import TYPE_CHECKING, Any, Callable, ContextManager, Iterable, Iterator, Literal, Sequence, TypeVar, cast
 from itertools import chain
+from transformers import AutoConfig
 
 import math
 import numpy as np
@@ -417,8 +418,13 @@ class ModelBase:
 
     @staticmethod
     def load_hparams(dir_model: Path):
-        with open(dir_model / "config.json", "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            return AutoConfig.from_pretrained(dir_model, trust_remote_code=True).to_dict()
+        except Exception as e:
+            logger.warning(f"Failed to load model config from {dir_model}: {e}")
+            logger.warning("Trying to load config.json instead")
+            with open(dir_model / "config.json", "r", encoding="utf-8") as f:
+                return json.load(f)
 
     @classmethod
     def register(cls, *names: str) -> Callable[[AnyModel], AnyModel]:
@@ -1080,10 +1086,6 @@ class VisionModel(ModelBase):
         if self.model_arch != gguf.MODEL_ARCH.CLIP_VISION:
             raise TypeError("VisionModel must be subclassed with model_arch = gguf.MODEL_ARCH.CLIP_VISION")
 
-        # small hack to correct the number of layers
-        self.block_count = 512 # vision models are small, this "ought to be enough for anybody"
-        self.tensor_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.CLIP_VISION, self.block_count)
-
         # get n_embd of the text model
         text_config = {**self.hparams, **self.hparams["text_config"]}
         self.n_embd_text = text_config.get("hidden_size", text_config.get("n_embd", 0))
@@ -1094,6 +1096,9 @@ class VisionModel(ModelBase):
         # move vision config to the top level, while preserving the original hparams in global_config
         self.global_config = self.hparams
         self.hparams = self.hparams["vision_config"]
+
+        self.block_count = self.find_hparam(["n_layers", "num_hidden_layers", "n_layer", "num_layers"])
+        self.tensor_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.CLIP_VISION, self.block_count)
 
         # load preprocessor config
         with open(self.dir_model / "preprocessor_config.json", "r", encoding="utf-8") as f:
@@ -1739,17 +1744,6 @@ class LlamaModel(TextModel):
     model_arch = gguf.MODEL_ARCH.LLAMA
     undo_permute = True
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        arch = get_model_architecture(self.dir_model, ModelType.TEXT, self.hparams)
-        # fix for SmolVLM2, missing `num_attention_heads` in config.json
-        if arch == "VLlama3ForCausalLM":
-            self.hparams["num_attention_heads"] = self.hparams.get("num_attention_heads", 32)
-        # fix for Pixtral, missing `num_attention_heads` in config.json
-        if arch == "LlavaForConditionalGeneration" \
-                and self.hparams.get("model_type") == "mistral":
-            self.hparams["num_attention_heads"] = self.hparams.get("num_attention_heads", 32)
-
     def set_vocab(self):
         try:
             self._set_vocab_sentencepiece()
@@ -1912,11 +1906,7 @@ class LlavaVisionModel(VisionModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.hparams["model_type"] == "pixtral":
-            # fix missing config.json values
-            self.hparams["num_attention_heads"] = self.hparams.get("num_attention_heads", 16)
-            self.hparams["num_hidden_layers"] = self.hparams.get("num_hidden_layers", 24)
-            self.hparams["intermediate_size"] = self.hparams.get("intermediate_size", 4096)
-            self.hparams["hidden_size"] = self.hparams.get("hidden_size", 1024)
+            # layer_norm_eps is not in config.json, it is hard-coded in modeling_pixtral.py
             self.hparams["layer_norm_eps"] = self.hparams.get("layer_norm_eps", 1e-5)
             self.img_break_tok_id = 12 # see tokenizer_config.json
         else:
@@ -1927,7 +1917,6 @@ class LlavaVisionModel(VisionModel):
         hparams = self.hparams
         if hparams["model_type"] == "pixtral":
             self.gguf_writer.add_vision_projector_type(gguf.VisionProjectorType.PIXTRAL)
-            # default values below are taken from HF tranformers code
             self.gguf_writer.add_vision_attention_layernorm_eps(hparams["layer_norm_eps"])
             self.gguf_writer.add_vision_use_silu(True)
 
@@ -1958,13 +1947,12 @@ class LlavaVisionModel(VisionModel):
 class SmolVLMModel(VisionModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # fix for SmolVLM2, missing some keys in config.json
-        # default values are taken from transformers code
         if self.hparams["model_type"] == "smolvlm_vision":
+            # fix for SmolVLM2, missing some keys in config.json
+            # default values are taken from transformers code
             self.hparams["hidden_size"] = self.hparams.get("hidden_size", 1152)
             self.hparams["num_attention_heads"] = self.hparams.get("num_attention_heads", 16)
             self.hparams["intermediate_size"] = self.hparams.get("intermediate_size", 3072)
-            self.hparams["num_hidden_layers"] = self.hparams.get("num_hidden_layers", 12)
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
