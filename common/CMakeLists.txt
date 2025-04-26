@@ -85,6 +85,7 @@ set(LLAMA_COMMON_EXTRA_LIBS build_info)
 
 # Use curl to download model url
 if (LLAMA_CURL)
+    set(CURL_USE_STATIC_LIBS TRUE)
     find_package(CURL)
     if (NOT CURL_FOUND)
         message(FATAL_ERROR "Could NOT find CURL. Hint: to disable this feature, set -DLLAMA_CURL=OFF")
