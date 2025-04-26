@@ -213,13 +213,6 @@ jobs:
         run: |
           pip install -r examples/server/tests/requirements.txt
 
-      - name: Copy Libcurl
-        id: prepare_libcurl
-        env:
-          CURL_PATH: ${{ steps.get_libcurl.outputs.curl_path }}
-        run: |
-          cp $env:CURL_PATH/bin/libcurl-x64.dll ./build/bin/Release/libcurl-x64.dll
-
       - name: Tests
         id: server_integration_tests
         if: ${{ !matrix.disabled_on_pr || !github.event.pull_request }}
