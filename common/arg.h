@@ -78,3 +78,6 @@ bool common_params_parse(int argc, char ** argv, common_params & params, llama_e
 
 // function to be used by test-arg-parser
 common_params_context common_params_parser_init(common_params & params, llama_example ex, void(*print_usage)(int, char **) = nullptr);
+
+// get remote file content, returns <http_code, content>
+std::pair<long, std::vector<char>> common_remote_get_content(const std::string & url, const std::vector<std::string> & headers);
