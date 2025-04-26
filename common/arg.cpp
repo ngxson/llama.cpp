@@ -162,6 +162,10 @@ struct common_hf_file_res {
 
 #ifdef LLAMA_USE_CURL
 
+bool common_has_curl() {
+    return true;
+}
+
 #ifdef __linux__
 #include <linux/limits.h>
 #elif defined(_WIN32)
@@ -534,6 +538,7 @@ std::pair<long, std::vector<char>> common_remote_get_content(const std::string &
 
     curl_easy_setopt(curl.get(), CURLOPT_URL, url.c_str());
     curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 1L);
+    curl_easy_setopt(curl.get(), CURLOPT_FOLLOWLOCATION, 1L);
     typedef size_t(*CURLOPT_WRITEFUNCTION_PTR)(void * ptr, size_t size, size_t nmemb, void * data);
     auto write_callback = [](void * ptr, size_t size, size_t nmemb, void * data) -> size_t {
         auto data_vec = static_cast<std::vector<char> *>(data);
@@ -561,7 +566,7 @@ std::pair<long, std::vector<char>> common_remote_get_content(const std::string &
 
     if (res != CURLE_OK) {
         std::string error_msg = curl_easy_strerror(res);
-        throw std::runtime_error("error: cannot make GET request : " + error_msg);
+        throw std::runtime_error("error: cannot make GET request: " + error_msg);
     }
 
     long res_code;
@@ -641,6 +646,10 @@ static struct common_hf_file_res common_get_hf_file(const std::string & hf_repo_
 }
 
 #else
+
+bool common_has_curl() {
+    return false;
+}
 
 static bool common_download_file_single(const std::string &, const std::string &, const std::string &) {
     LOG_ERR("error: built without CURL, cannot download model from internet\n");
