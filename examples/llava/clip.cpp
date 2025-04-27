@@ -3122,23 +3122,43 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 // inspired from resampler of Qwen-VL:
                 //    -> https://huggingface.co/Qwen/Qwen-VL/tree/main
                 //    -> https://huggingface.co/Qwen/Qwen-VL/blob/0547ed36a86561e2e42fecec8fd0c4f6953e33c4/visual.py#L23
-                struct ggml_tensor * pos_embed = ggml_graph_get_tensor(gf, "pos_embed");
                 int embed_dim = clip_n_mmproj_embd(ctx);
 
                 // TODO @ngxson : this is very inefficient, can we do this using ggml_sin and ggml_cos?
                 auto pos_embed_t = get_2d_sincos_pos_embed(embed_dim, std::make_pair(pos_w, pos_h));
 
-                std::vector<float> pos_data(ggml_nelements(pos_embed));
-                float * data = pos_data.data();
+                std::vector<float> pos_embed(embed_dim * pos_w * pos_h);
                 for(int i = 0; i < pos_w * pos_h; ++i){
                     for(int j = 0; j < embed_dim; ++j){
-                        data[i * embed_dim + j] = pos_embed_t[i][j];
+                        pos_embed[i * embed_dim + j] = pos_embed_t[i][j];
                     }
                 }
 
-                ggml_backend_tensor_set(pos_embed, data, 0, ggml_nbytes(pos_embed));
+                set_input_f32("pos_embed", pos_embed);
             } break;
         case PROJECTOR_TYPE_QWEN2VL:
+            {
+                const int pw = image_size_width  / patch_size;
+                const int ph = image_size_height / patch_size;
+                std::vector<int> positions(num_positions * 4);
+
+                int ptr = 0;
+                for (int y = 0; y < ph; y += 2) {
+                    for (int x = 0; x < pw; x += 2) {
+                        for (int dy = 0; dy < 2; dy++) {
+                            for (int dx = 0; dx < 2; dx++) {
+                                positions[                  ptr] = y + dy;
+                                positions[    num_patches + ptr] = x + dx;
+                                positions[2 * num_patches + ptr] = y + dy;
+                                positions[3 * num_patches + ptr] = x + dx;
+                                ptr++;
+                            }
+                        }
+                    }
+                }
+
+                set_input_i32("positions", positions);
+            } break;
         case PROJECTOR_TYPE_QWEN25VL:
             {
                 // pw * ph = number of tokens output by ViT after apply patch merger
@@ -3154,10 +3174,6 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
 
                 if (use_window_attn) {
                     const int attn_window_size = 112;
-                    struct ggml_tensor * window_idx     = ggml_graph_get_tensor(gf, "window_idx");
-                    struct ggml_tensor * inv_window_idx = ggml_graph_get_tensor(gf, "inv_window_idx");
-                    struct ggml_tensor * window_mask    = ggml_graph_get_tensor(gf, "window_mask");
-
                     const int grid_window = attn_window_size / patch_size / merge_ratio;
                     int dst = 0;
                     // [num_vision_tokens, num_vision_tokens] attention mask tensor
@@ -3175,8 +3191,8 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                             for (int dy = 0; dy < win_h; dy++) {
                                 for (int dx = 0; dx < win_w; dx++) {
                                     const int src = (y + dy) * pw + (x + dx);
-                                    assert(src < (int)idx.size());
-                                    assert(dst < (int)inv_idx.size());
+                                    GGML_ASSERT(src < (int)idx.size());
+                                    GGML_ASSERT(dst < (int)inv_idx.size());
                                     idx    [src] = dst;
                                     inv_idx[dst] = src;
                                     dst++;
@@ -3194,40 +3210,37 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                         }
                     }
 
-                    ggml_backend_tensor_set(window_idx,     idx.data(),     0, ggml_nbytes(window_idx));
-                    ggml_backend_tensor_set(inv_window_idx, inv_idx.data(), 0, ggml_nbytes(inv_window_idx));
-                    ggml_backend_tensor_set(window_mask,    mask.data(),    0, ggml_nbytes(window_mask));
+                    set_input_i32("window_idx",     idx);
+                    set_input_i32("inv_window_idx", inv_idx);
+                    set_input_f32("window_mask",    mask);
                 } else {
-                    std::iota(idx.begin(), idx.end(), 0);
-                    // std::iota(inv_idx.begin(), inv_idx.end(), 0);
+                    for (int i = 0; i < ph * pw; i++) {
+                        idx[i] = i;
+                    }
                 }
 
-                struct ggml_tensor * positions = ggml_graph_get_tensor(gf, "positions");
                 const int mpow = merge_ratio * merge_ratio;
-                std::vector<int> positions_data(ggml_nelements(positions));
-                int * data = positions_data.data();
+                std::vector<int> positions(num_positions * 4);
 
                 int ptr = 0;
-                for (int y = 0; y < iph; y += merge_ratio)
-                {
-                    for (int x = 0; x < ipw; x += merge_ratio)
-                    {
+                for (int y = 0; y < iph; y += merge_ratio) {
+                    for (int x = 0; x < ipw; x += merge_ratio) {
                         for (int dy = 0; dy < 2; dy++) {
                             for (int dx = 0; dx < 2; dx++) {
                                 auto remap = idx[ptr / mpow];
-                                remap = remap * mpow + (ptr % mpow);
+                                remap = (remap * mpow) + (ptr % mpow);
 
-                                data[                  remap] = y + dy;
-                                data[    num_patches + remap] = x + dx;
-                                data[2 * num_patches + remap] = y + dy;
-                                data[3 * num_patches + remap] = x + dx;
+                                positions[                  remap] = y + dy;
+                                positions[    num_patches + remap] = x + dx;
+                                positions[2 * num_patches + remap] = y + dy;
+                                positions[3 * num_patches + remap] = x + dx;
                                 ptr++;
                             }
                         }
                     }
                 }
 
-                ggml_backend_tensor_set(positions, data, 0, ggml_nbytes(positions));
+                set_input_i32("positions", positions);
             } break;
         case PROJECTOR_TYPE_PIXTRAL:
             {
