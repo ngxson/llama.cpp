@@ -204,6 +204,13 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
         string_replace_all(prompt_modified, ctx->image_marker, marker_modified);
     }
 
+    else if (proj_type == PROJECTOR_TYPE_QWEN2VL || proj_type == PROJECTOR_TYPE_QWEN25VL) {
+        // <|vision_start|> ... (image embeddings) ... <|vision_end|>
+        marker_modified = "<|vision_start|>" + ctx->image_marker + "<|vision_end|>";
+        string_replace_all(prompt_modified, ctx->image_marker, marker_modified);
+
+    }
+
     // llava-1.5, llava-1.6, Yi-VL, Yi-34B, granite: don't need to add prefix and suffix
     // for glm-edge, we don't need to add because the tokens are already in the returned embeddings
 
@@ -445,14 +452,16 @@ size_t mtmd_helper_get_n_tokens(mtmd_input_chunks & chunks) {
 // helper struct to make working with embd batch easier
 // note: this will be removed after llama_batch_ext refactoring
 struct decode_embd_batch {
+    int n_pos_per_embd;
+    int n_mmproj_embd;
     std::vector<llama_pos>      pos;
     std::vector<int32_t>        n_seq_id;
     std::vector<llama_seq_id>   seq_id_0;
     std::vector<llama_seq_id *> seq_ids;
     std::vector<int8_t>         logits;
     llama_batch batch;
-    decode_embd_batch(float * embd, int32_t n_tokens, llama_pos pos_0, llama_seq_id seq_id) {
-        pos     .resize(n_tokens);
+    decode_embd_batch(float * embd, int32_t n_tokens, llama_pos pos_0, llama_seq_id seq_id, int n_pos_per_embd, int n_mmproj_embd) : n_pos_per_embd(n_pos_per_embd), n_mmproj_embd(n_mmproj_embd) {
+        pos     .resize(n_tokens * n_pos_per_embd);
         n_seq_id.resize(n_tokens);
         seq_ids .resize(n_tokens + 1);
         logits  .resize(n_tokens);
@@ -475,6 +484,18 @@ struct decode_embd_batch {
             batch.logits  [i] = false;
         }
     }
+
+    llama_batch get_view(int offset, int n_tokens) {
+        return {
+            /*n_tokens       =*/ n_tokens,
+            /*tokens         =*/ nullptr,
+            /*embd           =*/ batch.embd     + offset * n_mmproj_embd,
+            /*pos            =*/ batch.pos      + offset * n_pos_per_embd,
+            /*n_seq_id       =*/ batch.n_seq_id + offset,
+            /*seq_id         =*/ batch.seq_id   + offset,
+            /*logits         =*/ batch.logits   + offset,
+        };
+    }
 };
 
 int32_t mtmd_helper_eval(mtmd_context * ctx,
@@ -487,6 +508,7 @@ int32_t mtmd_helper_eval(mtmd_context * ctx,
     llama_pos n_past = pos0;
     llama_batch text_batch = llama_batch_init(n_batch, 0, 1);
     int n_mmproj_embd = clip_n_mmproj_embd(ctx->ctx_clip);
+    int n_pos_per_embd = mtmd_decode_use_mrope(ctx) ? 4 : 1;
 
     for (auto & chunk : chunks) {
         bool is_last = &chunk == &chunks.back();
@@ -534,6 +556,7 @@ int32_t mtmd_helper_eval(mtmd_context * ctx,
             int32_t i_batch = 0;
             int32_t n_img_batches = GGML_PAD(n_tokens, n_batch) / n_batch;
             float * embd = mtmd_get_output_embd(ctx);
+            decode_embd_batch batch_embd(embd, n_tokens, n_past, seq_id, n_pos_per_embd, n_mmproj_embd);
 
             if (mtmd_decode_use_non_causal(ctx)) {
                 llama_set_causal_attn(lctx, false);
@@ -541,15 +564,14 @@ int32_t mtmd_helper_eval(mtmd_context * ctx,
             }
 
             while (i_batch < n_img_batches) { // split into batches
-                int32_t pos_offset = i_batch*n_batch;
-                int32_t n_tokens_batch = std::min(n_batch, n_tokens - pos_offset);
-                float * embd_batch = embd + pos_offset*n_mmproj_embd;
-                decode_embd_batch batch_img(embd_batch, n_tokens_batch, n_past, 0);
+                int pos_offset = i_batch*n_batch;
+                int n_tokens_batch = std::min(n_batch, n_tokens - pos_offset);
+                llama_batch batch_embd_view = batch_embd.get_view(pos_offset, n_tokens_batch);
 
                 printf("decoding image batch %d/%d, n_tokens_batch = %d\n", i_batch+1, n_img_batches, n_tokens_batch);
 
                 int64_t t1 = ggml_time_ms();
-                ret = llama_decode(lctx, batch_img.batch);
+                ret = llama_decode(lctx, batch_embd_view);
                 if (ret != 0) {
                     LOG_ERR("failed to decode image\n");
                     llama_set_causal_attn(lctx, true); // restore causal attn
@@ -610,6 +632,10 @@ bool mtmd_decode_use_non_causal(mtmd_context * ctx) {
         return true;
     }
     return false;
+}
+
+bool mtmd_decode_use_mrope(mtmd_context * ctx) {
+    return ctx->use_mrope;
 }
 
 void mtmd_image_tokens_deleter::operator()(mtmd_image_tokens * val) {

@@ -114,6 +114,9 @@ MTMD_API float * mtmd_get_output_embd(mtmd_context * ctx);
 // whether we need to set non-causal mask before llama_decode
 MTMD_API bool mtmd_decode_use_non_causal(mtmd_context * ctx);
 
+// whether the current model use M-RoPE for llama_decode
+MTMD_API bool mtmd_decode_use_mrope(mtmd_context * ctx);
+
 
 
 //
