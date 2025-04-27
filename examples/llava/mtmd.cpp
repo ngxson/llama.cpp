@@ -460,13 +460,12 @@ struct decode_embd_batch {
     std::vector<llama_seq_id *> seq_ids;
     std::vector<int8_t>         logits;
     llama_batch batch;
-    decode_embd_batch(float * embd, int32_t n_tokens, llama_pos pos_0, llama_seq_id seq_id, int n_pos_per_embd, int n_mmproj_embd) : n_pos_per_embd(n_pos_per_embd), n_mmproj_embd(n_mmproj_embd) {
+    decode_embd_batch(float * embd, int32_t n_tokens, int n_pos_per_embd, int n_mmproj_embd) : n_pos_per_embd(n_pos_per_embd), n_mmproj_embd(n_mmproj_embd) {
         pos     .resize(n_tokens * n_pos_per_embd);
         n_seq_id.resize(n_tokens);
         seq_ids .resize(n_tokens + 1);
         logits  .resize(n_tokens);
         seq_id_0.resize(1);
-        seq_id_0[0] = seq_id;
         seq_ids [n_tokens] = nullptr;
         batch = {
             /*n_tokens       =*/ n_tokens,
@@ -477,12 +476,21 @@ struct decode_embd_batch {
             /*seq_id         =*/ seq_ids.data(),
             /*logits         =*/ logits.data(),
         };
-        for (int i = 0; i < n_tokens; i++) {
+    }
+
+    void set_position_normal(llama_pos pos_0, llama_seq_id seq_id) {
+        seq_id_0[0] = seq_id;
+        for (int i = 0; i < batch.n_tokens; i++) {
             batch.pos     [i] = pos_0 + i;
             batch.n_seq_id[i] = 1;
             batch.seq_id  [i] = seq_id_0.data();
             batch.logits  [i] = false;
         }
+    }
+
+    void set_position_mrope(llama_pos pos_0, int nx, int ny, llama_seq_id seq_id) {
+        seq_id_0[0] = seq_id;
+        GGML_ABORT("TODO");
     }
 
     llama_batch get_view(int offset, int n_tokens) {
@@ -556,7 +564,15 @@ int32_t mtmd_helper_eval(mtmd_context * ctx,
             int32_t i_batch = 0;
             int32_t n_img_batches = GGML_PAD(n_tokens, n_batch) / n_batch;
             float * embd = mtmd_get_output_embd(ctx);
-            decode_embd_batch batch_embd(embd, n_tokens, n_past, seq_id, n_pos_per_embd, n_mmproj_embd);
+            decode_embd_batch batch_embd(embd, n_tokens, n_pos_per_embd, n_mmproj_embd);
+
+            if (mtmd_decode_use_mrope(ctx)) {
+                int nx = mtmd_image_tokens_get_nx(chunk.tokens_image.get());
+                int ny = mtmd_image_tokens_get_ny(chunk.tokens_image.get());
+                batch_embd.set_position_mrope(pos0, nx, ny, seq_id);
+            } else {
+                batch_embd.set_position_normal(pos0, seq_id);
+            }
 
             if (mtmd_decode_use_non_causal(ctx)) {
                 llama_set_causal_attn(lctx, false);
