@@ -40,11 +40,14 @@ struct mtmd_context {
     llama_token tok_sli_img_end   = LLAMA_TOKEN_NULL; // single slice
     llama_token tok_row_end       = LLAMA_TOKEN_NULL; // end of row
 
+    bool use_mrope = false; // for Qwen2VL, we need to use M-RoPE
+
     // TODO @ngxson : add timings
 
     mtmd_context(const char * mmproj_fname,
                    const llama_model * text_model,
                    const mtmd_context_params & ctx_params) :
+        text_model   (text_model),
         print_timings(ctx_params.print_timings),
         n_threads    (ctx_params.n_threads),
         image_marker (ctx_params.image_marker)
@@ -56,9 +59,8 @@ struct mtmd_context {
         if (!ctx_clip) {
             throw std::runtime_error(string_format("Failed to load CLIP model from %s\n", mmproj_fname));
         }
-        this->text_model = text_model;
 
-        GGML_ASSERT(!clip_is_qwen2vl(ctx_clip) && "Qwen2VL model is not supported yet, use llama-qwen2vl-cli instead");
+        use_mrope = clip_is_qwen2vl(ctx_clip);
 
         int minicpmv_version = clip_is_minicpmv(ctx_clip);
         if (minicpmv_version == 2) {
@@ -229,7 +231,7 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
 
         for (auto & entry : batch_f32.entries) {
             mtmd_image_tokens_ptr image_tokens(new mtmd_image_tokens);
-            image_tokens->nx = clip_n_patches_by_img(ctx->ctx_clip, entry.get());
+            image_tokens->nx = clip_n_output_tokens(ctx->ctx_clip, entry.get());
             image_tokens->ny = 1;
             image_tokens->batch_f32.entries.push_back(std::move(entry));
             image_tokens->id = id;
@@ -325,12 +327,19 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
             } else {
                 size_t n_tokens = 0;
                 for (const auto & entry : batch_f32.entries) {
-                    n_tokens += clip_n_patches_by_img(ctx->ctx_clip, entry.get());
+                    n_tokens += clip_n_output_tokens(ctx->ctx_clip, entry.get());
                 }
 
                 mtmd_image_tokens_ptr image_tokens(new mtmd_image_tokens);
-                image_tokens->nx = n_tokens;
-                image_tokens->ny = 1; // TODO
+                if (ctx->use_mrope) {
+                    // for Qwen2VL, we need this information for M-RoPE decoding positions
+                    image_tokens->nx = clip_n_output_tokens_x(ctx->ctx_clip, batch_f32.entries[0].get());
+                    image_tokens->ny = clip_n_output_tokens_y(ctx->ctx_clip, batch_f32.entries[0].get());
+                } else {
+                    // other models, we only need the total number of tokens
+                    image_tokens->nx = n_tokens;
+                    image_tokens->ny = 1;
+                }
                 image_tokens->batch_f32 = std::move(batch_f32);
                 image_tokens->id = bitmaps[i_img].id; // optional
 
@@ -397,7 +406,7 @@ int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) 
         // TODO @ngxson : llava does not support batched encoding ; this should be fixed inside clip_image_batch_encode()
         const auto & entries = image_tokens->batch_f32.entries;
         for (size_t i = 0; i < entries.size(); i++) {
-            int n_tokens_per_image = clip_n_patches_by_img(ctx->ctx_clip, entries[i].get());
+            int n_tokens_per_image = clip_n_output_tokens(ctx->ctx_clip, entries[i].get());
             ok = clip_image_encode(
                 ctx->ctx_clip,
                 ctx->n_threads,
