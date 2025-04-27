@@ -1114,15 +1114,8 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
     if (ctx->proj_type == PROJECTOR_TYPE_MINICPMV) {
         int pos_w = image_size_width/patch_size;
         int pos_h = image_size_height/patch_size;
-        if (ctx->minicpmv_version == 2) {
-            pos_embed = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, 4096, pos_w * pos_h, 1);
-        }
-        else if (ctx->minicpmv_version == 3) {
-            pos_embed = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, 3584, pos_w * pos_h, 1);
-        }
-        else if (ctx->minicpmv_version == 4) {
-            pos_embed = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, 3584, pos_w * pos_h, 1);
-        }
+        int n_output_dim = clip_n_mmproj_embd(ctx);
+        pos_embed = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, n_output_dim, pos_w * pos_h, 1);
         ggml_set_name(pos_embed, "pos_embed");
         ggml_set_input(pos_embed);
     }
@@ -1460,23 +1453,17 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
         }
 
         { // attention
-            int hidden_size = 4096;
+            int hidden_size = clip_n_mmproj_embd(ctx);
             const int d_head = 128;
             int n_head = hidden_size/d_head;
             int num_query = 96;
             if (ctx->minicpmv_version == 2) {
-                hidden_size = 4096;
-                n_head = hidden_size/d_head;
                 num_query = 96;
             }
             else if (ctx->minicpmv_version == 3) {
-                hidden_size = 3584;
-                n_head = hidden_size/d_head;
                 num_query = 64;
             }
             else if (ctx->minicpmv_version == 4) {
-                hidden_size = 3584;
-                n_head = hidden_size/d_head;
                 num_query = 64;
             }
 
@@ -3136,19 +3123,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 //    -> https://huggingface.co/Qwen/Qwen-VL/tree/main
                 //    -> https://huggingface.co/Qwen/Qwen-VL/blob/0547ed36a86561e2e42fecec8fd0c4f6953e33c4/visual.py#L23
                 struct ggml_tensor * pos_embed = ggml_graph_get_tensor(gf, "pos_embed");
-                int embed_dim = 4096;
-                if (ctx->minicpmv_version == 2) {
-                    embed_dim = 4096;
-                }
-                else if (ctx->minicpmv_version == 3) {
-                    embed_dim = 3584;
-                }
-                else if (ctx->minicpmv_version == 4) {
-                    embed_dim = 3584;
-                }
-                else {
-                    GGML_ABORT("Unknown minicpmv version");
-                }
+                int embed_dim = clip_n_mmproj_embd(ctx);
 
                 // TODO @ngxson : this is very inefficient, can we do this using ggml_sin and ggml_cos?
                 auto pos_embed_t = get_2d_sincos_pos_embed(embed_dim, std::make_pair(pos_w, pos_h));
