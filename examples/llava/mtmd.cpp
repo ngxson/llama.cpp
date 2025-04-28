@@ -128,6 +128,7 @@ struct mtmd_image_tokens_data {
 struct mtmd_image_tokens {
     uint32_t nx; // number of tokens in x direction
     uint32_t ny; // number of tokens in y direction
+    bool use_mrope_pos = false; // use M-RoPE position counting (the whole image is 1 temporal position)
     uint32_t n_tokens() const { return nx * ny; }
     clip_image_f32_batch batch_f32; // preprocessed image patches
     std::string id; // optional user-defined ID, useful for KV cache tracking
@@ -342,6 +343,7 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                     // for Qwen2VL, we need this information for M-RoPE decoding positions
                     image_tokens->nx = clip_n_output_tokens_x(ctx->ctx_clip, batch_f32.entries[0].get());
                     image_tokens->ny = clip_n_output_tokens_y(ctx->ctx_clip, batch_f32.entries[0].get());
+                    image_tokens->use_mrope_pos = true;
                 } else {
                     // other models, we only need the total number of tokens
                     image_tokens->nx = n_tokens;
@@ -396,6 +398,13 @@ std::string mtmd_image_tokens_get_id(const mtmd_image_tokens * image_tokens) {
     return image_tokens->id;
 }
 
+llama_pos mtmd_image_tokens_get_n_pos(const mtmd_image_tokens * image_tokens) {
+    if (image_tokens->use_mrope_pos) {
+        return 1; // for M-RoPE, the whole image is 1 in temporal dimension
+    }
+    return image_tokens->n_tokens();
+}
+
 int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) {
     int n_mmproj_embd = clip_n_mmproj_embd(ctx->ctx_clip);
     ctx->image_embd_v.resize(image_tokens->n_tokens() * n_mmproj_embd);
@@ -441,12 +450,26 @@ size_t mtmd_helper_get_n_tokens(mtmd_input_chunks & chunks) {
         if (chunk.type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
             n_tokens += chunk.tokens_text.size();
         } else if (chunk.type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
-            n_tokens += chunk.tokens_image->n_tokens();
+            n_tokens += mtmd_image_tokens_get_n_tokens(chunk.tokens_image.get());
         } else {
             GGML_ASSERT(false && "chunk type not supported");
         }
     }
     return n_tokens;
+}
+
+llama_pos mtmd_helper_get_n_pos(mtmd_input_chunks & chunks) {
+    llama_pos n_pos = 0;
+    for (auto & chunk : chunks) {
+        if (chunk.type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
+            n_pos += chunk.tokens_text.size();
+        } else if (chunk.type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+            n_pos += mtmd_image_tokens_get_n_pos(chunk.tokens_image.get());
+        } else {
+            GGML_ASSERT(false && "chunk type not supported");
+        }
+    }
+    return n_pos;
 }
 
 // helper struct to make working with embd batch easier
@@ -455,6 +478,7 @@ struct decode_embd_batch {
     int n_pos_per_embd;
     int n_mmproj_embd;
     std::vector<llama_pos>      pos;
+    std::vector<llama_pos>      pos_view; // used by mrope
     std::vector<int32_t>        n_seq_id;
     std::vector<llama_seq_id>   seq_id_0;
     std::vector<llama_seq_id *> seq_ids;
@@ -489,16 +513,46 @@ struct decode_embd_batch {
     }
 
     void set_position_mrope(llama_pos pos_0, int nx, int ny, llama_seq_id seq_id) {
+        GGML_ASSERT(n_pos_per_embd == 4);
         seq_id_0[0] = seq_id;
-        GGML_ABORT("TODO");
+        for (int y = 0; y < ny; y++) {
+            for (int x = 0; x < nx; x++) {
+                int i = y * nx + x;
+                pos[i                     ] = pos_0;
+                pos[i + batch.n_tokens    ] = pos_0 + y;
+                pos[i + batch.n_tokens * 2] = pos_0 + x;
+                pos[i + batch.n_tokens * 3] = 0; // last pos dim is unused
+            }
+        }
+        for (int i = 0; i < batch.n_tokens; i++) {
+            batch.n_seq_id[i] = 1;
+            batch.seq_id  [i] = seq_id_0.data();
+            batch.logits  [i] = false;
+        }
     }
 
     llama_batch get_view(int offset, int n_tokens) {
+        llama_pos * pos_ptr;
+        pos_view.clear();
+        pos_view.resize(n_tokens * n_pos_per_embd);
+        if (n_pos_per_embd > 1) {
+            // mrope
+            // for example, with layout of src: 1234...1234...1234...1234...
+            //       offset 2 will give us dst: 34...34...34...34...
+            for (int i = 0; i < n_pos_per_embd; i++) {
+                auto src = pos.begin() + i * batch.n_tokens + offset;
+                pos_view.insert(pos_view.end(), src, src + n_tokens);
+            }
+            pos_ptr = pos_view.data();
+        } else {
+            // normal
+            pos_ptr = pos.data() + offset;
+        }
         return {
             /*n_tokens       =*/ n_tokens,
             /*tokens         =*/ nullptr,
             /*embd           =*/ batch.embd     + offset * n_mmproj_embd,
-            /*pos            =*/ batch.pos      + offset * n_pos_per_embd,
+            /*pos            =*/ pos_ptr,
             /*n_seq_id       =*/ batch.n_seq_id + offset,
             /*seq_id         =*/ batch.seq_id   + offset,
             /*logits         =*/ batch.logits   + offset,
@@ -566,12 +620,13 @@ int32_t mtmd_helper_eval(mtmd_context * ctx,
             float * embd = mtmd_get_output_embd(ctx);
             decode_embd_batch batch_embd(embd, n_tokens, n_pos_per_embd, n_mmproj_embd);
 
+            const int nx = mtmd_image_tokens_get_nx(chunk.tokens_image.get());
+            const int ny = mtmd_image_tokens_get_ny(chunk.tokens_image.get());
+
             if (mtmd_decode_use_mrope(ctx)) {
-                int nx = mtmd_image_tokens_get_nx(chunk.tokens_image.get());
-                int ny = mtmd_image_tokens_get_ny(chunk.tokens_image.get());
-                batch_embd.set_position_mrope(pos0, nx, ny, seq_id);
+                batch_embd.set_position_mrope(n_past, nx, ny, seq_id);
             } else {
-                batch_embd.set_position_normal(pos0, seq_id);
+                batch_embd.set_position_normal(n_past, seq_id);
             }
 
             if (mtmd_decode_use_non_causal(ctx)) {
@@ -584,7 +639,7 @@ int32_t mtmd_helper_eval(mtmd_context * ctx,
                 int n_tokens_batch = std::min(n_batch, n_tokens - pos_offset);
                 llama_batch batch_embd_view = batch_embd.get_view(pos_offset, n_tokens_batch);
 
-                printf("decoding image batch %d/%d, n_tokens_batch = %d\n", i_batch+1, n_img_batches, n_tokens_batch);
+                LOG_INF("decoding image batch %d/%d, n_tokens_batch = %d\n", i_batch+1, n_img_batches, n_tokens_batch);
 
                 int64_t t1 = ggml_time_ms();
                 ret = llama_decode(lctx, batch_embd_view);
@@ -600,8 +655,10 @@ int32_t mtmd_helper_eval(mtmd_context * ctx,
                 }
 
                 i_batch++;
-                n_past += n_tokens_batch;
             }
+
+            // for mrope, one image is one single **temporal** position
+            n_past += mtmd_decode_use_mrope(ctx) ? 1 : n_tokens;
 
             if (mtmd_decode_use_non_causal(ctx)) {
                 llama_set_causal_attn(lctx, true);
