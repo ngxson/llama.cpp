@@ -56,8 +56,8 @@ void llm_graph_input_pos::set_input(const llama_ubatch * ubatch) {
         const int64_t n_tokens = ubatch->n_tokens;
 
         if (ubatch->token && n_pos_per_embd == 4) {
-            // in case we're using M-RoPE with text tokens, convert the 1D positions to 3D
-            // the other dimensions are the same, except for 4th dim which will be all 0
+            // in case we're using M-RoPE with text tokens, convert the 1D positions to 4D
+            // the 3 first dims are the same, and 4th dim is all 0
             std::vector<llama_pos> pos_data(n_tokens*n_pos_per_embd, 0);
             // copy the first dimension
             for (int i = 0; i < n_tokens; ++i) {
