@@ -82,7 +82,7 @@ void llm_graph_input_attn_temp::set_input(const llama_ubatch * ubatch) {
             ) * f_attn_temp_scale + 1.0;
         }
 
-        ggml_backend_tensor_set(attn_scale, attn_scale_data.data(), 0, n_tokens*n_pos_per_embd*ggml_element_size(attn_scale));
+        ggml_backend_tensor_set(attn_scale, attn_scale_data.data(), 0, n_tokens*ggml_element_size(attn_scale));
     }
 }
 
@@ -1042,12 +1042,12 @@ ggml_tensor * llm_graph_context::build_inp_pos() const {
 }
 
 ggml_tensor * llm_graph_context::build_inp_attn_scale() const {
-    auto inp = std::make_unique<llm_graph_input_attn_temp>(n_pos_per_embd(), hparams.n_attn_temp_floor_scale, hparams.f_attn_temp_scale);
+    auto inp = std::make_unique<llm_graph_input_attn_temp>(hparams.n_attn_temp_floor_scale, hparams.f_attn_temp_scale);
 
     auto & cur = inp->attn_scale;
 
     // this need to be 1x1xN for broadcasting
-    cur = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, 1, 1, n_tokens*n_pos_per_embd());
+    cur = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, 1, 1, n_tokens);
     ggml_set_input(cur);
 
     res->add_input(std::move(inp));
