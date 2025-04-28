@@ -3026,7 +3026,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
     const int patch_size    = hparams.patch_size;
     const int num_patches   = ((image_size_width / patch_size) * (image_size_height / patch_size));
     const int num_positions = num_patches + (model.class_embedding ? 1 : 0);
-    const int pos_w = ctx->load_image_size.width / patch_size;
+    const int pos_w = ctx->load_image_size.width  / patch_size;
     const int pos_h = ctx->load_image_size.height / patch_size;
 
     const bool use_window_attn = hparams.n_wa_pattern > 0; // for qwen2.5vl
@@ -3138,13 +3138,13 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
             } break;
         case PROJECTOR_TYPE_QWEN2VL:
             {
+                const int merge_ratio = 2;
                 const int pw = image_size_width  / patch_size;
                 const int ph = image_size_height / patch_size;
                 std::vector<int> positions(num_positions * 4);
-
                 int ptr = 0;
-                for (int y = 0; y < ph; y += 2) {
-                    for (int x = 0; x < pw; x += 2) {
+                for (int y = 0; y < ph; y += merge_ratio) {
+                    for (int x = 0; x < pw; x += merge_ratio) {
                         for (int dy = 0; dy < 2; dy++) {
                             for (int dx = 0; dx < 2; dx++) {
                                 positions[                  ptr] = y + dy;
@@ -3180,10 +3180,8 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                     std::vector<float> mask(pow(ipw * iph, 2), std::numeric_limits<float>::lowest());
                     int mask_row = 0;
 
-                    for (int y = 0; y < ph; y += grid_window)
-                    {
-                        for (int x = 0; x < pw; x += grid_window)
-                        {
+                    for (int y = 0; y < ph; y += grid_window) {
+                        for (int x = 0; x < pw; x += grid_window) {
                             const int win_h = std::min(grid_window, ph - y);
                             const int win_w = std::min(grid_window, pw - x);
                             const int dst_0 = dst;
