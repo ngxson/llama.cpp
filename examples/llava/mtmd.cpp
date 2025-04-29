@@ -21,6 +21,16 @@ enum mtmd_slice_tmpl {
     // TODO @ngxson : add support for idefics (SmolVLM)
 };
 
+mtmd_context_params mtmd_context_params_default() {
+    mtmd_context_params params;
+    params.use_gpu = true;
+    params.print_timings = true;
+    params.n_threads = 4;
+    params.verbosity = GGML_LOG_LEVEL_INFO;
+    params.image_marker = MTMD_DEFAULT_IMAGE_MARKER;
+    return params;
+}
+
 struct mtmd_context {
     struct clip_ctx * ctx_clip;
     const struct llama_model * text_model;
@@ -411,7 +421,7 @@ float * mtmd_get_output_embd(mtmd_context * ctx) {
     return ctx->image_embd_v.data();
 }
 
-size_t mtmd_helper_get_n_tokens(mtmd_input_chunks & chunks) {
+size_t mtmd_helper_get_n_tokens(std::vector<mtmd_input_chunk> & chunks) {
     size_t n_tokens = 0;
     for (auto & chunk : chunks) {
         if (chunk.type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
@@ -462,7 +472,7 @@ struct decode_embd_batch {
 
 int32_t mtmd_helper_eval(mtmd_context * ctx,
         llama_context * lctx,
-        mtmd_input_chunks & chunks,
+        std::vector<mtmd_input_chunk> & chunks,
         llama_pos pos0,
         llama_seq_id seq_id,
         int32_t n_batch) {

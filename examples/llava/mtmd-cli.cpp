@@ -112,12 +112,12 @@ struct mtmd_cli_context {
 
     void init_vision_context(common_params & params) {
         const char * clip_path = params.mmproj.path.c_str();
-        ctx_vision.reset(mtmd_init_from_file(clip_path, model, mtmd_context_params{
-            /* use_gpu */   params.mmproj_use_gpu,
-            /* timings */   true,
-            /* n_threads */ params.cpuparams.n_threads,
-            /* verbosity */ params.verbosity > 0 ? GGML_LOG_LEVEL_DEBUG : GGML_LOG_LEVEL_INFO,
-        }));
+        mtmd_context_params mparams = mtmd_context_params_default();
+        mparams.use_gpu = params.mmproj_use_gpu;
+        mparams.print_timings = true;
+        mparams.n_threads = params.cpuparams.n_threads;
+        mparams.verbosity = params.verbosity > 0 ? GGML_LOG_LEVEL_DEBUG : GGML_LOG_LEVEL_INFO;
+        ctx_vision.reset(mtmd_init_from_file(clip_path, model, mparams));
         if (!ctx_vision.get()) {
             LOG_ERR("Failed to load vision model from %s\n", clip_path);
             exit(1);
@@ -228,7 +228,7 @@ static int eval_message(mtmd_cli_context & ctx, common_chat_msg & msg, std::vect
     text.text          = formatted_chat.prompt;
     text.add_special   = add_bos;
     text.parse_special = true;
-    mtmd_input_chunks chunks;
+    std::vector<mtmd_input_chunk> chunks;
 
     if (g_is_interrupted) return 0;
 
