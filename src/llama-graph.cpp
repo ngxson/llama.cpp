@@ -55,13 +55,16 @@ void llm_graph_input_pos::set_input(const llama_ubatch * ubatch) {
     if (ubatch->pos && pos) {
         const int64_t n_tokens = ubatch->n_tokens;
 
-        if (ubatch->token && n_pos_per_embd > 1) {
+        if (ubatch->token && n_pos_per_embd == 4) {
             // in case we're using M-RoPE with text tokens, convert the 1D positions to 4D
-            // the other dimensions are all 0, they are unused for text tokens
-            std::vector<llama_pos> pos_data(n_tokens*n_pos_per_embd, 0);
+            // the 3 first dims are the same, and 4th dim is all 0
+            std::vector<llama_pos> pos_data(n_tokens*n_pos_per_embd);
             // copy the first dimension
             for (int i = 0; i < n_tokens; ++i) {
-                pos_data[i] = ubatch->pos[i];
+                pos_data[               i] = ubatch->pos[i];
+                pos_data[    n_tokens + i] = ubatch->pos[i];
+                pos_data[2 * n_tokens + i] = ubatch->pos[i];
+                pos_data[3 * n_tokens + i] = 0; // 4th dim is 0
             }
             ggml_backend_tensor_set(pos, pos_data.data(), 0, pos_data.size()*ggml_element_size(pos));
         } else {
@@ -925,28 +928,35 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
     ggml_tensor * up = build_lora_mm_id(up_exps, cur, selected_experts); // [n_ff, n_expert_used, n_tokens]
     cb(up, "ffn_moe_up", il);
 
-    ggml_tensor * gate = build_lora_mm_id(gate_exps, cur, selected_experts); // [n_ff, n_expert_used, n_tokens]
-    cb(gate, "ffn_moe_gate", il);
+    ggml_tensor * experts = nullptr;
+    if (gate_exps) {
+        cur = build_lora_mm_id(gate_exps, cur, selected_experts); // [n_ff, n_expert_used, n_tokens]
+        cb(cur, "ffn_moe_gate", il);
+    } else {
+        cur = up;
+    }
 
     switch (type_op) {
         case LLM_FFN_SILU:
             {
-                gate = ggml_silu(ctx0, gate);
-                cb(gate, "ffn_moe_silu", il);
+                cur = ggml_silu(ctx0, cur);
+                cb(cur, "ffn_moe_silu", il);
             } break;
         case LLM_FFN_GELU:
             {
-                gate = ggml_gelu(ctx0, gate);
-                cb(gate, "ffn_moe_gelu", il);
+                cur = ggml_gelu(ctx0, cur);
+                cb(cur, "ffn_moe_gelu", il);
             } break;
         default:
             GGML_ABORT("fatal error");
     }
 
-    ggml_tensor * par = ggml_mul(ctx0, up, gate); // [n_ff, n_expert_used, n_tokens]
-    cb(par, "ffn_moe_gate_par", il);
+    if (gate_exps) {
+        cur = ggml_mul(ctx0, cur, up); // [n_ff, n_expert_used, n_tokens]
+        cb(cur, "ffn_moe_gate_par", il);
+    }
 
-    ggml_tensor * experts = build_lora_mm_id(down_exps, par, selected_experts); // [n_embd, n_expert_used, n_tokens]
+    experts = build_lora_mm_id(down_exps, cur, selected_experts); // [n_embd, n_expert_used, n_tokens]
     cb(experts, "ffn_moe_down", il);
 
     if (!weight_before_ffn) {

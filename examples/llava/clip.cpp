@@ -1574,7 +1574,7 @@ struct clip_model_loader {
     clip_ctx & ctx_clip;
     std::string fname;
 
-    size_t model_size; // in bytes
+    size_t model_size = 0; // in bytes
 
     // TODO @ngxson : we should not pass clip_ctx here, it should be clip_vision_model
     clip_model_loader(const char * fname, clip_ctx & ctx_clip) : ctx_clip(ctx_clip), fname(fname) {
@@ -1748,6 +1748,8 @@ struct clip_model_loader {
             LOG_INF("%s: minicpmv_version:   %d\n", __func__, ctx_clip.minicpmv_version);
             LOG_INF("%s: proj_scale_factor:  %d\n", __func__, hparams.proj_scale_factor);
             LOG_INF("%s: n_wa_pattern:       %d\n", __func__, hparams.n_wa_pattern);
+            LOG_INF("%s: use_silu:           %d\n", __func__, ctx_clip.use_silu);
+            LOG_INF("%s: use_gelu:           %d\n", __func__, ctx_clip.use_gelu);
             LOG_INF("%s: model size:         %.2f MiB\n", __func__, model_size / 1024.0 / 1024.0);
             LOG_INF("%s: metadata size:      %.2f MiB\n", __func__, ggml_get_mem_size(ctx_meta.get()) / 1024.0 / 1024.0);
         }
