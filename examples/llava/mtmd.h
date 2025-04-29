@@ -73,7 +73,7 @@ struct mtmd_context_params {
     const char * image_marker;
 };
 
-MTMD_API mtmd_context_params mtmd_context_params_default();
+MTMD_API struct mtmd_context_params mtmd_context_params_default(void);
 
 // initialize the mtmd context
 // return nullptr on failure
@@ -111,7 +111,7 @@ MTMD_API void         mtmd_bitmap_set_id  (mtmd_bitmap * bitmap, const char * id
 //
 // this is simply a list of mtmd_input_chunk
 // the elements can only be populated via mtmd_tokenize()
-MTMD_API mtmd_input_chunks * mtmd_input_chunks_init();
+MTMD_API mtmd_input_chunks * mtmd_input_chunks_init(void);
 MTMD_API size_t              mtmd_input_chunks_size(mtmd_input_chunks * chunks);
 MTMD_API mtmd_input_chunk *  mtmd_input_chunks_get (mtmd_input_chunks * chunks, size_t idx);
 MTMD_API void                mtmd_input_chunks_free(mtmd_input_chunks * chunks);
@@ -227,6 +227,9 @@ MTMD_API int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
                                                llama_pos * new_n_past);
 
 /////////////////////////////////////////
+
+// test function, to be used in test-mtmd-c-api.c
+MTMD_API mtmd_input_chunks * mtmd_test_create_input_chunks(void);
 
 #ifdef __cplusplus
 } // extern "C"
