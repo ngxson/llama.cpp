@@ -63,7 +63,7 @@ static void sigint_handler(int signo) {
 #endif
 
 struct mtmd_cli_context {
-    mtmd_context_ptr ctx_vision;
+    mtmd::context_ptr ctx_vision;
     common_init_result llama_init;
 
     llama_model       * model;
@@ -173,7 +173,7 @@ static int generate_response(mtmd_cli_context & ctx, common_sampler * smpl, int 
 }
 
 static int eval_message(mtmd_cli_context & ctx, common_chat_msg & msg, std::vector<std::string> & images_fname, bool add_bos = false) {
-    std::vector<mtmd_bitmap> bitmaps;
+    std::vector<mtmd_bitmap *> bitmaps;
 
     common_chat_templates_inputs tmpl_inputs;
     tmpl_inputs.messages = {msg};
@@ -183,8 +183,8 @@ static int eval_message(mtmd_cli_context & ctx, common_chat_msg & msg, std::vect
     LOG_DBG("formatted_chat.prompt: %s\n", formatted_chat.prompt.c_str());
 
     for (auto & fname : images_fname) {
-        mtmd_bitmap bitmap;
-        if (mtmd_helper_bitmap_init_from_file(fname.c_str(), bitmap)) {
+        mtmd_bitmap * bitmap = mtmd_helper_bitmap_init_from_file(fname.c_str());
+        if (!bitmap) {
             LOG_ERR("Unable to load image %s\n", fname.c_str());
             return 2; // image not found
         }
@@ -192,25 +192,37 @@ static int eval_message(mtmd_cli_context & ctx, common_chat_msg & msg, std::vect
     }
 
     mtmd_input_text text;
-    text.text          = formatted_chat.prompt;
+    text.text          = formatted_chat.prompt.c_str();
     text.add_special   = add_bos;
     text.parse_special = true;
-    std::vector<mtmd_input_chunk> chunks;
 
     if (g_is_interrupted) return 0;
 
-    int32_t res = mtmd_tokenize(ctx.ctx_vision.get(), chunks, text, bitmaps);
+    mtmd::input_chunks chunks;
+    int32_t res = mtmd_tokenize(ctx.ctx_vision.get(),
+                        chunks.ptr.get(), // output
+                        &text, // text
+                        bitmaps.data(), // bitmaps
+                        bitmaps.size());
     if (res != 0) {
         LOG_ERR("Unable to tokenize prompt, res = %d\n", res);
         return 1;
     }
 
-    if (mtmd_helper_eval(ctx.ctx_vision.get(), ctx.lctx, chunks, ctx.n_past, 0, ctx.n_batch)) {
+    llama_pos new_n_past;
+    if (mtmd_helper_eval_chunks(ctx.ctx_vision.get(),
+                ctx.lctx, // lctx
+                chunks.ptr.get(), // chunks
+                ctx.n_past, // n_past
+                0, // seq_id
+                ctx.n_batch, // n_batch
+                true, // logits_last
+                &new_n_past)) {
         LOG_ERR("Unable to eval prompt\n");
         return 1;
     }
 
-    ctx.n_past += mtmd_helper_get_n_pos(chunks);
+    ctx.n_past = new_n_past;
 
     return 0;
 }
@@ -241,7 +253,7 @@ int main(int argc, char ** argv) {
     struct common_sampler * smpl = common_sampler_init(ctx.model, params.sampling);
     int n_predict = params.n_predict < 0 ? INT_MAX : params.n_predict;
 
-    // ctrl+C handling
+    // Ctrl+C handling
     {
 #if defined (__unix__) || (defined (__APPLE__) && defined (__MACH__))
         struct sigaction sigint_action;
