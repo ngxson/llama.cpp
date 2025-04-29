@@ -55,7 +55,6 @@ struct mtmd_input_text {
 
 //
 // C API
-// this is made to closely resemble the C++ API
 //
 
 typedef struct mtmd_context      mtmd_context;
@@ -211,11 +210,7 @@ MTMD_API int32_t mtmd_helper_eval_chunks(mtmd_context * ctx,
                                          bool logits_last,
                                          llama_pos * new_n_past);
 
-// helper function to evaluate a single chunk
-// 1. run llama_decode() on text chunks
-// 2. run mtmd_encode() on image chunks, then mtmd_get_output_embd() and then llama_decode()
-// if any of the mtmd_encode() or llama_decode() calls return non-zero, stop and forward the error
-// otherwise, returns 0 on success
+// works like mtmd_helper_eval_chunks(), but only for a single chunk
 // this function is NOT thread-safe
 MTMD_API int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
                                                struct llama_context * lctx,
