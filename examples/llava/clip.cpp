@@ -2829,10 +2829,10 @@ void clip_free(clip_ctx * ctx) {
 size_t clip_embd_nbytes(const struct clip_ctx * ctx) {
     const int32_t nx = ctx->vision_model.hparams.image_size;
     const int32_t ny = ctx->vision_model.hparams.image_size;
-    return clip_embd_nbytes_by_img(ctx, ny, nx);
+    return clip_embd_nbytes_by_img(ctx, nx, ny);
 }
 
-size_t clip_embd_nbytes_by_img(const struct clip_ctx * ctx, int img_h, int img_w) {
+size_t clip_embd_nbytes_by_img(const struct clip_ctx * ctx, int img_w, int img_h) {
     clip_image_f32 img;
     img.nx = img_w;
     img.ny = img_h;

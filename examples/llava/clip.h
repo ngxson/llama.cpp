@@ -47,7 +47,7 @@ CLIP_API struct clip_ctx * clip_init(const char * fname, struct clip_context_par
 CLIP_API void clip_free(struct clip_ctx * ctx);
 
 CLIP_API size_t clip_embd_nbytes(const struct clip_ctx * ctx);
-CLIP_API size_t clip_embd_nbytes_by_img(const struct clip_ctx * ctx, int img_h, int img_w);
+CLIP_API size_t clip_embd_nbytes_by_img(const struct clip_ctx * ctx, int img_w, int img_h);
 
 CLIP_API int32_t clip_get_image_size (const struct clip_ctx * ctx);
 CLIP_API int32_t clip_get_patch_size (const struct clip_ctx * ctx);
