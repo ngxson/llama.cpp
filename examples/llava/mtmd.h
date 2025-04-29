@@ -257,7 +257,9 @@ using input_chunks_ptr = std::unique_ptr<mtmd_input_chunks, mtmd_input_chunks_de
 
 struct bitmap {
     bitmap_ptr ptr;
+    bitmap() : ptr(nullptr) {}
     bitmap(mtmd_bitmap * bitmap) : ptr(bitmap) {}
+    bitmap(bitmap && other) noexcept : ptr(std::move(other.ptr)) {}
     bitmap(uint32_t nx, uint32_t ny, const unsigned char * data) {
         ptr.reset(mtmd_bitmap_init(nx, ny, data));
     }
@@ -267,6 +269,22 @@ struct bitmap {
     const unsigned char * data() { return mtmd_bitmap_get_data(ptr.get()); }
     std::string id() { return mtmd_bitmap_get_id(ptr.get()); }
     void set_id(const char * id) { mtmd_bitmap_set_id(ptr.get(), id); }
+};
+
+struct bitmaps {
+    std::vector<bitmap> entries;
+    ~bitmaps() = default;
+    // return list of pointers to mtmd_bitmap
+    // example:
+    //   auto bitmaps_c_ptr = bitmaps.c_ptr();
+    //   int32_t res = mtmd_tokenize(... bitmaps_c_ptr.data(), bitmaps_c_ptr.size());
+    std::vector<mtmd_bitmap *> c_ptr() {
+        std::vector<mtmd_bitmap *> res(entries.size());
+        for (size_t i = 0; i < entries.size(); i++) {
+            res[i] = entries[i].ptr.get();
+        }
+        return res;
+    }
 };
 
 struct input_chunks {

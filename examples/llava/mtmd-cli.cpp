@@ -173,7 +173,7 @@ static int generate_response(mtmd_cli_context & ctx, common_sampler * smpl, int 
 }
 
 static int eval_message(mtmd_cli_context & ctx, common_chat_msg & msg, std::vector<std::string> & images_fname, bool add_bos = false) {
-    std::vector<mtmd_bitmap *> bitmaps;
+    mtmd::bitmaps bitmaps;
 
     common_chat_templates_inputs tmpl_inputs;
     tmpl_inputs.messages = {msg};
@@ -183,12 +183,12 @@ static int eval_message(mtmd_cli_context & ctx, common_chat_msg & msg, std::vect
     LOG_DBG("formatted_chat.prompt: %s\n", formatted_chat.prompt.c_str());
 
     for (auto & fname : images_fname) {
-        mtmd_bitmap * bitmap = mtmd_helper_bitmap_init_from_file(fname.c_str());
-        if (!bitmap) {
+        mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_file(fname.c_str()));
+        if (!bmp.ptr) {
             LOG_ERR("Unable to load image %s\n", fname.c_str());
             return 2; // image not found
         }
-        bitmaps.push_back(std::move(bitmap));
+        bitmaps.entries.push_back(std::move(bmp));
     }
 
     mtmd_input_text text;
@@ -199,11 +199,12 @@ static int eval_message(mtmd_cli_context & ctx, common_chat_msg & msg, std::vect
     if (g_is_interrupted) return 0;
 
     mtmd::input_chunks chunks;
+    auto bitmaps_c_ptr = bitmaps.c_ptr();
     int32_t res = mtmd_tokenize(ctx.ctx_vision.get(),
                         chunks.ptr.get(), // output
                         &text, // text
-                        bitmaps.data(), // bitmaps
-                        bitmaps.size());
+                        bitmaps_c_ptr.data(),
+                        bitmaps_c_ptr.size());
     if (res != 0) {
         LOG_ERR("Unable to tokenize prompt, res = %d\n", res);
         return 1;
