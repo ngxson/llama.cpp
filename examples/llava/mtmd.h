@@ -152,10 +152,12 @@ struct mtmd_context_deleter {
 };
 using mtmd_context_ptr = std::unique_ptr<mtmd_context, mtmd_context_deleter>;
 
-#else
-
-static_assert(false && "C header is not yet supported by this library");
-
 #endif
+
+//
+// C API
+//
+
+
 
 #endif
