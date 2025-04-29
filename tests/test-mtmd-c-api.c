@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <assert.h>
 
-#define MTMD_TEST
 #include "mtmd.h"
 
 int main(void) {
