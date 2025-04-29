@@ -54,6 +54,9 @@ int main(void) {
         }
     }
 
+    // Free the chunks
+    mtmd_input_chunks_free(chunks);
+
     printf("\n\nDONE: test libmtmd C API...\n");
 
     return 0;
