@@ -349,6 +349,7 @@ static bool common_download_file_single(const std::string & url, const std::stri
         curl_easy_setopt(curl.get(), CURLOPT_HEADERDATA, &headers);
 
         // we only allow retrying once for HEAD requests
+        // this is for the use case of using running offline (no internet), retrying can be annoying
         bool was_perform_successful = curl_perform_with_retry(url, curl.get(), 1, 0);
         if (!was_perform_successful) {
             head_request_ok = false;
@@ -364,6 +365,8 @@ static bool common_download_file_single(const std::string & url, const std::stri
         }
     }
 
+    // if head_request_ok is false, we don't have the etag or last-modified headers
+    // we leave should_download as-is, which is true if the file does not exist
     if (head_request_ok) {
         // check if ETag or Last-Modified headers are different
         // if it is, we need to download the file again
