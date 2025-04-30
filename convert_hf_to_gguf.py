@@ -2579,20 +2579,15 @@ class Qwen2VLVisionModel(VisionModel):
         elif self.global_config['model_type'] == 'qwen2_5_vl':
             self.gguf_writer.add_vision_projector_type(gguf.VisionProjectorType.QWEN25VL)
             self.gguf_writer.add_vision_use_silu(True)
-            out_hidden_size = hparams.get("out_hidden_size")
-            if out_hidden_size == 5120:
-                # 32B model does not have n_wa_pattern, the other models do
-                self.gguf_writer.add_vision_n_wa_pattern(0)
-            else:
-                # find n_wa_pattern (window attention pattern)
-                fullatt_block_indexes = hparams.get("fullatt_block_indexes")
-                assert fullatt_block_indexes is not None, "fullatt_block_indexes is required for qwen2_5_vl"
-                n_wa_pattern = fullatt_block_indexes[0] + 1
-                # validate n_wa_pattern
-                for i in range(1, len(fullatt_block_indexes)):
-                    if fullatt_block_indexes[i] - fullatt_block_indexes[i - 1] != n_wa_pattern:
-                        raise ValueError(f"Invalid fullatt_block_indexes: {fullatt_block_indexes}")
-                self.gguf_writer.add_vision_n_wa_pattern(n_wa_pattern)
+            # find n_wa_pattern (window attention pattern)
+            fullatt_block_indexes = hparams.get("fullatt_block_indexes")
+            assert fullatt_block_indexes is not None, "fullatt_block_indexes is required for qwen2_5_vl"
+            n_wa_pattern = fullatt_block_indexes[0] + 1
+            # validate n_wa_pattern
+            for i in range(1, len(fullatt_block_indexes)):
+                if fullatt_block_indexes[i] - fullatt_block_indexes[i - 1] != n_wa_pattern:
+                    raise ValueError(f"Invalid fullatt_block_indexes: {fullatt_block_indexes}")
+            self.gguf_writer.add_vision_n_wa_pattern(n_wa_pattern)
         else:
             raise ValueError(f"Unknown QwenVL model type: {self.global_config['model_type']}")
         # default values below are taken from HF tranformers code
