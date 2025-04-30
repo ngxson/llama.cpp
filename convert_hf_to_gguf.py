@@ -460,7 +460,7 @@ class TextModel(ModelBase):
             # move the text_config to the root level
             self.hparams = {**self.hparams, **self.hparams["text_config"]}
 
-        self.block_count = self.find_hparam(["n_layers", "num_hidden_layers", "n_layer", "num_layers", "depth"])
+        self.block_count = self.find_hparam(["n_layers", "num_hidden_layers", "n_layer", "num_layers"])
         self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
 
     @classmethod
@@ -1097,7 +1097,7 @@ class VisionModel(ModelBase):
         self.global_config = self.hparams
         self.hparams = self.hparams["vision_config"]
 
-        self.block_count = self.find_hparam(["n_layers", "num_hidden_layers", "n_layer", "num_layers"])
+        self.block_count = self.find_hparam(["n_layers", "num_hidden_layers", "n_layer", "num_layers", "depth"])
         self.tensor_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.CLIP_VISION, self.block_count)
 
         # load preprocessor config
@@ -1117,7 +1117,7 @@ class VisionModel(ModelBase):
         self.gguf_writer.add_vision_patch_size(self.find_hparam(["patch_size"]))
         self.gguf_writer.add_vision_embedding_length(self.find_hparam(["hidden_size"]))
         self.gguf_writer.add_vision_feed_forward_length(self.find_hparam(["intermediate_size"]))
-        self.gguf_writer.add_vision_block_count(self.find_hparam(["num_hidden_layers"]))
+        self.gguf_writer.add_vision_block_count(self.block_count)
         self.gguf_writer.add_vision_head_count(self.find_hparam(["num_attention_heads"]))
 
         # preprocessor config
