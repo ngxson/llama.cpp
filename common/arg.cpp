@@ -287,13 +287,6 @@ static bool common_download_file_single(const std::string & url, const std::stri
             try {
                 metadata_in >> metadata;
                 LOG_DBG("%s: previous metadata file found %s: %s\n", __func__, metadata_path.c_str(), metadata.dump().c_str());
-                if (metadata.contains("url") && metadata.at("url").is_string()) {
-                    auto previous_url = metadata.at("url").get<std::string>();
-                    if (previous_url != url) {
-                        LOG_ERR("%s: Model URL mismatch: %s != %s\n", __func__, url.c_str(), previous_url.c_str());
-                        return false;
-                    }
-                }
                 if (metadata.contains("etag") && metadata.at("etag").is_string()) {
                     etag = metadata.at("etag");
                 }
@@ -301,10 +294,11 @@ static bool common_download_file_single(const std::string & url, const std::stri
                     last_modified = metadata.at("lastModified");
                 }
             } catch (const nlohmann::json::exception & e) {
-            LOG_ERR("%s: error reading metadata file %s: %s\n", __func__, metadata_path.c_str(), e.what());
+                LOG_ERR("%s: error reading metadata file %s: %s\n", __func__, metadata_path.c_str(), e.what());
                 return false;
             }
         }
+        // if we cannot open the metadata file, we assume that the downloaded file is not valid (etag and last-modified are left empty, so we will download it again)
     } else {
         LOG_INF("%s: no previous model file found %s\n", __func__, path.c_str());
     }
