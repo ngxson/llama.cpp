@@ -295,7 +295,6 @@ static bool common_download_file_single(const std::string & url, const std::stri
                 }
             } catch (const nlohmann::json::exception & e) {
                 LOG_ERR("%s: error reading metadata file %s: %s\n", __func__, metadata_path.c_str(), e.what());
-                return false;
             }
         }
         // if we cannot open the metadata file, we assume that the downloaded file is not valid (etag and last-modified are left empty, so we will download it again)
