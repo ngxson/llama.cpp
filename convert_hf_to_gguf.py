@@ -3507,6 +3507,8 @@ class RobertaModel(BertModel):
 
 @ModelBase.register("NomicBertModel")
 class NomicBertModel(BertModel):
+    model_arch = gguf.MODEL_ARCH.BERT
+
     def __init__(self, dir_model: Path, ftype: gguf.LlamaFileType, fname_out: Path, **kwargs: Any):
         hparams = kwargs.pop("hparams", None)
         if hparams is None:
