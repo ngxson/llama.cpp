@@ -1103,7 +1103,7 @@ class VisionModel(ModelBase):
 
         # preprocessor config
         self.gguf_writer.add_vision_image_mean(self.preprocessor_config["image_mean"])
-        self.gguf_writer.add_vision_image_std(self.preprocessor_config["image_mean"])
+        self.gguf_writer.add_vision_image_std(self.preprocessor_config["image_std"])
 
     def write_vocab(self):
         raise ValueError("VisionModel does not support vocab writing")
@@ -2563,8 +2563,9 @@ class Qwen2VLVisionModel(VisionModel):
         # rename config.json values
         self.hparams["num_attention_heads"] = self.hparams.get("num_heads")
         self.hparams["num_hidden_layers"] = self.hparams.get("depth")
-        self.hparams["intermediate_size"] = self.hparams.get("hidden_size")
-        self.hparams["hidden_size"] = self.hparams.get("embed_dim")
+        if "embed_dim" in self.hparams: # qwen2vl
+            self.hparams["intermediate_size"] = self.hparams.get("hidden_size")
+            self.hparams["hidden_size"] = self.hparams.get("embed_dim")
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()

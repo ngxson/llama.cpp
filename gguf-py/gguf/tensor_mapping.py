@@ -990,7 +990,7 @@ class TensorNameMap:
             "model.vision_model.encoder.layers.{bid}.mlp.fc2", # SmolVLM, gemma3 (note: name is swapped)
             "vision_tower.transformer.layers.{bid}.feed_forward.up_proj", # pixtral
             "visual.blocks.{bid}.mlp.fc2", # qwen2vl
-            "visual.blocks.{bid}.mlp.down_proj", # qwen2.5vl
+            "visual.blocks.{bid}.mlp.up_proj", # qwen2.5vl
         ),
 
         MODEL_TENSOR.V_ENC_FFN_GATE: (
@@ -1004,7 +1004,7 @@ class TensorNameMap:
             "model.vision_model.encoder.layers.{bid}.mlp.fc1", # SmolVLM, gemma3 (note: name is swapped)
             "vision_tower.transformer.layers.{bid}.feed_forward.down_proj", # pixtral
             "visual.blocks.{bid}.mlp.fc1", # qwen2vl
-            "visual.blocks.{bid}.mlp.up_proj", # qwen2.5vl
+            "visual.blocks.{bid}.mlp.down_proj", # qwen2.5vl
         ),
 
         MODEL_TENSOR.V_PRE_NORM: (
