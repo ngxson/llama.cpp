@@ -34,6 +34,16 @@ llama-mtmd-cli -hf ggml-org/SmolVLM2-500M-Video-Instruct-GGUF
 
 # Pixtral 12B
 llama-mtmd-cli -hf ggml-org/pixtral-12b-GGUF
+
+# Qwen 2 VL
+llama-mtmd-cli -hf ggml-org/Qwen2-VL-2B-Instruct
+llama-mtmd-cli -hf ggml-org/Qwen2-VL-7B-Instruct
+
+# Qwen 2.5 VL
+llama-mtmd-cli -hf ggml-org/Qwen2.5-VL-3B-Instruct
+llama-mtmd-cli -hf ggml-org/Qwen2.5-VL-7B-Instruct
+llama-mtmd-cli -hf ggml-org/Qwen2.5-VL-32B-Instruct
+llama-mtmd-cli -hf ggml-org/Qwen2.5-VL-72B-Instruct
 ```
 
 ## How it works and what is `mmproj`?
