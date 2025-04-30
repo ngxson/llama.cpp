@@ -42,8 +42,8 @@ llama-mtmd-cli -hf ggml-org/Qwen2-VL-7B-Instruct-GGUF
 # Qwen 2.5 VL
 llama-mtmd-cli -hf ggml-org/Qwen2.5-VL-3B-Instruct-GGUF
 llama-mtmd-cli -hf ggml-org/Qwen2.5-VL-7B-Instruct-GGUF
-llama-mtmd-cli -hf ggml-org/Qwen2.5-VL-32B-Instruct-GGUF
 llama-mtmd-cli -hf ggml-org/Qwen2.5-VL-72B-Instruct-GGUF
+# NOTE: Qwen2.5-VL-32B text-only model is currently unusable
 ```
 
 ## How it works and what is `mmproj`?
