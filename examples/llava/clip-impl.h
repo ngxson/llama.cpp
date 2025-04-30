@@ -68,9 +68,11 @@
 #define TN_MVLM_PROJ_BLOCK "mm.model.mb_block.%d.block.%d.%s"
 #define TN_MVLM_PROJ_PEG   "mm.model.peg.%d.%s"
 #define TN_IMAGE_NEWLINE   "model.image_newline"
+#define TN_MM_INP_NORM     "mm.input_norm.weight"
 #define TN_MM_INP_PROJ     "mm.input_projection.weight" // gemma3
 #define TN_MM_SOFT_EMB_N   "mm.soft_emb_norm.weight"    // gemma3
 #define TN_MM_PROJECTOR    "mm.model.fc.weight"         // idefics3
+#define TN_MM_PATCH_MERGER "mm.patch_merger.weight"     // mistral small 3.1
 #define TN_TOK_IMG_BREAK   "v.token_embd.img_break"     // pixtral
 
 // mimicpmv

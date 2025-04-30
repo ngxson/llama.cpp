@@ -1899,7 +1899,10 @@ class LlamaModel(TextModel):
                 raise ValueError(f"Unprocessed experts: {experts}")
 
 
-@ModelBase.register("LlavaForConditionalGeneration")
+@ModelBase.register(
+    "LlavaForConditionalGeneration", # pixtral
+    "Mistral3ForConditionalGeneration", # mistral small 3.1
+)
 class LlavaVisionModel(VisionModel):
     img_break_tok_id = -1
 
@@ -1908,9 +1911,19 @@ class LlavaVisionModel(VisionModel):
         if self.hparams["model_type"] == "pixtral":
             # layer_norm_eps is not in config.json, it is hard-coded in modeling_pixtral.py
             self.hparams["layer_norm_eps"] = self.hparams.get("layer_norm_eps", 1e-5)
-            self.img_break_tok_id = 12 # see tokenizer_config.json
+            self.img_break_tok_id = self.get_token_id("[IMG_BREAK]")
+            logger.info(f"Image break token id: {self.img_break_tok_id}")
         else:
             raise ValueError(f"Unsupported model type: {self.hparams['model_type']}")
+
+    def get_token_id(self, token: str) -> int:
+        tokenizer_config_file = self.dir_model / 'tokenizer_config.json'
+        with open(tokenizer_config_file, "r", encoding="utf-8") as f:
+            added_tokens_decoder = json.load(f)['added_tokens_decoder']
+            for id_, token_data in added_tokens_decoder.items():
+                if token_data["content"] == token:
+                    return int(id_)
+        raise ValueError(f"Token '{token}' not found in tokenizer config.")
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
