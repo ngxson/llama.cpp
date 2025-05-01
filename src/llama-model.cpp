@@ -6409,6 +6409,7 @@ struct llm_build_qwen2 : public llm_graph_context {
         ggml_tensor * inpL;
 
         inpL = build_inp_embd(model.tok_embd);
+        ggml_tensor * inp_embd = inpL;
 
         // inp_pos - contains the positions
         ggml_tensor * inp_pos = build_inp_pos();
@@ -6416,7 +6417,19 @@ struct llm_build_qwen2 : public llm_graph_context {
         auto * inp_attn = build_attn_inp_kv_unified();
 
         for (int il = 0; il < n_layer; ++il) {
+            bool is_mtp = model.layers[il].mtp_inp_proj != nullptr;
             ggml_tensor * inpSA = inpL;
+
+            // multi token predict
+            // https://huggingface.co/XiaomiMiMo/MiMo-7B-RL/blob/main/modeling_mimo.py
+            if (is_mtp) {
+                ggml_tensor * tmp = build_norm(inp_embd,
+                        model.layers[il].mtp_token_norm,
+                        NULL,
+                        LLM_NORM_RMS, il);
+                tmp = ggml_concat(ctx0, inpL, tmp, 0); // concat prev state with token embd
+                inpL = build_lora_mm(model.layers[il].mtp_inp_proj, tmp);
+            }
 
             // norm
             cur = build_norm(inpL,
@@ -6489,6 +6502,12 @@ struct llm_build_qwen2 : public llm_graph_context {
             cb(cur, "ffn_out", il);
 
             cur = ggml_add(ctx0, cur, ffn_inp);
+
+            if (is_mtp && model.layers[il].layer_out_norm) {
+                cur = build_norm(cur,
+                        model.layers[il].layer_out_norm, NULL,
+                        LLM_NORM_RMS, il);
+            }
 
             cur = build_cvec(cur, il);
             cb(cur, "l_out", il);
