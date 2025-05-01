@@ -172,6 +172,7 @@ struct clip_hparams {
     std::unordered_set<int32_t> vision_feature_layer;
     int32_t attn_window_size = 0;
     int32_t n_wa_pattern = 0;
+    int32_t spatial_merge_size = 0;
 };
 
 struct clip_layer {
@@ -232,6 +233,7 @@ struct clip_vision_model {
     struct ggml_tensor * projection;
 
     // LLaVA projection
+    struct ggml_tensor * mm_input_norm_w = nullptr;
     struct ggml_tensor * mm_0_w = nullptr;
     struct ggml_tensor * mm_0_b = nullptr;
     struct ggml_tensor * mm_2_w = nullptr;
@@ -311,6 +313,7 @@ struct clip_vision_model {
 
     // pixtral
     struct ggml_tensor * token_embd_img_break = nullptr;
+    struct ggml_tensor * mm_patch_merger_w = nullptr;
 };
 
 struct clip_ctx {
@@ -721,7 +724,13 @@ static ggml_cgraph * clip_image_build_graph_pixtral(clip_ctx * ctx, const clip_i
         {
             ggml_tensor * gate_proj = ggml_mul_mat(ctx0, model.layers[il].ff_gate_w, cur);
             ggml_tensor * up_proj   = ggml_mul_mat(ctx0, model.layers[il].ff_up_w,   cur);
-            gate_proj = ggml_silu(ctx0, gate_proj); // pixtral uses silu
+            if (ctx->use_silu) {
+                gate_proj = ggml_silu(ctx0, gate_proj);
+            } else if (ctx->use_gelu) {
+                gate_proj = ggml_gelu(ctx0, gate_proj);
+            } else {
+                GGML_ABORT("Pixtral: Unsupported activation");
+            }
             cur = ggml_mul(ctx0, up_proj, gate_proj);
             cur = ggml_mul_mat(ctx0, model.layers[il].ff_down_w, cur);
         }
@@ -732,7 +741,18 @@ static ggml_cgraph * clip_image_build_graph_pixtral(clip_ctx * ctx, const clip_i
         embeddings = cur;
     }
 
-    // LlavaMultiModalProjector (with GELU activation)
+    // mistral small 3.1 patch merger
+    // ref: https://github.com/huggingface/transformers/blob/7a3e208892c06a5e278144eaf38c8599a42f53e7/src/transformers/models/mistral3/modeling_mistral3.py#L67
+    if (model.mm_patch_merger_w) {
+        GGML_ASSERT(hparams.spatial_merge_size > 0);
+        embeddings = ggml_mul(ctx0, ggml_rms_norm(ctx0, embeddings, eps), model.mm_input_norm_w);
+
+        // reshape image tokens to 2D grid
+        embeddings = ggml_reshape_3d(ctx0, embeddings, hidden_size, n_patches_x, n_patches_y);
+        embeddings = ggml_permute(ctx0, embeddings, 1, 2, 0, 3); // [x, y, hidden_size]
+    }
+
+    // LlavaMultiModalProjector (always using GELU activation)
     {
         embeddings = ggml_mul_mat(ctx0, model.mm_1_w, embeddings);
         embeddings = ggml_add(ctx0, embeddings, model.mm_1_b);
@@ -1734,6 +1754,7 @@ struct clip_model_loader {
                 case PROJECTOR_TYPE_PIXTRAL:
                     {
                         hparams.rope_theta = 10000.0f;
+                        get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.spatial_merge_size, false);
                     } break;
                 case PROJECTOR_TYPE_QWEN25VL:
                     {
@@ -1962,6 +1983,9 @@ struct clip_model_loader {
                     vision_model.mm_2_b = get_tensor(string_format(TN_LLAVA_PROJ, 2, "bias"));
                     // [IMG_BREAK] token embedding
                     vision_model.token_embd_img_break = get_tensor(TN_TOK_IMG_BREAK);
+                    // for mistral small 3.1
+                    vision_model.mm_input_norm_w   = get_tensor(TN_MM_INP_NORM,     false);
+                    vision_model.mm_patch_merger_w = get_tensor(TN_MM_PATCH_MERGER, false);
                 } break;
             default:
                 GGML_ASSERT(false && "unknown projector type");
