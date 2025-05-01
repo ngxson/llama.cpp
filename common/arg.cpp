@@ -217,13 +217,11 @@ struct curl_slist_ptr {
 #define CURL_MAX_RETRY 3
 #define CURL_RETRY_DELAY_SECONDS 2
 
-static bool curl_perform_with_retry(const std::string & url, CURL * curl, int max_attempts, int retry_delay_seconds) {
+static bool curl_perform_with_retry(const std::string & url, CURL * curl, int max_attempts, int retry_delay_seconds, const char * method_name) {
     int remaining_attempts = max_attempts;
-    char * method = nullptr;
-    curl_easy_getinfo(curl, CURLINFO_EFFECTIVE_METHOD, &method);
 
     while (remaining_attempts > 0) {
-        LOG_INF("%s: %s %s (attempt %d of %d)...\n", __func__ , method, url.c_str(), max_attempts - remaining_attempts + 1, max_attempts);
+        LOG_INF("%s: %s %s (attempt %d of %d)...\n", __func__ , method_name, url.c_str(), max_attempts - remaining_attempts + 1, max_attempts);
 
         CURLcode res = curl_easy_perform(curl);
         if (res == CURLE_OK) {
@@ -343,7 +341,7 @@ static bool common_download_file_single(const std::string & url, const std::stri
 
         // we only allow retrying once for HEAD requests
         // this is for the use case of using running offline (no internet), retrying can be annoying
-        bool was_perform_successful = curl_perform_with_retry(url, curl.get(), 1, 0);
+        bool was_perform_successful = curl_perform_with_retry(url, curl.get(), 1, 0, "HEAD");
         if (!was_perform_successful) {
             head_request_ok = false;
         }
@@ -425,7 +423,7 @@ static bool common_download_file_single(const std::string & url, const std::stri
         // start the download
         LOG_INF("%s: trying to download model from %s to %s (server_etag:%s, server_last_modified:%s)...\n", __func__,
             llama_download_hide_password_in_url(url).c_str(), path.c_str(), headers.etag.c_str(), headers.last_modified.c_str());
-        bool was_perform_successful = curl_perform_with_retry(url, curl.get(), CURL_MAX_RETRY, CURL_RETRY_DELAY_SECONDS);
+        bool was_perform_successful = curl_perform_with_retry(url, curl.get(), CURL_MAX_RETRY, CURL_RETRY_DELAY_SECONDS, "GET");
         if (!was_perform_successful) {
             return false;
         }
