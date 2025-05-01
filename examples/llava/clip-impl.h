@@ -31,7 +31,7 @@
 #define KEY_FEATURE_LAYER       "clip.vision.feature_layer"
 #define KEY_PROJ_SCALE_FACTOR   "clip.vision.projector.scale_factor"
 #define KEY_PROJ_TYPE           "clip.projector_type"
-#define KEY_SPATIAL_MERGE_SIZE  "clip.spatial_merge_size"
+#define KEY_SPATIAL_MERGE_SIZE  "clip.vision.spatial_merge_size"
 
 #define KEY_USE_GLU_MLP         "clip.use_glu_mlp"  // for qwen2.5vl
 #define KEY_USE_RMS_NORM        "clip.use_rms_norm" // for qwen2.5vl

@@ -640,6 +640,7 @@ static ggml_cgraph * clip_image_build_graph_pixtral(clip_ctx * ctx, const clip_i
     const int d_head      = hidden_size / n_head;
     const int n_layer     = hparams.n_layer;
     const float eps       = hparams.eps;
+    const int n_merge     = hparams.spatial_merge_size;
 
     struct ggml_init_params params = {
         /*.mem_size   =*/ ctx->buf_compute_meta.size(),
@@ -745,21 +746,38 @@ static ggml_cgraph * clip_image_build_graph_pixtral(clip_ctx * ctx, const clip_i
     // ref: https://github.com/huggingface/transformers/blob/7a3e208892c06a5e278144eaf38c8599a42f53e7/src/transformers/models/mistral3/modeling_mistral3.py#L67
     if (model.mm_patch_merger_w) {
         GGML_ASSERT(hparams.spatial_merge_size > 0);
-        embeddings = ggml_mul(ctx0, ggml_rms_norm(ctx0, embeddings, eps), model.mm_input_norm_w);
+
+        ggml_tensor * cur = embeddings;
+        cur = ggml_mul(ctx0, ggml_rms_norm(ctx0, cur, eps), model.mm_input_norm_w);
 
         // reshape image tokens to 2D grid
-        embeddings = ggml_reshape_3d(ctx0, embeddings, hidden_size, n_patches_x, n_patches_y);
-        embeddings = ggml_permute(ctx0, embeddings, 1, 2, 0, 3); // [x, y, hidden_size]
+        cur = ggml_reshape_3d(ctx0, cur, hidden_size, n_patches_x, n_patches_y);
+        cur = ggml_permute(ctx0, cur, 2, 0, 1, 3); // [x, y, hidden_size]
+        cur = ggml_cont(ctx0, cur);
+
+        // torch.nn.functional.unfold is just an im2col under the hood
+        // we just need a dummy kernel to make it work
+        ggml_tensor * kernel = ggml_view_3d(ctx0, cur, n_merge, n_merge, cur->ne[2], 0, 0, 0);
+        cur = ggml_im2col(ctx0, kernel, cur, n_merge, n_merge, 0, 0, 1, 1, true, inp->type);
+
+        // project to hidden_size
+        cur = ggml_reshape_2d(ctx0, cur, cur->ne[0], cur->ne[1] * cur->ne[2]);
+        cur = ggml_mul_mat(ctx0, model.mm_patch_merger_w, cur);
+        embeddings = cur;
     }
 
     // LlavaMultiModalProjector (always using GELU activation)
     {
         embeddings = ggml_mul_mat(ctx0, model.mm_1_w, embeddings);
-        embeddings = ggml_add(ctx0, embeddings, model.mm_1_b);
+        if (model.mm_1_b) {
+            embeddings = ggml_add(ctx0, embeddings, model.mm_1_b);
+        }
 
         embeddings = ggml_gelu(ctx0, embeddings);
         embeddings = ggml_mul_mat(ctx0, model.mm_2_w, embeddings);
-        embeddings = ggml_add(ctx0, embeddings, model.mm_2_b);
+        if (model.mm_2_b) {
+            embeddings = ggml_add(ctx0, embeddings, model.mm_2_b);
+        }
     }
 
     // arrangement of the [IMG_BREAK] token
@@ -769,11 +787,14 @@ static ggml_cgraph * clip_image_build_graph_pixtral(clip_ctx * ctx, const clip_i
         // and then concatenate the [IMG_BREAK] token to the end of each row, aka n_patches_per_row dimension
         // after the concatenation, we have a tensor with shape [hidden_size, n_patches_per_row + 1, n_rows]
 
+        const int p_y             = n_merge > 0 ? n_patches_y / n_merge : n_patches_y;
+        const int p_x             = n_merge > 0 ? n_patches_x / n_merge : n_patches_x;
+        const int p_total         = p_x * p_y;
         const int n_embd_text     = embeddings->ne[0];
-        const int n_tokens_output = num_patches + n_patches_y - 1; // one [IMG_BREAK] per row, except the last row
+        const int n_tokens_output = p_total + p_y - 1; // one [IMG_BREAK] per row, except the last row
 
-        ggml_tensor * cur = ggml_reshape_3d(ctx0, embeddings, n_embd_text, n_patches_x, n_patches_y);
-        ggml_tensor * tok = ggml_new_tensor_3d(ctx0, embeddings->type, n_embd_text, 1, n_patches_y);
+        ggml_tensor * cur = ggml_reshape_3d(ctx0, embeddings, n_embd_text, p_x, p_y);
+        ggml_tensor * tok = ggml_new_tensor_3d(ctx0, embeddings->type, n_embd_text, 1, p_y);
         tok = ggml_scale(ctx0, tok, 0.0); // clear the tensor
         tok = ggml_add(ctx0, tok, model.token_embd_img_break);
         cur = ggml_concat(ctx0, cur, tok, 1);
@@ -1978,9 +1999,9 @@ struct clip_model_loader {
             case PROJECTOR_TYPE_PIXTRAL:
                 {
                     vision_model.mm_1_w = get_tensor(string_format(TN_LLAVA_PROJ, 1, "weight"));
-                    vision_model.mm_1_b = get_tensor(string_format(TN_LLAVA_PROJ, 1, "bias"));
+                    vision_model.mm_1_b = get_tensor(string_format(TN_LLAVA_PROJ, 1, "bias"), false);
                     vision_model.mm_2_w = get_tensor(string_format(TN_LLAVA_PROJ, 2, "weight"));
-                    vision_model.mm_2_b = get_tensor(string_format(TN_LLAVA_PROJ, 2, "bias"));
+                    vision_model.mm_2_b = get_tensor(string_format(TN_LLAVA_PROJ, 2, "bias"), false);
                     // [IMG_BREAK] token embedding
                     vision_model.token_embd_img_break = get_tensor(TN_TOK_IMG_BREAK);
                     // for mistral small 3.1
@@ -2950,8 +2971,9 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
     } else if (ctx->proj_type == PROJECTOR_TYPE_IDEFICS3) {
         n_patches /= ctx->vision_model.hparams.proj_scale_factor;
     } else if (ctx->proj_type == PROJECTOR_TYPE_PIXTRAL) {
-        int n_patches_x = img->nx / params.patch_size;
-        int n_patches_y = img->ny / params.patch_size;
+        int n_merge = ctx->vision_model.hparams.spatial_merge_size;
+        int n_patches_x = img->nx / params.patch_size / (n_merge > 0 ? n_merge : 1);
+        int n_patches_y = img->ny / params.patch_size / (n_merge > 0 ? n_merge : 1);
         n_patches = n_patches_y*n_patches_x + n_patches_y - 1; // + one [IMG_BREAK] per row, except the last row
     }
 
@@ -3508,7 +3530,7 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
             return ctx->vision_model.mm_model_peg_0_b->ne[0];
         case PROJECTOR_TYPE_MLP:
         case PROJECTOR_TYPE_PIXTRAL:
-            return ctx->vision_model.mm_2_b->ne[0];
+            return ctx->vision_model.mm_2_w->ne[1];
         case PROJECTOR_TYPE_MLP_NORM:
             return ctx->vision_model.mm_3_b->ne[0];
         case PROJECTOR_TYPE_MINICPMV:
