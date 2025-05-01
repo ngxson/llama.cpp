@@ -2364,6 +2364,12 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                         layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff}, 0);
                         layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0);
                         layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0);
+
+                        // optional MTP (multi token predict), used by Xiaomi Mimo
+                        layer.mtp_inp_proj    = create_tensor(tn(LLM_TENSOR_MTP_INP_PROJ,    "weight", i), {n_embd*2, n_embd}, TENSOR_NOT_REQUIRED);
+                        layer.mtp_token_norm  = create_tensor(tn(LLM_TENSOR_MTP_TOKEN_NORM,  "weight", i), {n_embd}, TENSOR_NOT_REQUIRED);
+                        layer.mtp_hidden_norm = create_tensor(tn(LLM_TENSOR_MTP_HIDDEN_NORM, "weight", i), {n_embd}, TENSOR_NOT_REQUIRED);
+                        layer.layer_out_norm  = create_tensor(tn(LLM_TENSOR_LAYER_OUT_NORM,  "weight", i), {n_embd}, TENSOR_NOT_REQUIRED);
                     }
                 } break;
             case LLM_ARCH_QWEN2MOE:

@@ -462,15 +462,15 @@ class TensorNameMap:
         ),
 
         MODEL_TENSOR.MTP_INP_PROJ: (
-            "model.layers.{bid}.input_proj.weight", # xiaomi mimo
+            "model.layers.{bid}.input_proj", # xiaomi mimo
         ),
 
         MODEL_TENSOR.MTP_TOKEN_NORM: (
-            "model.layers.{bid}.token_layernorm.weight", # xiaomi mimo
+            "model.layers.{bid}.token_layernorm", # xiaomi mimo
         ),
 
         MODEL_TENSOR.MTP_HIDDEN_NORM: (
-            "model.layers.{bid}.hidden_layernorm.weight", # xiaomi mimo
+            "model.layers.{bid}.hidden_layernorm", # xiaomi mimo
         ),
 
         MODEL_TENSOR.SSM_IN: (
