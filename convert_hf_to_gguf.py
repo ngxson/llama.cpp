@@ -2046,12 +2046,6 @@ class Llama4Model(LlamaModel):
 
 @ModelBase.register("Llama4ForConditionalGeneration")
 class Llama4VisionModel(VisionModel):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # IMPORTANT: the normal "intermediate_size" is renamed to "intermediate_size_mlp", we need to undo this
-        self.hparams["intermediate_size_moe"] = self.hparams["intermediate_size"]
-        self.hparams["intermediate_size"] = self.hparams["intermediate_size_mlp"]
-
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
         self.gguf_writer.add_vision_projector_type(gguf.VisionProjectorType.LLAMA4)
