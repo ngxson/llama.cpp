@@ -2090,7 +2090,7 @@ class Llama4VisionModel(VisionModel):
         del bid # unused
         if "multi_modal_projector" in name or "vision_model" in name:
             # process vision tensors
-            if "positional_embedding_vlm" in name:
+            if "positional_embedding_vlm" in name and ".weight" not in name:
                 name += ".weight"
             return [(self.map_tensor_name(name), data_torch)]
         return []

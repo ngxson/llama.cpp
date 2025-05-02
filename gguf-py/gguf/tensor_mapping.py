@@ -906,7 +906,7 @@ class TensorNameMap:
 
         MODEL_TENSOR.V_MMPROJ_MLP: (
             "model.mm_projector.mlp.mlp.{bid}",
-            "vision_model.vision_adapter.mlp.fc{bid}.weight", # llama 4
+            "vision_model.vision_adapter.mlp.fc{bid}", # llama 4
         ),
 
         MODEL_TENSOR.V_MMPROJ_PEG: (
