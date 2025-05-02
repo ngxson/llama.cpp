@@ -42,8 +42,11 @@ llama-mtmd-cli -hf ggml-org/Qwen2-VL-7B-Instruct-GGUF
 # Qwen 2.5 VL
 llama-mtmd-cli -hf ggml-org/Qwen2.5-VL-3B-Instruct-GGUF
 llama-mtmd-cli -hf ggml-org/Qwen2.5-VL-7B-Instruct-GGUF
+llama-mtmd-cli -hf ggml-org/Qwen2.5-VL-32B-Instruct-GGUF
 llama-mtmd-cli -hf ggml-org/Qwen2.5-VL-72B-Instruct-GGUF
-# NOTE: Qwen2.5-VL-32B text-only model is currently unusable
+
+# Mistral Small 3.1 24B (IQ2_M quantization)
+llama-mtmd-cli -hf ggml-org/Mistral-Small-3.1-24B-Instruct-2503-GGUF --chat-template mistral-v7
 ```
 
 ## How it works and what is `mmproj`?
@@ -74,7 +77,8 @@ For the following models, you can use `convert_hf_to_gguf.py`with `--mmproj` fla
 - SmolVLM (from [HuggingFaceTB](https://huggingface.co/HuggingFaceTB))
 - SmolVLM2 (from [HuggingFaceTB](https://huggingface.co/HuggingFaceTB))
 - [Pixtral 12B](https://huggingface.co/mistral-community/pixtral-12b) - only works with `transformers`-compatible checkpoint
-- Qwen 2 VL and Qwen 2.5 VL
+- Qwen 2 VL and Qwen 2.5 VL (from [Qwen](https://huggingface.co/Qwen))
+- [Mistral Small 3.1 24B](https://huggingface.co/mistralai/Mistral-Small-3.1-24B-Instruct-2503)
 
 For older models, please refer to the relevant guide for instructions on how to obtain or create them:
 
@@ -85,3 +89,4 @@ For older models, please refer to the relevant guide for instructions on how to 
 - [MiniCPM-V 2.6](../../docs/multimodal/minicpmv2.6.md)
 - [MiniCPM-o 2.6](../../docs/multimodal/minicpmo2.6.md)
 - [IBM Granite Vision](../../docs/multimodal/granitevision.md)
+- [Google Gemma 3](../../docs/multimodal/gemma3.md)
