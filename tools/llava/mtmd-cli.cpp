@@ -211,6 +211,8 @@ static int eval_message(mtmd_cli_context & ctx, common_chat_msg & msg, bool add_
         return 1;
     }
 
+    ctx.bitmaps.entries.clear();
+
     llama_pos new_n_past;
     if (mtmd_helper_eval_chunks(ctx.ctx_vision.get(),
                 ctx.lctx, // lctx

@@ -591,21 +591,29 @@ int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
     if (chunk_type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
         size_t n_tokens;
         const auto tokens = mtmd_input_chunk_get_tokens_text(chunk, &n_tokens);
-        text_batch.n_tokens = n_tokens;
         LOG_DBG("decoding text chunk, n_tokens = %zu\n", n_tokens);
         size_t i = 0;
         while (i < n_tokens) { // split into batches
+            text_batch.n_tokens = 0; // clear the batch
             for (; i < n_tokens && text_batch.n_tokens < n_batch; i++) {
+                text_batch.n_tokens++;
                 text_batch.token   [i]    = tokens[i];
                 text_batch.pos     [i]    = n_past++;
                 text_batch.n_seq_id[i]    = 1;
                 text_batch.seq_id  [i][0] = seq_id;
                 text_batch.logits  [i]    = false;
             }
-            bool is_last_batch = (i == n_tokens);
-            if (logits_last && is_last_batch) {
+            bool is_last_token = (i == n_tokens);
+            if (logits_last && is_last_token) {
                 text_batch.logits[text_batch.n_tokens - 1] = true;
             }
+            ret = llama_decode(lctx, text_batch);
+            if (ret != 0) {
+                LOG_ERR("failed to decode text\n");
+                llama_batch_free(text_batch);
+                return ret;
+            }
+            *new_n_past += text_batch.n_tokens;
         }
 
     } else if (chunk_type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
@@ -697,10 +705,10 @@ int32_t mtmd_helper_eval_chunks(mtmd_context * ctx,
     }
 
     for (size_t i = 0; i < n_chunks; i++) {
-        bool is_last_chunk = (i == n_chunks - 1);
+        bool chunk_logits_last = (i == n_chunks - 1) && logits_last;
         auto chunk = mtmd_input_chunks_get(chunks, i);
 
-        int32_t res = mtmd_helper_eval_chunk_single(ctx, lctx, chunk, n_past, seq_id, n_batch, is_last_chunk && logits_last, &n_past);
+        int32_t res = mtmd_helper_eval_chunk_single(ctx, lctx, chunk, n_past, seq_id, n_batch, chunk_logits_last, &n_past);
         if (res != 0) {
             LOG_ERR("failed to eval chunk %zu\n", i);
             return res;
