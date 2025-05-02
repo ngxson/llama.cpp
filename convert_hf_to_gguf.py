@@ -2050,7 +2050,7 @@ class Llama4VisionModel(VisionModel):
         super().set_gguf_parameters()
         self.gguf_writer.add_vision_projector_type(gguf.VisionProjectorType.LLAMA4)
         self.gguf_writer.add_vision_attention_layernorm_eps(self.hparams["norm_eps"])
-        self.gguf_writer.add_vision_projector_scale_factor((1.0 / self.hparams["pixel_shuffle_ratio"]) // 1)
+        self.gguf_writer.add_vision_projector_scale_factor(int(1.0 / self.hparams["pixel_shuffle_ratio"]))
         assert self.hparams["hidden_act"] == "gelu"
         self.gguf_writer.add_vision_use_gelu(True)
 
@@ -2060,6 +2060,7 @@ class Llama4VisionModel(VisionModel):
             # process vision tensors
             if "positional_embedding_vlm" in name:
                 name += ".weight"
+            return [(self.map_tensor_name(name), data_torch)]
         return []
 
 
