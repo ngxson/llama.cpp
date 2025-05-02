@@ -287,9 +287,8 @@ struct bitmaps {
 
 struct input_chunks {
     input_chunks_ptr ptr;
-    input_chunks() {
-        ptr.reset(mtmd_input_chunks_init());
-    }
+    input_chunks() = default;
+    input_chunks(mtmd_input_chunks * chunks) : ptr(chunks) {}
     ~input_chunks() = default;
     size_t size() { return mtmd_input_chunks_size(ptr.get()); }
     mtmd_input_chunk * operator[](size_t idx) {

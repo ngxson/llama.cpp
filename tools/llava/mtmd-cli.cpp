@@ -199,7 +199,7 @@ static int eval_message(mtmd_cli_context & ctx, common_chat_msg & msg, bool add_
 
     if (g_is_interrupted) return 0;
 
-    mtmd::input_chunks chunks;
+    mtmd::input_chunks chunks(mtmd_input_chunks_init());
     auto bitmaps_c_ptr = ctx.bitmaps.c_ptr();
     int32_t res = mtmd_tokenize(ctx.ctx_vision.get(),
                         chunks.ptr.get(), // output
