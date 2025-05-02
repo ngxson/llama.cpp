@@ -853,9 +853,16 @@ const mtmd_image_tokens * mtmd_input_chunk_get_tokens_image(const mtmd_input_chu
     return nullptr;
 }
 
-mtmd_input_chunk * mtmd_input_chunk_release(mtmd_input_chunk * chunk) {
-    mtmd_input_chunk * copy = new mtmd_input_chunk;
-    *copy = std::move(*chunk);
+mtmd_input_chunk * mtmd_input_chunk_copy(const mtmd_input_chunk * chunk) {
+    mtmd_input_chunk * copy = new mtmd_input_chunk{
+        chunk->type,
+        chunk->tokens_text,
+        mtmd_image_tokens_ptr(),
+    };
+    if (chunk->tokens_image) {
+        // copy the image tokens
+        copy->tokens_image = mtmd_image_tokens_ptr(new mtmd_image_tokens(*chunk->tokens_image));
+    }
     return copy;
 }
 

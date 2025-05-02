@@ -124,11 +124,10 @@ MTMD_API const llama_token *        mtmd_input_chunk_get_tokens_text (const mtmd
 MTMD_API const mtmd_image_tokens *  mtmd_input_chunk_get_tokens_image(const mtmd_input_chunk * chunk);
 
 // in case you want to use custom logic to handle the chunk (i.e. KV cache management)
-// you can move the chunk ownership to your own code
-// this will release the chunk from the list of input chunks
+// you can move the chunk ownership to your own code by copying it
 // remember to free the chunk when you are done with it
-MTMD_API mtmd_input_chunk * mtmd_input_chunk_release(mtmd_input_chunk * chunk);
-MTMD_API void               mtmd_input_chunk_free   (mtmd_input_chunk * chunk);
+MTMD_API mtmd_input_chunk * mtmd_input_chunk_copy(const mtmd_input_chunk * chunk);
+MTMD_API void               mtmd_input_chunk_free(mtmd_input_chunk * chunk);
 
 
 // mtmd_image_tokens
