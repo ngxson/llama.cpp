@@ -60,6 +60,7 @@
 #define TN_FFN_GATE        "%s.blk.%d.ffn_gate.%s"
 #define TN_FFN_UP          "%s.blk.%d.ffn_up.%s"
 #define TN_FFN_GATE        "%s.blk.%d.ffn_gate.%s"
+#define TN_FFN_POST_NORM   "%s.blk.%d.ffn_post_norm.%s"
 #define TN_LN_1            "%s.blk.%d.ln1.%s"
 #define TN_LN_2            "%s.blk.%d.ln2.%s"
 #define TN_LN_PRE          "%s.pre_ln.%s"
@@ -103,6 +104,7 @@ enum projector_type {
     PROJECTOR_TYPE_IDEFICS3,
     PROJECTOR_TYPE_PIXTRAL,
     PROJECTOR_TYPE_QWEN25VL,
+    PROJECTOR_TYPE_LLAMA4,
     PROJECTOR_TYPE_UNKNOWN,
 };
 
@@ -117,6 +119,7 @@ static std::map<projector_type, std::string> PROJECTOR_TYPE_NAMES = {
     { PROJECTOR_TYPE_GEMMA3,    "gemma3"},
     { PROJECTOR_TYPE_IDEFICS3,  "idefics3"},
     { PROJECTOR_TYPE_PIXTRAL,   "pixtral"},
+    { PROJECTOR_TYPE_LLAMA4,    "llama4"},
 };
 
 static projector_type clip_projector_type_from_string(const std::string & str) {
