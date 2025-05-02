@@ -923,10 +923,6 @@ class TensorNameMap:
             "visual.patch_embed.proj", # qwen2vl
         ),
 
-        MODEL_TENSOR.V_ENC_EMBD_PATCH1: (
-            "visual.patch_embed.proj.weight.1", # qwen2vl, generated
-        ),
-
         MODEL_TENSOR.V_ENC_EMBD_POS: (
             "vision_tower.vision_model.embeddings.position_embedding",
             "vpm.embeddings.position_embedding",

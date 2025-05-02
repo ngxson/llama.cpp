@@ -2653,8 +2653,8 @@ class Qwen2VLVisionModel(VisionModel):
                 del c1, c2, kh, kw  # unused
                 assert kt == 2, "Current implmentation only support temporal_patch_size of 2"
                 return [
-                    (self.map_tensor_name(name), data_torch[:, :, 0, ...]),
-                    (self.map_tensor_name(name + '.1'), data_torch[:, :, 1, ...]),
+                    (gguf.TENSOR_NAMES[gguf.MODEL_TENSOR.V_ENC_EMBD_PATCH] + ".weight"  , data_torch[:, :, 0, ...]),
+                    (gguf.TENSOR_NAMES[gguf.MODEL_TENSOR.V_ENC_EMBD_PATCH] + ".weight.1", data_torch[:, :, 1, ...]),
                 ]
             else:
                 return [(self.map_tensor_name(name), data_torch)]

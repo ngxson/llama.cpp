@@ -481,7 +481,6 @@ class MODEL_TENSOR(IntEnum):
     V_MMPROJ_PEG         = auto()
     V_ENC_EMBD_CLS       = auto()
     V_ENC_EMBD_PATCH     = auto()
-    V_ENC_EMBD_PATCH1    = auto() # qwen2vl
     V_ENC_EMBD_POS       = auto()
     V_ENC_ATTN_Q         = auto()
     V_ENC_ATTN_K         = auto()
@@ -739,7 +738,6 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.V_MMPROJ_PEG:              "mm.model.peg.{bid}",
     MODEL_TENSOR.V_ENC_EMBD_CLS:            "v.class_embd",
     MODEL_TENSOR.V_ENC_EMBD_PATCH:          "v.patch_embd",
-    MODEL_TENSOR.V_ENC_EMBD_PATCH1:         "v.patch_embd.weight.1", # qwen2vl
     MODEL_TENSOR.V_ENC_EMBD_POS:            "v.position_embd",
     MODEL_TENSOR.V_ENC_ATTN_Q:              "v.blk.{bid}.attn_q",
     MODEL_TENSOR.V_ENC_ATTN_K:              "v.blk.{bid}.attn_k",
@@ -778,7 +776,6 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.V_MMPROJ_PEG,
         MODEL_TENSOR.V_ENC_EMBD_CLS,
         MODEL_TENSOR.V_ENC_EMBD_PATCH,
-        MODEL_TENSOR.V_ENC_EMBD_PATCH1,
         MODEL_TENSOR.V_ENC_EMBD_POS,
         MODEL_TENSOR.V_ENC_ATTN_Q,
         MODEL_TENSOR.V_ENC_ATTN_K,
