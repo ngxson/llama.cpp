@@ -234,6 +234,7 @@ class Keys:
         SPATIAL_MERGE_SIZE  = "clip.vision.spatial_merge_size"
         USE_GELU            = "clip.use_gelu"
         USE_SILU            = "clip.use_silu"
+        N_WA_PATTERN        = "clip.vision.n_wa_pattern" # used by qwen2.5vl
 
         class Attention:
             HEAD_COUNT      = "clip.vision.attention.head_count"
@@ -2038,6 +2039,8 @@ class PoolingType(IntEnum):
     NONE = 0
     MEAN = 1
     CLS  = 2
+    LAST = 3
+    RANK = 4
 
 
 class GGMLQuantizationType(IntEnum):
@@ -2169,6 +2172,8 @@ class VisionProjectorType:
     IDEFICS3 = "idefics3"
     PIXTRAL = "pixtral"
     LLAMA4 = "llama4"
+    QWEN2VL = "qwen2vl_merger"
+    QWEN25VL = "qwen2.5vl_merger"
 
 
 # Items here are (block size, type size)
