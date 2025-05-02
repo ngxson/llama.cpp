@@ -166,6 +166,16 @@ struct mtmd_image_tokens {
     uint32_t n_tokens() const { return nx * ny; }
     clip_image_f32_batch batch_f32; // preprocessed image patches
     std::string id; // optional user-defined ID, useful for KV cache tracking
+
+    mtmd_image_tokens clone() {
+        return mtmd_image_tokens{
+            nx,
+            ny,
+            use_mrope_pos,
+            batch_f32.clone(),
+            id
+        };
+    }
 };
 
 mtmd_context * mtmd_init_from_file(const char * mmproj_fname,
@@ -861,7 +871,8 @@ mtmd_input_chunk * mtmd_input_chunk_copy(const mtmd_input_chunk * chunk) {
     };
     if (chunk->tokens_image) {
         // copy the image tokens
-        copy->tokens_image = mtmd_image_tokens_ptr(new mtmd_image_tokens(*chunk->tokens_image));
+        copy->tokens_image = mtmd_image_tokens_ptr(new mtmd_image_tokens());
+        *copy->tokens_image = chunk->tokens_image->clone();
     }
     return copy;
 }
