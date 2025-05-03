@@ -209,10 +209,6 @@ struct clip_layer {
     struct ggml_tensor * ff_gate_b = nullptr;
     struct ggml_tensor * ff_down_w = nullptr;
     struct ggml_tensor * ff_down_b = nullptr;
-
-    // post-ffn norm (output layer norm)
-    struct ggml_tensor * post_ffn_norm_w = nullptr;
-    struct ggml_tensor * post_ffn_norm_b = nullptr;
 };
 
 struct clip_vision_model {
@@ -942,12 +938,6 @@ static ggml_cgraph * clip_image_build_graph_llama4(clip_ctx * ctx, const clip_im
 
         // residual 2
         cur = ggml_add(ctx0, embeddings, cur);
-
-        // norm output
-        {
-            cur = ggml_norm(ctx0, cur, eps);
-            cur = ggml_add(ctx0, ggml_mul(ctx0, cur, model.layers[il].post_ffn_norm_w), model.layers[il].post_ffn_norm_b);
-        }
 
         embeddings = cur;
     }
@@ -2041,7 +2031,7 @@ struct clip_model_loader {
         vision_model.patch_embeddings_0 = get_tensor(TN_PATCH_EMBD,   false);
         vision_model.patch_embeddings_1 = get_tensor(TN_PATCH_EMBD_1, false);
 
-        vision_model.position_embeddings = get_tensor(string_format(TN_POS_EMBD, "v"), false);
+        vision_model.position_embeddings = get_tensor(TN_POS_EMBD, false);
 
         // layers
         vision_model.layers.resize(vision_model.hparams.n_layer);
@@ -2059,9 +2049,6 @@ struct clip_model_loader {
             layer.o_b    = get_tensor(string_format(TN_ATTN_OUTPUT, "v", il, "bias"), false);
             layer.ln_1_b = get_tensor(string_format(TN_LN_1,        "v", il, "bias"), false);
             layer.ln_2_b = get_tensor(string_format(TN_LN_2,        "v", il, "bias"), false);
-
-            layer.post_ffn_norm_b = get_tensor(string_format(TN_FFN_POST_NORM, "v", il, "bias"), false);
-            layer.post_ffn_norm_w = get_tensor(string_format(TN_FFN_POST_NORM, "v", il, "weight"), false);
 
             // new naming
             layer.ff_up_w   = get_tensor(string_format(TN_FFN_UP,   "v", il, "weight"));
