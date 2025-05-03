@@ -1038,12 +1038,18 @@ public:
     // for debugging
     std::string str() const {
         std::ostringstream oss;
+        oss << "tokens: ";
         for (const auto & t : tokens) {
             if (t == LLAMA_TOKEN_NULL) {
                 oss << "<embd> ";
             } else {
                 oss << t << " ";
             }
+        }
+        oss << "\n";
+        oss << "image pos: ";
+        for (const auto & it : map_pos_to_image) {
+            oss << it.first << ", ";
         }
         return oss.str();
     }
@@ -1126,7 +1132,7 @@ public:
         tokens.resize(n);
     }
 
-    // for compatibility with speculative decoding and ctx shift
+    // for compatibility with speculative decoding, ctx shift, slot save/load
     const llama_tokens & get_text_tokens() const {
         return tokens;
     }
@@ -1135,6 +1141,17 @@ public:
     void set_token(llama_pos pos, llama_token id) {
         // TODO: may need validation
         tokens[pos] = id;
+    }
+
+    std::string detokenize(const llama_context * ctx, bool special) const {
+        llama_tokens text_tokens;
+        text_tokens.reserve(tokens.size());
+        for (const auto & t : tokens) {
+            if (t != LLAMA_TOKEN_NULL) {
+                text_tokens.push_back(t);
+            }
+        }
+        return common_detokenize(ctx, text_tokens, special);
     }
 
     size_t get_common_prefix(const server_tokens & b) const {
@@ -1178,8 +1195,7 @@ public:
                 } catch (const std::exception & e) {
                     return false;
                 }
-            }
-            if (t < 0 || t >= max_vocab_id) {
+            } else if (t < 0 || t >= max_vocab_id) {
                 return false;
             }
         }
@@ -1213,8 +1229,11 @@ public:
             chunks.emplace_back(std::move(chunk0));
             chunks.emplace_back(std::move(chunk1));
         }
+        SRV_INF("%s\n", "processing image...");
         int32_t n_batch = llama_n_batch(ctx);
+        int64_t t0 = ggml_time_ms();
         int32_t result = mtmd_helper_eval(mctx, ctx, chunks, n_past, seq_id, n_batch);
+        SRV_INF("image processed in %" PRId64 " ms\n", ggml_time_ms() - t0);
         it->second.tokens_image = std::move(chunks[0].tokens_image);
         if (result != 0) {
             LOG_ERR("mtmd_helper_eval failed with status %d", result);

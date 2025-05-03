@@ -29,7 +29,6 @@ struct mtmd_context {
     bool print_timings;
     int n_threads;
     std::string image_marker;
-    bool calc_image_hash;
 
     // for minicpmv, we need special tokens in-between slices
     mtmd_slice_tmpl slice_tmpl    = MTMD_SLICE_TMPL_NONE;

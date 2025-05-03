@@ -87,7 +87,6 @@ MTMD_API void mtmd_free(mtmd_context * ctx);
 //   2. (image tokens)
 //   3. "<end_of_image>\ndescribe it in detail."
 // number of bitmaps must be equal to the number of image markers in the prompt
-// the returned value must be freed using mtmd_input_chunks_free()
 // this function is thread-safe (shared ctx)
 // return values:
 //   0 on success

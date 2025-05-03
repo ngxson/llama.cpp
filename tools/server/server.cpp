@@ -1478,7 +1478,7 @@ struct server_slot {
             {"is_processing", is_processing()},
             {"non_causal",    is_non_causal()},
             {"params",        params.to_json()},
-            {"prompt",        ""}, // TODO @ngxson, hacky patch, to fix before merge
+            {"prompt",        prompt_tokens.detokenize(ctx, true)},
             {"next_token",
                 {
                     {"has_next_token", has_next_token},
@@ -2450,7 +2450,6 @@ struct server_context {
 
     void send_final_response(server_slot & slot) {
         auto res = std::make_unique<server_task_result_cmpl_final>();
-        llama_tokens text_tokens = slot.prompt_tokens.get_text_tokens();
         res->id              = slot.id_task;
         res->id_slot         = slot.id;
 
@@ -2458,7 +2457,7 @@ struct server_context {
         res->content         = std::move(slot.generated_text);
         res->tokens          = std::move(slot.generated_tokens);
         res->timings         = slot.get_timings();
-        res->prompt          = common_detokenize(ctx, text_tokens, true);
+        res->prompt          = slot.prompt_tokens.detokenize(ctx, true);
         res->response_fields = std::move(slot.params.response_fields);
 
         res->truncated           = slot.truncated;
@@ -2791,7 +2790,7 @@ struct server_context {
                     std::string filename = task.slot_action.filename;
                     std::string filepath = task.slot_action.filepath;
 
-                    const llama_tokens tokens = slot->cache_tokens.get_text_tokens();
+                    const llama_tokens & tokens = slot->cache_tokens.get_text_tokens();
                     const size_t nwrite = llama_state_seq_save_file(ctx, filepath.c_str(), slot->id, tokens.data(), token_count);
 
                     const int64_t t_end = ggml_time_us();
@@ -2957,7 +2956,7 @@ struct server_context {
                 llama_kv_self_seq_add(ctx, slot.id, n_keep + n_discard, slot.n_past,        -n_discard);
 
                 if (slot.params.cache_prompt) {
-                    llama_tokens new_tokens = slot.cache_tokens.get_text_tokens();
+                    llama_tokens new_tokens = slot.cache_tokens.get_text_tokens(); // copy
                     for (size_t i = n_keep + n_discard; i < new_tokens.size(); i++) {
                         new_tokens[i - n_discard] = new_tokens[i];
                     }
@@ -3097,7 +3096,7 @@ struct server_context {
                                     // we should never reach this
                                     GGML_ABORT("not supported by multimodal");
                                 }
-                                llama_tokens curr_tokens = slot.prompt_tokens.get_text_tokens();
+                                llama_tokens curr_tokens = slot.prompt_tokens.get_text_tokens(); // copy
                                 const int n_left = slot.n_ctx - slot.params.n_keep;
 
                                 const int n_block_size = n_left / 2;
