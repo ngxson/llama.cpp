@@ -377,7 +377,7 @@ static ggml_cgraph * clip_image_build_graph_siglip(clip_ctx * ctx, const clip_im
 
     const int patch_size  = hparams.patch_size;
     const int num_patches = ((image_size_width / patch_size) * (image_size_height / patch_size));
-    const int n_embd      = hparams.hidden_size;
+    const int n_embd      = hparams.n_embd;
     const int n_head      = hparams.n_head;
     const int d_head      = n_embd / n_head;
     const int n_layer     = hparams.n_layer;
