@@ -1877,9 +1877,8 @@ struct clip_model_loader {
             layer.ff_down_b = get_tensor(string_format(TN_FFN_DOWN, "v", il, "bias"),   false);
 
             // some models already exported with legacy (incorrect) naming which is quite messy, let's fix it here
-            if (layer.ff_up_w && layer.ff_down_w
-                    && layer.ff_up_w->ne[0]   == hparams.n_ff
-                    && layer.ff_down_w->ne[0] == hparams.n_embd) {
+            // note: Qwen model converted from the old surgery script has n_ff = 0, so we cannot use n_ff to check!
+            if (layer.ff_up_w && layer.ff_down_w && layer.ff_down_w->ne[0] == hparams.n_embd) {
                 // swap up and down weights
                 ggml_tensor * tmp = layer.ff_up_w;
                 layer.ff_up_w = layer.ff_down_w;
