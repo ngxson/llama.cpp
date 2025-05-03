@@ -965,23 +965,30 @@ static ggml_cgraph * clip_image_build_graph_llama4(clip_ctx * ctx, const clip_im
             ggml_row_size(cur->type, hidden_size),
             ggml_row_size(cur->type, hidden_size * num_patches), 0);
         
-        cur = ggml_reshape_3d(ctx0, cur,
+        cur = ggml_reshape_4d(ctx0, cur,
             hidden_size * scale_factor,
-            num_patches / scale_factor,
+            px / scale_factor,
+            py,
             batch_size);
         cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
 
         cur = ggml_reshape_4d(ctx0, ggml_cont(ctx0, cur),
             hidden_size * scale_factor * scale_factor,
-            py / scale_factor,
             px / scale_factor,
+            py / scale_factor,
             batch_size);
         cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
+
+        cur = ggml_reshape_3d(ctx0, ggml_cont(ctx0, cur),
+            hidden_size * scale_factor * scale_factor,
+            num_patches / scale_factor / scale_factor,
+            batch_size);
 
         // based on Llama4VisionMLP2 (always uses GELU activation, no bias)
         cur = ggml_mul_mat(ctx0, model.mm_model_mlp_1_w, cur);
         cur = ggml_gelu(ctx0, cur);
         cur = ggml_mul_mat(ctx0, model.mm_model_mlp_2_w, cur);
+        cur = ggml_gelu(ctx0, cur);
         embeddings = cur;
     }
 
