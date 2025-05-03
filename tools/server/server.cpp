@@ -1861,7 +1861,6 @@ struct server_context {
     llama_context_params cparams_dft;
 
     llama_batch batch;
-    server_batch_embd batch_embd;
 
     bool clean_kv_cache = true;
     bool add_bos_token  = true;
@@ -2057,8 +2056,7 @@ struct server_context {
         // note that n_batch can be > n_ctx (e.g. for non-causal attention models such as BERT where the KV cache is not used)
         {
             const int32_t n_batch = llama_n_batch(ctx);
-            batch      = llama_batch_init(std::max(n_batch, params_base.n_parallel), 0, 1);
-            batch_embd = server_batch_embd(std::max(n_batch, params_base.n_parallel));
+            batch = llama_batch_init(std::max(n_batch, params_base.n_parallel), 0, 1);
         }
 
         metrics.init();
@@ -2843,7 +2841,8 @@ struct server_context {
                         break;
                     }
                     tokens.resize(token_count);
-                    slot->cache_tokens.set_text_tokens(tokens);
+                    slot->cache_tokens.clear();
+                    slot->cache_tokens.insert(tokens);
 
                     const int64_t t_end = ggml_time_us();
                     const double t_restore_ms = (t_end - t_start) / 1000.0;
@@ -2958,11 +2957,13 @@ struct server_context {
                 llama_kv_self_seq_add(ctx, slot.id, n_keep + n_discard, slot.n_past,        -n_discard);
 
                 if (slot.params.cache_prompt) {
-                    for (size_t i = n_keep + n_discard; i < slot.cache_tokens.size(); i++) {
-                        slot.cache_tokens[i - n_discard] = slot.cache_tokens[i];
+                    llama_tokens new_tokens = slot.cache_tokens.get_text_tokens();
+                    for (size_t i = n_keep + n_discard; i < new_tokens.size(); i++) {
+                        new_tokens[i - n_discard] = new_tokens[i];
                     }
 
-                    slot.cache_tokens.resize(slot.cache_tokens.size() - n_discard);
+                    slot.cache_tokens.clear();
+                    slot.cache_tokens.insert(new_tokens);
                 }
 
                 slot.n_past -= n_discard;
@@ -3001,7 +3002,7 @@ struct server_context {
             slot.n_past += 1;
 
             if (slot.params.cache_prompt) {
-                slot.cache_tokens.add_text_token(slot.sampled);
+                slot.cache_tokens.push_back(slot.sampled);
             }
 
             SLT_DBG(slot, "slot decode token, n_ctx = %d, n_past = %d, n_cache_tokens = %d, truncated = %d\n",
@@ -3111,7 +3112,8 @@ struct server_context {
                                         curr_tokens.begin() + slot.params.n_keep + erased_blocks * n_block_size,
                                         curr_tokens.end());
 
-                                prompt_tokens.set_text_tokens(new_tokens);
+                                prompt_tokens.clear();
+                                prompt_tokens.insert(new_tokens);
 
                                 slot.truncated = true;
                                 slot.n_prompt_tokens = prompt_tokens.size();
@@ -3143,7 +3145,7 @@ struct server_context {
                                         size_t n_match = 0;
                                         while (head_c + n_match < slot.cache_tokens.size() &&
                                                head_p + n_match < prompt_tokens.size()     &&
-                                               slot.cache_tokens[head_c + n_match].txt == prompt_tokens[head_p + n_match].txt) {
+                                               slot.cache_tokens[head_c + n_match] == prompt_tokens[head_p + n_match]) {
 
                                             n_match++;
                                         }
@@ -3160,7 +3162,7 @@ struct server_context {
                                             llama_kv_self_seq_add(ctx, slot.id, head_c, head_c + n_match, kv_shift);
 
                                             for (size_t i = 0; i < n_match; i++) {
-                                                slot.cache_tokens[head_p + i].txt = slot.cache_tokens[head_c + i].txt;
+                                                slot.cache_tokens.set_token(head_p + i, slot.cache_tokens[head_c + i]);
                                                 slot.n_past++;
                                             }
 
@@ -3206,15 +3208,15 @@ struct server_context {
                     SLT_INF(slot, "kv cache rm [%d, end)\n", slot.n_past);
 
                     // remove the non-common part from the cache
-                    slot.cache_tokens.keep_until(slot.n_past);
+                    slot.cache_tokens.resize(slot.n_past);
 
-                    auto & cur_tok = slot.prompt_tokens[slot.n_past];
+                    llama_token cur_tok = slot.prompt_tokens[slot.n_past];
 
                     // check if we should process the image
-                    if (cur_tok.img) {
+                    if (cur_tok == LLAMA_TOKEN_NULL) {
                         // process the image
-                        int32_t res = server_img_process(ctx, mctx, cur_tok, batch_embd, slot.n_past, slot.id);
-                        int32_t n_tokens = mtmd_image_tokens_get_n_tokens(cur_tok.img.get());
+                        int32_t n_pos = slot.n_past;
+                        int32_t res = slot.prompt_tokens.process_chunk(ctx, mctx, slot.n_past, slot.id, n_pos);
                         if (res != 0) {
                             SLT_ERR(slot, "failed to process image, res = %d\n", res);
                             slot.release();
@@ -3223,30 +3225,27 @@ struct server_context {
                         }
 
                         if (slot.params.cache_prompt) {
-                            // all ALL image tokens at once
-                            for (int32_t i = 0; i < n_tokens; i++) {
-                                slot.cache_tokens.add_token(std::move(slot.prompt_tokens[slot.n_past + i]));
-                            }
+                            slot.prompt_tokens.move_chunk(slot.cache_tokens, slot.n_past);
                         }
 
-                        slot.n_past                    += n_tokens;
-                        slot.n_prompt_tokens_processed += n_tokens;
+                        slot.n_past                    += n_pos;
+                        slot.n_prompt_tokens_processed += n_pos;
                     }
 
                     // add prompt tokens for processing in the current batch
                     while (slot.n_past < slot.n_prompt_tokens && batch.n_tokens < n_batch) {
                         // get next token to process
-                        auto & curr_chunk = slot.prompt_tokens[slot.n_past];
-                        if (curr_chunk.txt == LLAMA_TOKEN_NULL) {
+                        llama_token cur_tok = slot.prompt_tokens[slot.n_past];
+                        if (cur_tok == LLAMA_TOKEN_NULL) {
                             break; // end of text chunk
                         }
 
                         // without pooling, we want to output the embeddings for all the tokens in the batch
                         const bool need_embd = slot.task_type == SERVER_TASK_TYPE_EMBEDDING && llama_pooling_type(slot.ctx) == LLAMA_POOLING_TYPE_NONE;
 
-                        common_batch_add(batch, curr_chunk.txt, slot.n_past, { slot.id }, need_embd);
+                        common_batch_add(batch, cur_tok, slot.n_past, { slot.id }, need_embd);
                         if (slot.params.cache_prompt) {
-                            slot.cache_tokens.add_text_token(curr_chunk.txt);
+                            slot.cache_tokens.push_back(cur_tok);
                         }
 
                         slot.n_prompt_tokens_processed++;
@@ -3267,9 +3266,9 @@ struct server_context {
 
                         // Process all prompt tokens through sampler system
                         for (size_t i = 0; i < slot.cache_tokens.size(); ++i) {
-                            auto & cur_tok = slot.prompt_tokens[i];
-                            if (cur_tok.txt != LLAMA_TOKEN_NULL) {
-                                common_sampler_accept(slot.smpl, cur_tok.txt, false);
+                            llama_token id = slot.prompt_tokens[i];
+                            if (id != LLAMA_TOKEN_NULL) {
+                                common_sampler_accept(slot.smpl, id, false);
                             }
                         }
 
@@ -3447,7 +3446,7 @@ struct server_context {
                 params_spec.n_reuse   = llama_n_ctx(slot.ctx_dft) - slot.params.speculative.n_max;
                 params_spec.p_min     = slot.params.speculative.p_min;
 
-                llama_tokens cached_text_tokens = slot.cache_tokens.get_text_tokens();
+                const llama_tokens & cached_text_tokens = slot.cache_tokens.get_text_tokens();
                 llama_tokens draft = common_speculative_gen_draft(slot.spec, params_spec, cached_text_tokens, id);
 
                 // keep track of total number of tokens generated in the draft
@@ -3481,9 +3480,9 @@ struct server_context {
                 // update how many tokens out of draft was accepted
                 slot.n_draft_accepted += ids.size() - 1;
 
-                slot.cache_tokens.add_text_token(id);
+                slot.cache_tokens.push_back(id);
                 for (auto & t : ids) {
-                    slot.cache_tokens.add_text_token(t);
+                    slot.cache_tokens.push_back(t);
                 }
 
                 llama_kv_self_seq_rm(ctx, slot.id, slot.n_past, -1);
@@ -4088,7 +4087,7 @@ int main(int argc, char ** argv) {
                         throw std::runtime_error("Failed to load image");
                     }
                     // calculate bitmap hash (for KV caching)
-                    bmp.id = server_tokens::fnv_hash(bmp.data.data(), bmp.data.size());
+                    bmp.id = fnv_hash(bmp.data.data(), bmp.data.size());
                     bitmaps.push_back(std::move(bmp));
                 }
             }
@@ -4117,7 +4116,7 @@ int main(int argc, char ** argv) {
                 // non-multimodal version
                 auto tokenized_prompts = tokenize_input_prompts(ctx_server.vocab, prompt, true, true);
                 for (auto & p : tokenized_prompts) {
-                    auto tmp = convert_legacy_to_mtmd(p);
+                    auto tmp = server_tokens(p, ctx_server.mctx != nullptr);
                     inputs.push_back(std::move(tmp));
                 }
             }
@@ -4461,7 +4460,7 @@ int main(int argc, char ** argv) {
 
                 task.id            = ctx_server.queue_tasks.get_new_id();
                 task.index         = i;
-                task.prompt_tokens = convert_legacy_to_mtmd(tokenized_prompts[i]);
+                task.prompt_tokens = server_tokens(tokenized_prompts[i], ctx_server.mctx != nullptr);
 
                 // OAI-compat
                 task.params.oaicompat = oaicompat;
@@ -4562,7 +4561,7 @@ int main(int argc, char ** argv) {
                 server_task task   = server_task(SERVER_TASK_TYPE_RERANK);
                 task.id            = ctx_server.queue_tasks.get_new_id();
                 task.index         = i;
-                task.prompt_tokens = convert_legacy_to_mtmd(tmp);
+                task.prompt_tokens = server_tokens(tmp, ctx_server.mctx != nullptr);
                 tasks.push_back(std::move(task));
             }
 
