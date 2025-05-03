@@ -828,7 +828,7 @@ static ggml_cgraph * clip_image_build_graph_llama4(clip_ctx * ctx, const clip_im
     const int n_layer     = hparams.n_layer;
     const float eps       = hparams.eps;
 
-    struct ggml_init_params params = {
+    ggml_init_params params = {
         /*.mem_size   =*/ ctx->buf_compute_meta.size(),
         /*.mem_buffer =*/ ctx->buf_compute_meta.data(),
         /*.no_alloc   =*/ true,
@@ -837,15 +837,20 @@ static ggml_cgraph * clip_image_build_graph_llama4(clip_ctx * ctx, const clip_im
     ggml_context_ptr ctx0_ptr(ggml_init(params));
     auto ctx0 = ctx0_ptr.get();
 
-    struct ggml_cgraph * gf = ggml_new_graph(ctx0);
+    ggml_cgraph * gf = ggml_new_graph(ctx0);
 
     // input raw
-    struct ggml_tensor * inp_raw = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, img.nx, img.ny, 3);
+    ggml_tensor * inp_raw = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, img.nx, img.ny, 3);
     ggml_set_name(inp_raw, "inp_raw");
     ggml_set_input(inp_raw);
 
     // create patches
-    struct ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
+    ggml_tensor * patch_embd_view = ggml_view_4d(ctx0, model.patch_embeddings_0,
+        hidden_size, patch_size, patch_size, 3,
+        ggml_row_size(model.patch_embeddings_0->type, hidden_size),
+        ggml_row_size(model.patch_embeddings_0->type, hidden_size * patch_size),
+        ggml_row_size(model.patch_embeddings_0->type, hidden_size * patch_size * 3), 0);
+    ggml_tensor * inp = ggml_conv_2d(ctx0, patch_embd_view, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
     inp = ggml_reshape_2d(ctx0, inp, num_patches, hidden_size);
     inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp));
     inp = ggml_add(ctx0, inp, model.patch_bias);
@@ -854,19 +859,19 @@ static ggml_cgraph * clip_image_build_graph_llama4(clip_ctx * ctx, const clip_im
     inp_raw = ggml_concat(ctx0, inp_raw, model.class_embedding, 0);
 
     // 2D input positions
-    struct ggml_tensor * pos_h = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_pos);
+    ggml_tensor * pos_h = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_pos);
     ggml_set_name(pos_h, "pos_h");
     ggml_set_input(pos_h);
-    struct ggml_tensor * pos_w = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_pos);
+    ggml_tensor * pos_w = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_pos);
     ggml_set_name(pos_w, "pos_w");
     ggml_set_input(pos_w);
 
     // position embeddings
-    struct ggml_tensor * embeddings = ggml_add(ctx0, inp, model.position_embeddings);
+    ggml_tensor * embeddings = ggml_add(ctx0, inp, model.position_embeddings);
 
     // loop over layers
     for (int il = 0; il < n_layer; il++) {
-        struct ggml_tensor * cur = embeddings; // embeddings = residual, cur = hidden_states
+        ggml_tensor * cur = embeddings; // embeddings = residual, cur = hidden_states
 
         // layernorm1
         {
@@ -877,30 +882,30 @@ static ggml_cgraph * clip_image_build_graph_llama4(clip_ctx * ctx, const clip_im
         // self-attention
         {
 
-            struct ggml_tensor * Q =
+            ggml_tensor * Q =
                 ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].q_w, cur), model.layers[il].q_b);
 
             Q = ggml_reshape_3d(ctx0, Q, d_head, n_head, num_patches);
             Q = build_rope_2d(ctx0, Q, pos_w, pos_h, hparams.rope_theta, false);
             Q = ggml_cont(ctx0, ggml_permute(ctx0, Q, 0, 2, 1, 3));
 
-            struct ggml_tensor * K =
+            ggml_tensor * K =
                 ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].k_w, cur), model.layers[il].k_b);
 
             K = ggml_reshape_3d(ctx0, K, d_head, n_head, num_patches);
             K = build_rope_2d(ctx0, K, pos_w, pos_h, hparams.rope_theta, false);
             K = ggml_cont(ctx0, ggml_permute(ctx0, K, 0, 2, 1, 3));
 
-            struct ggml_tensor * V =
+            ggml_tensor * V =
                 ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].v_w, cur), model.layers[il].v_b);
 
             V = ggml_reshape_3d(ctx0, V, d_head, n_head, num_patches);
             V = ggml_cont(ctx0, ggml_permute(ctx0, V, 1, 2, 0, 3));
 
-            struct ggml_tensor * KQ = ggml_mul_mat(ctx0, K, Q);
+            ggml_tensor * KQ = ggml_mul_mat(ctx0, K, Q);
             KQ = ggml_soft_max_ext(ctx0, KQ, nullptr, 1.0f / sqrtf((float)d_head), 0.0f);
 
-            struct ggml_tensor * KQV = ggml_mul_mat(ctx0, V, KQ);
+            ggml_tensor * KQV = ggml_mul_mat(ctx0, V, KQ);
             KQV = ggml_reshape_3d(ctx0, KQV, d_head, num_patches, n_head);
             KQV = ggml_permute(ctx0, KQV, 0, 2, 1, 3);
 
