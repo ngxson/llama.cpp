@@ -471,14 +471,14 @@ static ggml_cgraph * clip_image_build_graph_siglip(clip_ctx * ctx, const clip_im
             cur = ggml_add(ctx0, ggml_mul(ctx0, cur, model.layers[il].ln_2_w), model.layers[il].ln_2_b);
         }
 
-        cur = ggml_mul_mat(ctx0, model.layers[il].ff_i_w, cur);
-        cur = ggml_add(ctx0, cur, model.layers[il].ff_i_b);
+        cur = ggml_mul_mat(ctx0, model.layers[il].ff_up_w, cur);
+        cur = ggml_add(ctx0, cur, model.layers[il].ff_up_b);
 
         // siglip uses gelu
         cur = ggml_gelu(ctx0, cur);
 
-        cur = ggml_mul_mat(ctx0, model.layers[il].ff_o_w, cur);
-        cur = ggml_add(ctx0, cur, model.layers[il].ff_o_b);
+        cur = ggml_mul_mat(ctx0, model.layers[il].ff_down_w, cur);
+        cur = ggml_add(ctx0, cur, model.layers[il].ff_down_b);
 
         // residual 2
         cur = ggml_add(ctx0, embeddings, cur);
@@ -1798,6 +1798,7 @@ struct clip_model_loader {
     }
 
     void load_tensors() {
+        auto & hparams = ctx_clip.vision_model.hparams;
         std::map<std::string, size_t> tensor_offset;
         std::vector<ggml_tensor *> tensors_to_load;
 
@@ -1851,8 +1852,8 @@ struct clip_model_loader {
         vision_model.position_embeddings = get_tensor(string_format(TN_POS_EMBD, "v"), false);
 
         // layers
-        vision_model.layers.resize(vision_model.hparams.n_layer);
-        for (int il = 0; il < vision_model.hparams.n_layer; ++il) {
+        vision_model.layers.resize(hparams.n_layer);
+        for (int il = 0; il < hparams.n_layer; ++il) {
             auto & layer = vision_model.layers[il];
             layer.k_w    = get_tensor(string_format(TN_ATTN_K,      "v", il, "weight"));
             layer.q_w    = get_tensor(string_format(TN_ATTN_Q,      "v", il, "weight"));
@@ -1874,6 +1875,20 @@ struct clip_model_loader {
             layer.ff_gate_b = get_tensor(string_format(TN_FFN_GATE, "v", il, "bias"),   false);
             layer.ff_down_w = get_tensor(string_format(TN_FFN_DOWN, "v", il, "weight"));
             layer.ff_down_b = get_tensor(string_format(TN_FFN_DOWN, "v", il, "bias"),   false);
+
+            // some models already exported with legacy (incorrect) naming which is quite messy, let's fix it here
+            if (layer.ff_up_w && layer.ff_down_w
+                    && layer.ff_up_w->ne[0] == hparams.n_intermediate
+                    && layer.ff_down_w->ne[0] == hparams.hidden_size) {
+                // swap up and down weights
+                ggml_tensor * tmp = layer.ff_up_w;
+                layer.ff_up_w = layer.ff_down_w;
+                layer.ff_down_w = tmp;
+                // swap up and down biases
+                tmp = layer.ff_up_b;
+                layer.ff_up_b = layer.ff_down_b;
+                layer.ff_down_b = tmp;
+            }
 
             // legacy naming (the in and out is reversed! don't ask me why)
             layer.ff_i_w = layer.ff_down_w;

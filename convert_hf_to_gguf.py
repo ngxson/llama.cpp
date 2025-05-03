@@ -1778,6 +1778,12 @@ class LlamaModel(TextModel):
     model_arch = gguf.MODEL_ARCH.LLAMA
     undo_permute = True
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # fix for SmolVLM2, missing `num_attention_heads` in config.json
+        if self.hf_arch == "VLlama3ForCausalLM":
+            self.hparams["num_attention_heads"] = self.hparams.get("num_attention_heads", 32)
+
     def set_vocab(self):
         try:
             self._set_vocab_sentencepiece()
