@@ -846,10 +846,10 @@ static ggml_cgraph * clip_image_build_graph_llama4(clip_ctx * ctx, const clip_im
 
     // create patches
     ggml_tensor * patch_embd_view = ggml_view_4d(ctx0, model.patch_embeddings_0,
-        hidden_size, patch_size, patch_size, 3,
-        ggml_row_size(model.patch_embeddings_0->type, hidden_size),
-        ggml_row_size(model.patch_embeddings_0->type, hidden_size * patch_size),
-        ggml_row_size(model.patch_embeddings_0->type, hidden_size * patch_size * 3), 0);
+        patch_size, patch_size, 3, hidden_size,
+        ggml_row_size(model.patch_embeddings_0->type, patch_size),
+        ggml_row_size(model.patch_embeddings_0->type, patch_size * patch_size),
+        ggml_row_size(model.patch_embeddings_0->type, patch_size * patch_size * 3), 0);
     ggml_tensor * inp = ggml_conv_2d(ctx0, patch_embd_view, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
     inp = ggml_reshape_2d(ctx0, inp, num_patches, hidden_size);
     inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp));
