@@ -821,6 +821,7 @@ static ggml_cgraph * clip_image_build_graph_llama4(clip_ctx * ctx, const clip_im
 
     const int patch_size  = hparams.patch_size;
     const int num_patches = ((img.nx / patch_size) * (img.ny / patch_size));
+    const int num_pos     = num_patches + 1; // +1 for [CLS]
     const int hidden_size = hparams.hidden_size;
     const int n_head      = hparams.n_head;
     const int d_head      = hidden_size / n_head;
@@ -843,18 +844,22 @@ static ggml_cgraph * clip_image_build_graph_llama4(clip_ctx * ctx, const clip_im
     ggml_set_name(inp_raw, "inp_raw");
     ggml_set_input(inp_raw);
 
-    // 2D input positions
-    struct ggml_tensor * pos_h = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_patches);
-    ggml_set_name(pos_h, "pos_h");
-    ggml_set_input(pos_h);
-    struct ggml_tensor * pos_w = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_patches);
-    ggml_set_name(pos_w, "pos_w");
-    ggml_set_input(pos_w);
-
+    // create patches
     struct ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
     inp = ggml_reshape_2d(ctx0, inp, num_patches, hidden_size);
     inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp));
     inp = ggml_add(ctx0, inp, model.patch_bias);
+
+    // add CLS
+    inp_raw = ggml_concat(ctx0, inp_raw, model.class_embedding, 0);
+
+    // 2D input positions
+    struct ggml_tensor * pos_h = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_pos);
+    ggml_set_name(pos_h, "pos_h");
+    ggml_set_input(pos_h);
+    struct ggml_tensor * pos_w = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_pos);
+    ggml_set_name(pos_w, "pos_w");
+    ggml_set_input(pos_w);
 
     // position embeddings
     struct ggml_tensor * embeddings = ggml_add(ctx0, inp, model.position_embeddings);
@@ -1961,6 +1966,7 @@ struct clip_model_loader {
                     } break;
                 case PROJECTOR_TYPE_LLAMA4:
                     {
+                        hparams.rope_theta = 10000.0f;
                         get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor);
                     } break;
                 default:
@@ -3557,6 +3563,23 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_IDEFICS3:
             {
                 // do nothing
+            } break;
+        case PROJECTOR_TYPE_LLAMA4:
+            {
+                // set the 2D positions
+                int n_patches_per_col = image_size_width / patch_size;
+                std::vector<int> pos_data(num_patches + 1, 0); // +1 for the [CLS] token
+                // last pos is always kept 0, it's for CLS
+                // dimension H
+                for (int i = 0; i < num_patches; i++) {
+                    pos_data[i] = i / n_patches_per_col;
+                }
+                set_input_i32("pos_h", pos_data);
+                // dimension W
+                for (int i = 0; i < num_patches; i++) {
+                    pos_data[i] = i % n_patches_per_col;
+                }
+                set_input_i32("pos_w", pos_data);
             } break;
         default:
             GGML_ABORT("Unknown projector type");
