@@ -842,15 +842,15 @@ static ggml_cgraph * clip_image_build_graph_llama4(clip_ctx * ctx, const clip_im
     ggml_set_name(inp_raw, "inp_raw");
     ggml_set_input(inp_raw);
 
-    // create patches
-    ggml_tensor * patch_embd_view = ggml_view_4d(ctx0, model.patch_embeddings_0,
-        patch_size, patch_size, 3, hidden_size,
-        ggml_row_size(model.patch_embeddings_0->type, patch_size),
-        ggml_row_size(model.patch_embeddings_0->type, patch_size * patch_size),
-        ggml_row_size(model.patch_embeddings_0->type, patch_size * patch_size * 3), 0);
-    ggml_tensor * inp = ggml_conv_2d(ctx0, patch_embd_view, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
-    inp = ggml_reshape_2d(ctx0, inp, num_patches, hidden_size);
-    inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp));
+    // Llama4UnfoldConvolution
+    ggml_tensor * inp;
+    {
+        ggml_tensor * kernel = ggml_reshape_4d(ctx0, model.patch_embeddings_0,
+                                                patch_size, patch_size, 3, hidden_size);
+        inp = ggml_im2col(ctx0, kernel, inp_raw, patch_size, patch_size, 0, 0, 1, 1, true, inp_raw->type);
+        inp = ggml_mul_mat(ctx0, model.patch_embeddings_0, inp);
+        inp = ggml_reshape_2d(ctx0, inp, hidden_size, num_patches);
+    }
 
     // add CLS
     inp = ggml_concat(ctx0, inp, model.class_embedding, 1);
@@ -3578,12 +3578,12 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 // last pos is always kept 0, it's for CLS
                 // dimension H
                 for (int i = 0; i < num_patches; i++) {
-                    pos_data[i] = i / n_patches_per_col;
+                    pos_data[i] = (i / n_patches_per_col) + 1;
                 }
                 set_input_i32("pos_h", pos_data);
                 // dimension W
                 for (int i = 0; i < num_patches; i++) {
-                    pos_data[i] = i % n_patches_per_col;
+                    pos_data[i] = (i % n_patches_per_col) + 1;
                 }
                 set_input_i32("pos_w", pos_data);
             } break;
