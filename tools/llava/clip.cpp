@@ -816,7 +816,9 @@ static ggml_cgraph * clip_image_build_graph_llama4(clip_ctx * ctx, const clip_im
     const auto & hparams = model.hparams;
 
     const int patch_size  = hparams.patch_size;
-    const int num_patches = ((img.nx / patch_size) * (img.ny / patch_size));
+    const int px          = img.nx / patch_size;
+    const int py          = img.ny / patch_size;
+    const int num_patches = px * py;
     const int num_pos     = num_patches + 1; // +1 for [CLS]
     const int hidden_size = hparams.hidden_size;
     const int n_head      = hparams.n_head;
@@ -849,10 +851,9 @@ static ggml_cgraph * clip_image_build_graph_llama4(clip_ctx * ctx, const clip_im
     ggml_tensor * inp = ggml_conv_2d(ctx0, patch_embd_view, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
     inp = ggml_reshape_2d(ctx0, inp, num_patches, hidden_size);
     inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp));
-    inp = ggml_add(ctx0, inp, model.patch_bias);
 
     // add CLS
-    inp_raw = ggml_concat(ctx0, inp_raw, model.class_embedding, 0);
+    inp = ggml_concat(ctx0, inp, model.class_embedding, 1);
 
     // 2D input positions
     ggml_tensor * pos_h = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_pos);
@@ -881,31 +882,31 @@ static ggml_cgraph * clip_image_build_graph_llama4(clip_ctx * ctx, const clip_im
             ggml_tensor * Q =
                 ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].q_w, cur), model.layers[il].q_b);
 
-            Q = ggml_reshape_3d(ctx0, Q, d_head, n_head, num_patches);
+            Q = ggml_reshape_3d(ctx0, Q, d_head, n_head, num_pos);
             Q = build_rope_2d(ctx0, Q, pos_w, pos_h, hparams.rope_theta, false);
             Q = ggml_cont(ctx0, ggml_permute(ctx0, Q, 0, 2, 1, 3));
 
             ggml_tensor * K =
                 ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].k_w, cur), model.layers[il].k_b);
 
-            K = ggml_reshape_3d(ctx0, K, d_head, n_head, num_patches);
+            K = ggml_reshape_3d(ctx0, K, d_head, n_head, num_pos);
             K = build_rope_2d(ctx0, K, pos_w, pos_h, hparams.rope_theta, false);
             K = ggml_cont(ctx0, ggml_permute(ctx0, K, 0, 2, 1, 3));
 
             ggml_tensor * V =
                 ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].v_w, cur), model.layers[il].v_b);
 
-            V = ggml_reshape_3d(ctx0, V, d_head, n_head, num_patches);
+            V = ggml_reshape_3d(ctx0, V, d_head, n_head, num_pos);
             V = ggml_cont(ctx0, ggml_permute(ctx0, V, 1, 2, 0, 3));
 
             ggml_tensor * KQ = ggml_mul_mat(ctx0, K, Q);
             KQ = ggml_soft_max_ext(ctx0, KQ, nullptr, 1.0f / sqrtf((float)d_head), 0.0f);
 
             ggml_tensor * KQV = ggml_mul_mat(ctx0, V, KQ);
-            KQV = ggml_reshape_3d(ctx0, KQV, d_head, num_patches, n_head);
+            KQV = ggml_reshape_3d(ctx0, KQV, d_head, num_pos, n_head);
             KQV = ggml_permute(ctx0, KQV, 0, 2, 1, 3);
 
-            cur = ggml_cont_2d(ctx0, KQV, hidden_size, num_patches);
+            cur = ggml_cont_2d(ctx0, KQV, hidden_size, num_pos);
         }
 
         // attention output
@@ -922,8 +923,8 @@ static ggml_cgraph * clip_image_build_graph_llama4(clip_ctx * ctx, const clip_im
             cur = ggml_add(ctx0, ggml_mul(ctx0, cur, model.layers[il].ln_2_w), model.layers[il].ln_2_b);
         }
 
-        cur = ggml_mul_mat(ctx0, model.layers[il].ff_i_w, cur);
-        cur = ggml_add(ctx0, cur, model.layers[il].ff_i_b);
+        cur = ggml_mul_mat(ctx0, model.layers[il].ff_up_w, cur);
+        cur = ggml_add(ctx0, cur, model.layers[il].ff_up_b);
 
         if (ctx->use_silu) {
             cur = ggml_silu(ctx0, cur);
@@ -933,8 +934,8 @@ static ggml_cgraph * clip_image_build_graph_llama4(clip_ctx * ctx, const clip_im
             GGML_ABORT("llama4: Unsupported activation");
         }
 
-        cur = ggml_mul_mat(ctx0, model.layers[il].ff_o_w, cur);
-        cur = ggml_add(ctx0, cur, model.layers[il].ff_o_b);
+        cur = ggml_mul_mat(ctx0, model.layers[il].ff_down_w, cur);
+        cur = ggml_add(ctx0, cur, model.layers[il].ff_down_b);
 
         // residual 2
         cur = ggml_add(ctx0, embeddings, cur);
@@ -950,32 +951,42 @@ static ggml_cgraph * clip_image_build_graph_llama4(clip_ctx * ctx, const clip_im
         embeddings = ggml_add(ctx0, ggml_mul(ctx0, embeddings, model.post_ln_w), model.post_ln_b);
     }
 
-    // Llama4VisionPixelShuffleMLP
+    // based on Llama4VisionPixelShuffleMLP
+    // https://github.com/huggingface/transformers/blob/2932f318a20d9e54cc7aea052e040164d85de7d6/src/transformers/models/llama4/modeling_llama4.py#L1151
     {
         ggml_tensor * cur = embeddings;
+        const int batch_size = 1; // always 1 for now since we don't support batching
         const int scale_factor = model.hparams.proj_scale_factor;
-        const int n_embd = cur->ne[0];
-        const int seq    = cur->ne[1];
-        const int bsz    = 1; // batch size, always 1 for now since we don't support batching
-        const int height = std::sqrt(seq);
-        const int width  = std::sqrt(seq);
         GGML_ASSERT(scale_factor != 0);
-        cur = ggml_reshape_4d(ctx0, cur, n_embd * scale_factor, width / scale_factor, height, bsz);
-        cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
-        cur = ggml_reshape_4d(ctx0, ggml_cont(ctx0, cur),
-            n_embd * scale_factor * scale_factor,
-            height / scale_factor,
-            width / scale_factor,
-            bsz);
-        cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
-        cur = ggml_reshape_3d(ctx0, ggml_cont(ctx0, cur),
-            n_embd * scale_factor * scale_factor,
-            seq / (scale_factor * scale_factor),
-            bsz);
 
-        cur = ggml_mul_mat(ctx0, model.projection, cur);
+        // remove CLS by doing a view
+        cur = ggml_view_3d(ctx0, cur,
+            hidden_size, num_patches, batch_size,
+            ggml_row_size(cur->type, hidden_size),
+            ggml_row_size(cur->type, hidden_size * num_patches), 0);
+        
+        cur = ggml_reshape_3d(ctx0, cur,
+            hidden_size * scale_factor,
+            num_patches / scale_factor,
+            batch_size);
+        cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
+
+        cur = ggml_reshape_4d(ctx0, ggml_cont(ctx0, cur),
+            hidden_size * scale_factor * scale_factor,
+            py / scale_factor,
+            px / scale_factor,
+            batch_size);
+        cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
+
+        // based on Llama4VisionMLP2 (always uses GELU activation, no bias)
+        cur = ggml_mul_mat(ctx0, model.mm_model_mlp_1_w, cur);
+        cur = ggml_gelu(ctx0, cur);
+        cur = ggml_mul_mat(ctx0, model.mm_model_mlp_2_w, cur);
         embeddings = cur;
     }
+
+    // based on Llama4MultiModalProjector
+    embeddings = ggml_mul_mat(ctx0, model.mm_model_proj, embeddings);
 
     // build the graph
     ggml_build_forward_expand(gf, embeddings);
@@ -3135,6 +3146,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
     const auto & params = ctx->vision_model.hparams;
 
     int n_patches = (params.image_size / params.patch_size) * (params.image_size / params.patch_size);
+    int scale_factor = ctx->vision_model.hparams.proj_scale_factor;
 
     if (ctx->proj_type == PROJECTOR_TYPE_LDP || ctx->proj_type == PROJECTOR_TYPE_LDPV2 || ctx->proj_type == PROJECTOR_TYPE_GLM_EDGE) {
         n_patches /= 4;
@@ -3158,8 +3170,10 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         n_patches = x_patch * y_patch;
     } else if (ctx->proj_type == PROJECTOR_TYPE_GEMMA3) {
         n_patches = 256;
-    } else if (ctx->proj_type == PROJECTOR_TYPE_IDEFICS3 || ctx->proj_type == PROJECTOR_TYPE_LLAMA4) {
-        n_patches /= ctx->vision_model.hparams.proj_scale_factor;
+    } else if (ctx->proj_type == PROJECTOR_TYPE_IDEFICS3) {
+        n_patches /= scale_factor;
+    } else if (ctx->proj_type == PROJECTOR_TYPE_LLAMA4) {
+        n_patches /= (scale_factor * scale_factor);
     } else if (ctx->proj_type == PROJECTOR_TYPE_PIXTRAL) {
         int n_merge = ctx->vision_model.hparams.spatial_merge_size;
         int n_patches_x = img->nx / params.patch_size / (n_merge > 0 ? n_merge : 1);
@@ -3757,8 +3771,9 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
         case PROJECTOR_TYPE_GEMMA3:
             return ctx->vision_model.mm_input_proj_w->ne[0];
         case PROJECTOR_TYPE_IDEFICS3:
-        case PROJECTOR_TYPE_LLAMA4:
             return ctx->vision_model.projection->ne[1];
+        case PROJECTOR_TYPE_LLAMA4:
+            return ctx->vision_model.mm_model_proj->ne[1];
         default:
             GGML_ABORT("Unknown projector type");
     }
