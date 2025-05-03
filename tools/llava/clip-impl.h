@@ -75,6 +75,8 @@
 #define TN_MM_PROJECTOR    "mm.model.fc.weight"         // idefics3
 #define TN_MM_PATCH_MERGER "mm.patch_merger.weight"     // mistral small 3.1
 #define TN_TOK_IMG_BREAK   "v.token_embd.img_break"     // pixtral
+#define TN_TOK_GLM_BOI     "adapter.boi"                // glm-edge (these embeddings are not in text model)
+#define TN_TOK_GLM_EOI     "adapter.eoi"                // glm-edge (these embeddings are not in text model)
 
 // mimicpmv
 #define TN_MINICPMV_POS_EMBD_K "resampler.pos_embed_k"
