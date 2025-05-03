@@ -191,21 +191,12 @@ struct clip_layer {
     struct ggml_tensor * ln_1_w = nullptr;
     struct ggml_tensor * ln_1_b = nullptr;
 
-    // ff
-    struct ggml_tensor * ff_i_w = nullptr; // legacy naming
-    struct ggml_tensor * ff_i_b = nullptr; // legacy naming
-    struct ggml_tensor * ff_o_w = nullptr; // legacy naming
-    struct ggml_tensor * ff_o_b = nullptr; // legacy naming
-
     struct ggml_tensor * ff_up_w = nullptr;
     struct ggml_tensor * ff_up_b = nullptr;
     struct ggml_tensor * ff_gate_w = nullptr;
     struct ggml_tensor * ff_gate_b = nullptr;
     struct ggml_tensor * ff_down_w = nullptr;
     struct ggml_tensor * ff_down_b = nullptr;
-
-    struct ggml_tensor * ff_g_w = NULL;
-    struct ggml_tensor * ff_g_b = NULL;
 
     // layernorm 2
     struct ggml_tensor * ln_2_w = nullptr;
@@ -976,11 +967,11 @@ static ggml_cgraph * clip_image_build_graph_qwen25vl(clip_ctx * ctx, const clip_
 
         // mlp
         // ffn_up
-        auto cur_up = ggml_mul_mat(ctx0, model.layers[il].ff_o_w, cur);
-        cur_up = ggml_add(ctx0, cur_up, model.layers[il].ff_o_b);
+        auto cur_up = ggml_mul_mat(ctx0, model.layers[il].ff_down_w, cur);
+        cur_up = ggml_add(ctx0, cur_up, model.layers[il].ff_down_b);
 
-        auto cur_gate = ggml_mul_mat(ctx0, model.layers[il].ff_g_w, cur);
-        cur_gate = ggml_add(ctx0, cur_gate, model.layers[il].ff_g_b);
+        auto cur_gate = ggml_mul_mat(ctx0, model.layers[il].ff_gate_w, cur);
+        cur_gate = ggml_add(ctx0, cur_gate, model.layers[il].ff_gate_b);
         // TODO : only 2 of these 3 are actually used, should we remove one of them?
         if (ctx->use_gelu) {
             cur_gate = ggml_gelu_inplace(ctx0, cur_gate);
@@ -992,8 +983,8 @@ static ggml_cgraph * clip_image_build_graph_qwen25vl(clip_ctx * ctx, const clip_
         cur = ggml_mul(ctx0, cur_gate, cur_up);
 
         // ffn_down
-        cur = ggml_mul_mat(ctx0, model.layers[il].ff_i_w, cur);
-        cur = ggml_add(ctx0, cur, model.layers[il].ff_i_b);
+        cur = ggml_mul_mat(ctx0, model.layers[il].ff_up_w, cur);
+        cur = ggml_add(ctx0, cur, model.layers[il].ff_up_b);
 
         // residual 2
         cur = ggml_add(ctx0, embeddings, cur);
@@ -1250,8 +1241,8 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
             cur = ggml_add(ctx0, ggml_mul(ctx0, cur, model.layers[il].ln_2_w), model.layers[il].ln_2_b);
         }
 
-        cur = ggml_mul_mat(ctx0, model.layers[il].ff_i_w, cur);
-        cur = ggml_add(ctx0, cur, model.layers[il].ff_i_b);
+        cur = ggml_mul_mat(ctx0, model.layers[il].ff_up_w, cur);
+        cur = ggml_add(ctx0, cur, model.layers[il].ff_up_b);
 
         if (ctx->use_gelu) {
             cur = ggml_gelu_inplace(ctx0, cur);
@@ -1261,8 +1252,8 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
             cur = ggml_gelu_quick_inplace(ctx0, cur);
         }
 
-        cur = ggml_mul_mat(ctx0, model.layers[il].ff_o_w, cur);
-        cur = ggml_add(ctx0, cur, model.layers[il].ff_o_b);
+        cur = ggml_mul_mat(ctx0, model.layers[il].ff_down_w, cur);
+        cur = ggml_add(ctx0, cur, model.layers[il].ff_down_b);
 
         // residual 2
         cur = ggml_add(ctx0, embeddings, cur);
@@ -1889,14 +1880,6 @@ struct clip_model_loader {
                 layer.ff_up_b = layer.ff_down_b;
                 layer.ff_down_b = tmp;
             }
-
-            // legacy naming (the in and out is reversed! don't ask me why)
-            layer.ff_i_w = layer.ff_down_w;
-            layer.ff_o_w = layer.ff_up_w;
-            layer.ff_g_w = layer.ff_gate_w;
-            layer.ff_i_b = layer.ff_down_b;
-            layer.ff_o_b = layer.ff_up_b;
-            layer.ff_g_b = layer.ff_gate_b;
         }
 
         switch (ctx_clip.proj_type) {
