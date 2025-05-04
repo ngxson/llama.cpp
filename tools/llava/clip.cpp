@@ -1087,13 +1087,6 @@ static ggml_cgraph * clip_image_build_graph_ultravox(clip_ctx * ctx, const clip_
 
     ggml_tensor * inp;
 
-    auto layer_norm = [&](ggml_tensor * x, ggml_tensor * w, ggml_tensor * b) {
-        x = ggml_norm(ctx0, x, eps);
-        x = ggml_mul(ctx0, x, w);
-        x = ggml_add(ctx0, x, b);
-        return x;
-    };
-
     // conv1d block
     {
         // convolution + gelu
@@ -1118,7 +1111,8 @@ static ggml_cgraph * clip_image_build_graph_ultravox(clip_ctx * ctx, const clip_
         auto & layer = model.layers[il];
         ggml_tensor * cur = inp;
 
-        cur = layer_norm(cur, layer.ln_1_w, layer.ln_1_b);
+        cur = ggml_norm(ctx0, cur, eps);
+        cur = ggml_add(ctx0, ggml_mul(ctx0, cur, layer.ln_1_w), layer.ln_1_b);
 
         // attention
         {
@@ -1131,19 +1125,17 @@ static ggml_cgraph * clip_image_build_graph_ultravox(clip_ctx * ctx, const clip_
             v = ggml_reshape_3d(ctx0, v, d_head, n_head, n_pos);
 
             q = ggml_cont(ctx0, ggml_permute(ctx0, q, 0, 2, 1, 3));
-            q = ggml_scale(ctx0, q, 1.0f / std::sqrt(d_head));
-
             k = ggml_cont(ctx0, ggml_permute(ctx0, k, 0, 2, 1, 3));
 
             ggml_tensor * kq = ggml_mul_mat(ctx0, k, q);
-            kq = ggml_soft_max_ext(ctx0, kq, nullptr, 1.0f, 0.0f);
+            kq = ggml_soft_max_ext(ctx0, kq, nullptr, 1.0f / std::sqrt(d_head), 0.0f);
 
             v = ggml_cont(ctx0, ggml_permute(ctx0, v, 1, 2, 0, 3));
 
             ggml_tensor * kqv = ggml_mul_mat(ctx0, v, kq);
-            //kqv = ggml_reshape_3d(ctx0, kqv, d_head, n_tokens, n_head);
+            //kqv = ggml_reshape_3d(ctx0, kqv, d_head, n_pos, n_head);
             kqv = ggml_permute(ctx0, kqv, 0, 2, 1, 3);
-            kqv = ggml_cont_2d(ctx0, kqv, n_embd, d_head);
+            kqv = ggml_cont_2d(ctx0, kqv, n_embd, n_pos);
 
             cur = ggml_add(ctx0, ggml_mul_mat(ctx0, layer.o_w, kqv), layer.o_b);
         }
@@ -1152,7 +1144,8 @@ static ggml_cgraph * clip_image_build_graph_ultravox(clip_ctx * ctx, const clip_
         cur = ggml_add(ctx0, cur, inp);
 
         inp = cur; // inp = residual, cur = hidden_states
-        cur = layer_norm(cur, layer.ln_2_w, layer.ln_2_b);
+        cur = ggml_norm(ctx0, cur, eps);
+        cur = ggml_add(ctx0, ggml_mul(ctx0, cur, layer.ln_2_w), layer.ln_2_b);
 
         // mlp
         {
@@ -1170,10 +1163,11 @@ static ggml_cgraph * clip_image_build_graph_ultravox(clip_ctx * ctx, const clip_
     ggml_tensor * embeddings = inp;
 
     // output norm
-    embeddings = layer_norm(embeddings, model.post_ln_w, model.post_ln_b);
+    embeddings = ggml_norm(ctx0, embeddings, eps);
+    embeddings = ggml_add(ctx0, ggml_mul(ctx0, embeddings, model.post_ln_w), model.post_ln_b);
 
-    // pad and stack
-    // https://huggingface.co/fixie-ai/ultravox-v0_5-llama-3_2-1b/blob/main/ultravox_model.py#L520
+    // StackAudioFrames
+    // https://huggingface.co/fixie-ai/ultravox-v0_5-llama-3_2-1b/blob/main/ultravox_model.py
     {
         int64_t stride = n_embd * hparams.proj_stack_factor;
         int64_t padded_len = GGML_PAD(ggml_nelements(embeddings), stride);
@@ -1186,11 +1180,11 @@ static ggml_cgraph * clip_image_build_graph_ultravox(clip_ctx * ctx, const clip_
                             ggml_row_size(embeddings->type, stride), 0);
     }
 
-    // projection
+    // UltravoxProjector
     {
         ggml_tensor * cur = embeddings;
         // pre-norm
-        cur = ggml_rms_norm(ctx0, cur, eps);
+        cur = ggml_rms_norm(ctx0, cur, 1e-6);
         cur = ggml_mul(ctx0, cur, model.mm_norm_pre_w);
 
         // ffn in
@@ -1202,12 +1196,13 @@ static ggml_cgraph * clip_image_build_graph_ultravox(clip_ctx * ctx, const clip_
             ggml_tensor * x0 = ggml_cont(ctx0, ggml_view_2d(ctx0, cur, split_point, cur->ne[1], cur->nb[1], 0));
             ggml_tensor * x1 = ggml_cont(ctx0, ggml_view_2d(ctx0, cur, split_point, cur->ne[1], cur->nb[1], split_point * ggml_element_size(cur)));
 
-            x0 = ggml_silu(ctx0, x0);
+            // see SwiGLU in ultravox_model.py, the second half passed through is silu, not the first half
+            x1 = ggml_silu(ctx0, x1);
             cur = ggml_mul(ctx0, x0, x1);
         }
 
         // mid-norm
-        cur = ggml_rms_norm(ctx0, cur, eps);
+        cur = ggml_rms_norm(ctx0, cur, 1e-6);
         cur = ggml_mul(ctx0, cur, model.mm_norm_mid_w);
 
         // ffn out
@@ -1215,6 +1210,11 @@ static ggml_cgraph * clip_image_build_graph_ultravox(clip_ctx * ctx, const clip_
 
         embeddings = cur;
     }
+
+    embeddings = ggml_view_2d(ctx0, embeddings, 2048, n_step / 16,
+                              ggml_row_size(embeddings->type, 2048), 0);
+
+    printf("shape of embd: %lld %lld %lld\n", embeddings->ne[0], embeddings->ne[1], embeddings->ne[2]);
 
     // build the graph
     ggml_build_forward_expand(gf, embeddings);
@@ -3350,7 +3350,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
     };
 
     // set input pixel values
-    {
+    if (!imgs.is_audio) {
         size_t nelem = 0;
         for (const auto & img : imgs.entries) {
             nelem += img->nx * img->ny * 3;
@@ -3386,6 +3386,16 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 }
             }
         }
+        set_input_f32("inp_raw", inp_raw);
+
+    } else {
+        // audio input
+        GGML_ASSERT(imgs.entries.size() == 1);
+        const auto & mel_inp = imgs.entries[0]; // 3 channels, but only use one
+        const int n_step = mel_inp->nx;
+        const int n_mel  = mel_inp->ny;
+        std::vector<float> inp_raw(n_step * n_mel);
+        std::memcpy(inp_raw.data(), mel_inp->buf.data(), n_step * n_mel * sizeof(float));
         set_input_f32("inp_raw", inp_raw);
     }
 
@@ -3584,6 +3594,16 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_IDEFICS3:
             {
                 // do nothing
+            } break;
+        case PROJECTOR_TYPE_ULTRAVOX:
+            {
+                const auto & mel_inp = imgs.entries[0];
+                const int n_pos = mel_inp->nx / 2;
+                std::vector<int32_t> positions(n_pos);
+                for (int i = 0; i < n_pos; i++) {
+                    positions[i] = i;
+                }
+                set_input_i32("positions", positions);
             } break;
         default:
             GGML_ABORT("Unknown projector type");
@@ -3819,4 +3839,15 @@ bool clip_encode_float_image (struct clip_ctx * ctx, int n_threads, float * img,
 
 projector_type clip_get_projector_type(const struct clip_ctx * ctx) {
     return ctx->proj_type;
+}
+
+void clip_image_f32_batch_add_mel(struct clip_image_f32_batch * batch, int n_mel, int n_step, float * mel) {
+    clip_image_f32 * audio = new clip_image_f32;
+    audio->nx = n_step;
+    audio->ny = n_mel;
+    audio->buf.resize(n_step * n_mel);
+    std::memcpy(audio->buf.data(), mel, n_step * n_mel * sizeof(float));
+
+    batch->entries.push_back(clip_image_f32_ptr(audio));
+    batch->is_audio = true;
 }

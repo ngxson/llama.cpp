@@ -138,7 +138,21 @@ mtmd_context * mtmd_init_from_file(const char * mmproj_fname,
         const struct llama_model * text_model,
         const struct mtmd_context_params ctx_params) {
     try {
-        return new mtmd_context(mmproj_fname, text_model, ctx_params);
+        auto * test = new mtmd_context(mmproj_fname, text_model, ctx_params);
+
+        //// TEST, TO BE REMOVED LATER
+        clip_image_f32_batch * batch = clip_image_f32_batch_init();
+        std::vector<float> mel(128 * 1024);
+        clip_image_f32_batch_add_mel(batch, 128, 1024, mel.data());
+        std::vector<float> output(64 * 2048);
+        clip_image_batch_encode(test->ctx_clip, 8, batch, output.data());
+        for (int i = 0; i < 3; i++) printf("%f ", output[i]); printf("\n");
+        for (int i = 0; i < 3; i++) printf("%f ", output[i+2048]); printf("\n");
+        for (int i = 0; i < 3; i++) printf("%f ", output[i+2048*2]); printf("\n");
+        float sum = 0.0;
+        for (size_t i = 0; i < 1000; i++) sum += output[i];
+        printf("sum: %f\n", sum);
+        GGML_ABORT("test");
     } catch (const std::exception & e) {
         LOG_ERR("%s: error: %s\n", __func__, e.what());
         return nullptr;

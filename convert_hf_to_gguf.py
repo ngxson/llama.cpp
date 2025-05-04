@@ -5844,7 +5844,7 @@ class UltravoxAudioModel(VisionModel):
 
     def tensor_force_quant(self, name, new_name, bid, n_dims):
         del bid, new_name, n_dims  # unused
-        if ".conv" in name:
+        if ".conv" in name and ".weight" in name:
             return gguf.GGMLQuantizationType.F16
         return False
     

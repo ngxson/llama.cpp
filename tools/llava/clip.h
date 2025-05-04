@@ -127,6 +127,8 @@ CLIP_API bool clip_is_gemma3(const struct clip_ctx * ctx);
 
 CLIP_API bool clip_encode_float_image (struct clip_ctx * ctx, int n_threads, float * img, int h, int w, float * vec);
 
+// use by audio input
+CLIP_API void clip_image_f32_batch_add_mel(struct clip_image_f32_batch * batch, int n_mel, int n_step, float * mel);
 
 #ifdef __cplusplus
 }
