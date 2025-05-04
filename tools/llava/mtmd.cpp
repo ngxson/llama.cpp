@@ -859,7 +859,7 @@ const mtmd_image_tokens * mtmd_input_chunk_get_tokens_image(const mtmd_input_chu
     return nullptr;
 }
 
-const mtmd_input_chunk * mtmd_input_chunk_copy(const mtmd_input_chunk * chunk) {
+mtmd_input_chunk * mtmd_input_chunk_copy(const mtmd_input_chunk * chunk) {
     mtmd_input_chunk * copy = new mtmd_input_chunk{
         chunk->type,
         chunk->tokens_text,

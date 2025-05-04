@@ -15,6 +15,15 @@
 #include <memory>
 #endif
 
+/**
+ * libmtmd: A library for multimodal support in llama.cpp.
+ *
+ * WARNING: This API is experimental and subject to many BREAKING CHANGES.
+ *          Issues related to API usage may receive lower priority support.
+ *
+ * For the usage, see an example in mtmd-cli.cpp
+ */
+
 #ifdef LLAMA_SHARED
 #    if defined(_WIN32) && !defined(__MINGW32__)
 #        ifdef LLAMA_BUILD
@@ -126,8 +135,8 @@ MTMD_API const mtmd_image_tokens *  mtmd_input_chunk_get_tokens_image(const mtmd
 // in case you want to use custom logic to handle the chunk (i.e. KV cache management)
 // you can move the chunk ownership to your own code by copying it
 // remember to free the chunk when you are done with it
-MTMD_API const mtmd_input_chunk * mtmd_input_chunk_copy(const mtmd_input_chunk * chunk);
-MTMD_API void                     mtmd_input_chunk_free(mtmd_input_chunk * chunk);
+MTMD_API mtmd_input_chunk * mtmd_input_chunk_copy(const mtmd_input_chunk * chunk);
+MTMD_API void               mtmd_input_chunk_free(mtmd_input_chunk * chunk);
 
 
 // mtmd_image_tokens
@@ -172,9 +181,10 @@ MTMD_API float * mtmd_get_output_embd(mtmd_context * ctx);
 /////////////////////////////////////////
 
 //
-// helper functions (can be implemented based on other functions)
+// Helper functions (can be implemented based on other functions)
 //
-// please note that these helpers are not guaranteed to be stable, there can be breaking changes in the future
+// Please note that these helpers are not guaranteed to be stable.
+// BREAKING CHANGES are expected.
 //
 
 // helper function to construct a mtmd_bitmap from a file
@@ -192,6 +202,7 @@ MTMD_API mtmd_bitmap * mtmd_helper_bitmap_init_from_buf(const unsigned char * bu
 MTMD_API size_t mtmd_helper_get_n_tokens(const mtmd_input_chunks * chunks);
 
 // helper to count the total position of tokens from a list of chunks, useful to keep track of n_past
+// normally, n_pos is equal to n_tokens, but for M-RoPE it is different
 MTMD_API llama_pos mtmd_helper_get_n_pos(const mtmd_input_chunks * chunks);
 
 // helper function that automatically:
@@ -230,7 +241,7 @@ MTMD_API mtmd_input_chunks * mtmd_test_create_input_chunks(void);
 #endif
 
 //
-// C++ wrapper
+// C++ wrappers
 //
 
 #ifdef __cplusplus
@@ -251,6 +262,11 @@ struct mtmd_input_chunks_deleter {
     void operator()(mtmd_input_chunks * val) { mtmd_input_chunks_free(val); }
 };
 using input_chunks_ptr = std::unique_ptr<mtmd_input_chunks, mtmd_input_chunks_deleter>;
+
+struct mtmd_input_chunk_deleter {
+    void operator()(mtmd_input_chunk * val) { mtmd_input_chunk_free(val); }
+};
+using input_chunk_ptr = std::unique_ptr<mtmd_input_chunk, mtmd_input_chunk_deleter>;
 
 struct bitmap {
     bitmap_ptr ptr;
