@@ -998,7 +998,7 @@ struct server_tokens {
 private: // disallow accessing these members directly, risking out-of-sync
 
     // map a **start** position in tokens to the image chunk
-    std::unordered_map<llama_pos, mtmd_input_chunk> map_pos_to_image;
+    std::unordered_map<llama_pos, mtmd::input_chunk_ptr> map_pos_to_image;
 
     // list of tokens
     // it can include LLAMA_TOKEN_NULL, which is used to indicate a token that is not a text token
@@ -1027,9 +1027,9 @@ public:
     llama_token operator[](size_t index) { return tokens[index]; }
     const llama_token& operator[](size_t index) const { return tokens[index]; }
 
-    server_tokens(mtmd_input_chunks & mtmd_chunks, bool has_mtmd) : has_mtmd(has_mtmd) {
-        for (auto & c : mtmd_chunks) {
-            push_back(std::move(c));
+    server_tokens(mtmd::input_chunks & mtmd_chunks, bool has_mtmd) : has_mtmd(has_mtmd) {
+        for (size_t i = 0; i < mtmd_chunks.size(); ++i) {
+            push_back(mtmd_chunks[i]);
         }
     }
 
@@ -1054,7 +1054,7 @@ public:
         return oss.str();
     }
 
-    const mtmd_input_chunk & find_chunk(llama_pos pos) const {
+    const mtmd::input_chunk_ptr & find_chunk(llama_pos pos) const {
         auto it = map_pos_to_image.find(pos);
         if (it != map_pos_to_image.end()) {
             return it->second;
@@ -1070,33 +1070,29 @@ public:
         tokens.emplace_back(tok);
     }
 
-    void push_back(mtmd_input_chunk && chunk) {
-        if (chunk.type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+    // will create a copy of the chunk if it contains non-text data
+    void push_back(const mtmd_input_chunk * chunk) {
+        auto type = mtmd_input_chunk_get_type(chunk);
+        if (type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
             GGML_ASSERT(has_mtmd);
-            GGML_ASSERT(chunk.tokens_image != nullptr);
-            const int n_pos = mtmd_image_tokens_get_n_pos(chunk.tokens_image.get());
+            auto img_tokens = mtmd_input_chunk_get_tokens_image(chunk);
+            const int n_pos = mtmd_image_tokens_get_n_pos(img_tokens);
             llama_pos start_pos = tokens.size();
+            printf("start_pos = %d, n_pos = %d\n", start_pos, n_pos);
             for (int i = 0; i < n_pos; ++i) {
                 tokens.emplace_back(LLAMA_TOKEN_NULL);
             }
-            // TODO: use mtmd_input_chunk_copy when the C API is ready
-            map_pos_to_image[start_pos] = std::move(chunk);
-        } else if (chunk.type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
-            for (auto & tok : chunk.tokens_text) {
-                push_back(tok);
+            mtmd::input_chunk_ptr new_chunk(mtmd_input_chunk_copy(chunk));
+            map_pos_to_image[start_pos] = std::move(new_chunk);
+        } else if (type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
+            size_t n_tokens;
+            auto text_tokens = mtmd_input_chunk_get_tokens_text(chunk, &n_tokens);
+            for (size_t i = 0; i < n_tokens; ++i) {
+                push_back(text_tokens[i]);
             }
         } else {
             GGML_ABORT("Invalid chunk type");
         }
-    }
-
-    // TODO: use mtmd_input_chunk_copy when the C API is ready
-    void move_chunk(server_tokens & dst, llama_pos pos) {
-        auto it = map_pos_to_image.find(pos);
-        if (it == map_pos_to_image.end()) {
-            throw std::runtime_error("Chunk not found");
-        }
-        dst.push_back(std::move(it->second));
     }
 
     void insert(llama_tokens & tokens) {
@@ -1116,6 +1112,7 @@ public:
     }
 
     void resize(size_t n) {
+        GGML_ASSERT(n <= tokens.size());
         // we throw an error if we try to remove a token in the middle of an image
         // for ex. with input of 5 text tokens and 2 images:
         //    [0] [1] [2] [3] [4] [img0] [img0] [img0] [img1] [img1]
@@ -1164,12 +1161,16 @@ public:
                 GGML_ASSERT(has_mtmd);
                 const auto & a_chunk =   find_chunk(i);
                 const auto & b_chunk = b.find_chunk(i);
-                std::string ai_id = mtmd_image_tokens_get_id(a_chunk.tokens_image.get());
-                std::string bi_id = mtmd_image_tokens_get_id(b_chunk.tokens_image.get());
-                if (ai_id == bi_id) {
-                    size_t n_pos = mtmd_image_tokens_get_n_pos(a_chunk.tokens_image.get());
-                    GGML_ASSERT(n_pos > 0 && "Invalid image token"); // should never happen
-                    i += n_pos - 1; // will be +1 by the for loop
+                GGML_ASSERT(a_chunk && b_chunk);
+                const auto * a_img = mtmd_input_chunk_get_tokens_image(a_chunk.get());
+                const auto * b_img = mtmd_input_chunk_get_tokens_image(b_chunk.get());
+                std::string ai_id  = mtmd_image_tokens_get_id(a_img);
+                std::string bi_id  = mtmd_image_tokens_get_id(b_img);
+                size_t a_pos       = mtmd_image_tokens_get_n_pos(a_img);
+                size_t b_pos       = mtmd_image_tokens_get_n_pos(b_img);
+                if (ai_id == bi_id && a_pos == b_pos) {
+                    GGML_ASSERT(a_pos > 0 && "Invalid image token"); // should never happen
+                    i += a_pos - 1; // will be +1 by the for loop
                     continue;
                 } else {
                     return i;
@@ -1190,7 +1191,8 @@ public:
             if (t == LLAMA_TOKEN_NULL) {
                 try {
                     const auto & chunk = find_chunk(i);
-                    size_t n_pos = mtmd_image_tokens_get_n_pos(chunk.tokens_image.get());
+                    const auto * img_tokens = mtmd_input_chunk_get_tokens_image(chunk.get());
+                    size_t n_pos = mtmd_image_tokens_get_n_pos(img_tokens);
                     i += n_pos - 1; // will be +1 by the for loop
                 } catch (const std::exception & e) {
                     return false;
@@ -1202,7 +1204,7 @@ public:
         return true;
     }
 
-    // TODO: (IMPORTANT) this is hacky ; use mtmd helper when C API is ready
+    // encode and decode the image chunk
     int32_t process_chunk(
                 llama_context * ctx,
                 mtmd_context * mctx,
@@ -1213,34 +1215,24 @@ public:
         if (it == map_pos_to_image.end()) {
             throw std::runtime_error("Chunk not found");
         }
-        size_t n_pos = mtmd_image_tokens_get_n_pos(it->second.tokens_image.get());
-        mtmd_input_chunks chunks;
-        {
-            mtmd_input_chunk chunk0{
-                /* type          */ MTMD_INPUT_CHUNK_TYPE_IMAGE,
-                /* tokens_text   */ {},
-                /* tokens_image  */ std::move(it->second.tokens_image), // move it back later
-            };
-            mtmd_input_chunk chunk1{
-                /* type          */ MTMD_INPUT_CHUNK_TYPE_TEXT,
-                /* tokens_text   */ {},
-                /* tokens_image  */ nullptr,
-            };
-            chunks.emplace_back(std::move(chunk0));
-            chunks.emplace_back(std::move(chunk1));
-        }
         SRV_INF("%s\n", "processing image...");
         int32_t n_batch = llama_n_batch(ctx);
         int64_t t0 = ggml_time_ms();
-        int32_t result = mtmd_helper_eval(mctx, ctx, chunks, n_past, seq_id, n_batch);
+        llama_pos new_n_past = n_past;
+        int32_t result = mtmd_helper_eval_chunk_single(mctx, ctx,
+            it->second.get(), // chunk
+            n_past,
+            seq_id,
+            n_batch,
+            true, // logits last
+            &new_n_past);
         SRV_INF("image processed in %" PRId64 " ms\n", ggml_time_ms() - t0);
-        it->second.tokens_image = std::move(chunks[0].tokens_image);
         if (result != 0) {
             LOG_ERR("mtmd_helper_eval failed with status %d", result);
-            n_pos_out = 0;
+            n_pos_out = n_past;
             return result;
         }
-        n_pos_out = n_pos;
+        n_pos_out = new_n_past;
         return 0;
     }
 };

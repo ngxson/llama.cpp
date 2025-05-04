@@ -1974,12 +1974,11 @@ struct server_context {
 
         std::string & mmproj_path = params_base.mmproj.path;
         if (!mmproj_path.empty()) {
-            mtmd_context_params mparams{
-                /* use_gpu */   params_base.mmproj_use_gpu,
-                /* timings */   false,
-                /* n_threads */ params_base.cpuparams.n_threads,
-                /* verbosity */ params_base.verbosity > 0 ? GGML_LOG_LEVEL_DEBUG : GGML_LOG_LEVEL_INFO,
-            };
+            mtmd_context_params mparams = mtmd_context_params_default();
+            mparams.use_gpu       = params_base.mmproj_use_gpu;
+            mparams.print_timings = false;
+            mparams.n_threads     = params_base.cpuparams.n_threads;
+            mparams.verbosity     = params_base.verbosity > 0 ? GGML_LOG_LEVEL_DEBUG : GGML_LOG_LEVEL_INFO;
             mctx = mtmd_init_from_file(mmproj_path.c_str(), model, mparams);
             if (mctx == nullptr) {
                 SRV_ERR("failed to load multimodal model, '%s'\n", mmproj_path.c_str());
@@ -3214,8 +3213,10 @@ struct server_context {
                     // check if we should process the image
                     if (cur_tok == LLAMA_TOKEN_NULL) {
                         // process the image
-                        int32_t n_pos = slot.n_past;
-                        int32_t res = slot.prompt_tokens.process_chunk(ctx, mctx, slot.n_past, slot.id, n_pos);
+                        int32_t new_n_past;
+                        int32_t res = slot.prompt_tokens.process_chunk(ctx, mctx, slot.n_past, slot.id, new_n_past);
+                        int32_t n_pos = new_n_past - slot.n_past;
+
                         if (res != 0) {
                             SLT_ERR(slot, "failed to process image, res = %d\n", res);
                             slot.release();
@@ -3224,7 +3225,8 @@ struct server_context {
                         }
 
                         if (slot.params.cache_prompt) {
-                            slot.prompt_tokens.move_chunk(slot.cache_tokens, slot.n_past);
+                            const auto & chunk = slot.prompt_tokens.find_chunk(slot.n_past);
+                            slot.cache_tokens.push_back(chunk.get()); // copy
                         }
 
                         slot.n_past                    += n_pos;
@@ -4073,21 +4075,21 @@ int main(int argc, char ** argv) {
             //SRV_DBG("Prompt: %s\n", prompt.is_string() ? prompt.get<std::string>().c_str() : prompt.dump(2).c_str());
 
             // process files
-            std::vector<mtmd_bitmap> bitmaps;
+            mtmd::bitmaps bitmaps;
             const bool has_mtmd = ctx_server.mctx != nullptr;
             {
                 if (!has_mtmd && !files.empty()) {
                     throw std::runtime_error("This server does not support multimodal");
                 }
                 for (auto & file : files) {
-                    mtmd_bitmap bmp;
-                    int32_t res = mtmd_helper_bitmap_init_from_buf(file.data(), file.size(), bmp);
-                    if (res != 0) {
+                    mtmd::bitmap bmp(mtmd_helper_bitmap_init_from_buf(file.data(), file.size()));
+                    if (!bmp.ptr) {
                         throw std::runtime_error("Failed to load image");
                     }
                     // calculate bitmap hash (for KV caching)
-                    bmp.id = fnv_hash(bmp.data.data(), bmp.data.size());
-                    bitmaps.push_back(std::move(bmp));
+                    std::string hash = fnv_hash(bmp.data(), bmp.nx()*bmp.ny()*3);
+                    bmp.set_id(hash.c_str());
+                    bitmaps.entries.push_back(std::move(bmp));
                 }
             }
 
@@ -4098,13 +4100,19 @@ int main(int argc, char ** argv) {
 
             } else if (oaicompat && has_mtmd) {
                 // multimodal
+                std::string prompt_str = prompt.get<std::string>();
                 mtmd_input_text inp_txt = {
-                    prompt.get<std::string>(),
+                    prompt_str.c_str(),
                     /* add_special */   true,
                     /* parse_special */ true,
                 };
-                mtmd_input_chunks chunks;
-                int32_t tokenized = mtmd_tokenize(ctx_server.mctx, chunks, inp_txt, bitmaps);
+                mtmd::input_chunks chunks(mtmd_input_chunks_init());
+                auto bitmaps_c_ptr = bitmaps.c_ptr();
+                int32_t tokenized = mtmd_tokenize(ctx_server.mctx,
+                                                    chunks.ptr.get(),
+                                                    &inp_txt,
+                                                    bitmaps_c_ptr.data(),
+                                                    bitmaps_c_ptr.size());
                 if (tokenized != 0) {
                     throw std::runtime_error("Failed to tokenize prompt");
                 }
