@@ -102,18 +102,18 @@ MTMD_API const unsigned char * mtmd_bitmap_get_data(const mtmd_bitmap * bitmap);
 MTMD_API void                  mtmd_bitmap_free    (mtmd_bitmap * bitmap);
 // bitmap ID is optional, but useful for KV cache tracking
 // these getters/setters are dedicated functions, so you can for example calculate the hash of the image based on mtmd_bitmap_get_data()
-MTMD_API const char * mtmd_bitmap_get_id  (const mtmd_bitmap * bitmap);
-MTMD_API void         mtmd_bitmap_set_id  (mtmd_bitmap * bitmap, const char * id);
+MTMD_API const char * mtmd_bitmap_get_id(const mtmd_bitmap * bitmap);
+MTMD_API void         mtmd_bitmap_set_id(mtmd_bitmap * bitmap, const char * id);
 
 
 // mtmd_input_chunks
 //
 // this is simply a list of mtmd_input_chunk
 // the elements can only be populated via mtmd_tokenize()
-MTMD_API mtmd_input_chunks * mtmd_input_chunks_init(void);
-MTMD_API size_t              mtmd_input_chunks_size(mtmd_input_chunks * chunks);
-MTMD_API mtmd_input_chunk *  mtmd_input_chunks_get (mtmd_input_chunks * chunks, size_t idx);
-MTMD_API void                mtmd_input_chunks_free(mtmd_input_chunks * chunks);
+MTMD_API mtmd_input_chunks *      mtmd_input_chunks_init(void);
+MTMD_API size_t                   mtmd_input_chunks_size(const mtmd_input_chunks * chunks);
+MTMD_API const mtmd_input_chunk * mtmd_input_chunks_get (const mtmd_input_chunks * chunks, size_t idx);
+MTMD_API void                     mtmd_input_chunks_free(mtmd_input_chunks * chunks);
 
 // mtmd_input_chunk
 //
@@ -126,8 +126,8 @@ MTMD_API const mtmd_image_tokens *  mtmd_input_chunk_get_tokens_image(const mtmd
 // in case you want to use custom logic to handle the chunk (i.e. KV cache management)
 // you can move the chunk ownership to your own code by copying it
 // remember to free the chunk when you are done with it
-MTMD_API mtmd_input_chunk * mtmd_input_chunk_copy(const mtmd_input_chunk * chunk);
-MTMD_API void               mtmd_input_chunk_free(mtmd_input_chunk * chunk);
+MTMD_API const mtmd_input_chunk * mtmd_input_chunk_copy(const mtmd_input_chunk * chunk);
+MTMD_API void                     mtmd_input_chunk_free(mtmd_input_chunk * chunk);
 
 
 // mtmd_image_tokens
@@ -159,7 +159,7 @@ MTMD_API llama_pos    mtmd_image_tokens_get_n_pos   (const mtmd_image_tokens * i
 MTMD_API int32_t mtmd_tokenize(mtmd_context * ctx,
                                mtmd_input_chunks * output,
                                const mtmd_input_text * text,
-                               mtmd_bitmap ** bitmaps,
+                               const mtmd_bitmap ** bitmaps,
                                size_t n_bitmaps);
 
 // returns 0 on success
@@ -189,10 +189,10 @@ MTMD_API mtmd_bitmap * mtmd_helper_bitmap_init_from_file(const char * fname);
 MTMD_API mtmd_bitmap * mtmd_helper_bitmap_init_from_buf(const unsigned char * buf, size_t len);
 
 // helper to count the total number of tokens from a list of chunks, useful to keep track of KV cache
-MTMD_API size_t mtmd_helper_get_n_tokens(mtmd_input_chunks * chunks);
+MTMD_API size_t mtmd_helper_get_n_tokens(const mtmd_input_chunks * chunks);
 
 // helper to count the total position of tokens from a list of chunks, useful to keep track of n_past
-MTMD_API llama_pos mtmd_helper_get_n_pos(mtmd_input_chunks * chunks);
+MTMD_API llama_pos mtmd_helper_get_n_pos(const mtmd_input_chunks * chunks);
 
 // helper function that automatically:
 // 1. run llama_decode() on text chunks
@@ -202,7 +202,7 @@ MTMD_API llama_pos mtmd_helper_get_n_pos(mtmd_input_chunks * chunks);
 // this function is NOT thread-safe
 MTMD_API int32_t mtmd_helper_eval_chunks(mtmd_context * ctx,
                                          struct llama_context * lctx,
-                                         mtmd_input_chunks * chunks,
+                                         const mtmd_input_chunks * chunks,
                                          llama_pos n_past,
                                          llama_seq_id seq_id,
                                          int32_t n_batch,
@@ -213,7 +213,7 @@ MTMD_API int32_t mtmd_helper_eval_chunks(mtmd_context * ctx,
 // this function is NOT thread-safe
 MTMD_API int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
                                                struct llama_context * lctx,
-                                               mtmd_input_chunk * chunk,
+                                               const mtmd_input_chunk * chunk,
                                                llama_pos n_past,
                                                llama_seq_id seq_id,
                                                int32_t n_batch,
@@ -275,8 +275,8 @@ struct bitmaps {
     // example:
     //   auto bitmaps_c_ptr = bitmaps.c_ptr();
     //   int32_t res = mtmd_tokenize(... bitmaps_c_ptr.data(), bitmaps_c_ptr.size());
-    std::vector<mtmd_bitmap *> c_ptr() {
-        std::vector<mtmd_bitmap *> res(entries.size());
+    std::vector<const mtmd_bitmap *> c_ptr() {
+        std::vector<const mtmd_bitmap *> res(entries.size());
         for (size_t i = 0; i < entries.size(); i++) {
             res[i] = entries[i].ptr.get();
         }
@@ -290,7 +290,7 @@ struct input_chunks {
     input_chunks(mtmd_input_chunks * chunks) : ptr(chunks) {}
     ~input_chunks() = default;
     size_t size() { return mtmd_input_chunks_size(ptr.get()); }
-    mtmd_input_chunk * operator[](size_t idx) {
+    const mtmd_input_chunk * operator[](size_t idx) {
         return mtmd_input_chunks_get(ptr.get(), idx);
     }
 };

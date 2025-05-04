@@ -22,7 +22,7 @@ int main(void) {
     assert(n_chunks > 0);
 
     for (size_t i = 0; i < n_chunks; i++) {
-        mtmd_input_chunk * chunk = mtmd_input_chunks_get(chunks, i);
+        const mtmd_input_chunk * chunk = mtmd_input_chunks_get(chunks, i);
         assert(chunk != NULL);
         enum mtmd_input_chunk_type type = mtmd_input_chunk_get_type(chunk);
         printf("Chunk %zu type: %d\n", i, type);

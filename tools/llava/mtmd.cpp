@@ -218,7 +218,7 @@ static std::vector<llama_token> mtmd_tokenize_text_internal(
 int32_t mtmd_tokenize(mtmd_context * ctx,
             mtmd_input_chunks * output,
             const mtmd_input_text * text,
-            mtmd_bitmap ** bitmaps,
+            const mtmd_bitmap ** bitmaps,
             size_t n_bitmaps) {
     auto vocab = llama_model_get_vocab(ctx->text_model);
 
@@ -454,7 +454,7 @@ float * mtmd_get_output_embd(mtmd_context * ctx) {
     return ctx->image_embd_v.data();
 }
 
-size_t mtmd_helper_get_n_tokens(mtmd_input_chunks * chunks) {
+size_t mtmd_helper_get_n_tokens(const mtmd_input_chunks * chunks) {
     size_t n_tokens = 0;
     for (size_t i = 0; i < mtmd_input_chunks_size(chunks); i++) {
         auto chunk = mtmd_input_chunks_get(chunks, i);
@@ -473,7 +473,7 @@ size_t mtmd_helper_get_n_tokens(mtmd_input_chunks * chunks) {
     return n_tokens;
 }
 
-llama_pos mtmd_helper_get_n_pos(mtmd_input_chunks * chunks) {
+llama_pos mtmd_helper_get_n_pos(const mtmd_input_chunks * chunks) {
     llama_pos n_pos = 0;
     for (size_t i = 0; i < mtmd_input_chunks_size(chunks); i++) {
         auto chunk = mtmd_input_chunks_get(chunks, i);
@@ -582,7 +582,7 @@ struct decode_embd_batch {
 
 int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
         struct llama_context * lctx,
-        mtmd_input_chunk * chunk,
+        const mtmd_input_chunk * chunk,
         llama_pos n_past,
         llama_seq_id seq_id,
         int32_t n_batch,
@@ -698,7 +698,7 @@ int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
 
 int32_t mtmd_helper_eval_chunks(mtmd_context * ctx,
                                 struct llama_context * lctx,
-                                mtmd_input_chunks * chunks,
+                                const mtmd_input_chunks * chunks,
                                 llama_pos n_past,
                                 llama_seq_id seq_id,
                                 int32_t n_batch,
@@ -820,11 +820,11 @@ mtmd_input_chunks * mtmd_input_chunks_init() {
     return new mtmd_input_chunks;
 }
 
-size_t mtmd_input_chunks_size(mtmd_input_chunks * chunks) {
+size_t mtmd_input_chunks_size(const mtmd_input_chunks * chunks) {
     return chunks->entries.size();
 }
 
-mtmd_input_chunk * mtmd_input_chunks_get(mtmd_input_chunks * chunks, size_t idx) {
+const mtmd_input_chunk * mtmd_input_chunks_get(const mtmd_input_chunks * chunks, size_t idx) {
     if (idx >= chunks->entries.size()) {
         return nullptr;
     }
@@ -859,7 +859,7 @@ const mtmd_image_tokens * mtmd_input_chunk_get_tokens_image(const mtmd_input_chu
     return nullptr;
 }
 
-mtmd_input_chunk * mtmd_input_chunk_copy(const mtmd_input_chunk * chunk) {
+const mtmd_input_chunk * mtmd_input_chunk_copy(const mtmd_input_chunk * chunk) {
     mtmd_input_chunk * copy = new mtmd_input_chunk{
         chunk->type,
         chunk->tokens_text,
