@@ -455,6 +455,9 @@ void llama_model::load_hparams(llama_model_loader & ml) {
         GGML_ASSERT(hparams.n_expert_used == 0);
     }
 
+    // multi-token predict
+    ml.get_key(LLM_KV_N_MULTI_TOKEN_PREDICT, hparams.n_mtp, false);
+
     // zero-out the array hparams
     std::fill(hparams.n_head_arr.begin(),    hparams.n_head_arr.end(),    0);
     std::fill(hparams.n_head_kv_arr.begin(), hparams.n_head_kv_arr.end(), 0);
@@ -4321,6 +4324,10 @@ void llama_model::print_info() const {
         LLAMA_LOG_INFO("%s: ssm_d_state      = %u\n",     __func__, hparams.ssm_d_state);
         LLAMA_LOG_INFO("%s: ssm_dt_rank      = %u\n",     __func__, hparams.ssm_dt_rank);
         LLAMA_LOG_INFO("%s: ssm_dt_b_c_rms   = %d\n",     __func__, hparams.ssm_dt_b_c_rms);
+    }
+
+    if (hparams.n_mtp) {
+        LLAMA_LOG_INFO("%s: n_mtp            = %u\n",     __func__, hparams.n_mtp);
     }
 
     LLAMA_LOG_INFO("%s: model type       = %s\n",     __func__, type_name().c_str());
@@ -13232,6 +13239,10 @@ int32_t llama_model_n_head(const llama_model * model) {
 
 int32_t llama_model_n_head_kv(const llama_model * model) {
     return model->hparams.n_head_kv();
+}
+
+int32_t llama_model_n_mtp(const llama_model * model) {
+    return model->hparams.n_mtp;
 }
 
 // deprecated
