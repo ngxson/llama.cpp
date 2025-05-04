@@ -15,6 +15,7 @@
 #define KEY_FTYPE               "general.file_type"
 #define KEY_NAME                "general.name"
 #define KEY_DESCRIPTION         "general.description"
+#define KEY_HAS_AUDIO_ENC       "clip.has_audio_encoder"
 #define KEY_MINICPMV_VERSION    "clip.minicpmv_version"
 #define KEY_USE_GELU            "clip.use_gelu"
 #define KEY_USE_SILU            "clip.use_silu"
@@ -41,6 +42,8 @@
 #define KEY_IMAGE_CROP_RESOLUTION "clip.vision.image_crop_resolution"
 #define KEY_WIN_ATTN_PATTERN      "clip.vision.n_wa_pattern"
 #define KEY_ATTN_WINDOW_SIZE      "clip.vision.window_size"
+
+#define KEY_PROJ_STACK_FACTOR   "clip.audio.projector.stack_factor"
 
 
 //
@@ -93,6 +96,12 @@
 #define TN_GLM_ADAPTER_GATE     "adapter.linear.gate.%s"
 #define TN_GLM_ADAPTER_D_4H_2_H "adapter.linear.dense_4h_to_h.%s"
 
+// ultravox
+#define TN_CONV1D       "a.conv1d.%d.%s"
+#define TN_MM_AUDIO_MLP "mm.a.mlp.%d.%s"
+#define TN_MM_NORM_PRE  "mm.a.norm_pre.%s"
+#define TN_MM_NORM_MID  "mm.a.norm_mid.%s"
+
 enum projector_type {
     PROJECTOR_TYPE_MLP,
     PROJECTOR_TYPE_MLP_NORM,
@@ -105,6 +114,7 @@ enum projector_type {
     PROJECTOR_TYPE_IDEFICS3,
     PROJECTOR_TYPE_PIXTRAL,
     PROJECTOR_TYPE_QWEN25VL,
+    PROJECTOR_TYPE_ULTRAVOX,
     PROJECTOR_TYPE_UNKNOWN,
 };
 
@@ -119,6 +129,7 @@ static std::map<projector_type, std::string> PROJECTOR_TYPE_NAMES = {
     { PROJECTOR_TYPE_GEMMA3,    "gemma3"},
     { PROJECTOR_TYPE_IDEFICS3,  "idefics3"},
     { PROJECTOR_TYPE_PIXTRAL,   "pixtral"},
+    { PROJECTOR_TYPE_ULTRAVOX,  "ultravox"},
 };
 
 static projector_type clip_projector_type_from_string(const std::string & str) {

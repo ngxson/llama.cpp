@@ -153,6 +153,8 @@ enum patch_merge_type {
 };
 
 struct clip_hparams {
+    bool has_audio = false;
+
     int32_t image_size;
     int32_t patch_size;
     int32_t hidden_size;
@@ -161,6 +163,7 @@ struct clip_hparams {
     int32_t n_head;
     int32_t n_layer;
     int32_t proj_scale_factor = 0; // idefics3
+    int32_t proj_stack_factor = 0; // ultravox
 
     patch_merge_type mm_patch_merge_type = PATCH_MERGE_FLAT;
 
@@ -316,6 +319,14 @@ struct clip_vision_model {
     // pixtral
     struct ggml_tensor * token_embd_img_break = nullptr;
     struct ggml_tensor * mm_patch_merger_w = nullptr;
+
+    // ultravox / whisper encoder
+    struct ggml_tensor * conv1d_1_w = nullptr;
+    struct ggml_tensor * conv1d_1_b = nullptr;
+    struct ggml_tensor * conv1d_2_w = nullptr;
+    struct ggml_tensor * conv1d_2_b = nullptr;
+    struct ggml_tensor * mm_norm_pre_w = nullptr;
+    struct ggml_tensor * mm_norm_mid_w = nullptr;
 };
 
 struct clip_ctx {
@@ -1041,6 +1052,178 @@ static ggml_cgraph * clip_image_build_graph_qwen25vl(clip_ctx * ctx, const clip_
     return gf;
 }
 
+static ggml_cgraph * clip_image_build_graph_ultravox(clip_ctx * ctx, const clip_image_f32 & img) {
+    const auto & model = ctx->vision_model;
+    const auto & hparams = model.hparams;
+
+    int n_step = img.nx;
+    int n_mel  = img.ny;
+
+    const int n_embd  = hparams.hidden_size;
+    const int n_head  = hparams.n_head;
+    const int d_head  = n_embd / n_head;
+    const int n_layer = hparams.n_layer;
+    const float eps   = hparams.eps;
+
+    ggml_init_params params = {
+        /*.mem_size   =*/ ctx->buf_compute_meta.size(),
+        /*.mem_buffer =*/ ctx->buf_compute_meta.data(),
+        /*.no_alloc   =*/ true,
+    };
+
+    ggml_context_ptr ctx0_ptr(ggml_init(params));
+    auto ctx0 = ctx0_ptr.get();
+
+    ggml_cgraph * gf = ggml_new_graph(ctx0);
+
+    ggml_tensor * inp_raw = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, n_step, n_mel);
+    ggml_set_name(inp_raw, "inp_raw");
+    ggml_set_input(inp_raw);
+
+    struct ggml_tensor * positions = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_step);
+    ggml_set_name(positions, "positions");
+    ggml_set_input(positions);
+
+    ggml_tensor * inp;
+
+    auto layer_norm = [&](ggml_tensor * x, ggml_tensor * w, ggml_tensor * b) {
+        x = ggml_norm(ctx0, x, eps);
+        x = ggml_mul(ctx0, x, w);
+        x = ggml_add(ctx0, x, b);
+        return x;
+    };
+
+    // conv1d block
+    {
+        // convolution + gelu
+        ggml_tensor * cur = ggml_conv_1d_ph(ctx0, model.conv1d_1_w, inp_raw, 1, 1);
+        cur = ggml_add(ctx0, cur, model.conv1d_1_b);
+
+        cur = ggml_gelu(ctx0, cur);
+
+        cur = ggml_conv_1d_ph(ctx0, model.conv1d_2_w, cur, 2, 1);
+        cur = ggml_add(ctx0, cur, model.conv1d_2_b);
+
+        cur = ggml_gelu(ctx0, cur);
+        // transpose
+        inp = ggml_cont(ctx0, ggml_transpose(ctx0, cur));
+    }
+
+    // add position embeddings
+    inp = ggml_add(ctx0, inp, ggml_get_rows(ctx0, model.position_embeddings, positions));
+
+    // iterate layers
+    for (int il = 0; il < n_layer; ++il) {
+        auto & layer = model.layers[il];
+        ggml_tensor * cur = inp;
+
+        cur = layer_norm(cur, layer.ln_1_w, layer.ln_1_b);
+
+        // attention
+        {
+            ggml_tensor * q = ggml_add(ctx0, ggml_mul_mat(ctx0, layer.q_w, cur), layer.q_b);
+            ggml_tensor * k = ggml_mul_mat(ctx0, layer.k_w, cur); // no bias for key
+            ggml_tensor * v = ggml_add(ctx0, ggml_mul_mat(ctx0, layer.v_w, cur), layer.v_b);
+
+            q = ggml_reshape_3d(ctx0, q, d_head, n_head, n_step);
+            k = ggml_reshape_3d(ctx0, k, d_head, n_head, n_step);
+            v = ggml_reshape_3d(ctx0, v, d_head, n_head, n_step);
+
+            q = ggml_cont(ctx0, ggml_permute(ctx0, q, 0, 2, 1, 3));
+            q = ggml_scale(ctx0, q, 1.0f / std::sqrt(d_head));
+            // utils.debug_print(q, "q rope");
+
+            k = ggml_cont(ctx0, ggml_permute(ctx0, k, 0, 2, 1, 3));
+            // utils.debug_print(k, "k rope");
+
+            ggml_tensor * kq = ggml_mul_mat(ctx0, k, q);
+            kq = ggml_soft_max_ext(ctx0, kq, nullptr, 1.0f, 0.0f);
+            // utils.debug_print(kq, "kq softmax");
+
+            v = ggml_cont(ctx0, ggml_permute(ctx0, v, 1, 2, 0, 3));
+
+            ggml_tensor * kqv = ggml_mul_mat(ctx0, v, kq);
+            //kqv = ggml_reshape_3d(ctx0, kqv, d_head, n_tokens, n_head);
+            kqv = ggml_permute(ctx0, kqv, 0, 2, 1, 3);
+            kqv = ggml_cont_2d(ctx0, kqv, n_embd, d_head);
+
+            cur = ggml_add(ctx0, ggml_mul_mat(ctx0, layer.o_w, kqv), layer.o_b);
+        }
+
+        // residual
+        cur = ggml_add(ctx0, cur, inp);
+
+        inp = cur; // inp = residual, cur = hidden_states
+        cur = layer_norm(cur, layer.ln_2_w, layer.ln_2_b);
+
+        // mlp
+        {
+            cur = ggml_add(ctx0, ggml_mul_mat(ctx0, layer.ff_up_w, cur), layer.ff_up_b);
+            cur = ggml_gelu(ctx0, cur);
+            cur = ggml_add(ctx0, ggml_mul_mat(ctx0, layer.ff_down_w, cur), layer.ff_down_b);
+        }
+
+        // residual
+        cur = ggml_add(ctx0, cur, inp);
+
+        inp = cur;
+    }
+
+    ggml_tensor * embeddings = inp;
+
+    // output norm
+    embeddings = layer_norm(embeddings, model.post_ln_w, model.post_ln_b);
+
+    // pad and stack
+    // https://huggingface.co/fixie-ai/ultravox-v0_5-llama-3_2-1b/blob/main/ultravox_model.py#L520
+    {
+        int64_t stride = n_embd * hparams.proj_stack_factor;
+        int64_t padded_len = GGML_PAD(ggml_nelements(embeddings), stride);
+        int64_t pad = ggml_nelements(embeddings) - padded_len;
+        if (pad > 0) {
+            embeddings = ggml_view_1d(ctx0, embeddings, ggml_nelements(embeddings), 0);
+            embeddings = ggml_pad(ctx0, embeddings, pad, 0, 0, 0);
+        }
+        embeddings = ggml_view_2d(ctx0, embeddings, stride, padded_len / stride,
+                            ggml_row_size(embeddings->type, stride), 0);
+    }
+
+    // projection
+    {
+        ggml_tensor * cur = embeddings;
+        // pre-norm
+        cur = ggml_rms_norm(ctx0, cur, eps);
+        cur = ggml_mul(ctx0, cur, model.mm_norm_pre_w);
+
+        // ffn in
+        cur = ggml_mul_mat(ctx0, model.mm_1_w, cur);
+
+        // swiglu
+        {
+            int64_t split_point = cur->ne[0] / 2;
+            ggml_tensor * x0 = ggml_cont(ctx0, ggml_view_2d(ctx0, cur, split_point, cur->ne[1], cur->nb[1], 0));
+            ggml_tensor * x1 = ggml_cont(ctx0, ggml_view_2d(ctx0, cur, split_point, cur->ne[1], cur->nb[1], split_point * ggml_element_size(cur)));
+
+            x0 = ggml_silu(ctx0, x0);
+            cur = ggml_mul(ctx0, x0, x1);
+        }
+
+        // mid-norm
+        cur = ggml_rms_norm(ctx0, cur, eps);
+        cur = ggml_mul(ctx0, cur, model.mm_norm_mid_w);
+
+        // ffn out
+        cur = ggml_mul_mat(ctx0, model.mm_2_w, cur);
+
+        embeddings = cur;
+    }
+
+    // build the graph
+    ggml_build_forward_expand(gf, embeddings);
+
+    return gf;
+}
+
 static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_image_f32_batch & imgs, struct clip_image_size load_image_size, bool is_inf = false) {
     const auto & model = ctx->vision_model;
     const auto & hparams = model.hparams;
@@ -1608,6 +1791,11 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
             {
                 res = clip_image_build_graph_qwen25vl(ctx, imgs);
             } break;
+        case PROJECTOR_TYPE_ULTRAVOX:
+            {
+                GGML_ASSERT(imgs.entries.size() == 1);
+                res = clip_image_build_graph_ultravox(ctx, *imgs.entries[0]);
+            } break;
         default:
             {
                 // TODO: we should have one build_* function per model
@@ -1693,6 +1881,7 @@ struct clip_model_loader {
         {
             get_i32(KEY_MINICPMV_VERSION, ctx_clip.minicpmv_version, false);
 
+            get_bool(KEY_HAS_AUDIO_ENC, hparams.has_audio, false);
             get_bool(KEY_USE_GELU, ctx_clip.use_gelu, false);
             get_bool(KEY_USE_SILU, ctx_clip.use_silu, false);
 
@@ -1790,11 +1979,16 @@ struct clip_model_loader {
                     {
                         get_u32(KEY_WIN_ATTN_PATTERN, hparams.n_wa_pattern);
                     } break;
+                case PROJECTOR_TYPE_ULTRAVOX:
+                    {
+                        get_u32(KEY_PROJ_STACK_FACTOR, hparams.proj_stack_factor);
+                    } break;
                 default:
                     break;
             }
 
             LOG_INF("%s: projector:          %s\n", __func__, proj_type.c_str());
+            LOG_INF("%s: has_audio_encoder:  %d\n", __func__, hparams.has_audio);
             LOG_INF("%s: has_llava_proj:     %d\n", __func__, ctx_clip.has_llava_projector);
             LOG_INF("%s: minicpmv_version:   %d\n", __func__, ctx_clip.minicpmv_version);
             LOG_INF("%s: proj_scale_factor:  %d\n", __func__, hparams.proj_scale_factor);
@@ -1807,8 +2001,10 @@ struct clip_model_loader {
     }
 
     void load_tensors() {
+        auto & hparams = ctx_clip.vision_model.hparams;
         std::map<std::string, size_t> tensor_offset;
         std::vector<ggml_tensor *> tensors_to_load;
+        const char * prefix = hparams.has_audio ? "a" : "v";
 
         // get offsets
         for (int64_t i = 0; i < gguf_get_n_tensors(ctx_gguf.get()); ++i) {
@@ -1847,42 +2043,42 @@ struct clip_model_loader {
 
         vision_model.class_embedding = get_tensor(TN_CLASS_EMBD, false);
 
-        vision_model.pre_ln_w = get_tensor(string_format(TN_LN_PRE, "v", "weight"), false);
-        vision_model.pre_ln_b = get_tensor(string_format(TN_LN_PRE, "v", "bias"),   false);
+        vision_model.pre_ln_w = get_tensor(string_format(TN_LN_PRE, prefix, "weight"), false);
+        vision_model.pre_ln_b = get_tensor(string_format(TN_LN_PRE, prefix, "bias"),   false);
 
-        vision_model.post_ln_w = get_tensor(string_format(TN_LN_POST, "v", "weight"), false);
-        vision_model.post_ln_b = get_tensor(string_format(TN_LN_POST, "v", "bias"),   false);
+        vision_model.post_ln_w = get_tensor(string_format(TN_LN_POST, prefix, "weight"), false);
+        vision_model.post_ln_b = get_tensor(string_format(TN_LN_POST, prefix, "bias"),   false);
 
         vision_model.patch_bias = get_tensor(TN_PATCH_BIAS, false);
         vision_model.patch_embeddings_0 = get_tensor(TN_PATCH_EMBD,   false);
         vision_model.patch_embeddings_1 = get_tensor(TN_PATCH_EMBD_1, false);
 
-        vision_model.position_embeddings = get_tensor(string_format(TN_POS_EMBD, "v"), false);
+        vision_model.position_embeddings = get_tensor(string_format(TN_POS_EMBD, prefix), false);
 
         // layers
         vision_model.layers.resize(vision_model.hparams.n_layer);
         for (int il = 0; il < vision_model.hparams.n_layer; ++il) {
             auto & layer = vision_model.layers[il];
-            layer.k_w    = get_tensor(string_format(TN_ATTN_K,      "v", il, "weight"));
-            layer.q_w    = get_tensor(string_format(TN_ATTN_Q,      "v", il, "weight"));
-            layer.v_w    = get_tensor(string_format(TN_ATTN_V,      "v", il, "weight"));
-            layer.o_w    = get_tensor(string_format(TN_ATTN_OUTPUT, "v", il, "weight"));
-            layer.ln_1_w = get_tensor(string_format(TN_LN_1,        "v", il, "weight"), false);
-            layer.ln_2_w = get_tensor(string_format(TN_LN_2,        "v", il, "weight"), false);
-            layer.k_b    = get_tensor(string_format(TN_ATTN_K,      "v", il, "bias"), false);
-            layer.q_b    = get_tensor(string_format(TN_ATTN_Q,      "v", il, "bias"), false);
-            layer.v_b    = get_tensor(string_format(TN_ATTN_V,      "v", il, "bias"), false);
-            layer.o_b    = get_tensor(string_format(TN_ATTN_OUTPUT, "v", il, "bias"), false);
-            layer.ln_1_b = get_tensor(string_format(TN_LN_1,        "v", il, "bias"), false);
-            layer.ln_2_b = get_tensor(string_format(TN_LN_2,        "v", il, "bias"), false);
+            layer.k_w    = get_tensor(string_format(TN_ATTN_K,      prefix, il, "weight"));
+            layer.q_w    = get_tensor(string_format(TN_ATTN_Q,      prefix, il, "weight"));
+            layer.v_w    = get_tensor(string_format(TN_ATTN_V,      prefix, il, "weight"));
+            layer.o_w    = get_tensor(string_format(TN_ATTN_OUTPUT, prefix, il, "weight"));
+            layer.ln_1_w = get_tensor(string_format(TN_LN_1,        prefix, il, "weight"), false);
+            layer.ln_2_w = get_tensor(string_format(TN_LN_2,        prefix, il, "weight"), false);
+            layer.k_b    = get_tensor(string_format(TN_ATTN_K,      prefix, il, "bias"), false);
+            layer.q_b    = get_tensor(string_format(TN_ATTN_Q,      prefix, il, "bias"), false);
+            layer.v_b    = get_tensor(string_format(TN_ATTN_V,      prefix, il, "bias"), false);
+            layer.o_b    = get_tensor(string_format(TN_ATTN_OUTPUT, prefix, il, "bias"), false);
+            layer.ln_1_b = get_tensor(string_format(TN_LN_1,        prefix, il, "bias"), false);
+            layer.ln_2_b = get_tensor(string_format(TN_LN_2,        prefix, il, "bias"), false);
 
             // new naming
-            layer.ff_up_w   = get_tensor(string_format(TN_FFN_UP,   "v", il, "weight"));
-            layer.ff_up_b   = get_tensor(string_format(TN_FFN_UP,   "v", il, "bias"),   false);
-            layer.ff_gate_w = get_tensor(string_format(TN_FFN_GATE, "v", il, "weight"), false);
-            layer.ff_gate_b = get_tensor(string_format(TN_FFN_GATE, "v", il, "bias"),   false);
-            layer.ff_down_w = get_tensor(string_format(TN_FFN_DOWN, "v", il, "weight"));
-            layer.ff_down_b = get_tensor(string_format(TN_FFN_DOWN, "v", il, "bias"),   false);
+            layer.ff_up_w   = get_tensor(string_format(TN_FFN_UP,   prefix, il, "weight"));
+            layer.ff_up_b   = get_tensor(string_format(TN_FFN_UP,   prefix, il, "bias"),   false);
+            layer.ff_gate_w = get_tensor(string_format(TN_FFN_GATE, prefix, il, "weight"), false);
+            layer.ff_gate_b = get_tensor(string_format(TN_FFN_GATE, prefix, il, "bias"),   false);
+            layer.ff_down_w = get_tensor(string_format(TN_FFN_DOWN, prefix, il, "weight"));
+            layer.ff_down_b = get_tensor(string_format(TN_FFN_DOWN, prefix, il, "bias"),   false);
 
             // legacy naming (the in and out is reversed! don't ask me why)
             layer.ff_i_w = layer.ff_down_w;
@@ -2018,6 +2214,13 @@ struct clip_model_loader {
                     // for mistral small 3.1
                     vision_model.mm_input_norm_w   = get_tensor(TN_MM_INP_NORM,     false);
                     vision_model.mm_patch_merger_w = get_tensor(TN_MM_PATCH_MERGER, false);
+                } break;
+            case PROJECTOR_TYPE_ULTRAVOX:
+                {
+                    vision_model.mm_1_w = get_tensor(string_format(TN_MM_AUDIO_MLP, 1, "weight"));
+                    vision_model.mm_2_w = get_tensor(string_format(TN_MM_AUDIO_MLP, 2, "weight"));
+                    vision_model.mm_norm_pre_w = get_tensor(string_format(TN_MM_NORM_PRE, "weight"));
+                    vision_model.mm_norm_mid_w = get_tensor(string_format(TN_MM_NORM_MID, "weight"));
                 } break;
             default:
                 GGML_ASSERT(false && "unknown projector type");
@@ -2987,6 +3190,8 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         int n_patches_x = img->nx / params.patch_size / (n_merge > 0 ? n_merge : 1);
         int n_patches_y = img->ny / params.patch_size / (n_merge > 0 ? n_merge : 1);
         n_patches = n_patches_y*n_patches_x + n_patches_y - 1; // + one [IMG_BREAK] per row, except the last row
+    } else if (ctx->proj_type == PROJECTOR_TYPE_ULTRAVOX) {
+        n_patches = img->nx / ctx->vision_model.hparams.proj_stack_factor / 2;
     }
 
     return n_patches;
@@ -3563,6 +3768,8 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
             return ctx->vision_model.mm_input_proj_w->ne[0];
         case PROJECTOR_TYPE_IDEFICS3:
             return ctx->vision_model.projection->ne[1];
+        case PROJECTOR_TYPE_ULTRAVOX:
+            return ctx->vision_model.mm_2_w->ne[1];
         default:
             GGML_ABORT("Unknown projector type");
     }

@@ -1121,15 +1121,22 @@ class VisionModel(ModelBase):
         # get n_embd of the text model
         if "text_config" not in self.hparams:
             self.hparams["text_config"] = {}
+        # TODO @ngxson : separate VisionModel and AudioModel
+        if "audio_config" not in self.hparams:
+            self.hparams["audio_config"] = {}
         text_config = {**self.hparams, **self.hparams["text_config"]}
         self.n_embd_text = text_config.get("hidden_size", text_config.get("n_embd", 0))
         assert self.n_embd_text > 0, "n_embd not found in hparams"
 
-        if "vision_config" not in self.hparams:
-            raise ValueError("vision_config not found in hparams")
         # move vision config to the top level, while preserving the original hparams in global_config
         self.global_config = self.hparams
-        self.hparams = self.hparams["vision_config"]
+
+        if "vision_config" in self.hparams:
+            self.hparams = self.hparams["vision_config"]
+        elif "audio_config" in self.hparams:
+            self.hparams = self.hparams["audio_config"]
+        else:
+            raise ValueError("vision_config / audio_config not found in hparams")
 
         self.block_count = self.find_hparam(["n_layers", "num_hidden_layers", "n_layer", "num_layers", "depth"])
         self.tensor_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.CLIP_VISION, self.block_count)
@@ -5807,6 +5814,39 @@ class ChameleonModel(TextModel):
         data_torch = data_torch.repeat_interleave(n_heads, 0)
         return data_torch
 
+
+@ModelBase.register("UltravoxModel")
+class UltravoxModel(TextModel):
+    model_arch = gguf.MODEL_ARCH.LLAMA # dummy
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        raise NotImplementedError("Ultravox does not have text decoder. Please use --mmproj argument")
+
+
+@ModelBase.register("UltravoxModel")
+class UltravoxAudioModel(VisionModel):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.hparams["image_size"] = 0
+        self.hparams["patch_size"] = 0
+        self.hparams["hidden_size"] = self.hparams["d_model"]
+        self.hparams["intermediate_size"] = self.hparams["d_model"]
+        self.hparams["num_attention_heads"] = self.hparams["encoder_attention_heads"]
+        self.preprocessor_config["image_mean"] = [0, 0, 0]
+        self.preprocessor_config["image_std"] = [0, 0, 0]
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        self.gguf_writer.add_bool(gguf.Keys.ClipVision.HAS_AUDIO_ENC, True)
+        self.gguf_writer.add_vision_projector_type(gguf.VisionProjectorType.ULTRAVOX)
+        self.gguf_writer.add_vision_attention_layernorm_eps(self.hparams.get("layer_norm_eps", 1e-5))
+        self.gguf_writer.add_uint32(gguf.Keys.ClipVision.Projector.STACK_FACTOR, self.global_config["stack_factor"])
+
+    def tensor_force_quant(self, name, new_name, bid, n_dims):
+        del bid, new_name, n_dims  # unused
+        if ".conv" in name:
+            return gguf.GGMLQuantizationType.F16
+        return False
 
 ###### CONVERSION LOGIC ######
 
