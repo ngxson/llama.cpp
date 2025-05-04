@@ -142,7 +142,7 @@ mtmd_context * mtmd_init_from_file(const char * mmproj_fname,
 
         //// TEST, TO BE REMOVED LATER
         clip_image_f32_batch * batch = clip_image_f32_batch_init();
-        std::vector<float> mel(128 * 1024);
+        std::vector<float> mel(128 * 1024, 0.2);
         clip_image_f32_batch_add_mel(batch, 128, 1024, mel.data());
         std::vector<float> output(64 * 2048, 0);
         clip_image_batch_encode(test->ctx_clip, 8, batch, output.data());
