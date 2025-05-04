@@ -2960,6 +2960,7 @@ struct server_context {
                         new_tokens[i - n_discard] = new_tokens[i];
                     }
 
+                    new_tokens.resize(slot.cache_tokens.size() - n_discard);
                     slot.cache_tokens.clear();
                     slot.cache_tokens.insert(new_tokens);
                 }
@@ -3095,12 +3096,12 @@ struct server_context {
                                     // we should never reach this
                                     GGML_ABORT("not supported by multimodal");
                                 }
-                                llama_tokens curr_tokens = slot.prompt_tokens.get_text_tokens(); // copy
                                 const int n_left = slot.n_ctx - slot.params.n_keep;
 
                                 const int n_block_size = n_left / 2;
                                 const int erased_blocks = (slot.n_prompt_tokens - slot.params.n_keep - n_block_size) / n_block_size;
 
+                                const llama_tokens & curr_tokens = slot.prompt_tokens.get_text_tokens();
                                 llama_tokens new_tokens(
                                         curr_tokens.begin(),
                                         curr_tokens.begin() + slot.params.n_keep);
@@ -3208,10 +3209,9 @@ struct server_context {
                     // remove the non-common part from the cache
                     slot.cache_tokens.resize(slot.n_past);
 
-                    llama_token cur_tok = slot.prompt_tokens[slot.n_past];
-
                     // check if we should process the image
-                    if (cur_tok == LLAMA_TOKEN_NULL) {
+                    if (slot.n_past < slot.n_prompt_tokens
+                            && slot.prompt_tokens[slot.n_past] == LLAMA_TOKEN_NULL) {
                         // process the image
                         int32_t new_n_past;
                         int32_t res = slot.prompt_tokens.process_chunk(ctx, mctx, slot.n_past, slot.id, new_n_past);

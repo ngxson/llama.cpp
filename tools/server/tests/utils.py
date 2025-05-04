@@ -26,7 +26,7 @@ from re import RegexFlag
 import wget
 
 
-DEFAULT_HTTP_TIMEOUT = 12
+DEFAULT_HTTP_TIMEOUT = 120
 
 if "LLAMA_SANITIZE" in os.environ or "GITHUB_ACTION" in os.environ:
     DEFAULT_HTTP_TIMEOUT = 30
