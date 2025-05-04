@@ -249,9 +249,11 @@ struct clip_vision_model {
     struct ggml_tensor * mm_4_w = nullptr;
     struct ggml_tensor * mm_4_b = nullptr;
 
-    //GLMV-Edge projection
+    // GLMV-Edge projection
     struct ggml_tensor * mm_model_adapter_conv_w = nullptr;
     struct ggml_tensor * mm_model_adapter_conv_b = nullptr;
+    struct ggml_tensor * mm_glm_tok_boi = nullptr;
+    struct ggml_tensor * mm_glm_tok_eoi = nullptr;
 
     // MobileVLM projection
     struct ggml_tensor * mm_model_mlp_1_w = nullptr;
@@ -1559,6 +1561,13 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
             embeddings = ggml_mul(ctx0, embeddings,x);
             embeddings = ggml_mul_mat(ctx0, model.mm_model_mlp_3_w, embeddings);
         }
+        // arrangement of BOI/EOI token embeddings
+        // note: these embeddings are not present in text model, hence we cannot process them as text tokens
+        // see: https://huggingface.co/THUDM/glm-edge-v-2b/blob/main/siglip.py#L53
+        {
+            embeddings = ggml_concat(ctx0, model.mm_glm_tok_boi, embeddings, 1); // BOI
+            embeddings = ggml_concat(ctx0, embeddings, model.mm_glm_tok_eoi, 1); // EOI
+        }
     }
 
     else if (ctx->proj_type == PROJECTOR_TYPE_QWEN2VL) {
@@ -1972,12 +1981,14 @@ struct clip_model_loader {
                 {
                     vision_model.mm_model_adapter_conv_w = get_tensor(string_format(TN_GLM_ADAPER_CONV, "weight"));
                     vision_model.mm_model_adapter_conv_b = get_tensor(string_format(TN_GLM_ADAPER_CONV, "bias"));
-                    vision_model.mm_model_mlp_0_w = get_tensor(string_format(TN_GLM_ADAPTER_LINEAR,"weight"));
-                    vision_model.mm_model_ln_q_w = get_tensor(string_format(TN_GLM_ADAPTER_NORM_1,"weight"));
-                    vision_model.mm_model_ln_q_b = get_tensor(string_format(TN_GLM_ADAPTER_NORM_1,"bias"));
-                    vision_model.mm_model_mlp_1_w = get_tensor(string_format(TN_GLM_ADAPTER_D_H_2_4H,"weight"));
-                    vision_model.mm_model_mlp_2_w = get_tensor(string_format(TN_GLM_ADAPTER_GATE,"weight"));
-                    vision_model.mm_model_mlp_3_w = get_tensor(string_format(TN_GLM_ADAPTER_D_4H_2_H,"weight"));
+                    vision_model.mm_model_mlp_0_w = get_tensor(string_format(TN_GLM_ADAPTER_LINEAR, "weight"));
+                    vision_model.mm_model_ln_q_w = get_tensor(string_format(TN_GLM_ADAPTER_NORM_1, "weight"));
+                    vision_model.mm_model_ln_q_b = get_tensor(string_format(TN_GLM_ADAPTER_NORM_1, "bias"));
+                    vision_model.mm_model_mlp_1_w = get_tensor(string_format(TN_GLM_ADAPTER_D_H_2_4H, "weight"));
+                    vision_model.mm_model_mlp_2_w = get_tensor(string_format(TN_GLM_ADAPTER_GATE, "weight"));
+                    vision_model.mm_model_mlp_3_w = get_tensor(string_format(TN_GLM_ADAPTER_D_4H_2_H, "weight"));
+                    vision_model.mm_glm_tok_boi = get_tensor(string_format(TN_TOK_GLM_BOI, "weight"));
+                    vision_model.mm_glm_tok_eoi = get_tensor(string_format(TN_TOK_GLM_EOI, "weight"));
                 } break;
             case PROJECTOR_TYPE_QWEN2VL:
             case PROJECTOR_TYPE_QWEN25VL:
@@ -2948,6 +2959,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
 
     if (ctx->proj_type == PROJECTOR_TYPE_LDP || ctx->proj_type == PROJECTOR_TYPE_LDPV2 || ctx->proj_type == PROJECTOR_TYPE_GLM_EDGE) {
         n_patches /= 4;
+        n_patches += 2; // for BOI and EOI token embeddings
     } else if (ctx->proj_type == PROJECTOR_TYPE_MINICPMV) {
         if (ctx->minicpmv_version == 2) {
             n_patches = 96;
