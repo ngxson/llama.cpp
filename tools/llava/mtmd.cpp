@@ -681,8 +681,7 @@ int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
             i_batch++;
         }
 
-        // for mrope, one image is one single **temporal** position
-        n_past += mtmd_decode_use_mrope(ctx) ? 1 : n_tokens;
+        n_past += mtmd_image_tokens_get_n_pos(image_tokens);
         *new_n_past = n_past;
 
         if (mtmd_decode_use_non_causal(ctx)) {
