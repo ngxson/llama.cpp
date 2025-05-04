@@ -1056,13 +1056,14 @@ static ggml_cgraph * clip_image_build_graph_ultravox(clip_ctx * ctx, const clip_
     const auto & model = ctx->vision_model;
     const auto & hparams = model.hparams;
 
-    int n_step = img.nx;
-    int n_mel  = img.ny;
+    const int n_step = img.nx;
+    const int n_mel  = img.ny;
 
     const int n_embd  = hparams.hidden_size;
     const int n_head  = hparams.n_head;
     const int d_head  = n_embd / n_head;
     const int n_layer = hparams.n_layer;
+    const int n_pos   = n_step / 2;
     const float eps   = hparams.eps;
 
     ggml_init_params params = {
@@ -1080,7 +1081,7 @@ static ggml_cgraph * clip_image_build_graph_ultravox(clip_ctx * ctx, const clip_
     ggml_set_name(inp_raw, "inp_raw");
     ggml_set_input(inp_raw);
 
-    struct ggml_tensor * positions = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_step);
+    struct ggml_tensor * positions = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos);
     ggml_set_name(positions, "positions");
     ggml_set_input(positions);
 
@@ -1125,20 +1126,17 @@ static ggml_cgraph * clip_image_build_graph_ultravox(clip_ctx * ctx, const clip_
             ggml_tensor * k = ggml_mul_mat(ctx0, layer.k_w, cur); // no bias for key
             ggml_tensor * v = ggml_add(ctx0, ggml_mul_mat(ctx0, layer.v_w, cur), layer.v_b);
 
-            q = ggml_reshape_3d(ctx0, q, d_head, n_head, n_step);
-            k = ggml_reshape_3d(ctx0, k, d_head, n_head, n_step);
-            v = ggml_reshape_3d(ctx0, v, d_head, n_head, n_step);
+            q = ggml_reshape_3d(ctx0, q, d_head, n_head, n_pos);
+            k = ggml_reshape_3d(ctx0, k, d_head, n_head, n_pos);
+            v = ggml_reshape_3d(ctx0, v, d_head, n_head, n_pos);
 
             q = ggml_cont(ctx0, ggml_permute(ctx0, q, 0, 2, 1, 3));
             q = ggml_scale(ctx0, q, 1.0f / std::sqrt(d_head));
-            // utils.debug_print(q, "q rope");
 
             k = ggml_cont(ctx0, ggml_permute(ctx0, k, 0, 2, 1, 3));
-            // utils.debug_print(k, "k rope");
 
             ggml_tensor * kq = ggml_mul_mat(ctx0, k, q);
             kq = ggml_soft_max_ext(ctx0, kq, nullptr, 1.0f, 0.0f);
-            // utils.debug_print(kq, "kq softmax");
 
             v = ggml_cont(ctx0, ggml_permute(ctx0, v, 1, 2, 0, 3));
 
@@ -2217,6 +2215,10 @@ struct clip_model_loader {
                 } break;
             case PROJECTOR_TYPE_ULTRAVOX:
                 {
+                    vision_model.conv1d_1_w = get_tensor(string_format(TN_CONV1D, 1, "weight"));
+                    vision_model.conv1d_1_b = get_tensor(string_format(TN_CONV1D, 1, "bias"));
+                    vision_model.conv1d_2_w = get_tensor(string_format(TN_CONV1D, 2, "weight"));
+                    vision_model.conv1d_2_b = get_tensor(string_format(TN_CONV1D, 2, "bias"));
                     vision_model.mm_1_w = get_tensor(string_format(TN_MM_AUDIO_MLP, 1, "weight"));
                     vision_model.mm_2_w = get_tensor(string_format(TN_MM_AUDIO_MLP, 2, "weight"));
                     vision_model.mm_norm_pre_w = get_tensor(string_format(TN_MM_NORM_PRE, "weight"));

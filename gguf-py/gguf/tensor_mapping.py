@@ -1088,11 +1088,11 @@ class TensorNameMap:
             "audio_tower.conv{bid}", # ultravox
         ),
 
-        MODEL_TENSOR.A_PRE_NORM: (
+        MODEL_TENSOR.A_PRE_NORM: (),
+
+        MODEL_TENSOR.A_POST_NORM: (
             "audio_tower.layer_norm", # ultravox
         ),
-
-        MODEL_TENSOR.A_POST_NORM: (),
 
         MODEL_TENSOR.A_ENC_ATTN_Q: (
             "audio_tower.layers.{bid}.self_attn.q_proj", # ultravox

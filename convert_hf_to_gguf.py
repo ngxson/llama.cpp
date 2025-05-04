@@ -5827,8 +5827,8 @@ class UltravoxModel(TextModel):
 class UltravoxAudioModel(VisionModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.hparams["image_size"] = 0
-        self.hparams["patch_size"] = 0
+        self.hparams["image_size"] = self.hparams["num_mel_bins"]
+        self.hparams["patch_size"] = self.hparams["num_mel_bins"]
         self.hparams["hidden_size"] = self.hparams["d_model"]
         self.hparams["intermediate_size"] = self.hparams["d_model"]
         self.hparams["num_attention_heads"] = self.hparams["encoder_attention_heads"]
@@ -5847,6 +5847,15 @@ class UltravoxAudioModel(VisionModel):
         if ".conv" in name:
             return gguf.GGMLQuantizationType.F16
         return False
+    
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        del bid  # unused
+
+        if "conv1.bias" in name or "conv2.bias" in name:
+            # transpose conv1 and conv2 bias
+            data_torch = data_torch.unsqueeze(-1)
+
+        return [(self.map_tensor_name(name), data_torch)]
 
 ###### CONVERSION LOGIC ######
 
