@@ -28,6 +28,11 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
         ggml-cpu/binary-ops.cpp
         ggml-cpu/unary-ops.h
         ggml-cpu/unary-ops.cpp
+        ggml-cpu/simd-mappings.h
+        ggml-cpu/vec.h
+        ggml-cpu/vec.cpp
+        ggml-cpu/ops.h
+        ggml-cpu/ops.cpp
         )
 
     target_compile_features(${GGML_CPU_NAME} PRIVATE c_std_11 cxx_std_17)
@@ -217,7 +222,7 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
             elseif (GGML_AVX)
                 list(APPEND ARCH_FLAGS /arch:AVX)
                 list(APPEND ARCH_DEFINITIONS GGML_AVX)
-            else ()
+            elseif (GGML_SSE42)
                 list(APPEND ARCH_FLAGS /arch:SSE4.2)
                 list(APPEND ARCH_DEFINITIONS GGML_SSE42)
             endif()
@@ -232,8 +237,10 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
             if (GGML_NATIVE)
                 list(APPEND ARCH_FLAGS -march=native)
             else ()
-                list(APPEND ARCH_FLAGS -msse4.2)
-                list(APPEND ARCH_DEFINITIONS GGML_SSE42)
+                if (GGML_SSE42)
+                    list(APPEND ARCH_FLAGS -msse4.2)
+                    list(APPEND ARCH_DEFINITIONS GGML_SSE42)
+                endif()
                 if (GGML_F16C)
                     list(APPEND ARCH_FLAGS -mf16c)
                     list(APPEND ARCH_DEFINITIONS GGML_F16C)
@@ -345,10 +352,14 @@ function(ggml_add_cpu_backend_variant_impl tag_name)
         # TODO: Separation to determine activation of VX/VXE/VXE2
         if (${S390X_M} MATCHES "8561|8562")
             message(STATUS "z15 target")
-            list(APPEND ARCH_FLAGS -march=z15 -mtune=z15)
+            list(APPEND ARCH_FLAGS -march=z15)
         elseif (${S390X_M} MATCHES "3931")
             message(STATUS "z16 target")
-            list(APPEND ARCH_FLAGS -march=z16 -mtune=z16)
+            list(APPEND ARCH_FLAGS -march=z16)
+        elseif (${S390X_M} MATCHES "9175|9176")
+            # NOTE: Only available from GCC 15.1.0 onwards. Any z17 machine with compile issues must first verify their GCC version.
+            message(STATUS "z17 target")
+            list(APPEND ARCH_FLAGS -march=z17)
         else()
             message(STATUS "Unknown target")
             message(WARNING "Unknown target. If you are compiling for z14 and earlier, you might have to add -DGGML_VXE=OFF.")

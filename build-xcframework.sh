@@ -8,6 +8,7 @@ TVOS_MIN_OS_VERSION=16.4
 
 BUILD_SHARED_LIBS=OFF
 LLAMA_BUILD_EXAMPLES=OFF
+LLAMA_BUILD_TOOLS=OFF
 LLAMA_BUILD_TESTS=OFF
 LLAMA_BUILD_SERVER=OFF
 GGML_METAL=ON
@@ -31,6 +32,7 @@ COMMON_CMAKE_ARGS=(
     -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM=ggml
     -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
     -DLLAMA_BUILD_EXAMPLES=${LLAMA_BUILD_EXAMPLES}
+    -DLLAMA_BUILD_TOOLS=${LLAMA_BUILD_TOOLS}
     -DLLAMA_BUILD_TESTS=${LLAMA_BUILD_TESTS}
     -DLLAMA_BUILD_SERVER=${LLAMA_BUILD_SERVER}
     -DGGML_METAL_EMBED_LIBRARY=${GGML_METAL_EMBED_LIBRARY}
@@ -40,6 +42,11 @@ COMMON_CMAKE_ARGS=(
     -DGGML_NATIVE=OFF
     -DGGML_OPENMP=${GGML_OPENMP}
 )
+
+XCODE_VERSION=$(xcodebuild -version 2>/dev/null | head -n1 | awk '{ print $2 }')
+MAJOR_VERSION=$(echo $XCODE_VERSION | cut -d. -f1)
+MINOR_VERSION=$(echo $XCODE_VERSION | cut -d. -f2)
+echo "Detected Xcode version: $XCODE_VERSION"
 
 check_required_tool() {
     local tool=$1
@@ -325,21 +332,28 @@ combine_static_libraries() {
 
     # Platform-specific post-processing for device builds
     if [[ "$is_simulator" == "false" ]]; then
-        if command -v vtool &>/dev/null; then
+        if command -v xcrun vtool &>/dev/null; then
             case "$platform" in
                 "ios")
                     echo "Marking binary as a framework binary for iOS..."
-                    vtool -set-build-version ios ${IOS_MIN_OS_VERSION} ${IOS_MIN_OS_VERSION} -replace \
+                    xcrun vtool -set-build-version ios ${IOS_MIN_OS_VERSION} ${IOS_MIN_OS_VERSION} -replace \
                         -output "${base_dir}/${output_lib}" "${base_dir}/${output_lib}"
                     ;;
                 "visionos")
                     echo "Marking binary as a framework binary for visionOS..."
-                    vtool -set-build-version xros ${VISIONOS_MIN_OS_VERSION} ${VISIONOS_MIN_OS_VERSION} -replace \
+                    if [[ "$MAJOR_VERSION" -gt 16 ]] || [[ "$MAJOR_VERSION" -eq 16 && "$MINOR_VERSION" -gt 2 ]]; then
+                        echo "Xcode version greater than 16.2, using visionOS."
+                        VISION_OS_BUILD_VERSION="visionos"
+                    else
+                        echo "Xcode version less than or equal to 16.2, using xros."
+                        VISION_OS_BUILD_VERSION="xros"
+                    fi
+                    xcrun vtool -set-build-version ${VISION_OS_BUILD_VERSION} ${VISIONOS_MIN_OS_VERSION} ${VISIONOS_MIN_OS_VERSION} -replace \
                         -output "${base_dir}/${output_lib}" "${base_dir}/${output_lib}"
                     ;;
                 "tvos")
                     echo "Marking binary as a framework binary for tvOS..."
-                    vtool -set-build-version tvos ${TVOS_MIN_OS_VERSION} ${TVOS_MIN_OS_VERSION} -replace \
+                    xcrun vtool -set-build-version tvos ${TVOS_MIN_OS_VERSION} ${TVOS_MIN_OS_VERSION} -replace \
                         -output "${base_dir}/${output_lib}" "${base_dir}/${output_lib}"
                     ;;
             esac
@@ -399,6 +413,7 @@ cmake -B build-ios-sim -G Xcode \
     -DCMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS=iphonesimulator \
     -DCMAKE_C_FLAGS="${COMMON_C_FLAGS}" \
     -DCMAKE_CXX_FLAGS="${COMMON_CXX_FLAGS}" \
+    -DLLAMA_CURL=OFF \
     -S .
 cmake --build build-ios-sim --config Release -- -quiet
 
@@ -411,6 +426,7 @@ cmake -B build-ios-device -G Xcode \
     -DCMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS=iphoneos \
     -DCMAKE_C_FLAGS="${COMMON_C_FLAGS}" \
     -DCMAKE_CXX_FLAGS="${COMMON_CXX_FLAGS}" \
+    -DLLAMA_CURL=OFF \
     -S .
 cmake --build build-ios-device --config Release -- -quiet
 
@@ -421,6 +437,7 @@ cmake -B build-macos -G Xcode \
     -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" \
     -DCMAKE_C_FLAGS="${COMMON_C_FLAGS}" \
     -DCMAKE_CXX_FLAGS="${COMMON_CXX_FLAGS}" \
+    -DLLAMA_CURL=OFF \
     -S .
 cmake --build build-macos --config Release -- -quiet
 
@@ -434,6 +451,7 @@ cmake -B build-visionos -G Xcode \
     -DCMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS=xros \
     -DCMAKE_C_FLAGS="-D_XOPEN_SOURCE=700 ${COMMON_C_FLAGS}" \
     -DCMAKE_CXX_FLAGS="-D_XOPEN_SOURCE=700 ${COMMON_CXX_FLAGS}" \
+    -DLLAMA_CURL=OFF \
     -S .
 cmake --build build-visionos --config Release -- -quiet
 
@@ -447,6 +465,7 @@ cmake -B build-visionos-sim -G Xcode \
     -DCMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS=xrsimulator \
     -DCMAKE_C_FLAGS="-D_XOPEN_SOURCE=700 ${COMMON_C_FLAGS}" \
     -DCMAKE_CXX_FLAGS="-D_XOPEN_SOURCE=700 ${COMMON_CXX_FLAGS}" \
+    -DLLAMA_CURL=OFF \
     -S .
 cmake --build build-visionos-sim --config Release -- -quiet
 
@@ -462,6 +481,7 @@ cmake -B build-tvos-sim -G Xcode \
     -DCMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS=appletvsimulator \
     -DCMAKE_C_FLAGS="${COMMON_C_FLAGS}" \
     -DCMAKE_CXX_FLAGS="${COMMON_CXX_FLAGS}" \
+    -DLLAMA_CURL=OFF \
     -S .
 cmake --build build-tvos-sim --config Release -- -quiet
 
@@ -476,6 +496,7 @@ cmake -B build-tvos-device -G Xcode \
     -DCMAKE_XCODE_ATTRIBUTE_SUPPORTED_PLATFORMS=appletvos \
     -DCMAKE_C_FLAGS="${COMMON_C_FLAGS}" \
     -DCMAKE_CXX_FLAGS="${COMMON_CXX_FLAGS}" \
+    -DLLAMA_CURL=OFF \
     -S .
 cmake --build build-tvos-device --config Release -- -quiet
 
