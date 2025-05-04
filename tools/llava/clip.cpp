@@ -1171,7 +1171,7 @@ static ggml_cgraph * clip_image_build_graph_ultravox(clip_ctx * ctx, const clip_
     {
         int64_t stride = n_embd * hparams.proj_stack_factor;
         int64_t padded_len = GGML_PAD(ggml_nelements(embeddings), stride);
-        int64_t pad = ggml_nelements(embeddings) - padded_len;
+        int64_t pad = padded_len - ggml_nelements(embeddings);
         if (pad > 0) {
             embeddings = ggml_view_1d(ctx0, embeddings, ggml_nelements(embeddings), 0);
             embeddings = ggml_pad(ctx0, embeddings, pad, 0, 0, 0);
@@ -1204,7 +1204,6 @@ static ggml_cgraph * clip_image_build_graph_ultravox(clip_ctx * ctx, const clip_
         // mid-norm
         cur = ggml_rms_norm(ctx0, cur, 1e-6);
         cur = ggml_mul(ctx0, cur, model.mm_norm_mid_w);
-        embeddings = cur;
 
         // ffn out
         cur = ggml_mul_mat(ctx0, model.mm_2_w, cur);
