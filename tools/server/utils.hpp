@@ -1095,8 +1095,8 @@ public:
         }
     }
 
-    void insert(llama_tokens & tokens) {
-        tokens.insert(tokens.end(), tokens.begin(), tokens.end());
+    void insert(llama_tokens & inp_tokens) {
+        tokens.insert(tokens.end(), inp_tokens.begin(), inp_tokens.end());
     }
 
     size_t size() const {
