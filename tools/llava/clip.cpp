@@ -1204,17 +1204,13 @@ static ggml_cgraph * clip_image_build_graph_ultravox(clip_ctx * ctx, const clip_
         // mid-norm
         cur = ggml_rms_norm(ctx0, cur, 1e-6);
         cur = ggml_mul(ctx0, cur, model.mm_norm_mid_w);
+        embeddings = cur;
 
         // ffn out
         cur = ggml_mul_mat(ctx0, model.mm_2_w, cur);
 
         embeddings = cur;
     }
-
-    embeddings = ggml_view_2d(ctx0, embeddings, 2048, n_step / 16,
-                              ggml_row_size(embeddings->type, 2048), 0);
-
-    printf("shape of embd: %lld %lld %lld\n", embeddings->ne[0], embeddings->ne[1], embeddings->ne[2]);
 
     // build the graph
     ggml_build_forward_expand(gf, embeddings);
