@@ -177,136 +177,136 @@ struct clip_hparams {
 
 struct clip_layer {
     // attention
-    struct ggml_tensor * k_w = nullptr;
-    struct ggml_tensor * k_b = nullptr;
-    struct ggml_tensor * q_w = nullptr;
-    struct ggml_tensor * q_b = nullptr;
-    struct ggml_tensor * v_w = nullptr;
-    struct ggml_tensor * v_b = nullptr;
+    ggml_tensor * k_w = nullptr;
+    ggml_tensor * k_b = nullptr;
+    ggml_tensor * q_w = nullptr;
+    ggml_tensor * q_b = nullptr;
+    ggml_tensor * v_w = nullptr;
+    ggml_tensor * v_b = nullptr;
 
-    struct ggml_tensor * o_w = nullptr;
-    struct ggml_tensor * o_b = nullptr;
+    ggml_tensor * o_w = nullptr;
+    ggml_tensor * o_b = nullptr;
 
     // layernorm 1
-    struct ggml_tensor * ln_1_w = nullptr;
-    struct ggml_tensor * ln_1_b = nullptr;
+    ggml_tensor * ln_1_w = nullptr;
+    ggml_tensor * ln_1_b = nullptr;
 
-    struct ggml_tensor * ff_up_w = nullptr;
-    struct ggml_tensor * ff_up_b = nullptr;
-    struct ggml_tensor * ff_gate_w = nullptr;
-    struct ggml_tensor * ff_gate_b = nullptr;
-    struct ggml_tensor * ff_down_w = nullptr;
-    struct ggml_tensor * ff_down_b = nullptr;
+    ggml_tensor * ff_up_w = nullptr;
+    ggml_tensor * ff_up_b = nullptr;
+    ggml_tensor * ff_gate_w = nullptr;
+    ggml_tensor * ff_gate_b = nullptr;
+    ggml_tensor * ff_down_w = nullptr;
+    ggml_tensor * ff_down_b = nullptr;
 
     // layernorm 2
-    struct ggml_tensor * ln_2_w = nullptr;
-    struct ggml_tensor * ln_2_b = nullptr;
+    ggml_tensor * ln_2_w = nullptr;
+    ggml_tensor * ln_2_b = nullptr;
 };
 
 struct clip_vision_model {
     struct clip_hparams hparams;
 
     // embeddings
-    struct ggml_tensor * class_embedding = nullptr;
-    struct ggml_tensor * patch_embeddings_0 = nullptr;
-    struct ggml_tensor * patch_embeddings_1 = nullptr;  // second Conv2D kernel when we decouple Conv3D along temproal dimension (Qwen2VL)
-    struct ggml_tensor * patch_bias = nullptr;
-    struct ggml_tensor * position_embeddings = nullptr;
+    ggml_tensor * class_embedding = nullptr;
+    ggml_tensor * patch_embeddings_0 = nullptr;
+    ggml_tensor * patch_embeddings_1 = nullptr;  // second Conv2D kernel when we decouple Conv3D along temproal dimension (Qwen2VL)
+    ggml_tensor * patch_bias = nullptr;
+    ggml_tensor * position_embeddings = nullptr;
 
-    struct ggml_tensor * pre_ln_w = nullptr;
-    struct ggml_tensor * pre_ln_b = nullptr;
+    ggml_tensor * pre_ln_w = nullptr;
+    ggml_tensor * pre_ln_b = nullptr;
 
     std::vector<clip_layer> layers;
 
-    struct ggml_tensor * post_ln_w;
-    struct ggml_tensor * post_ln_b;
+    ggml_tensor * post_ln_w;
+    ggml_tensor * post_ln_b;
 
-    struct ggml_tensor * projection;
+    ggml_tensor * projection;
 
     // LLaVA projection
-    struct ggml_tensor * mm_input_norm_w = nullptr;
-    struct ggml_tensor * mm_0_w = nullptr;
-    struct ggml_tensor * mm_0_b = nullptr;
-    struct ggml_tensor * mm_2_w = nullptr;
-    struct ggml_tensor * mm_2_b = nullptr;
+    ggml_tensor * mm_input_norm_w = nullptr;
+    ggml_tensor * mm_0_w = nullptr;
+    ggml_tensor * mm_0_b = nullptr;
+    ggml_tensor * mm_2_w = nullptr;
+    ggml_tensor * mm_2_b = nullptr;
 
-    struct ggml_tensor * image_newline = nullptr;
+    ggml_tensor * image_newline = nullptr;
 
     // Yi type models with mlp+normalization projection
-    struct ggml_tensor * mm_1_w = nullptr; // Yi type models have 0, 1, 3, 4
-    struct ggml_tensor * mm_1_b = nullptr;
-    struct ggml_tensor * mm_3_w = nullptr;
-    struct ggml_tensor * mm_3_b = nullptr;
-    struct ggml_tensor * mm_4_w = nullptr;
-    struct ggml_tensor * mm_4_b = nullptr;
+    ggml_tensor * mm_1_w = nullptr; // Yi type models have 0, 1, 3, 4
+    ggml_tensor * mm_1_b = nullptr;
+    ggml_tensor * mm_3_w = nullptr;
+    ggml_tensor * mm_3_b = nullptr;
+    ggml_tensor * mm_4_w = nullptr;
+    ggml_tensor * mm_4_b = nullptr;
 
     // GLMV-Edge projection
-    struct ggml_tensor * mm_model_adapter_conv_w = nullptr;
-    struct ggml_tensor * mm_model_adapter_conv_b = nullptr;
-    struct ggml_tensor * mm_glm_tok_boi = nullptr;
-    struct ggml_tensor * mm_glm_tok_eoi = nullptr;
+    ggml_tensor * mm_model_adapter_conv_w = nullptr;
+    ggml_tensor * mm_model_adapter_conv_b = nullptr;
+    ggml_tensor * mm_glm_tok_boi = nullptr;
+    ggml_tensor * mm_glm_tok_eoi = nullptr;
 
     // MobileVLM projection
-    struct ggml_tensor * mm_model_mlp_1_w = nullptr;
-    struct ggml_tensor * mm_model_mlp_1_b = nullptr;
-    struct ggml_tensor * mm_model_mlp_3_w = nullptr;
-    struct ggml_tensor * mm_model_mlp_3_b = nullptr;
-    struct ggml_tensor * mm_model_block_1_block_0_0_w = nullptr;
-    struct ggml_tensor * mm_model_block_1_block_0_1_w = nullptr;
-    struct ggml_tensor * mm_model_block_1_block_0_1_b = nullptr;
-    struct ggml_tensor * mm_model_block_1_block_1_fc1_w = nullptr;
-    struct ggml_tensor * mm_model_block_1_block_1_fc1_b = nullptr;
-    struct ggml_tensor * mm_model_block_1_block_1_fc2_w = nullptr;
-    struct ggml_tensor * mm_model_block_1_block_1_fc2_b = nullptr;
-    struct ggml_tensor * mm_model_block_1_block_2_0_w = nullptr;
-    struct ggml_tensor * mm_model_block_1_block_2_1_w = nullptr;
-    struct ggml_tensor * mm_model_block_1_block_2_1_b = nullptr;
-    struct ggml_tensor * mm_model_block_2_block_0_0_w = nullptr;
-    struct ggml_tensor * mm_model_block_2_block_0_1_w = nullptr;
-    struct ggml_tensor * mm_model_block_2_block_0_1_b = nullptr;
-    struct ggml_tensor * mm_model_block_2_block_1_fc1_w = nullptr;
-    struct ggml_tensor * mm_model_block_2_block_1_fc1_b = nullptr;
-    struct ggml_tensor * mm_model_block_2_block_1_fc2_w = nullptr;
-    struct ggml_tensor * mm_model_block_2_block_1_fc2_b = nullptr;
-    struct ggml_tensor * mm_model_block_2_block_2_0_w = nullptr;
-    struct ggml_tensor * mm_model_block_2_block_2_1_w = nullptr;
-    struct ggml_tensor * mm_model_block_2_block_2_1_b = nullptr;
+    ggml_tensor * mm_model_mlp_1_w = nullptr;
+    ggml_tensor * mm_model_mlp_1_b = nullptr;
+    ggml_tensor * mm_model_mlp_3_w = nullptr;
+    ggml_tensor * mm_model_mlp_3_b = nullptr;
+    ggml_tensor * mm_model_block_1_block_0_0_w = nullptr;
+    ggml_tensor * mm_model_block_1_block_0_1_w = nullptr;
+    ggml_tensor * mm_model_block_1_block_0_1_b = nullptr;
+    ggml_tensor * mm_model_block_1_block_1_fc1_w = nullptr;
+    ggml_tensor * mm_model_block_1_block_1_fc1_b = nullptr;
+    ggml_tensor * mm_model_block_1_block_1_fc2_w = nullptr;
+    ggml_tensor * mm_model_block_1_block_1_fc2_b = nullptr;
+    ggml_tensor * mm_model_block_1_block_2_0_w = nullptr;
+    ggml_tensor * mm_model_block_1_block_2_1_w = nullptr;
+    ggml_tensor * mm_model_block_1_block_2_1_b = nullptr;
+    ggml_tensor * mm_model_block_2_block_0_0_w = nullptr;
+    ggml_tensor * mm_model_block_2_block_0_1_w = nullptr;
+    ggml_tensor * mm_model_block_2_block_0_1_b = nullptr;
+    ggml_tensor * mm_model_block_2_block_1_fc1_w = nullptr;
+    ggml_tensor * mm_model_block_2_block_1_fc1_b = nullptr;
+    ggml_tensor * mm_model_block_2_block_1_fc2_w = nullptr;
+    ggml_tensor * mm_model_block_2_block_1_fc2_b = nullptr;
+    ggml_tensor * mm_model_block_2_block_2_0_w = nullptr;
+    ggml_tensor * mm_model_block_2_block_2_1_w = nullptr;
+    ggml_tensor * mm_model_block_2_block_2_1_b = nullptr;
 
     // MobileVLM_V2 projection
-    struct ggml_tensor * mm_model_mlp_0_w = nullptr;
-    struct ggml_tensor * mm_model_mlp_0_b = nullptr;
-    struct ggml_tensor * mm_model_mlp_2_w = nullptr;
-    struct ggml_tensor * mm_model_mlp_2_b = nullptr;
-    struct ggml_tensor * mm_model_peg_0_w = nullptr;
-    struct ggml_tensor * mm_model_peg_0_b = nullptr;
+    ggml_tensor * mm_model_mlp_0_w = nullptr;
+    ggml_tensor * mm_model_mlp_0_b = nullptr;
+    ggml_tensor * mm_model_mlp_2_w = nullptr;
+    ggml_tensor * mm_model_mlp_2_b = nullptr;
+    ggml_tensor * mm_model_peg_0_w = nullptr;
+    ggml_tensor * mm_model_peg_0_b = nullptr;
 
     // MINICPMV projection
-    struct ggml_tensor * mm_model_pos_embed_k = nullptr;
-    struct ggml_tensor * mm_model_query = nullptr;
-    struct ggml_tensor * mm_model_proj = nullptr;
-    struct ggml_tensor * mm_model_kv_proj = nullptr;
-    struct ggml_tensor * mm_model_attn_q_w = nullptr;
-    struct ggml_tensor * mm_model_attn_q_b = nullptr;
-    struct ggml_tensor * mm_model_attn_k_w = nullptr;
-    struct ggml_tensor * mm_model_attn_k_b = nullptr;
-    struct ggml_tensor * mm_model_attn_v_w = nullptr;
-    struct ggml_tensor * mm_model_attn_v_b = nullptr;
-    struct ggml_tensor * mm_model_attn_o_w = nullptr;
-    struct ggml_tensor * mm_model_attn_o_b = nullptr;
-    struct ggml_tensor * mm_model_ln_q_w = nullptr;
-    struct ggml_tensor * mm_model_ln_q_b = nullptr;
-    struct ggml_tensor * mm_model_ln_kv_w = nullptr;
-    struct ggml_tensor * mm_model_ln_kv_b = nullptr;
-    struct ggml_tensor * mm_model_ln_post_w = nullptr;
-    struct ggml_tensor * mm_model_ln_post_b = nullptr;
+    ggml_tensor * mm_model_pos_embed_k = nullptr;
+    ggml_tensor * mm_model_query = nullptr;
+    ggml_tensor * mm_model_proj = nullptr;
+    ggml_tensor * mm_model_kv_proj = nullptr;
+    ggml_tensor * mm_model_attn_q_w = nullptr;
+    ggml_tensor * mm_model_attn_q_b = nullptr;
+    ggml_tensor * mm_model_attn_k_w = nullptr;
+    ggml_tensor * mm_model_attn_k_b = nullptr;
+    ggml_tensor * mm_model_attn_v_w = nullptr;
+    ggml_tensor * mm_model_attn_v_b = nullptr;
+    ggml_tensor * mm_model_attn_o_w = nullptr;
+    ggml_tensor * mm_model_attn_o_b = nullptr;
+    ggml_tensor * mm_model_ln_q_w = nullptr;
+    ggml_tensor * mm_model_ln_q_b = nullptr;
+    ggml_tensor * mm_model_ln_kv_w = nullptr;
+    ggml_tensor * mm_model_ln_kv_b = nullptr;
+    ggml_tensor * mm_model_ln_post_w = nullptr;
+    ggml_tensor * mm_model_ln_post_b = nullptr;
 
     // gemma3
-    struct ggml_tensor * mm_input_proj_w = nullptr;
-    struct ggml_tensor * mm_soft_emb_norm_w = nullptr;
+    ggml_tensor * mm_input_proj_w = nullptr;
+    ggml_tensor * mm_soft_emb_norm_w = nullptr;
 
     // pixtral
-    struct ggml_tensor * token_embd_img_break = nullptr;
-    struct ggml_tensor * mm_patch_merger_w = nullptr;
+    ggml_tensor * token_embd_img_break = nullptr;
+    ggml_tensor * mm_patch_merger_w = nullptr;
 };
 
 struct clip_ctx {
@@ -370,1199 +370,622 @@ struct clip_ctx {
     }
 };
 
-static ggml_cgraph * clip_image_build_graph_siglip(clip_ctx * ctx, const clip_image_f32 & img) {
-    const auto & model = ctx->vision_model;
-    const auto & hparams = model.hparams;
+struct clip_graph {
+    clip_ctx * ctx;
+    const clip_vision_model & model;
+    const clip_hparams & hparams;
 
-    int image_size_width  = img.nx;
-    int image_size_height = img.ny;
+    // we only support single image per batch
+    const clip_image_f32 & img;
 
-    const int patch_size  = hparams.patch_size;
-    const int num_patches = ((image_size_width / patch_size) * (image_size_height / patch_size));
-    const int n_embd      = hparams.n_embd;
-    const int n_head      = hparams.n_head;
-    const int d_head      = n_embd / n_head;
-    const int n_layer     = hparams.n_layer;
-    const float eps       = hparams.eps;
+    const int patch_size;
+    const int n_patches_x;
+    const int n_patches_y;
+    const int n_patches;
+    const int n_embd;
+    const int n_head;
+    const int d_head;
+    const int n_layer;
+    const float eps;
 
-    struct ggml_init_params params = {
-        /*.mem_size   =*/ ctx->buf_compute_meta.size(),
-        /*.mem_buffer =*/ ctx->buf_compute_meta.data(),
-        /*.no_alloc   =*/ true,
-    };
+    ggml_context_ptr ctx0_ptr;
+    ggml_context * ctx0;
+    ggml_cgraph * gf;
 
-    ggml_context_ptr ctx0_ptr(ggml_init(params));
-    auto ctx0 = ctx0_ptr.get();
-
-    struct ggml_cgraph * gf = ggml_new_graph(ctx0);
-
-    // input raw
-    struct ggml_tensor * inp_raw = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, image_size_width, image_size_height, 3);
-    ggml_set_name(inp_raw, "inp_raw");
-    ggml_set_input(inp_raw);
-
-    struct ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
-    inp = ggml_reshape_2d(ctx0, inp, num_patches, n_embd);
-    inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp));
-    inp = ggml_add(ctx0, inp, model.patch_bias);
-
-    // position embeddings
-    struct ggml_tensor * embeddings = ggml_add(ctx0, inp, model.position_embeddings);
-
-    // loop over layers
-    for (int il = 0; il < n_layer; il++) {
-        struct ggml_tensor * cur = embeddings; // embeddings = residual, cur = hidden_states
-
-        // layernorm1
-        {
-            cur = ggml_norm(ctx0, cur, eps);
-            cur = ggml_add(ctx0, ggml_mul(ctx0, cur, model.layers[il].ln_1_w), model.layers[il].ln_1_b);
-        }
-
-        // self-attention
-        {
-
-            struct ggml_tensor * Q =
-                ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].q_w, cur), model.layers[il].q_b);
-
-            Q = ggml_reshape_3d(ctx0, Q, d_head, n_head, num_patches);
-            Q = ggml_cont(ctx0, ggml_permute(ctx0, Q, 0, 2, 1, 3));
-
-            struct ggml_tensor * K =
-                ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].k_w, cur), model.layers[il].k_b);
-
-            K = ggml_reshape_3d(ctx0, K, d_head, n_head, num_patches);
-            K = ggml_cont(ctx0, ggml_permute(ctx0, K, 0, 2, 1, 3));
-
-            struct ggml_tensor * V =
-                ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].v_w, cur), model.layers[il].v_b);
-
-            V = ggml_reshape_3d(ctx0, V, d_head, n_head, num_patches);
-            V = ggml_cont(ctx0, ggml_permute(ctx0, V, 1, 2, 0, 3));
-
-            struct ggml_tensor * KQ = ggml_mul_mat(ctx0, K, Q);
-            KQ = ggml_soft_max_ext(ctx0, KQ, nullptr, 1.0f / sqrtf((float)d_head), 0.0f);
-
-            struct ggml_tensor * KQV = ggml_mul_mat(ctx0, V, KQ);
-            KQV = ggml_reshape_3d(ctx0, KQV, d_head, num_patches, n_head);
-            KQV = ggml_permute(ctx0, KQV, 0, 2, 1, 3);
-
-            cur = ggml_cont_2d(ctx0, KQV, n_embd, num_patches);
-        }
-
-        // attention output
-        cur = ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].o_w, cur), model.layers[il].o_b);
-
-        // re-add the layer input, e.g., residual
-        cur = ggml_add(ctx0, cur, embeddings);
-
-        embeddings = cur; // embeddings = residual, cur = hidden_states
-
-        // layernorm2
-        {
-            cur = ggml_norm(ctx0, cur, eps);
-            cur = ggml_add(ctx0, ggml_mul(ctx0, cur, model.layers[il].ln_2_w), model.layers[il].ln_2_b);
-        }
-
-        cur = ggml_mul_mat(ctx0, model.layers[il].ff_up_w, cur);
-        cur = ggml_add(ctx0, cur, model.layers[il].ff_up_b);
-
-        // siglip uses gelu
-        cur = ggml_gelu(ctx0, cur);
-
-        cur = ggml_mul_mat(ctx0, model.layers[il].ff_down_w, cur);
-        cur = ggml_add(ctx0, cur, model.layers[il].ff_down_b);
-
-        // residual 2
-        cur = ggml_add(ctx0, embeddings, cur);
-
-        embeddings = cur;
+    clip_graph(clip_ctx * ctx, const clip_image_f32 & img) :
+            ctx(ctx),
+            model(ctx->vision_model),
+            hparams(model.hparams),
+            img(img),
+            patch_size(hparams.patch_size),
+            n_patches_x(img.nx / patch_size),
+            n_patches_y(img.ny / patch_size),
+            n_patches(n_patches_x * n_patches_y),
+            n_embd(hparams.n_embd),
+            n_head(hparams.n_head),
+            d_head(n_embd / n_head),
+            n_layer(hparams.n_layer),
+            eps(hparams.eps) {
+        struct ggml_init_params params = {
+            /*.mem_size   =*/ ctx->buf_compute_meta.size(),
+            /*.mem_buffer =*/ ctx->buf_compute_meta.data(),
+            /*.no_alloc   =*/ true,
+        };
+        ctx0_ptr.reset(ggml_init(params));
+        ctx0 = ctx0_ptr.get();
+        gf = ggml_new_graph(ctx0);
     }
 
-    // post-layernorm
-    if (model.post_ln_w) {
-        embeddings = ggml_norm(ctx0, embeddings, eps);
-        ggml_set_name(embeddings, "post_ln");
-
-        embeddings = ggml_add(ctx0, ggml_mul(ctx0, embeddings, model.post_ln_w), model.post_ln_b);
+    ggml_tensor * build_inp_raw() {
+        ggml_tensor * inp_raw = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, img.nx, img.ny, 3);
+        ggml_set_name(inp_raw, "inp_raw");
+        ggml_set_input(inp_raw);
+        return inp_raw;
     }
 
-    if (ctx->proj_type == PROJECTOR_TYPE_GEMMA3) {
-        const int batch_size = 1;
-        const int mm_tokens_per_image = 256; // default value for gemma3
-        const int tokens_per_side = sqrt(mm_tokens_per_image);
-        const int patches_per_image = sqrt(num_patches);
-        const int kernel_size = patches_per_image / tokens_per_side;
-
-        embeddings = ggml_cont(ctx0, ggml_transpose(ctx0, embeddings));
-        embeddings = ggml_reshape_4d(ctx0, embeddings, patches_per_image, patches_per_image, n_embd, batch_size);
-
-        // doing a pool2d to reduce the number of output tokens to 256
-        embeddings = ggml_pool_2d(ctx0, embeddings, GGML_OP_POOL_AVG, kernel_size, kernel_size, kernel_size, kernel_size, 0, 0);
-        embeddings = ggml_reshape_3d(ctx0, embeddings, embeddings->ne[0] * embeddings->ne[0], n_embd, batch_size);
-        embeddings = ggml_cont(ctx0, ggml_transpose(ctx0, embeddings));
-
-        // apply norm before projection
-        embeddings = ggml_rms_norm(ctx0, embeddings, eps);
-        embeddings = ggml_mul(ctx0, embeddings, model.mm_soft_emb_norm_w);
-
-        // apply projection
-        embeddings = ggml_mul_mat(ctx0,
-            ggml_cont(ctx0, ggml_transpose(ctx0, model.mm_input_proj_w)),
-            embeddings);
-
-    } else if (ctx->proj_type == PROJECTOR_TYPE_IDEFICS3) {
-        // https://github.com/huggingface/transformers/blob/0a950e0bbe1ed58d5401a6b547af19f15f0c195e/src/transformers/models/idefics3/modeling_idefics3.py#L578
-
-        ggml_tensor * cur = embeddings;
-        const int scale_factor = model.hparams.proj_scale_factor;
-        const int n_embd = cur->ne[0];
-        const int seq    = cur->ne[1];
-        const int bsz    = 1; // batch size, always 1 for now since we don't support batching
-        const int height = std::sqrt(seq);
-        const int width  = std::sqrt(seq);
-        GGML_ASSERT(scale_factor != 0);
-        cur = ggml_reshape_4d(ctx0, cur, n_embd * scale_factor, width / scale_factor, height, bsz);
-        cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
-        cur = ggml_reshape_4d(ctx0, ggml_cont(ctx0, cur),
-            n_embd * scale_factor * scale_factor,
-            height / scale_factor,
-            width / scale_factor,
-            bsz);
-        cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
-        cur = ggml_reshape_3d(ctx0, ggml_cont(ctx0, cur),
-            n_embd * scale_factor * scale_factor,
-            seq / (scale_factor * scale_factor),
-            bsz);
-
-        cur = ggml_mul_mat(ctx0, model.projection, cur);
-        embeddings = cur;
-    } else {
-        GGML_ABORT("SigLIP: Unsupported projector type");
-    }
-
-    // build the graph
-    ggml_build_forward_expand(gf, embeddings);
-
-    return gf;
-}
-
-// implementation of the 2D RoPE without adding a new op in ggml
-// this is not efficient (use double the memory), but works on all backends
-// TODO: there was a more efficient which relies on ggml_view and ggml_rope_ext_inplace, but the rope inplace does not work well with non-contiguous tensors ; we should fix that and revert back to the original implementation in https://github.com/ggml-org/llama.cpp/pull/13065
-static ggml_tensor * build_rope_2d(
-    ggml_context * ctx0,
-    ggml_tensor * cur,
-    ggml_tensor * pos_h,
-    ggml_tensor * pos_w,
-    const float freq_base
-) {
-    const int64_t n_dim  = cur->ne[0];
-    const int64_t n_head = cur->ne[1];
-    const int64_t n_pos  = cur->ne[2];
-
-    // for example, if we have cur tensor of shape (n_dim=8, n_head, n_pos)
-    // we will have a list of 4 inv_freq: 1e-0, 1e-1, 1e-2, 1e-3
-    // first half of cur will use 1e-0, 1e-2 (even)
-    // second half of cur will use 1e-1, 1e-3 (odd)
-    // the trick here is to rotate just half of n_dim, so inv_freq will automatically be even
-    //  ^ don't ask me why, it's math! -2(2i) / n_dim == -2i / (n_dim/2)
-    // then for the second half, we use freq_scale to shift the inv_freq
-    //  ^ why? replace (2i) with (2i+1) in the above equation
-    const float freq_scale_odd = std::pow(freq_base, (float)-2/n_dim);
-
-    // first half
-    ggml_tensor * first;
-    {
-        first = ggml_view_3d(ctx0, cur,
-            n_dim/2, n_head, n_pos,
-            ggml_row_size(cur->type, n_dim),
-            ggml_row_size(cur->type, n_dim*n_head),
-            0);
-        first = ggml_rope_ext(
-            ctx0,
-            first,
-            pos_h,      // positions
-            nullptr,    // freq factors
-            n_dim/2,    // n_dims
-            0, 0, freq_base,
-            1.0f, 0.0f, 1.0f, 0.0f, 0.0f
-        );
-    }
-
-    // second half
-    ggml_tensor * second;
-    {
-        second = ggml_view_3d(ctx0, cur,
-            n_dim/2, n_head, n_pos,
-            ggml_row_size(cur->type, n_dim),
-            ggml_row_size(cur->type, n_dim*n_head),
-            n_dim/2 * ggml_element_size(cur));
-        second = ggml_cont(ctx0, second); // copy, because ggml_rope don't play well with non-contiguous tensors
-        second = ggml_rope_ext(
-            ctx0,
-            second,
-            pos_w,      // positions
-            nullptr,    // freq factors
-            n_dim/2,    // n_dims
-            0, 0, freq_base,
-            freq_scale_odd,
-            0.0f, 1.0f, 0.0f, 0.0f
-        );
-    }
-
-    cur = ggml_concat(ctx0, first, second, 0);
-    return cur;
-}
-
-static ggml_cgraph * clip_image_build_graph_pixtral(clip_ctx * ctx, const clip_image_f32 & img) {
-    const auto & model = ctx->vision_model;
-    const auto & hparams = model.hparams;
-
-    GGML_ASSERT(ctx->proj_type == PROJECTOR_TYPE_PIXTRAL);
-
-    int image_size_width  = img.nx;
-    int image_size_height = img.ny;
-
-    const int patch_size  = hparams.patch_size;
-    const int n_patches_x = image_size_width  / patch_size;
-    const int n_patches_y = image_size_height / patch_size;
-    const int num_patches = n_patches_x * n_patches_y;
-    const int n_embd      = hparams.n_embd;
-    const int n_head      = hparams.n_head;
-    const int d_head      = n_embd / n_head;
-    const int n_layer     = hparams.n_layer;
-    const float eps       = hparams.eps;
-    const int n_merge     = hparams.spatial_merge_size;
-
-    struct ggml_init_params params = {
-        /*.mem_size   =*/ ctx->buf_compute_meta.size(),
-        /*.mem_buffer =*/ ctx->buf_compute_meta.data(),
-        /*.no_alloc   =*/ true,
-    };
-
-    ggml_context_ptr ctx0_ptr(ggml_init(params));
-    auto ctx0 = ctx0_ptr.get();
-
-    struct ggml_cgraph * gf = ggml_new_graph(ctx0);
-
-    // input raw
-    struct ggml_tensor * inp_raw = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, image_size_width, image_size_height, 3);
-    ggml_set_name(inp_raw, "inp_raw");
-    ggml_set_input(inp_raw);
-
-    // 2D input positions
-    struct ggml_tensor * pos_h = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_patches);
-    ggml_set_name(pos_h, "pos_h");
-    ggml_set_input(pos_h);
-    struct ggml_tensor * pos_w = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_patches);
-    ggml_set_name(pos_w, "pos_w");
-    ggml_set_input(pos_w);
-
-    struct ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
-    inp = ggml_reshape_2d(ctx0, inp, num_patches, n_embd);
-    inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp));
-
-    struct ggml_tensor * embeddings = inp;
-
-    // pre-layer norm
-    embeddings = ggml_mul(ctx0, ggml_rms_norm(ctx0, embeddings, eps), model.pre_ln_w);
-
-    // loop over layers
-    for (int il = 0; il < n_layer; il++) {
-        struct ggml_tensor * cur = embeddings;
-
-        // pre-attention norm
-        cur = ggml_mul(ctx0, ggml_rms_norm(ctx0, cur, eps), model.layers[il].ln_1_w);
-
-        // self-attention
-        {
-            struct ggml_tensor * Q = ggml_mul_mat(ctx0, model.layers[il].q_w, cur);
-
-            Q = ggml_reshape_3d(ctx0, Q, d_head, n_head, num_patches);
-            Q = build_rope_2d(ctx0, Q, pos_h, pos_w, hparams.rope_theta);
-            Q = ggml_cont(ctx0, ggml_permute(ctx0, Q, 0, 2, 1, 3));
-
-            struct ggml_tensor * K = ggml_mul_mat(ctx0, model.layers[il].k_w, cur);
-
-            K = ggml_reshape_3d(ctx0, K, d_head, n_head, num_patches);
-            K = build_rope_2d(ctx0, K, pos_h, pos_w, hparams.rope_theta);
-            K = ggml_cont(ctx0, ggml_permute(ctx0, K, 0, 2, 1, 3));
-
-            struct ggml_tensor * V = ggml_mul_mat(ctx0, model.layers[il].v_w, cur);
-
-            V = ggml_reshape_3d(ctx0, V, d_head, n_head, num_patches);
-            V = ggml_cont(ctx0, ggml_permute(ctx0, V, 1, 2, 0, 3));
-
-            struct ggml_tensor * KQ = ggml_mul_mat(ctx0, K, Q);
-            KQ = ggml_soft_max_ext(ctx0, KQ, nullptr, 1.0f / sqrtf((float)d_head), 0.0f);
-
-            struct ggml_tensor * KQV = ggml_mul_mat(ctx0, V, KQ);
-            KQV = ggml_reshape_3d(ctx0, KQV, d_head, num_patches, n_head);
-            KQV = ggml_permute(ctx0, KQV, 0, 2, 1, 3);
-
-            cur = ggml_cont_2d(ctx0, KQV, n_embd, num_patches);
-
-            cur = ggml_mul_mat(ctx0, model.layers[il].o_w, cur);
-        }
-
-        // re-add the layer input, e.g., residual
-        cur = ggml_add(ctx0, cur, embeddings);
-
-        embeddings = cur; // embeddings = residual, cur = hidden_states
-
-        // pre-ffn norm
-        cur = ggml_mul(ctx0, ggml_rms_norm(ctx0, cur, eps), model.layers[il].ln_2_w);
-
-        // feed-forward
-        {
-            ggml_tensor * gate_proj = ggml_mul_mat(ctx0, model.layers[il].ff_gate_w, cur);
-            ggml_tensor * up_proj   = ggml_mul_mat(ctx0, model.layers[il].ff_up_w,   cur);
-            if (ctx->use_silu) {
-                gate_proj = ggml_silu(ctx0, gate_proj);
-            } else if (ctx->use_gelu) {
-                gate_proj = ggml_gelu(ctx0, gate_proj);
-            } else {
-                GGML_ABORT("Pixtral: Unsupported activation");
-            }
-            cur = ggml_mul(ctx0, up_proj, gate_proj);
-            cur = ggml_mul_mat(ctx0, model.layers[il].ff_down_w, cur);
-        }
-
-        // residual 2
-        cur = ggml_add(ctx0, embeddings, cur);
-
-        embeddings = cur;
-    }
-
-    // mistral small 3.1 patch merger
-    // ref: https://github.com/huggingface/transformers/blob/7a3e208892c06a5e278144eaf38c8599a42f53e7/src/transformers/models/mistral3/modeling_mistral3.py#L67
-    if (model.mm_patch_merger_w) {
-        GGML_ASSERT(hparams.spatial_merge_size > 0);
-
-        ggml_tensor * cur = embeddings;
-        cur = ggml_mul(ctx0, ggml_rms_norm(ctx0, cur, eps), model.mm_input_norm_w);
-
-        // reshape image tokens to 2D grid
-        cur = ggml_reshape_3d(ctx0, cur, n_embd, n_patches_x, n_patches_y);
-        cur = ggml_permute(ctx0, cur, 2, 0, 1, 3); // [x, y, n_embd]
-        cur = ggml_cont(ctx0, cur);
-
-        // torch.nn.functional.unfold is just an im2col under the hood
-        // we just need a dummy kernel to make it work
-        ggml_tensor * kernel = ggml_view_3d(ctx0, cur, n_merge, n_merge, cur->ne[2], 0, 0, 0);
-        cur = ggml_im2col(ctx0, kernel, cur, n_merge, n_merge, 0, 0, 1, 1, true, inp->type);
-
-        // project to n_embd
-        cur = ggml_reshape_2d(ctx0, cur, cur->ne[0], cur->ne[1] * cur->ne[2]);
-        cur = ggml_mul_mat(ctx0, model.mm_patch_merger_w, cur);
-        embeddings = cur;
-    }
-
-    // LlavaMultiModalProjector (always using GELU activation)
-    {
-        embeddings = ggml_mul_mat(ctx0, model.mm_1_w, embeddings);
-        if (model.mm_1_b) {
-            embeddings = ggml_add(ctx0, embeddings, model.mm_1_b);
-        }
-
-        embeddings = ggml_gelu(ctx0, embeddings);
-        embeddings = ggml_mul_mat(ctx0, model.mm_2_w, embeddings);
-        if (model.mm_2_b) {
-            embeddings = ggml_add(ctx0, embeddings, model.mm_2_b);
-        }
-    }
-
-    // arrangement of the [IMG_BREAK] token
-    {
-        // not efficient, but works
-        // the trick is to view the embeddings as a 3D tensor with shape [n_embd, n_patches_per_row, n_rows]
-        // and then concatenate the [IMG_BREAK] token to the end of each row, aka n_patches_per_row dimension
-        // after the concatenation, we have a tensor with shape [n_embd, n_patches_per_row + 1, n_rows]
-
-        const int p_y             = n_merge > 0 ? n_patches_y / n_merge : n_patches_y;
-        const int p_x             = n_merge > 0 ? n_patches_x / n_merge : n_patches_x;
-        const int p_total         = p_x * p_y;
-        const int n_embd_text     = embeddings->ne[0];
-        const int n_tokens_output = p_total + p_y - 1; // one [IMG_BREAK] per row, except the last row
-
-        ggml_tensor * cur = ggml_reshape_3d(ctx0, embeddings, n_embd_text, p_x, p_y);
-        ggml_tensor * tok = ggml_new_tensor_3d(ctx0, embeddings->type, n_embd_text, 1, p_y);
-        tok = ggml_scale(ctx0, tok, 0.0); // clear the tensor
-        tok = ggml_add(ctx0, tok, model.token_embd_img_break);
-        cur = ggml_concat(ctx0, cur, tok, 1);
-        embeddings = ggml_view_2d(ctx0, cur,
-            n_embd_text, n_tokens_output,
-            ggml_row_size(cur->type, n_embd_text), 0);
-    }
-
-    // build the graph
-    ggml_build_forward_expand(gf, embeddings);
-
-    return gf;
-}
-
-static ggml_cgraph * clip_image_build_graph_qwen25vl(clip_ctx * ctx, const clip_image_f32_batch & imgs) {
-    const auto & model = ctx->vision_model;
-    const auto & hparams = model.hparams;
-
-    const int image_size_width  = imgs.entries[0]->nx;
-    const int image_size_height = imgs.entries[0]->ny;
-
-    const bool use_window_attn = hparams.n_wa_pattern > 0;
-
-    const int n_wa_pattern         = hparams.n_wa_pattern;
-    const int patch_size           = hparams.patch_size;
-    const int num_patches          = ((image_size_width / patch_size) * (image_size_height / patch_size));
-    const int patches_w            = image_size_width / patch_size;
-    const int patches_h            = image_size_height / patch_size;
-    const int num_positions        = num_patches + (model.class_embedding ? 1 : 0);
-    const int num_position_ids     = num_positions * 4; // m-rope requires 4 dim per position
-    const int n_embd               = hparams.n_embd;
-    const int n_head               = hparams.n_head;
-    const int d_head               = n_embd / n_head;
-    const int n_layer              = hparams.n_layer;
-    const float eps                = hparams.eps;
-
-    int mrope_sections[4] = {d_head/4, d_head/4, d_head/4, d_head/4};
-
-    const int batch_size = imgs.entries.size();
-    GGML_ASSERT(batch_size == 1);
-
-    struct ggml_init_params params = {
-        /*.mem_size   =*/ ctx->buf_compute_meta.size(),
-        /*.mem_buffer =*/ ctx->buf_compute_meta.data(),
-        /*.no_alloc   =*/ true,
-    };
-
-    ggml_context_ptr ctx0_ptr(ggml_init(params));
-    auto ctx0 = ctx0_ptr.get();
-
-    struct ggml_cgraph * gf = ggml_new_graph(ctx0);
-
-    struct ggml_tensor * inp_raw = ggml_new_tensor_4d(ctx0, GGML_TYPE_F32, image_size_width, image_size_height, 3, batch_size);
-    ggml_set_name(inp_raw, "inp_raw");
-    ggml_set_input(inp_raw);
-
-    struct ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
-
-    GGML_ASSERT(image_size_width  % (patch_size * 2) == 0);
-    GGML_ASSERT(image_size_height % (patch_size * 2) == 0);
-
-    auto inp_1 = ggml_conv_2d(ctx0, model.patch_embeddings_1, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
-    inp = ggml_add(ctx0, inp, inp_1);
-
-    inp = ggml_cont(ctx0, ggml_permute(ctx0, inp, 1, 2, 0, 3));  // [w, h, c, b] -> [c, w, h, b]
-    inp = ggml_reshape_4d(
-        ctx0, inp,
-        n_embd * 2, patches_w / 2, patches_h, batch_size);
-    inp = ggml_reshape_4d(
-        ctx0, inp,
-        n_embd * 2, patches_w / 2, 2, batch_size * (patches_h / 2));
-    inp = ggml_cont(ctx0, ggml_permute(ctx0, inp, 0, 2, 1, 3));
-    inp = ggml_reshape_3d(
-        ctx0, inp,
-        n_embd, patches_w * patches_h, batch_size);
-
-    if (model.patch_bias) {
-        // inp = ggml_add(ctx0, inp, ggml_repeat(ctx0, model.patch_bias, inp));
+    ggml_cgraph * build_siglip() {
+        ggml_tensor * inp_raw = build_inp_raw();
+        ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
+        inp = ggml_reshape_2d(ctx0, inp, n_patches, n_embd);
+        inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp));
         inp = ggml_add(ctx0, inp, model.patch_bias);
-    }
-    struct ggml_tensor * embeddings     = inp;
-    struct ggml_tensor * window_mask    = nullptr;
-    struct ggml_tensor * window_idx     = nullptr;
-    struct ggml_tensor * inv_window_idx = nullptr;
 
-    struct ggml_tensor * positions = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_position_ids);
-    ggml_set_name(positions, "positions");
-    ggml_set_input(positions);
+        // position embeddings
+        ggml_tensor * embeddings = ggml_add(ctx0, inp, model.position_embeddings);
 
-    // pre-layernorm
-    if (model.pre_ln_w) {
-        embeddings = ggml_rms_norm(ctx0, embeddings, eps);
-        ggml_set_name(embeddings, "pre_ln");
+        // loop over layers
+        for (int il = 0; il < n_layer; il++) {
+            ggml_tensor * cur = embeddings; // embeddings = residual, cur = hidden_states
 
-        embeddings = ggml_mul(ctx0, embeddings, model.pre_ln_w);
-    }
+            // layernorm1
+            {
+                cur = ggml_norm(ctx0, cur, eps);
+                cur = ggml_add(ctx0, ggml_mul(ctx0, cur, model.layers[il].ln_1_w), model.layers[il].ln_1_b);
+            }
 
-    if (use_window_attn) {
-        // handle window attention inputs
-        inv_window_idx = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_positions / 4);
-        ggml_set_name(inv_window_idx, "inv_window_idx");
-        ggml_set_input(inv_window_idx);
-        // mask for window attention
-        window_mask = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, num_positions, num_positions);
-        ggml_set_name(window_mask, "window_mask");
-        ggml_set_input(window_mask);
+            // self-attention
+            {
 
-        // embeddings shape: [n_embd, patches_w * patches_h, batch_size]
-        GGML_ASSERT(batch_size == 1);
-        embeddings = ggml_reshape_2d(ctx0, embeddings, n_embd * 4, patches_w * patches_h * batch_size / 4);
-        embeddings = ggml_get_rows(ctx0, embeddings, inv_window_idx);
-        embeddings = ggml_reshape_3d(ctx0, embeddings, n_embd, patches_w * patches_h, batch_size);
-    }
+                ggml_tensor * Q =
+                    ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].q_w, cur), model.layers[il].q_b);
 
-    // loop over layers
-    for (int il = 0; il < n_layer; il++) {
-        struct ggml_tensor * cur = embeddings; // embeddings = residual, cur = hidden_states
+                Q = ggml_reshape_3d(ctx0, Q, d_head, n_head, n_patches);
+                Q = ggml_cont(ctx0, ggml_permute(ctx0, Q, 0, 2, 1, 3));
 
-        // rmsnorm1
-        cur = ggml_rms_norm(ctx0, cur, eps);
-        cur = ggml_mul(ctx0, cur, model.layers[il].ln_1_w);
+                ggml_tensor * K =
+                    ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].k_w, cur), model.layers[il].k_b);
 
-        // self-attention
-        {
+                K = ggml_reshape_3d(ctx0, K, d_head, n_head, n_patches);
+                K = ggml_cont(ctx0, ggml_permute(ctx0, K, 0, 2, 1, 3));
 
-            struct ggml_tensor * Q =
-                ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].q_w, cur), model.layers[il].q_b);
+                ggml_tensor * V =
+                    ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].v_w, cur), model.layers[il].v_b);
 
-            Q = ggml_reshape_4d(ctx0, Q, d_head, n_head, num_positions, batch_size);
-            Q = ggml_rope_multi(
-                ctx0, Q, positions, nullptr,
-                d_head/2, mrope_sections, GGML_ROPE_TYPE_VISION, 32768, 10000, 1, 0, 1, 32, 1);
-            Q = ggml_cont(ctx0, ggml_permute(ctx0, Q, 0, 2, 1, 3));
-            Q = ggml_reshape_3d(ctx0, Q, d_head, num_positions, n_head * batch_size);
+                V = ggml_reshape_3d(ctx0, V, d_head, n_head, n_patches);
+                V = ggml_cont(ctx0, ggml_permute(ctx0, V, 1, 2, 0, 3));
 
-            struct ggml_tensor * K =
-                ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].k_w, cur), model.layers[il].k_b);
-
-            K = ggml_reshape_4d(ctx0, K, d_head, n_head, num_positions, batch_size);
-            K = ggml_rope_multi(
-                ctx0, K, positions, nullptr,
-                d_head/2, mrope_sections, GGML_ROPE_TYPE_VISION, 32768, 10000, 1, 0, 1, 32, 1);
-            K = ggml_cont(ctx0, ggml_permute(ctx0, K, 0, 2, 1, 3));
-            K = ggml_reshape_3d(ctx0, K, d_head, num_positions, n_head * batch_size);
-
-            struct ggml_tensor * V =
-                ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].v_w, cur), model.layers[il].v_b);
-
-            V = ggml_reshape_4d(ctx0, V, d_head, n_head, num_positions, batch_size);
-            V = ggml_cont(ctx0, ggml_permute(ctx0, V, 1, 2, 0, 3));
-            V = ggml_reshape_3d(ctx0, V, num_positions, d_head, n_head * batch_size);
-
-            struct ggml_tensor * KQ = ggml_mul_mat(ctx0, K, Q);
-            const bool full_attn = use_window_attn ? (il + 1) % n_wa_pattern == 0 : true;
-            if (full_attn) {
+                ggml_tensor * KQ = ggml_mul_mat(ctx0, K, Q);
                 KQ = ggml_soft_max_ext(ctx0, KQ, nullptr, 1.0f / sqrtf((float)d_head), 0.0f);
-            } else {
-                KQ = ggml_soft_max_ext(ctx0, KQ, window_mask, 1.0f / sqrtf((float)d_head), 0.0f);
+
+                ggml_tensor * KQV = ggml_mul_mat(ctx0, V, KQ);
+                KQV = ggml_reshape_3d(ctx0, KQV, d_head, n_patches, n_head);
+                KQV = ggml_permute(ctx0, KQV, 0, 2, 1, 3);
+
+                cur = ggml_cont_2d(ctx0, KQV, n_embd, n_patches);
             }
 
-            struct ggml_tensor * KQV = ggml_mul_mat(ctx0, V, KQ);
-            KQV = ggml_reshape_4d(ctx0, KQV, d_head, num_positions, n_head, batch_size);
-            KQV = ggml_permute(ctx0, KQV, 0, 2, 1, 3);
+            // attention output
+            cur = ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].o_w, cur), model.layers[il].o_b);
 
-            cur = ggml_cont_3d(ctx0, KQV, n_embd, num_positions, batch_size);
+            // re-add the layer input, e.g., residual
+            cur = ggml_add(ctx0, cur, embeddings);
+
+            embeddings = cur; // embeddings = residual, cur = hidden_states
+
+            // layernorm2
+            {
+                cur = ggml_norm(ctx0, cur, eps);
+                cur = ggml_add(ctx0, ggml_mul(ctx0, cur, model.layers[il].ln_2_w), model.layers[il].ln_2_b);
+            }
+
+            cur = ggml_mul_mat(ctx0, model.layers[il].ff_up_w, cur);
+            cur = ggml_add(ctx0, cur, model.layers[il].ff_up_b);
+
+            // siglip uses gelu
+            cur = ggml_gelu(ctx0, cur);
+
+            cur = ggml_mul_mat(ctx0, model.layers[il].ff_down_w, cur);
+            cur = ggml_add(ctx0, cur, model.layers[il].ff_down_b);
+
+            // residual 2
+            cur = ggml_add(ctx0, embeddings, cur);
+
+            embeddings = cur;
         }
 
-        // attention output
-        cur = ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].o_w, cur), model.layers[il].o_b);
+        // post-layernorm
+        if (model.post_ln_w) {
+            embeddings = ggml_norm(ctx0, embeddings, eps);
+            ggml_set_name(embeddings, "post_ln");
 
-        // re-add the layer input, e.g., residual
-        cur = ggml_add(ctx0, cur, embeddings);
+            embeddings = ggml_add(ctx0, ggml_mul(ctx0, embeddings, model.post_ln_w), model.post_ln_b);
+        }
 
-        embeddings = cur; // embeddings = residual, cur = hidden_states
+        if (ctx->proj_type == PROJECTOR_TYPE_GEMMA3) {
+            const int batch_size = 1;
+            const int mm_tokens_per_image = 256; // default value for gemma3
+            const int tokens_per_side = sqrt(mm_tokens_per_image);
+            const int patches_per_image = sqrt(n_patches);
+            const int kernel_size = patches_per_image / tokens_per_side;
 
-        // rms norm2
-        cur = ggml_rms_norm(ctx0, cur, eps);
-        cur = ggml_mul(ctx0, cur, model.layers[il].ln_2_w);
+            embeddings = ggml_cont(ctx0, ggml_transpose(ctx0, embeddings));
+            embeddings = ggml_reshape_4d(ctx0, embeddings, patches_per_image, patches_per_image, n_embd, batch_size);
 
-        // mlp
-        // ffn_up
-        auto cur_up = ggml_mul_mat(ctx0, model.layers[il].ff_up_w, cur);
-        cur_up = ggml_add(ctx0, cur_up, model.layers[il].ff_up_b);
+            // doing a pool2d to reduce the number of output tokens to 256
+            embeddings = ggml_pool_2d(ctx0, embeddings, GGML_OP_POOL_AVG, kernel_size, kernel_size, kernel_size, kernel_size, 0, 0);
+            embeddings = ggml_reshape_3d(ctx0, embeddings, embeddings->ne[0] * embeddings->ne[0], n_embd, batch_size);
+            embeddings = ggml_cont(ctx0, ggml_transpose(ctx0, embeddings));
 
-        auto cur_gate = ggml_mul_mat(ctx0, model.layers[il].ff_gate_w, cur);
-        cur_gate = ggml_add(ctx0, cur_gate, model.layers[il].ff_gate_b);
-        // TODO : only 2 of these 3 are actually used, should we remove one of them?
-        if (ctx->use_gelu) {
-            cur_gate = ggml_gelu_inplace(ctx0, cur_gate);
-        } else if (ctx->use_silu) {
-            cur_gate = ggml_silu_inplace(ctx0, cur_gate);
+            // apply norm before projection
+            embeddings = ggml_rms_norm(ctx0, embeddings, eps);
+            embeddings = ggml_mul(ctx0, embeddings, model.mm_soft_emb_norm_w);
+
+            // apply projection
+            embeddings = ggml_mul_mat(ctx0,
+                ggml_cont(ctx0, ggml_transpose(ctx0, model.mm_input_proj_w)),
+                embeddings);
+
+        } else if (ctx->proj_type == PROJECTOR_TYPE_IDEFICS3) {
+            // https://github.com/huggingface/transformers/blob/0a950e0bbe1ed58d5401a6b547af19f15f0c195e/src/transformers/models/idefics3/modeling_idefics3.py#L578
+
+            ggml_tensor * cur = embeddings;
+            const int scale_factor = model.hparams.proj_scale_factor;
+            const int n_embd = cur->ne[0];
+            const int seq    = cur->ne[1];
+            const int bsz    = 1; // batch size, always 1 for now since we don't support batching
+            const int height = std::sqrt(seq);
+            const int width  = std::sqrt(seq);
+            GGML_ASSERT(scale_factor != 0);
+            cur = ggml_reshape_4d(ctx0, cur, n_embd * scale_factor, width / scale_factor, height, bsz);
+            cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
+            cur = ggml_reshape_4d(ctx0, ggml_cont(ctx0, cur),
+                n_embd * scale_factor * scale_factor,
+                height / scale_factor,
+                width / scale_factor,
+                bsz);
+            cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
+            cur = ggml_reshape_3d(ctx0, ggml_cont(ctx0, cur),
+                n_embd * scale_factor * scale_factor,
+                seq / (scale_factor * scale_factor),
+                bsz);
+
+            cur = ggml_mul_mat(ctx0, model.projection, cur);
+            embeddings = cur;
         } else {
-            cur_gate = ggml_gelu_quick_inplace(ctx0, cur_gate);
-        }
-        cur = ggml_mul(ctx0, cur_gate, cur_up);
-
-        // ffn_down
-        cur = ggml_mul_mat(ctx0, model.layers[il].ff_down_w, cur);
-        cur = ggml_add(ctx0, cur, model.layers[il].ff_down_b);
-
-        // residual 2
-        cur = ggml_add(ctx0, embeddings, cur);
-
-        embeddings = cur;
-    }
-
-    // post-layernorm
-    if (model.post_ln_w) {
-        embeddings = ggml_rms_norm(ctx0, embeddings, eps);
-        ggml_set_name(embeddings, "post_ln");
-
-        embeddings = ggml_mul(ctx0, embeddings, model.post_ln_w);
-    }
-
-    embeddings = ggml_reshape_3d(ctx0, embeddings, n_embd * 4, num_positions / 4, batch_size);
-
-    embeddings = ggml_mul_mat(ctx0, model.mm_0_w, embeddings);
-    embeddings = ggml_add(ctx0, embeddings, model.mm_0_b);
-
-    // GELU activation
-    embeddings = ggml_gelu(ctx0, embeddings);
-
-    // Second linear layer
-    embeddings = ggml_mul_mat(ctx0, model.mm_1_w, embeddings);
-    embeddings = ggml_add(ctx0, embeddings, model.mm_1_b);
-
-    if (use_window_attn) {
-        window_idx = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_positions / 4);
-        ggml_set_name(window_idx, "window_idx");
-        ggml_set_input(window_idx);
-
-        // embeddings shape: [n_embd, patches_w * patches_h, batch_size]
-        GGML_ASSERT(batch_size == 1);
-        embeddings = ggml_reshape_2d(ctx0, embeddings, hparams.projection_dim, patches_w * patches_h / 4);
-        embeddings = ggml_get_rows(ctx0, embeddings, window_idx);
-        embeddings = ggml_reshape_3d(ctx0, embeddings, hparams.projection_dim, patches_w * patches_h / 4, batch_size);
-    }
-
-    // build the graph
-    ggml_build_forward_expand(gf, embeddings);
-
-    return gf;
-}
-
-static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_image_f32_batch & imgs, struct clip_image_size load_image_size, bool is_inf = false) {
-    const auto & model = ctx->vision_model;
-    const auto & hparams = model.hparams;
-
-    const int image_size = hparams.image_size;
-    int image_size_width  = image_size;
-    int image_size_height = image_size;
-
-    if (ctx->proj_type == PROJECTOR_TYPE_MINICPMV) {
-        LOG_DBG("%s: %d %d\n", __func__, load_image_size.width, load_image_size.height);
-        image_size_width  = load_image_size.width;
-        image_size_height = load_image_size.height;
-        if (is_inf) {
-            image_size_width  = imgs.entries[0]->nx;
-            image_size_height = imgs.entries[0]->ny;
-        }
-    }
-
-    else if (ctx->proj_type == PROJECTOR_TYPE_QWEN2VL) {
-        // use the image's native resolution when image is avaible
-        if (is_inf) {
-        // if (imgs->data->nx && imgs->data->ny) {
-            image_size_width  = imgs.entries[0]->nx;
-            image_size_height = imgs.entries[0]->ny;
-        }
-    }
-
-    const int patch_size           = hparams.patch_size;
-    const int num_patches          = ((image_size_width / patch_size) * (image_size_height / patch_size));
-    const int patches_w            = image_size_width / patch_size;
-    const int patches_h            = image_size_height / patch_size;
-    const int num_positions        = num_patches + (model.class_embedding ? 1 : 0);
-    const int num_position_ids     = ctx->proj_type == PROJECTOR_TYPE_QWEN2VL ? num_positions * 4 : num_positions;
-    const int n_embd               = hparams.n_embd;
-    const int n_head               = hparams.n_head;
-    const int d_head               = n_embd / n_head;
-    const float eps                = hparams.eps;
-    int mrope_sections[4] = {d_head/4, d_head/4, d_head/4, d_head/4};
-
-    const int batch_size = imgs.entries.size();
-
-    if (ctx->has_llava_projector
-            || ctx->proj_type == PROJECTOR_TYPE_MINICPMV
-            || ctx->proj_type == PROJECTOR_TYPE_GLM_EDGE) {
-        GGML_ASSERT(batch_size == 1);
-    }
-
-    struct ggml_init_params params = {
-        /*.mem_size   =*/ ctx->buf_compute_meta.size(),
-        /*.mem_buffer =*/ ctx->buf_compute_meta.data(),
-        /*.no_alloc   =*/ true,
-    };
-
-    ggml_context_ptr ctx0_ptr(ggml_init(params));
-    auto ctx0 = ctx0_ptr.get();
-
-    struct ggml_cgraph * gf = ggml_new_graph(ctx0);
-
-    struct ggml_tensor * inp_raw = ggml_new_tensor_4d(ctx0, GGML_TYPE_F32, image_size_width, image_size_height, 3, batch_size);
-    ggml_set_name(inp_raw, "inp_raw");
-    ggml_set_input(inp_raw);
-
-    struct ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
-
-    if (ctx->proj_type == PROJECTOR_TYPE_QWEN2VL) {
-        GGML_ASSERT(image_size_width  % (patch_size * 2) == 0);
-        GGML_ASSERT(image_size_height % (patch_size * 2) == 0);
-
-        auto inp_1 = ggml_conv_2d(ctx0, model.patch_embeddings_1, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
-        inp = ggml_add(ctx0, inp, inp_1);
-        inp = ggml_cont(ctx0, ggml_permute(ctx0, inp, 1, 2, 0, 3));  // [w, h, c, b] -> [c, w, h, b]
-        inp = ggml_reshape_4d(
-            ctx0, inp,
-            n_embd * 2, patches_w / 2, patches_h, batch_size);
-        inp = ggml_reshape_4d(
-            ctx0, inp,
-            n_embd * 2, patches_w / 2, 2, batch_size * (patches_h / 2));
-        inp = ggml_cont(ctx0, ggml_permute(ctx0, inp, 0, 2, 1, 3));
-        inp = ggml_reshape_3d(
-            ctx0, inp,
-            n_embd, patches_w * patches_h, batch_size);
-    }
-    else {
-        inp = ggml_reshape_3d(ctx0, inp, num_patches, n_embd, batch_size);
-        inp = ggml_cont(ctx0, ggml_permute(ctx0, inp, 1, 0, 2, 3));
-    }
-
-    if (model.patch_bias) {
-        // inp = ggml_add(ctx0, inp, ggml_repeat(ctx0, model.patch_bias, inp));
-        inp = ggml_add(ctx0, inp, model.patch_bias);
-    }
-    struct ggml_tensor * embeddings = inp;
-    struct ggml_tensor * pos_embed = nullptr;
-
-    // concat class_embeddings and patch_embeddings
-    if (model.class_embedding) {
-        embeddings = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, n_embd, num_positions, batch_size);
-        embeddings = ggml_scale(ctx0, embeddings, 0.0f); // set to all zeros
-        embeddings = ggml_acc(ctx0, embeddings, model.class_embedding,
-                embeddings->nb[1], embeddings->nb[2], embeddings->nb[3], 0);
-        embeddings = ggml_acc(ctx0, embeddings, inp,
-                embeddings->nb[1], embeddings->nb[2], embeddings->nb[3], model.class_embedding->nb[1]);
-    }
-
-    struct ggml_tensor * positions = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_position_ids);
-    ggml_set_name(positions, "positions");
-    ggml_set_input(positions);
-
-    if (ctx->proj_type != PROJECTOR_TYPE_QWEN2VL) { // qwen2vl does NOT use learned position embeddings
-        embeddings =
-            ggml_add(ctx0, embeddings, ggml_get_rows(ctx0, model.position_embeddings, positions));
-    }
-
-    if (ctx->proj_type == PROJECTOR_TYPE_MINICPMV) {
-        int pos_w = image_size_width/patch_size;
-        int pos_h = image_size_height/patch_size;
-        int n_output_dim = clip_n_mmproj_embd(ctx);
-        pos_embed = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, n_output_dim, pos_w * pos_h, 1);
-        ggml_set_name(pos_embed, "pos_embed");
-        ggml_set_input(pos_embed);
-    }
-
-    // pre-layernorm
-    if (model.pre_ln_w) {
-        embeddings = ggml_norm(ctx0, embeddings, eps);
-        ggml_set_name(embeddings, "pre_ln");
-
-        embeddings = ggml_add(ctx0, ggml_mul(ctx0, embeddings, model.pre_ln_w), model.pre_ln_b);
-    }
-
-    std::vector<struct ggml_tensor *> embedding_stack;
-    const auto & vision_feature_layer = hparams.vision_feature_layer;
-
-    // loop over layers
-    for (int il = 0; il < ctx->max_feature_layer; il++) {
-        struct ggml_tensor * cur = embeddings; // embeddings = residual, cur = hidden_states
-
-        // If this is an embedding feature layer, save the output.
-        // NOTE: 0 index here refers to the input to the encoder.
-        if (vision_feature_layer.find(il) != vision_feature_layer.end()) {
-            embedding_stack.push_back(embeddings);
+            GGML_ABORT("SigLIP: Unsupported projector type");
         }
 
-        //const size_t nb_q_w = model.layers[il].q_w->nb[0];
+        // build the graph
+        ggml_build_forward_expand(gf, embeddings);
 
-        // layernorm1
+        return gf;
+    }
+
+    // implementation of the 2D RoPE without adding a new op in ggml
+    // this is not efficient (use double the memory), but works on all backends
+    // TODO: there was a more efficient which relies on ggml_view and ggml_rope_ext_inplace, but the rope inplace does not work well with non-contiguous tensors ; we should fix that and revert back to the original implementation in https://github.com/ggml-org/llama.cpp/pull/13065
+    static ggml_tensor * build_rope_2d(
+        ggml_context * ctx0,
+        ggml_tensor * cur,
+        ggml_tensor * pos_h,
+        ggml_tensor * pos_w,
+        const float freq_base
+    ) {
+        const int64_t n_dim  = cur->ne[0];
+        const int64_t n_head = cur->ne[1];
+        const int64_t n_pos  = cur->ne[2];
+
+        // for example, if we have cur tensor of shape (n_dim=8, n_head, n_pos)
+        // we will have a list of 4 inv_freq: 1e-0, 1e-1, 1e-2, 1e-3
+        // first half of cur will use 1e-0, 1e-2 (even)
+        // second half of cur will use 1e-1, 1e-3 (odd)
+        // the trick here is to rotate just half of n_dim, so inv_freq will automatically be even
+        //  ^ don't ask me why, it's math! -2(2i) / n_dim == -2i / (n_dim/2)
+        // then for the second half, we use freq_scale to shift the inv_freq
+        //  ^ why? replace (2i) with (2i+1) in the above equation
+        const float freq_scale_odd = std::pow(freq_base, (float)-2/n_dim);
+
+        // first half
+        ggml_tensor * first;
         {
-            cur = ggml_norm(ctx0, cur, eps);
-
-            cur = ggml_add(ctx0, ggml_mul(ctx0, cur, model.layers[il].ln_1_w),
-                           model.layers[il].ln_1_b);
+            first = ggml_view_3d(ctx0, cur,
+                n_dim/2, n_head, n_pos,
+                ggml_row_size(cur->type, n_dim),
+                ggml_row_size(cur->type, n_dim*n_head),
+                0);
+            first = ggml_rope_ext(
+                ctx0,
+                first,
+                pos_h,      // positions
+                nullptr,    // freq factors
+                n_dim/2,    // n_dims
+                0, 0, freq_base,
+                1.0f, 0.0f, 1.0f, 0.0f, 0.0f
+            );
         }
 
-        // self-attention
+        // second half
+        ggml_tensor * second;
         {
+            second = ggml_view_3d(ctx0, cur,
+                n_dim/2, n_head, n_pos,
+                ggml_row_size(cur->type, n_dim),
+                ggml_row_size(cur->type, n_dim*n_head),
+                n_dim/2 * ggml_element_size(cur));
+            second = ggml_cont(ctx0, second); // copy, because ggml_rope don't play well with non-contiguous tensors
+            second = ggml_rope_ext(
+                ctx0,
+                second,
+                pos_w,      // positions
+                nullptr,    // freq factors
+                n_dim/2,    // n_dims
+                0, 0, freq_base,
+                freq_scale_odd,
+                0.0f, 1.0f, 0.0f, 0.0f
+            );
+        }
 
-            struct ggml_tensor * Q =
-                ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].q_w, cur), model.layers[il].q_b);
+        cur = ggml_concat(ctx0, first, second, 0);
+        return cur;
+    }
 
-            Q = ggml_reshape_4d(ctx0, Q, d_head, n_head, num_positions, batch_size);
-            if (ctx->proj_type == PROJECTOR_TYPE_QWEN2VL) {
-                Q = ggml_rope_multi(
-                    ctx0, Q, positions, nullptr,
-                    d_head/2, mrope_sections, GGML_ROPE_TYPE_VISION, 32768, 10000, 1, 0, 1, 32, 1);
+    ggml_cgraph * build_pixtral() {
+        const int n_merge = hparams.spatial_merge_size;
+
+        ggml_tensor * inp_raw = build_inp_raw();
+
+        // 2D input positions
+        ggml_tensor * pos_h = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_patches);
+        ggml_set_name(pos_h, "pos_h");
+        ggml_set_input(pos_h);
+        ggml_tensor * pos_w = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_patches);
+        ggml_set_name(pos_w, "pos_w");
+        ggml_set_input(pos_w);
+
+        ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
+        inp = ggml_reshape_2d(ctx0, inp, n_patches, n_embd);
+        inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp));
+
+        ggml_tensor * embeddings = inp;
+
+        // pre-layer norm
+        embeddings = ggml_mul(ctx0, ggml_rms_norm(ctx0, embeddings, eps), model.pre_ln_w);
+
+        // loop over layers
+        for (int il = 0; il < n_layer; il++) {
+            ggml_tensor * cur = embeddings;
+
+            // pre-attention norm
+            cur = ggml_mul(ctx0, ggml_rms_norm(ctx0, cur, eps), model.layers[il].ln_1_w);
+
+            // self-attention
+            {
+                ggml_tensor * Q = ggml_mul_mat(ctx0, model.layers[il].q_w, cur);
+
+                Q = ggml_reshape_3d(ctx0, Q, d_head, n_head, n_patches);
+                Q = build_rope_2d(ctx0, Q, pos_h, pos_w, hparams.rope_theta);
+                Q = ggml_cont(ctx0, ggml_permute(ctx0, Q, 0, 2, 1, 3));
+
+                ggml_tensor * K = ggml_mul_mat(ctx0, model.layers[il].k_w, cur);
+
+                K = ggml_reshape_3d(ctx0, K, d_head, n_head, n_patches);
+                K = build_rope_2d(ctx0, K, pos_h, pos_w, hparams.rope_theta);
+                K = ggml_cont(ctx0, ggml_permute(ctx0, K, 0, 2, 1, 3));
+
+                ggml_tensor * V = ggml_mul_mat(ctx0, model.layers[il].v_w, cur);
+
+                V = ggml_reshape_3d(ctx0, V, d_head, n_head, n_patches);
+                V = ggml_cont(ctx0, ggml_permute(ctx0, V, 1, 2, 0, 3));
+
+                ggml_tensor * KQ = ggml_mul_mat(ctx0, K, Q);
+                KQ = ggml_soft_max_ext(ctx0, KQ, nullptr, 1.0f / sqrtf((float)d_head), 0.0f);
+
+                ggml_tensor * KQV = ggml_mul_mat(ctx0, V, KQ);
+                KQV = ggml_reshape_3d(ctx0, KQV, d_head, n_patches, n_head);
+                KQV = ggml_permute(ctx0, KQV, 0, 2, 1, 3);
+
+                cur = ggml_cont_2d(ctx0, KQV, n_embd, n_patches);
+
+                cur = ggml_mul_mat(ctx0, model.layers[il].o_w, cur);
             }
-            Q = ggml_cont(ctx0, ggml_permute(ctx0, Q, 0, 2, 1, 3));
-            Q = ggml_reshape_3d(ctx0, Q, d_head, num_positions, n_head * batch_size);
 
-            struct ggml_tensor * K =
-                ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].k_w, cur), model.layers[il].k_b);
+            // re-add the layer input, e.g., residual
+            cur = ggml_add(ctx0, cur, embeddings);
 
-            K = ggml_reshape_4d(ctx0, K, d_head, n_head, num_positions, batch_size);
-            if (ctx->proj_type == PROJECTOR_TYPE_QWEN2VL) {
-                K = ggml_rope_multi(
-                    ctx0, K, positions, nullptr,
-                    d_head/2, mrope_sections, GGML_ROPE_TYPE_VISION, 32768, 10000, 1, 0, 1, 32, 1);
+            embeddings = cur; // embeddings = residual, cur = hidden_states
+
+            // pre-ffn norm
+            cur = ggml_mul(ctx0, ggml_rms_norm(ctx0, cur, eps), model.layers[il].ln_2_w);
+
+            // feed-forward
+            {
+                ggml_tensor * gate_proj = ggml_mul_mat(ctx0, model.layers[il].ff_gate_w, cur);
+                ggml_tensor * up_proj   = ggml_mul_mat(ctx0, model.layers[il].ff_up_w,   cur);
+                if (ctx->use_silu) {
+                    gate_proj = ggml_silu(ctx0, gate_proj);
+                } else if (ctx->use_gelu) {
+                    gate_proj = ggml_gelu(ctx0, gate_proj);
+                } else {
+                    GGML_ABORT("Pixtral: Unsupported activation");
+                }
+                cur = ggml_mul(ctx0, up_proj, gate_proj);
+                cur = ggml_mul_mat(ctx0, model.layers[il].ff_down_w, cur);
             }
-            K = ggml_cont(ctx0, ggml_permute(ctx0, K, 0, 2, 1, 3));
-            K = ggml_reshape_3d(ctx0, K, d_head, num_positions, n_head * batch_size);
 
-            struct ggml_tensor * V =
-                ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].v_w, cur), model.layers[il].v_b);
+            // residual 2
+            cur = ggml_add(ctx0, embeddings, cur);
 
-            V = ggml_reshape_4d(ctx0, V, d_head, n_head, num_positions, batch_size);
-            V = ggml_cont(ctx0, ggml_permute(ctx0, V, 1, 2, 0, 3));
-            V = ggml_reshape_3d(ctx0, V, num_positions, d_head, n_head * batch_size);
-
-            struct ggml_tensor * KQ = ggml_mul_mat(ctx0, K, Q);
-            KQ = ggml_soft_max_ext(ctx0, KQ, nullptr, 1.0f / sqrtf((float)d_head), 0.0f);
-            struct ggml_tensor * KQV = ggml_mul_mat(ctx0, V, KQ);
-            KQV = ggml_reshape_4d(ctx0, KQV, d_head, num_positions, n_head, batch_size);
-            KQV = ggml_permute(ctx0, KQV, 0, 2, 1, 3);
-
-            cur = ggml_cont_3d(ctx0, KQV, n_embd, num_positions, batch_size);
+            embeddings = cur;
         }
 
-        // attention output
-        cur = ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].o_w, cur), model.layers[il].o_b);
+        // mistral small 3.1 patch merger
+        // ref: https://github.com/huggingface/transformers/blob/7a3e208892c06a5e278144eaf38c8599a42f53e7/src/transformers/models/mistral3/modeling_mistral3.py#L67
+        if (model.mm_patch_merger_w) {
+            GGML_ASSERT(hparams.spatial_merge_size > 0);
 
-        // re-add the layer input, e.g., residual
-        cur = ggml_add(ctx0, cur, embeddings);
+            ggml_tensor * cur = embeddings;
+            cur = ggml_mul(ctx0, ggml_rms_norm(ctx0, cur, eps), model.mm_input_norm_w);
 
-        embeddings = cur; // embeddings = residual, cur = hidden_states
+            // reshape image tokens to 2D grid
+            cur = ggml_reshape_3d(ctx0, cur, n_embd, n_patches_x, n_patches_y);
+            cur = ggml_permute(ctx0, cur, 2, 0, 1, 3); // [x, y, n_embd]
+            cur = ggml_cont(ctx0, cur);
 
-        // layernorm2
+            // torch.nn.functional.unfold is just an im2col under the hood
+            // we just need a dummy kernel to make it work
+            ggml_tensor * kernel = ggml_view_3d(ctx0, cur, n_merge, n_merge, cur->ne[2], 0, 0, 0);
+            cur = ggml_im2col(ctx0, kernel, cur, n_merge, n_merge, 0, 0, 1, 1, true, inp->type);
+
+            // project to n_embd
+            cur = ggml_reshape_2d(ctx0, cur, cur->ne[0], cur->ne[1] * cur->ne[2]);
+            cur = ggml_mul_mat(ctx0, model.mm_patch_merger_w, cur);
+            embeddings = cur;
+        }
+
+        // LlavaMultiModalProjector (always using GELU activation)
         {
-            cur = ggml_norm(ctx0, cur, eps);
-
-            cur = ggml_add(ctx0, ggml_mul(ctx0, cur, model.layers[il].ln_2_w), model.layers[il].ln_2_b);
-        }
-
-        cur = ggml_mul_mat(ctx0, model.layers[il].ff_up_w, cur);
-        cur = ggml_add(ctx0, cur, model.layers[il].ff_up_b);
-
-        if (ctx->use_gelu) {
-            cur = ggml_gelu_inplace(ctx0, cur);
-        } else if (ctx->use_silu) {
-            cur = ggml_silu_inplace(ctx0, cur);
-        } else {
-            cur = ggml_gelu_quick_inplace(ctx0, cur);
-        }
-
-        cur = ggml_mul_mat(ctx0, model.layers[il].ff_down_w, cur);
-        cur = ggml_add(ctx0, cur, model.layers[il].ff_down_b);
-
-        // residual 2
-        cur = ggml_add(ctx0, embeddings, cur);
-
-        embeddings = cur;
-    }
-
-    // post-layernorm
-    if (model.post_ln_w) {
-        embeddings = ggml_norm(ctx0, embeddings, eps);
-        ggml_set_name(embeddings, "post_ln");
-
-        embeddings = ggml_add(ctx0, ggml_mul(ctx0, embeddings, model.post_ln_w), model.post_ln_b);
-    }
-
-    // final layer is a vision feature layer
-    if (vision_feature_layer.find(ctx->max_feature_layer) != vision_feature_layer.end()) {
-        embedding_stack.push_back(embeddings);
-    }
-
-    // If feature layers are explicitly set, stack them (if we have multiple)
-    if (!embedding_stack.empty()) {
-        embeddings = embedding_stack[0];
-        for (size_t i = 1; i < embedding_stack.size(); i++) {
-            embeddings = ggml_concat(ctx0, embeddings, embedding_stack[i], 0);
-        }
-    }
-
-    // llava projector
-    if (ctx->has_llava_projector) {
-        embeddings = ggml_reshape_2d(ctx0, embeddings, embeddings->ne[0], embeddings->ne[1]);
-
-        struct ggml_tensor * patches = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_patches);
-        ggml_set_name(patches, "patches");
-        ggml_set_input(patches);
-
-        // shape [1, 576, 1024]
-        // ne is whcn, ne = [1024, 576, 1, 1]
-        embeddings = ggml_get_rows(ctx0, embeddings, patches);
-
-        // print_tensor_info(embeddings, "embeddings");
-
-        // llava projector
-        if (ctx->proj_type == PROJECTOR_TYPE_MLP) {
-            embeddings = ggml_mul_mat(ctx0, model.mm_0_w, embeddings);
-            embeddings = ggml_add(ctx0, embeddings, model.mm_0_b);
+            embeddings = ggml_mul_mat(ctx0, model.mm_1_w, embeddings);
+            if (model.mm_1_b) {
+                embeddings = ggml_add(ctx0, embeddings, model.mm_1_b);
+            }
 
             embeddings = ggml_gelu(ctx0, embeddings);
-            if (model.mm_2_w) {
-                embeddings = ggml_mul_mat(ctx0, model.mm_2_w, embeddings);
+            embeddings = ggml_mul_mat(ctx0, model.mm_2_w, embeddings);
+            if (model.mm_2_b) {
                 embeddings = ggml_add(ctx0, embeddings, model.mm_2_b);
             }
         }
-        else if (ctx->proj_type == PROJECTOR_TYPE_MLP_NORM) {
-            embeddings = ggml_mul_mat(ctx0, model.mm_0_w, embeddings);
-            embeddings = ggml_add(ctx0, embeddings, model.mm_0_b);
-            // ggml_tensor_printf(embeddings, "mm_0_w",0,true,false);
-            // First LayerNorm
-            embeddings = ggml_norm(ctx0, embeddings, eps);
-            embeddings = ggml_add(ctx0, ggml_mul(ctx0, embeddings, model.mm_1_w),
-                                model.mm_1_b);
 
-            // GELU activation
-            embeddings = ggml_gelu(ctx0, embeddings);
+        // arrangement of the [IMG_BREAK] token
+        {
+            // not efficient, but works
+            // the trick is to view the embeddings as a 3D tensor with shape [n_embd, n_patches_per_row, n_rows]
+            // and then concatenate the [IMG_BREAK] token to the end of each row, aka n_patches_per_row dimension
+            // after the concatenation, we have a tensor with shape [n_embd, n_patches_per_row + 1, n_rows]
 
-            // Second linear layer
-            embeddings = ggml_mul_mat(ctx0, model.mm_3_w, embeddings);
-            embeddings = ggml_add(ctx0, embeddings, model.mm_3_b);
+            const int p_y             = n_merge > 0 ? n_patches_y / n_merge : n_patches_y;
+            const int p_x             = n_merge > 0 ? n_patches_x / n_merge : n_patches_x;
+            const int p_total         = p_x * p_y;
+            const int n_embd_text     = embeddings->ne[0];
+            const int n_tokens_output = p_total + p_y - 1; // one [IMG_BREAK] per row, except the last row
 
-            // Second LayerNorm
-            embeddings = ggml_norm(ctx0, embeddings, eps);
-            embeddings = ggml_add(ctx0, ggml_mul(ctx0, embeddings, model.mm_4_w),
-                                model.mm_4_b);
+            ggml_tensor * cur = ggml_reshape_3d(ctx0, embeddings, n_embd_text, p_x, p_y);
+            ggml_tensor * tok = ggml_new_tensor_3d(ctx0, embeddings->type, n_embd_text, 1, p_y);
+            tok = ggml_scale(ctx0, tok, 0.0); // clear the tensor
+            tok = ggml_add(ctx0, tok, model.token_embd_img_break);
+            cur = ggml_concat(ctx0, cur, tok, 1);
+            embeddings = ggml_view_2d(ctx0, cur,
+                n_embd_text, n_tokens_output,
+                ggml_row_size(cur->type, n_embd_text), 0);
         }
-        else if (ctx->proj_type == PROJECTOR_TYPE_LDP) {
-            // MobileVLM projector
-            int n_patch = 24;
-            struct ggml_tensor * mlp_1 = ggml_mul_mat(ctx0, model.mm_model_mlp_1_w, embeddings);
-            mlp_1 = ggml_add(ctx0, mlp_1, model.mm_model_mlp_1_b);
-            mlp_1 = ggml_gelu(ctx0, mlp_1);
-            struct ggml_tensor * mlp_3 = ggml_mul_mat(ctx0, model.mm_model_mlp_3_w, mlp_1);
-            mlp_3 = ggml_add(ctx0, mlp_3, model.mm_model_mlp_3_b);
-            // mlp_3 shape = [1, 576, 2048], ne = [2048, 576, 1, 1]
 
-            // block 1
-            struct ggml_tensor * block_1 = nullptr;
+        // build the graph
+        ggml_build_forward_expand(gf, embeddings);
+
+        return gf;
+    }
+
+    ggml_cgraph * build_qwen2vl() {
+        const int batch_size       = 1;
+        const bool use_window_attn = hparams.n_wa_pattern > 0;
+        const int n_wa_pattern     = hparams.n_wa_pattern;
+        const int n_pos    = n_patches + (model.class_embedding ? 1 : 0);
+        const int num_position_ids = n_pos * 4; // m-rope requires 4 dim per position
+
+        int mrope_sections[4] = {d_head/4, d_head/4, d_head/4, d_head/4};
+
+        ggml_tensor * inp_raw = build_inp_raw();
+        ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
+
+        GGML_ASSERT(img.nx % (patch_size * 2) == 0);
+        GGML_ASSERT(img.ny % (patch_size * 2) == 0);
+
+        // second conv dimension
+        {
+            auto inp_1 = ggml_conv_2d(ctx0, model.patch_embeddings_1, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
+            inp = ggml_add(ctx0, inp, inp_1);
+
+            inp = ggml_cont(ctx0, ggml_permute(ctx0, inp, 1, 2, 0, 3));  // [w, h, c, b] -> [c, w, h, b]
+            inp = ggml_reshape_4d(
+                ctx0, inp,
+                n_embd * 2, n_patches_x / 2, n_patches_y, batch_size);
+            inp = ggml_reshape_4d(
+                ctx0, inp,
+                n_embd * 2, n_patches_x / 2, 2, batch_size * (n_patches_y / 2));
+            inp = ggml_cont(ctx0, ggml_permute(ctx0, inp, 0, 2, 1, 3));
+            inp = ggml_reshape_3d(
+                ctx0, inp,
+                n_embd, n_patches_x * n_patches_y, batch_size);
+        }
+
+        if (model.patch_bias) {
+            inp = ggml_add(ctx0, inp, model.patch_bias);
+        }
+
+        ggml_tensor * embeddings     = inp;
+        ggml_tensor * window_mask    = nullptr;
+        ggml_tensor * window_idx     = nullptr;
+        ggml_tensor * inv_window_idx = nullptr;
+
+        ggml_tensor * positions = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, num_position_ids);
+        ggml_set_name(positions, "positions");
+        ggml_set_input(positions);
+
+        // pre-layernorm
+        if (model.pre_ln_w) {
+            embeddings = ggml_rms_norm(ctx0, embeddings, eps);
+            ggml_set_name(embeddings, "pre_ln");
+
+            embeddings = ggml_mul(ctx0, embeddings, model.pre_ln_w);
+        }
+
+        if (use_window_attn) {
+            // handle window attention inputs
+            inv_window_idx = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos / 4);
+            ggml_set_name(inv_window_idx, "inv_window_idx");
+            ggml_set_input(inv_window_idx);
+            // mask for window attention
+            window_mask = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, n_pos, n_pos);
+            ggml_set_name(window_mask, "window_mask");
+            ggml_set_input(window_mask);
+
+            // embeddings shape: [n_embd, n_patches_x * n_patches_y, batch_size]
+            GGML_ASSERT(batch_size == 1);
+            embeddings = ggml_reshape_2d(ctx0, embeddings, n_embd * 4, n_patches_x * n_patches_y * batch_size / 4);
+            embeddings = ggml_get_rows(ctx0, embeddings, inv_window_idx);
+            embeddings = ggml_reshape_3d(ctx0, embeddings, n_embd, n_patches_x * n_patches_y, batch_size);
+        }
+
+        // loop over layers
+        for (int il = 0; il < n_layer; il++) {
+            ggml_tensor * cur = embeddings; // embeddings = residual, cur = hidden_states
+
+            // rmsnorm1
+            cur = ggml_rms_norm(ctx0, cur, eps);
+            cur = ggml_mul(ctx0, cur, model.layers[il].ln_1_w);
+
+            // self-attention
             {
-                // transpose from [1, 576, 2048] --> [1, 2048, 576] --> [1, 2048, 24, 24]
-                mlp_3 = ggml_cont(ctx0, ggml_permute(ctx0, mlp_3, 1, 0, 2, 3));
-                mlp_3 = ggml_reshape_4d(ctx0, mlp_3, n_patch, n_patch, mlp_3->ne[1], mlp_3->ne[2]);
-                // stride = 1, padding = 1, bias is nullptr
-                block_1 = ggml_conv_2d_dw(ctx0, model.mm_model_block_1_block_0_0_w, mlp_3, 1, 1, 1, 1, 1, 1);
 
-                // layer norm
-                // // block_1 shape = [1, 2048, 24, 24], ne = [24, 24, 2048, 1]
-                block_1 = ggml_cont(ctx0, ggml_permute(ctx0, block_1, 1, 2, 0, 3));
-                // block_1 shape = [1, 24, 24, 2048], ne = [2048, 24, 24, 1]
-                block_1 = ggml_norm(ctx0, block_1, eps);
-                block_1 = ggml_add(ctx0, ggml_mul(ctx0, block_1, model.mm_model_block_1_block_0_1_w), model.mm_model_block_1_block_0_1_b);
-                block_1 = ggml_cont(ctx0, ggml_permute(ctx0, block_1, 2, 0, 1, 3));
+                ggml_tensor * Q =
+                    ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].q_w, cur), model.layers[il].q_b);
 
-                // block_1 shape = [1, 2048, 24, 24], ne = [24, 24, 2048, 1]
-                // hardswish
-                struct ggml_tensor * block_1_hw = ggml_hardswish(ctx0, block_1);
+                Q = ggml_reshape_4d(ctx0, Q, d_head, n_head, n_pos, batch_size);
+                Q = ggml_rope_multi(
+                    ctx0, Q, positions, nullptr,
+                    d_head/2, mrope_sections, GGML_ROPE_TYPE_VISION, 32768, 10000, 1, 0, 1, 32, 1);
+                Q = ggml_cont(ctx0, ggml_permute(ctx0, Q, 0, 2, 1, 3));
+                Q = ggml_reshape_3d(ctx0, Q, d_head, n_pos, n_head * batch_size);
 
-                block_1 = ggml_pool_2d(ctx0, block_1_hw, GGML_OP_POOL_AVG, block_1_hw->ne[0], block_1_hw->ne[1], block_1_hw->ne[0], block_1_hw->ne[1], 0, 0);
-                // block_1 shape = [1, 2048, 1, 1], ne = [1, 1, 2048, 1]
-                // pointwise conv
-                block_1 = ggml_reshape_2d(ctx0, block_1, block_1->ne[0]*block_1->ne[1]*block_1->ne[2], block_1->ne[3]);
-                block_1 = ggml_mul_mat(ctx0, model.mm_model_block_1_block_1_fc1_w, block_1);
-                block_1 = ggml_add(ctx0, block_1, model.mm_model_block_1_block_1_fc1_b);
-                block_1 = ggml_relu(ctx0, block_1);
-                block_1 = ggml_mul_mat(ctx0, model.mm_model_block_1_block_1_fc2_w, block_1);
-                block_1 = ggml_add(ctx0, block_1, model.mm_model_block_1_block_1_fc2_b);
-                block_1 = ggml_hardsigmoid(ctx0, block_1);
-                // block_1_hw shape = [1, 2048, 24, 24], ne = [24, 24, 2048, 1], block_1 shape = [1, 2048], ne = [2048, 1, 1, 1]
-                block_1 = ggml_reshape_4d(ctx0, block_1, 1, 1, block_1->ne[0], block_1->ne[1]);
-                block_1 = ggml_mul(ctx0, block_1_hw, block_1);
+                ggml_tensor * K =
+                    ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].k_w, cur), model.layers[il].k_b);
 
-                int w = block_1->ne[0], h = block_1->ne[1];
-                block_1 = ggml_reshape_3d(ctx0, block_1, w*h, block_1->ne[2], block_1->ne[3]);
-                block_1 = ggml_cont(ctx0, ggml_permute(ctx0, block_1, 1, 0, 2, 3));
+                K = ggml_reshape_4d(ctx0, K, d_head, n_head, n_pos, batch_size);
+                K = ggml_rope_multi(
+                    ctx0, K, positions, nullptr,
+                    d_head/2, mrope_sections, GGML_ROPE_TYPE_VISION, 32768, 10000, 1, 0, 1, 32, 1);
+                K = ggml_cont(ctx0, ggml_permute(ctx0, K, 0, 2, 1, 3));
+                K = ggml_reshape_3d(ctx0, K, d_head, n_pos, n_head * batch_size);
 
-                // block_1 shape = [1, 24*24, 2048], ne = [24*24, 2048, 1]
-                block_1 = ggml_mul_mat(ctx0, model.mm_model_block_1_block_2_0_w, block_1);
-                block_1 = ggml_reshape_4d(ctx0, block_1, block_1->ne[0], w, h, block_1->ne[3]);
+                ggml_tensor * V =
+                    ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].v_w, cur), model.layers[il].v_b);
 
-                // block_1 shape = [1, 24, 24, 2048], ne = [2048, 24, 24, 1]
-                block_1 = ggml_norm(ctx0, block_1, eps);
-                block_1 = ggml_add(ctx0, ggml_mul(ctx0, block_1, model.mm_model_block_1_block_2_1_w), model.mm_model_block_1_block_2_1_b);
-                block_1 = ggml_cont(ctx0, ggml_permute(ctx0, block_1, 2, 0, 1, 3));
-                // block1 shape = [1, 2048, 24, 24], ne = [24, 24, 2048, 1]
-                // residual
-                block_1 = ggml_add(ctx0, mlp_3, block_1);
+                V = ggml_reshape_4d(ctx0, V, d_head, n_head, n_pos, batch_size);
+                V = ggml_cont(ctx0, ggml_permute(ctx0, V, 1, 2, 0, 3));
+                V = ggml_reshape_3d(ctx0, V, n_pos, d_head, n_head * batch_size);
+
+                ggml_tensor * KQ = ggml_mul_mat(ctx0, K, Q);
+                const bool full_attn = use_window_attn ? (il + 1) % n_wa_pattern == 0 : true;
+                if (full_attn) {
+                    KQ = ggml_soft_max_ext(ctx0, KQ, nullptr, 1.0f / sqrtf((float)d_head), 0.0f);
+                } else {
+                    KQ = ggml_soft_max_ext(ctx0, KQ, window_mask, 1.0f / sqrtf((float)d_head), 0.0f);
+                }
+
+                ggml_tensor * KQV = ggml_mul_mat(ctx0, V, KQ);
+                KQV = ggml_reshape_4d(ctx0, KQV, d_head, n_pos, n_head, batch_size);
+                KQV = ggml_permute(ctx0, KQV, 0, 2, 1, 3);
+
+                cur = ggml_cont_3d(ctx0, KQV, n_embd, n_pos, batch_size);
             }
 
-            // block_2
-            {
-                // stride = 2
-                block_1 = ggml_conv_2d_dw(ctx0, model.mm_model_block_2_block_0_0_w, block_1, 2, 2, 1, 1, 1, 1);
+            // attention output
+            cur = ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].o_w, cur), model.layers[il].o_b);
 
-                // block_1 shape = [1, 2048, 12, 12], ne = [12, 12, 2048, 1]
-                // layer norm
-                block_1 = ggml_cont(ctx0, ggml_permute(ctx0, block_1, 1, 2, 0, 3));
-                // block_1 shape = [1, 12, 12, 2048], ne = [2048, 12, 12, 1]
-                block_1 = ggml_norm(ctx0, block_1, eps);
-                block_1 = ggml_add(ctx0, ggml_mul(ctx0, block_1, model.mm_model_block_2_block_0_1_w), model.mm_model_block_2_block_0_1_b);
-                block_1 = ggml_cont(ctx0, ggml_permute(ctx0, block_1, 2, 0, 1, 3));
-                // block_1 shape = [1, 2048, 12, 12], ne = [12, 12, 2048, 1]
-                // hardswish
-                struct ggml_tensor * block_1_hw = ggml_hardswish(ctx0, block_1);
+            // re-add the layer input, e.g., residual
+            cur = ggml_add(ctx0, cur, embeddings);
 
-                // not sure the parameters is right for globalAvgPooling
-                block_1 = ggml_pool_2d(ctx0, block_1_hw, GGML_OP_POOL_AVG, block_1_hw->ne[0], block_1_hw->ne[1], block_1_hw->ne[0], block_1_hw->ne[1], 0, 0);
-                // block_1 shape = [1, 2048, 1, 1], ne = [1, 1, 2048, 1]
-                // pointwise conv
-                block_1 = ggml_reshape_2d(ctx0, block_1, block_1->ne[0]*block_1->ne[1]*block_1->ne[2], block_1->ne[3]);
-                block_1 = ggml_mul_mat(ctx0, model.mm_model_block_2_block_1_fc1_w, block_1);
-                block_1 = ggml_add(ctx0, block_1, model.mm_model_block_2_block_1_fc1_b);
-                block_1 = ggml_relu(ctx0, block_1);
-                block_1 = ggml_mul_mat(ctx0, model.mm_model_block_2_block_1_fc2_w, block_1);
-                block_1 = ggml_add(ctx0, block_1, model.mm_model_block_2_block_1_fc2_b);
-                block_1 = ggml_hardsigmoid(ctx0, block_1);
+            embeddings = cur; // embeddings = residual, cur = hidden_states
 
-                // block_1_hw shape = [1, 2048, 12, 12], ne = [12, 12, 2048, 1], block_1 shape = [1, 2048, 1, 1], ne = [1, 1, 2048, 1]
-                block_1 = ggml_reshape_4d(ctx0, block_1, 1, 1, block_1->ne[0], block_1->ne[1]);
-                block_1 = ggml_mul(ctx0, block_1_hw, block_1);
+            // rms norm2
+            cur = ggml_rms_norm(ctx0, cur, eps);
+            cur = ggml_mul(ctx0, cur, model.layers[il].ln_2_w);
 
-                int w = block_1->ne[0], h = block_1->ne[1];
-                block_1 = ggml_reshape_3d(ctx0, block_1, w*h, block_1->ne[2], block_1->ne[3]);
-                block_1 = ggml_cont(ctx0, ggml_permute(ctx0, block_1, 1, 0, 2, 3));
-                // block_1 shape = [1, 24*24, 2048], ne = [24*24, 2048, 1]
-                block_1 = ggml_mul_mat(ctx0, model.mm_model_block_2_block_2_0_w, block_1);
-                block_1 = ggml_reshape_4d(ctx0, block_1, block_1->ne[0], w, h, block_1->ne[3]);
+            // mlp
 
+            if (ctx->proj_type == PROJECTOR_TYPE_QWEN2VL) {
+                cur = ggml_mul_mat(ctx0, model.layers[il].ff_up_w, cur);
+                cur = ggml_add(ctx0, cur, model.layers[il].ff_up_b);
 
-                // block_1 shape = [1, 12, 12, 2048], ne = [2048, 12, 12, 1]
-                block_1 = ggml_norm(ctx0, block_1, eps);
-                block_1 = ggml_add(ctx0, ggml_mul(ctx0, block_1, model.mm_model_block_2_block_2_1_w), model.mm_model_block_2_block_2_1_b);
-                block_1 = ggml_reshape_3d(ctx0, block_1, block_1->ne[0], block_1->ne[1] * block_1->ne[2], block_1->ne[3]);
-                // block_1 shape = [1, 144, 2048], ne = [2048, 144, 1]
-            }
-            embeddings = block_1;
-        }
-        else if (ctx->proj_type == PROJECTOR_TYPE_LDPV2)
-        {
-            int n_patch = 24;
-            struct ggml_tensor * mlp_0 = ggml_mul_mat(ctx0, model.mm_model_mlp_0_w, embeddings);
-            mlp_0 = ggml_add(ctx0, mlp_0, model.mm_model_mlp_0_b);
-            mlp_0 = ggml_gelu(ctx0, mlp_0);
-            struct ggml_tensor * mlp_2 = ggml_mul_mat(ctx0, model.mm_model_mlp_2_w, mlp_0);
-            mlp_2 = ggml_add(ctx0, mlp_2, model.mm_model_mlp_2_b);
-            // mlp_2 ne = [2048, 576, 1, 1]
-            // // AVG Pool Layer 2*2, strides = 2
-            mlp_2 = ggml_cont(ctx0, ggml_permute(ctx0, mlp_2, 1, 0, 2, 3));
-            // mlp_2 ne = [576, 2048, 1, 1]
-            mlp_2 = ggml_reshape_4d(ctx0, mlp_2, n_patch, n_patch, mlp_2->ne[1], mlp_2->ne[2]);
-            // mlp_2 ne [24, 24, 2048, 1]
-            mlp_2 = ggml_pool_2d(ctx0, mlp_2, GGML_OP_POOL_AVG, 2, 2, 2, 2, 0, 0);
-            // weight ne = [3, 3, 2048, 1]
-            struct ggml_tensor * peg_0 = ggml_conv_2d_dw(ctx0, model.mm_model_peg_0_w, mlp_2, 1, 1, 1, 1, 1, 1);
-            peg_0 = ggml_cont(ctx0, ggml_permute(ctx0, peg_0, 1, 2, 0, 3));
-            peg_0 = ggml_add(ctx0, peg_0, model.mm_model_peg_0_b);
-            mlp_2 = ggml_cont(ctx0, ggml_permute(ctx0, mlp_2, 1, 2, 0, 3));
-            peg_0 = ggml_add(ctx0, peg_0, mlp_2);
-            peg_0 = ggml_reshape_3d(ctx0, peg_0, peg_0->ne[0], peg_0->ne[1] * peg_0->ne[2], peg_0->ne[3]);
-            embeddings = peg_0;
-        }
-        else {
-            GGML_ABORT("fatal error");
-        }
-    }
-    // minicpmv projector
-    else if (ctx->proj_type == PROJECTOR_TYPE_MINICPMV) {
-        struct ggml_tensor * q = model.mm_model_query;
-        { // layernorm
-            q = ggml_norm(ctx0, q, eps);
-            q = ggml_add(ctx0, ggml_mul(ctx0, q, model.mm_model_ln_q_w), model.mm_model_ln_q_b);
-        }
-        struct ggml_tensor * v = ggml_mul_mat(ctx0, model.mm_model_kv_proj, embeddings);
-        { // layernorm
-            v = ggml_norm(ctx0, v, eps);
-            v = ggml_add(ctx0, ggml_mul(ctx0, v, model.mm_model_ln_kv_w), model.mm_model_ln_kv_b);
-        }
-        struct ggml_tensor * k;
-        { // position
-            // q = ggml_add(ctx0, q, model.mm_model_pos_embed);
-            k = ggml_add(ctx0, v, pos_embed);
-        }
+                if (ctx->use_gelu) {
+                    cur = ggml_gelu_inplace(ctx0, cur);
+                } else if (ctx->use_silu) {
+                    cur = ggml_silu_inplace(ctx0, cur);
+                } else {
+                    cur = ggml_gelu_quick_inplace(ctx0, cur);
+                }
 
-        { // attention
-            int n_embd = clip_n_mmproj_embd(ctx);
-            const int d_head = 128;
-            int n_head = n_embd/d_head;
-            int num_query = 96;
-            if (ctx->minicpmv_version == 2) {
-                num_query = 96;
-            }
-            else if (ctx->minicpmv_version == 3) {
-                num_query = 64;
-            }
-            else if (ctx->minicpmv_version == 4) {
-                num_query = 64;
+                cur = ggml_mul_mat(ctx0, model.layers[il].ff_down_w, cur);
+                cur = ggml_add(ctx0, cur, model.layers[il].ff_down_b);
+
+            } else {
+                // qwen2.5vl with ff_gate
+                // ffn_up
+                auto cur_up = ggml_mul_mat(ctx0, model.layers[il].ff_up_w, cur);
+                cur_up = ggml_add(ctx0, cur_up, model.layers[il].ff_up_b);
+
+                auto cur_gate = ggml_mul_mat(ctx0, model.layers[il].ff_gate_w, cur);
+                cur_gate = ggml_add(ctx0, cur_gate, model.layers[il].ff_gate_b);
+                // TODO : only 2 of these 3 are actually used, should we remove one of them?
+                if (ctx->use_gelu) {
+                    cur_gate = ggml_gelu_inplace(ctx0, cur_gate);
+                } else if (ctx->use_silu) {
+                    cur_gate = ggml_silu_inplace(ctx0, cur_gate);
+                } else {
+                    cur_gate = ggml_gelu_quick_inplace(ctx0, cur_gate);
+                }
+                cur = ggml_mul(ctx0, cur_gate, cur_up);
+
+                // ffn_down
+                cur = ggml_mul_mat(ctx0, model.layers[il].ff_down_w, cur);
+                cur = ggml_add(ctx0, cur, model.layers[il].ff_down_b);
             }
 
-            struct ggml_tensor * Q = ggml_add(ctx0, ggml_mul_mat(ctx0, model.mm_model_attn_q_w, q), model.mm_model_attn_q_b);
-            struct ggml_tensor * K = ggml_add(ctx0, ggml_mul_mat(ctx0, model.mm_model_attn_k_w, k), model.mm_model_attn_k_b);
-            struct ggml_tensor * V = ggml_add(ctx0, ggml_mul_mat(ctx0, model.mm_model_attn_v_w, v), model.mm_model_attn_v_b);
-            // permute
-            Q = ggml_reshape_4d(ctx0, Q, d_head, n_head, num_query, batch_size);
-            Q = ggml_cont(ctx0, ggml_permute(ctx0, Q, 0, 2, 1, 3));
-            Q = ggml_reshape_3d(ctx0, Q, d_head, num_query, n_head * batch_size);
-            K = ggml_reshape_4d(ctx0, K, d_head, n_head, num_positions, batch_size);
-            K = ggml_cont(ctx0, ggml_permute(ctx0, K, 0, 2, 1, 3));
-            K = ggml_reshape_3d(ctx0, K, d_head, num_positions, n_head * batch_size);
-            V = ggml_reshape_4d(ctx0, V, d_head, n_head, num_positions, batch_size);
-            V = ggml_cont(ctx0, ggml_permute(ctx0, V, 1, 2, 0, 3));
-            V = ggml_reshape_3d(ctx0, V, num_positions, d_head, n_head * batch_size);
-            struct ggml_tensor * KQ = ggml_mul_mat(ctx0, K, Q);
-            KQ = ggml_soft_max_ext(ctx0, KQ, nullptr, 1.0f / sqrtf((float)d_head), 0.0f);
-            struct ggml_tensor * KQV = ggml_mul_mat(ctx0, V, KQ);
-            KQV = ggml_reshape_4d(ctx0, KQV, d_head, num_query, n_head, batch_size);
-            KQV = ggml_permute(ctx0, KQV, 0, 2, 1, 3);
-            KQV = ggml_cont_3d(ctx0, KQV, n_embd, num_query, batch_size);
+            // residual 2
+            cur = ggml_add(ctx0, embeddings, cur);
 
-            embeddings = ggml_add(ctx0, ggml_mul_mat(ctx0, model.mm_model_attn_o_w, KQV), model.mm_model_attn_o_b);
+            embeddings = cur;
         }
-        { // layernorm
-            embeddings = ggml_norm(ctx0, embeddings, eps);
-            embeddings = ggml_add(ctx0, ggml_mul(ctx0, embeddings, model.mm_model_ln_post_w), model.mm_model_ln_post_b);
-        }
-        embeddings = ggml_mul_mat(ctx0, model.mm_model_proj, embeddings);
-    }
 
-    // glm projector
-    else if (ctx->proj_type == PROJECTOR_TYPE_GLM_EDGE) {
-        size_t gridsz = (size_t)sqrt(embeddings->ne[1]);
-        embeddings = ggml_cont(ctx0, ggml_permute(ctx0,embeddings,1,0,2,3));
-        embeddings = ggml_reshape_3d(ctx0, embeddings, gridsz, gridsz, embeddings->ne[1]);
-        embeddings = ggml_conv_2d(ctx0, model.mm_model_adapter_conv_w, embeddings, 2, 2, 0, 0, 1, 1);
-        embeddings = ggml_reshape_3d(ctx0, embeddings,embeddings->ne[0]*embeddings->ne[1] , embeddings->ne[2], batch_size);
-        embeddings = ggml_cont(ctx0, ggml_permute(ctx0,embeddings, 1, 0, 2, 3));
-        embeddings = ggml_add(ctx0, embeddings, model.mm_model_adapter_conv_b);
-        // GLU
-        {
-            embeddings = ggml_mul_mat(ctx0, model.mm_model_mlp_0_w, embeddings);
-            embeddings = ggml_norm(ctx0, embeddings, eps);
-            embeddings = ggml_add(ctx0, ggml_mul(ctx0, embeddings, model.mm_model_ln_q_w), model.mm_model_ln_q_b);
-            embeddings = ggml_gelu_inplace(ctx0, embeddings);
-            struct ggml_tensor * x = embeddings;
-            embeddings = ggml_mul_mat(ctx0, model.mm_model_mlp_2_w, embeddings);
-            x = ggml_mul_mat(ctx0, model.mm_model_mlp_1_w,x);
-            embeddings = ggml_silu_inplace(ctx0, embeddings);
-            embeddings = ggml_mul(ctx0, embeddings,x);
-            embeddings = ggml_mul_mat(ctx0, model.mm_model_mlp_3_w, embeddings);
-        }
-        // arrangement of BOI/EOI token embeddings
-        // note: these embeddings are not present in text model, hence we cannot process them as text tokens
-        // see: https://huggingface.co/THUDM/glm-edge-v-2b/blob/main/siglip.py#L53
-        {
-            embeddings = ggml_concat(ctx0, model.mm_glm_tok_boi, embeddings, 1); // BOI
-            embeddings = ggml_concat(ctx0, embeddings, model.mm_glm_tok_eoi, 1); // EOI
-        }
-    }
+        // post-layernorm
+        if (model.post_ln_w) {
+            embeddings = ggml_rms_norm(ctx0, embeddings, eps);
+            ggml_set_name(embeddings, "post_ln");
 
-    else if (ctx->proj_type == PROJECTOR_TYPE_QWEN2VL) {
-        embeddings = ggml_reshape_3d(ctx0, embeddings, n_embd * 4, num_positions / 4, batch_size);
+            embeddings = ggml_mul(ctx0, embeddings, model.post_ln_w);
+        }
+
+        embeddings = ggml_reshape_3d(ctx0, embeddings, n_embd * 4, n_pos / 4, batch_size);
 
         embeddings = ggml_mul_mat(ctx0, model.mm_0_w, embeddings);
         embeddings = ggml_add(ctx0, embeddings, model.mm_0_b);
@@ -1573,36 +996,495 @@ static ggml_cgraph * clip_image_build_graph_legacy(clip_ctx * ctx, const clip_im
         // Second linear layer
         embeddings = ggml_mul_mat(ctx0, model.mm_1_w, embeddings);
         embeddings = ggml_add(ctx0, embeddings, model.mm_1_b);
+
+        if (use_window_attn) {
+            window_idx = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos / 4);
+            ggml_set_name(window_idx, "window_idx");
+            ggml_set_input(window_idx);
+
+            // embeddings shape: [n_embd, n_patches_x * n_patches_y, batch_size]
+            GGML_ASSERT(batch_size == 1);
+            embeddings = ggml_reshape_2d(ctx0, embeddings, hparams.projection_dim, n_patches_x * n_patches_y / 4);
+            embeddings = ggml_get_rows(ctx0, embeddings, window_idx);
+            embeddings = ggml_reshape_3d(ctx0, embeddings, hparams.projection_dim, n_patches_x * n_patches_y / 4, batch_size);
+        }
+
+        // build the graph
+        ggml_build_forward_expand(gf, embeddings);
+
+        return gf;
     }
 
-    // build the graph
-    ggml_build_forward_expand(gf, embeddings);
+    ggml_cgraph * build_llava() {
+        const int batch_size = 1;
+        const int n_pos = n_patches + (model.class_embedding ? 1 : 0);
 
-    return gf;
-}
+        ggml_cgraph * gf = ggml_new_graph(ctx0);
 
-static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32_batch & imgs, struct clip_image_size load_image_size, bool is_inf = false) {
+        ggml_tensor * inp_raw = build_inp_raw();
+        ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
+
+        inp = ggml_reshape_3d(ctx0, inp, n_patches, n_embd, batch_size);
+        inp = ggml_cont(ctx0, ggml_permute(ctx0, inp, 1, 0, 2, 3));
+
+        if (model.patch_bias) {
+            inp = ggml_add(ctx0, inp, model.patch_bias);
+        }
+        ggml_tensor * embeddings = inp;
+        ggml_tensor * pos_embed = nullptr;
+
+        // concat class_embeddings and patch_embeddings
+        if (model.class_embedding) {
+            embeddings = ggml_concat(ctx0, inp, model.class_embedding, 1);
+        }
+
+        ggml_tensor * positions = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos);
+        ggml_set_name(positions, "positions");
+        ggml_set_input(positions);
+
+        embeddings = ggml_add(ctx0, embeddings, ggml_get_rows(ctx0, model.position_embeddings, positions));
+
+        if (ctx->proj_type == PROJECTOR_TYPE_MINICPMV) {
+            int n_output_dim = clip_n_mmproj_embd(ctx);
+            pos_embed = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, n_output_dim, n_pos, batch_size);
+            ggml_set_name(pos_embed, "pos_embed");
+            ggml_set_input(pos_embed);
+        }
+
+        // pre-layernorm
+        if (model.pre_ln_w) {
+            embeddings = ggml_norm(ctx0, embeddings, eps);
+            ggml_set_name(embeddings, "pre_ln");
+
+            embeddings = ggml_add(ctx0, ggml_mul(ctx0, embeddings, model.pre_ln_w), model.pre_ln_b);
+        }
+
+        std::vector<ggml_tensor *> embedding_stack;
+        const auto & vision_feature_layer = hparams.vision_feature_layer;
+
+        // loop over layers
+        for (int il = 0; il < ctx->max_feature_layer; il++) {
+            ggml_tensor * cur = embeddings; // embeddings = residual, cur = hidden_states
+
+            // If this is an embedding feature layer, save the output.
+            // NOTE: 0 index here refers to the input to the encoder.
+            if (vision_feature_layer.find(il) != vision_feature_layer.end()) {
+                embedding_stack.push_back(embeddings);
+            }
+
+            //const size_t nb_q_w = model.layers[il].q_w->nb[0];
+
+            // layernorm1
+            {
+                cur = ggml_norm(ctx0, cur, eps);
+
+                cur = ggml_add(ctx0, ggml_mul(ctx0, cur, model.layers[il].ln_1_w),
+                            model.layers[il].ln_1_b);
+            }
+
+            // self-attention
+            {
+
+                ggml_tensor * Q =
+                    ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].q_w, cur), model.layers[il].q_b);
+
+                Q = ggml_reshape_4d(ctx0, Q, d_head, n_head, n_pos, batch_size);
+                Q = ggml_cont(ctx0, ggml_permute(ctx0, Q, 0, 2, 1, 3));
+                Q = ggml_reshape_3d(ctx0, Q, d_head, n_pos, n_head * batch_size);
+
+                ggml_tensor * K =
+                    ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].k_w, cur), model.layers[il].k_b);
+
+                K = ggml_reshape_4d(ctx0, K, d_head, n_head, n_pos, batch_size);
+                K = ggml_cont(ctx0, ggml_permute(ctx0, K, 0, 2, 1, 3));
+                K = ggml_reshape_3d(ctx0, K, d_head, n_pos, n_head * batch_size);
+
+                ggml_tensor * V =
+                    ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].v_w, cur), model.layers[il].v_b);
+
+                V = ggml_reshape_4d(ctx0, V, d_head, n_head, n_pos, batch_size);
+                V = ggml_cont(ctx0, ggml_permute(ctx0, V, 1, 2, 0, 3));
+                V = ggml_reshape_3d(ctx0, V, n_pos, d_head, n_head * batch_size);
+
+                ggml_tensor * KQ = ggml_mul_mat(ctx0, K, Q);
+                KQ = ggml_soft_max_ext(ctx0, KQ, nullptr, 1.0f / sqrtf((float)d_head), 0.0f);
+                ggml_tensor * KQV = ggml_mul_mat(ctx0, V, KQ);
+                KQV = ggml_reshape_4d(ctx0, KQV, d_head, n_pos, n_head, batch_size);
+                KQV = ggml_permute(ctx0, KQV, 0, 2, 1, 3);
+
+                cur = ggml_cont_3d(ctx0, KQV, n_embd, n_pos, batch_size);
+            }
+
+            // attention output
+            cur = ggml_add(ctx0, ggml_mul_mat(ctx0, model.layers[il].o_w, cur), model.layers[il].o_b);
+
+            // re-add the layer input, e.g., residual
+            cur = ggml_add(ctx0, cur, embeddings);
+
+            embeddings = cur; // embeddings = residual, cur = hidden_states
+
+            // layernorm2
+            {
+                cur = ggml_norm(ctx0, cur, eps);
+
+                cur = ggml_add(ctx0, ggml_mul(ctx0, cur, model.layers[il].ln_2_w), model.layers[il].ln_2_b);
+            }
+
+            cur = ggml_mul_mat(ctx0, model.layers[il].ff_up_w, cur);
+            cur = ggml_add(ctx0, cur, model.layers[il].ff_up_b);
+
+            if (ctx->use_gelu) {
+                cur = ggml_gelu_inplace(ctx0, cur);
+            } else if (ctx->use_silu) {
+                cur = ggml_silu_inplace(ctx0, cur);
+            } else {
+                cur = ggml_gelu_quick_inplace(ctx0, cur);
+            }
+
+            cur = ggml_mul_mat(ctx0, model.layers[il].ff_down_w, cur);
+            cur = ggml_add(ctx0, cur, model.layers[il].ff_down_b);
+
+            // residual 2
+            cur = ggml_add(ctx0, embeddings, cur);
+
+            embeddings = cur;
+        }
+
+        // post-layernorm
+        if (model.post_ln_w) {
+            embeddings = ggml_norm(ctx0, embeddings, eps);
+            ggml_set_name(embeddings, "post_ln");
+
+            embeddings = ggml_add(ctx0, ggml_mul(ctx0, embeddings, model.post_ln_w), model.post_ln_b);
+        }
+
+        // final layer is a vision feature layer
+        if (vision_feature_layer.find(ctx->max_feature_layer) != vision_feature_layer.end()) {
+            embedding_stack.push_back(embeddings);
+        }
+
+        // If feature layers are explicitly set, stack them (if we have multiple)
+        if (!embedding_stack.empty()) {
+            embeddings = embedding_stack[0];
+            for (size_t i = 1; i < embedding_stack.size(); i++) {
+                embeddings = ggml_concat(ctx0, embeddings, embedding_stack[i], 0);
+            }
+        }
+
+        // llava projector
+        if (ctx->has_llava_projector) {
+            embeddings = ggml_reshape_2d(ctx0, embeddings, embeddings->ne[0], embeddings->ne[1]);
+
+            ggml_tensor * patches = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_patches);
+            ggml_set_name(patches, "patches");
+            ggml_set_input(patches);
+
+            // shape [1, 576, 1024]
+            // ne is whcn, ne = [1024, 576, 1, 1]
+            embeddings = ggml_get_rows(ctx0, embeddings, patches);
+
+            // print_tensor_info(embeddings, "embeddings");
+
+            // llava projector
+            if (ctx->proj_type == PROJECTOR_TYPE_MLP) {
+                embeddings = ggml_mul_mat(ctx0, model.mm_0_w, embeddings);
+                embeddings = ggml_add(ctx0, embeddings, model.mm_0_b);
+
+                embeddings = ggml_gelu(ctx0, embeddings);
+                if (model.mm_2_w) {
+                    embeddings = ggml_mul_mat(ctx0, model.mm_2_w, embeddings);
+                    embeddings = ggml_add(ctx0, embeddings, model.mm_2_b);
+                }
+            }
+            else if (ctx->proj_type == PROJECTOR_TYPE_MLP_NORM) {
+                embeddings = ggml_mul_mat(ctx0, model.mm_0_w, embeddings);
+                embeddings = ggml_add(ctx0, embeddings, model.mm_0_b);
+                // ggml_tensor_printf(embeddings, "mm_0_w",0,true,false);
+                // First LayerNorm
+                embeddings = ggml_norm(ctx0, embeddings, eps);
+                embeddings = ggml_add(ctx0, ggml_mul(ctx0, embeddings, model.mm_1_w),
+                                    model.mm_1_b);
+
+                // GELU activation
+                embeddings = ggml_gelu(ctx0, embeddings);
+
+                // Second linear layer
+                embeddings = ggml_mul_mat(ctx0, model.mm_3_w, embeddings);
+                embeddings = ggml_add(ctx0, embeddings, model.mm_3_b);
+
+                // Second LayerNorm
+                embeddings = ggml_norm(ctx0, embeddings, eps);
+                embeddings = ggml_add(ctx0, ggml_mul(ctx0, embeddings, model.mm_4_w),
+                                    model.mm_4_b);
+            }
+            else if (ctx->proj_type == PROJECTOR_TYPE_LDP) {
+                // MobileVLM projector
+                int n_patch = 24;
+                ggml_tensor * mlp_1 = ggml_mul_mat(ctx0, model.mm_model_mlp_1_w, embeddings);
+                mlp_1 = ggml_add(ctx0, mlp_1, model.mm_model_mlp_1_b);
+                mlp_1 = ggml_gelu(ctx0, mlp_1);
+                ggml_tensor * mlp_3 = ggml_mul_mat(ctx0, model.mm_model_mlp_3_w, mlp_1);
+                mlp_3 = ggml_add(ctx0, mlp_3, model.mm_model_mlp_3_b);
+                // mlp_3 shape = [1, 576, 2048], ne = [2048, 576, 1, 1]
+
+                // block 1
+                ggml_tensor * block_1 = nullptr;
+                {
+                    // transpose from [1, 576, 2048] --> [1, 2048, 576] --> [1, 2048, 24, 24]
+                    mlp_3 = ggml_cont(ctx0, ggml_permute(ctx0, mlp_3, 1, 0, 2, 3));
+                    mlp_3 = ggml_reshape_4d(ctx0, mlp_3, n_patch, n_patch, mlp_3->ne[1], mlp_3->ne[2]);
+                    // stride = 1, padding = 1, bias is nullptr
+                    block_1 = ggml_conv_2d_dw(ctx0, model.mm_model_block_1_block_0_0_w, mlp_3, 1, 1, 1, 1, 1, 1);
+
+                    // layer norm
+                    // // block_1 shape = [1, 2048, 24, 24], ne = [24, 24, 2048, 1]
+                    block_1 = ggml_cont(ctx0, ggml_permute(ctx0, block_1, 1, 2, 0, 3));
+                    // block_1 shape = [1, 24, 24, 2048], ne = [2048, 24, 24, 1]
+                    block_1 = ggml_norm(ctx0, block_1, eps);
+                    block_1 = ggml_add(ctx0, ggml_mul(ctx0, block_1, model.mm_model_block_1_block_0_1_w), model.mm_model_block_1_block_0_1_b);
+                    block_1 = ggml_cont(ctx0, ggml_permute(ctx0, block_1, 2, 0, 1, 3));
+
+                    // block_1 shape = [1, 2048, 24, 24], ne = [24, 24, 2048, 1]
+                    // hardswish
+                    ggml_tensor * block_1_hw = ggml_hardswish(ctx0, block_1);
+
+                    block_1 = ggml_pool_2d(ctx0, block_1_hw, GGML_OP_POOL_AVG, block_1_hw->ne[0], block_1_hw->ne[1], block_1_hw->ne[0], block_1_hw->ne[1], 0, 0);
+                    // block_1 shape = [1, 2048, 1, 1], ne = [1, 1, 2048, 1]
+                    // pointwise conv
+                    block_1 = ggml_reshape_2d(ctx0, block_1, block_1->ne[0]*block_1->ne[1]*block_1->ne[2], block_1->ne[3]);
+                    block_1 = ggml_mul_mat(ctx0, model.mm_model_block_1_block_1_fc1_w, block_1);
+                    block_1 = ggml_add(ctx0, block_1, model.mm_model_block_1_block_1_fc1_b);
+                    block_1 = ggml_relu(ctx0, block_1);
+                    block_1 = ggml_mul_mat(ctx0, model.mm_model_block_1_block_1_fc2_w, block_1);
+                    block_1 = ggml_add(ctx0, block_1, model.mm_model_block_1_block_1_fc2_b);
+                    block_1 = ggml_hardsigmoid(ctx0, block_1);
+                    // block_1_hw shape = [1, 2048, 24, 24], ne = [24, 24, 2048, 1], block_1 shape = [1, 2048], ne = [2048, 1, 1, 1]
+                    block_1 = ggml_reshape_4d(ctx0, block_1, 1, 1, block_1->ne[0], block_1->ne[1]);
+                    block_1 = ggml_mul(ctx0, block_1_hw, block_1);
+
+                    int w = block_1->ne[0], h = block_1->ne[1];
+                    block_1 = ggml_reshape_3d(ctx0, block_1, w*h, block_1->ne[2], block_1->ne[3]);
+                    block_1 = ggml_cont(ctx0, ggml_permute(ctx0, block_1, 1, 0, 2, 3));
+
+                    // block_1 shape = [1, 24*24, 2048], ne = [24*24, 2048, 1]
+                    block_1 = ggml_mul_mat(ctx0, model.mm_model_block_1_block_2_0_w, block_1);
+                    block_1 = ggml_reshape_4d(ctx0, block_1, block_1->ne[0], w, h, block_1->ne[3]);
+
+                    // block_1 shape = [1, 24, 24, 2048], ne = [2048, 24, 24, 1]
+                    block_1 = ggml_norm(ctx0, block_1, eps);
+                    block_1 = ggml_add(ctx0, ggml_mul(ctx0, block_1, model.mm_model_block_1_block_2_1_w), model.mm_model_block_1_block_2_1_b);
+                    block_1 = ggml_cont(ctx0, ggml_permute(ctx0, block_1, 2, 0, 1, 3));
+                    // block1 shape = [1, 2048, 24, 24], ne = [24, 24, 2048, 1]
+                    // residual
+                    block_1 = ggml_add(ctx0, mlp_3, block_1);
+                }
+
+                // block_2
+                {
+                    // stride = 2
+                    block_1 = ggml_conv_2d_dw(ctx0, model.mm_model_block_2_block_0_0_w, block_1, 2, 2, 1, 1, 1, 1);
+
+                    // block_1 shape = [1, 2048, 12, 12], ne = [12, 12, 2048, 1]
+                    // layer norm
+                    block_1 = ggml_cont(ctx0, ggml_permute(ctx0, block_1, 1, 2, 0, 3));
+                    // block_1 shape = [1, 12, 12, 2048], ne = [2048, 12, 12, 1]
+                    block_1 = ggml_norm(ctx0, block_1, eps);
+                    block_1 = ggml_add(ctx0, ggml_mul(ctx0, block_1, model.mm_model_block_2_block_0_1_w), model.mm_model_block_2_block_0_1_b);
+                    block_1 = ggml_cont(ctx0, ggml_permute(ctx0, block_1, 2, 0, 1, 3));
+                    // block_1 shape = [1, 2048, 12, 12], ne = [12, 12, 2048, 1]
+                    // hardswish
+                    ggml_tensor * block_1_hw = ggml_hardswish(ctx0, block_1);
+
+                    // not sure the parameters is right for globalAvgPooling
+                    block_1 = ggml_pool_2d(ctx0, block_1_hw, GGML_OP_POOL_AVG, block_1_hw->ne[0], block_1_hw->ne[1], block_1_hw->ne[0], block_1_hw->ne[1], 0, 0);
+                    // block_1 shape = [1, 2048, 1, 1], ne = [1, 1, 2048, 1]
+                    // pointwise conv
+                    block_1 = ggml_reshape_2d(ctx0, block_1, block_1->ne[0]*block_1->ne[1]*block_1->ne[2], block_1->ne[3]);
+                    block_1 = ggml_mul_mat(ctx0, model.mm_model_block_2_block_1_fc1_w, block_1);
+                    block_1 = ggml_add(ctx0, block_1, model.mm_model_block_2_block_1_fc1_b);
+                    block_1 = ggml_relu(ctx0, block_1);
+                    block_1 = ggml_mul_mat(ctx0, model.mm_model_block_2_block_1_fc2_w, block_1);
+                    block_1 = ggml_add(ctx0, block_1, model.mm_model_block_2_block_1_fc2_b);
+                    block_1 = ggml_hardsigmoid(ctx0, block_1);
+
+                    // block_1_hw shape = [1, 2048, 12, 12], ne = [12, 12, 2048, 1], block_1 shape = [1, 2048, 1, 1], ne = [1, 1, 2048, 1]
+                    block_1 = ggml_reshape_4d(ctx0, block_1, 1, 1, block_1->ne[0], block_1->ne[1]);
+                    block_1 = ggml_mul(ctx0, block_1_hw, block_1);
+
+                    int w = block_1->ne[0], h = block_1->ne[1];
+                    block_1 = ggml_reshape_3d(ctx0, block_1, w*h, block_1->ne[2], block_1->ne[3]);
+                    block_1 = ggml_cont(ctx0, ggml_permute(ctx0, block_1, 1, 0, 2, 3));
+                    // block_1 shape = [1, 24*24, 2048], ne = [24*24, 2048, 1]
+                    block_1 = ggml_mul_mat(ctx0, model.mm_model_block_2_block_2_0_w, block_1);
+                    block_1 = ggml_reshape_4d(ctx0, block_1, block_1->ne[0], w, h, block_1->ne[3]);
+
+
+                    // block_1 shape = [1, 12, 12, 2048], ne = [2048, 12, 12, 1]
+                    block_1 = ggml_norm(ctx0, block_1, eps);
+                    block_1 = ggml_add(ctx0, ggml_mul(ctx0, block_1, model.mm_model_block_2_block_2_1_w), model.mm_model_block_2_block_2_1_b);
+                    block_1 = ggml_reshape_3d(ctx0, block_1, block_1->ne[0], block_1->ne[1] * block_1->ne[2], block_1->ne[3]);
+                    // block_1 shape = [1, 144, 2048], ne = [2048, 144, 1]
+                }
+                embeddings = block_1;
+            }
+            else if (ctx->proj_type == PROJECTOR_TYPE_LDPV2)
+            {
+                int n_patch = 24;
+                ggml_tensor * mlp_0 = ggml_mul_mat(ctx0, model.mm_model_mlp_0_w, embeddings);
+                mlp_0 = ggml_add(ctx0, mlp_0, model.mm_model_mlp_0_b);
+                mlp_0 = ggml_gelu(ctx0, mlp_0);
+                ggml_tensor * mlp_2 = ggml_mul_mat(ctx0, model.mm_model_mlp_2_w, mlp_0);
+                mlp_2 = ggml_add(ctx0, mlp_2, model.mm_model_mlp_2_b);
+                // mlp_2 ne = [2048, 576, 1, 1]
+                // // AVG Pool Layer 2*2, strides = 2
+                mlp_2 = ggml_cont(ctx0, ggml_permute(ctx0, mlp_2, 1, 0, 2, 3));
+                // mlp_2 ne = [576, 2048, 1, 1]
+                mlp_2 = ggml_reshape_4d(ctx0, mlp_2, n_patch, n_patch, mlp_2->ne[1], mlp_2->ne[2]);
+                // mlp_2 ne [24, 24, 2048, 1]
+                mlp_2 = ggml_pool_2d(ctx0, mlp_2, GGML_OP_POOL_AVG, 2, 2, 2, 2, 0, 0);
+                // weight ne = [3, 3, 2048, 1]
+                ggml_tensor * peg_0 = ggml_conv_2d_dw(ctx0, model.mm_model_peg_0_w, mlp_2, 1, 1, 1, 1, 1, 1);
+                peg_0 = ggml_cont(ctx0, ggml_permute(ctx0, peg_0, 1, 2, 0, 3));
+                peg_0 = ggml_add(ctx0, peg_0, model.mm_model_peg_0_b);
+                mlp_2 = ggml_cont(ctx0, ggml_permute(ctx0, mlp_2, 1, 2, 0, 3));
+                peg_0 = ggml_add(ctx0, peg_0, mlp_2);
+                peg_0 = ggml_reshape_3d(ctx0, peg_0, peg_0->ne[0], peg_0->ne[1] * peg_0->ne[2], peg_0->ne[3]);
+                embeddings = peg_0;
+            }
+            else {
+                GGML_ABORT("fatal error");
+            }
+        }
+
+        // minicpmv projector
+        else if (ctx->proj_type == PROJECTOR_TYPE_MINICPMV) {
+            ggml_tensor * q = model.mm_model_query;
+            { // layernorm
+                q = ggml_norm(ctx0, q, eps);
+                q = ggml_add(ctx0, ggml_mul(ctx0, q, model.mm_model_ln_q_w), model.mm_model_ln_q_b);
+            }
+            ggml_tensor * v = ggml_mul_mat(ctx0, model.mm_model_kv_proj, embeddings);
+            { // layernorm
+                v = ggml_norm(ctx0, v, eps);
+                v = ggml_add(ctx0, ggml_mul(ctx0, v, model.mm_model_ln_kv_w), model.mm_model_ln_kv_b);
+            }
+            ggml_tensor * k;
+            { // position
+                // q = ggml_add(ctx0, q, model.mm_model_pos_embed);
+                k = ggml_add(ctx0, v, pos_embed);
+            }
+
+            { // attention
+                int n_embd = clip_n_mmproj_embd(ctx);
+                const int d_head = 128;
+                int n_head = n_embd/d_head;
+                int num_query = 96;
+                if (ctx->minicpmv_version == 2) {
+                    num_query = 96;
+                }
+                else if (ctx->minicpmv_version == 3) {
+                    num_query = 64;
+                }
+                else if (ctx->minicpmv_version == 4) {
+                    num_query = 64;
+                }
+
+                ggml_tensor * Q = ggml_add(ctx0, ggml_mul_mat(ctx0, model.mm_model_attn_q_w, q), model.mm_model_attn_q_b);
+                ggml_tensor * K = ggml_add(ctx0, ggml_mul_mat(ctx0, model.mm_model_attn_k_w, k), model.mm_model_attn_k_b);
+                ggml_tensor * V = ggml_add(ctx0, ggml_mul_mat(ctx0, model.mm_model_attn_v_w, v), model.mm_model_attn_v_b);
+                // permute
+                Q = ggml_reshape_4d(ctx0, Q, d_head, n_head, num_query, batch_size);
+                Q = ggml_cont(ctx0, ggml_permute(ctx0, Q, 0, 2, 1, 3));
+                Q = ggml_reshape_3d(ctx0, Q, d_head, num_query, n_head * batch_size);
+                K = ggml_reshape_4d(ctx0, K, d_head, n_head, n_pos, batch_size);
+                K = ggml_cont(ctx0, ggml_permute(ctx0, K, 0, 2, 1, 3));
+                K = ggml_reshape_3d(ctx0, K, d_head, n_pos, n_head * batch_size);
+                V = ggml_reshape_4d(ctx0, V, d_head, n_head, n_pos, batch_size);
+                V = ggml_cont(ctx0, ggml_permute(ctx0, V, 1, 2, 0, 3));
+                V = ggml_reshape_3d(ctx0, V, n_pos, d_head, n_head * batch_size);
+                ggml_tensor * KQ = ggml_mul_mat(ctx0, K, Q);
+                KQ = ggml_soft_max_ext(ctx0, KQ, nullptr, 1.0f / sqrtf((float)d_head), 0.0f);
+                ggml_tensor * KQV = ggml_mul_mat(ctx0, V, KQ);
+                KQV = ggml_reshape_4d(ctx0, KQV, d_head, num_query, n_head, batch_size);
+                KQV = ggml_permute(ctx0, KQV, 0, 2, 1, 3);
+                KQV = ggml_cont_3d(ctx0, KQV, n_embd, num_query, batch_size);
+
+                embeddings = ggml_add(ctx0, ggml_mul_mat(ctx0, model.mm_model_attn_o_w, KQV), model.mm_model_attn_o_b);
+            }
+            { // layernorm
+                embeddings = ggml_norm(ctx0, embeddings, eps);
+                embeddings = ggml_add(ctx0, ggml_mul(ctx0, embeddings, model.mm_model_ln_post_w), model.mm_model_ln_post_b);
+            }
+            embeddings = ggml_mul_mat(ctx0, model.mm_model_proj, embeddings);
+        }
+
+        // glm projector
+        else if (ctx->proj_type == PROJECTOR_TYPE_GLM_EDGE) {
+            size_t gridsz = (size_t)sqrt(embeddings->ne[1]);
+            embeddings = ggml_cont(ctx0, ggml_permute(ctx0,embeddings,1,0,2,3));
+            embeddings = ggml_reshape_3d(ctx0, embeddings, gridsz, gridsz, embeddings->ne[1]);
+            embeddings = ggml_conv_2d(ctx0, model.mm_model_adapter_conv_w, embeddings, 2, 2, 0, 0, 1, 1);
+            embeddings = ggml_reshape_3d(ctx0, embeddings,embeddings->ne[0]*embeddings->ne[1] , embeddings->ne[2], batch_size);
+            embeddings = ggml_cont(ctx0, ggml_permute(ctx0,embeddings, 1, 0, 2, 3));
+            embeddings = ggml_add(ctx0, embeddings, model.mm_model_adapter_conv_b);
+            // GLU
+            {
+                embeddings = ggml_mul_mat(ctx0, model.mm_model_mlp_0_w, embeddings);
+                embeddings = ggml_norm(ctx0, embeddings, eps);
+                embeddings = ggml_add(ctx0, ggml_mul(ctx0, embeddings, model.mm_model_ln_q_w), model.mm_model_ln_q_b);
+                embeddings = ggml_gelu_inplace(ctx0, embeddings);
+                ggml_tensor * x = embeddings;
+                embeddings = ggml_mul_mat(ctx0, model.mm_model_mlp_2_w, embeddings);
+                x = ggml_mul_mat(ctx0, model.mm_model_mlp_1_w,x);
+                embeddings = ggml_silu_inplace(ctx0, embeddings);
+                embeddings = ggml_mul(ctx0, embeddings,x);
+                embeddings = ggml_mul_mat(ctx0, model.mm_model_mlp_3_w, embeddings);
+            }
+            // arrangement of BOI/EOI token embeddings
+            // note: these embeddings are not present in text model, hence we cannot process them as text tokens
+            // see: https://huggingface.co/THUDM/glm-edge-v-2b/blob/main/siglip.py#L53
+            {
+                embeddings = ggml_concat(ctx0, model.mm_glm_tok_boi, embeddings, 1); // BOI
+                embeddings = ggml_concat(ctx0, embeddings, model.mm_glm_tok_eoi, 1); // EOI
+            }
+        }
+
+        else {
+            GGML_ABORT("llava: unknown projector type");
+        }
+
+        // build the graph
+        ggml_build_forward_expand(gf, embeddings);
+
+        return gf;
+    }
+};
+
+static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32_batch & imgs) {
+    GGML_ASSERT(imgs.entries.size() == 1 && "n_batch > 1 is not supported");
+    clip_graph graph(ctx, *imgs.entries[0]);
+
     ggml_cgraph * res;
+
     switch (ctx->proj_type) {
         case PROJECTOR_TYPE_GEMMA3:
         case PROJECTOR_TYPE_IDEFICS3:
             {
-                GGML_ASSERT(imgs.entries.size() == 1);
-                res = clip_image_build_graph_siglip(ctx, *imgs.entries[0]);
+                res = graph.build_siglip();
             } break;
         case PROJECTOR_TYPE_PIXTRAL:
             {
-                GGML_ASSERT(imgs.entries.size() == 1);
-                res = clip_image_build_graph_pixtral(ctx, *imgs.entries[0]);
+                res = graph.build_pixtral();
             } break;
+        case PROJECTOR_TYPE_QWEN2VL:
         case PROJECTOR_TYPE_QWEN25VL:
             {
-                res = clip_image_build_graph_qwen25vl(ctx, imgs);
+                res = graph.build_qwen2vl();
             } break;
         default:
             {
                 // TODO: we should have one build_* function per model
-                res = clip_image_build_graph_legacy(ctx, imgs, load_image_size, is_inf);
+                res = graph.build_llava();
             } break;
     }
     return res;
@@ -1656,7 +1538,7 @@ struct clip_model_loader {
                 const char * name = gguf_get_tensor_name(ctx_gguf.get(), i);
                 const size_t offset = gguf_get_tensor_offset(ctx_gguf.get(), i);
                 enum ggml_type type = gguf_get_tensor_type(ctx_gguf.get(), i);
-                struct ggml_tensor * cur = ggml_get_tensor(meta, name);
+                ggml_tensor * cur = ggml_get_tensor(meta, name);
                 size_t tensor_size = ggml_nbytes(cur);
                 model_size += tensor_size;
                 LOG_DBG("%s: tensor[%d]: n_dims = %d, name = %s, tensor_size=%zu, offset=%zu, shape:[%" PRIu64 ", %" PRIu64 ", %" PRIu64 ", %" PRIu64 "], type = %s\n",
@@ -1821,14 +1703,14 @@ struct clip_model_loader {
 
         // helper function
         auto get_tensor = [&](const std::string & name, bool required = true) {
-            struct ggml_tensor * cur = ggml_get_tensor(ctx_meta.get(), name.c_str());
+            ggml_tensor * cur = ggml_get_tensor(ctx_meta.get(), name.c_str());
             if (!cur && required) {
                 throw std::runtime_error(string_format("%s: unable to find tensor %s\n", __func__, name.c_str()));
             }
             if (cur) {
                 tensors_to_load.push_back(cur);
                 // add tensors to context
-                struct ggml_tensor * data_tensor = ggml_dup_tensor(ctx_clip.ctx_data.get(), cur);
+                ggml_tensor * data_tensor = ggml_dup_tensor(ctx_clip.ctx_data.get(), cur);
                 ggml_set_name(data_tensor, cur->name);
                 cur = data_tensor;
             }
@@ -2034,7 +1916,7 @@ struct clip_model_loader {
             ctx_clip.buf.reset(ggml_backend_alloc_ctx_tensors_from_buft(ctx_clip.ctx_data.get(), buft));
             ggml_backend_buffer_set_usage(ctx_clip.buf.get(), GGML_BACKEND_BUFFER_USAGE_WEIGHTS);
             for (auto & t : tensors_to_load) {
-                struct ggml_tensor * cur = ggml_get_tensor(ctx_clip.ctx_data.get(), t->name);
+                ggml_tensor * cur = ggml_get_tensor(ctx_clip.ctx_data.get(), t->name);
                 const size_t offset = tensor_offset[t->name];
                 fin.seekg(offset, std::ios::beg);
                 if (!fin) {
@@ -2063,15 +1945,12 @@ struct clip_model_loader {
         // create a fake batch
         clip_image_f32_batch batch;
         clip_image_f32_ptr img(clip_image_f32_init());
-        clip_image_size image_size;
-        image_size.width  = ctx_clip.vision_model.hparams.image_size;
-        image_size.height = ctx_clip.vision_model.hparams.image_size;
-        img->nx = image_size.width;
-        img->ny = image_size.height;
-        img->buf.resize(image_size.width * image_size.height * 3);
+        img->nx = ctx_clip.vision_model.hparams.image_size;
+        img->ny = ctx_clip.vision_model.hparams.image_size;
+        img->buf.resize(img->nx * img->ny * 3);
         batch.entries.push_back(std::move(img));
 
-        ggml_cgraph * gf = clip_image_build_graph(&ctx_clip, batch, image_size, false);
+        ggml_cgraph * gf = clip_image_build_graph(&ctx_clip, batch);
         ggml_backend_sched_reserve(ctx_clip.sched.get(), gf);
         for (size_t i = 0; i < ctx_clip.backend_ptrs.size(); ++i) {
             ggml_backend_t backend = ctx_clip.backend_ptrs[i];
@@ -3096,7 +2975,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
 
     // build the inference graph
     ggml_backend_sched_reset(ctx->sched.get());
-    ggml_cgraph * gf = clip_image_build_graph(ctx, imgs, ctx->load_image_size, true);
+    ggml_cgraph * gf = clip_image_build_graph(ctx, imgs);
     ggml_backend_sched_alloc_graph(ctx->sched.get(), gf);
 
     // set inputs
@@ -3108,14 +2987,14 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
 
     const int patch_size    = hparams.patch_size;
     const int num_patches   = ((image_size_width / patch_size) * (image_size_height / patch_size));
-    const int num_positions = num_patches + (model.class_embedding ? 1 : 0);
+    const int n_pos = num_patches + (model.class_embedding ? 1 : 0);
     const int pos_w = ctx->load_image_size.width  / patch_size;
     const int pos_h = ctx->load_image_size.height / patch_size;
 
     const bool use_window_attn = hparams.n_wa_pattern > 0; // for qwen2.5vl
 
     auto get_inp_tensor = [&gf](const char * name) {
-        struct ggml_tensor * inp = ggml_graph_get_tensor(gf, name);
+        ggml_tensor * inp = ggml_graph_get_tensor(gf, name);
         if (inp == nullptr) {
             GGML_ABORT("Failed to get tensor %s", name);
         }
@@ -3224,7 +3103,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 const int merge_ratio = 2;
                 const int pw = image_size_width  / patch_size;
                 const int ph = image_size_height / patch_size;
-                std::vector<int> positions(num_positions * 4);
+                std::vector<int> positions(n_pos * 4);
                 int ptr = 0;
                 for (int y = 0; y < ph; y += merge_ratio) {
                     for (int x = 0; x < pw; x += merge_ratio) {
@@ -3301,7 +3180,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 }
 
                 const int mpow = merge_ratio * merge_ratio;
-                std::vector<int> positions(num_positions * 4);
+                std::vector<int> positions(n_pos * 4);
 
                 int ptr = 0;
                 for (int y = 0; y < iph; y += merge_ratio) {
@@ -3327,14 +3206,14 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
             {
                 // set the 2D positions
                 int n_patches_per_col = image_size_width / patch_size;
-                std::vector<int> pos_data(num_positions);
+                std::vector<int> pos_data(n_pos);
                 // dimension H
-                for (int i = 0; i < num_positions; i++) {
+                for (int i = 0; i < n_pos; i++) {
                     pos_data[i] = i / n_patches_per_col;
                 }
                 set_input_i32("pos_h", pos_data);
                 // dimension W
-                for (int i = 0; i < num_positions; i++) {
+                for (int i = 0; i < n_pos; i++) {
                     pos_data[i] = i % n_patches_per_col;
                 }
                 set_input_i32("pos_w", pos_data);
@@ -3342,8 +3221,8 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_GLM_EDGE:
         {
             // llava and other models
-            std::vector<int32_t> positions(num_positions);
-            for (int i = 0; i < num_positions; i++) {
+            std::vector<int32_t> positions(n_pos);
+            for (int i = 0; i < n_pos; i++) {
                 positions[i] = i;
             }
             set_input_i32("positions", positions);
@@ -3354,8 +3233,8 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_LDPV2:
             {
                 // llava and other models
-                std::vector<int32_t> positions(num_positions);
-                for (int i = 0; i < num_positions; i++) {
+                std::vector<int32_t> positions(n_pos);
+                for (int i = 0; i < n_pos; i++) {
                     positions[i] = i;
                 }
                 set_input_i32("positions", positions);
@@ -3396,7 +3275,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
     }
 
     // the last node is the embedding tensor
-    struct ggml_tensor * embeddings = ggml_graph_node(gf, -1);
+    ggml_tensor * embeddings = ggml_graph_node(gf, -1);
 
     // copy the embeddings to the location passed by the user
     ggml_backend_tensor_get(embeddings, vec, 0, ggml_nbytes(embeddings));
@@ -3427,7 +3306,7 @@ bool clip_model_quantize(const char * fname_inp, const char * fname_out, const i
 
     for (int i = 0; i < n_tensors; ++i) {
         const char * name = gguf_get_tensor_name(ctx_src, i);
-        struct ggml_tensor * cur = ggml_get_tensor(ctx_data, name);
+        ggml_tensor * cur = ggml_get_tensor(ctx_data, name);
         gguf_add_tensor(ctx_out, cur);
     }
 
@@ -3448,7 +3327,7 @@ bool clip_model_quantize(const char * fname_inp, const char * fname_out, const i
 
     for (int i = 0; i < n_tensors; ++i) {
         const std::string name = gguf_get_tensor_name(ctx_src, i);
-        struct ggml_tensor * cur = ggml_get_tensor(ctx_data, name.c_str());
+        ggml_tensor * cur = ggml_get_tensor(ctx_data, name.c_str());
 
         enum ggml_type new_type;
         void * new_data;
