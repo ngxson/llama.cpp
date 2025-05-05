@@ -416,13 +416,6 @@ struct clip_graph {
         gf = ggml_new_graph(ctx0);
     }
 
-    ggml_tensor * build_inp_raw() {
-        ggml_tensor * inp_raw = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, img.nx, img.ny, 3);
-        ggml_set_name(inp_raw, "inp_raw");
-        ggml_set_input(inp_raw);
-        return inp_raw;
-    }
-
     ggml_cgraph * build_siglip() {
         ggml_tensor * inp_raw = build_inp_raw();
         ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
@@ -569,74 +562,6 @@ struct clip_graph {
         ggml_build_forward_expand(gf, embeddings);
 
         return gf;
-    }
-
-    // implementation of the 2D RoPE without adding a new op in ggml
-    // this is not efficient (use double the memory), but works on all backends
-    // TODO: there was a more efficient which relies on ggml_view and ggml_rope_ext_inplace, but the rope inplace does not work well with non-contiguous tensors ; we should fix that and revert back to the original implementation in https://github.com/ggml-org/llama.cpp/pull/13065
-    static ggml_tensor * build_rope_2d(
-        ggml_context * ctx0,
-        ggml_tensor * cur,
-        ggml_tensor * pos_h,
-        ggml_tensor * pos_w,
-        const float freq_base
-    ) {
-        const int64_t n_dim  = cur->ne[0];
-        const int64_t n_head = cur->ne[1];
-        const int64_t n_pos  = cur->ne[2];
-
-        // for example, if we have cur tensor of shape (n_dim=8, n_head, n_pos)
-        // we will have a list of 4 inv_freq: 1e-0, 1e-1, 1e-2, 1e-3
-        // first half of cur will use 1e-0, 1e-2 (even)
-        // second half of cur will use 1e-1, 1e-3 (odd)
-        // the trick here is to rotate just half of n_dim, so inv_freq will automatically be even
-        //  ^ don't ask me why, it's math! -2(2i) / n_dim == -2i / (n_dim/2)
-        // then for the second half, we use freq_scale to shift the inv_freq
-        //  ^ why? replace (2i) with (2i+1) in the above equation
-        const float freq_scale_odd = std::pow(freq_base, (float)-2/n_dim);
-
-        // first half
-        ggml_tensor * first;
-        {
-            first = ggml_view_3d(ctx0, cur,
-                n_dim/2, n_head, n_pos,
-                ggml_row_size(cur->type, n_dim),
-                ggml_row_size(cur->type, n_dim*n_head),
-                0);
-            first = ggml_rope_ext(
-                ctx0,
-                first,
-                pos_h,      // positions
-                nullptr,    // freq factors
-                n_dim/2,    // n_dims
-                0, 0, freq_base,
-                1.0f, 0.0f, 1.0f, 0.0f, 0.0f
-            );
-        }
-
-        // second half
-        ggml_tensor * second;
-        {
-            second = ggml_view_3d(ctx0, cur,
-                n_dim/2, n_head, n_pos,
-                ggml_row_size(cur->type, n_dim),
-                ggml_row_size(cur->type, n_dim*n_head),
-                n_dim/2 * ggml_element_size(cur));
-            second = ggml_cont(ctx0, second); // copy, because ggml_rope don't play well with non-contiguous tensors
-            second = ggml_rope_ext(
-                ctx0,
-                second,
-                pos_w,      // positions
-                nullptr,    // freq factors
-                n_dim/2,    // n_dims
-                0, 0, freq_base,
-                freq_scale_odd,
-                0.0f, 1.0f, 0.0f, 0.0f
-            );
-        }
-
-        cur = ggml_concat(ctx0, first, second, 0);
-        return cur;
     }
 
     ggml_cgraph * build_pixtral() {
@@ -799,7 +724,7 @@ struct clip_graph {
         const int batch_size       = 1;
         const bool use_window_attn = hparams.n_wa_pattern > 0;
         const int n_wa_pattern     = hparams.n_wa_pattern;
-        const int n_pos    = n_patches + (model.class_embedding ? 1 : 0);
+        const int n_pos            = n_patches;
         const int num_position_ids = n_pos * 4; // m-rope requires 4 dim per position
 
         int mrope_sections[4] = {d_head/4, d_head/4, d_head/4, d_head/4};
@@ -873,6 +798,9 @@ struct clip_graph {
             // rmsnorm1
             cur = ggml_rms_norm(ctx0, cur, eps);
             cur = ggml_mul(ctx0, cur, model.layers[il].ln_1_w);
+            if (model.layers[il].ln_1_b) {
+                cur = ggml_add(ctx0, cur, model.layers[il].ln_1_b);
+            }
 
             // self-attention
             {
@@ -930,21 +858,16 @@ struct clip_graph {
             // rms norm2
             cur = ggml_rms_norm(ctx0, cur, eps);
             cur = ggml_mul(ctx0, cur, model.layers[il].ln_2_w);
+            if (model.layers[il].ln_2_b) {
+                cur = ggml_add(ctx0, cur, model.layers[il].ln_2_b);
+            }
 
             // mlp
 
             if (ctx->proj_type == PROJECTOR_TYPE_QWEN2VL) {
                 cur = ggml_mul_mat(ctx0, model.layers[il].ff_up_w, cur);
                 cur = ggml_add(ctx0, cur, model.layers[il].ff_up_b);
-
-                if (ctx->use_gelu) {
-                    cur = ggml_gelu_inplace(ctx0, cur);
-                } else if (ctx->use_silu) {
-                    cur = ggml_silu_inplace(ctx0, cur);
-                } else {
-                    cur = ggml_gelu_quick_inplace(ctx0, cur);
-                }
-
+                cur = ggml_gelu_quick_inplace(ctx0, cur);
                 cur = ggml_mul_mat(ctx0, model.layers[il].ff_down_w, cur);
                 cur = ggml_add(ctx0, cur, model.layers[il].ff_down_b);
 
@@ -983,6 +906,10 @@ struct clip_graph {
             ggml_set_name(embeddings, "post_ln");
 
             embeddings = ggml_mul(ctx0, embeddings, model.post_ln_w);
+
+            if (model.post_ln_b) {
+                embeddings = ggml_add(ctx0, embeddings, model.post_ln_b);
+            }
         }
 
         embeddings = ggml_reshape_3d(ctx0, embeddings, n_embd * 4, n_pos / 4, batch_size);
@@ -1458,6 +1385,87 @@ struct clip_graph {
 
         return gf;
     }
+
+private:
+    //
+    // utility functions
+    //
+
+    ggml_tensor * build_inp_raw() {
+        ggml_tensor * inp_raw = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, img.nx, img.ny, 3);
+        ggml_set_name(inp_raw, "inp_raw");
+        ggml_set_input(inp_raw);
+        return inp_raw;
+    }
+
+    // implementation of the 2D RoPE without adding a new op in ggml
+    // this is not efficient (use double the memory), but works on all backends
+    // TODO: there was a more efficient which relies on ggml_view and ggml_rope_ext_inplace, but the rope inplace does not work well with non-contiguous tensors ; we should fix that and revert back to the original implementation in https://github.com/ggml-org/llama.cpp/pull/13065
+    static ggml_tensor * build_rope_2d(
+        ggml_context * ctx0,
+        ggml_tensor * cur,
+        ggml_tensor * pos_h,
+        ggml_tensor * pos_w,
+        const float freq_base
+    ) {
+        const int64_t n_dim  = cur->ne[0];
+        const int64_t n_head = cur->ne[1];
+        const int64_t n_pos  = cur->ne[2];
+
+        // for example, if we have cur tensor of shape (n_dim=8, n_head, n_pos)
+        // we will have a list of 4 inv_freq: 1e-0, 1e-1, 1e-2, 1e-3
+        // first half of cur will use 1e-0, 1e-2 (even)
+        // second half of cur will use 1e-1, 1e-3 (odd)
+        // the trick here is to rotate just half of n_dim, so inv_freq will automatically be even
+        //  ^ don't ask me why, it's math! -2(2i) / n_dim == -2i / (n_dim/2)
+        // then for the second half, we use freq_scale to shift the inv_freq
+        //  ^ why? replace (2i) with (2i+1) in the above equation
+        const float freq_scale_odd = std::pow(freq_base, (float)-2/n_dim);
+
+        // first half
+        ggml_tensor * first;
+        {
+            first = ggml_view_3d(ctx0, cur,
+                n_dim/2, n_head, n_pos,
+                ggml_row_size(cur->type, n_dim),
+                ggml_row_size(cur->type, n_dim*n_head),
+                0);
+            first = ggml_rope_ext(
+                ctx0,
+                first,
+                pos_h,      // positions
+                nullptr,    // freq factors
+                n_dim/2,    // n_dims
+                0, 0, freq_base,
+                1.0f, 0.0f, 1.0f, 0.0f, 0.0f
+            );
+        }
+
+        // second half
+        ggml_tensor * second;
+        {
+            second = ggml_view_3d(ctx0, cur,
+                n_dim/2, n_head, n_pos,
+                ggml_row_size(cur->type, n_dim),
+                ggml_row_size(cur->type, n_dim*n_head),
+                n_dim/2 * ggml_element_size(cur));
+            second = ggml_cont(ctx0, second); // copy, because ggml_rope don't play well with non-contiguous tensors
+            second = ggml_rope_ext(
+                ctx0,
+                second,
+                pos_w,      // positions
+                nullptr,    // freq factors
+                n_dim/2,    // n_dims
+                0, 0, freq_base,
+                freq_scale_odd,
+                0.0f, 1.0f, 0.0f, 0.0f
+            );
+        }
+
+        cur = ggml_concat(ctx0, first, second, 0);
+        return cur;
+    }
+
 };
 
 static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32_batch & imgs) {
