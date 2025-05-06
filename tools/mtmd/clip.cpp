@@ -796,22 +796,17 @@ struct clip_graph {
         // resampler projector (it is just another transformer)
 
         ggml_tensor * q = model.mm_model_query;
-        { // layernorm
-            q = ggml_norm(ctx0, q, eps);
-            q = ggml_add(ctx0, ggml_mul(ctx0, q, model.mm_model_ln_q_w), model.mm_model_ln_q_b);
-        }
         ggml_tensor * v = ggml_mul_mat(ctx0, model.mm_model_kv_proj, embeddings);
-        { // layernorm
-            v = ggml_norm(ctx0, v, eps);
-            v = ggml_add(ctx0, ggml_mul(ctx0, v, model.mm_model_ln_kv_w), model.mm_model_ln_kv_b);
-        }
-        ggml_tensor * k;
-        { // position
-            // q = ggml_add(ctx0, q, model.mm_model_pos_embed);
-            k = ggml_add(ctx0, v, pos_embed);
-        }
 
-        { // attention
+        // norm
+        q = build_norm(q, model.mm_model_ln_q_w, model.mm_model_ln_q_b, NORM_TYPE_NORMAL, eps, -1);
+        v = build_norm(v, model.mm_model_ln_kv_w, model.mm_model_ln_kv_b, NORM_TYPE_NORMAL, eps, -1);
+
+        // k = v + pos_embed
+        ggml_tensor * k = ggml_add(ctx0, v, pos_embed);
+
+        // attention
+        {
             int n_embd = clip_n_mmproj_embd(ctx);
             const int d_head = 128;
             int n_head = n_embd/d_head;
@@ -824,32 +819,34 @@ struct clip_graph {
                 num_query = 64;
             }
 
-            ggml_tensor * Q = ggml_add(ctx0, ggml_mul_mat(ctx0, model.mm_model_attn_q_w, q), model.mm_model_attn_q_b);
-            ggml_tensor * K = ggml_add(ctx0, ggml_mul_mat(ctx0, model.mm_model_attn_k_w, k), model.mm_model_attn_k_b);
-            ggml_tensor * V = ggml_add(ctx0, ggml_mul_mat(ctx0, model.mm_model_attn_v_w, v), model.mm_model_attn_v_b);
-            // permute
-            Q = ggml_reshape_4d(ctx0, Q, d_head, n_head, num_query, batch_size);
-            Q = ggml_cont(ctx0, ggml_permute(ctx0, Q, 0, 2, 1, 3));
-            Q = ggml_reshape_3d(ctx0, Q, d_head, num_query, n_head * batch_size);
-            K = ggml_reshape_4d(ctx0, K, d_head, n_head, n_pos, batch_size);
-            K = ggml_cont(ctx0, ggml_permute(ctx0, K, 0, 2, 1, 3));
-            K = ggml_reshape_3d(ctx0, K, d_head, n_pos, n_head * batch_size);
-            V = ggml_reshape_4d(ctx0, V, d_head, n_head, n_pos, batch_size);
-            V = ggml_cont(ctx0, ggml_permute(ctx0, V, 1, 2, 0, 3));
-            V = ggml_reshape_3d(ctx0, V, n_pos, d_head, n_head * batch_size);
-            ggml_tensor * KQ = ggml_mul_mat(ctx0, K, Q);
-            KQ = ggml_soft_max_ext(ctx0, KQ, nullptr, 1.0f / sqrtf((float)d_head), 0.0f);
-            ggml_tensor * KQV = ggml_mul_mat(ctx0, V, KQ);
-            KQV = ggml_reshape_4d(ctx0, KQV, d_head, num_query, n_head, batch_size);
-            KQV = ggml_permute(ctx0, KQV, 0, 2, 1, 3);
-            KQV = ggml_cont_3d(ctx0, KQV, n_embd, num_query, batch_size);
+            ggml_tensor * Q = ggml_add(ctx0,
+                ggml_mul_mat(ctx0, model.mm_model_attn_q_w, q),
+                model.mm_model_attn_q_b);
+            ggml_tensor * K = ggml_add(ctx0,
+                ggml_mul_mat(ctx0, model.mm_model_attn_k_w, k),
+                model.mm_model_attn_k_b);
+            ggml_tensor * V = ggml_add(ctx0,
+                ggml_mul_mat(ctx0, model.mm_model_attn_v_w, v),
+                model.mm_model_attn_v_b);
 
-            embeddings = ggml_add(ctx0, ggml_mul_mat(ctx0, model.mm_model_attn_o_w, KQV), model.mm_model_attn_o_b);
+            Q = ggml_reshape_3d(ctx0, Q, d_head, n_head, num_query);
+            K = ggml_reshape_3d(ctx0, K, d_head, n_head, n_pos);
+            V = ggml_reshape_3d(ctx0, V, d_head, n_head, n_pos);
+
+            cb(Q, "resampler_Q", -1);
+            cb(K, "resampler_K", -1);
+            cb(V, "resampler_V", -1);
+
+            embeddings = build_attn(
+                model.mm_model_attn_o_w,
+                model.mm_model_attn_o_b,
+                Q, K, V, nullptr, kq_scale, -1);
+            cb(embeddings, "resampler_attn_out", -1);
         }
-        { // layernorm
-            embeddings = ggml_norm(ctx0, embeddings, eps);
-            embeddings = ggml_add(ctx0, ggml_mul(ctx0, embeddings, model.mm_model_ln_post_w), model.mm_model_ln_post_b);
-        }
+        // layernorm
+        embeddings = build_norm(embeddings, model.mm_model_ln_post_w, model.mm_model_ln_post_b, NORM_TYPE_NORMAL, eps, -1);
+
+        // projection
         embeddings = ggml_mul_mat(ctx0, model.mm_model_proj, embeddings);
 
         // build the graph
