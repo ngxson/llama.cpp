@@ -24,7 +24,7 @@ def create_server():
     [
         # test model is trained on CIFAR-10, but it's quite dumb due to small size
         (IMG_URL_0,                True, "(cat)+"),
-        (IMG_BASE64_0,             True, "(cat)+"),
+        ("IMG_BASE64_0",           True, "(cat)+"), # exceptional, so that we don't cog up the log
         (IMG_URL_1,                True, "(frog)+"),
         ("malformed",              False, None),
         ("https://google.com/404", False, None), # non-existent image
@@ -34,6 +34,8 @@ def create_server():
 def test_vision_chat_completion(image_url, success, re_content):
     global server
     server.start(timeout_seconds=60) # vision model may take longer to load due to download size
+    if image_url == "IMG_BASE64_0":
+        image_url = IMG_BASE64_0
     res = server.make_request("POST", "/chat/completions", data={
         "temperature": 0.0,
         "top_k": 1,
