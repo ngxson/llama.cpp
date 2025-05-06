@@ -29,6 +29,7 @@
 #include <limits>
 #include <array>
 #include <numeric>
+#include <functional>
 
 struct clip_logger_state g_logger_state = {GGML_LOG_LEVEL_CONT, clip_log_callback_default, NULL};
 
