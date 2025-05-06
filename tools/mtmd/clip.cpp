@@ -592,6 +592,10 @@ struct clip_graph {
         const int n_pos            = n_patches;
         const int num_position_ids = n_pos * 4; // m-rope requires 4 dim per position
 
+        norm_type norm_t = ctx->proj_type == PROJECTOR_TYPE_QWEN25VL
+            ? NORM_TYPE_RMS // qwen 2.5 vl
+            : NORM_TYPE_NORMAL; // qwen 2 vl
+
         int mrope_sections[4] = {d_head/4, d_head/4, d_head/4, d_head/4};
 
         ggml_tensor * inp_raw = build_inp_raw();
@@ -633,7 +637,7 @@ struct clip_graph {
 
         // pre-layernorm
         if (model.pre_ln_w) {
-            inpL = build_norm(inpL, model.pre_ln_w, model.pre_ln_b, NORM_TYPE_RMS, eps, -1);
+            inpL = build_norm(inpL, model.pre_ln_w, model.pre_ln_b, norm_t, eps, -1);
         }
 
         if (use_window_attn) {
@@ -710,7 +714,7 @@ struct clip_graph {
             cb(cur, "ffn_inp", il);
 
             // layernorm2
-            cur = build_norm(cur, layer.ln_2_w, layer.ln_2_b, NORM_TYPE_RMS, eps, il);
+            cur = build_norm(cur, layer.ln_2_w, layer.ln_2_b, norm_t, eps, il);
             cb(cur, "ffn_inp_normed", il);
 
             // ffn
@@ -731,7 +735,7 @@ struct clip_graph {
 
         // post-layernorm
         if (model.post_ln_w) {
-            inpL = build_norm(inpL, model.post_ln_w, model.post_ln_b, NORM_TYPE_RMS, eps, n_layer);
+            inpL = build_norm(inpL, model.post_ln_w, model.post_ln_b, norm_t, eps, n_layer);
         }
 
         // multimodal projection
