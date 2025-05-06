@@ -329,7 +329,6 @@ struct clip_ctx {
     struct clip_vision_model vision_model;
     projector_type proj_type = PROJECTOR_TYPE_MLP;
 
-    int32_t max_feature_layer; // unused in newer models like gemma3
     float image_mean[3];
     float image_std[3];
 
@@ -867,6 +866,27 @@ struct clip_graph {
 
         GGML_ASSERT(n_patches_x == n_patches_y && "only square images supported");
 
+        // Calculate the deepest feature layer based on hparams and projector type
+        int max_feature_layer = n_layer;
+        {
+            // Get the index of the second to last layer; this is the default for models that have a llava projector
+            int il_last = hparams.n_layer - 1;
+            int deepest_feature_layer = -1;
+
+            if (ctx->proj_type == PROJECTOR_TYPE_MINICPMV || ctx->proj_type == PROJECTOR_TYPE_GLM_EDGE) {
+                il_last += 1;
+            }
+
+            // If we set explicit vision feature layers, only go up to the deepest one
+            // NOTE: only used by granite-vision models for now
+            for (const auto & feature_layer : hparams.vision_feature_layer) {
+                if (feature_layer > deepest_feature_layer) {
+                    deepest_feature_layer = feature_layer;
+                }
+            }
+            max_feature_layer = deepest_feature_layer < 0 ? il_last : deepest_feature_layer;
+        }
+
         ggml_tensor * inp = build_inp();
 
         if (model.patch_bias) {
@@ -896,7 +916,7 @@ struct clip_graph {
         const auto & vision_feature_layer = hparams.vision_feature_layer;
 
         // loop over layers
-        for (int il = 0; il < ctx->max_feature_layer; il++) {
+        for (int il = 0; il < max_feature_layer; il++) {
             auto & layer = model.layers[il];
             ggml_tensor * cur = inpL; // inpL = residual, cur = hidden_states
 
@@ -977,7 +997,7 @@ struct clip_graph {
         // process vision feature layers (used by granite)
         {
             // final layer is a vision feature layer
-            if (vision_feature_layer.find(ctx->max_feature_layer) != vision_feature_layer.end()) {
+            if (vision_feature_layer.find(max_feature_layer) != vision_feature_layer.end()) {
                 embedding_stack.push_back(inpL);
             }
 
@@ -1758,30 +1778,6 @@ struct clip_model_loader {
             // convert std::vector to std::unordered_set
             for (auto & layer : vision_feature_layer) {
                 hparams.vision_feature_layer.insert(layer);
-            }
-
-            // Calculate the deepest feature layer based on hparams and projector type
-            // NOTE: This is only used by build_graph_legacy()
-            {
-                // Get the index of the second to last layer; this is the default for models that have a llava projector
-                int n_layer = hparams.n_layer - 1;
-                int deepest_feature_layer = -1;
-
-                if (ctx_clip.proj_type == PROJECTOR_TYPE_MINICPMV
-                        || ctx_clip.proj_type == PROJECTOR_TYPE_GLM_EDGE
-                        || ctx_clip.proj_type == PROJECTOR_TYPE_QWEN2VL
-                        || ctx_clip.proj_type == PROJECTOR_TYPE_QWEN25VL) {
-                    n_layer += 1;
-                }
-
-                // If we set explicit vision feature layers, only go up to the deepest one
-                // NOTE: only used by granite-vision models for now
-                for (const auto & feature_layer : hparams.vision_feature_layer) {
-                    if (feature_layer > deepest_feature_layer) {
-                        deepest_feature_layer = feature_layer;
-                    }
-                }
-                ctx_clip.max_feature_layer = deepest_feature_layer < 0 ? n_layer : deepest_feature_layer;
             }
 
             // model-specific params
