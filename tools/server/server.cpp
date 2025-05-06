@@ -1988,12 +1988,12 @@ struct server_context {
 
             if (params_base.ctx_shift) {
                 params_base.ctx_shift = false;
-                SRV_INF("%s\n", "ctx_shift is not supported by multimodal, it will be disabled");
+                SRV_WRN("%s\n", "ctx_shift is not supported by multimodal, it will be disabled");
             }
 
             if (params_base.n_cache_reuse) {
                 params_base.n_cache_reuse = 0;
-                SRV_INF("%s\n", "cache_reuse is not supported by multimodal, it will be disabled");
+                SRV_WRN("%s\n", "cache_reuse is not supported by multimodal, it will be disabled");
             }
 
             if (!params_base.speculative.model.path.empty()) {
@@ -2417,6 +2417,15 @@ struct server_context {
         queue_results.send(std::move(res));
     }
 
+    // if multimodal is enabled, send an error and return false
+    bool ensure_no_mtmd(const int id_task) {
+        if (mctx) {
+            send_error(id_task, "This feature is not supported by multimodal", ERROR_TYPE_NOT_SUPPORTED);
+            return false;
+        }
+        return true;
+    }
+
     void send_partial_response(server_slot & slot, const completion_token_output & tkn) {
         auto res = std::make_unique<server_task_result_cmpl_partial>();
 
@@ -2766,12 +2775,9 @@ struct server_context {
                 } break;
             case SERVER_TASK_TYPE_SLOT_SAVE:
                 {
+                    if (!ensure_no_mtmd(task.id)) break;
                     int id_slot = task.slot_action.slot_id;
                     server_slot * slot = get_slot_by_id(id_slot);
-                    if (mctx) {
-                        send_error(task, "This feature is not supported by multimodal", ERROR_TYPE_NOT_SUPPORTED);
-                        break;
-                    }
                     if (slot == nullptr) {
                         send_error(task, "Invalid slot ID", ERROR_TYPE_INVALID_REQUEST);
                         break;
@@ -2807,10 +2813,7 @@ struct server_context {
                 } break;
             case SERVER_TASK_TYPE_SLOT_RESTORE:
                 {
-                    if (mctx) {
-                        send_error(task, "This feature is not supported by multimodal", ERROR_TYPE_NOT_SUPPORTED);
-                        break;
-                    }
+                    if (!ensure_no_mtmd(task.id)) break;
                     int id_slot = task.slot_action.slot_id;
                     server_slot * slot = get_slot_by_id(id_slot);
                     if (slot == nullptr) {
@@ -2857,10 +2860,7 @@ struct server_context {
                 } break;
             case SERVER_TASK_TYPE_SLOT_ERASE:
                 {
-                    if (mctx) {
-                        send_error(task, "This feature is not supported by multimodal", ERROR_TYPE_NOT_SUPPORTED);
-                        break;
-                    }
+                    if (!ensure_no_mtmd(task.id)) break;
                     int id_slot = task.slot_action.slot_id;
                     server_slot * slot = get_slot_by_id(id_slot);
                     if (slot == nullptr) {
@@ -3417,7 +3417,7 @@ struct server_context {
                 }
 
                 if (mctx) {
-                    // we should never reach this
+                    // we should never reach this, as speculative is automatically disabled if mmproj is loaded
                     GGML_ABORT("not supported by multimodal");
                 }
 

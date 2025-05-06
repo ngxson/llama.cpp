@@ -1078,7 +1078,6 @@ public:
             auto img_tokens = mtmd_input_chunk_get_tokens_image(chunk);
             const int n_pos = mtmd_image_tokens_get_n_pos(img_tokens);
             llama_pos start_pos = tokens.size();
-            printf("start_pos = %d, n_pos = %d\n", start_pos, n_pos);
             for (int i = 0; i < n_pos; ++i) {
                 tokens.emplace_back(LLAMA_TOKEN_NULL);
             }
@@ -1095,8 +1094,22 @@ public:
         }
     }
 
+    // for compatibility with context shift and prompt truncation
     void insert(llama_tokens & inp_tokens) {
+        GGML_ASSERT(!has_mtmd); // only allow this if mtmd is disabled
         tokens.insert(tokens.end(), inp_tokens.begin(), inp_tokens.end());
+    }
+
+    // for compatibility with speculative decoding, ctx shift, slot save/load
+    const llama_tokens & get_text_tokens() const {
+        GGML_ASSERT(!has_mtmd); // only allow this if mtmd is disabled
+        return tokens;
+    }
+
+    // for compatibility with speculative decoding
+    void set_token(llama_pos pos, llama_token id) {
+        GGML_ASSERT(!has_mtmd); // only allow this if mtmd is disabled
+        tokens[pos] = id;
     }
 
     size_t size() const {
@@ -1127,17 +1140,6 @@ public:
             }
         }
         tokens.resize(n);
-    }
-
-    // for compatibility with speculative decoding, ctx shift, slot save/load
-    const llama_tokens & get_text_tokens() const {
-        return tokens;
-    }
-
-    // for compatibility with speculative decoding
-    void set_token(llama_pos pos, llama_token id) {
-        // TODO: may need validation
-        tokens[pos] = id;
     }
 
     std::string detokenize(const llama_context * ctx, bool special) const {
