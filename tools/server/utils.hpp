@@ -667,10 +667,17 @@ static json oaicompat_completion_params_parse(
                     common_remote_params params;
                     params.headers.push_back("User-Agent: llama.cpp/" + build_info);
                     params.max_size = 1024 * 1024 * 10; // 10MB
+                    params.timeout  = 10; // seconds
+                    SRV_INF("downloading image from '%s'\n", url.c_str());
                     auto res = common_remote_get_content(url, params);
-                    raw_buffer data;
-                    data.insert(data.end(), res.second.begin(), res.second.end());
-                    out_files.push_back(data);
+                    if (200 <= res.first && res.first < 300) {
+                        SRV_INF("downloaded %ld bytes\n", res.second.size());
+                        raw_buffer data;
+                        data.insert(data.end(), res.second.begin(), res.second.end());
+                        out_files.push_back(data);
+                    } else {
+                        throw std::runtime_error("Failed to download image");
+                    }
 
                 } else {
                     // try to decode base64 image
