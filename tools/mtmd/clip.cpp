@@ -664,12 +664,9 @@ struct clip_graph {
 
             ggml_tensor * cur = inpL; // inpL = residual, cur = hidden_states
 
-            // rmsnorm1
-            cur = ggml_rms_norm(ctx0, cur, eps);
-            cur = ggml_mul(ctx0, cur, model.layers[il].ln_1_w);
-            if (model.layers[il].ln_1_b) {
-                cur = ggml_add(ctx0, cur, model.layers[il].ln_1_b);
-            }
+            // layernorm1
+            cur = build_norm(cur, layer.ln_1_w, layer.ln_1_b, norm_t, eps, il);
+            cb(cur, "ln1", il);
 
             // self-attention
             {
