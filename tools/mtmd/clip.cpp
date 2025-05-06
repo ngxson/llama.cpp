@@ -1735,13 +1735,13 @@ struct clip_model_loader {
                 }
                 if (use_gelu) {
                     hparams.ffn_op = FFN_GELU;
-                    log_ffn_op = "GELU";
+                    log_ffn_op = "gelu";
                 } else if (use_silu) {
                     hparams.ffn_op = FFN_SILU;
-                    log_ffn_op = "SILU";
+                    log_ffn_op = "silu";
                 } else {
                     hparams.ffn_op = FFN_GELU_QUICK;
-                    log_ffn_op = "GELU_QUICK";
+                    log_ffn_op = "gelu_quick";
                 }
             }
 
@@ -3102,10 +3102,10 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
     const clip_image_f32_batch & imgs = *imgs_c_ptr;
     int batch_size = imgs.entries.size();
 
-    if (ctx->has_llava_projector
-            || ctx->proj_type == PROJECTOR_TYPE_MINICPMV
-            || ctx->proj_type == PROJECTOR_TYPE_GLM_EDGE) {
-        GGML_ASSERT(batch_size == 1);
+    // TODO @ngxson : implement batch size > 1 as a loop
+    //                we don't need true batching support because the cgraph will gonna be big anyway
+    if (batch_size != 1) {
+        return false; // only support batch size of 1
     }
 
     // build the inference graph
