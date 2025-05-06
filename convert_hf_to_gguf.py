@@ -2761,6 +2761,13 @@ class Qwen2MoeModel(TextModel):
         if (shared_expert_intermediate_size := self.hparams.get('shared_expert_intermediate_size')) is not None:
             self.gguf_writer.add_expert_shared_feed_forward_length(shared_expert_intermediate_size)
             logger.info(f"gguf: expert shared feed forward length = {shared_expert_intermediate_size}")
+        # YaRN is not enabled by default
+        # To enable it, please refer to this guide: https://huggingface.co/Qwen/Qwen3-30B-A3B#processing-long-texts
+        if self.hparams.get("rope_scaling") is not None and "factor" in self.hparams["rope_scaling"]:
+            if self.hparams["rope_scaling"].get("type") == "yarn":
+                self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.YARN)
+                self.gguf_writer.add_rope_scaling_factor(self.hparams["rope_scaling"]["factor"])
+                self.gguf_writer.add_rope_scaling_orig_ctx_len(self.hparams["rope_scaling"]["original_max_position_embeddings"])
 
     _experts: list[dict[str, Tensor]] | None = None
 
@@ -3908,6 +3915,16 @@ class Gemma3VisionModel(VisionModel):
         # default values below are taken from HF tranformers code
         self.gguf_writer.add_vision_attention_layernorm_eps(hparams.get("layer_norm_eps", 1e-6))
         self.gguf_writer.add_vision_use_gelu(True)
+        # calculate proj_scale_factor (used by tinygemma3 test model)
+        image_seq_length = self.preprocessor_config.get("image_seq_length", 256)
+        n_per_side = int(image_seq_length ** 0.5)
+        image_size = self.hparams["image_size"]
+        patch_size = self.hparams["patch_size"]
+        proj_scale_factor = (image_size // patch_size) // n_per_side
+        if proj_scale_factor > 0 and proj_scale_factor != 4:
+            # we only need to write this if it's not the default value
+            # in this case, we are converting a test model
+            self.gguf_writer.add_vision_projector_scale_factor(proj_scale_factor)
 
     def tensor_force_quant(self, name, new_name, bid, n_dims):
         del bid, new_name, n_dims  # unused
@@ -3920,6 +3937,9 @@ class Gemma3VisionModel(VisionModel):
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         del bid  # unused
+
+        if "vision_model.head." in name:
+            return [] # skip redundant tensors for tinygemma3
 
         if name.startswith("multi_modal_projector.") or name.startswith("vision_tower.") \
                 or name.startswith("multimodal_projector.") or name.startswith("vision_model."):
