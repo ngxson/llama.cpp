@@ -3,6 +3,7 @@
 #include "common.h"
 #include "log.h"
 #include "llama.h"
+#include "arg.h" // common_remote_get_content
 #include "base64.hpp"
 #include "mtmd.h"
 
@@ -584,6 +585,7 @@ static json oaicompat_completion_params_parse(
     bool use_jinja,
     common_reasoning_format reasoning_format,
     const struct common_chat_templates * tmpls,
+    bool allow_non_text,
     std::vector<raw_buffer> & out_files)
 {
     json llama_params;
@@ -654,21 +656,41 @@ static json oaicompat_completion_params_parse(
             std::string type      = json_value(p, "type", std::string());
             json        image_url = json_value(p, "image_url", json::object());
             if (type == "image_url") {
-                std::string url = json_value(image_url, "url", std::string());
-                std::vector<std::string> parts = string_split<std::string>(url, /*separator*/ ',');
-                if (parts.size() != 2) {
-                    throw std::runtime_error("Invalid image_url.url value");
-                } else if (!string_starts_with(parts[0], "data:image/")) {
-                    throw std::runtime_error("Invalid image_url.url format: " + parts[0]);
-                } else if (!string_ends_with(parts[0], "base64")) {
-                    throw std::runtime_error("image_url.url must be base64 encoded");
-                } else {
-                    auto base64_data = parts[1];
-                    auto decoded_data = base64_decode(base64_data);
-                    out_files.push_back(decoded_data);
+                if (!allow_non_text) {
+                    throw std::runtime_error("image input is not supported by this server");
                 }
+
+                std::string url = json_value(image_url, "url", std::string());
+                if (string_starts_with(url, "http")) {
+                    // download remote image
+                    // TODO @ngxson : maybe make these params configurable
+                    common_remote_params params;
+                    params.headers.push_back("User-Agent: llama.cpp/" + build_info);
+                    params.max_size = 1024 * 1024 * 10; // 10MB
+                    auto res = common_remote_get_content(url, params);
+                    raw_buffer data;
+                    data.insert(data.end(), res.second.begin(), res.second.end());
+                    out_files.push_back(data);
+
+                } else {
+                    // try to decode base64 image
+                    std::vector<std::string> parts = string_split<std::string>(url, /*separator*/ ',');
+                    if (parts.size() != 2) {
+                        throw std::runtime_error("Invalid image_url.url value");
+                    } else if (!string_starts_with(parts[0], "data:image/")) {
+                        throw std::runtime_error("Invalid image_url.url format: " + parts[0]);
+                    } else if (!string_ends_with(parts[0], "base64")) {
+                        throw std::runtime_error("image_url.url must be base64 encoded");
+                    } else {
+                        auto base64_data = parts[1];
+                        auto decoded_data = base64_decode(base64_data);
+                        out_files.push_back(decoded_data);
+                    }
+                }
+
+                // replace this chunk with a marker
                 p["type"] = "text";
-                p["text"] = "<__image__>";
+                p["text"] = MTMD_DEFAULT_IMAGE_MARKER;
                 p.erase("image_url");
             }
         }
