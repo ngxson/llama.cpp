@@ -440,15 +440,14 @@ struct clip_graph {
 
         if (ctx->proj_type == PROJECTOR_TYPE_GEMMA3) {
             const int batch_size = 1;
-            const int mm_tokens_per_image = 256; // default value for gemma3
-            const int tokens_per_side = sqrt(mm_tokens_per_image);
-            const int patches_per_image = sqrt(n_patches);
-            const int kernel_size = patches_per_image / tokens_per_side;
+            GGML_ASSERT(n_patches_x == n_patches_y);
+            const int patches_per_image = n_patches_x;
+            const int kernel_size = hparams.proj_scale_factor;
 
             cur = ggml_cont(ctx0, ggml_transpose(ctx0, cur));
             cur = ggml_reshape_4d(ctx0, cur, patches_per_image, patches_per_image, n_embd, batch_size);
 
-            // doing a pool2d to reduce the number of output tokens to 256
+            // doing a pool2d to reduce the number of output tokens
             cur = ggml_pool_2d(ctx0, cur, GGML_OP_POOL_AVG, kernel_size, kernel_size, kernel_size, kernel_size, 0, 0);
             cur = ggml_reshape_3d(ctx0, cur, cur->ne[0] * cur->ne[0], n_embd, batch_size);
             cur = ggml_cont(ctx0, ggml_transpose(ctx0, cur));
@@ -1795,6 +1794,14 @@ struct clip_model_loader {
                         hparams.rope_theta = 10000.0f;
                         get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.spatial_merge_size, false);
                     } break;
+                case PROJECTOR_TYPE_GEMMA3:
+                    {
+                        // default value (used by all model sizes in gemma 3 family)
+                        // number of patches for each **side** is reduced by a factor of 4
+                        hparams.proj_scale_factor = 4;
+                        // test model (tinygemma3) has a different value, we optionally read it
+                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
+                    } break;
                 case PROJECTOR_TYPE_QWEN25VL:
                     {
                         get_u32(KEY_WIN_ATTN_PATTERN, hparams.n_wa_pattern);
@@ -1804,6 +1811,14 @@ struct clip_model_loader {
             }
 
             LOG_INF("%s: projector:          %s\n", __func__, proj_type.c_str());
+            LOG_INF("%s: n_embd:             %d\n", __func__, hparams.n_embd);
+            LOG_INF("%s: n_head:             %d\n", __func__, hparams.n_head);
+            LOG_INF("%s: n_ff:               %d\n", __func__, hparams.n_ff);
+            LOG_INF("%s: n_layer:            %d\n", __func__, hparams.n_layer);
+            LOG_INF("%s: projection_dim:     %d\n", __func__, hparams.projection_dim);
+            LOG_INF("%s: image_size:         %d\n", __func__, hparams.image_size);
+            LOG_INF("%s: patch_size:         %d\n", __func__, hparams.patch_size);
+            LOG_INF("\n");
             LOG_INF("%s: has_llava_proj:     %d\n", __func__, ctx_clip.has_llava_projector);
             LOG_INF("%s: minicpmv_version:   %d\n", __func__, ctx_clip.minicpmv_version);
             LOG_INF("%s: proj_scale_factor:  %d\n", __func__, hparams.proj_scale_factor);
@@ -2990,11 +3005,13 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         int y_patch = img->ny / patch_size + (int)(img->ny % patch_size > 0);
         n_patches = x_patch * y_patch;
     } else if (ctx->proj_type == PROJECTOR_TYPE_GEMMA3) {
-        n_patches = 256;
+        int n_per_side = params.image_size / params.patch_size;
+        int n_per_side_2d_pool = n_per_side / params.proj_scale_factor;
+        n_patches = n_per_side_2d_pool * n_per_side_2d_pool;
     } else if (ctx->proj_type == PROJECTOR_TYPE_IDEFICS3) {
-        n_patches /= ctx->vision_model.hparams.proj_scale_factor;
+        n_patches /= params.proj_scale_factor;
     } else if (ctx->proj_type == PROJECTOR_TYPE_PIXTRAL) {
-        int n_merge = ctx->vision_model.hparams.spatial_merge_size;
+        int n_merge = params.spatial_merge_size;
         int n_patches_x = img->nx / params.patch_size / (n_merge > 0 ? n_merge : 1);
         int n_patches_y = img->ny / params.patch_size / (n_merge > 0 ? n_merge : 1);
         n_patches = n_patches_y*n_patches_x + n_patches_y - 1; // + one [IMG_BREAK] per row, except the last row
