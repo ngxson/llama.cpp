@@ -4,16 +4,9 @@ import { useAppContext } from '../utils/app.context';
 import { classNames } from '../utils/misc';
 import daisyuiThemes from 'daisyui/theme/object';
 import { THEMES } from '../Config';
-import { useNavigate } from 'react-router';
-import {
-  Cog8ToothIcon,
-  SunIcon,
-  EllipsisVerticalIcon,
-  Bars3Icon,
-} from '@heroicons/react/24/outline';
+import { Cog8ToothIcon, SunIcon, Bars3Icon } from '@heroicons/react/24/outline';
 
 export default function Header() {
-  const navigate = useNavigate();
   const [selectedTheme, setSelectedTheme] = useState(StorageUtils.getTheme());
   const { setShowSettings } = useAppContext();
 
@@ -30,33 +23,6 @@ export default function Header() {
     );
   }, [selectedTheme]);
 
-  const { isGenerating, viewingChat } = useAppContext();
-  const isCurrConvGenerating = isGenerating(viewingChat?.conv.id ?? '');
-
-  const removeConversation = () => {
-    if (isCurrConvGenerating || !viewingChat) return;
-    const convId = viewingChat?.conv.id;
-    if (window.confirm('Are you sure to delete this conversation?')) {
-      StorageUtils.remove(convId);
-      navigate('/');
-    }
-  };
-
-  const downloadConversation = () => {
-    if (isCurrConvGenerating || !viewingChat) return;
-    const convId = viewingChat?.conv.id;
-    const conversationJson = JSON.stringify(viewingChat, null, 2);
-    const blob = new Blob([conversationJson], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `conversation_${convId}.json`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-  };
-
   return (
     <div className="flex flex-row items-center pt-6 pb-6 sticky top-0 z-10 bg-base-100">
       {/* open sidebar button */}
@@ -68,32 +34,6 @@ export default function Header() {
 
       {/* action buttons (top right) */}
       <div className="flex items-center">
-        {viewingChat && (
-          <div className="dropdown dropdown-end">
-            {/* "..." button */}
-            <button
-              tabIndex={0}
-              role="button"
-              className="btn m-1"
-              disabled={isCurrConvGenerating}
-            >
-              <EllipsisVerticalIcon className="w-5 h-5" />
-            </button>
-            {/* dropdown menu */}
-            <ul
-              tabIndex={0}
-              className="dropdown-content menu bg-base-100 rounded-box z-[1] w-52 p-2 shadow"
-            >
-              <li onClick={downloadConversation}>
-                <a>Download</a>
-              </li>
-              <li className="text-error" onClick={removeConversation}>
-                <a>Delete</a>
-              </li>
-            </ul>
-          </div>
-        )}
-
         <div className="tooltip tooltip-bottom" data-tip="Settings">
           <button className="btn" onClick={() => setShowSettings(true)}>
             {/* settings button */}

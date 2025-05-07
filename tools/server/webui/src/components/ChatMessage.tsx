@@ -285,10 +285,10 @@ function ThoughtProcess({
                 className="loading loading-spinner loading-md mr-2"
                 style={{ verticalAlign: 'middle' }}
               ></span>
-              <b>Thinking</b>
+              Thinking
             </span>
           ) : (
-            <b>Thought Process</b>
+            <>Thought Process</>
           )}
         </div>
       </div>
