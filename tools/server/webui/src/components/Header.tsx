@@ -4,7 +4,7 @@ import { useAppContext } from '../utils/app.context';
 import { classNames } from '../utils/misc';
 import daisyuiThemes from 'daisyui/theme/object';
 import { THEMES } from '../Config';
-import { Cog8ToothIcon, SunIcon, Bars3Icon } from '@heroicons/react/24/outline';
+import { Cog8ToothIcon, MoonIcon, Bars3Icon } from '@heroicons/react/24/outline';
 
 export default function Header() {
   const [selectedTheme, setSelectedTheme] = useState(StorageUtils.getTheme());
@@ -45,7 +45,7 @@ export default function Header() {
         <div className="tooltip tooltip-bottom" data-tip="Themes">
           <div className="dropdown dropdown-end dropdown-bottom">
             <div tabIndex={0} role="button" className="btn m-1">
-              <SunIcon className="w-5 h-5" />
+              <MoonIcon className="w-5 h-5" />
             </div>
             <ul
               tabIndex={0}
