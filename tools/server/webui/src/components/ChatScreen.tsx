@@ -262,6 +262,7 @@ export default function ChatScreen() {
               onRegenerateMessage={handleRegenerateMessage}
               onEditMessage={handleEditMessage}
               onChangeSibling={setCurrNodeId}
+              isPending={msg.isPending}
             />
           ))}
         </div>
@@ -321,10 +322,12 @@ function ChatInput({
             className="flex flex-col rounded-xl border-1 border-base-content/30 p-3 w-full"
             {...getRootProps()}
           >
-            <ChatInputExtraContextItem
-              items={extraContext.items}
-              removeItem={extraContext.removeItem}
-            />
+            {!isGenerating && (
+              <ChatInputExtraContextItem
+                items={extraContext.items}
+                removeItem={extraContext.removeItem}
+              />
+            )}
 
             <div className="flex flex-row w-full">
               <textarea

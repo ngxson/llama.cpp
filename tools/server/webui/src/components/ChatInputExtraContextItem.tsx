@@ -57,7 +57,7 @@ export default function ChatInputExtraContextItem({
                 </div>
 
                 <div className="text-xs pr-4">
-                  <b>{item.name}</b>
+                  <b>{item.name ?? 'Extra content'}</b>
                 </div>
               </>
             )}
@@ -69,7 +69,7 @@ export default function ChatInputExtraContextItem({
         <dialog className="modal modal-open">
           <div className="modal-box">
             <div className="flex justify-between items-center mb-4">
-              <b>{showingItem.name}</b>
+              <b>{showingItem.name ?? 'Extra content'}</b>
               <button className="btn btn-ghost btn-sm">
                 <XMarkIcon className="h-5 w-5" onClick={() => setShow(-1)} />
               </button>

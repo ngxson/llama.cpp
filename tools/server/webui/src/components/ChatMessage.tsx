@@ -3,8 +3,14 @@ import { useAppContext } from '../utils/app.context';
 import { Message, PendingMessage } from '../utils/types';
 import { classNames } from '../utils/misc';
 import MarkdownDisplay, { CopyButton } from './MarkdownDisplay';
-import { ChevronLeftIcon, ChevronRightIcon } from '@heroicons/react/24/outline';
+import {
+  ArrowPathIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  PencilSquareIcon,
+} from '@heroicons/react/24/outline';
 import ChatInputExtraContextItem from './ChatInputExtraContextItem';
+import { BtnWithTooltips } from '../utils/common';
 
 interface SplitMessage {
   content: PendingMessage['content'];
@@ -138,31 +144,11 @@ export default function ChatMessage({
                   {/* render message as markdown */}
                   <div dir="auto">
                     {thought && (
-                      <details
-                        className="collapse bg-base-200 collapse-arrow mb-4"
-                        open={isThinking && config.showThoughtInProgress}
-                      >
-                        <summary className="collapse-title">
-                          {isPending && isThinking ? (
-                            <span>
-                              <span
-                                v-if="isGenerating"
-                                className="loading loading-spinner loading-md mr-2"
-                                style={{ verticalAlign: 'middle' }}
-                              ></span>
-                              <b>Thinking</b>
-                            </span>
-                          ) : (
-                            <b>Thought Process</b>
-                          )}
-                        </summary>
-                        <div className="collapse-content">
-                          <MarkdownDisplay
-                            content={thought}
-                            isGenerating={isPending}
-                          />
-                        </div>
-                      </details>
+                      <ThoughtProcess
+                        isThinking={!!isThinking && !!isPending}
+                        content={thought}
+                        open={config.showThoughtInProgress}
+                      />
                     )}
 
                     <MarkdownDisplay
@@ -236,38 +222,80 @@ export default function ChatMessage({
           )}
           {/* user message */}
           {msg.role === 'user' && (
-            <button
-              className="badge btn-mini show-on-hover"
+            <BtnWithTooltips
+              className="btn-mini show-on-hover w-8 h-8"
               onClick={() => setEditingContent(msg.content)}
               disabled={msg.content === null}
+              tooltipsContent="Edit message"
             >
-              ✍️ Edit
-            </button>
+              <PencilSquareIcon className="h-4 w-4" />
+            </BtnWithTooltips>
           )}
           {/* assistant message */}
           {msg.role === 'assistant' && (
             <>
               {!isPending && (
-                <button
-                  className="badge btn-mini show-on-hover mr-2"
+                <BtnWithTooltips
+                  className="btn-mini show-on-hover w-8 h-8"
                   onClick={() => {
                     if (msg.content !== null) {
                       onRegenerateMessage(msg as Message);
                     }
                   }}
                   disabled={msg.content === null}
+                  tooltipsContent="Regenerate response"
                 >
-                  🔄 Regenerate
-                </button>
+                  <ArrowPathIcon className="h-4 w-4" />
+                </BtnWithTooltips>
               )}
             </>
           )}
           <CopyButton
-            className="badge btn-mini show-on-hover mr-2"
+            className="btn-mini show-on-hover w-8 h-8"
             content={msg.content}
           />
         </div>
       )}
+    </div>
+  );
+}
+
+function ThoughtProcess({
+  isThinking,
+  content,
+  open,
+}: {
+  isThinking: boolean;
+  content: string;
+  open: boolean;
+}) {
+  return (
+    <div
+      tabIndex={0}
+      className={classNames({
+        'collapse bg-none': true,
+        'collapse-open': open,
+      })}
+    >
+      <input type="checkbox" />
+      <div className="collapse-title px-0">
+        {isThinking ? (
+          <span>
+            <span
+              className="loading loading-spinner loading-md mr-2"
+              style={{ verticalAlign: 'middle' }}
+            ></span>
+            <b>Thinking</b>
+          </span>
+        ) : (
+          <b>Thought Process</b>
+        )}
+      </div>
+      <div className="collapse-content text-base-content/70 text-sm p-1">
+        <div className="border-l-2 border-base-content/20 pl-4 mb-4">
+          <MarkdownDisplay content={content} />
+        </div>
+      </div>
     </div>
   );
 }
