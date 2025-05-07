@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { MessageExtraContext } from './types';
+import { useEffect } from 'react';
 import { ChatTextareaApi } from '../components/useChatTextarea.ts';
 import { ChatExtraContextApi } from '../components/useChatExtraContext.tsx';
 
