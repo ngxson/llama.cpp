@@ -56,7 +56,7 @@ export default function Sidebar() {
           <div
             className={classNames({
               'btn btn-ghost justify-start': true,
-              'btn-active': !currConv,
+              'btn-soft': !currConv,
             })}
             onClick={() => navigate('/')}
           >
@@ -67,7 +67,7 @@ export default function Sidebar() {
               key={conv.id}
               className={classNames({
                 'btn btn-ghost justify-start font-normal': true,
-                'btn-active': conv.id === currConv?.id,
+                'btn-soft': conv.id === currConv?.id,
               })}
               onClick={() => navigate(`/chat/${conv.id}`)}
               dir="auto"

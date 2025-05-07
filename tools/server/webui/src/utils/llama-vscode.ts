@@ -31,6 +31,7 @@ export const useVSCodeContext = (
           extraContext.addItems([
             {
               type: 'context',
+              name: 'Extra context',
               content: data.context,
             },
           ]);

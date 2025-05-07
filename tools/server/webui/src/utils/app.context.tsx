@@ -15,6 +15,7 @@ import {
 } from './misc';
 import { BASE_URL, CONFIG_DEFAULT, isDev } from '../Config';
 import { matchPath, useLocation, useNavigate } from 'react-router';
+import toast from 'react-hot-toast';
 
 interface AppContextValue {
   // conversations and messages
@@ -260,7 +261,7 @@ export const AppContextProvider = ({
       } else {
         console.error(err);
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        alert((err as any)?.message ?? 'Unknown error');
+        toast.error((err as any)?.message ?? 'Unknown error');
         throw err; // rethrow
       }
     }

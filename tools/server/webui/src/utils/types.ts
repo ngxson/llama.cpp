@@ -48,7 +48,10 @@ export interface Message {
   children: Message['id'][];
 }
 
-export type MessageExtra = MessageExtraTextFile | MessageExtraImageFile | MessageExtraContext;
+export type MessageExtra =
+  | MessageExtraTextFile
+  | MessageExtraImageFile
+  | MessageExtraContext;
 
 export interface MessageExtraTextFile {
   type: 'textFile';
@@ -64,10 +67,24 @@ export interface MessageExtraImageFile {
 
 export interface MessageExtraContext {
   type: 'context';
+  name: string;
   content: string;
 }
 
-export type APIMessage = Pick<Message, 'role' | 'content'>;
+export type APIMessageContentPart =
+  | {
+      type: 'text';
+      text: string;
+    }
+  | {
+      type: 'image_url';
+      image_url: { url: string };
+    };
+
+export type APIMessage = {
+  role: Message['role'];
+  content: string | APIMessageContentPart[];
+};
 
 export interface Conversation {
   id: string; // format: `conv-{timestamp}`

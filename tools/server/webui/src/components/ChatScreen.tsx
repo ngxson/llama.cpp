@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CallbackGeneratedChunk, useAppContext } from '../utils/app.context';
 import ChatMessage from './ChatMessage';
-import { CanvasType, Message, MessageExtraContext, PendingMessage } from '../utils/types';
+import { CanvasType, Message, PendingMessage } from '../utils/types';
 import { classNames, cleanCurrentUrl, throttle } from '../utils/misc';
 import CanvasPyInterpreter from './CanvasPyInterpreter';
 import StorageUtils from '../utils/storage';
@@ -12,12 +12,15 @@ import {
   StopIcon,
   PaperClipIcon,
   DocumentTextIcon,
+  XMarkIcon,
 } from '@heroicons/react/24/solid';
 import {
   ChatExtraContextApi,
   useChatExtraContext,
 } from './useChatExtraContext.tsx';
 import Dropzone from 'react-dropzone';
+import toast from 'react-hot-toast';
+import ChatInputExtraContextItem from './ChatInputExtraContextItem.tsx';
 
 /**
  * A message display is a message node with additional information for rendering.
@@ -143,8 +146,10 @@ export default function ChatScreen() {
 
   const sendNewMessage = async () => {
     const lastInpMsg = textarea.value();
-    if (lastInpMsg.trim().length === 0 || isGenerating(currConvId ?? ''))
+    if (lastInpMsg.trim().length === 0 || isGenerating(currConvId ?? '')) {
+      toast.error('Please enter a message');
       return;
+    }
     textarea.setValue('');
     scrollToBottom(false);
     setCurrNodeId(-1);
@@ -312,7 +317,16 @@ function ChatInput({
         multiple={true}
       >
         {({ getRootProps, getInputProps }) => (
-          <div className="flex rounded-xl border-1 border-base-content/30 p-3 w-full" {...getRootProps()}>
+          <div
+            className="flex flex-col rounded-xl border-1 border-base-content/30 p-3 w-full"
+            {...getRootProps()}
+          >
+            <ChatInputExtraContextItem
+              items={extraContext.items}
+              removeItem={extraContext.removeItem}
+            />
+
+            <div className="flex flex-row w-full">
               <textarea
                 // Default (mobile): Enable vertical resize, overflow auto for scrolling if needed
                 // Large screens (lg:): Disable manual resize, apply max-height for autosize limit
@@ -367,15 +381,9 @@ function ChatInput({
                 )}
               </div>
             </div>
+          </div>
         )}
       </Dropzone>
     </div>
   );
-}
-
-function ChatInputExtraContextItem({}: {
-  idx: number,
-  item: MessageExtraContext,
-}) {
-
 }
