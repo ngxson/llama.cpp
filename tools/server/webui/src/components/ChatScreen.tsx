@@ -11,8 +11,6 @@ import {
   ArrowUpIcon,
   StopIcon,
   PaperClipIcon,
-  DocumentTextIcon,
-  XMarkIcon,
 } from '@heroicons/react/24/solid';
 import {
   ChatExtraContextApi,
@@ -249,9 +247,17 @@ export default function ChatScreen() {
       >
         {/* chat messages */}
         <div id="messages-list" className="grow">
-          <div className="mt-auto flex justify-center">
+          <div className="mt-auto flex flex-col items-center">
             {/* placeholder to shift the message to the bottom */}
-            {viewingChat ? '' : 'Send a message to start'}
+            {viewingChat ? (
+              ''
+            ) : (
+              <>
+                <ServerInfo />
+                <br />
+                Send a message to start
+              </>
+            )}
           </div>
           {[...messages, ...pendingMsgDisplay].map((msg) => (
             <ChatMessage
@@ -280,6 +286,23 @@ export default function ChatScreen() {
         {canvasData?.type === CanvasType.PY_INTERPRETER && (
           <CanvasPyInterpreter />
         )}
+      </div>
+    </div>
+  );
+}
+
+function ServerInfo() {
+  const { serverProps } = useAppContext();
+  return (
+    <div className="card card-sm shadow-sm border-1 border-base-content/20 text-base-content/70 mb-6">
+      <div className="card-body">
+        <b>Server Info</b>
+        <p>
+          <b>Model</b>: {serverProps?.model_path?.split(/(\\|\/)/).pop()}
+          <br />
+          <b>Build</b>: {serverProps?.build_info}
+          <br />
+        </p>
       </div>
     </div>
   );

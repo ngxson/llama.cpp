@@ -4,7 +4,11 @@ import { useAppContext } from '../utils/app.context';
 import { classNames } from '../utils/misc';
 import daisyuiThemes from 'daisyui/theme/object';
 import { THEMES } from '../Config';
-import { Cog8ToothIcon, MoonIcon, Bars3Icon } from '@heroicons/react/24/outline';
+import {
+  Cog8ToothIcon,
+  MoonIcon,
+  Bars3Icon,
+} from '@heroicons/react/24/outline';
 
 export default function Header() {
   const [selectedTheme, setSelectedTheme] = useState(StorageUtils.getTheme());
