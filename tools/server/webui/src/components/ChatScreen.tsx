@@ -1,12 +1,23 @@
 import { useEffect, useMemo, useState } from 'react';
 import { CallbackGeneratedChunk, useAppContext } from '../utils/app.context';
 import ChatMessage from './ChatMessage';
-import { CanvasType, Message, PendingMessage } from '../utils/types';
+import { CanvasType, Message, MessageExtraContext, PendingMessage } from '../utils/types';
 import { classNames, cleanCurrentUrl, throttle } from '../utils/misc';
 import CanvasPyInterpreter from './CanvasPyInterpreter';
 import StorageUtils from '../utils/storage';
 import { useVSCodeContext } from '../utils/llama-vscode';
 import { useChatTextarea, ChatTextareaApi } from './useChatTextarea.ts';
+import {
+  ArrowUpIcon,
+  StopIcon,
+  PaperClipIcon,
+  DocumentTextIcon,
+} from '@heroicons/react/24/solid';
+import {
+  ChatExtraContextApi,
+  useChatExtraContext,
+} from './useChatExtraContext.tsx';
+import Dropzone from 'react-dropzone';
 
 /**
  * A message display is a message node with additional information for rendering.
@@ -102,10 +113,8 @@ export default function ChatScreen() {
   } = useAppContext();
 
   const textarea: ChatTextareaApi = useChatTextarea(prefilledMsg.content());
-
-  const { extraContext, clearExtraContext } = useVSCodeContext(textarea);
-  // TODO: improve this when we have "upload file" feature
-  const currExtra: Message['extra'] = extraContext ? [extraContext] : undefined;
+  const extraContext = useChatExtraContext();
+  useVSCodeContext(textarea, extraContext);
 
   // keep track of leaf node for rendering
   const [currNodeId, setCurrNodeId] = useState<number>(-1);
@@ -146,7 +155,7 @@ export default function ChatScreen() {
         currConvId,
         lastMsgNodeId,
         lastInpMsg,
-        currExtra,
+        extraContext.items,
         onChunk
       ))
     ) {
@@ -154,7 +163,7 @@ export default function ChatScreen() {
       textarea.setValue(lastInpMsg);
     }
     // OK
-    clearExtraContext();
+    extraContext.clearItems();
   };
 
   // for vscode context
@@ -253,41 +262,13 @@ export default function ChatScreen() {
         </div>
 
         {/* chat input */}
-        <div className="flex flex-row items-end pt-8 pb-6 sticky bottom-0 bg-base-100">
-          <textarea
-            // Default (mobile): Enable vertical resize, overflow auto for scrolling if needed
-            // Large screens (lg:): Disable manual resize, apply max-height for autosize limit
-            className="textarea textarea-bordered w-full resize-vertical lg:resize-none lg:max-h-48 lg:overflow-y-auto" // Adjust lg:max-h-48 as needed (e.g., lg:max-h-60)
-            placeholder="Type a message (Shift+Enter to add a new line)"
-            ref={textarea.ref}
-            onInput={textarea.onInput} // Hook's input handler (will only resize height on lg+ screens)
-            onKeyDown={(e) => {
-              if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendNewMessage();
-              }
-            }}
-            id="msg-input"
-            dir="auto"
-            // Set a base height of 2 rows for mobile views
-            // On lg+ screens, the hook will calculate and set the initial height anyway
-            rows={2}
-          ></textarea>
-
-          {isGenerating(currConvId ?? '') ? (
-            <button
-              className="btn btn-neutral ml-2"
-              onClick={() => stopGenerating(currConvId ?? '')}
-            >
-              Stop
-            </button>
-          ) : (
-            <button className="btn btn-primary ml-2" onClick={sendNewMessage}>
-              Send
-            </button>
-          )}
-        </div>
+        <ChatInput
+          textarea={textarea}
+          extraContext={extraContext}
+          onSend={sendNewMessage}
+          onStop={() => stopGenerating(currConvId ?? '')}
+          isGenerating={isGenerating(currConvId ?? '')}
+        />
       </div>
       <div className="w-full sticky top-[7em] h-[calc(100vh-9em)]">
         {canvasData?.type === CanvasType.PY_INTERPRETER && (
@@ -296,4 +277,105 @@ export default function ChatScreen() {
       </div>
     </div>
   );
+}
+
+function ChatInput({
+  textarea,
+  extraContext,
+  onSend,
+  onStop,
+  isGenerating,
+}: {
+  textarea: ChatTextareaApi;
+  extraContext: ChatExtraContextApi;
+  onSend: () => void;
+  onStop: () => void;
+  isGenerating: boolean;
+}) {
+  const [isDrag, setIsDrag] = useState(false);
+
+  return (
+    <div
+      className={classNames({
+        'flex items-end pt-8 pb-6 sticky bottom-0 bg-base-100': true,
+        'opacity-50': isDrag, // simply visual feedback to inform user that the file will be accepted
+      })}
+    >
+      <Dropzone
+        noClick
+        onDrop={(files: File[]) => {
+          setIsDrag(false);
+          extraContext.onFileAdded(files);
+        }}
+        onDragEnter={() => setIsDrag(true)}
+        onDragLeave={() => setIsDrag(false)}
+        multiple={true}
+      >
+        {({ getRootProps, getInputProps }) => (
+          <div className="flex rounded-xl border-1 border-base-content/30 p-3 w-full" {...getRootProps()}>
+              <textarea
+                // Default (mobile): Enable vertical resize, overflow auto for scrolling if needed
+                // Large screens (lg:): Disable manual resize, apply max-height for autosize limit
+                className="text-md outline-none border-none w-full resize-vertical lg:resize-none lg:max-h-48 lg:overflow-y-auto" // Adjust lg:max-h-48 as needed (e.g., lg:max-h-60)
+                placeholder="Type a message (Shift+Enter to add a new line)"
+                ref={textarea.ref}
+                onInput={textarea.onInput} // Hook's input handler (will only resize height on lg+ screens)
+                onKeyDown={(e) => {
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    onSend();
+                  }
+                }}
+                id="msg-input"
+                dir="auto"
+                // Set a base height of 2 rows for mobile views
+                // On lg+ screens, the hook will calculate and set the initial height anyway
+                rows={2}
+              ></textarea>
+
+              {/* buttons area */}
+              <div className="flex flex-row gap-2 ml-2">
+                <label
+                  htmlFor="file-upload"
+                  className="btn w-8 h-8 p-0 rounded-full"
+                >
+                  <PaperClipIcon className="h-5 w-5" />
+                </label>
+                <input
+                  id="file-upload"
+                  type="file"
+                  className="hidden"
+                  disabled={isGenerating}
+                  {...getInputProps()}
+                  hidden
+                />
+                {isGenerating ? (
+                  <button
+                    className="btn btn-neutral w-8 h-8 p-0 rounded-full"
+                    onClick={onStop}
+                  >
+                    <StopIcon className="h-5 w-5" />
+                  </button>
+                ) : (
+                  <button
+                    className="btn btn-primary w-8 h-8 p-0 rounded-full"
+                    onClick={onSend}
+                  >
+                    <ArrowUpIcon className="h-5 w-5" />
+                  </button>
+                )}
+              </div>
+            </div>
+        )}
+      </Dropzone>
+    </div>
+  );
+}
+
+function ChatInputExtraContextItem({}: {
+  idx: number,
+  item: MessageExtraContext,
+}) {
+
 }

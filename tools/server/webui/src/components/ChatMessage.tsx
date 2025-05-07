@@ -88,7 +88,7 @@ export default function ChatMessage({
         <div
           className={classNames({
             'chat-bubble markdown': true,
-            'chat-bubble-base-300': msg.role !== 'user',
+            'chat-bubble bg-transparent': msg.role !== 'user',
           })}
         >
           {/* textarea for editing message */}

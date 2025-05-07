@@ -48,12 +48,18 @@ export interface Message {
   children: Message['id'][];
 }
 
-type MessageExtra = MessageExtraTextFile | MessageExtraContext; // TODO: will add more in the future
+export type MessageExtra = MessageExtraTextFile | MessageExtraImageFile | MessageExtraContext;
 
 export interface MessageExtraTextFile {
   type: 'textFile';
   name: string;
   content: string;
+}
+
+export interface MessageExtraImageFile {
+  type: 'imageFile';
+  name: string;
+  base64Url: string;
 }
 
 export interface MessageExtraContext {
