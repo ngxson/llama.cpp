@@ -274,22 +274,23 @@ function ThoughtProcess({
       tabIndex={0}
       className={classNames({
         'collapse bg-none': true,
-        'collapse-open': open,
       })}
     >
-      <input type="checkbox" />
+      <input type="checkbox" defaultChecked={open} />
       <div className="collapse-title px-0">
-        {isThinking ? (
-          <span>
-            <span
-              className="loading loading-spinner loading-md mr-2"
-              style={{ verticalAlign: 'middle' }}
-            ></span>
-            <b>Thinking</b>
-          </span>
-        ) : (
-          <b>Thought Process</b>
-        )}
+        <div className="btn rounded-xl">
+          {isThinking ? (
+            <span>
+              <span
+                className="loading loading-spinner loading-md mr-2"
+                style={{ verticalAlign: 'middle' }}
+              ></span>
+              <b>Thinking</b>
+            </span>
+          ) : (
+            <b>Thought Process</b>
+          )}
+        </div>
       </div>
       <div className="collapse-content text-base-content/70 text-sm p-1">
         <div className="border-l-2 border-base-content/20 pl-4 mb-4">
