@@ -28,6 +28,9 @@ html {
   p {
     @apply mb-2;
   }
+  hr {
+    @apply my-4 border-base-content/20 border-1;
+  }
   /* TODO: fix markdown table */
 }
 
