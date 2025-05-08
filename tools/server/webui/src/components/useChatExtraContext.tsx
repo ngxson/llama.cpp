@@ -38,7 +38,7 @@ export function useChatExtraContext(): ChatExtraContextApi {
       }
 
       if (mimeType.startsWith('image/') && mimeType !== 'image/svg+xml') {
-        if (!serverProps?.has_multimodal) {
+        if (!serverProps?.modalities?.vision) {
           toast.error('Multimodal is not supported by this server or model.');
           break;
         }
