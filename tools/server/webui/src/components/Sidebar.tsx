@@ -83,7 +83,7 @@ export default function Sidebar() {
           {groupedConv.map((group) => (
             <div>
               {/* group name (by date) */}
-              {group.title.length ? (
+              {group.title ? (
                 <b className="block text-xs px-2 mb-2 mt-6">{group.title}</b>
               ) : (
                 <div className="h-2" />
@@ -236,7 +236,7 @@ function ConversationItem({
 // WARN: vibe code below
 
 export interface GroupedConversations {
-  title: string;
+  title?: string;
   conversations: Conversation[];
 }
 
@@ -294,7 +294,7 @@ export function groupConversationsByDate(
 
   if (groups['Today'].length > 0) {
     result.push({
-      title: '', // no title for Today
+      title: undefined, // no title for Today
       conversations: groups['Today'],
     });
   }
