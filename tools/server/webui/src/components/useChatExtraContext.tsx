@@ -187,18 +187,6 @@ function svgBase64UrlToPngDataURL(base64UrlSvg: string): Promise<string> {
 
   return new Promise((resolve, reject) => {
     try {
-      // 1. Convert Base64URL to standard Base64, then decode to SVG string
-      let base64 = base64UrlSvg
-        .split(',')
-        .pop()!
-        .replace(/-/g, '+')
-        .replace(/_/g, '/');
-      const padding = base64.length % 4;
-      if (padding) {
-        base64 += '='.repeat(4 - padding);
-      }
-      const svgString = atob(base64);
-
       const img = new Image();
 
       img.onload = () => {
@@ -234,11 +222,8 @@ function svgBase64UrlToPngDataURL(base64UrlSvg: string): Promise<string> {
         );
       };
 
-      // 2. Load SVG string into an Image element.
-      // The SVG string must be re-encoded to standard Base64 for the data URL.
-      // Alternatively, for non-Base64 SVG in data URL:
-      // img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svgString);
-      img.src = 'data:image/svg+xml;base64,' + btoa(svgString);
+      // Load SVG string into an Image element
+      img.src = base64UrlSvg;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const errorMessage = `Error converting SVG to PNG: ${message}`;
