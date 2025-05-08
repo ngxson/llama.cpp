@@ -239,9 +239,8 @@ export default function ChatScreen() {
               ''
             ) : (
               <>
+                <div className="mb-4">Send a message to start</div>
                 <ServerInfo />
-                <br />
-                Send a message to start
               </>
             )}
           </div>
