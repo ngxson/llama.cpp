@@ -153,7 +153,7 @@ export default function Sidebar() {
               ))}
             </div>
           ))}
-          <div className="text-center text-xs opacity-40 mt-auto mx-4">
+          <div className="text-center text-xs opacity-40 mt-auto mx-4 pt-8">
             Conversations are saved to browser's IndexedDB
           </div>
         </div>
