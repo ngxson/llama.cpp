@@ -3319,7 +3319,14 @@ struct server_context {
                 batch.logits   + i,
             };
 
-            const int ret = llama_decode(ctx, batch_view);
+            int ret = 0;
+
+            if (params_base.embedding || params_base.reranking) {
+                ret = llama_encode(ctx, batch_view);
+            } else {
+                ret = llama_decode(ctx, batch_view);
+            }
+
             metrics.on_decoded(slots);
 
             if (ret != 0) {
@@ -4055,8 +4062,8 @@ int main(int argc, char ** argv) {
     const auto handle_completions_impl = [&ctx_server, &res_error, &res_ok](
             server_task_type type,
             json & data,
-            std::vector<raw_buffer> & files,
-            std::function<bool()> is_connection_closed,
+            const std::vector<raw_buffer> & files,
+            const std::function<bool()> & is_connection_closed,
             httplib::Response & res,
             oaicompat_type oaicompat) {
         GGML_ASSERT(type == SERVER_TASK_TYPE_COMPLETION || type == SERVER_TASK_TYPE_INFILL);
