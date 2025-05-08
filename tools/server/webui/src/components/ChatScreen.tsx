@@ -378,7 +378,10 @@ function ChatInput({
               <div className="flex flex-row gap-2 ml-2">
                 <label
                   htmlFor="file-upload"
-                  className="btn w-8 h-8 p-0 rounded-full"
+                  className={classNames({
+                    'btn w-8 h-8 p-0 rounded-full': true,
+                    'btn-disabled': isGenerating,
+                  })}
                 >
                   <PaperClipIcon className="h-5 w-5" />
                 </label>

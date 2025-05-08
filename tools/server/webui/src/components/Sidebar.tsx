@@ -3,7 +3,13 @@ import { classNames } from '../utils/misc';
 import { Conversation } from '../utils/types';
 import StorageUtils from '../utils/storage';
 import { useNavigate, useParams } from 'react-router';
-import { EllipsisVerticalIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import {
+  ArrowDownTrayIcon,
+  EllipsisVerticalIcon,
+  PencilIcon,
+  TrashIcon,
+  XMarkIcon,
+} from '@heroicons/react/24/outline';
 import { BtnWithTooltips } from '../utils/common';
 import { useAppContext } from '../utils/app.context';
 import toast from 'react-hot-toast';
@@ -106,6 +112,19 @@ export default function Sidebar() {
                 document.body.removeChild(a);
                 URL.revokeObjectURL(url);
               }}
+              onRename={() => {
+                if (isGenerating(conv.id)) {
+                  toast.error('Cannot rename conversation while generating');
+                  return;
+                }
+                const newName = window.prompt(
+                  'Enter new name for the conversation',
+                  conv.name
+                );
+                if (newName && newName.trim().length > 0) {
+                  StorageUtils.updateConversationName(conv.id, newName);
+                }
+              }}
             />
           ))}
           <div className="text-center text-xs opacity-40 mt-auto mx-4">
@@ -123,17 +142,19 @@ function ConversationItem({
   onSelect,
   onDelete,
   onDownload,
+  onRename,
 }: {
   conv: Conversation;
   isCurrConv: boolean;
   onSelect: () => void;
   onDelete: () => void;
   onDownload: () => void;
+  onRename: () => void;
 }) {
   return (
     <div
       className={classNames({
-        'group flex flex-row btn btn-ghost justify-start items-center font-normal':
+        'group flex flex-row btn btn-ghost justify-start items-center font-normal pr-2':
           true,
         'btn-soft': isCurrConv,
       })}
@@ -160,13 +181,25 @@ function ConversationItem({
         {/* dropdown menu */}
         <ul
           tabIndex={0}
-          className="dropdown-content menu bg-base-100 rounded-box z-[1] w-32 p-2 shadow"
+          className="dropdown-content menu bg-base-100 rounded-box z-[1] p-2 shadow"
         >
+          <li onClick={onRename}>
+            <a>
+              <PencilIcon className="w-4 h-4" />
+              Rename
+            </a>
+          </li>
           <li onClick={onDownload}>
-            <a>Download</a>
+            <a>
+              <ArrowDownTrayIcon className="w-4 h-4" />
+              Download
+            </a>
           </li>
           <li className="text-error" onClick={onDelete}>
-            <a>Delete</a>
+            <a>
+              <TrashIcon className="w-4 h-4" />
+              Delete
+            </a>
           </li>
         </ul>
       </div>

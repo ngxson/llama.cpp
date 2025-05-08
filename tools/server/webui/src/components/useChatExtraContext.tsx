@@ -59,7 +59,7 @@ export function useChatExtraContext(): ChatExtraContextApi {
         mimeType.startsWith('video/') ||
         mimeType.startsWith('audio/')
       ) {
-        toast.error('Video files are not supported yet.');
+        toast.error('Video and audio files are not supported yet.');
         break;
       } else if (mimeType.startsWith('application/pdf')) {
         toast.error('PDF files are not supported yet.');
@@ -100,6 +100,8 @@ export function useChatExtraContext(): ChatExtraContextApi {
 
 // WARN: vibe code below
 // This code is a heuristic to determine if a string is likely not binary.
+// It is necessary because input file can have various mime types which we don't have time to investigate.
+// For example, a python file can be text/plain, application/x-python, etc.
 export function isLikelyNotBinary(str: string): boolean {
   const options = {
     prefixLength: 1024 * 10, // Check the first 10KB of the string
