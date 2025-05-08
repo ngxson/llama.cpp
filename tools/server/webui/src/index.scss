@@ -22,7 +22,7 @@ html {
     all: revert;
   }
   pre {
-    @apply whitespace-pre-wrap rounded-lg p-2;
+    @apply whitespace-pre-wrap rounded-lg p-2 mb-3;
     border: 1px solid currentColor;
   }
   p {
