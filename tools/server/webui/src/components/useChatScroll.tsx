@@ -2,7 +2,6 @@ import React, { useEffect } from 'react';
 import { throttle } from '../utils/misc';
 
 export const scrollToBottom = (requiresNearBottom: boolean, delay?: number) => {
-  console.log({ requiresNearBottom });
   const mainScrollElem = document.getElementById('main-scroll');
   if (!mainScrollElem) return;
   const spaceToBottom =
