@@ -1155,17 +1155,28 @@ public:
 
     void resize(size_t n) {
         GGML_ASSERT(n <= tokens.size());
-        // we throw an error if we try to remove a token in the middle of an image
-        // for ex. with input of 5 text tokens and 2 images:
-        //    [0] [1] [2] [3] [4] [img0] [img0] [img0] [img1] [img1]
-        // n  1   2   3   4   5   6      7      8      9      10
-        // allowed to resize      ^                    ^
-        // disallowed to resize          ^      ^             ^
-        if (n > 0) {
-            llama_token last_token = tokens[n - 1];
-            // make sure we never remove tokens in the middle of an image
-            if (last_token == LLAMA_TOKEN_NULL) {
-                find_chunk(n - 1); // will throw an error if the token is not begin-of-chunk
+        if (has_mtmd) {
+            // we throw an error if we try to remove a token in the middle of an image
+            // for ex. with input of 5 text tokens and 2 images:
+            //    [0] [1] [2] [3] [4] [img0] [img0] [img0] [img1] [img1]
+            // n  1   2   3   4   5   6      7      8      9      10
+            // allowed to resize      ^                    ^
+            // disallowed to resize          ^      ^             ^
+            if (n > 0) {
+                llama_token last_token = tokens[n - 1];
+                // make sure we never remove tokens in the middle of an image
+                if (last_token == LLAMA_TOKEN_NULL) {
+                    find_chunk(n - 1); // will throw an error if the token is not begin-of-chunk
+                }
+            }
+            // remove all image chunks that are not used anymore
+            for (auto it = map_pos_to_image.begin(); it != map_pos_to_image.end(); ) {
+                llama_pos pos = it->first;
+                if (pos >= (llama_pos)n) {
+                    it = map_pos_to_image.erase(it);
+                } else {
+                    ++it;
+                }
             }
         }
         tokens.resize(n);

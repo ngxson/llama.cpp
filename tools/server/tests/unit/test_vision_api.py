@@ -20,18 +20,19 @@ def create_server():
 
 
 @pytest.mark.parametrize(
-    "image_url, success, re_content",
+    "prompt, image_url, success, re_content",
     [
         # test model is trained on CIFAR-10, but it's quite dumb due to small size
-        (IMG_URL_0,                True, "(cat)+"),
-        ("IMG_BASE64_0",           True, "(cat)+"), # exceptional, so that we don't cog up the log
-        (IMG_URL_1,                True, "(frog)+"),
-        ("malformed",              False, None),
-        ("https://google.com/404", False, None), # non-existent image
-        ("https://ggml.ai",        False, None), # non-image data
+        ("What is this:\n", IMG_URL_0,                True, "(cat)+"),
+        ("What is this:\n", "IMG_BASE64_0",           True, "(cat)+"), # exceptional, so that we don't cog up the log
+        ("What is this:\n", IMG_URL_1,                True, "(frog)+"),
+        ("Test test\n",     IMG_URL_1,                True, "(frog)+"), # test invalidate cache
+        ("What is this:\n", "malformed",              False, None),
+        ("What is this:\n", "https://google.com/404", False, None), # non-existent image
+        ("What is this:\n", "https://ggml.ai",        False, None), # non-image data
     ]
 )
-def test_vision_chat_completion(image_url, success, re_content):
+def test_vision_chat_completion(prompt, image_url, success, re_content):
     global server
     server.start(timeout_seconds=60) # vision model may take longer to load due to download size
     if image_url == "IMG_BASE64_0":
@@ -41,7 +42,7 @@ def test_vision_chat_completion(image_url, success, re_content):
         "top_k": 1,
         "messages": [
             {"role": "user", "content": [
-                {"type": "text", "text": "What is this:\n"},
+                {"type": "text", "text": prompt},
                 {"type": "image_url", "image_url": {
                     "url": image_url,
                 }},
