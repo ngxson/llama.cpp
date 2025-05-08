@@ -1124,7 +1124,7 @@ public:
     }
 
     // for compatibility with context shift and prompt truncation
-    void insert(llama_tokens & inp_tokens) {
+    void insert(const llama_tokens & inp_tokens) {
         GGML_ASSERT(!has_mtmd); // only allow this if mtmd is disabled
         tokens.insert(tokens.end(), inp_tokens.begin(), inp_tokens.end());
     }

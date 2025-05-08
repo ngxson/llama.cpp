@@ -3484,9 +3484,7 @@ struct server_context {
                 slot.n_draft_accepted += ids.size() - 1;
 
                 slot.cache_tokens.push_back(id);
-                for (auto & t : ids) {
-                    slot.cache_tokens.push_back(t);
-                }
+                slot.cache_tokens.insert(ids);
 
                 llama_kv_self_seq_rm(ctx, slot.id, slot.n_past, -1);
 
