@@ -69,12 +69,9 @@ export function normalizeMsgsForAPI(messages: Readonly<Message[]>) {
       } as APIMessage;
     }
 
-    const contentArr: APIMessageContentPart[] = [
-      {
-        type: 'text',
-        text: msg.content,
-      },
-    ];
+    // extra content first, then user text message in the end
+    // this allow re-using the same cache prefix for long context
+    const contentArr: APIMessageContentPart[] = [];
 
     for (const extra of msg.extra ?? []) {
       if (extra.type === 'context') {
@@ -96,6 +93,12 @@ export function normalizeMsgsForAPI(messages: Readonly<Message[]>) {
         throw new Error('Unknown extra type');
       }
     }
+
+    // add user message to the end
+    contentArr.push({
+      type: 'text',
+      text: msg.content,
+    });
 
     return {
       role: msg.role,
