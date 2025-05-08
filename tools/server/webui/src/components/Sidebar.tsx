@@ -87,7 +87,7 @@ export default function Sidebar() {
               {/* group name (by date) */}
               {group.title ? (
                 // we use btn class here to make sure that the padding/margin are aligned with the other items
-                <b className="btn btn-ghost btn-xs bg-none btn-disabled block text-xs text-base-content text-start px-2 mb-0 mt-6">
+                <b className="btn btn-ghost btn-xs bg-none btn-disabled block text-xs text-base-content text-start px-2 mb-0 mt-6 font-bold">
                   {group.title}
                 </b>
               ) : (
