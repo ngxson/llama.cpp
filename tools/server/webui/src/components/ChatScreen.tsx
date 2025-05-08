@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { CallbackGeneratedChunk, useAppContext } from '../utils/app.context';
 import ChatMessage from './ChatMessage';
 import { CanvasType, Message, PendingMessage } from '../utils/types';
@@ -19,6 +19,7 @@ import {
 import Dropzone from 'react-dropzone';
 import toast from 'react-hot-toast';
 import ChatInputExtraContextItem from './ChatInputExtraContextItem.tsx';
+import { scrollToBottom, useChatScroll } from './useChatScroll.tsx';
 
 /**
  * A message display is a message node with additional information for rendering.
@@ -84,24 +85,6 @@ function getListMessageDisplay(
   return res;
 }
 
-const scrollToBottom = throttle(
-  (requiresNearBottom: boolean, delay: number = 80) => {
-    const mainScrollElem = document.getElementById('main-scroll');
-    if (!mainScrollElem) return;
-    const spaceToBottom =
-      mainScrollElem.scrollHeight -
-      mainScrollElem.scrollTop -
-      mainScrollElem.clientHeight;
-    if (!requiresNearBottom || spaceToBottom < 50) {
-      setTimeout(
-        () => mainScrollElem.scrollTo({ top: mainScrollElem.scrollHeight }),
-        delay
-      );
-    }
-  },
-  80
-);
-
 export default function ChatScreen() {
   const {
     viewingChat,
@@ -116,6 +99,9 @@ export default function ChatScreen() {
   const textarea: ChatTextareaApi = useChatTextarea(prefilledMsg.content());
   const extraContext = useChatExtraContext();
   useVSCodeContext(textarea, extraContext);
+
+  const msgListRef = useRef<HTMLDivElement>(null);
+  useChatScroll(msgListRef);
 
   // keep track of leaf node for rendering
   const [currNodeId, setCurrNodeId] = useState<number>(-1);
@@ -139,7 +125,7 @@ export default function ChatScreen() {
     if (currLeafNodeId) {
       setCurrNodeId(currLeafNodeId);
     }
-    scrollToBottom(true);
+    // useChatScroll will handle the auto scroll
   };
 
   const sendNewMessage = async () => {
@@ -246,7 +232,7 @@ export default function ChatScreen() {
         })}
       >
         {/* chat messages */}
-        <div id="messages-list" className="grow">
+        <div id="messages-list" className="grow" ref={msgListRef}>
           <div className="mt-auto flex flex-col items-center">
             {/* placeholder to shift the message to the bottom */}
             {viewingChat ? (
