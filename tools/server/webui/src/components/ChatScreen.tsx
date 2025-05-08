@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { CallbackGeneratedChunk, useAppContext } from '../utils/app.context';
 import ChatMessage from './ChatMessage';
 import { CanvasType, Message, PendingMessage } from '../utils/types';
-import { classNames, cleanCurrentUrl, throttle } from '../utils/misc';
+import { classNames, cleanCurrentUrl } from '../utils/misc';
 import CanvasPyInterpreter from './CanvasPyInterpreter';
 import StorageUtils from '../utils/storage';
 import { useVSCodeContext } from '../utils/llama-vscode';
