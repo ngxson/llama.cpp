@@ -3256,18 +3256,16 @@ struct server_context {
 
                     // entire prompt has been processed
                     if (slot.n_past == slot.n_prompt_tokens) {
-                        // TODO @ngxson : this assertion fails sometimes, why?
-                        // GGML_ASSERT(slot.cache_tokens.size() == slot.prompt_tokens.size());
-
                         slot.state = SLOT_STATE_DONE_PROMPT;
 
                         GGML_ASSERT(batch.n_tokens > 0);
+                        GGML_ASSERT((size_t) slot.n_prompt_tokens == slot.prompt_tokens.size());
 
                         common_sampler_reset(slot.smpl);
 
                         // Process all prompt tokens through sampler system
-                        for (size_t i = 0; i < slot.cache_tokens.size(); ++i) {
-                            llama_token id = slot.cache_tokens[i];
+                        for (int i = 0; i < slot.n_prompt_tokens; ++i) {
+                            llama_token id = slot.prompt_tokens[i];
                             if (id != LLAMA_TOKEN_NULL) {
                                 common_sampler_accept(slot.smpl, id, false);
                             }
