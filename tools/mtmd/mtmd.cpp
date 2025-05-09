@@ -560,7 +560,7 @@ struct decode_embd_batch {
             // for example, with layout of src: 1234...1234...1234...1234...
             //       offset 2 will give us dst: 34...34...34...34...
             for (int i = 0; i < n_pos_per_embd; i++) {
-                // assume n_tokens < batch.n_tokens
+                // assume n_tokens is less than or equal to batch.n_tokens
                 // batch.n_tokens is number of **total** tokens
                 // n_tokens is number of viewed token
                 size_t src_idx = i * batch.n_tokens + offset;
