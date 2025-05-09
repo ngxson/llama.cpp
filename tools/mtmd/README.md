@@ -46,7 +46,7 @@ llama-mtmd-cli -hf ggml-org/Qwen2.5-VL-32B-Instruct-GGUF
 llama-mtmd-cli -hf ggml-org/Qwen2.5-VL-72B-Instruct-GGUF
 
 # Mistral Small 3.1 24B (IQ2_M quantization)
-llama-mtmd-cli -hf ggml-org/Mistral-Small-3.1-24B-Instruct-2503-GGUF --chat-template mistral-v7
+llama-mtmd-cli -hf ggml-org/Mistral-Small-3.1-24B-Instruct-2503-GGUF
 ```
 
 ## How it works and what is `mmproj`?
