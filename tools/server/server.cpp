@@ -4062,7 +4062,7 @@ int main(int argc, char ** argv) {
             const std::vector<raw_buffer> & files,
             const std::function<bool()> & is_connection_closed,
             httplib::Response & res,
-            oaicompat_type oaicompat) {
+            oaicompat_type oaicompat) -> void {
         GGML_ASSERT(type == SERVER_TASK_TYPE_COMPLETION || type == SERVER_TASK_TYPE_INFILL);
 
         if (ctx_server.params_base.embedding) {
@@ -4224,7 +4224,7 @@ int main(int argc, char ** argv) {
     const auto handle_completions = [&handle_completions_impl](const httplib::Request & req, httplib::Response & res) {
         json data = json::parse(req.body);
         std::vector<raw_buffer> files; // dummy
-        return handle_completions_impl(
+        handle_completions_impl(
             SERVER_TASK_TYPE_COMPLETION,
             data,
             files,
@@ -4236,7 +4236,7 @@ int main(int argc, char ** argv) {
     const auto handle_completions_oai = [&handle_completions_impl](const httplib::Request & req, httplib::Response & res) {
         json data = oaicompat_completion_params_parse(json::parse(req.body));
         std::vector<raw_buffer> files; // dummy
-        return handle_completions_impl(
+        handle_completions_impl(
             SERVER_TASK_TYPE_COMPLETION,
             data,
             files,
@@ -4315,7 +4315,7 @@ int main(int argc, char ** argv) {
         );
 
         std::vector<raw_buffer> files; // dummy
-        return handle_completions_impl(
+        handle_completions_impl(
             SERVER_TASK_TYPE_INFILL,
             data,
             files,
@@ -4341,7 +4341,7 @@ int main(int argc, char ** argv) {
             ctx_server.mctx,
             files);
 
-        return handle_completions_impl(
+        handle_completions_impl(
             SERVER_TASK_TYPE_COMPLETION,
             data,
             files,
