@@ -1227,7 +1227,11 @@ public:
     }
 
     // make sure all text tokens are within the vocab range
-    bool validate(llama_token max_vocab_id) const {
+    bool validate(const struct llama_context * ctx) const {
+        const llama_model * model = llama_get_model(ctx);
+        const llama_vocab * vocab = llama_model_get_vocab(model);
+        const int32_t n_vocab = llama_vocab_n_tokens(vocab);
+
         for (size_t i = 0; i < tokens.size(); ++i) {
             auto & t = tokens[i];
             if (t == LLAMA_TOKEN_NULL) {
@@ -1239,7 +1243,7 @@ public:
                 } catch (const std::exception & e) {
                     return false;
                 }
-            } else if (t < 0 || t >= max_vocab_id) {
+            } else if (t < 0 || t >= n_vocab) {
                 return false;
             }
         }

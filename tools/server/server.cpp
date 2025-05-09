@@ -2135,13 +2135,6 @@ struct server_context {
         return ret;
     }
 
-    bool can_be_detokenized(const struct llama_context * ctx, const server_tokens & inp) {
-        const llama_model * model = llama_get_model(ctx);
-        const llama_vocab * vocab = llama_model_get_vocab(model);
-        const int32_t n_vocab = llama_vocab_n_tokens(vocab);
-        return inp.validate(n_vocab);
-    }
-
     bool launch_slot_with_task(server_slot & slot, server_task && task) {
         slot.reset();
         slot.id_task       = task.id;
@@ -2156,8 +2149,7 @@ struct server_context {
             slot.lora = slot.params.lora;
         }
 
-        bool can_detokenize = can_be_detokenized(ctx, slot.prompt_tokens);
-        if (!can_detokenize) {
+        if (!slot.prompt_tokens.validate(ctx)) {
             send_error(task, "Prompt contains invalid tokens", ERROR_TYPE_INVALID_REQUEST);
             return false;
         }
