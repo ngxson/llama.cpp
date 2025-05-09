@@ -2777,7 +2777,10 @@ struct server_context {
                 } break;
             case SERVER_TASK_TYPE_SLOT_SAVE:
                 {
-                    if (!ensure_no_mtmd(task.id)) break;
+                    if (!ensure_no_mtmd(task.id)) {
+                        break;
+                    }
+
                     int id_slot = task.slot_action.slot_id;
                     server_slot * slot = get_slot_by_id(id_slot);
                     if (slot == nullptr) {
@@ -3269,7 +3272,7 @@ struct server_context {
 
                         // Process all prompt tokens through sampler system
                         for (size_t i = 0; i < slot.cache_tokens.size(); ++i) {
-                            llama_token id = slot.prompt_tokens[i];
+                            llama_token id = slot.cache_tokens[i];
                             if (id != LLAMA_TOKEN_NULL) {
                                 common_sampler_accept(slot.smpl, id, false);
                             }
@@ -3491,7 +3494,7 @@ struct server_context {
                 slot.n_draft_accepted += ids.size() - 1;
 
                 slot.cache_tokens.push_back(id);
-                slot.cache_tokens.insert(ids);
+                slot.cache_tokens.insert({ids.begin(), ids.end() - 1});
 
                 llama_kv_self_seq_rm(ctx, slot.id, slot.n_past, -1);
 
@@ -4105,8 +4108,9 @@ int main(int argc, char ** argv) {
             std::vector<server_tokens> inputs;
             if (oaicompat && !prompt.is_string()) {
                 throw std::runtime_error("prompt must be a string");
+            }
 
-            } else if (oaicompat && has_mtmd) {
+            if (oaicompat && has_mtmd) {
                 // multimodal
                 std::string prompt_str = prompt.get<std::string>();
                 mtmd_input_text inp_txt = {
@@ -4124,9 +4128,9 @@ int main(int argc, char ** argv) {
                 if (tokenized != 0) {
                     throw std::runtime_error("Failed to tokenize prompt");
                 }
+
                 server_tokens tmp(chunks, true);
                 inputs.push_back(std::move(tmp));
-
             } else {
                 // non-multimodal version
                 auto tokenized_prompts = tokenize_input_prompts(ctx_server.vocab, prompt, true, true);
