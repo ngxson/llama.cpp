@@ -1,6 +1,4 @@
-#include "clip.h"
 #include "mtmd.h"
-
 #include "llama.h"
 
 #include <algorithm>
