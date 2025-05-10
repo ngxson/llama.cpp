@@ -6,7 +6,7 @@ llama.cpp supports multimodal input via `libmtmd`. Currently, there are 2 tools 
 
 To enable it, can use use one of the 2 methods below:
 
-- Use `-hf` option with a [supported model](../../docs/multimodal.md)
+- Use `-hf` option with a supported model (see a list of pre-quantized model below)
     - To load a model using `-hf` while disabling multimodal, use `--no-mmproj`
     - To load a model using `-hf` while using a custom mmproj file, use `--mmproj local_file.gguf`
 - Use `-m model.gguf` option with `--mmproj file.gguf` to specify text and multimodal projector respectively
