@@ -3425,6 +3425,11 @@ class InternLM2Model(TextModel):
         head_dim = n_embd // num_heads
         num_groups = num_heads // q_per_kv
 
+        name = name.replace("language_model.", "") # InternVL
+        if name.startswith("mlp") or name.startswith("vision_model"):
+            # skip visual tensors
+            return []
+
         if bid is not None and f"model.layers.{bid}.attention.wqkv" in name:
             qkv = data_torch
 
@@ -3498,6 +3503,10 @@ class InternLM3Model(TextModel):
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         n_head = self.hparams["num_attention_heads"]
         n_kv_head = self.hparams.get("num_key_value_heads")
+        name = name.replace("language_model.", "") # InternVL
+        if name.startswith("mlp") or name.startswith("vision_model"):
+            # skip visual tensors
+            return []
         if name.endswith(("q_proj.weight", "q_proj.bias")):
             data_torch = LlamaModel.permute(data_torch, n_head, n_head)
         if name.endswith(("k_proj.weight", "k_proj.bias")):
