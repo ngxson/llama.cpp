@@ -2724,6 +2724,7 @@ class InternVisionModel(VisionModel):
         super().set_gguf_parameters()
         hparams = self.hparams
         self.gguf_writer.add_vision_projector_type(gguf.VisionProjectorType.INTERNVL)
+        self.gguf_writer.add_vision_attention_layernorm_eps(hparams["layer_norm_eps"])
         # hidden_act
         if hparams["hidden_act"] == "silu":
             self.gguf_writer.add_vision_use_silu(True)
@@ -2731,6 +2732,10 @@ class InternVisionModel(VisionModel):
             self.gguf_writer.add_vision_use_gelu(True)
         else:
             raise ValueError(f"Unsupported hidden_act: {hparams['hidden_act']}")
+        # downsample_ratio
+        downsample_ratio = self.global_config.get("downsample_ratio")
+        assert downsample_ratio is not None
+        self.gguf_writer.add_vision_projector_scale_factor(int(1.0 / downsample_ratio))
 
     def tensor_force_quant(self, name, new_name, bid, n_dims):
         del bid, name, n_dims  # unused
@@ -2747,7 +2752,7 @@ class InternVisionModel(VisionModel):
             # correct name
             if name.startswith("vision_model"):
                 name = "vision_tower." + name
-            if ".ls" in name and not name.endswith(".weight"):
+            if (".ls" in name or "position_embedding" in name) and not name.endswith(".weight"):
                 name += ".weight"
             # split QKV tensors if needed
             if ".qkv." in name:

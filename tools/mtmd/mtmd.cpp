@@ -252,6 +252,13 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
 
     }
 
+    else if (proj_type == PROJECTOR_TYPE_INTERNVL) {
+        // <img> ... (image embeddings) ... </img>
+        marker_modified = "<img>" + ctx->image_marker + "</img>";
+        string_replace_all(prompt_modified, ctx->image_marker, marker_modified);
+
+    }
+
     // llava-1.5, llava-1.6, Yi-VL, Yi-34B, granite: don't need to add prefix and suffix
     // for glm-edge, BOI and EOI token's embeddings are not present in the text model
 
