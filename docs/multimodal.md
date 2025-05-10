@@ -66,4 +66,12 @@ NOTE: some models may require large context window, for example: `-c 8192`
 
 # Mistral Small 3.1 24B (IQ2_M quantization)
 (tool_name) -hf ggml-org/Mistral-Small-3.1-24B-Instruct-2503-GGUF
+
+# InternVL 2.5 and 3
+(tool_name) -hf ggml-org/InternVL2_5-1B-GGUF
+(tool_name) -hf ggml-org/InternVL2_5-2B-GGUF
+(tool_name) -hf ggml-org/InternVL3-1B-Instruct-GGUF
+(tool_name) -hf ggml-org/InternVL3-2B-Instruct-GGUF
+(tool_name) -hf ggml-org/InternVL3-4B-Instruct-GGUF
+(tool_name) -hf ggml-org/InternVL3-14B-Instruct-GGUF
 ```
