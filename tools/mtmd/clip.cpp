@@ -952,10 +952,6 @@ struct clip_graph {
 
         ggml_tensor * inp = build_inp();
 
-        if (model.patch_bias) {
-            inp = ggml_add(ctx0, inp, model.patch_bias);
-        }
-
         // concat class_embeddings and patch_embeddings
         if (model.class_embedding) {
             inp = ggml_concat(ctx0, inp, model.class_embedding, 1);
@@ -3077,9 +3073,13 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
 
     int n_patches = (params.image_size / params.patch_size) * (params.image_size / params.patch_size);
 
-    if (ctx->proj_type == PROJECTOR_TYPE_LDP || ctx->proj_type == PROJECTOR_TYPE_LDPV2 || ctx->proj_type == PROJECTOR_TYPE_GLM_EDGE) {
+    if (ctx->proj_type == PROJECTOR_TYPE_LDP
+            || ctx->proj_type == PROJECTOR_TYPE_LDPV2
+            || ctx->proj_type == PROJECTOR_TYPE_GLM_EDGE) {
         n_patches /= 4;
-        n_patches += 2; // for BOI and EOI token embeddings
+        if (ctx->vision_model.mm_glm_tok_boi) {
+            n_patches += 2; // for BOI and EOI token embeddings
+        }
     } else if (ctx->proj_type == PROJECTOR_TYPE_MINICPMV) {
         if (ctx->minicpmv_version == 2) {
             n_patches = 96;
