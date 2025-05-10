@@ -907,6 +907,8 @@ struct clip_graph {
 
         // projector (always using GELU activation)
         {
+            // projector LayerNorm uses pytorch's default eps = 1e-5
+            // ref: https://huggingface.co/OpenGVLab/InternVL3-8B-Instruct/blob/a34d3e4e129a5856abfd6aa6de79776484caa14e/modeling_internvl_chat.py#L79
             cur = build_norm(cur, model.mm_0_w, model.mm_0_b, NORM_TYPE_NORMAL, 1e-5, -1);
             cur = ggml_mul_mat(ctx0, model.mm_1_w, cur);
             cur = ggml_add(ctx0, cur, model.mm_1_b);
