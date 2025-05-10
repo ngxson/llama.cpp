@@ -4,11 +4,7 @@
 #include "llama.h"
 
 #include <algorithm>
-#include <cerrno>
-#include <cstdio>
-#include <cstdlib>
-#include <cstring>
-#include <limits>
+#include <cinttypes>
 #include <vector>
 
 #define LOG_INF(...) fprintf(stdout, __VA_ARGS__)
