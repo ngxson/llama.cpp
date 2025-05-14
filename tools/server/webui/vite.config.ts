@@ -33,26 +33,12 @@ const BUILD_PLUGINS = [
       },
       writeBundle() {
         const outputIndexHtml = path.join(config.build.outDir, 'index.html');
-        const content =
+        let content =
           GUIDE_FOR_FRONTEND + '\n' + fs.readFileSync(outputIndexHtml, 'utf-8');
-        const deflator = new pako.Deflate({
+        content = content.replace(/\r/g, ''); // remove windows-style line endings
+        const compressed = pako.deflate(content, {
           level: 9,
-          header: {
-            text: true,
-            os: 0,
-            time: 0,
-            extra: [],
-            name: '',
-            comment: '',
-            hcrc: true,
-          }
         });
-        deflator.push(content, true);
-        if (deflator.err) {
-          console.error(deflator.msg);
-          process.exit(1);
-        }
-        const compressed = deflator.result as Uint8Array;
 
         // because gzip header contains machine-specific info, we must remove these data from the header
         // timestamp
