@@ -53,12 +53,17 @@ export function BtnWithTooltips({
   disabled?: boolean;
 }) {
   return (
-    <div className="tooltip tooltip-bottom" data-tip={tooltipsContent}>
+    <div
+      className="tooltip tooltip-bottom"
+      data-tip={tooltipsContent}
+      aria-disabled={true}
+    >
       <button
         className={`${className ?? ''} flex items-center justify-center`}
         onClick={onClick}
         disabled={disabled}
         onMouseLeave={onMouseLeave}
+        aria-label={tooltipsContent}
       >
         {children}
       </button>

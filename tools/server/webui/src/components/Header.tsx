@@ -38,17 +38,34 @@ export default function Header() {
 
       {/* action buttons (top right) */}
       <div className="flex items-center">
-        <div className="tooltip tooltip-bottom" data-tip="Settings">
-          <button className="btn" onClick={() => setShowSettings(true)}>
+        <div
+          className="tooltip tooltip-bottom"
+          data-tip="Settings"
+          aria-disabled={true}
+        >
+          <button
+            className="btn"
+            onClick={() => setShowSettings(true)}
+            aria-label="Settings"
+          >
             {/* settings button */}
             <Cog8ToothIcon className="w-5 h-5" />
           </button>
         </div>
 
         {/* theme controller is copied from https://daisyui.com/components/theme-controller/ */}
-        <div className="tooltip tooltip-bottom" data-tip="Themes">
+        <div
+          className="tooltip tooltip-bottom"
+          data-tip="Themes"
+          aria-disabled={true}
+        >
           <div className="dropdown dropdown-end dropdown-bottom">
-            <div tabIndex={0} role="button" className="btn m-1">
+            <div
+              tabIndex={0}
+              role="button"
+              className="btn m-1"
+              aria-label="Themes"
+            >
               <MoonIcon className="w-5 h-5" />
             </div>
             <ul
