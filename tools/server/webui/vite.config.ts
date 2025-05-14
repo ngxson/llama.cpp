@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 import path from 'node:path';
 import fs from 'node:fs';
-import zlib from 'node:zlib';
+import pako from 'pako';
 
 /* eslint-disable */
 
@@ -35,9 +35,24 @@ const BUILD_PLUGINS = [
         const outputIndexHtml = path.join(config.build.outDir, 'index.html');
         const content =
           GUIDE_FOR_FRONTEND + '\n' + fs.readFileSync(outputIndexHtml, 'utf-8');
-        const compressed = zlib.gzipSync(Buffer.from(content, 'utf-8'), {
+        const deflator = new pako.Deflate({
           level: 9,
+          header: {
+            text: true,
+            os: 0,
+            time: 0,
+            extra: [],
+            name: '',
+            comment: '',
+            hcrc: true,
+          }
         });
+        deflator.push(content, true);
+        if (deflator.err) {
+          console.error(deflator.msg);
+          process.exit(1);
+        }
+        const compressed = deflator.result as Uint8Array;
 
         // because gzip header contains machine-specific info, we must remove these data from the header
         // timestamp
