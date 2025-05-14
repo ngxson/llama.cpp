@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { viteSingleFile } from 'vite-plugin-singlefile';
 import path from 'node:path';
 import fs from 'node:fs';
-import pako from 'pako';
+import * as fflate from 'fflate';
 
 /* eslint-disable */
 
@@ -36,7 +36,7 @@ const BUILD_PLUGINS = [
         let content =
           GUIDE_FOR_FRONTEND + '\n' + fs.readFileSync(outputIndexHtml, 'utf-8');
         content = content.replace(/\r/g, ''); // remove windows-style line endings
-        const compressed = pako.deflate(content, {
+        const compressed = fflate.gzipSync(Buffer.from(content, 'utf-8'), {
           level: 9,
         });
 
