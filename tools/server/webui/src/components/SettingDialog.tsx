@@ -336,6 +336,8 @@ export default function SettingDialog({
           <div
             className="hidden md:flex flex-col items-stretch pr-4 mr-4 border-r-2 border-base-200"
             role="complementary"
+            aria-description="Settings sections"
+            tabIndex={0}
           >
             {SETTING_SECTIONS.map((section, idx) => (
               <button
