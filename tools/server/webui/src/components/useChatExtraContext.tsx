@@ -189,7 +189,7 @@ async function convertPDFToText(file: File): Promise<string> {
 async function convertPDFToImage(file: File): Promise<string[]> {
   const buffer = await getFileAsBuffer(file);
   const doc = await pdfjs.getDocument(buffer).promise;
-  const pages: string[] = [];
+  const pages: Promise<string>[] = [];
 
   for (let i = 1; i <= doc.numPages; i++) {
     const page = await doc.getPage(i);
@@ -202,12 +202,14 @@ async function convertPDFToImage(file: File): Promise<string[]> {
       throw new Error('Failed to get 2D context from canvas');
     }
     const task = page.render({ canvasContext: ctx, viewport: viewport });
-    task.promise.then(() => {
-      pages.push(canvas.toDataURL());
-    });
+    pages.push(
+      task.promise.then(() => {
+        return canvas.toDataURL();
+      })
+    );
   }
 
-  return pages;
+  return await Promise.all(pages);
 }
 
 // WARN: vibe code below
