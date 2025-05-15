@@ -1045,12 +1045,18 @@ private: // disallow accessing these members directly, risking out-of-sync
     // it can include LLAMA_TOKEN_NULL, which is used to indicate a token that is not a text token
     // a mtmd_input_chunk can occupy multiple tokens, one llama_token per **position**
     // important: for models using mrope, an image can contain multiple tokens but will use only one **position**
+    // in otherwords, tokens.size() == n_past
     llama_tokens tokens;
 
     // for ex. with input of 5 text tokens and 2 images:
     //      [0] [1] [2] [3] [4] [img0] [img0] [img0] [img1] [img1]
     // pos  0   1   2   3   4   5      6      7      8      9
     // map_pos_to_image will contain: {5, img0}, {8, img1}
+
+    // number of tokens in KV cache
+    // it is named this way to avoid confusion between the notion of "tokens" and "positions"
+    // for example, models using m-rope can have multiple tokens in the KV cache but they all share one position
+    size_t n_kv = 0;
 
 public:
     server_tokens() = default;
@@ -1074,7 +1080,7 @@ public:
         }
     }
 
-    server_tokens(llama_tokens & tokens, bool has_mtmd) : has_mtmd(has_mtmd), tokens(tokens) {}
+    server_tokens(llama_tokens & tokens, bool has_mtmd) : has_mtmd(has_mtmd), tokens(tokens), n_kv(tokens.size()) {}
 
     // for debugging
     std::string str() const {
@@ -1108,6 +1114,7 @@ public:
         if (tok == LLAMA_TOKEN_NULL) {
             throw std::runtime_error("Invalid token");
         }
+        n_kv++;
         tokens.emplace_back(tok);
     }
 
@@ -1122,6 +1129,7 @@ public:
             for (int i = 0; i < n_pos; ++i) {
                 tokens.emplace_back(LLAMA_TOKEN_NULL);
             }
+            n_kv += mtmd_image_tokens_get_n_tokens(img_tokens);
             mtmd::input_chunk_ptr new_chunk(mtmd_input_chunk_copy(chunk));
             map_pos_to_image[start_pos] = std::move(new_chunk);
         } else if (type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
@@ -1138,6 +1146,7 @@ public:
     // for compatibility with context shift and prompt truncation
     void insert(const llama_tokens & inp_tokens) {
         GGML_ASSERT(!has_mtmd); // only allow this if mtmd is disabled
+        n_kv += inp_tokens.size();
         tokens.insert(tokens.end(), inp_tokens.begin(), inp_tokens.end());
     }
 
@@ -1153,7 +1162,29 @@ public:
         tokens[pos] = id;
     }
 
-    size_t size() const {
+    // if end_pos == -1, we count all positions
+    size_t n_kv_tokens(llama_pos end_pos = -1) const {
+        if (end_pos == -1) {
+            return n_kv;
+        } else {
+            size_t res = 0;
+            for (llama_pos i = 0; i < end_pos;) {
+                auto & t = tokens[i];
+                if (t == LLAMA_TOKEN_NULL) {
+                    auto & chunk = find_chunk(i);
+                    auto img_tokens = mtmd_input_chunk_get_tokens_image(chunk.get());
+                    res += mtmd_image_tokens_get_n_tokens(img_tokens);
+                    i += mtmd_image_tokens_get_n_pos(img_tokens);
+                } else {
+                    res++;
+                    i++;
+                }
+            }
+            return res;
+        }
+    }
+
+    llama_pos n_pos() const {
         return tokens.size();
     }
 
@@ -1162,6 +1193,7 @@ public:
     }
 
     void clear() {
+        n_kv = 0;
         tokens.clear();
     }
 
@@ -1185,6 +1217,8 @@ public:
             for (auto it = map_pos_to_image.begin(); it != map_pos_to_image.end(); ) {
                 llama_pos pos = it->first;
                 if (pos >= (llama_pos)n) {
+                    auto img_tokens = mtmd_input_chunk_get_tokens_image(it->second.get());
+                    n_kv -= mtmd_image_tokens_get_n_tokens(img_tokens);
                     it = map_pos_to_image.erase(it);
                 } else {
                     ++it;
@@ -1205,6 +1239,7 @@ public:
         return common_detokenize(ctx, text_tokens, special);
     }
 
+    // returns the position of the first token that is different
     size_t get_common_prefix(const server_tokens & b) const {
         size_t max_idx = std::min(tokens.size(), b.tokens.size());
         for (size_t i = 0; i < max_idx; ++i) {
@@ -1268,7 +1303,8 @@ public:
                 mtmd_context * mctx,
                 llama_pos n_past,
                 int32_t seq_id,
-                llama_pos & n_pos_out) {
+                llama_pos & n_pos_out,
+                size_t & n_kv_tokens_out) {
         auto it = map_pos_to_image.find(n_past);
         if (it == map_pos_to_image.end()) {
             throw std::runtime_error("Chunk not found");
@@ -1290,6 +1326,8 @@ public:
             n_pos_out = n_past;
             return result;
         }
+        auto img_tokens = mtmd_input_chunk_get_tokens_image(it->second.get());
+        n_kv_tokens_out = mtmd_image_tokens_get_n_tokens(img_tokens);
         n_pos_out = new_n_past;
         return 0;
     }
