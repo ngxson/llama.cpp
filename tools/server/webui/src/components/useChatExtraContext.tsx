@@ -82,28 +82,38 @@ export function useChatExtraContext(): ChatExtraContextApi {
         toast.error('Video and audio files are not supported yet.');
         break;
       } else if (mimeType.startsWith('application/pdf')) {
-        const promise = config.pdfAsImage
-          ? convertPDFToImage(file).then((base64Urls) => {
-              addItems(
-                base64Urls.map((base64Url) => ({
-                  type: 'imageFile',
-                  name: file.name,
-                  base64Url,
-                }))
-              );
-            })
-          : convertPDFToText(file).then((content) => {
-              toast.success(
-                'PDF file converted to text. You can also convert it to image, see in Settings.'
-              );
-              addItems([
-                {
-                  type: 'textFile',
-                  name: file.name,
-                  content,
-                },
-              ]);
-            });
+        if (config.pdfAsImage && !isSupportVision) {
+          toast(
+            'Multimodal is not supported, PDF will be converted to text instead of image.'
+          );
+          break;
+        }
+
+        const promise =
+          config.pdfAsImage && isSupportVision
+            ? convertPDFToImage(file).then((base64Urls) => {
+                addItems(
+                  base64Urls.map((base64Url) => ({
+                    type: 'imageFile',
+                    name: file.name,
+                    base64Url,
+                  }))
+                );
+              })
+            : convertPDFToText(file).then((content) => {
+                if (isSupportVision) {
+                  toast.success(
+                    'PDF file converted to text. You can also convert it to image, see in Settings.'
+                  );
+                }
+                addItems([
+                  {
+                    type: 'textFile',
+                    name: file.name,
+                    content,
+                  },
+                ]);
+              });
 
         promise.catch((error) => {
           console.error(error);
