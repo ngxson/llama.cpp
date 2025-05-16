@@ -1162,26 +1162,8 @@ public:
         tokens[pos] = id;
     }
 
-    // if end_pos == -1, we count all positions
-    size_t n_kv_tokens(llama_pos end_pos = -1) const {
-        if (end_pos == -1) {
-            return n_kv;
-        } else {
-            size_t res = 0;
-            for (llama_pos i = 0; i < end_pos;) {
-                auto & t = tokens[i];
-                if (t == LLAMA_TOKEN_NULL) {
-                    auto & chunk = find_chunk(i);
-                    auto img_tokens = mtmd_input_chunk_get_tokens_image(chunk.get());
-                    res += mtmd_image_tokens_get_n_tokens(img_tokens);
-                    i += mtmd_image_tokens_get_n_pos(img_tokens);
-                } else {
-                    res++;
-                    i++;
-                }
-            }
-            return res;
-        }
+    size_t n_kv_tokens() const {
+        return n_kv;
     }
 
     llama_pos n_pos() const {
@@ -1239,9 +1221,10 @@ public:
         return common_detokenize(ctx, text_tokens, special);
     }
 
-    // returns the position of the first token that is different
-    size_t get_common_prefix(const server_tokens & b) const {
+    // returns pair of <position, n_kv_tokens>
+    std::pair<llama_pos, size_t> get_common_prefix(const server_tokens & b) const {
         size_t max_idx = std::min(tokens.size(), b.tokens.size());
+        size_t n_tok = 0;
         for (size_t i = 0; i < max_idx; ++i) {
             auto & ai =   tokens[i];
             auto & bi = b.tokens[i];
@@ -1260,17 +1243,19 @@ public:
                 if (ai_id == bi_id && a_pos == b_pos) {
                     GGML_ASSERT(a_pos > 0 && "Invalid image token"); // should never happen
                     i += a_pos - 1; // will be +1 by the for loop
+                    n_tok += mtmd_image_tokens_get_n_tokens(a_img);
                     continue;
                 } else {
-                    return i;
+                    return {i, n_tok};
                 }
             } else if (ai == bi) {
+                n_tok++;
                 continue;
             } else {
-                return i;
+                return {i, n_tok};
             }
         }
-        return max_idx; // all tokens are equal
+        return {max_idx, n_tok}; // all tokens are equal
     }
 
     // make sure all text tokens are within the vocab range
