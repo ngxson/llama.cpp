@@ -65,6 +65,14 @@ export default function Sidebar() {
           aria-label="Close sidebar"
           className="drawer-overlay"
         ></label>
+
+        <a
+          href="#main-scroll"
+          className="absolute -left-80 top-0 w-1 h-1 overflow-hidden"
+        >
+          Skip to main content
+        </a>
+
         <div className="flex flex-col bg-base-200 min-h-full max-w-64 py-4 px-4">
           <div className="flex flex-row items-center justify-between mb-4 mt-4">
             <h2 className="font-bold ml-4" role="heading">
