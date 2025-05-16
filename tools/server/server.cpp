@@ -1308,11 +1308,12 @@ struct server_slot {
     common_chat_format chat_format = COMMON_CHAT_FORMAT_CONTENT_ONLY;
 
     // stats
-    size_t n_sent_text        = 0; // number of sent text character
+    size_t n_sent_text = 0; // number of sent text character
 
     int64_t t_start_process_prompt;
     int64_t t_start_generation;
 
+    size_t n_prompt_processing = 0; // number of decoded prompt tokens (may be less than prompt_tokens.n_kv_tokens(), in case we are using cache)
     double t_prompt_processing; // ms
     double t_token_generation;  // ms
 
@@ -1334,6 +1335,7 @@ struct server_slot {
         stopping_word      = "";
         n_past             = 0;
         n_sent_text        = 0;
+        n_prompt_processing   = 0;
         task_type          = SERVER_TASK_TYPE_COMPLETION;
 
         generated_tokens.clear();
@@ -1402,10 +1404,10 @@ struct server_slot {
 
     result_timings get_timings() const {
         result_timings timings;
-        timings.prompt_n = prompt_tokens.n_kv_tokens();
+        timings.prompt_n = n_prompt_processing;
         timings.prompt_ms = t_prompt_processing;
-        timings.prompt_per_token_ms = t_prompt_processing / prompt_tokens.n_kv_tokens();
-        timings.prompt_per_second = 1e3 / t_prompt_processing * prompt_tokens.n_kv_tokens();
+        timings.prompt_per_token_ms = t_prompt_processing / n_prompt_processing;
+        timings.prompt_per_second = 1e3 / t_prompt_processing * n_prompt_processing;
 
         timings.predicted_n = n_decoded;
         timings.predicted_ms = t_token_generation;
@@ -3212,8 +3214,9 @@ struct server_context {
                             slot.cache_tokens.push_back(chunk.get()); // copy
                         }
 
-                        slot.n_past      += n_pos;
-                        slot.n_kv_tokens += n_tok;
+                        slot.n_past              += n_pos;
+                        slot.n_kv_tokens         += n_tok;
+                        slot.n_prompt_processing += n_tok; // for stats only
                     }
 
                     // add prompt tokens for processing in the current batch
@@ -3233,6 +3236,7 @@ struct server_context {
 
                         slot.n_kv_tokens++;
                         slot.n_past++;
+                        slot.n_prompt_processing++; // for stats only
                     }
 
                     // SLT_INF(slot, "new cache_tokens: %s\n", slot.cache_tokens.str().c_str());
