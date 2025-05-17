@@ -194,10 +194,6 @@ struct clip_hparams {
 };
 
 struct clip_layer {
-    // layernorm 1 (input norm)
-    struct ggml_tensor * ln_1_w = nullptr;
-    struct ggml_tensor * ln_1_b = nullptr;
-
     // attention
     ggml_tensor * k_w = nullptr;
     ggml_tensor * k_b = nullptr;
@@ -526,7 +522,7 @@ struct clip_graph {
         ggml_set_input(pos_w);
 
         auto add_pos = [&](ggml_tensor * cur, const clip_layer &) {
-            return build_rope_2d(ctx0, cur, pos_h, pos_w, hparams.rope_theta);
+            return build_rope_2d(ctx0, cur, pos_h, pos_w, hparams.rope_theta, true);
         };
 
         ggml_tensor * inp = build_inp();
@@ -932,6 +928,90 @@ struct clip_graph {
             cur = ggml_gelu(ctx0, cur);
             cur = ggml_mul_mat(ctx0, model.mm_3_w, cur);
             cur = ggml_add(ctx0, cur, model.mm_3_b);
+        }
+
+        // build the graph
+        ggml_build_forward_expand(gf, cur);
+
+        return gf;
+    }
+
+    ggml_cgraph * build_llama4() {
+        GGML_ASSERT(model.class_embedding != nullptr);
+        GGML_ASSERT(model.position_embeddings != nullptr);
+
+        const int n_pos = n_patches + 1;
+
+        // 2D input positions
+        ggml_tensor * pos_h = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos);
+        ggml_set_name(pos_h, "pos_h");
+        ggml_set_input(pos_h);
+
+        ggml_tensor * pos_w = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos);
+        ggml_set_name(pos_w, "pos_w");
+        ggml_set_input(pos_w);
+
+        ggml_tensor * inp = build_inp_raw();
+
+        // Llama4UnfoldConvolution
+        {
+            inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp, patch_size, patch_size, 0, 0, 1, 1);
+            inp = ggml_reshape_2d(ctx0, inp, n_patches, n_embd);
+            inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp));
+            cb(inp, "patch_conv", -1);
+            inp = ggml_add(ctx0, inp, model.patch_bias);
+            cb(inp, "patch_bias", -1);
+        }
+
+        // add CLS token
+        inp = ggml_concat(ctx0, inp, model.class_embedding, 1);
+
+        // build ViT with 2D position embeddings
+        auto add_pos = [&](ggml_tensor * cur, const clip_layer &) {
+            return build_rope_2d(ctx0, cur, pos_w, pos_h, hparams.rope_theta, false);
+        };
+        ggml_tensor * cur = build_vit(
+                                inp, n_pos,
+                                NORM_TYPE_NORMAL,
+                                hparams.ffn_op,
+                                model.position_embeddings,
+                                add_pos);
+
+        // remove CLS token
+        cur = ggml_view_2d(ctx0, cur,
+            n_embd, n_patches,
+            ggml_row_size(cur->type, n_embd), 0);
+
+        // pixel shuffle
+        // based on Llama4VisionPixelShuffleMLP
+        // https://github.com/huggingface/transformers/blob/2932f318a20d9e54cc7aea052e040164d85de7d6/src/transformers/models/llama4/modeling_llama4.py#L1151
+        {
+            const int scale_factor = model.hparams.proj_scale_factor;
+            const int bsz    = 1; // batch size, always 1 for now since we don't support batching
+            const int height = n_patches_y;
+            const int width  = n_patches_x;
+            GGML_ASSERT(scale_factor > 0);
+            GGML_ASSERT(n_patches_x == n_patches_y); // llama4 only supports square images
+            cur = ggml_reshape_4d(ctx0, cur, n_embd * scale_factor, height / scale_factor, width, bsz);
+            cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
+            cur = ggml_reshape_4d(ctx0, ggml_cont(ctx0, cur),
+                n_embd * scale_factor * scale_factor,
+                height / scale_factor,
+                width / scale_factor,
+                bsz);
+            cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
+            // flatten to 2D
+            cur = ggml_reshape_2d(ctx0, ggml_cont(ctx0, cur),
+                n_embd * scale_factor * scale_factor,
+                cur->ne[1] * cur->ne[2]);
+        }
+
+        // based on Llama4VisionMLP2 (always uses GELU activation, no bias)
+        {
+            cur = ggml_mul_mat(ctx0, model.mm_model_mlp_1_w, cur);
+            cur = ggml_gelu(ctx0, cur);
+            cur = ggml_mul_mat(ctx0, model.mm_model_mlp_2_w, cur);
+            cur = ggml_gelu(ctx0, cur);
         }
 
         // build the graph
@@ -1634,9 +1714,10 @@ private:
     static ggml_tensor * build_rope_2d(
         ggml_context * ctx0,
         ggml_tensor * cur,
-        ggml_tensor * pos_h,
-        ggml_tensor * pos_w,
-        const float freq_base
+        ggml_tensor * pos_a, // first half
+        ggml_tensor * pos_b, // second half
+        const float freq_base,
+        const bool interleave_freq
     ) {
         const int64_t n_dim  = cur->ne[0];
         const int64_t n_head = cur->ne[1];
@@ -1650,7 +1731,9 @@ private:
         //  ^ don't ask me why, it's math! -2(2i) / n_dim == -2i / (n_dim/2)
         // then for the second half, we use freq_scale to shift the inv_freq
         //  ^ why? replace (2i) with (2i+1) in the above equation
-        const float freq_scale_odd = std::pow(freq_base, (float)-2/n_dim);
+        const float freq_scale_odd = interleave_freq
+                                    ? std::pow(freq_base, (float)-2/n_dim)
+                                    : 1.0;
 
         // first half
         ggml_tensor * first;
@@ -1663,7 +1746,7 @@ private:
             first = ggml_rope_ext(
                 ctx0,
                 first,
-                pos_h,      // positions
+                pos_a,      // positions
                 nullptr,    // freq factors
                 n_dim/2,    // n_dims
                 0, 0, freq_base,
@@ -1683,7 +1766,7 @@ private:
             second = ggml_rope_ext(
                 ctx0,
                 second,
-                pos_w,      // positions
+                pos_b,      // positions
                 nullptr,    // freq factors
                 n_dim/2,    // n_dims
                 0, 0, freq_base,
