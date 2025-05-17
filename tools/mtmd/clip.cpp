@@ -219,7 +219,7 @@ struct clip_layer {
     ggml_tensor * ff_down_w = nullptr;
     ggml_tensor * ff_down_b = nullptr;
 
-    // layernorm 2
+    // layernorm 2 (post-attn norm / pre-ffn norm)
     ggml_tensor * ln_2_w = nullptr;
     ggml_tensor * ln_2_b = nullptr;
 
@@ -522,7 +522,7 @@ struct clip_graph {
         ggml_set_input(pos_w);
 
         auto add_pos = [&](ggml_tensor * cur, const clip_layer &) {
-            return build_rope_2d(ctx0, cur, pos_h, pos_w, hparams.rope_theta);
+            return build_rope_2d(ctx0, cur, pos_h, pos_w, hparams.rope_theta, true);
         };
 
         ggml_tensor * inp = build_inp();
@@ -928,6 +928,90 @@ struct clip_graph {
             cur = ggml_gelu(ctx0, cur);
             cur = ggml_mul_mat(ctx0, model.mm_3_w, cur);
             cur = ggml_add(ctx0, cur, model.mm_3_b);
+        }
+
+        // build the graph
+        ggml_build_forward_expand(gf, cur);
+
+        return gf;
+    }
+
+    ggml_cgraph * build_llama4() {
+        GGML_ASSERT(model.class_embedding != nullptr);
+        GGML_ASSERT(model.position_embeddings != nullptr);
+
+        const int n_pos = n_patches + 1;
+
+        // 2D input positions
+        ggml_tensor * pos_h = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos);
+        ggml_set_name(pos_h, "pos_h");
+        ggml_set_input(pos_h);
+
+        ggml_tensor * pos_w = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos);
+        ggml_set_name(pos_w, "pos_w");
+        ggml_set_input(pos_w);
+
+        ggml_tensor * inp = build_inp_raw();
+
+        // Llama4UnfoldConvolution
+        {
+            inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp, patch_size, patch_size, 0, 0, 1, 1);
+            inp = ggml_reshape_2d(ctx0, inp, n_patches, n_embd);
+            inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp));
+            cb(inp, "patch_conv", -1);
+            inp = ggml_add(ctx0, inp, model.patch_bias);
+            cb(inp, "patch_bias", -1);
+        }
+
+        // add CLS token
+        inp = ggml_concat(ctx0, inp, model.class_embedding, 1);
+
+        // build ViT with 2D position embeddings
+        auto add_pos = [&](ggml_tensor * cur, const clip_layer &) {
+            return build_rope_2d(ctx0, cur, pos_w, pos_h, hparams.rope_theta, false);
+        };
+        ggml_tensor * cur = build_vit(
+                                inp, n_pos,
+                                NORM_TYPE_NORMAL,
+                                hparams.ffn_op,
+                                model.position_embeddings,
+                                add_pos);
+
+        // remove CLS token
+        cur = ggml_view_2d(ctx0, cur,
+            n_embd, n_patches,
+            ggml_row_size(cur->type, n_embd), 0);
+
+        // pixel shuffle
+        // based on Llama4VisionPixelShuffleMLP
+        // https://github.com/huggingface/transformers/blob/2932f318a20d9e54cc7aea052e040164d85de7d6/src/transformers/models/llama4/modeling_llama4.py#L1151
+        {
+            const int scale_factor = model.hparams.proj_scale_factor;
+            const int bsz    = 1; // batch size, always 1 for now since we don't support batching
+            const int height = n_patches_y;
+            const int width  = n_patches_x;
+            GGML_ASSERT(scale_factor > 0);
+            GGML_ASSERT(n_patches_x == n_patches_y); // llama4 only supports square images
+            cur = ggml_reshape_4d(ctx0, cur, n_embd * scale_factor, height / scale_factor, width, bsz);
+            cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
+            cur = ggml_reshape_4d(ctx0, ggml_cont(ctx0, cur),
+                n_embd * scale_factor * scale_factor,
+                height / scale_factor,
+                width / scale_factor,
+                bsz);
+            cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
+            // flatten to 2D
+            cur = ggml_reshape_2d(ctx0, ggml_cont(ctx0, cur),
+                n_embd * scale_factor * scale_factor,
+                cur->ne[1] * cur->ne[2]);
+        }
+
+        // based on Llama4VisionMLP2 (always uses GELU activation, no bias)
+        {
+            cur = ggml_mul_mat(ctx0, model.mm_model_mlp_1_w, cur);
+            cur = ggml_gelu(ctx0, cur);
+            cur = ggml_mul_mat(ctx0, model.mm_model_mlp_2_w, cur);
+            cur = ggml_gelu(ctx0, cur);
         }
 
         // build the graph
@@ -1630,9 +1714,10 @@ private:
     static ggml_tensor * build_rope_2d(
         ggml_context * ctx0,
         ggml_tensor * cur,
-        ggml_tensor * pos_h,
-        ggml_tensor * pos_w,
-        const float freq_base
+        ggml_tensor * pos_a, // first half
+        ggml_tensor * pos_b, // second half
+        const float freq_base,
+        const bool interleave_freq
     ) {
         const int64_t n_dim  = cur->ne[0];
         const int64_t n_head = cur->ne[1];
@@ -1646,7 +1731,9 @@ private:
         //  ^ don't ask me why, it's math! -2(2i) / n_dim == -2i / (n_dim/2)
         // then for the second half, we use freq_scale to shift the inv_freq
         //  ^ why? replace (2i) with (2i+1) in the above equation
-        const float freq_scale_odd = std::pow(freq_base, (float)-2/n_dim);
+        const float freq_scale_odd = interleave_freq
+                                    ? std::pow(freq_base, (float)-2/n_dim)
+                                    : 1.0;
 
         // first half
         ggml_tensor * first;
@@ -1659,7 +1746,7 @@ private:
             first = ggml_rope_ext(
                 ctx0,
                 first,
-                pos_h,      // positions
+                pos_a,      // positions
                 nullptr,    // freq factors
                 n_dim/2,    // n_dims
                 0, 0, freq_base,
@@ -1679,7 +1766,7 @@ private:
             second = ggml_rope_ext(
                 ctx0,
                 second,
-                pos_w,      // positions
+                pos_b,      // positions
                 nullptr,    // freq factors
                 n_dim/2,    // n_dims
                 0, 0, freq_base,
@@ -1722,6 +1809,10 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
         case PROJECTOR_TYPE_INTERNVL:
             {
                 res = graph.build_internvl();
+            } break;
+        case PROJECTOR_TYPE_LLAMA4:
+            {
+                res = graph.build_llama4();
             } break;
         default:
             {
@@ -1926,6 +2017,11 @@ struct clip_model_loader {
                         hparams.warmup_image_size = hparams.patch_size * 8;
                         get_u32(KEY_WIN_ATTN_PATTERN, hparams.n_wa_pattern);
                     } break;
+                case PROJECTOR_TYPE_LLAMA4:
+                    {
+                        hparams.rope_theta = 10000.0f;
+                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor);
+                    } break;
                 default:
                     break;
             }
@@ -2001,7 +2097,7 @@ struct clip_model_loader {
         vision_model.patch_embeddings_0 = get_tensor(TN_PATCH_EMBD,   false);
         vision_model.patch_embeddings_1 = get_tensor(TN_PATCH_EMBD_1, false);
 
-        vision_model.position_embeddings = get_tensor(string_format(TN_POS_EMBD, "v"), false);
+        vision_model.position_embeddings = get_tensor(TN_POS_EMBD, false);
 
         // layers
         vision_model.layers.resize(hparams.n_layer);
@@ -2181,6 +2277,12 @@ struct clip_model_loader {
                     vision_model.mm_1_b = get_tensor(string_format(TN_MVLM_PROJ_MLP, 1, "bias"));
                     vision_model.mm_3_w = get_tensor(string_format(TN_MVLM_PROJ_MLP, 3, "weight"));
                     vision_model.mm_3_b = get_tensor(string_format(TN_MVLM_PROJ_MLP, 3, "bias"));
+                } break;
+            case PROJECTOR_TYPE_LLAMA4:
+                {
+                    vision_model.mm_model_proj    = get_tensor(TN_MM_PROJECTOR);
+                    vision_model.mm_model_mlp_1_w = get_tensor(string_format(TN_MVLM_PROJ_MLP, 1, "weight"));
+                    vision_model.mm_model_mlp_2_w = get_tensor(string_format(TN_MVLM_PROJ_MLP, 2, "weight"));
                 } break;
             default:
                 GGML_ASSERT(false && "unknown projector type");
@@ -2961,6 +3063,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
     else if (ctx->proj_type == PROJECTOR_TYPE_GLM_EDGE
             || ctx->proj_type == PROJECTOR_TYPE_GEMMA3
             || ctx->proj_type == PROJECTOR_TYPE_IDEFICS3
+            || ctx->proj_type == PROJECTOR_TYPE_LLAMA4
             || ctx->proj_type == PROJECTOR_TYPE_INTERNVL // TODO @ngxson : support dynamic resolution
     ) {
         clip_image_u8 resized_image;
@@ -3098,6 +3201,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
     const auto & params = ctx->vision_model.hparams;
 
     int n_patches = (params.image_size / params.patch_size) * (params.image_size / params.patch_size);
+    int scale_factor = ctx->vision_model.hparams.proj_scale_factor;
 
     if (ctx->proj_type == PROJECTOR_TYPE_LDP
             || ctx->proj_type == PROJECTOR_TYPE_LDPV2
@@ -3136,6 +3240,8 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         int n_patches_x = img->nx / params.patch_size / (n_merge > 0 ? n_merge : 1);
         int n_patches_y = img->ny / params.patch_size / (n_merge > 0 ? n_merge : 1);
         n_patches = n_patches_y*n_patches_x + n_patches_y - 1; // + one [IMG_BREAK] per row, except the last row
+    } else if (ctx->proj_type == PROJECTOR_TYPE_LLAMA4) {
+        n_patches /= (scale_factor * scale_factor);
     }
 
     return n_patches;
@@ -3528,6 +3634,23 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
             {
                 // do nothing
             } break;
+        case PROJECTOR_TYPE_LLAMA4:
+            {
+                // set the 2D positions
+                int n_patches_per_col = image_size_width / patch_size;
+                std::vector<int> pos_data(num_patches + 1, 0); // +1 for the [CLS] token
+                // last pos is always kept 0, it's for CLS
+                // dimension H
+                for (int i = 0; i < num_patches; i++) {
+                    pos_data[i] = (i / n_patches_per_col) + 1;
+                }
+                set_input_i32("pos_h", pos_data);
+                // dimension W
+                for (int i = 0; i < num_patches; i++) {
+                    pos_data[i] = (i % n_patches_per_col) + 1;
+                }
+                set_input_i32("pos_w", pos_data);
+            } break;
         default:
             GGML_ABORT("Unknown projector type");
     }
@@ -3596,6 +3719,8 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
             return ctx->vision_model.projection->ne[1];
         case PROJECTOR_TYPE_INTERNVL:
             return ctx->vision_model.mm_3_w->ne[1];
+        case PROJECTOR_TYPE_LLAMA4:
+            return ctx->vision_model.mm_model_proj->ne[1];
         default:
             GGML_ABORT("Unknown projector type");
     }
