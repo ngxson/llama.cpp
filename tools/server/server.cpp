@@ -1267,17 +1267,12 @@ struct server_slot {
     int64_t t_last_used = -1;
 
     // generation props
-    int32_t n_ctx       = 0;  // context size per slot
-    int32_t n_past      = 0;
-    int32_t n_decoded   = 0;
+    int32_t n_ctx       = 0; // context size per slot
+    int32_t n_past      = 0; // current position (note: it is not affected by context shift)
+    int32_t n_decoded   = 0; // number of tokens generated
     int32_t n_remaining = -1;
     int32_t i_batch     = -1;
     int32_t n_predict   = -1; // TODO: disambiguate from params.n_predict
-
-    // this reflects the number of tokens in KV cache
-    // not to be confused with n_past which reflects the positions
-    // models using m-rope may have multiple tokens in KV cache sharing the same position
-    int32_t n_kv_tokens = 0;
 
     // input prompt tokens
     server_tokens prompt_tokens;
@@ -1326,7 +1321,6 @@ struct server_slot {
     void reset() {
         SLT_DBG(*this, "%s", "\n");
 
-        n_kv_tokens        = 0;
         last_nl_pos        = 0;
         generated_text     = "";
         has_new_line       = false;
@@ -1335,8 +1329,8 @@ struct server_slot {
         stopping_word      = "";
         n_past             = 0;
         n_sent_text        = 0;
-        n_prompt_processing   = 0;
         task_type          = SERVER_TASK_TYPE_COMPLETION;
+        n_prompt_processing = 0;
 
         generated_tokens.clear();
         generated_token_probs.clear();
@@ -1388,7 +1382,16 @@ struct server_slot {
     }
 
     int32_t n_prompt_tokens() const {
-        return prompt_tokens.n_kv_tokens();
+        return prompt_tokens.n_tokens();
+    }
+
+    int32_t n_cache_tokens() const {
+        return cache_tokens.n_tokens();
+    }
+
+    // different from n_past if context is shifted
+    llama_pos curr_pos() const {
+        return cache_tokens.n_pos();
     }
 
     void release() {
@@ -1453,9 +1456,8 @@ struct server_slot {
     }
 
     void print_timings() const {
-        const int32_t n_prompt_tokens_processed = prompt_tokens.n_kv_tokens();
-        const double t_prompt        =       t_prompt_processing / n_prompt_tokens_processed;
-        const double n_prompt_second = 1e3 / t_prompt_processing * n_prompt_tokens_processed;
+        const double t_prompt        =       t_prompt_processing / n_prompt_processing;
+        const double n_prompt_second = 1e3 / t_prompt_processing * n_prompt_processing;
 
         const double t_gen        =       t_token_generation / n_decoded;
         const double n_gen_second = 1e3 / t_token_generation * n_decoded;
@@ -1465,9 +1467,9 @@ struct server_slot {
                 "prompt eval time = %10.2f ms / %5d tokens (%8.2f ms per token, %8.2f tokens per second)\n"
                 "       eval time = %10.2f ms / %5d tokens (%8.2f ms per token, %8.2f tokens per second)\n"
                 "      total time = %10.2f ms / %5d tokens\n",
-                t_prompt_processing, n_prompt_tokens_processed, t_prompt, n_prompt_second,
+                t_prompt_processing, (int)n_prompt_processing, t_prompt, n_prompt_second,
                 t_token_generation, n_decoded, t_gen, n_gen_second,
-                t_prompt_processing + t_token_generation, n_prompt_tokens_processed + n_decoded);
+                t_prompt_processing + t_token_generation, (int)n_prompt_processing + n_decoded);
 
         if (n_draft_total > 0) {
             const float draft_ratio = (float) n_draft_accepted / n_draft_total;
@@ -1524,8 +1526,8 @@ struct server_metrics {
     }
 
     void on_prompt_eval(const server_slot & slot) {
-        n_prompt_tokens_processed_total += slot.prompt_tokens.n_kv_tokens();
-        n_prompt_tokens_processed       += slot.prompt_tokens.n_kv_tokens();
+        n_prompt_tokens_processed_total += slot.n_prompt_tokens();
+        n_prompt_tokens_processed       += slot.n_prompt_processing;
         t_prompt_processing             += slot.t_prompt_processing;
         t_prompt_processing_total       += slot.t_prompt_processing;
     }
@@ -2101,8 +2103,7 @@ struct server_context {
                 }
 
                 // length of the Longest Common Subsequence between the current slot's prompt and the input prompt
-                auto common_pos = slot.cache_tokens.get_common_prefix(task.prompt_tokens);
-                int cur_lcs_len = common_pos.first; // position, not tokens
+                int cur_lcs_len = slot.cache_tokens.get_common_prefix(task.prompt_tokens);
 
                 // fraction of the common subsequence length compared to the current slot's prompt length
                 float cur_similarity = static_cast<float>(cur_lcs_len) / static_cast<int>(slot.cache_tokens.n_pos());
@@ -2152,7 +2153,6 @@ struct server_context {
         slot.params        = std::move(task.params);
         slot.prompt_tokens = std::move(task.prompt_tokens);
         slot.n_past        = 0;
-        slot.n_kv_tokens   = 0;
 
         if (!are_lora_equal(slot.params.lora, slot.lora)) {
             // if lora is changed, we cannot reuse cached tokens
@@ -2320,13 +2320,13 @@ struct server_context {
         }
 
         // if context shift is disabled, we stop when it reaches the context limit
-        if (!params_base.ctx_shift && slot.n_kv_tokens >= slot.n_ctx) {
+        if (!params_base.ctx_shift && slot.n_cache_tokens() >= slot.n_ctx) {
             slot.truncated      = true;
             slot.stop           = STOP_TYPE_LIMIT;
             slot.has_next_token = false;
 
-            SLT_DBG(slot, "stopped due to running out of context capacity, n_kv_tokens = %d, n_prompt_tokens = %d, n_decoded = %d, n_ctx = %d\n",
-                    slot.n_decoded, slot.n_prompt_tokens(), slot.n_past, slot.n_ctx);
+            SLT_DBG(slot, "stopped due to running out of context capacity, n_cache_tokens = %d, n_prompt_tokens = %d, n_decoded = %d, n_ctx = %d\n",
+                    slot.n_cache_tokens(), slot.n_prompt_tokens(), slot.n_decoded, slot.n_ctx);
         }
 
         if (llama_vocab_is_eog(vocab, result.tok)) {
@@ -2797,7 +2797,7 @@ struct server_context {
                         break;
                     }
 
-                    const size_t token_count = slot->cache_tokens.n_kv_tokens();
+                    const size_t token_count = slot->n_cache_tokens();
                     const int64_t t_start = ggml_time_us();
 
                     std::string filename = task.slot_action.filename;
@@ -2883,7 +2883,7 @@ struct server_context {
                     }
 
                     // Erase token cache
-                    const size_t n_erased = slot->cache_tokens.n_kv_tokens();
+                    const size_t n_erased = slot->n_cache_tokens();
                     llama_kv_self_seq_rm(ctx, slot->id, -1, -1);
                     slot->cache_tokens.clear();
 
@@ -2937,7 +2937,7 @@ struct server_context {
         // apply context-shift if needed
         // TODO: simplify and improve
         for (server_slot & slot : slots) {
-            if (slot.is_processing() && slot.n_past + 1 >= slot.n_ctx) {
+            if (slot.is_processing() && slot.n_cache_tokens() + 1 >= slot.n_ctx) {
                 if (!params_base.ctx_shift) {
                     // this check is redundant (for good)
                     // we should never get here, because generation should already stopped in process_token()
@@ -2953,14 +2953,15 @@ struct server_context {
                 }
 
                 // Shift context
+                const int n_pos_cur = slot.cache_tokens.n_pos();
                 const int n_keep    = slot.params.n_keep + add_bos_token;
-                const int n_left    = slot.n_past - n_keep;
+                const int n_left    = n_pos_cur - n_keep;
                 const int n_discard = slot.params.n_discard ? slot.params.n_discard : (n_left / 2);
 
                 SLT_WRN(slot, "slot context shift, n_keep = %d, n_left = %d, n_discard = %d\n", n_keep, n_left, n_discard);
 
                 llama_kv_self_seq_rm (ctx, slot.id, n_keep            , n_keep + n_discard);
-                llama_kv_self_seq_add(ctx, slot.id, n_keep + n_discard, slot.n_past,        -n_discard);
+                llama_kv_self_seq_add(ctx, slot.id, n_keep + n_discard, n_pos_cur,         -n_discard);
 
                 // add generated tokens to cache
                 {
@@ -2969,12 +2970,10 @@ struct server_context {
                         new_tokens[i - n_discard] = new_tokens[i];
                     }
 
-                    new_tokens.resize(slot.cache_tokens.n_kv_tokens() - n_discard);
+                    new_tokens.resize(slot.n_cache_tokens() - n_discard);
                     slot.cache_tokens.clear();
                     slot.cache_tokens.insert(new_tokens);
                 }
-
-                slot.n_past -= n_discard;
 
                 slot.truncated = true;
             }
@@ -3005,14 +3004,13 @@ struct server_context {
 
             slot.i_batch = batch.n_tokens;
 
-            common_batch_add(batch, slot.sampled, slot.n_past, { slot.id }, true);
+            common_batch_add(batch, slot.sampled, slot.curr_pos(), { slot.id }, true);
 
-            slot.n_past      += 1;
-            slot.n_kv_tokens += 1;
+            slot.n_past += 1;
             slot.cache_tokens.push_back(slot.sampled);
 
             SLT_DBG(slot, "slot decode token, n_ctx = %d, n_past = %d, n_cache_pos = %d, n_cache_tokens = %d, truncated = %d\n",
-                    slot.n_ctx, slot.n_past, slot.cache_tokens.n_pos(), (int) slot.cache_tokens.n_kv_tokens(), slot.truncated);
+                    slot.n_ctx, slot.n_past, slot.cache_tokens.n_pos(), (int) slot.n_cache_tokens(), slot.truncated);
         }
 
         // process in chunks of params.n_batch
@@ -3022,6 +3020,8 @@ struct server_context {
         // next, batch any pending prompts without exceeding n_batch
         if (params_base.cont_batching || batch.n_tokens == 0) {
             for (auto & slot : slots) {
+                auto & prompt_tokens = slot.prompt_tokens;
+
                 // check if we can batch this slot with the previous one
                 if (slot.is_processing()) {
                     if (!slot_batched) {
@@ -3033,9 +3033,7 @@ struct server_context {
 
                 // this slot still has a prompt to be processed
                 if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_STARTED) {
-                    auto & prompt_tokens = slot.prompt_tokens;
 
-                    // TODO: maybe move branch to outside of this loop in the future
                     if (slot.state == SLOT_STATE_STARTED) {
                         slot.t_start_process_prompt = ggml_time_us();
                         slot.t_start_generation = 0;
@@ -3097,9 +3095,8 @@ struct server_context {
 
                             if (slot.params.cache_prompt) {
                                 // reuse any previously computed tokens that are common with the new prompt
-                                auto common_pos = slot.cache_tokens.get_common_prefix(prompt_tokens);
-                                slot.n_past      = common_pos.first;
-                                slot.n_kv_tokens = common_pos.second;
+                                slot.n_past = slot.cache_tokens.get_common_prefix(prompt_tokens);
+                                slot.cache_tokens.keep_first(slot.n_past);
 
                                 // reuse chunks from the cached prompt by shifting their KV cache in the new position
                                 if (params_base.n_cache_reuse > 0) {
@@ -3113,12 +3110,12 @@ struct server_context {
 
                                     SLT_DBG(slot, "trying to reuse chunks with size > %d, slot.n_past = %d\n", params_base.n_cache_reuse, slot.n_past);
 
-                                    while (head_c < slot.cache_tokens.n_kv_tokens() &&
-                                           head_p < prompt_tokens.n_kv_tokens()) {
+                                    while (head_c < (size_t)slot.n_cache_tokens() &&
+                                           head_p < prompt_tokens.n_tokens()) {
 
                                         size_t n_match = 0;
-                                        while (head_c + n_match < slot.cache_tokens.n_kv_tokens() &&
-                                               head_p + n_match < prompt_tokens.n_kv_tokens()     &&
+                                        while (head_c + n_match < (size_t)slot.n_cache_tokens() &&
+                                               head_p + n_match < prompt_tokens.n_tokens() &&
                                                slot.cache_tokens[head_c + n_match] == prompt_tokens[head_p + n_match]) {
 
                                             n_match++;
@@ -3148,14 +3145,12 @@ struct server_context {
                                     }
 
                                     SLT_DBG(slot, "after context reuse, new slot.n_past = %d\n", slot.n_past);
-                                    // because we're using this logic on text-only, n_past always == n_kv_tokens
-                                    slot.n_kv_tokens = slot.n_past;
+                                    slot.cache_tokens.keep_first(slot.n_past);
                                 }
                             } else {
                                 // if we don't cache the prompt, we have to remove the entire KV cache
                                 llama_kv_self_seq_rm(ctx, slot.id, 0, -1);
                                 slot.n_past = 0;
-                                slot.n_kv_tokens = 0;
                                 slot.cache_tokens.clear();
                             }
                         }
@@ -3164,36 +3159,36 @@ struct server_context {
                             // we have to evaluate at least 1 token to generate logits.
                             SLT_WRN(slot, "need to evaluate at least 1 token to generate logits, n_past = %d, n_prompt_tokens = %d\n", slot.n_past, slot.n_prompt_tokens());
 
+                            slot.cache_tokens.rm_last(1);
                             slot.n_past--;
-                            slot.n_kv_tokens--;
                         }
-                    }
 
-                    // non-causal tasks require to fit the entire prompt in the physical batch
-                    if (slot.is_non_causal()) {
-                        // cannot fit the prompt in the current batch - will try next iter
-                        if (batch.n_tokens + slot.n_prompt_tokens() > n_batch) {
-                            continue;
+                        // non-causal tasks require to fit the entire prompt in the physical batch
+                        if (slot.is_non_causal()) {
+                            // cannot fit the prompt in the current batch - will try next iter
+                            if (batch.n_tokens + slot.n_prompt_tokens() > n_batch) {
+                                continue;
+                            }
                         }
+
+                        // keep only the common part
+                        if (!llama_kv_self_seq_rm(ctx, slot.id, slot.n_past, -1)) {
+                            // could not partially delete (likely using a non-Transformer model)
+                            llama_kv_self_seq_rm(ctx, slot.id, -1, -1);
+
+                            // there is no common part left
+                            slot.n_past = 0;
+                            slot.cache_tokens.clear();
+                        }
+
+                        SLT_INF(slot, "kv cache rm [%d, end)\n", slot.n_past);
+
+                        // remove the non-common part from the cache
+                        slot.cache_tokens.keep_first(slot.n_past);
                     }
-
-                    // keep only the common part
-                    if (!llama_kv_self_seq_rm(ctx, slot.id, slot.n_past, -1)) {
-                        // could not partially delete (likely using a non-Transformer model)
-                        llama_kv_self_seq_rm(ctx, slot.id, -1, -1);
-
-                        // there is no common part left
-                        slot.n_past = 0;
-                        slot.n_kv_tokens = 0;
-                    }
-
-                    SLT_INF(slot, "kv cache rm [%d, end)\n", slot.n_past);
-
-                    // remove the non-common part from the cache
-                    slot.cache_tokens.keep_first(slot.n_past);
 
                     // check if we should process the image
-                    if (slot.n_kv_tokens < slot.n_prompt_tokens()
+                    if (slot.n_past < prompt_tokens.n_pos()
                             && slot.prompt_tokens[slot.n_past] == LLAMA_TOKEN_NULL) {
                         // process the image
                         int32_t new_n_past;
@@ -3215,12 +3210,11 @@ struct server_context {
                         }
 
                         slot.n_past              += n_pos;
-                        slot.n_kv_tokens         += n_tok;
                         slot.n_prompt_processing += n_tok; // for stats only
                     }
 
                     // add prompt tokens for processing in the current batch
-                    while (slot.n_kv_tokens < slot.n_prompt_tokens() && batch.n_tokens < n_batch) {
+                    while (slot.n_past < prompt_tokens.n_pos() && batch.n_tokens < n_batch) {
                         // get next token to process
                         llama_token cur_tok = slot.prompt_tokens[slot.n_past];
                         if (cur_tok == LLAMA_TOKEN_NULL) {
@@ -3231,24 +3225,22 @@ struct server_context {
                         const bool need_embd = slot.task_type == SERVER_TASK_TYPE_EMBEDDING
                                                && llama_pooling_type(slot.ctx) == LLAMA_POOLING_TYPE_NONE;
 
-                        common_batch_add(batch, cur_tok, slot.n_past, { slot.id }, need_embd);
+                        common_batch_add(batch, cur_tok, slot.curr_pos(), { slot.id }, need_embd);
                         slot.cache_tokens.push_back(cur_tok);
 
-                        slot.n_kv_tokens++;
                         slot.n_past++;
                         slot.n_prompt_processing++; // for stats only
                     }
 
                     // SLT_INF(slot, "new cache_tokens: %s\n", slot.cache_tokens.str().c_str());
 
-                    SLT_INF(slot, "prompt processing progress, n_past = %d, batch.n_tokens = %d, progress = %f\n", slot.n_past, batch.n_tokens, (float) slot.n_kv_tokens / slot.n_prompt_tokens());
+                    SLT_INF(slot, "prompt processing progress, n_past = %d, batch.n_tokens = %d, progress = %f\n", slot.n_past, batch.n_tokens, (float) slot.n_past / prompt_tokens.n_pos());
 
                     // entire prompt has been processed
-                    if (slot.n_kv_tokens == slot.n_prompt_tokens()) {
+                    if (slot.n_past == prompt_tokens.n_pos()) {
                         slot.state = SLOT_STATE_DONE_PROMPT;
 
                         GGML_ASSERT(batch.n_tokens > 0);
-                        GGML_ASSERT((size_t) slot.n_prompt_tokens() == slot.prompt_tokens.n_kv_tokens());
 
                         common_sampler_reset(slot.smpl);
 
@@ -3418,9 +3410,9 @@ struct server_context {
                 // determine the max draft that fits the current slot state
                 int n_draft_max = slot.params.speculative.n_max;
 
-                // note: n_past is not yet increased for the `id` token sampled above
+                // note: slot.curr_pos() is not yet increased for the `id` token sampled above
                 //       also, need to leave space for 1 extra token to allow context shifts
-                n_draft_max = std::min(n_draft_max, slot.n_ctx - slot.n_past - 2);
+                n_draft_max = std::min(n_draft_max, slot.n_ctx - slot.curr_pos() - 2);
 
                 if (slot.n_remaining > 0) {
                     n_draft_max = std::min(n_draft_max, slot.n_remaining - 1);
@@ -3456,10 +3448,10 @@ struct server_context {
 
                 // construct the speculation batch
                 common_batch_clear(slot.batch_spec);
-                common_batch_add  (slot.batch_spec, id, slot.n_past, { slot.id }, true);
+                common_batch_add  (slot.batch_spec, id, slot.curr_pos(), { slot.id }, true);
 
                 for (size_t i = 0; i < draft.size(); ++i) {
-                    common_batch_add(slot.batch_spec, draft[i], slot.n_past + 1 + i, { slot.id }, true);
+                    common_batch_add(slot.batch_spec, draft[i], slot.curr_pos() + 1 + i, { slot.id }, true);
                 }
 
                 SLT_DBG(slot, "decoding speculative batch, size = %d\n", slot.batch_spec.n_tokens);
@@ -3478,7 +3470,7 @@ struct server_context {
                 slot.cache_tokens.push_back(id);
                 slot.cache_tokens.insert({ids.begin(), ids.end() - 1});
 
-                llama_kv_self_seq_rm(ctx, slot.id, slot.n_past, -1);
+                llama_kv_self_seq_rm(ctx, slot.id, slot.curr_pos(), -1);
 
                 for (size_t i = 0; i < ids.size(); ++i) {
                     completion_token_output result;
