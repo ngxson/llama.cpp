@@ -2262,12 +2262,14 @@ struct server_context {
             slot.has_next_token = true;
         }
 
-        // if context shifting is disabled, make sure that we don't run out of context
-        if (!params_base.ctx_shift && slot.n_past + 1 >= slot.n_ctx) {
+        // if context shift is disabled, we stop when it reaches the context limit
+        if (!params_base.ctx_shift && slot.n_cache_tokens() + 1 >= slot.n_ctx) {
+            slot.truncated      = true;
             slot.stop           = STOP_TYPE_LIMIT;
             slot.has_next_token = false;
 
-            SLT_DBG(slot, "stopped due to running out of context, n_past = %d, n_ctx = %d\n", slot.n_past, slot.n_ctx);
+            SLT_DBG(slot, "stopped due to running out of context capacity, n_cache_tokens = %d, n_prompt_tokens = %d, n_decoded = %d, n_ctx = %d\n",
+                    slot.n_cache_tokens(), slot.n_prompt_tokens(), slot.n_decoded, slot.n_ctx);
         }
 
         // check the limits
@@ -2325,16 +2327,6 @@ struct server_context {
 
                 SLT_DBG(slot, "stopped by time limit, n_decoded = %d, t_max_predict_ms = %d ms\n", slot.n_decoded, (int) slot.params.t_max_predict_ms);
             }
-        }
-
-        // if context shift is disabled, we stop when it reaches the context limit
-        if (!params_base.ctx_shift && slot.n_cache_tokens() >= slot.n_ctx) {
-            slot.truncated      = true;
-            slot.stop           = STOP_TYPE_LIMIT;
-            slot.has_next_token = false;
-
-            SLT_DBG(slot, "stopped due to running out of context capacity, n_cache_tokens = %d, n_prompt_tokens = %d, n_decoded = %d, n_ctx = %d\n",
-                    slot.n_cache_tokens(), slot.n_prompt_tokens(), slot.n_decoded, slot.n_ctx);
         }
 
         if (llama_vocab_is_eog(vocab, result.tok)) {
