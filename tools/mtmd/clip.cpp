@@ -2038,7 +2038,7 @@ struct clip_model_loader {
                         get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor);
 
                         // borrowed from llava-1.6
-                        const int isize = hparams.patch_size;
+                        const int isize = hparams.image_size;
                         hparams.image_grid_pinpoints = {
                             isize,   isize*2, // 336, 672
                             isize*2, isize,   // 672, 336
