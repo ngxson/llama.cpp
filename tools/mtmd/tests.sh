@@ -21,6 +21,13 @@ if [ "${1:-}" = "big" ]; then
     echo "Include BIG models..."
 fi
 
+RUN_HUGE_TESTS=false
+if [ "${1:-}" = "huge" ]; then
+    RUN_HUGE_TESTS=true
+    RUN_BIG_TESTS=true
+    echo "Include BIG models..."
+fi
+
 ###############
 
 arr_bin=()
@@ -60,11 +67,17 @@ if [ "$RUN_BIG_TESTS" = true ]; then
     add_test "llama-mtmd-cli" "ggml-org/Qwen2-VL-7B-Instruct-GGUF:Q4_K_M"
     add_test "llama-mtmd-cli" "ggml-org/Qwen2.5-VL-3B-Instruct-GGUF:Q4_K_M"
     add_test "llama-mtmd-cli" "ggml-org/Qwen2.5-VL-7B-Instruct-GGUF:Q4_K_M"
-    add_test "llama-mtmd-cli"  "ggml-org/InternVL3-8B-Instruct-GGUF:Q4_K_M"
-    add_test "llama-mtmd-cli"  "ggml-org/InternVL3-14B-Instruct-GGUF:Q4_K_M"
+    add_test "llama-mtmd-cli" "ggml-org/InternVL3-8B-Instruct-GGUF:Q4_K_M"
+    add_test "llama-mtmd-cli" "ggml-org/InternVL3-14B-Instruct-GGUF:Q4_K_M"
     # add_test "llama-mtmd-cli" "ggml-org/Qwen2.5-VL-32B-Instruct-GGUF:Q4_K_M" # does not work on my mac M3 Ultra
-    # add_test "llama-mtmd-cli" "ggml-org/Qwen2.5-VL-72B-Instruct-GGUF:Q4_K_M" # too big
-    add_test "llama-mtmd-cli"  "ggml-org/Llama-4-Scout-17B-16E-Instruct-GGUF:IQ1_S" # too big
+fi
+
+# to test the huge models, run: ./tests.sh huge
+# this will run both the big and huge models
+# huge models are > 32B parameters
+if [ "$RUN_HUGE_TESTS" = true ]; then
+    add_test "llama-mtmd-cli" "ggml-org/Qwen2.5-VL-72B-Instruct-GGUF:Q4_K_M"
+    add_test "llama-mtmd-cli" "ggml-org/Llama-4-Scout-17B-16E-Instruct-GGUF:IQ1_S"
 fi
 
 # these models always give the wrong answer, not sure why
