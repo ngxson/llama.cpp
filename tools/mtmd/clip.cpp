@@ -940,7 +940,7 @@ struct clip_graph {
         GGML_ASSERT(model.class_embedding != nullptr);
         GGML_ASSERT(model.position_embeddings != nullptr);
 
-        const int n_pos = n_patches + 1;
+        const int n_pos = n_patches + 1; // +1 for [CLS]
 
         // 2D input positions
         ggml_tensor * pos_h = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos);
@@ -955,16 +955,18 @@ struct clip_graph {
 
         // Llama4UnfoldConvolution
         {
-            inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp, patch_size, patch_size, 0, 0, 1, 1);
-            inp = ggml_reshape_2d(ctx0, inp, n_patches, n_embd);
-            inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp));
-            cb(inp, "patch_conv", -1);
-            inp = ggml_add(ctx0, inp, model.patch_bias);
-            cb(inp, "patch_bias", -1);
+            ggml_tensor * kernel = ggml_reshape_4d(ctx0, model.patch_embeddings_0,
+                                                    patch_size, patch_size, 3, n_embd);
+            inp = ggml_im2col(ctx0, kernel, inp, patch_size, patch_size, 0, 0, 1, 1, true, inp->type);
+            inp = ggml_mul_mat(ctx0, model.patch_embeddings_0, inp);
+            inp = ggml_reshape_2d(ctx0, inp, n_embd, n_patches);
         }
 
         // add CLS token
         inp = ggml_concat(ctx0, inp, model.class_embedding, 1);
+
+        // add position embeddings
+        inp = ggml_add(ctx0, inp, model.position_embeddings);
 
         // build ViT with 2D position embeddings
         auto add_pos = [&](ggml_tensor * cur, const clip_layer &) {
@@ -988,22 +990,24 @@ struct clip_graph {
         {
             const int scale_factor = model.hparams.proj_scale_factor;
             const int bsz    = 1; // batch size, always 1 for now since we don't support batching
-            const int height = n_patches_y;
-            const int width  = n_patches_x;
             GGML_ASSERT(scale_factor > 0);
             GGML_ASSERT(n_patches_x == n_patches_y); // llama4 only supports square images
-            cur = ggml_reshape_4d(ctx0, cur, n_embd * scale_factor, height / scale_factor, width, bsz);
+            cur = ggml_reshape_4d(ctx0, cur,
+                n_embd * scale_factor,
+                n_patches_x / scale_factor,
+                n_patches_y,
+                bsz);
             cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
             cur = ggml_reshape_4d(ctx0, ggml_cont(ctx0, cur),
                 n_embd * scale_factor * scale_factor,
-                height / scale_factor,
-                width / scale_factor,
+                n_patches_x / scale_factor,
+                n_patches_y / scale_factor,
                 bsz);
             cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
             // flatten to 2D
             cur = ggml_reshape_2d(ctx0, ggml_cont(ctx0, cur),
                 n_embd * scale_factor * scale_factor,
-                cur->ne[1] * cur->ne[2]);
+                n_patches / scale_factor / scale_factor);
         }
 
         // based on Llama4VisionMLP2 (always uses GELU activation, no bias)
