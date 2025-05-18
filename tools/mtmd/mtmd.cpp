@@ -354,7 +354,6 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
             img_u8->ny = bitmaps[i_img]->ny;
             img_u8->buf.resize(bitmaps[i_img]->data.size());
             std::memcpy(img_u8->buf.data(), bitmaps[i_img]->data.data(), img_u8->nx * img_u8->ny * 3);
-            clip_image_size img_u8_size{img_u8->nx, img_u8->ny};
 
             // preprocess image
             clip_image_f32_batch batch_f32;
