@@ -2038,13 +2038,13 @@ struct clip_model_loader {
                         get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor);
 
                         // borrowed from llava-1.6
-                        const int psize = hparams.patch_size;
+                        const int isize = hparams.patch_size;
                         hparams.image_grid_pinpoints = {
-                            psize,   psize*2, // 336, 672
-                            psize*2, psize,   // 672, 336
-                            psize*2, psize*2, // 672, 672
-                            psize*3, psize,   // 1008, 336
-                            psize,   psize*3, // 336, 1008
+                            isize,   isize*2, // 336, 672
+                            isize*2, isize,   // 672, 336
+                            isize*2, isize*2, // 672, 672
+                            isize*3, isize,   // 1008, 336
+                            isize,   isize*3, // 336, 1008
                         };
                     } break;
                 default:
@@ -2968,7 +2968,7 @@ private:
 
     // used by llava 1.6 with custom list of pinpoints
     static clip_image_size select_best_resolution(const std::vector<int32_t> & pinpoints, const clip_image_size & original_size) {
-        std::vector<clip_image_size> possible_resolutions;
+        std::vector<clip_image_size> possible_resolutions; // TODO @ngxson : construct this inside hparams, not here
         for (size_t i = 0; i < pinpoints.size(); i += 2) {
             possible_resolutions.push_back(clip_image_size{pinpoints[i], pinpoints[i+1]});
         }
@@ -3077,7 +3077,6 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
     else if (ctx->proj_type == PROJECTOR_TYPE_GLM_EDGE
             || ctx->proj_type == PROJECTOR_TYPE_GEMMA3
             || ctx->proj_type == PROJECTOR_TYPE_IDEFICS3
-            || ctx->proj_type == PROJECTOR_TYPE_LLAMA4
             || ctx->proj_type == PROJECTOR_TYPE_INTERNVL // TODO @ngxson : support dynamic resolution
     ) {
         clip_image_u8 resized_image;
