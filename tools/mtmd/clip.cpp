@@ -445,7 +445,7 @@ struct clip_graph {
         };
         ctx0_ptr.reset(ggml_init(params));
         ctx0 = ctx0_ptr.get();
-        gf = ggml_new_graph(ctx0);
+        gf = ggml_new_graph_custom(ctx0, ctx->max_nodes, false);
     }
 
     ggml_cgraph * build_siglip() {
@@ -965,13 +965,11 @@ struct clip_graph {
             inp = ggml_im2col(ctx0, kernel, inp, patch_size, patch_size, 0, 0, 1, 1, true, inp->type);
             inp = ggml_mul_mat(ctx0, model.patch_embeddings_0, inp);
             inp = ggml_reshape_2d(ctx0, inp, n_embd, n_patches);
+            cb(inp, "patch_conv", -1);
         }
 
         // add CLS token
         inp = ggml_concat(ctx0, inp, model.class_embedding, 1);
-
-        // add position embeddings
-        inp = ggml_add(ctx0, inp, model.position_embeddings);
 
         // build ViT with 2D position embeddings
         auto add_pos = [&](ggml_tensor * cur, const clip_layer &) {
@@ -1013,6 +1011,7 @@ struct clip_graph {
             cur = ggml_reshape_2d(ctx0, ggml_cont(ctx0, cur),
                 n_embd * scale_factor * scale_factor,
                 n_patches / scale_factor / scale_factor);
+            cb(cur, "pixel_shuffle", -1);
         }
 
         // based on Llama4VisionMLP2 (always uses GELU activation, no bias)
@@ -1021,7 +1020,12 @@ struct clip_graph {
             cur = ggml_gelu(ctx0, cur);
             cur = ggml_mul_mat(ctx0, model.mm_model_mlp_2_w, cur);
             cur = ggml_gelu(ctx0, cur);
+            cb(cur, "adapter_mlp", -1);
         }
+
+        // Llama4MultiModalProjector
+        cur = ggml_mul_mat(ctx0, model.mm_model_proj, cur);
+        cb(cur, "projected", -1);
 
         // build the graph
         ggml_build_forward_expand(gf, cur);
@@ -1408,11 +1412,13 @@ private:
     // utility functions
     //
 
-    void cb(ggml_tensor * cur, const char * name, int il) const {
+    void cb(ggml_tensor * cur0, const char * name, int il) const {
         if (ctx->debug_graph) {
+            ggml_tensor * cur = ggml_cpy(ctx0, cur0, ggml_dup_tensor(ctx0, cur0));
             std::string cur_name = il >= 0 ? std::string(name) + "_" + std::to_string(il) : name;
             ggml_set_name(cur, cur_name.c_str());
             ggml_set_output(cur);
+            ggml_build_forward_expand(gf, cur);
             ctx->debug_print_tensors.push_back(cur);
         }
     }
