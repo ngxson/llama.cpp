@@ -34,9 +34,6 @@
 #define KEY_PROJ_TYPE           "clip.projector_type"
 #define KEY_SPATIAL_MERGE_SIZE  "clip.vision.spatial_merge_size"
 
-#define KEY_USE_GLU_MLP         "clip.use_glu_mlp"  // for qwen2.5vl
-#define KEY_USE_RMS_NORM        "clip.use_rms_norm" // for qwen2.5vl
-
 #define KEY_MM_PATCH_MERGE_TYPE   "clip.vision.mm_patch_merge_type"
 #define KEY_IMAGE_GRID_PINPOINTS  "clip.vision.image_grid_pinpoints"
 #define KEY_IMAGE_CROP_RESOLUTION "clip.vision.image_crop_resolution"
@@ -59,12 +56,16 @@
 #define TN_ATTN_Q          "%s.blk.%d.attn_q.%s"
 #define TN_ATTN_V          "%s.blk.%d.attn_v.%s"
 #define TN_ATTN_OUTPUT     "%s.blk.%d.attn_out.%s"
+#define TN_ATTN_K_NORM     "%s.blk.%d.attn_k_norm.%s"
+#define TN_ATTN_Q_NORM     "%s.blk.%d.attn_q_norm.%s"
 #define TN_FFN_DOWN        "%s.blk.%d.ffn_down.%s"
 #define TN_FFN_GATE        "%s.blk.%d.ffn_gate.%s"
 #define TN_FFN_UP          "%s.blk.%d.ffn_up.%s"
 #define TN_FFN_GATE        "%s.blk.%d.ffn_gate.%s"
-#define TN_LN_1            "%s.blk.%d.ln1.%s"
-#define TN_LN_2            "%s.blk.%d.ln2.%s"
+#define TN_LN_1            "%s.blk.%d.ln1.%s" // layer norm
+#define TN_LN_2            "%s.blk.%d.ln2.%s" // layer norm
+#define TN_LS_1            "%s.blk.%d.ls1.%s" // layer scale
+#define TN_LS_2            "%s.blk.%d.ls2.%s" // layer scale
 #define TN_LN_PRE          "%s.pre_ln.%s"
 #define TN_LN_POST         "%s.post_ln.%s"
 #define TN_LLAVA_PROJ      "mm.%d.%s"
@@ -101,6 +102,8 @@
 #define TN_MM_AUDIO_MLP "mm.a.mlp.%d.%s"
 #define TN_MM_NORM_PRE  "mm.a.norm_pre.%s"
 #define TN_MM_NORM_MID  "mm.a.norm_mid.%s"
+// align x to upper multiple of n
+#define CLIP_ALIGN(x, n) ((((x) + (n) - 1) / (n)) * (n))
 
 enum projector_type {
     PROJECTOR_TYPE_MLP,
@@ -115,6 +118,7 @@ enum projector_type {
     PROJECTOR_TYPE_PIXTRAL,
     PROJECTOR_TYPE_QWEN25VL,
     PROJECTOR_TYPE_ULTRAVOX,
+    PROJECTOR_TYPE_INTERNVL,
     PROJECTOR_TYPE_UNKNOWN,
 };
 
@@ -130,6 +134,7 @@ static std::map<projector_type, std::string> PROJECTOR_TYPE_NAMES = {
     { PROJECTOR_TYPE_IDEFICS3,  "idefics3"},
     { PROJECTOR_TYPE_PIXTRAL,   "pixtral"},
     { PROJECTOR_TYPE_ULTRAVOX,  "ultravox"},
+    { PROJECTOR_TYPE_INTERNVL,  "internvl"},
 };
 
 static projector_type clip_projector_type_from_string(const std::string & str) {
@@ -246,6 +251,15 @@ struct clip_image_u8_batch {
 struct clip_image_f32_batch {
     std::vector<clip_image_f32_ptr> entries;
     bool is_audio = false;
+
+    clip_image_f32_batch clone() const {
+        clip_image_f32_batch new_batch;
+        new_batch.entries.reserve(entries.size());
+        for (const auto & entry : entries) {
+            new_batch.entries.emplace_back(new clip_image_f32(*entry));
+        }
+        return new_batch;
+    }
 };
 
 //
