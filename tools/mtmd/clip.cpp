@@ -359,8 +359,6 @@ struct clip_ctx {
     int max_nodes = 8192;
     ggml_backend_sched_ptr sched;
 
-    clip_image_size load_image_size;
-
     // for debugging
     bool debug_graph = false;
     std::vector<ggml_tensor *> debug_print_tensors;
@@ -2457,14 +2455,6 @@ struct clip_ctx * clip_init(const char * fname, struct clip_context_params ctx_p
     return ctx_clip;
 }
 
-void clip_add_load_image_size(struct clip_ctx * ctx_clip, struct clip_image_size * load_image_size) {
-    ctx_clip->load_image_size = *load_image_size; // copy
-}
-
-struct clip_image_size * clip_get_load_image_size(struct clip_ctx * ctx_clip) {
-    return &ctx_clip->load_image_size;
-}
-
 struct clip_image_size * clip_image_size_init() {
     struct clip_image_size * load_image_size = new struct clip_image_size();
     load_image_size->width = 448;
@@ -3045,12 +3035,6 @@ private:
     }
 };
 
-// TODO @ngxson : decprecate the load_image_size singleton pattern
-int clip_uhd_num_image_embeds_col(struct clip_ctx * ctx_clip) {
-    const auto inst = llava_uhd::get_slice_instructions(ctx_clip, ctx_clip->load_image_size);
-    return inst.grid_size.width;
-}
-
 // returns the normalized float tensor for llava-1.5, for spatial_unpad with anyres processing for llava-1.6 it returns the normalized image patch tensors as a vector
 // res_imgs memory is being allocated here, previous allocations will be freed if found
 bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, struct clip_image_f32_batch * res_imgs) {
@@ -3072,9 +3056,12 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
             normalize_image_u8_to_f32(*imgs[i], *res, ctx->image_mean, ctx->image_std);
             res_imgs->entries.push_back(std::move(res));
         }
+
+        res_imgs->grid_x = inst.grid_size.width;
+        res_imgs->grid_y = inst.grid_size.height;
         return true;
-    }
-    else if (ctx->proj_type == PROJECTOR_TYPE_QWEN2VL || ctx->proj_type == PROJECTOR_TYPE_QWEN25VL) {
+
+    } else if (ctx->proj_type == PROJECTOR_TYPE_QWEN2VL || ctx->proj_type == PROJECTOR_TYPE_QWEN25VL) {
         clip_image_u8 resized;
         auto patch_size = params.patch_size * 2;
         auto new_size = image_manipulation::calc_size_preserved_ratio(original_size, patch_size, params.image_size);
@@ -3122,6 +3109,8 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
             res_imgs->entries.push_back(std::move(res));
         }
 
+        res_imgs->grid_x = inst.grid_size.width;
+        res_imgs->grid_y = inst.grid_size.height;
         return true;
 
     }
@@ -3409,8 +3398,8 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
     const int patch_size    = hparams.patch_size;
     const int num_patches   = ((image_size_width / patch_size) * (image_size_height / patch_size));
     const int n_pos = num_patches + (model.class_embedding ? 1 : 0);
-    const int pos_w = ctx->load_image_size.width  / patch_size;
-    const int pos_h = ctx->load_image_size.height / patch_size;
+    const int pos_w = image_size_width  / patch_size;
+    const int pos_h = image_size_height / patch_size;
 
     const bool use_window_attn = hparams.n_wa_pattern > 0; // for qwen2.5vl
 

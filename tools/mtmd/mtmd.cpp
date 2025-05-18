@@ -42,6 +42,7 @@ enum mtmd_slice_tmpl {
     MTMD_SLICE_TMPL_NONE,
     MTMD_SLICE_TMPL_MINICPMV_2_5,
     MTMD_SLICE_TMPL_MINICPMV_2_6,
+    MTMD_SLICE_TMPL_LLAMA4,
     // TODO @ngxson : add support for idefics (SmolVLM)
 };
 
@@ -65,6 +66,7 @@ struct mtmd_context {
     std::string image_marker;
 
     // for llava-uhd style models, we need special tokens in-between slices
+    // minicpmv calls them "slices", llama 4 calls them "tiles"
     mtmd_slice_tmpl slice_tmpl    = MTMD_SLICE_TMPL_NONE;
     llama_token tok_ov_img_start  = LLAMA_TOKEN_NULL; // overview image
     llama_token tok_ov_img_end    = LLAMA_TOKEN_NULL; // overview image
@@ -137,6 +139,7 @@ struct mtmd_context {
             //     ... <|tile_y_separator|>   <-- trailing end-of-row token
             // <|image|> (overview)           <-- overview image is last
             // <|image_end|>
+            slice_tmpl        = MTMD_SLICE_TMPL_LLAMA4;
             tok_ov_img_start  = lookup_token("<|image|>");
             tok_sli_img_mid   = lookup_token("<|tile_x_separator|>");
             tok_row_end       = lookup_token("<|tile_y_separator|>");
@@ -361,7 +364,12 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                 return 2;
             }
 
-            if (ctx->slice_tmpl == MTMD_SLICE_TMPL_MINICPMV_2_5 || ctx->slice_tmpl == MTMD_SLICE_TMPL_MINICPMV_2_6) {
+            // handle llava-uhd style preprocessing
+            if (
+                ctx->slice_tmpl == MTMD_SLICE_TMPL_MINICPMV_2_5
+                || ctx->slice_tmpl == MTMD_SLICE_TMPL_MINICPMV_2_6
+                || ctx->slice_tmpl == MTMD_SLICE_TMPL_LLAMA4
+            ) {
                 // split batch into chunks of single images
                 auto chunks = split_batch_to_chunk(std::move(batch_f32), bitmaps[i_img]->id);
                 GGML_ASSERT(chunks.size() > 0);
@@ -380,12 +388,10 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                     }
                 }
 
-                // add slices
+                // add slices (or tiles)
                 if (!chunks.empty()) {
-                    clip_add_load_image_size(ctx->ctx_clip, &img_u8_size);
-                    int n_col = clip_uhd_num_image_embeds_col(ctx->ctx_clip);
-                    int n_row = (int)chunks.size() / n_col;
-                    GGML_ASSERT(n_row * n_col == (int)chunks.size());
+                    const int n_col = batch_f32.grid_x;
+                    const int n_row = batch_f32.grid_y;
                     if (ctx->tok_slices_start != LLAMA_TOKEN_NULL) {
                         add_text_chunk({ctx->tok_slices_start});
                     }
@@ -472,14 +478,6 @@ int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) 
     int n_mmproj_embd = clip_n_mmproj_embd(ctx->ctx_clip);
     ctx->image_embd_v.resize(image_tokens->n_tokens() * n_mmproj_embd);
     bool ok = false;
-
-    // only effective for minicpmv and qwen2vl, other models will ignore load_image_size
-    {
-        clip_image_size slice_size{
-            image_tokens->batch_f32.entries[0]->nx,
-            image_tokens->batch_f32.entries[0]->ny};
-        clip_add_load_image_size(ctx->ctx_clip, &slice_size);
-    }
 
     if (clip_is_llava(ctx->ctx_clip) || clip_is_minicpmv(ctx->ctx_clip) || clip_is_glm(ctx->ctx_clip)) {
         // TODO @ngxson : llava does not support batched encoding ; this should be fixed inside clip_image_batch_encode()
