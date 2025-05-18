@@ -361,7 +361,12 @@ struct clip_ctx {
 
     clip_image_size load_image_size;
 
+    // for debugging
+    bool debug_graph = false;
+    std::vector<ggml_tensor *> debug_print_tensors;
+
     clip_ctx(clip_context_params & ctx_params) {
+        debug_graph = std::getenv("MTMD_DEBUG_GRAPH") != nullptr;
         backend_cpu = ggml_backend_init_by_type(GGML_BACKEND_DEVICE_TYPE_CPU, nullptr);
         if (!backend_cpu) {
             throw std::runtime_error("failed to initialize CPU backend");
@@ -1404,10 +1409,12 @@ private:
     //
 
     void cb(ggml_tensor * cur, const char * name, int il) const {
-        // TODO: implement this
-        GGML_UNUSED(cur);
-        GGML_UNUSED(name);
-        GGML_UNUSED(il);
+        if (ctx->debug_graph) {
+            std::string cur_name = il >= 0 ? std::string(name) + "_" + std::to_string(il) : name;
+            ggml_set_name(cur, cur_name.c_str());
+            ggml_set_output(cur);
+            ctx->debug_print_tensors.push_back(cur);
+        }
     }
 
     // build vision transformer (ViT) cgraph
@@ -3357,6 +3364,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
     }
 
     // build the inference graph
+    ctx->debug_print_tensors.clear();
     ggml_backend_sched_reset(ctx->sched.get());
     ggml_cgraph * gf = clip_image_build_graph(ctx, imgs);
     ggml_backend_sched_alloc_graph(ctx->sched.get(), gf);
@@ -3673,6 +3681,18 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
     if (status != GGML_STATUS_SUCCESS) {
         LOG_ERR("%s: ggml_backend_sched_graph_compute failed with error %d\n", __func__, status);
         return false;
+    }
+
+    // print debug nodes
+    if (ctx->debug_graph) {
+        LOG_INF("\n\n---\n\n");
+        LOG_INF("\n\nDebug graph:\n\n");
+        for (ggml_tensor * t : ctx->debug_print_tensors) {
+            std::vector<uint8_t> data(ggml_nbytes(t));
+            ggml_backend_tensor_get(t, data.data(), 0, ggml_nbytes(t));
+            print_tensor_shape(t);
+            print_tensor_data(t, data.data(), 3);
+        }
     }
 
     // the last node is the embedding tensor
