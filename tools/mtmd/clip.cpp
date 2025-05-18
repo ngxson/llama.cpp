@@ -1736,7 +1736,7 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
             } break;
         case PROJECTOR_TYPE_ULTRAVOX:
             {
-                GGML_ASSERT(imgs.entries.size() == 1);
+                res = nullptr;
             } break;
         default:
             {
@@ -2205,6 +2205,7 @@ struct clip_model_loader {
                     vision_model.mm_2_w = get_tensor(string_format(TN_MM_AUDIO_MLP, 2, "weight"));
                     vision_model.mm_norm_pre_w = get_tensor(string_format(TN_MM_NORM_PRE, "weight"));
                     vision_model.mm_norm_mid_w = get_tensor(string_format(TN_MM_NORM_MID, "weight"));
+                } break;
             case PROJECTOR_TYPE_INTERNVL:
                 {
                     vision_model.mm_0_w = get_tensor(string_format(TN_MVLM_PROJ_MLP, 0, "weight"));
