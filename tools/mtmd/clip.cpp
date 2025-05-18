@@ -2038,6 +2038,16 @@ struct clip_model_loader {
                     {
                         hparams.rope_theta = 10000.0f;
                         get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor);
+
+                        // borrowed from llava-1.6
+                        const int psize = hparams.patch_size;
+                        hparams.image_grid_pinpoints = {
+                            psize,   psize*2, // 336, 672
+                            psize*2, psize,   // 672, 336
+                            psize*2, psize*2, // 672, 672
+                            psize*3, psize,   // 1008, 336
+                            psize,   psize*3, // 336, 1008
+                        };
                     } break;
                 default:
                     break;
@@ -3091,8 +3101,8 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         normalize_image_u8_to_f32(resized_image, *img_f32, ctx->image_mean, ctx->image_std);
         res_imgs->entries.push_back(std::move(img_f32));
         return true;
-    }
-    else if (ctx->proj_type == PROJECTOR_TYPE_PIXTRAL) {
+
+    } else if (ctx->proj_type == PROJECTOR_TYPE_PIXTRAL) {
         clip_image_u8 resized_image;
         auto new_size = image_manipulation::calc_size_preserved_ratio(original_size, params.patch_size, params.image_size);
         image_manipulation::bilinear_resize(*img, resized_image, new_size.width, new_size.height);
@@ -3100,6 +3110,20 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         normalize_image_u8_to_f32(resized_image, *img_f32, ctx->image_mean, ctx->image_std);
         res_imgs->entries.push_back(std::move(img_f32));
         return true;
+
+    } else if (ctx->proj_type == PROJECTOR_TYPE_LLAMA4) {
+        GGML_ASSERT(!params.image_grid_pinpoints.empty());
+        auto const inst = llava_uhd::get_slice_instructions(ctx, original_size);
+        std::vector<clip_image_u8_ptr> imgs = llava_uhd::slice_image(img, inst);
+
+        for (size_t i = 0; i < imgs.size(); ++i) {
+            clip_image_f32_ptr res(clip_image_f32_init());
+            normalize_image_u8_to_f32(*imgs[i], *res, ctx->image_mean, ctx->image_std);
+            res_imgs->entries.push_back(std::move(res));
+        }
+
+        return true;
+
     }
 
     // the logic below is to pad the shorter side to the longer side with a background color: rgb(122, 116, 104)
