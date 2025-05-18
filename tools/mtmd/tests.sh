@@ -64,6 +64,7 @@ if [ "$RUN_BIG_TESTS" = true ]; then
     add_test "llama-mtmd-cli"  "ggml-org/InternVL3-14B-Instruct-GGUF:Q4_K_M"
     # add_test "llama-mtmd-cli" "ggml-org/Qwen2.5-VL-32B-Instruct-GGUF:Q4_K_M" # does not work on my mac M3 Ultra
     # add_test "llama-mtmd-cli" "ggml-org/Qwen2.5-VL-72B-Instruct-GGUF:Q4_K_M" # too big
+    add_test "llama-mtmd-cli"  "ggml-org/Llama-4-Scout-17B-16E-Instruct-GGUF:IQ1_S" # too big
 fi
 
 # these models always give the wrong answer, not sure why
