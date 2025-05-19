@@ -48,7 +48,7 @@
 // tensor name constants
 //
 
-#define TN_POS_EMBD        "v.position_embd.weight"
+#define TN_POS_EMBD        "%s.position_embd.weight"
 #define TN_CLASS_EMBD      "v.class_embd"
 #define TN_PATCH_EMBD      "v.patch_embd.weight"  // not rename tensor with ".0" postfix for backwrad compat
 #define TN_PATCH_EMBD_1    "v.patch_embd.weight.1"
