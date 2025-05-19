@@ -179,8 +179,13 @@ MTMD_API int32_t mtmd_tokenize(mtmd_context * ctx,
                                size_t n_bitmaps);
 
 // returns 0 on success
+// TODO: deprecate
 MTMD_API int32_t mtmd_encode(mtmd_context * ctx,
                              const mtmd_image_tokens * image_tokens);
+
+// returns 0 on success
+MTMD_API int32_t mtmd_encode_chunk(mtmd_context * ctx,
+                                   const mtmd_input_chunk * chunk);
 
 // get output embeddings from the last encode pass
 MTMD_API float * mtmd_get_output_embd(mtmd_context * ctx);

@@ -105,14 +105,17 @@ struct mtmd_context {
     llama_token tok_ov_img_end    = LLAMA_TOKEN_NULL; // overview image
     llama_token tok_slices_start  = LLAMA_TOKEN_NULL; // start of all slices
     llama_token tok_slices_end    = LLAMA_TOKEN_NULL; // end of all slices
-    llama_token tok_sli_img_start = LLAMA_TOKEN_NULL; // single slice start
-    llama_token tok_sli_img_end   = LLAMA_TOKEN_NULL; // single slice end
-    llama_token tok_sli_img_mid   = LLAMA_TOKEN_NULL; // between 2 slices
+    llama_token tok_sli_bm_start = LLAMA_TOKEN_NULL; // single slice start
+    llama_token tok_sli_bm_end   = LLAMA_TOKEN_NULL; // single slice end
+    llama_token tok_sli_bm_mid   = LLAMA_TOKEN_NULL; // between 2 slices
     llama_token tok_row_end       = LLAMA_TOKEN_NULL; // end of row
     bool        tok_row_end_trail = false;
     bool        ov_img_first      = false;
 
     bool use_mrope = false; // for Qwen2VL, we need to use M-RoPE
+
+    // for whisper, we pre-calculate the mel filter bank
+    whisper_preprocessor::whisper_filters w_filters;
 
     // TODO @ngxson : add timings
 
@@ -144,8 +147,8 @@ struct mtmd_context {
             tok_ov_img_end    = lookup_token("</image>");
             tok_slices_start  = lookup_token("<slice>");
             tok_slices_end    = lookup_token("</slice>");
-            tok_sli_img_start = tok_ov_img_start;
-            tok_sli_img_end   = tok_ov_img_end;
+            tok_sli_bm_start = tok_ov_img_start;
+            tok_sli_bm_end   = tok_ov_img_end;
             tok_row_end       = lookup_token("\n");
             tok_row_end_trail = false; // no trailing end-of-row token
             ov_img_first      = true;
@@ -156,8 +159,8 @@ struct mtmd_context {
             slice_tmpl        = MTMD_SLICE_TMPL_MINICPMV_2_6;
             tok_ov_img_start  = lookup_token("<image>");
             tok_ov_img_end    = lookup_token("</image>");
-            tok_sli_img_start = lookup_token("<slice>");
-            tok_sli_img_end   = lookup_token("</slice>");
+            tok_sli_bm_start = lookup_token("<slice>");
+            tok_sli_bm_end   = lookup_token("</slice>");
             tok_row_end       = lookup_token("\n");
             tok_row_end_trail = false; // no trailing end-of-row token
             ov_img_first      = true;
@@ -174,10 +177,15 @@ struct mtmd_context {
             // <|image_end|>
             slice_tmpl        = MTMD_SLICE_TMPL_LLAMA4;
             tok_ov_img_start  = lookup_token("<|image|>");
-            tok_sli_img_mid   = lookup_token("<|tile_x_separator|>");
+            tok_sli_bm_mid   = lookup_token("<|tile_x_separator|>");
             tok_row_end       = lookup_token("<|tile_y_separator|>");
             tok_row_end_trail = true; // add trailing end-of-row token
             ov_img_first      = false; // overview image is last
+        }
+
+        if (proj == PROJECTOR_TYPE_ULTRAVOX) {
+            // TODO @ngxson : check if model n_mel is 128 or 80
+            w_filters = whisper_precalc_filters::get_128_bins();
         }
     }
 
@@ -302,7 +310,7 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
     output->entries.clear();
     output->entries.reserve(parts.size());
 
-    size_t i_img = 0;
+    size_t i_bm = 0;
 
     // utility for adding raw tokens
     auto add_text_chunk = [&output](std::vector<llama_token> && tokens) {
@@ -353,20 +361,22 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
         };
         output->entries.emplace_back(std::move(chunk));
 
-        if (&parts.back() != &part) {
-            // add image token to middle of 2 parts
+        // only add image/audio tokens to middle of 2 parts
+        bool is_not_last = &parts.back() != &part;
 
-            if (i_img >= n_bitmaps) {
+        // handle image
+        if (is_not_last && !bitmaps[i_bm]->is_audio) {
+            if (i_bm >= n_bitmaps) {
                 LOG_ERR("%s: error: not enough images for %d parts\n", __func__, (int)parts.size());
                 return 1;
             }
 
             // convert mtmd_bitmap to clip_image_u8
             clip_image_u8_ptr img_u8(clip_image_u8_init());
-            img_u8->nx = bitmaps[i_img]->nx;
-            img_u8->ny = bitmaps[i_img]->ny;
-            img_u8->buf.resize(bitmaps[i_img]->data.size());
-            std::memcpy(img_u8->buf.data(), bitmaps[i_img]->data.data(), img_u8->nx * img_u8->ny * 3);
+            img_u8->nx = bitmaps[i_bm]->nx;
+            img_u8->ny = bitmaps[i_bm]->ny;
+            img_u8->buf.resize(bitmaps[i_bm]->data.size());
+            std::memcpy(img_u8->buf.data(), bitmaps[i_bm]->data.data(), img_u8->nx * img_u8->ny * 3);
 
             // preprocess image
             clip_image_f32_batch batch_f32;
@@ -383,7 +393,7 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                 || ctx->slice_tmpl == MTMD_SLICE_TMPL_LLAMA4
             ) {
                 // split batch into chunks of single images
-                auto chunks = split_batch_to_chunk(std::move(batch_f32), bitmaps[i_img]->id);
+                auto chunks = split_batch_to_chunk(std::move(batch_f32), bitmaps[i_bm]->id);
                 GGML_ASSERT(chunks.size() > 0);
 
                 auto ov_chunk = std::move(chunks.front());
@@ -410,15 +420,15 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                     for (int y = 0; y < n_row; y++) {
                         for (int x = 0; x < n_col; x++) {
                             const bool is_last_in_row = (x == n_col - 1);
-                            if (ctx->tok_sli_img_start != LLAMA_TOKEN_NULL) {
-                                add_text_chunk({ctx->tok_sli_img_start});
+                            if (ctx->tok_sli_bm_start != LLAMA_TOKEN_NULL) {
+                                add_text_chunk({ctx->tok_sli_bm_start});
                             }
                             output->entries.emplace_back(std::move(chunks[y * n_col + x]));
-                            if (ctx->tok_sli_img_end != LLAMA_TOKEN_NULL) {
-                                add_text_chunk({ctx->tok_sli_img_end});
+                            if (ctx->tok_sli_bm_end != LLAMA_TOKEN_NULL) {
+                                add_text_chunk({ctx->tok_sli_bm_end});
                             }
-                            if (!is_last_in_row && ctx->tok_sli_img_mid != LLAMA_TOKEN_NULL) {
-                                add_text_chunk({ctx->tok_sli_img_mid});
+                            if (!is_last_in_row && ctx->tok_sli_bm_mid != LLAMA_TOKEN_NULL) {
+                                add_text_chunk({ctx->tok_sli_bm_mid});
                             }
                         }
                         if ((y != n_row - 1 || ctx->tok_row_end_trail) && ctx->tok_row_end != LLAMA_TOKEN_NULL) {
@@ -459,7 +469,7 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                     image_tokens->ny = 1;
                 }
                 image_tokens->batch_f32 = std::move(batch_f32);
-                image_tokens->id = bitmaps[i_img]->id; // optional
+                image_tokens->id = bitmaps[i_bm]->id; // optional
 
                 LOG_DBG("image_tokens->nx = %d\n", image_tokens->nx);
                 LOG_DBG("image_tokens->ny = %d\n", image_tokens->ny);
@@ -474,11 +484,83 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                 output->entries.emplace_back(std::move(chunk));
             }
 
-            i_img++; // move to next image
+            i_bm++; // move to next image
+            continue;
+        }
+    
+        // handle audio
+        if (is_not_last && bitmaps[i_bm]->is_audio) {
+            if (i_bm >= n_bitmaps) {
+                LOG_ERR("%s: error: not enough images for %d parts\n", __func__, (int)parts.size());
+                return 1;
+            }
+
+            // preprocess audio
+            whisper_preprocessor::whisper_mel mel_spec;
+            GGML_ASSERT(ctx->w_filters.n_mel);
+            const float * samples = (const float *)bitmaps[i_bm]->data.data();
+            size_t n_samples = bitmaps[i_bm]->data.size() / sizeof(float);
+            bool ok = whisper_preprocessor::preprocess_audio(samples, n_samples, ctx->w_filters, mel_spec);
+            if (!ok) {
+                LOG_ERR("Unable to preprocess audio\n");
+                return 2;
+            }
+
+            // DEBUG!!!!!!!!!!
+            printf("mel_spec.n_len = %d\n", mel_spec.n_len);
+            printf("mel_spec.n_mel = %d\n", mel_spec.n_mel);
+
+            // convert mel spectrogram to clip_image_f32_batch
+            clip_image_f32_ptr mel_f32(clip_image_f32_init());
+            mel_f32->nx = mel_spec.n_len;
+            mel_f32->ny = mel_spec.n_mel;
+            mel_f32->buf = std::move(mel_spec.data);
+            size_t n_tokens = clip_n_output_tokens(ctx->ctx_clip, mel_f32.get());
+
+            clip_image_f32_batch batch_f32;
+            batch_f32.is_audio = true;
+            batch_f32.entries.push_back(std::move(mel_f32));
+
+            mtmd_audio_tokens_ptr audio_tokens(new mtmd_audio_tokens);
+            audio_tokens->n_tokens = n_tokens;
+            audio_tokens->batch_f32 = std::move(batch_f32);
+            audio_tokens->id = bitmaps[i_bm]->id; // optional
+
+            mtmd_input_chunk chunk{
+                MTMD_INPUT_CHUNK_TYPE_AUDIO,
+                {}, // text tokens
+                nullptr, // image tokens
+                std::move(audio_tokens),
+            };
+            output->entries.emplace_back(std::move(chunk));
+
+            i_bm++;
+            continue;
         }
     }
 
     return 0;
+}
+
+int32_t mtmd_encode_chunk(mtmd_context * ctx, const mtmd_input_chunk * chunk) {
+    if (chunk->type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
+        LOG_WRN("mtmd_encode_chunk has no effect for text chunks\n");
+        return 0;
+    } else if (chunk->type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+        return mtmd_encode(ctx, chunk->tokens_image.get());
+    } else if (chunk->type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
+        int n_mmproj_embd = clip_n_mmproj_embd(ctx->ctx_clip);
+        ctx->image_embd_v.resize(chunk->tokens_audio->n_tokens * n_mmproj_embd);
+        bool ok = clip_image_batch_encode(
+            ctx->ctx_clip,
+            ctx->n_threads,
+            &chunk->tokens_audio->batch_f32,
+            ctx->image_embd_v.data());
+        return ok ? 0 : 1;
+    }
+
+    LOG_ERR("mtmd_encode_chunk: unknown chunk type %d\n", (int)chunk->type);
+    return 1;
 }
 
 int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) {
@@ -533,10 +615,11 @@ mtmd_bitmap * mtmd_helper_bitmap_init_from_buf(const unsigned char * buf, size_t
     if (len > 32 && wav_utils::is_wav_buffer(std::string((const char *)buf, 32))) {
         // WAV audio file
         std::vector<float> pcmf32;
-        if (wav_utils::read_wav_from_buf(buf, len, pcmf32)) {
+        if (!wav_utils::read_wav_from_buf(buf, len, pcmf32)) {
             LOG_ERR("Unable to read WAV audio file from buffer\n");
             return nullptr;
         }
+        pcmf32.resize(16000*4 + 400); // DEBUG!!!!!!
         return mtmd_bitmap_init_from_audio(pcmf32.size(), pcmf32.data());
     }
 
