@@ -28,7 +28,7 @@ if (BUILD_SHARED_LIBS)
     set_target_properties(mtmd PROPERTIES POSITION_INDEPENDENT_CODE ON)
     target_compile_definitions(mtmd PRIVATE LLAMA_SHARED LLAMA_BUILD)
     add_library(mtmd_shared SHARED $<TARGET_OBJECTS:mtmd>)
-    target_link_libraries(mtmd_shared PRIVATE ggml llama ${CMAKE_THREAD_LIBS_INIT})
+    target_link_libraries(mtmd_shared PRIVATE ggml llama mtmd_audio ${CMAKE_THREAD_LIBS_INIT})
     install(TARGETS mtmd_shared LIBRARY)
 endif()
 

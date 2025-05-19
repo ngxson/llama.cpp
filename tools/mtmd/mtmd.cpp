@@ -619,7 +619,6 @@ mtmd_bitmap * mtmd_helper_bitmap_init_from_buf(const unsigned char * buf, size_t
             LOG_ERR("Unable to read WAV audio file from buffer\n");
             return nullptr;
         }
-        pcmf32.resize(16000*4 + 400); // DEBUG!!!!!!
         return mtmd_bitmap_init_from_audio(pcmf32.size(), pcmf32.data());
     }
 

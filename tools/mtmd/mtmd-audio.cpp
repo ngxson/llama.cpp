@@ -10,6 +10,15 @@
 #define MA_API static
 #include "miniaudio.h"
 
+// fix problem with std::min and std::max
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#   define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #define _USE_MATH_DEFINES // for M_PI
 #include <cmath>
 #include <cstdint>
