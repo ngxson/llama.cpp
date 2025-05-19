@@ -1,3 +1,12 @@
+// fix problem with std::min and std::max
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#   define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include "mtmd-audio.h"
 
 #define MINIAUDIO_IMPLEMENTATION
@@ -9,15 +18,6 @@
 #define MA_NO_GENERATION
 #define MA_API static
 #include "miniaudio.h"
-
-// fix problem with std::min and std::max
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#ifndef NOMINMAX
-#   define NOMINMAX
-#endif
-#include <windows.h>
-#endif
 
 #define _USE_MATH_DEFINES // for M_PI
 #include <cmath>
@@ -316,86 +316,6 @@ bool preprocess_audio(
 
 namespace wav_utils {
 
-// Sinc function: sin(pi*x) / (pi*x)
-static double calculate_sinc(double x) {
-    if (x == 0.0) return 1.0;
-    double pi_x = M_PI * x;
-    return std::sin(pi_x) / pi_x;
-}
-
-// Hann window function
-static double calculate_hann_window(double x, double half_width) {
-    if (half_width == 0.0) return 1.0;
-    if (std::abs(x) >= half_width) return 0.0;
-    return 0.5 * (1.0 + std::cos(M_PI * x / half_width));
-}
-
-/**
- * @brief Resamples audio data using windowed sinc interpolation.
- * @param kernel_half_width_input_samples Number of input samples on each side of the
- *        interpolation point for the sinc kernel. Larger values improve quality but cost performance.
- */
-static std::vector<float> resample_sinc(const std::vector<float>& samples,
-                                 int new_rate,
-                                 int old_rate,
-                                 int kernel_half_width_input_samples = 16) {
-    if (old_rate <= 0 || new_rate <= 0) {
-        throw std::invalid_argument("Sample rates must be positive.");
-    }
-    if (samples.empty()) return {};
-    if (new_rate == old_rate) return samples;
-    if (kernel_half_width_input_samples <= 0) {
-        throw std::invalid_argument("Kernel half width must be positive.");
-    }
-
-    double ratio = static_cast<double>(new_rate) / old_rate;
-    size_t new_num_samples = static_cast<size_t>(std::round(static_cast<double>(samples.size()) * ratio));
-
-    if (new_num_samples == 0) return {};
-
-    std::vector<float> resampled_samples(new_num_samples);
-
-    // Sinc argument scaling for anti-aliasing/anti-imaging:
-    // adjusts filter cutoff to the lower of the two Nyquist frequencies.
-    double sinc_argument_scale_factor = std::min(1.0, ratio);
-
-    for (size_t i = 0; i < new_num_samples; ++i) {
-        double t_new_sample_time = static_cast<double>(i) / new_rate;
-        double center_input_idx_float = t_new_sample_time * old_rate; // Fractional index in original samples
-
-        double current_output_value = 0.0;
-        double current_kernel_sum = 0.0; // For normalizing filter gain
-
-        int first_input_idx_to_consider = static_cast<int>(std::floor(center_input_idx_float)) - kernel_half_width_input_samples + 1;
-        int last_input_idx_to_consider  = static_cast<int>(std::floor(center_input_idx_float)) + kernel_half_width_input_samples;
-
-        for (int k = first_input_idx_to_consider; k <= last_input_idx_to_consider; ++k) {
-            if (k < 0 || k >= static_cast<int>(samples.size())) {
-                continue; // Effectively zero-padding
-            }
-
-            // Distance (in original sample intervals) from original sample 'k' to new sample's ideal position
-            double time_diff_in_old_samples = center_input_idx_float - static_cast<double>(k);
-            double sinc_kernel_arg = time_diff_in_old_samples * sinc_argument_scale_factor;
-            
-            double sinc_value = calculate_sinc(sinc_kernel_arg);
-            double window_value = calculate_hann_window(time_diff_in_old_samples, static_cast<double>(kernel_half_width_input_samples));
-            
-            double tap_weight = sinc_value * window_value;
-            
-            current_output_value += samples[k] * tap_weight;
-            current_kernel_sum += tap_weight;
-        }
-
-        if (current_kernel_sum != 0.0) {
-            resampled_samples[i] = static_cast<float>(current_output_value / current_kernel_sum);
-        } else {
-            resampled_samples[i] = 0.0f; // If kernel sum is zero (e.g., outside original signal range)
-        }
-    }
-    return resampled_samples;
-}
-
 bool is_wav_buffer(const std::string buf) {
     // RIFF ref: https://en.wikipedia.org/wiki/Resource_Interchange_File_Format
     // WAV ref: https://www.mmsp.ece.mcgill.ca/Documents/AudioFormats/WAVE/WAVE.html
@@ -411,13 +331,7 @@ bool is_wav_buffer(const std::string buf) {
     return true;
 }
 
-// returns mono PCM data
-#define MINIAUDIO_IMPLEMENTATION
-#include "miniaudio.h"
-
-#include <vector>
-// #include <iostream> // For debugging, can be removed
-
+// returns true if the buffer is a valid WAV file
 bool read_wav_from_buf(const unsigned char * buf_in, size_t len, int target_sampler_rate, std::vector<float> & pcmf32_mono) {
     ma_result result;
     // Request f32 output from the decoder. Channel count and sample rate are determined from the file.
@@ -426,7 +340,6 @@ bool read_wav_from_buf(const unsigned char * buf_in, size_t len, int target_samp
 
     result = ma_decoder_init_memory(buf_in, len, &decoder_config, &decoder);
     if (result != MA_SUCCESS) {
-        fprintf(stderr, "Unable to initialize decoder\n");
         return false;
     }
 
