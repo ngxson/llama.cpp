@@ -615,7 +615,7 @@ mtmd_bitmap * mtmd_helper_bitmap_init_from_buf(const unsigned char * buf, size_t
     if (len > 32 && wav_utils::is_wav_buffer(std::string((const char *)buf, 32))) {
         // WAV audio file
         std::vector<float> pcmf32;
-        if (!wav_utils::read_wav_from_buf(buf, len, pcmf32)) {
+        if (!wav_utils::read_wav_from_buf(buf, len, COMMON_SAMPLE_RATE, pcmf32)) {
             LOG_ERR("Unable to read WAV audio file from buffer\n");
             return nullptr;
         }

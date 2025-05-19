@@ -1,5 +1,11 @@
 # mtmd
 
+# compile mtmd-audio separately to avoid long compile times
+add_library(mtmd_audio STATIC mtmd-audio.cpp mtmd-audio.h)
+target_link_libraries(mtmd_audio PRIVATE ggml ${CMAKE_THREAD_LIBS_INIT})
+target_compile_features(mtmd_audio PRIVATE cxx_std_17)
+target_include_directories(mtmd_audio PRIVATE .)
+
 add_library(mtmd OBJECT
             mtmd.cpp
             mtmd-helper.cpp
@@ -9,7 +15,7 @@ add_library(mtmd OBJECT
             clip-impl.h
             )
 
-target_link_libraries(mtmd PRIVATE ggml llama ${CMAKE_THREAD_LIBS_INIT})
+target_link_libraries(mtmd PRIVATE ggml llama mtmd_audio ${CMAKE_THREAD_LIBS_INIT})
 
 target_include_directories(mtmd PUBLIC .)
 target_include_directories(mtmd PRIVATE ../..)
@@ -28,6 +34,7 @@ endif()
 
 if (NOT MSVC)
     target_compile_options(mtmd PRIVATE -Wno-cast-qual) # stb_image.h
+    target_compile_options(mtmd_audio PRIVATE -Wno-cast-qual) # miniaudio.h
 endif()
 
 if(TARGET BUILD_INFO)
