@@ -2,6 +2,9 @@
 
 # compile mtmd-audio separately to avoid long compile times
 add_library(mtmd_audio STATIC mtmd-audio.cpp mtmd-audio.h)
+if (BUILD_SHARED_LIBS)
+    set_target_properties(mtmd_audio PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
 target_link_libraries(mtmd_audio PRIVATE ggml ${CMAKE_THREAD_LIBS_INIT})
 target_compile_features(mtmd_audio PRIVATE cxx_std_17)
 target_include_directories(mtmd_audio PRIVATE .)
