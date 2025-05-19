@@ -29,6 +29,9 @@
 
 // most of the code here is copied from whisper.cpp
 
+// align x to upper multiple of n
+#define _ALIGN(x, n) ((((x) + (n) - 1) / (n)) * (n))
+
 namespace whisper_preprocessor {
 
 #define SIN_COS_N_COUNT WHISPER_N_FFT
@@ -298,9 +301,17 @@ bool preprocess_audio(
         size_t n_samples,
         whisper_filters & filters,
         whisper_mel & output) {
+    
+    // a bit hacky, but we want to align the output to a multiple of WHISPER_N_FFT * proj_stack_factor
+    // proj_stack_factor is 8, specifically for Ultravox (so this is a temporary solution)
+
+    size_t n_padded = _ALIGN(n_samples, WHISPER_N_FFT * 8);
+    std::vector<float> samples_padded(n_padded, 0.0f);
+    std::copy(samples, samples + n_samples, samples_padded.data());
+
     return log_mel_spectrogram(
-                samples,
-                n_samples,
+                samples_padded.data(),
+                samples_padded.size(),
                 COMMON_SAMPLE_RATE,
                 WHISPER_N_FFT,
                 WHISPER_HOP_LENGTH,
@@ -391,7 +402,7 @@ bool read_wav_from_buf(const unsigned char * buf_in, size_t len, int target_samp
             ma_decoder_uninit(&decoder);
             return false;
         }
-        
+
         double resample_ratio = (double)target_sampler_rate / decoder.outputSampleRate;
         // Reserve for mono output
         pcmf32_mono.reserve(static_cast<size_t>(total_frames_expected_from_decoder * resample_ratio * 1.1) + 1);
@@ -411,9 +422,9 @@ bool read_wav_from_buf(const unsigned char * buf_in, size_t len, int target_samp
             }
 
             if (frames_decoded_this_iteration == 0 && result == MA_AT_END) { // Ensure we process the last bit if MA_AT_END was from previous read
-                break; 
+                break;
             }
-            
+
             ma_uint64 frame_count_in = frames_decoded_this_iteration;
             ma_uint64 frame_count_out_capacity;
 
@@ -423,7 +434,7 @@ bool read_wav_from_buf(const unsigned char * buf_in, size_t len, int target_samp
                 ma_decoder_uninit(&decoder);
                 return false;
             }
-            
+
             size_t current_pcmf32_sample_offset = pcmf32_mono.size();
             // Resize for mono output (channelsOut is 1)
             pcmf32_mono.resize(current_pcmf32_sample_offset + frame_count_out_capacity * data_converter.channelsOut);
@@ -433,7 +444,7 @@ bool read_wav_from_buf(const unsigned char * buf_in, size_t len, int target_samp
             result = ma_data_converter_process_pcm_frames(
                 &data_converter,
                 temp_decode_buffer.data(),
-                &frame_count_in, 
+                &frame_count_in,
                 pcmf32_mono.data() + current_pcmf32_sample_offset,
                 &frames_actually_output
             );
@@ -443,7 +454,7 @@ bool read_wav_from_buf(const unsigned char * buf_in, size_t len, int target_samp
                 ma_decoder_uninit(&decoder);
                 return false;
             }
-            
+
             // Adjust size to actual frames output (mono)
             pcmf32_mono.resize(current_pcmf32_sample_offset + frames_actually_output * data_converter.channelsOut);
 

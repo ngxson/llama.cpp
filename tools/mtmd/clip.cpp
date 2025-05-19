@@ -165,6 +165,7 @@ enum patch_merge_type {
 };
 
 struct clip_hparams {
+    bool has_vision = false;
     bool has_audio = false;
 
     int32_t image_size;
@@ -2029,15 +2030,16 @@ struct clip_model_loader {
         {
             get_i32(KEY_MINICPMV_VERSION, ctx_clip.minicpmv_version, false); // legacy
 
-            get_bool(KEY_HAS_AUDIO_ENC, hparams.has_audio, false);
-            get_u32(KEY_N_EMBD,         hparams.n_embd);
-            get_u32(KEY_N_HEAD,         hparams.n_head);
-            get_u32(KEY_N_FF,           hparams.n_ff);
-            get_u32(KEY_N_BLOCK,        hparams.n_layer);
-            get_u32(KEY_PROJ_DIM,       hparams.projection_dim);
-            get_f32(KEY_LAYER_NORM_EPS, hparams.eps);
-            get_u32(KEY_IMAGE_SIZE,     hparams.image_size);
-            get_u32(KEY_PATCH_SIZE,     hparams.patch_size);
+            get_bool(KEY_HAS_AUDIO_ENC,  hparams.has_audio, false);
+            get_bool(KEY_HAS_VISION_ENC, hparams.has_vision, false);
+            get_u32(KEY_N_EMBD,          hparams.n_embd);
+            get_u32(KEY_N_HEAD,          hparams.n_head);
+            get_u32(KEY_N_FF,            hparams.n_ff);
+            get_u32(KEY_N_BLOCK,         hparams.n_layer);
+            get_u32(KEY_PROJ_DIM,        hparams.projection_dim);
+            get_f32(KEY_LAYER_NORM_EPS,  hparams.eps);
+            get_u32(KEY_IMAGE_SIZE,      hparams.image_size);
+            get_u32(KEY_PATCH_SIZE,      hparams.patch_size);
             get_u32(KEY_IMAGE_CROP_RESOLUTION,    hparams.image_crop_resolution, false);
             get_arr_int(KEY_IMAGE_GRID_PINPOINTS, hparams.image_grid_pinpoints, false);
 
@@ -2173,6 +2175,7 @@ struct clip_model_loader {
             }
 
             LOG_INF("%s: projector:          %s\n", __func__, proj_type.c_str());
+            LOG_INF("%s: has_vision_encoder: %d\n", __func__, hparams.has_vision);
             LOG_INF("%s: has_audio_encoder:  %d\n", __func__, hparams.has_audio);
             LOG_INF("%s: n_embd:             %d\n", __func__, hparams.n_embd);
             LOG_INF("%s: n_head:             %d\n", __func__, hparams.n_head);
@@ -3951,6 +3954,14 @@ bool clip_is_llava(const struct clip_ctx * ctx) {
 
 bool clip_is_gemma3(const struct clip_ctx * ctx) {
     return ctx->proj_type == PROJECTOR_TYPE_GEMMA3;
+}
+
+bool clip_has_vision_encoder(const struct clip_ctx * ctx) {
+    return ctx->vision_model.hparams.has_vision;
+}
+
+bool clip_has_audio_encoder(const struct clip_ctx * ctx) {
+    return ctx->vision_model.hparams.has_audio;
 }
 
 bool clip_encode_float_image (struct clip_ctx * ctx, int n_threads, float * img, int h, int w, float * vec) {

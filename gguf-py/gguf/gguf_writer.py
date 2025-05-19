@@ -942,6 +942,9 @@ class GGUFWriter:
     def add_vision_has_vision_encoder(self, value: bool) -> None:
         self.add_bool(Keys.ClipVision.HAS_VISION_ENCODER, value)
 
+    def add_vision_has_audio_encoder(self, value: bool) -> None:
+        self.add_bool(Keys.ClipVision.HAS_AUDIO_ENCODER, value)
+
     def add_vision_patch_size(self, value: int) -> None:
         self.add_uint32(Keys.ClipVision.PATCH_SIZE, value)
 

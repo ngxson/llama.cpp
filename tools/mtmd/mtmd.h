@@ -99,6 +99,11 @@ MTMD_API bool mtmd_decode_use_non_causal(mtmd_context * ctx);
 // whether the current model use M-RoPE for llama_decode
 MTMD_API bool mtmd_decode_use_mrope(mtmd_context * ctx);
 
+// whether the current model supports vision input
+MTMD_API bool mtmd_support_vision(mtmd_context * ctx);
+
+// whether the current model supports audio input
+MTMD_API bool mtmd_support_audio(mtmd_context * ctx);
 
 // mtmd_bitmap
 //

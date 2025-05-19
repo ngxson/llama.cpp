@@ -1119,6 +1119,8 @@ class VisionModel(ModelBase):
     model_arch = gguf.MODEL_ARCH.CLIP_VISION
     preprocessor_config: dict[str, Any]
     global_config: dict[str, Any]
+    has_vision_encoder: bool = True
+    has_audio_encoder: bool = False
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1159,7 +1161,10 @@ class VisionModel(ModelBase):
     def set_gguf_parameters(self):
         self.gguf_writer.add_file_type(self.ftype)
         self.gguf_writer.add_vision_projection_dim(self.n_embd_text)
-        self.gguf_writer.add_vision_has_vision_encoder(True)
+        if self.has_vision_encoder:
+            self.gguf_writer.add_vision_has_vision_encoder(True)
+        if self.has_audio_encoder:
+            self.gguf_writer.add_vision_has_audio_encoder(True)
 
         # vision config
         self.gguf_writer.add_vision_image_size(self.find_hparam(["image_size"]))
@@ -5969,6 +5974,7 @@ class ChameleonModel(TextModel):
 @ModelBase.register("UltravoxModel")
 class UltravoxModel(TextModel):
     model_arch = gguf.MODEL_ARCH.LLAMA # dummy
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         raise NotImplementedError("Ultravox does not have text decoder. Please use --mmproj argument")
@@ -5978,6 +5984,8 @@ class UltravoxModel(TextModel):
 class UltravoxAudioModel(VisionModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.has_vision_encoder = False
+        self.has_audio_encoder = True
         self.hparams["image_size"] = self.hparams["num_mel_bins"]
         self.hparams["patch_size"] = self.hparams["num_mel_bins"]
         self.hparams["hidden_size"] = self.hparams["d_model"]
@@ -5988,7 +5996,6 @@ class UltravoxAudioModel(VisionModel):
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
-        self.gguf_writer.add_bool(gguf.Keys.ClipVision.HAS_AUDIO_ENC, True)
         self.gguf_writer.add_vision_projector_type(gguf.VisionProjectorType.ULTRAVOX)
         self.gguf_writer.add_vision_attention_layernorm_eps(self.hparams.get("layer_norm_eps", 1e-5))
         self.gguf_writer.add_uint32(gguf.Keys.ClipVision.Projector.STACK_FACTOR, self.global_config["stack_factor"])
@@ -5998,7 +6005,7 @@ class UltravoxAudioModel(VisionModel):
         if ".conv" in name and ".weight" in name:
             return gguf.GGMLQuantizationType.F16
         return False
-    
+
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         del bid  # unused
 

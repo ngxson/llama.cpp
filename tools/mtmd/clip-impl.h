@@ -17,6 +17,7 @@
 #define KEY_NAME                "general.name"
 #define KEY_DESCRIPTION         "general.description"
 #define KEY_HAS_AUDIO_ENC       "clip.has_audio_encoder"
+#define KEY_HAS_VISION_ENC      "clip.has_vision_encoder"
 #define KEY_MINICPMV_VERSION    "clip.minicpmv_version"
 #define KEY_USE_GELU            "clip.use_gelu"
 #define KEY_USE_SILU            "clip.use_silu"

@@ -96,3 +96,6 @@ bool clip_encode_float_image (struct clip_ctx * ctx, int n_threads, float * img,
 
 // use by audio input
 void clip_image_f32_batch_add_mel(struct clip_image_f32_batch * batch, int n_mel, int n_step, float * mel);
+
+bool clip_has_vision_encoder(const struct clip_ctx * ctx);
+bool clip_has_audio_encoder(const struct clip_ctx * ctx);

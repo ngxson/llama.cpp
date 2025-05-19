@@ -97,6 +97,8 @@ struct mtmd_context {
     bool print_timings;
     int n_threads;
     std::string image_marker;
+    bool has_vision;
+    bool has_audio;
 
     // for llava-uhd style models, we need special tokens in-between slices
     // minicpmv calls them "slices", llama 4 calls them "tiles"
@@ -135,7 +137,9 @@ struct mtmd_context {
             throw std::runtime_error(string_format("Failed to load CLIP model from %s\n", mmproj_fname));
         }
 
-        use_mrope = clip_is_qwen2vl(ctx_clip);
+        has_vision = clip_has_vision_encoder(ctx_clip);
+        has_audio  = clip_has_audio_encoder(ctx_clip);
+        use_mrope  = clip_is_qwen2vl(ctx_clip);
 
         projector_type proj = clip_get_projector_type(ctx_clip);
         int minicpmv_version = clip_is_minicpmv(ctx_clip);
@@ -362,13 +366,22 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
         output->entries.emplace_back(std::move(chunk));
 
         // only add image/audio tokens to middle of 2 parts
-        bool is_not_last = &parts.back() != &part;
+        // therefore, we skip handling image/audio if this is the last part
+        if (&parts.back() == &part) {
+            continue;
+        }
 
-        // handle image
-        if (is_not_last && !bitmaps[i_bm]->is_audio) {
+        if (!bitmaps[i_bm]->is_audio) {
+            // handle image
+
             if (i_bm >= n_bitmaps) {
                 LOG_ERR("%s: error: not enough images for %d parts\n", __func__, (int)parts.size());
                 return 1;
+            }
+
+            if (!ctx->has_vision) {
+                LOG_ERR("%s: error: model does not support vision input\n", __func__);
+                return 2;
             }
 
             // convert mtmd_bitmap to clip_image_u8
@@ -486,13 +499,18 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
 
             i_bm++; // move to next image
             continue;
-        }
-    
-        // handle audio
-        if (is_not_last && bitmaps[i_bm]->is_audio) {
+
+        } else {
+            // handle audio
+
             if (i_bm >= n_bitmaps) {
                 LOG_ERR("%s: error: not enough images for %d parts\n", __func__, (int)parts.size());
                 return 1;
+            }
+
+            if (!ctx->has_audio) {
+                LOG_ERR("%s: error: model does not support audio input\n", __func__);
+                return 2;
             }
 
             // preprocess audio
@@ -506,9 +524,11 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                 return 2;
             }
 
-            // DEBUG!!!!!!!!!!
-            printf("mel_spec.n_len = %d\n", mel_spec.n_len);
-            printf("mel_spec.n_mel = %d\n", mel_spec.n_mel);
+            // DEBUG!!!
+            // mel_spec.data.resize(220*8*2 * mel_spec.n_mel);
+            // mel_spec.n_len = 220*8*2;
+            LOG_DBG("mel_spec.n_len = %d\n", mel_spec.n_len);
+            LOG_DBG("mel_spec.n_mel = %d\n", mel_spec.n_mel);
 
             // convert mel spectrogram to clip_image_f32_batch
             clip_image_f32_ptr mel_f32(clip_image_f32_init());
@@ -525,6 +545,8 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
             audio_tokens->n_tokens = n_tokens;
             audio_tokens->batch_f32 = std::move(batch_f32);
             audio_tokens->id = bitmaps[i_bm]->id; // optional
+
+            LOG_DBG("audio_tokens->n_tokens = %d\n", audio_tokens->n_tokens);
 
             mtmd_input_chunk chunk{
                 MTMD_INPUT_CHUNK_TYPE_AUDIO,
@@ -604,6 +626,14 @@ bool mtmd_decode_use_non_causal(mtmd_context * ctx) {
 
 bool mtmd_decode_use_mrope(mtmd_context * ctx) {
     return ctx->use_mrope;
+}
+
+bool mtmd_support_vision(mtmd_context * ctx) {
+    return ctx->has_vision;
+}
+
+bool mtmd_support_audio(mtmd_context * ctx) {
+    return ctx->has_audio;
 }
 
 // these 2 helpers below use internal clip_image_u8_ptr,

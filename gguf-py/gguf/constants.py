@@ -220,9 +220,9 @@ class Keys:
         LORA_ALPHA = "adapter.lora.alpha"
 
     class ClipVision:
-        HAS_AUDIO_ENC       = "clip.has_audio_encoder"
         PROJECTOR_TYPE      = "clip.projector_type"
         HAS_VISION_ENCODER  = "clip.has_vision_encoder"
+        HAS_AUDIO_ENCODER   = "clip.has_audio_encoder"
         HAS_LLAVA_PROJECTOR = "clip.has_llava_projector"
         IMAGE_SIZE          = "clip.vision.image_size"
         PATCH_SIZE          = "clip.vision.patch_size"
