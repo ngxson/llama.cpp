@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <vector>
+#include <string>
 
 #define WHISPER_ASSERT GGML_ASSERT
 
@@ -43,7 +44,7 @@ extern bool preprocess_audio(
 
 namespace wav_utils {
 
-    extern bool is_wav_buffer(const std::string buf);
+extern bool is_wav_buffer(const std::string buf);
 
 extern bool read_wav_from_buf(const unsigned char * buf_in, size_t len, int target_sampler_rate, std::vector<float> & pcmf32_mono);
 
