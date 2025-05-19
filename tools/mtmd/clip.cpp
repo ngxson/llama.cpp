@@ -219,7 +219,7 @@ struct clip_layer {
     ggml_tensor * ff_down_w = nullptr;
     ggml_tensor * ff_down_b = nullptr;
 
-    // layernorm 2 (post-attn norm / pre-ffn norm)
+    // layernorm 2
     ggml_tensor * ln_2_w = nullptr;
     ggml_tensor * ln_2_b = nullptr;
 
@@ -971,6 +971,9 @@ struct clip_graph {
 
         // build ViT with 2D position embeddings
         auto add_pos = [&](ggml_tensor * cur, const clip_layer &) {
+            // first half is X axis and second half is Y axis
+            // ref: https://github.com/huggingface/transformers/blob/40a493c7ed4f19f08eadb0639cf26d49bfa5e180/src/transformers/models/llama4/modeling_llama4.py#L1312
+            // ref: https://github.com/Blaizzy/mlx-vlm/blob/a57156aa87b33cca6e5ee6cfc14dd4ef8f611be6/mlx_vlm/models/llama4/vision.py#L441
             return build_rope_2d(ctx0, cur, pos_w, pos_h, hparams.rope_theta, false);
         };
         ggml_tensor * cur = build_vit(
@@ -990,7 +993,7 @@ struct clip_graph {
         // https://github.com/huggingface/transformers/blob/2932f318a20d9e54cc7aea052e040164d85de7d6/src/transformers/models/llama4/modeling_llama4.py#L1151
         {
             const int scale_factor = model.hparams.proj_scale_factor;
-            const int bsz    = 1; // batch size, always 1 for now since we don't support batching
+            const int bsz = 1; // batch size, always 1 for now since we don't support batching
             GGML_ASSERT(scale_factor > 0);
             GGML_ASSERT(n_patches_x == n_patches_y); // llama4 only supports square images
             cur = ggml_reshape_4d(ctx0, cur,
