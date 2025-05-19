@@ -1045,7 +1045,6 @@ private: // disallow accessing these members directly, risking out-of-sync
     // it can include LLAMA_TOKEN_NULL, which is used to indicate a token that is not a text token
     // a mtmd_input_chunk can occupy multiple tokens, one llama_token per **position**
     // important: for models using mrope, an image can contain multiple tokens but will use only one **position**
-    // in otherwords, tokens.size() == n_past
     llama_tokens tokens;
 
     // for ex. with input of 5 text tokens and 2 images:

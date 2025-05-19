@@ -1308,7 +1308,7 @@ struct server_slot {
     int64_t t_start_process_prompt;
     int64_t t_start_generation;
 
-    size_t n_prompt_processing = 0; // number of decoded prompt tokens (may be less than prompt_tokens.n_kv_tokens(), in case we are using cache)
+    size_t n_prompt_processing = 0; // number of decoded prompt tokens (may be less than prompt_tokens.n_tokens(), in case we are using cache)
     double t_prompt_processing; // ms
     double t_token_generation;  // ms
 
@@ -2476,7 +2476,7 @@ struct server_context {
         res->truncated           = slot.truncated;
         res->n_decoded           = slot.n_decoded;
         res->n_prompt_tokens     = slot.n_prompt_tokens();
-        res->n_tokens_cached     = slot.n_past;
+        res->n_tokens_cached     = slot.n_cache_tokens();
         res->has_new_line        = slot.has_new_line;
         res->stopping_word       = slot.stopping_word;
         res->stop                = slot.stop;
