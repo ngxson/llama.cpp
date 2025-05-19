@@ -1,6 +1,7 @@
 #include "clip.h"
 #include "clip-impl.h"
 #include "mtmd.h"
+#include "mtmd-audio.h"
 
 #include "llama.h"
 
@@ -19,17 +20,49 @@ struct mtmd_bitmap {
     uint32_t ny;
     std::vector<unsigned char> data;
     std::string id; // optional user-defined id, for ex: can be set to image hash, useful for KV cache tracking
+    bool is_audio = false; // true if the bitmap is audio
 };
 
-struct mtmd_image_tokens_deleter {
-    void operator()(mtmd_image_tokens * val); // forward declaration
+struct mtmd_image_tokens {
+    uint32_t nx; // number of tokens in x direction
+    uint32_t ny; // number of tokens in y direction
+    bool use_mrope_pos = false; // use M-RoPE position counting (the whole image is 1 temporal position)
+    uint32_t n_tokens() const { return nx * ny; }
+    clip_image_f32_batch batch_f32; // preprocessed image patches
+    std::string id; // optional user-defined ID, useful for KV cache tracking
+
+    mtmd_image_tokens clone() {
+        return mtmd_image_tokens{
+            nx,
+            ny,
+            use_mrope_pos,
+            batch_f32.clone(),
+            id
+        };
+    }
 };
-using mtmd_image_tokens_ptr = std::unique_ptr<mtmd_image_tokens, mtmd_image_tokens_deleter>;
+using mtmd_image_tokens_ptr = std::unique_ptr<mtmd_image_tokens>;
+
+struct mtmd_audio_tokens {
+    uint32_t n_tokens; // number of tokens
+    clip_image_f32_batch batch_f32; // preprocessed image patches
+    std::string id; // optional user-defined ID, useful for KV cache tracking
+
+    mtmd_audio_tokens clone() {
+        return mtmd_audio_tokens{
+            n_tokens,
+            batch_f32.clone(),
+            id
+        };
+    }
+};
+using mtmd_audio_tokens_ptr = std::unique_ptr<mtmd_audio_tokens>;
 
 struct mtmd_input_chunk {
     mtmd_input_chunk_type type;
     std::vector<llama_token> tokens_text;
     mtmd_image_tokens_ptr tokens_image;
+    mtmd_audio_tokens_ptr tokens_audio;
 };
 
 struct mtmd_input_chunks {
@@ -179,29 +212,6 @@ private:
     }
 };
 
-struct mtmd_image_tokens_data {
-    clip_image_f32_batch batch_f32; // preprocessed image patches
-};
-
-struct mtmd_image_tokens {
-    uint32_t nx; // number of tokens in x direction
-    uint32_t ny; // number of tokens in y direction
-    bool use_mrope_pos = false; // use M-RoPE position counting (the whole image is 1 temporal position)
-    uint32_t n_tokens() const { return nx * ny; }
-    clip_image_f32_batch batch_f32; // preprocessed image patches
-    std::string id; // optional user-defined ID, useful for KV cache tracking
-
-    mtmd_image_tokens clone() {
-        return mtmd_image_tokens{
-            nx,
-            ny,
-            use_mrope_pos,
-            batch_f32.clone(),
-            id
-        };
-    }
-};
-
 mtmd_context * mtmd_init_from_file(const char * mmproj_fname,
         const struct llama_model * text_model,
         const struct mtmd_context_params ctx_params) {
@@ -299,7 +309,8 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
         mtmd_input_chunk chunk{
             MTMD_INPUT_CHUNK_TYPE_TEXT,
             std::move(tokens),
-            {},
+            nullptr, // image tokens
+            nullptr, // audio tokens
         };
         output->entries.emplace_back(std::move(chunk));
     };
@@ -317,8 +328,9 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
 
             mtmd_input_chunk chunk{
                 MTMD_INPUT_CHUNK_TYPE_IMAGE,
-                {},
+                {}, // text tokens
                 std::move(image_tokens),
+                nullptr, // audio tokens
             };
             chunks.emplace_back(std::move(chunk));
         }
@@ -336,7 +348,8 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
         mtmd_input_chunk chunk{
             MTMD_INPUT_CHUNK_TYPE_TEXT,
             std::move(tokens),
-            {},
+            nullptr, // image tokens
+            nullptr, // audio tokens
         };
         output->entries.emplace_back(std::move(chunk));
 
@@ -454,8 +467,9 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
 
                 mtmd_input_chunk chunk{
                     MTMD_INPUT_CHUNK_TYPE_IMAGE,
-                    {},
+                    {}, // text tokens
                     std::move(image_tokens),
+                    nullptr, // audio tokens
                 };
                 output->entries.emplace_back(std::move(chunk));
             }
@@ -465,12 +479,6 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
     }
 
     return 0;
-}
-
-static void mtmd_image_tokens_free(mtmd_image_tokens * image_tokens) {
-    if (image_tokens) {
-        delete image_tokens;
-    }
 }
 
 int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) {
@@ -516,16 +524,22 @@ bool mtmd_decode_use_mrope(mtmd_context * ctx) {
     return ctx->use_mrope;
 }
 
-void mtmd_image_tokens_deleter::operator()(mtmd_image_tokens * val) {
-    mtmd_image_tokens_free(val);
-}
-
 // these 2 helpers below use internal clip_image_u8_ptr,
 // so unfortunately they cannot moved to mtmd-helper.h
 // however, in theory, user can decode image file to bitmap using
 // whichever library they want, and then use mtmd_bitmap_init() to create bitmap
 
 mtmd_bitmap * mtmd_helper_bitmap_init_from_buf(const unsigned char * buf, size_t len) {
+    if (len > 32 && wav_utils::is_wav_buffer(std::string((const char *)buf, 32))) {
+        // WAV audio file
+        std::vector<float> pcmf32;
+        if (wav_utils::read_wav_from_buf(buf, len, pcmf32)) {
+            LOG_ERR("Unable to read WAV audio file from buffer\n");
+            return nullptr;
+        }
+        return mtmd_bitmap_init_from_audio(pcmf32.size(), pcmf32.data());
+    }
+
     clip_image_u8_ptr img_u8(clip_image_u8_init());
     bool ok = clip_image_load_from_bytes(buf, len, img_u8.get());
     if (!ok) {
@@ -538,15 +552,26 @@ mtmd_bitmap * mtmd_helper_bitmap_init_from_buf(const unsigned char * buf, size_t
 }
 
 mtmd_bitmap * mtmd_helper_bitmap_init_from_file(const char * fname) {
-    clip_image_u8_ptr img_u8(clip_image_u8_init());
-    bool ok = clip_image_load_from_file(fname, img_u8.get());
-    if (!ok) {
-        LOG_ERR("Unable to load image %s\n", fname);
+    std::vector<unsigned char> buf;
+    FILE * f = fopen(fname, "rb");
+    if (!f) {
+        LOG_ERR("Unable to open file %s: %s\n", fname, strerror(errno));
         return nullptr;
     }
-    uint32_t nx, ny;
-    unsigned char * data = clip_image_u8_get_data(img_u8.get(), &nx, &ny);
-    return mtmd_bitmap_init(nx, ny, data);
+
+    fseek(f, 0, SEEK_END);
+    long file_size = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    buf.resize(file_size);
+
+    size_t n_read = fread(buf.data(), 1, file_size, f);
+    fclose(f);
+    if (n_read != (size_t)file_size) {
+        LOG_ERR("Failed to read entire file %s", fname);
+        return nullptr;
+    }
+
+    return mtmd_helper_bitmap_init_from_buf(buf.data(), buf.size());
 }
 
 //
@@ -567,6 +592,18 @@ mtmd_bitmap * mtmd_bitmap_init(uint32_t nx,
     return bitmap;
 }
 
+mtmd_bitmap * mtmd_bitmap_init_from_audio(size_t n_samples,
+                                          const float * data) {
+    mtmd_bitmap * bitmap = new mtmd_bitmap;
+    bitmap->nx = n_samples;
+    bitmap->ny = 1;
+    bitmap->is_audio = true;
+    size_t data_size = n_samples * sizeof(float);
+    bitmap->data.resize(data_size);
+    std::memcpy(bitmap->data.data(), data, data_size);
+    return bitmap;
+}
+
 uint32_t mtmd_bitmap_get_nx(const mtmd_bitmap * bitmap) {
     return bitmap->nx;
 }
@@ -577,6 +614,10 @@ uint32_t mtmd_bitmap_get_ny(const mtmd_bitmap * bitmap) {
 
 const unsigned char * mtmd_bitmap_get_data(const mtmd_bitmap * bitmap) {
     return bitmap->data.data();
+}
+
+bool mtmd_bitmap_is_audio(const mtmd_bitmap * bitmap) {
+    return bitmap->is_audio;
 }
 
 const char * mtmd_bitmap_get_id(const mtmd_bitmap * bitmap) {
@@ -642,16 +683,46 @@ const mtmd_image_tokens * mtmd_input_chunk_get_tokens_image(const mtmd_input_chu
     return nullptr;
 }
 
+size_t mtmd_input_chunk_get_n_tokens(const mtmd_input_chunk * chunk) {
+    if (chunk->type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
+        return chunk->tokens_text.size();
+    } else if (chunk->type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+        return mtmd_image_tokens_get_n_tokens(chunk->tokens_image.get());
+    } else if (chunk->type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
+        return chunk->tokens_audio->n_tokens;
+    } else {
+        GGML_ABORT("invalid chunk type");
+    }
+}
+
+llama_pos mtmd_input_chunk_get_n_pos(const mtmd_input_chunk * chunk) {
+    if (chunk->type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
+        return chunk->tokens_text.size();
+    } else if (chunk->type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+        return mtmd_image_tokens_get_n_pos(chunk->tokens_image.get());
+    } else if (chunk->type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
+        return chunk->tokens_audio->n_tokens;
+    } else {
+        GGML_ABORT("invalid chunk type");
+    }
+}
+
 mtmd_input_chunk * mtmd_input_chunk_copy(const mtmd_input_chunk * chunk) {
     mtmd_input_chunk * copy = new mtmd_input_chunk{
         chunk->type,
         chunk->tokens_text,
-        mtmd_image_tokens_ptr(),
+        nullptr,
+        nullptr,
     };
     if (chunk->tokens_image) {
         // copy the image tokens
         copy->tokens_image = mtmd_image_tokens_ptr(new mtmd_image_tokens());
         *copy->tokens_image = chunk->tokens_image->clone();
+    }
+    if (chunk->tokens_audio) {
+        // copy the audio tokens
+        copy->tokens_audio = mtmd_audio_tokens_ptr(new mtmd_audio_tokens());
+        *copy->tokens_audio = chunk->tokens_audio->clone();
     }
     return copy;
 }
@@ -700,7 +771,8 @@ mtmd_input_chunks * mtmd_test_create_input_chunks() {
     mtmd_input_chunk chunk_text{
         MTMD_INPUT_CHUNK_TYPE_TEXT,
         std::move(tokens_text),
-        {},
+        nullptr, // image tokens
+        nullptr, // audio tokens
     };
     chunks->entries.emplace_back(std::move(chunk_text));
 
@@ -712,8 +784,9 @@ mtmd_input_chunks * mtmd_test_create_input_chunks() {
     image_tokens->id = "image_1";
     mtmd_input_chunk chunk_image{
         MTMD_INPUT_CHUNK_TYPE_IMAGE,
-        {},
+        {}, // text tokens
         std::move(image_tokens),
+        nullptr, // audio tokens
     };
     chunks->entries.emplace_back(std::move(chunk_image));
 

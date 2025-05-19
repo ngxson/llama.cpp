@@ -262,7 +262,12 @@ struct clip_image_f32_batch {
     int grid_y = 0;
 
     clip_image_f32_batch clone() const {
-        clip_image_f32_batch new_batch;
+        clip_image_f32_batch new_batch{
+            /* entries  */ {},
+            /* is_audio */ is_audio,
+            /* grid_x   */ grid_x,
+            /* grid_y   */ grid_y,
+        };
         new_batch.entries.reserve(entries.size());
         for (const auto & entry : entries) {
             new_batch.entries.emplace_back(new clip_image_f32(*entry));
