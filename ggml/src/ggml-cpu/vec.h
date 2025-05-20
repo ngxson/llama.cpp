@@ -441,7 +441,7 @@ inline static void ggml_vec_gelu_f16(const int n, ggml_fp16_t * y, const ggml_fp
     }
 }
 
-inline static void ggml_vec_gelu_na_f16(const int n, ggml_fp16_t * y, const ggml_fp16_t * x) {
+inline static void ggml_vec_gelu_erf_f16(const int n, ggml_fp16_t * y, const ggml_fp16_t * x) {
     for (int i = 0; i < n; ++i) {
         float xi = GGML_FP16_TO_FP32(x[i]);
         float res = 0.5f*xi*(1.0f + erff(xi*SQRT_2_INV));
@@ -472,7 +472,7 @@ inline static void ggml_vec_gelu_f32(const int n, float * y, const float * x) {
 }
 #endif
 
-inline static void ggml_vec_gelu_na_f32(const int n, float * y, const float * x) {
+inline static void ggml_vec_gelu_erf_f32(const int n, float * y, const float * x) {
     for (int i = 0; i < n; ++i) {
         float xi = x[i];
         y[i] = 0.5f*xi*(1.0f + erff(xi*SQRT_2_INV));

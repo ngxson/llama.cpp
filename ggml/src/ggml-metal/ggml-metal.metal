@@ -916,7 +916,7 @@ T erf_approx(T x) {
     return sign_x * y;
 }
 
-kernel void kernel_gelu_na(
+kernel void kernel_gelu_erf(
     device const float * src0,
     device       float * dst,
     uint tpig[[thread_position_in_grid]]) {
@@ -925,7 +925,7 @@ kernel void kernel_gelu_na(
     dst[tpig] = 0.5f*x*(1.0f+erf_approx<float>(x*SQRT_2_INV));
 }
 
-kernel void kernel_gelu_na_4(
+kernel void kernel_gelu_erf_4(
     device const float4 * src0,
     device       float4 * dst,
     uint tpig[[thread_position_in_grid]]) {

@@ -1099,7 +1099,7 @@ static const char * GGML_UNARY_OP_NAME[GGML_UNARY_OP_COUNT] = {
     "HARDSWISH",
     "HARDSIGMOID",
     "EXP",
-    "GELU_NA",
+    "GELU_ERF",
 };
 
 static_assert(GGML_UNARY_OP_COUNT == 15, "GGML_UNARY_OP_COUNT != 15");
@@ -2502,18 +2502,18 @@ struct ggml_tensor * ggml_gelu_inplace(
     return ggml_unary_inplace(ctx, a, GGML_UNARY_OP_GELU);
 }
 
-// ggml_gelu_na
+// ggml_gelu_erf
 
-struct ggml_tensor * ggml_gelu_na(
+struct ggml_tensor * ggml_gelu_erf(
         struct ggml_context * ctx,
         struct ggml_tensor  * a) {
-    return ggml_unary(ctx, a, GGML_UNARY_OP_GELU_NA);
+    return ggml_unary(ctx, a, GGML_UNARY_OP_GELU_ERF);
 }
 
-struct ggml_tensor * ggml_gelu_na_inplace(
+struct ggml_tensor * ggml_gelu_erf_inplace(
         struct ggml_context * ctx,
         struct ggml_tensor  * a) {
-    return ggml_unary_inplace(ctx, a, GGML_UNARY_OP_GELU_NA);
+    return ggml_unary_inplace(ctx, a, GGML_UNARY_OP_GELU_ERF);
 }
 
 // ggml_gelu_quick

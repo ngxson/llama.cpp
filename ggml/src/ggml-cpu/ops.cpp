@@ -2691,9 +2691,9 @@ static void ggml_compute_forward_gelu(
     }
 }
 
-// ggml_compute_forward_gelu_na
+// ggml_compute_forward_gelu_erf
 
-static void ggml_compute_forward_gelu_na_f32(
+static void ggml_compute_forward_gelu_erf_f32(
         const ggml_compute_params * params,
         ggml_tensor * dst) {
 
@@ -2717,7 +2717,7 @@ static void ggml_compute_forward_gelu_na_f32(
     const int ir1 = MIN(ir0 + dr, nr);
 
     for (int i1 = ir0; i1 < ir1; i1++) {
-        ggml_vec_gelu_na_f32(nc,
+        ggml_vec_gelu_erf_f32(nc,
                 (float *) ((char *) dst->data  + i1*( dst->nb[1])),
                 (float *) ((char *) src0->data + i1*(src0->nb[1])));
 
@@ -2732,7 +2732,7 @@ static void ggml_compute_forward_gelu_na_f32(
     }
 }
 
-static void ggml_compute_forward_gelu_na_f16(
+static void ggml_compute_forward_gelu_erf_f16(
     const ggml_compute_params * params,
     ggml_tensor * dst) {
 
@@ -2756,7 +2756,7 @@ static void ggml_compute_forward_gelu_na_f16(
     const int ir1 = MIN(ir0 + dr, nr);
 
     for (int i1 = ir0; i1 < ir1; i1++) {
-        ggml_vec_gelu_na_f16(nc,
+        ggml_vec_gelu_erf_f16(nc,
                 (ggml_fp16_t *) ((char *) dst->data  + i1*( dst->nb[1])),
                 (ggml_fp16_t *) ((char *) src0->data + i1*(src0->nb[1])));
 
@@ -2772,7 +2772,7 @@ static void ggml_compute_forward_gelu_na_f16(
     }
 }
 
-static void ggml_compute_forward_gelu_na(
+static void ggml_compute_forward_gelu_erf(
         const ggml_compute_params * params,
         ggml_tensor * dst) {
 
@@ -2781,11 +2781,11 @@ static void ggml_compute_forward_gelu_na(
     switch (src0->type) {
         case GGML_TYPE_F32:
             {
-                ggml_compute_forward_gelu_na_f32(params, dst);
+                ggml_compute_forward_gelu_erf_f32(params, dst);
             } break;
         case GGML_TYPE_F16:
             {
-                ggml_compute_forward_gelu_na_f16(params, dst);
+                ggml_compute_forward_gelu_erf_f16(params, dst);
             } break;
         default:
             {
@@ -7852,9 +7852,9 @@ void ggml_compute_forward_unary(
             {
                 ggml_compute_forward_gelu(params, dst);
             } break;
-        case GGML_UNARY_OP_GELU_NA:
+        case GGML_UNARY_OP_GELU_ERF:
             {
-                ggml_compute_forward_gelu_na(params, dst);
+                ggml_compute_forward_gelu_erf(params, dst);
             } break;
         case GGML_UNARY_OP_GELU_QUICK:
             {
