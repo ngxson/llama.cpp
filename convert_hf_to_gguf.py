@@ -5989,7 +5989,7 @@ class UltravoxAudioModel(VisionModel):
         self.hparams["image_size"] = self.hparams["num_mel_bins"]
         self.hparams["patch_size"] = self.hparams["num_mel_bins"]
         self.hparams["hidden_size"] = self.hparams["d_model"]
-        self.hparams["intermediate_size"] = self.hparams["d_model"]
+        self.hparams["intermediate_size"] = self.hparams["encoder_ffn_dim"]
         self.hparams["num_attention_heads"] = self.hparams["encoder_attention_heads"]
         self.preprocessor_config["image_mean"] = [0, 0, 0]
         self.preprocessor_config["image_std"] = [0, 0, 0]
@@ -6008,6 +6008,10 @@ class UltravoxAudioModel(VisionModel):
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         del bid  # unused
+
+        # prevent clash naming with vision tensors
+        if name.startswith("multi_modal_projector"):
+            name = "audio." + name
 
         if "conv1.bias" in name or "conv2.bias" in name:
             # transpose conv1 and conv2 bias

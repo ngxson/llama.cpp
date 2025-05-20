@@ -1162,15 +1162,15 @@ class TensorNameMap:
         ),
 
         MODEL_TENSOR.A_MMPROJ: (
-            "multi_modal_projector.linear_{bid}", # ultravox
+            "audio.multi_modal_projector.linear_{bid}", # ultravox
         ),
 
         MODEL_TENSOR.A_MM_NORM_PRE: (
-            "multi_modal_projector.ln_pre", # ultravox
+            "audio.multi_modal_projector.ln_pre", # ultravox
         ),
 
         MODEL_TENSOR.A_MM_NORM_MID: (
-            "multi_modal_projector.ln_mid", # ultravox
+            "audio.multi_modal_projector.ln_mid", # ultravox
         ),
     }
 
