@@ -22,6 +22,7 @@
 #define _USE_MATH_DEFINES // for M_PI
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <thread>
 #include <vector>
 #include <fstream>
@@ -301,7 +302,7 @@ bool preprocess_audio(
         size_t n_samples,
         whisper_filters & filters,
         whisper_mel & output) {
-    
+
     // a bit hacky, but we want to align the output to a multiple of WHISPER_N_FFT * proj_stack_factor
     // proj_stack_factor is 8, specifically for Ultravox (so this is a temporary solution)
 
@@ -325,28 +326,31 @@ bool preprocess_audio(
 } // namespace whisper_preprocessor
 
 
-namespace wav_utils {
+namespace audio_helpers {
 
-bool is_wav_buffer(const std::string buf) {
-    // RIFF ref: https://en.wikipedia.org/wiki/Resource_Interchange_File_Format
-    // WAV ref: https://www.mmsp.ece.mcgill.ca/Documents/AudioFormats/WAVE/WAVE.html
-    if (buf.size() < 12 || buf.substr(0, 4) != "RIFF" || buf.substr(8, 4) != "WAVE") {
+bool is_audio_file(const char * buf, size_t len) {
+    if (len < 12) {
         return false;
     }
 
-    // uint32_t chunk_size = *reinterpret_cast<const uint32_t*>(buf.data() + 4);
-    // if (chunk_size + 8 != buf.size()) {
-    //     return false;
-    // }
+    // RIFF ref: https://en.wikipedia.org/wiki/Resource_Interchange_File_Format
+    // WAV ref: https://www.mmsp.ece.mcgill.ca/Documents/AudioFormats/WAVE/WAVE.html
+    bool is_wav = memcmp(buf, "RIFF", 4) == 0 && memcmp(buf + 8, "WAVE", 4) == 0;
+    bool is_mp3 = len >= 3 && (
+        memcmp(buf, "ID3", 3) == 0 ||
+        // Check for MPEG sync word (simplified check)
+        ((unsigned char)buf[0] == 0xFF && ((unsigned char)buf[1] & 0xE0) == 0xE0)
+    );
+    bool is_flac = memcmp(buf, "fLaC", 4) == 0;
 
-    return true;
+    return is_wav || is_mp3 || is_flac;
 }
 
-// returns true if the buffer is a valid WAV file
-bool read_wav_from_buf(const unsigned char * buf_in, size_t len, int target_sampler_rate, std::vector<float> & pcmf32_mono) {
+// returns true if the buffer is a valid audio file
+bool decode_audio_from_buf(const unsigned char * buf_in, size_t len, int target_sampler_rate, std::vector<float> & pcmf32_mono) {
     ma_result result;
-    // Request f32 output from the decoder. Channel count and sample rate are determined from the file.
-    ma_decoder_config decoder_config = ma_decoder_config_init(ma_format_f32, 0, 0);
+    const int channels = 1;
+    ma_decoder_config decoder_config = ma_decoder_config_init(ma_format_f32, channels, target_sampler_rate);
     ma_decoder decoder;
 
     result = ma_decoder_init_memory(buf_in, len, &decoder_config, &decoder);
@@ -354,115 +358,19 @@ bool read_wav_from_buf(const unsigned char * buf_in, size_t len, int target_samp
         return false;
     }
 
-    // Decoder will output ma_format_f32.
-    // We need to use the data converter if:
-    // 1. The sample rate needs to be changed.
-    // 2. The audio is not already mono (decoder.outputChannels != 1).
-    bool needs_resampling = (decoder.outputSampleRate != (ma_uint32)target_sampler_rate);
-    bool needs_channel_mixing = (decoder.outputChannels != 1);
+    ma_uint64 frame_count;
+    ma_uint64 frames_read;
+    result = ma_decoder_get_length_in_pcm_frames(&decoder, &frame_count);
+    if (result != MA_SUCCESS) {
+        ma_decoder_uninit(&decoder);
+        return false;
+    }
 
-    if (!needs_resampling && !needs_channel_mixing) {
-        // Already target sample rate, already mono, and decoder is outputting f32. Direct read.
-        ma_uint64 frame_count_total;
-        result = ma_decoder_get_length_in_pcm_frames(&decoder, &frame_count_total);
-        if (result != MA_SUCCESS) {
-            ma_decoder_uninit(&decoder);
-            return false;
-        }
-
-        pcmf32_mono.resize(frame_count_total); // Mono, so frames == samples
-        ma_uint64 frames_read = 0;
-        result = ma_decoder_read_pcm_frames(&decoder, pcmf32_mono.data(), frame_count_total, &frames_read);
-        if (result != MA_SUCCESS || frames_read != frame_count_total) {
-            ma_decoder_uninit(&decoder);
-            return false;
-        }
-    } else {
-        // Resampling and/or channel mixing is needed.
-        ma_data_converter_config data_converter_config = ma_data_converter_config_init_default();
-        data_converter_config.formatIn = decoder.outputFormat; // This will be ma_format_f32
-        data_converter_config.formatOut = ma_format_f32;       // Output is also f32
-        data_converter_config.channelsIn = decoder.outputChannels;
-        data_converter_config.channelsOut = 1; // MONO output
-        data_converter_config.sampleRateIn = decoder.outputSampleRate;
-        data_converter_config.sampleRateOut = (ma_uint32)target_sampler_rate;
-        data_converter_config.resampling.algorithm = ma_resample_algorithm_linear; // Or other algorithm
-
-        ma_data_converter data_converter;
-        result = ma_data_converter_init(&data_converter_config, NULL, &data_converter);
-        if (result != MA_SUCCESS) {
-            ma_decoder_uninit(&decoder);
-            return false;
-        }
-
-        ma_uint64 total_frames_expected_from_decoder;
-        result = ma_decoder_get_length_in_pcm_frames(&decoder, &total_frames_expected_from_decoder);
-        if (result != MA_SUCCESS) {
-            ma_data_converter_uninit(&data_converter, NULL);
-            ma_decoder_uninit(&decoder);
-            return false;
-        }
-
-        double resample_ratio = (double)target_sampler_rate / decoder.outputSampleRate;
-        // Reserve for mono output
-        pcmf32_mono.reserve(static_cast<size_t>(total_frames_expected_from_decoder * resample_ratio * 1.1) + 1);
-
-        // Buffer to hold data read from the decoder (multi-channel, original sample rate, f32 format)
-        const ma_uint64 DECODE_BUFFER_SIZE_FRAMES = 1024;
-        std::vector<float> temp_decode_buffer(DECODE_BUFFER_SIZE_FRAMES * decoder.outputChannels);
-
-        while (true) {
-            ma_uint64 frames_decoded_this_iteration = 0;
-            result = ma_decoder_read_pcm_frames(&decoder, temp_decode_buffer.data(), DECODE_BUFFER_SIZE_FRAMES, &frames_decoded_this_iteration);
-
-            if (result != MA_SUCCESS && result != MA_AT_END) {
-                ma_data_converter_uninit(&data_converter, NULL);
-                ma_decoder_uninit(&decoder);
-                return false;
-            }
-
-            if (frames_decoded_this_iteration == 0 && result == MA_AT_END) { // Ensure we process the last bit if MA_AT_END was from previous read
-                break;
-            }
-
-            ma_uint64 frame_count_in = frames_decoded_this_iteration;
-            ma_uint64 frame_count_out_capacity;
-
-            result = ma_data_converter_get_expected_output_frame_count(&data_converter, frame_count_in, &frame_count_out_capacity);
-            if (result != MA_SUCCESS) {
-                ma_data_converter_uninit(&data_converter, NULL);
-                ma_decoder_uninit(&decoder);
-                return false;
-            }
-
-            size_t current_pcmf32_sample_offset = pcmf32_mono.size();
-            // Resize for mono output (channelsOut is 1)
-            pcmf32_mono.resize(current_pcmf32_sample_offset + frame_count_out_capacity * data_converter.channelsOut);
-
-            ma_uint64 frames_actually_output = frame_count_out_capacity;
-
-            result = ma_data_converter_process_pcm_frames(
-                &data_converter,
-                temp_decode_buffer.data(),
-                &frame_count_in,
-                pcmf32_mono.data() + current_pcmf32_sample_offset,
-                &frames_actually_output
-            );
-
-            if (result != MA_SUCCESS) {
-                ma_data_converter_uninit(&data_converter, NULL);
-                ma_decoder_uninit(&decoder);
-                return false;
-            }
-
-            // Adjust size to actual frames output (mono)
-            pcmf32_mono.resize(current_pcmf32_sample_offset + frames_actually_output * data_converter.channelsOut);
-
-            if (result == MA_AT_END) {
-                if (frames_decoded_this_iteration == 0 || frame_count_in == 0) break; // No more input frames processed or decoded
-            }
-        }
-        ma_data_converter_uninit(&data_converter, NULL);
+    pcmf32_mono.resize(frame_count);
+    result = ma_decoder_read_pcm_frames(&decoder, pcmf32_mono.data(), frame_count, &frames_read);
+    if (result != MA_SUCCESS || frames_read != frame_count) {
+        ma_decoder_uninit(&decoder);
+        return false;
     }
 
     ma_decoder_uninit(&decoder);

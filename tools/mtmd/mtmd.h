@@ -205,14 +205,16 @@ MTMD_API float * mtmd_get_output_embd(mtmd_context * ctx);
 //
 
 // helper function to construct a mtmd_bitmap from a file
+// it calls mtmd_helper_bitmap_init_from_buf() internally
 // returns nullptr on failure
 // this function is thread-safe
 MTMD_API mtmd_bitmap * mtmd_helper_bitmap_init_from_file(const char * fname);
 
 // helper function to construct a mtmd_bitmap from a buffer containing a file
 // supported formats:
-//     image: format supported by stb_image (jpg, png, bmp, gif, etc.)
-//     audio: wav
+//     image: formats supported by stb_image: jpg, png, bmp, gif, etc.
+//     audio: formats supported by miniaudio: wav, mp3, flac
+// note: audio files will be auto-detected based on magic bytes
 // returns nullptr on failure
 // this function is thread-safe
 MTMD_API mtmd_bitmap * mtmd_helper_bitmap_init_from_buf(const unsigned char * buf, size_t len);

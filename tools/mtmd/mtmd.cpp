@@ -642,10 +642,9 @@ bool mtmd_support_audio(mtmd_context * ctx) {
 // whichever library they want, and then use mtmd_bitmap_init() to create bitmap
 
 mtmd_bitmap * mtmd_helper_bitmap_init_from_buf(const unsigned char * buf, size_t len) {
-    if (len > 32 && wav_utils::is_wav_buffer(std::string((const char *)buf, 32))) {
-        // WAV audio file
+    if (audio_helpers::is_audio_file((const char *)buf, len)) {
         std::vector<float> pcmf32;
-        if (!wav_utils::read_wav_from_buf(buf, len, COMMON_SAMPLE_RATE, pcmf32)) {
+        if (!audio_helpers::decode_audio_from_buf(buf, len, COMMON_SAMPLE_RATE, pcmf32)) {
             LOG_ERR("Unable to read WAV audio file from buffer\n");
             return nullptr;
         }

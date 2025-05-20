@@ -42,13 +42,13 @@ extern bool preprocess_audio(
 
 
 
-namespace wav_utils {
+namespace audio_helpers {
 
-extern bool is_wav_buffer(const std::string buf);
+extern bool is_audio_file(const char * buf, size_t len);
 
-extern bool read_wav_from_buf(const unsigned char * buf_in, size_t len, int target_sampler_rate, std::vector<float> & pcmf32_mono);
+extern bool decode_audio_from_buf(const unsigned char * buf_in, size_t len, int target_sampler_rate, std::vector<float> & pcmf32_mono);
 
-} // namespace wav_utils
+} // namespace audio_helpers
 
 
 
