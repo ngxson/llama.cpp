@@ -1094,12 +1094,12 @@ static const char * GGML_UNARY_OP_NAME[GGML_UNARY_OP_COUNT] = {
     "RELU",
     "SIGMOID",
     "GELU",
-    "GELU_NA",
     "GELU_QUICK",
     "SILU",
     "HARDSWISH",
     "HARDSIGMOID",
     "EXP",
+    "GELU_NA",
 };
 
 static_assert(GGML_UNARY_OP_COUNT == 15, "GGML_UNARY_OP_COUNT != 15");
