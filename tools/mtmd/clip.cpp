@@ -1420,10 +1420,11 @@ struct clip_graph {
         return gf;
     }
 
-    // whisper encoder with ultravox projector
-    ggml_cgraph * build_ultravox() {
+    // whisper encoder with custom projector
+    ggml_cgraph * build_whisper_enc() {
         const int n_step = img.nx;
         const int n_pos  = n_step / 2;
+        GGML_ASSERT(model.position_embeddings->ne[1] >= n_pos);
 
         ggml_tensor * inp = build_inp_raw(1);
 
@@ -1943,7 +1944,7 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
             } break;
         case PROJECTOR_TYPE_ULTRAVOX:
             {
-                res = graph.build_ultravox();
+                res = graph.build_whisper_enc();
             } break;
         default:
             {
@@ -3413,7 +3414,9 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
     } else if (ctx->proj_type == PROJECTOR_TYPE_LLAMA4) {
         n_patches /= (scale_factor * scale_factor);
     } else if (ctx->proj_type == PROJECTOR_TYPE_ULTRAVOX) {
-        n_patches = img->nx / ctx->vision_model.hparams.proj_stack_factor / 2;
+        const int proj_stack_factor = ctx->vision_model.hparams.proj_stack_factor;
+        const int n_len = CLIP_ALIGN(img->nx, proj_stack_factor);
+        n_patches = n_len / proj_stack_factor / 2;
     }
 
     return n_patches;

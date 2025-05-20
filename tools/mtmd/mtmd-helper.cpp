@@ -150,8 +150,9 @@ int32_t mtmd_helper_decode_image_chunk(
         int32_t n_batch,
         llama_pos * new_n_past) {
     auto chunk_type = mtmd_input_chunk_get_type(chunk);
+    const char * name = chunk_type == MTMD_INPUT_CHUNK_TYPE_IMAGE ? "image" : "audio";
     if (chunk_type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
-        LOG_ERR("failed to decode image chunk: input chunk not of image/audio type\n");
+        LOG_ERR("failed to decode chunk: input chunk not of image/audio type\n");
         return -1;
     }
 
@@ -166,8 +167,12 @@ int32_t mtmd_helper_decode_image_chunk(
 
     if (mtmd_decode_use_mrope(ctx)) {
         const auto image_tokens = mtmd_input_chunk_get_tokens_image(chunk);
+        if (chunk_type != MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+            LOG_ERR("failed to decode chunk: M-RoPE only accepts image chunk\n");
+            return -1;
+        }
         if (!image_tokens) {
-            LOG_ERR("failed to decode image chunk: image tokens are null\n");
+            LOG_ERR("failed to decode chunk: image tokens are null\n");
             return -1;
         }
         const int nx = mtmd_image_tokens_get_nx(image_tokens);
@@ -187,17 +192,17 @@ int32_t mtmd_helper_decode_image_chunk(
         int n_tokens_batch = std::min(n_batch, n_tokens - pos_offset);
         llama_batch batch_embd_view = batch_embd.get_view(pos_offset, n_tokens_batch);
 
-        LOG_INF("decoding image batch %d/%d, n_tokens_batch = %d\n", i_batch+1, n_img_batches, n_tokens_batch);
+        LOG_INF("decoding %s batch %d/%d, n_tokens_batch = %d\n", name, i_batch+1, n_img_batches, n_tokens_batch);
 
         int64_t t1 = ggml_time_ms();
         int32_t ret = llama_decode(lctx, batch_embd_view);
         if (ret != 0) {
-            LOG_ERR("failed to decode image\n");
+            LOG_ERR("failed to decode %s\n", name);
             llama_set_causal_attn(lctx, true); // restore causal attn
             return ret;
         }
 
-        LOG_INF("image decoded (batch %d/%d) in %" PRId64 " ms\n", i_batch+1, n_img_batches, ggml_time_ms() - t1);
+        LOG_INF("%s decoded (batch %d/%d) in %" PRId64 " ms\n", name, i_batch+1, n_img_batches, ggml_time_ms() - t1);
 
         i_batch++;
     }
@@ -259,7 +264,7 @@ int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
 
         ret = mtmd_encode_chunk(ctx, chunk);
         if (ret != 0) {
-            LOG_ERR("failed to encode image\n");
+            LOG_ERR("failed to encode %s slice\n", name);
             llama_batch_free(text_batch);
             return ret;
         }

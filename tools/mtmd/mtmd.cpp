@@ -527,11 +527,13 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
             // DEBUG!!!
             // mel_spec.data.resize(220*8*2 * mel_spec.n_mel);
             // mel_spec.n_len = 220*8*2;
-            LOG_DBG("mel_spec.n_len = %d\n", mel_spec.n_len);
-            LOG_DBG("mel_spec.n_mel = %d\n", mel_spec.n_mel);
+            mel_spec.n_len = 64*8*2;
+            LOG_DBG("mel_spec.n_len     = %d\n", mel_spec.n_len);
+            LOG_DBG("mel_spec.n_len_org = %d\n", mel_spec.n_len_org);
+            LOG_DBG("mel_spec.n_mel     = %d\n", mel_spec.n_mel);
 
             // convert mel spectrogram to clip_image_f32_batch
-            clip_image_f32_ptr mel_f32(clip_image_f32_init());
+            /*clip_image_f32_ptr mel_f32(clip_image_f32_init());
             mel_f32->nx = mel_spec.n_len;
             mel_f32->ny = mel_spec.n_mel;
             mel_f32->buf = std::move(mel_spec.data);
@@ -554,7 +556,39 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                 nullptr, // image tokens
                 std::move(audio_tokens),
             };
-            output->entries.emplace_back(std::move(chunk));
+            output->entries.emplace_back(std::move(chunk));*/
+
+            for (size_t off = 0; off < (size_t)mel_spec.n_len; off += 160*8*2) {
+                size_t len = std::min(mel_spec.n_len - off, (size_t)160*8*2);
+                clip_image_f32_ptr mel_f32(clip_image_f32_init());
+                mel_f32->nx = len;
+                mel_f32->ny = mel_spec.n_mel;
+                mel_f32->buf.resize(len * mel_spec.n_mel);
+                std::memcpy(
+                    mel_f32->buf.data(),
+                    &mel_spec.data[off * mel_spec.n_mel],
+                    len * mel_spec.n_mel * sizeof(float));
+                size_t n_tokens = clip_n_output_tokens(ctx->ctx_clip, mel_f32.get());
+
+                clip_image_f32_batch batch_f32;
+                batch_f32.is_audio = true;
+                batch_f32.entries.push_back(std::move(mel_f32));
+
+                mtmd_audio_tokens_ptr audio_tokens(new mtmd_audio_tokens);
+                audio_tokens->n_tokens = n_tokens;
+                audio_tokens->batch_f32 = std::move(batch_f32);
+                audio_tokens->id = bitmaps[i_bm]->id; // optional
+
+                LOG_DBG("audio_tokens->n_tokens = %d\n", audio_tokens->n_tokens);
+
+                mtmd_input_chunk chunk{
+                    MTMD_INPUT_CHUNK_TYPE_AUDIO,
+                    {}, // text tokens
+                    nullptr, // image tokens
+                    std::move(audio_tokens),
+                };
+                output->entries.emplace_back(std::move(chunk));
+            }
 
             i_bm++;
             continue;

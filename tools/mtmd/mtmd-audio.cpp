@@ -9,8 +9,12 @@
 
 #include "mtmd-audio.h"
 
+//#define MTMD_AUDIO_DEBUG
+
 #define MINIAUDIO_IMPLEMENTATION
-#define MA_NO_ENCODING
+#ifndef MTMD_AUDIO_DEBUG
+#   define MA_NO_ENCODING
+#endif
 #define MA_NO_DEVICE_IO
 #define MA_NO_RESOURCE_MANAGER
 #define MA_NO_NODE_GRAPH
@@ -300,7 +304,7 @@ static bool log_mel_spectrogram(
 bool preprocess_audio(
         const float * samples,
         size_t n_samples,
-        whisper_filters & filters,
+        const whisper_filters & filters,
         whisper_mel & output) {
 
     // a bit hacky, but we want to align the output to a multiple of WHISPER_N_FFT * proj_stack_factor
@@ -372,6 +376,15 @@ bool decode_audio_from_buf(const unsigned char * buf_in, size_t len, int target_
         ma_decoder_uninit(&decoder);
         return false;
     }
+
+#ifdef MTMD_AUDIO_DEBUG
+    // save audio to wav file
+    ma_encoder_config config = ma_encoder_config_init(ma_encoding_format_wav, ma_format_f32, 1, target_sampler_rate);
+    ma_encoder encoder;
+    ma_encoder_init_file("output.wav", &config, &encoder);
+    ma_encoder_write_pcm_frames(&encoder, pcmf32_mono.data(), pcmf32_mono.size(), &frames_read);
+    ma_encoder_uninit(&encoder);
+#endif
 
     ma_decoder_uninit(&decoder);
     return true;
