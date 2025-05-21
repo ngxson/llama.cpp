@@ -35,6 +35,7 @@ struct clip_logger_state g_logger_state = {GGML_LOG_LEVEL_CONT, clip_log_callbac
 
 enum ffn_op_type {
     FFN_GELU,
+    FFN_GELU_ERF,
     FFN_SILU,
     FFN_GELU_QUICK,
 };
@@ -1422,15 +1423,11 @@ struct clip_graph {
 
     // whisper encoder with custom projector
     ggml_cgraph * build_whisper_enc() {
-        const int n_step = img.nx;
-        const int n_pos  = n_step / 2;
+        const int n_frames = img.nx;
+        const int n_pos    = n_frames / 2;
         GGML_ASSERT(model.position_embeddings->ne[1] >= n_pos);
 
         ggml_tensor * inp = build_inp_raw(1);
-
-        ggml_tensor * positions = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos);
-        ggml_set_name(positions, "positions");
-        ggml_set_input(positions);
 
         // conv1d block
         {
@@ -1438,12 +1435,12 @@ struct clip_graph {
             ggml_tensor * cur = ggml_conv_1d_ph(ctx0, model.conv1d_1_w, inp, 1, 1);
             cur = ggml_add(ctx0, cur, model.conv1d_1_b);
 
-            cur = ggml_gelu(ctx0, cur);
+            cur = ggml_gelu_erf(ctx0, cur);
 
             cur = ggml_conv_1d_ph(ctx0, model.conv1d_2_w, cur, 2, 1);
             cur = ggml_add(ctx0, cur, model.conv1d_2_b);
 
-            cur = ggml_gelu(ctx0, cur);
+            cur = ggml_gelu_erf(ctx0, cur);
             // transpose
             inp = ggml_cont(ctx0, ggml_transpose(ctx0, cur));
             cb(inp, "after_conv1d", -1);
@@ -1457,7 +1454,11 @@ struct clip_graph {
         GGML_ASSERT(!model.layers[0].k_b); // no bias for k
         GGML_ASSERT(model.post_ln_w && model.post_ln_b);
 
-        ggml_tensor * pos_embd_selected = ggml_get_rows(ctx0, model.position_embeddings, positions);
+        ggml_tensor * pos_embd_selected = ggml_view_2d(
+            ctx0, model.position_embeddings,
+            model.position_embeddings->ne[0], n_pos,
+            model.position_embeddings->nb[1], 0
+        );
         ggml_tensor * cur = build_vit(
                                 inp, n_pos,
                                 NORM_TYPE_NORMAL,
@@ -1750,6 +1751,11 @@ private:
                 {
                     cur = ggml_gelu(ctx0, cur);
                     cb(cur, "ffn_gelu", il);
+                } break;
+            case FFN_GELU_ERF:
+                {
+                    cur = ggml_gelu_erf(ctx0, cur);
+                    cb(cur, "ggml_gelu_erf", il);
                 } break;
             case FFN_GELU_QUICK:
                 {
@@ -2169,7 +2175,7 @@ struct clip_model_loader {
                 case PROJECTOR_TYPE_ULTRAVOX:
                     {
                         get_u32(KEY_PROJ_STACK_FACTOR, hparams.proj_stack_factor);
-                        hparams.ffn_op = FFN_GELU;
+                        hparams.ffn_op = FFN_GELU_ERF;
                     } break;
                 default:
                     break;
@@ -3615,7 +3621,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
     } else {
         // audio input
         GGML_ASSERT(imgs.entries.size() == 1);
-        const auto & mel_inp = imgs.entries[0]; // 3 channels, but only use one
+        const auto & mel_inp = imgs.entries[0];
         const int n_step = mel_inp->nx;
         const int n_mel  = mel_inp->ny;
         std::vector<float> inp_raw(n_step * n_mel);
@@ -3817,6 +3823,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_GEMMA3:
         case PROJECTOR_TYPE_IDEFICS3:
         case PROJECTOR_TYPE_INTERNVL:
+        case PROJECTOR_TYPE_ULTRAVOX:
             {
                 // do nothing
             } break;
@@ -3836,16 +3843,6 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                     pos_data[i] = (i % n_patches_per_col) + 1;
                 }
                 set_input_i32("pos_w", pos_data);
-            } break;
-        case PROJECTOR_TYPE_ULTRAVOX:
-            {
-                const auto & mel_inp = imgs.entries[0];
-                const int n_pos = mel_inp->nx / 2;
-                std::vector<int32_t> positions(n_pos);
-                for (int i = 0; i < n_pos; i++) {
-                    positions[i] = i;
-                }
-                set_input_i32("positions", positions);
             } break;
         default:
             GGML_ABORT("Unknown projector type");
@@ -3988,12 +3985,12 @@ projector_type clip_get_projector_type(const struct clip_ctx * ctx) {
     return ctx->proj_type;
 }
 
-void clip_image_f32_batch_add_mel(struct clip_image_f32_batch * batch, int n_mel, int n_step, float * mel) {
+void clip_image_f32_batch_add_mel(struct clip_image_f32_batch * batch, int n_mel, int n_frames, float * mel) {
     clip_image_f32 * audio = new clip_image_f32;
-    audio->nx = n_step;
+    audio->nx = n_frames;
     audio->ny = n_mel;
-    audio->buf.resize(n_step * n_mel);
-    std::memcpy(audio->buf.data(), mel, n_step * n_mel * sizeof(float));
+    audio->buf.resize(n_frames * n_mel);
+    std::memcpy(audio->buf.data(), mel, n_frames * n_mel * sizeof(float));
 
     batch->entries.push_back(clip_image_f32_ptr(audio));
     batch->is_audio = true;

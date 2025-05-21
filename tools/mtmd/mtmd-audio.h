@@ -36,7 +36,7 @@ extern bool preprocess_audio(
         const float * samples,
         size_t n_samples,
         const whisper_filters & filters,
-        whisper_mel & output);
+        std::vector<whisper_mel> & output);
 
 } // namespace whisper_preprocessor
 

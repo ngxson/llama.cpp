@@ -513,61 +513,29 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                 return 2;
             }
 
+            if (bitmaps[i_bm]->data.size() == 0) {
+                LOG_ERR("%s: error: empty audio data\n", __func__);
+                return 2;
+            }
+
             // preprocess audio
-            whisper_preprocessor::whisper_mel mel_spec;
-            GGML_ASSERT(ctx->w_filters.n_mel);
+            GGML_ASSERT(ctx->w_filters.n_mel); // make sure we have filter preloaded
+            std::vector<whisper_preprocessor::whisper_mel> mel_spec_chunks;
             const float * samples = (const float *)bitmaps[i_bm]->data.data();
             size_t n_samples = bitmaps[i_bm]->data.size() / sizeof(float);
-            bool ok = whisper_preprocessor::preprocess_audio(samples, n_samples, ctx->w_filters, mel_spec);
+            bool ok = whisper_preprocessor::preprocess_audio(samples, n_samples, ctx->w_filters, mel_spec_chunks);
             if (!ok) {
                 LOG_ERR("Unable to preprocess audio\n");
                 return 2;
             }
 
-            // DEBUG!!!
-            // mel_spec.data.resize(220*8*2 * mel_spec.n_mel);
-            // mel_spec.n_len = 220*8*2;
-            mel_spec.n_len = 64*8*2;
-            LOG_DBG("mel_spec.n_len     = %d\n", mel_spec.n_len);
-            LOG_DBG("mel_spec.n_len_org = %d\n", mel_spec.n_len_org);
-            LOG_DBG("mel_spec.n_mel     = %d\n", mel_spec.n_mel);
-
-            // convert mel spectrogram to clip_image_f32_batch
-            /*clip_image_f32_ptr mel_f32(clip_image_f32_init());
-            mel_f32->nx = mel_spec.n_len;
-            mel_f32->ny = mel_spec.n_mel;
-            mel_f32->buf = std::move(mel_spec.data);
-            size_t n_tokens = clip_n_output_tokens(ctx->ctx_clip, mel_f32.get());
-
-            clip_image_f32_batch batch_f32;
-            batch_f32.is_audio = true;
-            batch_f32.entries.push_back(std::move(mel_f32));
-
-            mtmd_audio_tokens_ptr audio_tokens(new mtmd_audio_tokens);
-            audio_tokens->n_tokens = n_tokens;
-            audio_tokens->batch_f32 = std::move(batch_f32);
-            audio_tokens->id = bitmaps[i_bm]->id; // optional
-
-            LOG_DBG("audio_tokens->n_tokens = %d\n", audio_tokens->n_tokens);
-
-            mtmd_input_chunk chunk{
-                MTMD_INPUT_CHUNK_TYPE_AUDIO,
-                {}, // text tokens
-                nullptr, // image tokens
-                std::move(audio_tokens),
-            };
-            output->entries.emplace_back(std::move(chunk));*/
-
-            for (size_t off = 0; off < (size_t)mel_spec.n_len; off += 160*8*2) {
-                size_t len = std::min(mel_spec.n_len - off, (size_t)160*8*2);
+            // consider each mel_spec as a separate audio chunk
+            // TODO: maybe support batching, but this may come with memory cost
+            for (auto & mel_spec : mel_spec_chunks) {
                 clip_image_f32_ptr mel_f32(clip_image_f32_init());
-                mel_f32->nx = len;
-                mel_f32->ny = mel_spec.n_mel;
-                mel_f32->buf.resize(len * mel_spec.n_mel);
-                std::memcpy(
-                    mel_f32->buf.data(),
-                    &mel_spec.data[off * mel_spec.n_mel],
-                    len * mel_spec.n_mel * sizeof(float));
+                mel_f32->nx  = mel_spec.n_len;
+                mel_f32->ny  = mel_spec.n_mel;
+                mel_f32->buf = std::move(mel_spec.data);
                 size_t n_tokens = clip_n_output_tokens(ctx->ctx_clip, mel_f32.get());
 
                 clip_image_f32_batch batch_f32;

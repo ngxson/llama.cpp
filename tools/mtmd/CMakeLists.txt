@@ -1,6 +1,7 @@
 # mtmd
 
-# compile mtmd-audio separately to avoid long compile times
+# compile mtmd-audio separately to avoid long compile times with miniaudio.h
+# TODO @ngxson : move miniaudio.h and stb_image.h to mtmd-helper.cpp, then compile the helper as a separate library
 add_library(mtmd_audio STATIC mtmd-audio.cpp mtmd-audio.h)
 if (BUILD_SHARED_LIBS)
     set_target_properties(mtmd_audio PROPERTIES POSITION_INDEPENDENT_CODE ON)

@@ -159,9 +159,10 @@ struct clip_image_u8 {
     std::vector<uint8_t> buf;
 };
 
-// RGB float32 image (NHWC)
-// Memory layout: RGBRGBRGB...
+// For images, buf.size() == nx*ny*3
+//     Memory layout: RGBRGBRGB...
 // For audio, only one channel is used, buf.size() == nx*ny
+//     nx will be n_frames and ny will be n_mel
 struct clip_image_f32 {
     int nx;
     int ny;
