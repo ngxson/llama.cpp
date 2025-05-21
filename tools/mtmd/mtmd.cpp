@@ -108,9 +108,9 @@ struct mtmd_context {
     llama_token tok_ov_img_end    = LLAMA_TOKEN_NULL; // overview image
     llama_token tok_slices_start  = LLAMA_TOKEN_NULL; // start of all slices
     llama_token tok_slices_end    = LLAMA_TOKEN_NULL; // end of all slices
-    llama_token tok_sli_bm_start = LLAMA_TOKEN_NULL; // single slice start
-    llama_token tok_sli_bm_end   = LLAMA_TOKEN_NULL; // single slice end
-    llama_token tok_sli_bm_mid   = LLAMA_TOKEN_NULL; // between 2 slices
+    llama_token tok_sli_img_start = LLAMA_TOKEN_NULL; // single slice start
+    llama_token tok_sli_img_end   = LLAMA_TOKEN_NULL; // single slice end
+    llama_token tok_sli_img_mid   = LLAMA_TOKEN_NULL; // between 2 slices
     llama_token tok_row_end       = LLAMA_TOKEN_NULL; // end of row
     bool        tok_row_end_trail = false;
     bool        ov_img_first      = false;
@@ -156,8 +156,8 @@ struct mtmd_context {
             tok_ov_img_end    = lookup_token("</image>");
             tok_slices_start  = lookup_token("<slice>");
             tok_slices_end    = lookup_token("</slice>");
-            tok_sli_bm_start = tok_ov_img_start;
-            tok_sli_bm_end   = tok_ov_img_end;
+            tok_sli_img_start = tok_ov_img_start;
+            tok_sli_img_end   = tok_ov_img_end;
             tok_row_end       = lookup_token("\n");
             tok_row_end_trail = false; // no trailing end-of-row token
             ov_img_first      = true;
@@ -168,8 +168,8 @@ struct mtmd_context {
             slice_tmpl        = MTMD_SLICE_TMPL_MINICPMV_2_6;
             tok_ov_img_start  = lookup_token("<image>");
             tok_ov_img_end    = lookup_token("</image>");
-            tok_sli_bm_start = lookup_token("<slice>");
-            tok_sli_bm_end   = lookup_token("</slice>");
+            tok_sli_img_start = lookup_token("<slice>");
+            tok_sli_img_end   = lookup_token("</slice>");
             tok_row_end       = lookup_token("\n");
             tok_row_end_trail = false; // no trailing end-of-row token
             ov_img_first      = true;
@@ -186,7 +186,7 @@ struct mtmd_context {
             // <|image_end|>
             slice_tmpl        = MTMD_SLICE_TMPL_LLAMA4;
             tok_ov_img_start  = lookup_token("<|image|>");
-            tok_sli_bm_mid   = lookup_token("<|tile_x_separator|>");
+            tok_sli_img_mid   = lookup_token("<|tile_x_separator|>");
             tok_row_end       = lookup_token("<|tile_y_separator|>");
             tok_row_end_trail = true; // add trailing end-of-row token
             ov_img_first      = false; // overview image is last
@@ -195,6 +195,16 @@ struct mtmd_context {
         if (proj == PROJECTOR_TYPE_ULTRAVOX) {
             // TODO @ngxson : check if model n_mel is 128 or 80
             w_filters = whisper_precalc_filters::get_128_bins();
+        }
+
+        // warning messages
+        if (proj == PROJECTOR_TYPE_LLAMA4) {
+            LOG_WRN("%s: llama 4 vision is known to have degraded quality:\n"
+                    "    https://github.com/ggml-org/llama.cpp/pull/13282\n", __func__);
+        }
+        if (has_audio) {
+            LOG_WRN("%s: audio input is in experimental stage and may have reduced quality:\n"
+                    "    https://github.com/ggml-org/llama.cpp/pull/13623\n", __func__);
         }
     }
 
@@ -441,15 +451,15 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                     for (int y = 0; y < n_row; y++) {
                         for (int x = 0; x < n_col; x++) {
                             const bool is_last_in_row = (x == n_col - 1);
-                            if (ctx->tok_sli_bm_start != LLAMA_TOKEN_NULL) {
-                                add_text_chunk({ctx->tok_sli_bm_start});
+                            if (ctx->tok_sli_img_start != LLAMA_TOKEN_NULL) {
+                                add_text_chunk({ctx->tok_sli_img_start});
                             }
                             output->entries.emplace_back(std::move(chunks[y * n_col + x]));
-                            if (ctx->tok_sli_bm_end != LLAMA_TOKEN_NULL) {
-                                add_text_chunk({ctx->tok_sli_bm_end});
+                            if (ctx->tok_sli_img_end != LLAMA_TOKEN_NULL) {
+                                add_text_chunk({ctx->tok_sli_img_end});
                             }
-                            if (!is_last_in_row && ctx->tok_sli_bm_mid != LLAMA_TOKEN_NULL) {
-                                add_text_chunk({ctx->tok_sli_bm_mid});
+                            if (!is_last_in_row && ctx->tok_sli_img_mid != LLAMA_TOKEN_NULL) {
+                                add_text_chunk({ctx->tok_sli_img_mid});
                             }
                         }
                         if ((y != n_row - 1 || ctx->tok_row_end_trail) && ctx->tok_row_end != LLAMA_TOKEN_NULL) {
