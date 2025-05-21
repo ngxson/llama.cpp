@@ -243,7 +243,7 @@ int main(int argc, char ** argv) {
     common_params params;
     params.sampling.temp = 0.2; // lower temp by default for better quality
 
-    if (!common_params_parse(argc, argv, params, LLAMA_EXAMPLE_LLAVA, show_additional_info)) {
+    if (!common_params_parse(argc, argv, params, LLAMA_EXAMPLE_MTMD, show_additional_info)) {
         return 1;
     }
 
