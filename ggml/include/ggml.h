@@ -528,7 +528,6 @@ extern "C" {
         GGML_UNARY_OP_STEP,
         GGML_UNARY_OP_TANH,
         GGML_UNARY_OP_ELU,
-        GGML_UNARY_OP_RELU,
         GGML_UNARY_OP_SIGMOID,
         GGML_UNARY_OP_GELU,
         GGML_UNARY_OP_GELU_ERF,
@@ -537,6 +536,7 @@ extern "C" {
         GGML_UNARY_OP_HARDSWISH,
         GGML_UNARY_OP_HARDSIGMOID,
         GGML_UNARY_OP_EXP,
+        GGML_UNARY_OP_RELU,
 
         GGML_UNARY_OP_COUNT,
     };
