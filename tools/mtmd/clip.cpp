@@ -2206,6 +2206,8 @@ struct clip_model_loader {
         auto & hparams = ctx_clip.vision_model.hparams;
         std::map<std::string, size_t> tensor_offset;
         std::vector<ggml_tensor *> tensors_to_load;
+
+        // TODO @ngxson : support both audio and video in the future
         const char * prefix = hparams.has_audio ? "a" : "v";
 
         // get offsets

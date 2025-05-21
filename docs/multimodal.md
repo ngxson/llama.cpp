@@ -6,7 +6,7 @@ llama.cpp supports multimodal input via `libmtmd`. Currently, there are 2 tools 
 
 Currently, we support **image** and **audio** input. Audio is highly experimental and may have reduced quality.
 
-To enable it, can use use one of the 2 methods below:
+To enable it, you can use one of the 2 methods below:
 
 - Use `-hf` option with a supported model (see a list of pre-quantized model below)
     - To load a model using `-hf` while disabling multimodal, use `--no-mmproj`
