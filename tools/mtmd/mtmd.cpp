@@ -86,6 +86,7 @@ mtmd_context_params mtmd_context_params_default() {
     params.n_threads = 4;
     params.verbosity = GGML_LOG_LEVEL_INFO;
     params.image_marker = MTMD_DEFAULT_IMAGE_MARKER;
+    params.media_marker = MTMD_DEFAULT_MEDIA_MARKER;
     return params;
 }
 
@@ -96,7 +97,7 @@ struct mtmd_context {
 
     bool print_timings;
     int n_threads;
-    std::string image_marker;
+    std::string media_marker;
     bool has_vision;
     bool has_audio;
 
@@ -127,8 +128,12 @@ struct mtmd_context {
         text_model   (text_model),
         print_timings(ctx_params.print_timings),
         n_threads    (ctx_params.n_threads),
-        image_marker (ctx_params.image_marker)
+        media_marker (ctx_params.media_marker)
     {
+        if (std::string(ctx_params.image_marker) != MTMD_DEFAULT_IMAGE_MARKER) {
+            throw std::runtime_error("custom image_marker is not supported anymore, use media_marker instead");
+        }
+
         clip_context_params ctx_clip_params;
         ctx_clip_params.use_gpu   = ctx_params.use_gpu;
         ctx_clip_params.verbosity = ctx_params.verbosity;
@@ -269,48 +274,51 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
     auto vocab = llama_model_get_vocab(ctx->text_model);
 
     std::string prompt_modified(text->text);
-    std::string marker_modified(ctx->image_marker);
+    std::string marker_modified(ctx->media_marker);
     projector_type proj_type = clip_get_projector_type(ctx->ctx_clip);
+
+    // for compatibility, we convert image marker to media marker
+    string_replace_all(prompt_modified, MTMD_DEFAULT_IMAGE_MARKER, ctx->media_marker);
 
     // a bit hacky here, but works for now
     // for some models, we need to add prefix and suffix to the image embeddings
     if (clip_is_gemma3(ctx->ctx_clip)) {
         // gemma 3
         // <start_of_image> ... (image embeddings) ... <end_of_image>
-        marker_modified = "<start_of_image>" + ctx->image_marker + "<end_of_image>";
-        string_replace_all(prompt_modified, ctx->image_marker, marker_modified);
+        marker_modified = "<start_of_image>" + ctx->media_marker + "<end_of_image>";
+        string_replace_all(prompt_modified, ctx->media_marker, marker_modified);
 
     } else if (proj_type == PROJECTOR_TYPE_IDEFICS3) {
         // https://github.com/huggingface/transformers/blob/a42ba80fa520c784c8f11a973ca9034e5f859b79/src/transformers/models/idefics3/processing_idefics3.py#L192-L215
-        marker_modified = "<fake_token_around_image><global-img>" + ctx->image_marker + "<fake_token_around_image>";
-        string_replace_all(prompt_modified, ctx->image_marker, marker_modified);
+        marker_modified = "<fake_token_around_image><global-img>" + ctx->media_marker + "<fake_token_around_image>";
+        string_replace_all(prompt_modified, ctx->media_marker, marker_modified);
 
     } else if (proj_type == PROJECTOR_TYPE_PIXTRAL) {
         // https://github.com/huggingface/transformers/blob/1cd110c6cb6a6237614130c470e9a902dbc1a4bd/docs/source/en/model_doc/pixtral.md
-        marker_modified = ctx->image_marker + "[IMG_END]";
-        string_replace_all(prompt_modified, ctx->image_marker, marker_modified);
+        marker_modified = ctx->media_marker + "[IMG_END]";
+        string_replace_all(prompt_modified, ctx->media_marker, marker_modified);
 
     } else if (proj_type == PROJECTOR_TYPE_QWEN2VL || proj_type == PROJECTOR_TYPE_QWEN25VL) {
         // <|vision_start|> ... (image embeddings) ... <|vision_end|>
-        marker_modified = "<|vision_start|>" + ctx->image_marker + "<|vision_end|>";
-        string_replace_all(prompt_modified, ctx->image_marker, marker_modified);
+        marker_modified = "<|vision_start|>" + ctx->media_marker + "<|vision_end|>";
+        string_replace_all(prompt_modified, ctx->media_marker, marker_modified);
 
     } else if (proj_type == PROJECTOR_TYPE_LLAMA4) {
         // (more details in mtmd_context constructor)
-        marker_modified = "<|image_start|>" + ctx->image_marker + "<|image_end|>";
-        string_replace_all(prompt_modified, ctx->image_marker, marker_modified);
+        marker_modified = "<|image_start|>" + ctx->media_marker + "<|image_end|>";
+        string_replace_all(prompt_modified, ctx->media_marker, marker_modified);
 
     } else if (proj_type == PROJECTOR_TYPE_INTERNVL) {
         // <img> ... (image embeddings) ... </img>
-        marker_modified = "<img>" + ctx->image_marker + "</img>";
-        string_replace_all(prompt_modified, ctx->image_marker, marker_modified);
+        marker_modified = "<img>" + ctx->media_marker + "</img>";
+        string_replace_all(prompt_modified, ctx->media_marker, marker_modified);
 
     }
 
     // llava-1.5, llava-1.6, Yi-VL, Yi-34B, granite: don't need to add prefix and suffix
     // for glm-edge, BOI and EOI token's embeddings are not present in the text model
 
-    std::vector<std::string> parts = string_split_str(prompt_modified, ctx->image_marker);
+    std::vector<std::string> parts = string_split_str(prompt_modified, ctx->media_marker);
     output->entries.clear();
     output->entries.reserve(parts.size());
 
@@ -818,6 +826,15 @@ llama_pos mtmd_input_chunk_get_n_pos(const mtmd_input_chunk * chunk) {
     } else {
         GGML_ABORT("invalid chunk type");
     }
+}
+
+const char * mtmd_input_chunk_get_id(const mtmd_input_chunk * chunk) {
+    if (chunk->type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+        return chunk->tokens_image->id.c_str();
+    } else if (chunk->type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
+        return chunk->tokens_audio->id.c_str();
+    }
+    return nullptr;
 }
 
 mtmd_input_chunk * mtmd_input_chunk_copy(const mtmd_input_chunk * chunk) {

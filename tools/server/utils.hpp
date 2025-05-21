@@ -710,7 +710,7 @@ static json oaicompat_completion_params_parse(
 
                 // replace this chunk with a marker
                 p["type"] = "text";
-                p["text"] = MTMD_DEFAULT_IMAGE_MARKER;
+                p["text"] = MTMD_DEFAULT_MEDIA_MARKER;
                 p.erase("image_url");
             }
         }

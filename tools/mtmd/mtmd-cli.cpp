@@ -283,8 +283,8 @@ int main(int argc, char ** argv) {
 
     if (is_single_turn) {
         g_is_generating = true;
-        if (params.prompt.find("<__image__>") == std::string::npos) {
-            params.prompt += " <__image__>";
+        if (params.prompt.find(MTMD_DEFAULT_MEDIA_MARKER) == std::string::npos) {
+            params.prompt += MTMD_DEFAULT_MEDIA_MARKER;
         }
         common_chat_msg msg;
         msg.role = "user";
@@ -341,7 +341,7 @@ int main(int argc, char ** argv) {
                 std::string image = line.substr(7);
                 if (ctx.load_image(image)) {
                     LOG("Image %s loaded\n", image.c_str());
-                    content += "<__image__>";
+                    content += MTMD_DEFAULT_MEDIA_MARKER;
                 }
                 // else, error is already printed by libmtmd
                 continue;

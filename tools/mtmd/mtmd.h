@@ -39,6 +39,9 @@
 #    define MTMD_API
 #endif
 
+#define MTMD_DEFAULT_MEDIA_MARKER "<__media__>"
+
+// deprecated marker, use MTMD_DEFAULT_MEDIA_MARKER instead
 #define MTMD_DEFAULT_IMAGE_MARKER "<__image__>"
 
 #ifdef __cplusplus
@@ -80,7 +83,8 @@ struct mtmd_context_params {
     bool print_timings;
     int n_threads;
     enum ggml_log_level verbosity;
-    const char * image_marker;
+    const char * image_marker; // deprecated, use media_marker instead
+    const char * media_marker;
 };
 
 MTMD_API struct mtmd_context_params mtmd_context_params_default(void);
@@ -112,6 +116,7 @@ MTMD_API bool mtmd_support_audio(mtmd_context * ctx);
 //     the data is in RGBRGBRGB... format
 // if bitmap is audio:
 //     length of data must be n_samples * sizeof(float)
+//     the data is in float format (PCM F32)
 MTMD_API mtmd_bitmap *         mtmd_bitmap_init           (uint32_t nx, uint32_t ny, const unsigned char * data);
 MTMD_API mtmd_bitmap *         mtmd_bitmap_init_from_audio(size_t n_samples,         const float         * data);
 MTMD_API uint32_t              mtmd_bitmap_get_nx  (const mtmd_bitmap * bitmap);
@@ -141,8 +146,11 @@ MTMD_API void                     mtmd_input_chunks_free(mtmd_input_chunks * chu
 MTMD_API enum mtmd_input_chunk_type mtmd_input_chunk_get_type        (const mtmd_input_chunk * chunk);
 MTMD_API const llama_token *        mtmd_input_chunk_get_tokens_text (const mtmd_input_chunk * chunk, size_t * n_tokens_output);
 MTMD_API const mtmd_image_tokens *  mtmd_input_chunk_get_tokens_image(const mtmd_input_chunk * chunk);
-MTMD_API llama_pos                  mtmd_input_chunk_get_n_pos       (const mtmd_input_chunk * chunk);
 MTMD_API size_t                     mtmd_input_chunk_get_n_tokens    (const mtmd_input_chunk * chunk);
+// returns nullptr for ID on text chunk
+MTMD_API const char *               mtmd_input_chunk_get_id          (const mtmd_input_chunk * chunk);
+// number of temporal positions (always 1 for M-RoPE, n_tokens otherwise)
+MTMD_API llama_pos                  mtmd_input_chunk_get_n_pos       (const mtmd_input_chunk * chunk);
 
 // in case you want to use custom logic to handle the chunk (i.e. KV cache management)
 // you can move the chunk ownership to your own code by copying it
@@ -162,20 +170,21 @@ MTMD_API const char * mtmd_image_tokens_get_id      (const mtmd_image_tokens * i
 // number of temporal positions (always 1 for M-RoPE, n_tokens otherwise)
 MTMD_API llama_pos    mtmd_image_tokens_get_n_pos   (const mtmd_image_tokens * image_tokens); // TODO: deprecate
 
-// tokenize an input text prompt and an image
-// the prompt must have the input image marker (default: "<__image__>") in it
-// the marker will be replaced with the image tokens
+// tokenize an input text prompt and a list of bitmaps (images/audio)
+// the prompt must have the input image marker (default: "<__media__>") in it
+// the default marker is defined by MTMD_DEFAULT_MEDIA_MARKER
+// the marker will be replaced with the image/audio chunk
 // for example:
-//   "here is an image: <__image__>\ndescribe it in detail."
+//   "here is an image: <__media__>\ndescribe it in detail."
 //   this will gives 3 chunks:
 //   1. "here is an image: <start_of_image>"
-//   2. (image tokens)
+//   2. (image/audio tokens)
 //   3. "<end_of_image>\ndescribe it in detail."
-// number of bitmaps must be equal to the number of image markers in the prompt
+// number of bitmaps must be equal to the number of markers in the prompt
 // this function is thread-safe (shared ctx)
 // return values:
 //   0 on success
-//   1 on number of images not matching the number of markers
+//   1 on number of bitmaps not matching the number of markers
 //   2 on image preprocessing error
 MTMD_API int32_t mtmd_tokenize(mtmd_context * ctx,
                                mtmd_input_chunks * output,
