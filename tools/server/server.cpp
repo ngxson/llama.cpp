@@ -3341,6 +3341,37 @@ struct server_context {
             common_set_adapter_lora(ctx, slot_batched->lora);
         }
 
+        const bool do_encode = (params_base.embedding || params_base.reranking);
+
+        // pad the batch so that batch.n_tokens >= n_slots
+        // TODO: temporary workaround for https://github.com/ggml-org/llama.cpp/issues/13689
+        if (do_encode) {
+            const int n_slots = slots.size();
+
+            if (batch.n_tokens < n_slots) {
+                std::set<llama_seq_id> seq_ids;
+                for (int j = 0; j < batch.n_tokens; ++j) {
+                    seq_ids.insert(batch.seq_id[j][0]);
+                }
+
+                // find unused sequence id
+                llama_seq_id seq_id = -1;
+                for (int i = 0; i < n_slots; ++i) {
+                    if (seq_ids.find(i) == seq_ids.end()) {
+                        seq_id = i;
+                    }
+                }
+
+                const int n_add = n_slots - batch.n_tokens;
+
+                SRV_WRN("adding %d dummy tokens to the batch, seq_id = %d\n", n_add, seq_id);
+
+                for (int j = 0; j < n_add; ++j) {
+                    common_batch_add(batch, 0, j, { seq_id }, false);
+                }
+            }
+        }
+
         // process the created batch of tokens
         for (int32_t i = 0; i < batch.n_tokens; i += n_batch) {
             const int32_t n_tokens = std::min(n_batch, batch.n_tokens - i);
@@ -3357,7 +3388,7 @@ struct server_context {
 
             int ret = 0;
 
-            if (params_base.embedding || params_base.reranking) {
+            if (do_encode) {
                 ret = llama_encode(ctx, batch_view);
             } else {
                 ret = llama_decode(ctx, batch_view);
@@ -3366,14 +3397,29 @@ struct server_context {
             metrics.on_decoded(slots);
 
             if (ret != 0) {
-                if (n_batch == 1 || ret < 0) {
-                    // if you get here, it means the KV cache is full - try increasing it via the context size
-                    SRV_ERR("failed to decode the batch: KV cache is full - try increasing it via the context size, i = %d, n_batch = %d, ret = %d\n", i, n_batch, ret);
-                    for (auto & slot : slots) {
-                        slot.release();
-                        send_error(slot, "Input prompt is too big compared to KV size. Please try increasing KV size.");
+                {
+                    std::string err;
+
+                    if (n_batch == 1 && ret == 1) {
+                        err = "Context size has been exceeded.";
                     }
-                    break; // break loop of n_batch
+
+                    if (ret == -1) {
+                        err = "Invalid input batch.";
+                    }
+
+                    if (ret < -1) {
+                        err = "Compute error.";
+                    }
+
+                    if (!err.empty()) {
+                        SRV_ERR("%s, i = %d, n_batch = %d, ret = %d\n", err.c_str(), i, n_batch, ret);
+                        for (auto & slot : slots) {
+                            slot.release();
+                            send_error(slot, err);
+                        }
+                        break;
+                    }
                 }
 
                 // retry with half the batch size to try to find a free slot in the KV cache
