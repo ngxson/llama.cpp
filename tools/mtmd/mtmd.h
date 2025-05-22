@@ -39,9 +39,7 @@
 #    define MTMD_API
 #endif
 
-#define MTMD_DEFAULT_MEDIA_MARKER "<__media__>"
-
-// deprecated marker, use MTMD_DEFAULT_MEDIA_MARKER instead
+// deprecated marker, use mtmd_default_marker() instead
 #define MTMD_DEFAULT_IMAGE_MARKER "<__image__>"
 
 #ifdef __cplusplus
@@ -86,6 +84,8 @@ struct mtmd_context_params {
     const char * image_marker; // deprecated, use media_marker instead
     const char * media_marker;
 };
+
+MTMD_API const char * mtmd_default_marker(void);
 
 MTMD_API struct mtmd_context_params mtmd_context_params_default(void);
 
@@ -172,7 +172,7 @@ MTMD_API llama_pos    mtmd_image_tokens_get_n_pos   (const mtmd_image_tokens * i
 
 // tokenize an input text prompt and a list of bitmaps (images/audio)
 // the prompt must have the input image marker (default: "<__media__>") in it
-// the default marker is defined by MTMD_DEFAULT_MEDIA_MARKER
+// the default marker is defined by mtmd_default_marker()
 // the marker will be replaced with the image/audio chunk
 // for example:
 //   "here is an image: <__media__>\ndescribe it in detail."

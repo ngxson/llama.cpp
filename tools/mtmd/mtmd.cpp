@@ -79,6 +79,10 @@ enum mtmd_slice_tmpl {
     // TODO @ngxson : add support for idefics (SmolVLM)
 };
 
+const char * mtmd_default_marker() {
+    return "<__media__>";
+}
+
 mtmd_context_params mtmd_context_params_default() {
     mtmd_context_params params;
     params.use_gpu = true;
@@ -86,7 +90,7 @@ mtmd_context_params mtmd_context_params_default() {
     params.n_threads = 4;
     params.verbosity = GGML_LOG_LEVEL_INFO;
     params.image_marker = MTMD_DEFAULT_IMAGE_MARKER;
-    params.media_marker = MTMD_DEFAULT_MEDIA_MARKER;
+    params.media_marker = mtmd_default_marker();
     return params;
 }
 

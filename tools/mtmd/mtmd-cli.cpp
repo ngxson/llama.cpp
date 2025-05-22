@@ -283,8 +283,8 @@ int main(int argc, char ** argv) {
 
     if (is_single_turn) {
         g_is_generating = true;
-        if (params.prompt.find(MTMD_DEFAULT_MEDIA_MARKER) == std::string::npos) {
-            params.prompt += MTMD_DEFAULT_MEDIA_MARKER;
+        if (params.prompt.find(mtmd_default_marker()) == std::string::npos) {
+            params.prompt += mtmd_default_marker();
         }
         common_chat_msg msg;
         msg.role = "user";
@@ -348,7 +348,7 @@ int main(int argc, char ** argv) {
                 std::string media_path = line.substr(7);
                 if (ctx.load_media(media_path)) {
                     LOG("%s %s loaded\n", media_path.c_str(), is_image ? "image" : "audio");
-                    content += MTMD_DEFAULT_MEDIA_MARKER;
+                    content += mtmd_default_marker();
                 }
                 // else, error is already printed by libmtmd
                 continue;
