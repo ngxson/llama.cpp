@@ -16,24 +16,26 @@
 #define KEY_FTYPE               "general.file_type"
 #define KEY_NAME                "general.name"
 #define KEY_DESCRIPTION         "general.description"
+#define KEY_PROJ_TYPE           "clip.projector_type"
 #define KEY_HAS_AUDIO_ENC       "clip.has_audio_encoder"
 #define KEY_HAS_VISION_ENC      "clip.has_vision_encoder"
-#define KEY_MINICPMV_VERSION    "clip.minicpmv_version"
 #define KEY_USE_GELU            "clip.use_gelu"
 #define KEY_USE_SILU            "clip.use_silu"
-#define KEY_N_EMBD              "clip.vision.embedding_length"
-#define KEY_N_FF                "clip.vision.feed_forward_length"
-#define KEY_N_BLOCK             "clip.vision.block_count"
-#define KEY_N_HEAD              "clip.vision.attention.head_count"
-#define KEY_LAYER_NORM_EPS      "clip.vision.attention.layer_norm_epsilon"
-#define KEY_PROJ_DIM            "clip.vision.projection_dim"
+
+#define KEY_N_EMBD              "clip.%s.embedding_length"
+#define KEY_N_FF                "clip.%s.feed_forward_length"
+#define KEY_N_BLOCK             "clip.%s.block_count"
+#define KEY_PROJ_DIM            "clip.%s.projection_dim"
+#define KEY_N_HEAD              "clip.%s.attention.head_count"
+#define KEY_LAYER_NORM_EPS      "clip.%s.attention.layer_norm_epsilon"
+
+// vision-specific
 #define KEY_IMAGE_SIZE          "clip.vision.image_size"
 #define KEY_PATCH_SIZE          "clip.vision.patch_size"
 #define KEY_IMAGE_MEAN          "clip.vision.image_mean"
 #define KEY_IMAGE_STD           "clip.vision.image_std"
 #define KEY_FEATURE_LAYER       "clip.vision.feature_layer"
 #define KEY_PROJ_SCALE_FACTOR   "clip.vision.projector.scale_factor"
-#define KEY_PROJ_TYPE           "clip.projector_type"
 #define KEY_SPATIAL_MERGE_SIZE  "clip.vision.spatial_merge_size"
 
 #define KEY_MM_PATCH_MERGE_TYPE   "clip.vision.mm_patch_merge_type"
@@ -41,8 +43,11 @@
 #define KEY_IMAGE_CROP_RESOLUTION "clip.vision.image_crop_resolution"
 #define KEY_WIN_ATTN_PATTERN      "clip.vision.n_wa_pattern"
 #define KEY_ATTN_WINDOW_SIZE      "clip.vision.window_size"
+#define KEY_MINICPMV_VERSION      "clip.minicpmv_version"
 
-#define KEY_PROJ_STACK_FACTOR   "clip.audio.projector.stack_factor"
+// audio-specific
+#define KEY_A_NUM_MEL_BINS      "clip.audio.num_mel_bins"
+#define KEY_A_PROJ_STACK_FACTOR "clip.audio.projector.stack_factor"
 
 
 //

@@ -219,11 +219,13 @@ class Keys:
         TYPE       = "adapter.type"
         LORA_ALPHA = "adapter.lora.alpha"
 
-    class ClipVision:
+    class Clip:
         PROJECTOR_TYPE      = "clip.projector_type"
         HAS_VISION_ENCODER  = "clip.has_vision_encoder"
         HAS_AUDIO_ENCODER   = "clip.has_audio_encoder"
         HAS_LLAVA_PROJECTOR = "clip.has_llava_projector"
+
+    class ClipVision:
         IMAGE_SIZE          = "clip.vision.image_size"
         PATCH_SIZE          = "clip.vision.patch_size"
         EMBEDDING_LENGTH    = "clip.vision.embedding_length"
@@ -243,6 +245,19 @@ class Keys:
 
         class Projector:
             SCALE_FACTOR    = "clip.vision.projector.scale_factor"
+
+    class ClipAudio:
+        NUM_MEL_BINS        = "clip.audio.num_mel_bins"
+        EMBEDDING_LENGTH    = "clip.audio.embedding_length"
+        FEED_FORWARD_LENGTH = "clip.audio.feed_forward_length"
+        PROJECTION_DIM      = "clip.audio.projection_dim"
+        BLOCK_COUNT         = "clip.audio.block_count"
+
+        class Attention:
+            HEAD_COUNT      = "clip.audio.attention.head_count"
+            LAYERNORM_EPS   = "clip.audio.attention.layer_norm_epsilon"
+
+        class Projector:
             STACK_FACTOR    = "clip.audio.projector.stack_factor"
 
 #
@@ -251,13 +266,13 @@ class Keys:
 
 
 class GGUFType:
-    MODEL       = "model"
-    ADAPTER     = "adapter"
-    CLIP_VISION = "clip-vision"
+    MODEL   = "model"
+    ADAPTER = "adapter"
+    MMPROJ  = "mmproj" # dummy, unused for now
 
 
 class MODEL_ARCH(IntEnum):
-    CLIP_VISION      = auto() # dummy arch for clip.cpp
+    MMPROJ           = auto() # dummy arch for clip.cpp
     LLAMA            = auto()
     LLAMA4           = auto()
     DECI             = auto()
@@ -536,7 +551,7 @@ class MODEL_TENSOR(IntEnum):
 
 
 MODEL_ARCH_NAMES: dict[MODEL_ARCH, str] = {
-    MODEL_ARCH.CLIP_VISION:      "clip", # dummy arch for clip.cpp
+    MODEL_ARCH.MMPROJ:           "clip", # dummy arch for clip.cpp
     MODEL_ARCH.LLAMA:            "llama",
     MODEL_ARCH.LLAMA4:           "llama4",
     MODEL_ARCH.DECI:             "deci",
@@ -815,7 +830,7 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
 }
 
 MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
-    MODEL_ARCH.CLIP_VISION: [
+    MODEL_ARCH.MMPROJ: [
         MODEL_TENSOR.V_MMPROJ,
         MODEL_TENSOR.V_MMPROJ_FC,
         MODEL_TENSOR.V_MMPROJ_MLP,

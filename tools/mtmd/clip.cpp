@@ -177,7 +177,6 @@ struct clip_hparams {
     int32_t n_head;
     int32_t n_layer;
     int32_t proj_scale_factor = 0; // idefics3
-    int32_t proj_stack_factor = 0; // ultravox
 
     // for models using dynamic image size, we need to have a smaller image size to warmup
     // otherwise, user will get OOM everytime they load the model
@@ -196,6 +195,10 @@ struct clip_hparams {
     int32_t attn_window_size = 0;
     int32_t n_wa_pattern = 0;
     int32_t spatial_merge_size = 0;
+
+    // audio
+    int32_t n_mel_bins = 0; // whisper preprocessor
+    int32_t proj_stack_factor = 0; // ultravox
 };
 
 struct clip_layer {
@@ -2035,20 +2038,30 @@ struct clip_model_loader {
 
         // other hparams
         {
-            get_i32(KEY_MINICPMV_VERSION, ctx_clip.minicpmv_version, false); // legacy
-
             get_bool(KEY_HAS_AUDIO_ENC,  hparams.has_audio, false);
             get_bool(KEY_HAS_VISION_ENC, hparams.has_vision, false);
-            get_u32(KEY_N_EMBD,          hparams.n_embd);
-            get_u32(KEY_N_HEAD,          hparams.n_head);
-            get_u32(KEY_N_FF,            hparams.n_ff);
-            get_u32(KEY_N_BLOCK,         hparams.n_layer);
-            get_u32(KEY_PROJ_DIM,        hparams.projection_dim);
-            get_f32(KEY_LAYER_NORM_EPS,  hparams.eps);
-            get_u32(KEY_IMAGE_SIZE,      hparams.image_size);
-            get_u32(KEY_PATCH_SIZE,      hparams.patch_size);
-            get_u32(KEY_IMAGE_CROP_RESOLUTION,    hparams.image_crop_resolution, false);
-            get_arr_int(KEY_IMAGE_GRID_PINPOINTS, hparams.image_grid_pinpoints, false);
+
+            const char * prefix = hparams.has_vision ? "vision" : "audio";
+            get_u32(string_format(KEY_N_EMBD,         prefix), hparams.n_embd);
+            get_u32(string_format(KEY_N_HEAD,         prefix), hparams.n_head);
+            get_u32(string_format(KEY_N_FF,           prefix), hparams.n_ff);
+            get_u32(string_format(KEY_N_BLOCK,        prefix), hparams.n_layer);
+            get_u32(string_format(KEY_PROJ_DIM,       prefix), hparams.projection_dim);
+            get_f32(string_format(KEY_LAYER_NORM_EPS, prefix), hparams.eps);
+
+            if (hparams.has_vision) {
+                get_u32(KEY_IMAGE_SIZE, hparams.image_size);
+                get_u32(KEY_PATCH_SIZE, hparams.patch_size);
+                get_u32(KEY_IMAGE_CROP_RESOLUTION,    hparams.image_crop_resolution, false);
+                get_arr_int(KEY_IMAGE_GRID_PINPOINTS, hparams.image_grid_pinpoints, false);
+                get_i32(KEY_MINICPMV_VERSION, ctx_clip.minicpmv_version, false); // legacy
+
+            } else if (hparams.has_audio) {
+                get_u32(KEY_A_NUM_MEL_BINS, hparams.n_mel_bins);
+
+            } else {
+                throw std::runtime_error(string_format("%s: neither vision nor audio encoder is present\n", __func__));
+            }
 
             // default warmup value
             hparams.warmup_image_size = hparams.image_size;
@@ -2086,7 +2099,7 @@ struct clip_model_loader {
                 }
             }
 
-            {
+            if (hparams.has_vision) {
                 int idx_mean = gguf_find_key(ctx_gguf.get(), KEY_IMAGE_MEAN);
                 int idx_std  = gguf_find_key(ctx_gguf.get(), KEY_IMAGE_STD);
                 GGML_ASSERT(idx_mean >= 0 && "image_mean not found");
@@ -2174,8 +2187,12 @@ struct clip_model_loader {
                     } break;
                 case PROJECTOR_TYPE_ULTRAVOX:
                     {
-                        get_u32(KEY_PROJ_STACK_FACTOR, hparams.proj_stack_factor);
+                        get_u32(KEY_A_PROJ_STACK_FACTOR, hparams.proj_stack_factor);
+                        if (hparams.n_mel_bins != 128) {
+                            throw std::runtime_error(string_format("%s: only 128 mel bins are supported for ultravox\n", __func__));
+                        }
                         hparams.ffn_op = FFN_GELU_ERF;
+                        log_ffn_op = "gelu_erf"; // temporary solution for logging
                     } break;
                 default:
                     break;
@@ -2188,15 +2205,21 @@ struct clip_model_loader {
             LOG_INF("%s: n_head:             %d\n", __func__, hparams.n_head);
             LOG_INF("%s: n_ff:               %d\n", __func__, hparams.n_ff);
             LOG_INF("%s: n_layer:            %d\n", __func__, hparams.n_layer);
-            LOG_INF("%s: projection_dim:     %d\n", __func__, hparams.projection_dim);
-            LOG_INF("%s: image_size:         %d\n", __func__, hparams.image_size);
-            LOG_INF("%s: patch_size:         %d\n", __func__, hparams.patch_size);
-            LOG_INF("\n");
-            LOG_INF("%s: has_llava_proj:     %d\n", __func__, ctx_clip.has_llava_projector);
-            LOG_INF("%s: minicpmv_version:   %d\n", __func__, ctx_clip.minicpmv_version);
-            LOG_INF("%s: proj_scale_factor:  %d\n", __func__, hparams.proj_scale_factor);
-            LOG_INF("%s: n_wa_pattern:       %d\n", __func__, hparams.n_wa_pattern);
             LOG_INF("%s: ffn_op:             %s\n", __func__, log_ffn_op.c_str());
+            LOG_INF("%s: projection_dim:     %d\n", __func__, hparams.projection_dim);
+            LOG_INF("\n");
+            if (hparams.has_vision) {
+                LOG_INF("%s: image_size:         %d\n", __func__, hparams.image_size);
+                LOG_INF("%s: patch_size:         %d\n", __func__, hparams.patch_size);
+                LOG_INF("%s: has_llava_proj:     %d\n", __func__, ctx_clip.has_llava_projector);
+                LOG_INF("%s: minicpmv_version:   %d\n", __func__, ctx_clip.minicpmv_version);
+                LOG_INF("%s: proj_scale_factor:  %d\n", __func__, hparams.proj_scale_factor);
+                LOG_INF("%s: n_wa_pattern:       %d\n", __func__, hparams.n_wa_pattern);
+            } else if (hparams.has_audio) {
+                LOG_INF("%s: n_mel_bins:         %d\n", __func__, hparams.n_mel_bins);
+                LOG_INF("%s: proj_stack_factor:  %d\n", __func__, hparams.proj_stack_factor);
+            }
+            LOG_INF("\n");
             LOG_INF("%s: model size:         %.2f MiB\n", __func__, model_size / 1024.0 / 1024.0);
             LOG_INF("%s: metadata size:      %.2f MiB\n", __func__, ggml_get_mem_size(ctx_meta.get()) / 1024.0 / 1024.0);
         }
@@ -2497,13 +2520,19 @@ struct clip_model_loader {
     }
 
     void alloc_compute_meta() {
+        const auto & hparams = ctx_clip.vision_model.hparams;
         ctx_clip.buf_compute_meta.resize(ctx_clip.max_nodes * ggml_tensor_overhead() + ggml_graph_overhead());
 
         // create a fake batch
         clip_image_f32_batch batch;
         clip_image_f32_ptr img(clip_image_f32_init());
-        img->nx = ctx_clip.vision_model.hparams.warmup_image_size;
-        img->ny = ctx_clip.vision_model.hparams.warmup_image_size;
+        if (hparams.has_vision) {
+            img->nx = hparams.warmup_image_size;
+            img->ny = hparams.warmup_image_size;
+        } else {
+            img->nx = 1024; // TODO @ngxson : use a better default
+            img->ny = hparams.n_mel_bins;
+        }
         img->buf.resize(img->nx * img->ny * 3);
         batch.entries.push_back(std::move(img));
 
