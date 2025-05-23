@@ -26,7 +26,7 @@ static __device__ __forceinline__ float op_gelu(float x) {
 static __device__ __forceinline__ float op_gelu_erf(float x) {
     const float SQRT_2_INV = 0.70710678118654752440084436210484f;
 
-    return 0.5f*x*(1.0f + erff(x*SQRT_2_INV))
+    return 0.5f*x*(1.0f + erff(x*SQRT_2_INV));
 }
 
 static __device__ __forceinline__ float op_gelu_quick(float x) {
