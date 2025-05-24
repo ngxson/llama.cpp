@@ -1667,27 +1667,9 @@ private:
             inpL = cur;
         }
 
-        // TODO @ngxson : find a way to move this output of this function
+        // TODO @ngxson : find a way to move this outside
         if (ctx->proj_type == PROJECTOR_TYPE_QWEN2A) {
             ggml_tensor * cur = inpL;
-            // trick: use sum_rows and ggml_scale instead of ggml_pool_1d
-            // because ggml_pool_1d is not supported on some GPU backend
-            // add padding if number of frames is not divisible by 2
-            /*
-            if (cur->ne[1] % 2 != 0) {
-                cur = ggml_pad(ctx0, cur, 0, 1, 0, 0);
-            }
-            cur = ggml_reshape_3d(ctx0, cur, cur->ne[0], 2, cur->ne[1]/2); // [n_embd, 2, n_frames/2]
-            cur = ggml_transpose(ctx0, cur); // [2, n_embd, n_frames/2]
-            // calc mean value
-            {
-                cur = ggml_cast(ctx0, cur, GGML_TYPE_F32);
-                cur = ggml_sum_rows(ctx0, cur); // [1, n_embd, n_frames/2]
-                cur = ggml_scale(ctx0, cur, 0.5f);
-            }
-            cur = ggml_transpose(ctx0, cur); // [n_embd, 1, n_frames/2]
-            cur = ggml_reshape_2d(ctx0, cur, cur->ne[0], cur->ne[2]); // [n_embd, n_frames/2]
-            */
             cur = ggml_transpose(ctx0, cur);
             cur = ggml_cast(ctx0, cur, GGML_TYPE_F32);
             cur = ggml_pool_1d(ctx0, cur, GGML_OP_POOL_AVG, 2, 2, 0);

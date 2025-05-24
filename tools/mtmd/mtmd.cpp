@@ -335,7 +335,7 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
         string_replace_all(prompt_modified, ctx->media_marker, marker_modified);
 
     } else if (proj_type == PROJECTOR_TYPE_QWEN2A) {
-        // <|audio_bos|> ... (image embeddings) ... <|audio_eos|>
+        // <|audio_bos|> ... (embeddings) ... <|audio_eos|>
         marker_modified = "<|audio_bos|>" + ctx->media_marker + "<|audio_eos|>";
         string_replace_all(prompt_modified, ctx->media_marker, marker_modified);
 
