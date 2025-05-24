@@ -2668,7 +2668,7 @@ class Qwen2Model(TextModel):
         if "language_model." in name:
             name = name.replace("language_model.", "") # for InternVL
         if name.startswith("mlp") or name.startswith("multi_modal_projector") \
-            or name.startswith("vision_model") or name.startswith("audio_tower"):
+                or name.startswith("vision_model") or name.startswith("audio_tower"):
             # skip vision and audio tensors
             return []
         yield from super().modify_tensors(data_torch, name, bid)
