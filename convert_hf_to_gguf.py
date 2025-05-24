@@ -3983,6 +3983,7 @@ class Gemma2Model(TextModel):
 @ModelBase.register("Gemma3ForCausalLM", "Gemma3ForConditionalGeneration")
 class Gemma3Model(TextModel):
     model_arch = gguf.MODEL_ARCH.GEMMA3
+    norm_shift = 1.0  # Gemma3RMSNorm adds 1.0 to the norm value
 
     def set_vocab(self):
         self._set_vocab_sentencepiece()
@@ -4032,8 +4033,9 @@ class Gemma3Model(TextModel):
 
         # ref code in Gemma3RMSNorm
         # output = output * (1.0 + self.weight.float())
+        # note: this is not the case on gemma3n
         if name.endswith("norm.weight"):
-            data_torch = data_torch + 1
+            data_torch = data_torch + self.norm_shift
 
         return [(self.map_tensor_name(name), data_torch)]
 
@@ -4093,6 +4095,7 @@ class Gemma3VisionModel(MmprojModel):
 @ModelBase.register("Gemma3p5ForCausalLM")
 class Gemma3NModel(Gemma3Model):
     model_arch = gguf.MODEL_ARCH.GEMMA3N
+    norm_shift = 0.0 # same value with Gemma3p5RMSNorm scale_shift on python code
 
     _altup_proj: list[Tensor] = []
     _altup_unembd: list[Tensor] = []
@@ -4124,6 +4127,8 @@ class Gemma3NModel(Gemma3Model):
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         if name.endswith("_scale"):
             name = name + ".weight"
+
+        # TODO: implement self.prediction_coefs.weight.clamp_(...)
 
         if "altup_unembed_projections" in name:
             data_torch = data_torch.to(device="cpu")

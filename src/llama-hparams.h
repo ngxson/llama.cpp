@@ -147,6 +147,7 @@ struct llama_hparams {
 
     // gemma3n altup
     uint32_t n_altup      = 4; // altup_num_inputs
+    uint32_t i_altup_act  = 0; // altup_active_idx
     uint32_t laurel_rank  = 64;
     uint32_t n_embd_altup = 256;
 
