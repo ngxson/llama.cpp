@@ -4034,7 +4034,7 @@ bool clip_has_audio_encoder(const struct clip_ctx * ctx) {
 }
 
 bool clip_has_whisper_encoder(const struct clip_ctx * ctx) {
-    return ctx->proj_type == PROJECTOR_TYPE_GEMMA3 || ctx->proj_type == PROJECTOR_TYPE_QWEN2A;
+    return ctx->proj_type == PROJECTOR_TYPE_ULTRAVOX || ctx->proj_type == PROJECTOR_TYPE_QWEN2A;
 }
 
 bool clip_encode_float_image (struct clip_ctx * ctx, int n_threads, float * img, int h, int w, float * vec) {
