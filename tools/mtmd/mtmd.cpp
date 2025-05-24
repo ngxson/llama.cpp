@@ -215,7 +215,7 @@ struct mtmd_context {
         }
         if (has_audio) {
             LOG_WRN("%s: audio input is in experimental stage and may have reduced quality:\n"
-                    "    https://github.com/ggml-org/llama.cpp/pull/13623\n", __func__);
+                    "    https://github.com/ggml-org/llama.cpp/discussions/13759\n", __func__);
         }
     }
 
