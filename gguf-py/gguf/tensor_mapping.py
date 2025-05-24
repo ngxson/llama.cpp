@@ -474,11 +474,11 @@ class TensorNameMap:
         ),
 
         MODEL_TENSOR.ALTUP_PROJ: (
-            "model.altup_projections.{bid}",  # gemma3n
+            "model.altup_projections",  # gemma3n
         ),
 
         MODEL_TENSOR.ALTUP_UNEMBD_PROJ: (
-            "model.altup_unembed_projections.{bid}",  # gemma3n
+            "model.altup_unembed_projections",  # gemma3n
         ),
 
         MODEL_TENSOR.PER_LAYER_INP_GATE: (

@@ -692,8 +692,8 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.PER_LAYER_TOKEN_EMBD:      "per_layer_token_embd",           # gemma3n
     MODEL_TENSOR.PER_LAYER_MODEL_PROJ:      "per_layer_model_proj",           # gemma3n
     MODEL_TENSOR.PER_LAYER_PROJ_NORM:       "per_layer_proj_norm",            # gemma3n
-    MODEL_TENSOR.ALTUP_UNEMBD_PROJ:         "altup_unembd_proj.{bid}",        # gemma3n
-    MODEL_TENSOR.ALTUP_PROJ:                "altup_proj.{bid}",               # gemma3n
+    MODEL_TENSOR.ALTUP_UNEMBD_PROJ:         "altup_unembd_proj",              # gemma3n
+    MODEL_TENSOR.ALTUP_PROJ:                "altup_proj",                     # gemma3n
     MODEL_TENSOR.PER_LAYER_INP_GATE:        "blk.{bid}.inp_gate",             # gemma3n
     MODEL_TENSOR.PER_LAYER_PROJ:            "blk.{bid}.proj",                 # gemma3n
     MODEL_TENSOR.PER_LAYER_POST_NORM:       "blk.{bid}.post_norm",            # gemma3n

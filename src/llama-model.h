@@ -315,6 +315,19 @@ struct llama_layer {
     struct ggml_tensor * ffn_up_scale   = nullptr;
     struct ggml_tensor * ffn_down_scale = nullptr;
 
+    // altup & laurel
+    struct ggml_tensor * per_layer_inp_gate   = nullptr;
+    struct ggml_tensor * per_layer_proj       = nullptr;
+    struct ggml_tensor * per_layer_post_norm  = nullptr;
+    struct ggml_tensor * altup_correct_coef   = nullptr;
+    struct ggml_tensor * altup_correct_scale  = nullptr;
+    struct ggml_tensor * altup_predict_coef   = nullptr;
+    struct ggml_tensor * altup_router         = nullptr;
+    struct ggml_tensor * altup_router_norm    = nullptr;
+    struct ggml_tensor * laurel_l             = nullptr;
+    struct ggml_tensor * laurel_r             = nullptr;
+    struct ggml_tensor * laurel_post_norm     = nullptr;
+
     struct llama_layer_posnet posnet;
 
     struct llama_layer_convnext convnext;
@@ -349,6 +362,13 @@ struct llama_model {
 
     struct ggml_tensor * conv1d   = nullptr;
     struct ggml_tensor * conv1d_b = nullptr;
+
+    // gemma3n altup
+    struct ggml_tensor * tok_embd_per_layer   = nullptr;
+    struct ggml_tensor * altup_proj           = nullptr;
+    struct ggml_tensor * altup_unembd_proj    = nullptr;
+    struct ggml_tensor * per_layer_model_proj = nullptr;
+    struct ggml_tensor * per_layer_proj_norm  = nullptr;
 
     std::vector<llama_layer> layers;
 

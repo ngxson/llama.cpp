@@ -4094,12 +4094,69 @@ class Gemma3VisionModel(MmprojModel):
 class Gemma3NModel(Gemma3Model):
     model_arch = gguf.MODEL_ARCH.GEMMA3N
 
+    _altup_proj: list[Tensor] = []
+    _altup_unembd: list[Tensor] = []
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        assert self.hparams["altup_num_inputs"] == 4, "Current conversion only supports 4 altup inputs"
+        self._altup_proj = [
+            torch.Tensor(), # to be replaced
+            torch.Tensor(), # to be replaced
+            torch.Tensor(), # to be replaced
+        ]
+        self._altup_unembd = [
+            torch.Tensor(), # to be replaced
+            torch.Tensor(), # to be replaced
+            torch.Tensor(), # to be replaced
+        ]
+
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
+
+    def _stack_matrices(self, matrices: list[Tensor]) -> Tensor | None:
+        has_all = all(m.numel() > 0 for m in matrices)
+        if not has_all:
+            return None
+        else:
+            return torch.stack(matrices, dim=0)
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         if name.endswith("_scale"):
             name = name + ".weight"
+
+        if "altup_unembed_projections" in name:
+            data_torch = data_torch.to(device="cpu")
+            if ".0." in name:
+                self._altup_unembd[0] = data_torch
+            elif ".1." in name:
+                self._altup_unembd[1] = data_torch
+            elif ".2." in name:
+                self._altup_unembd[2] = data_torch
+            else:
+                raise ValueError(f"Unknown name: {name}")
+            out = self._stack_matrices(self._altup_unembd)
+            if out is not None:
+                return [(self.map_tensor_name("model.altup_unembed_projections.weight"), out)]
+            else:
+                return []
+
+        if "altup_projections" in name:
+            data_torch = data_torch.to(device="cpu")
+            if ".0." in name:
+                self._altup_proj[0] = data_torch
+            elif ".1." in name:
+                self._altup_proj[1] = data_torch
+            elif ".2." in name:
+                self._altup_proj[2] = data_torch
+            else:
+                raise ValueError(f"Unknown name: {name}")
+            out = self._stack_matrices(self._altup_proj)
+            if out is not None:
+                return [(self.map_tensor_name("model.altup_projections.weight"), out)]
+            else:
+                return []
+
         return super().modify_tensors(data_torch, name, bid)
 
 
