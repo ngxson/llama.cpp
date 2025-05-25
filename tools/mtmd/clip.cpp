@@ -2672,7 +2672,7 @@ struct clip_model_loader {
     }
 };
 
-std::pair<clip_ctx *, clip_ctx *> clip_init(const char * fname, struct clip_context_params ctx_params) {
+struct clip_init_result clip_init(const char * fname, struct clip_context_params ctx_params) {
     g_logger_state.verbosity_thold = ctx_params.verbosity;
     clip_ctx * ctx_vision = nullptr;
     clip_ctx * ctx_audio = nullptr;

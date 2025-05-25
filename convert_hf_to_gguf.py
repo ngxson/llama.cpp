@@ -1151,7 +1151,7 @@ class MmprojModel(ModelBase):
         self.global_config = copy.deepcopy(self.hparams)
         self.hparams_vision = self.get_vision_config()
         self.hparams_audio = self.get_audio_config()
-        
+
         if self.hparams_vision is None and self.hparams_audio is None:
             raise ValueError("vision_config / audio_config not found in hparams")
 

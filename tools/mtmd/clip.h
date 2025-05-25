@@ -29,8 +29,12 @@ struct clip_context_params {
     enum ggml_log_level verbosity;
 };
 
-// returns pair of <vision, audio> contexts
-std::pair<clip_ctx *, clip_ctx *> clip_init(const char * fname, struct clip_context_params ctx_params);
+struct clip_init_result {
+    struct clip_ctx * ctx_v; // vision context
+    struct clip_ctx * ctx_a; // audio context
+};
+
+struct clip_init_result clip_init(const char * fname, struct clip_context_params ctx_params);
 
 void clip_free(struct clip_ctx * ctx);
 

@@ -150,8 +150,8 @@ struct mtmd_context {
         ctx_clip_params.use_gpu   = ctx_params.use_gpu;
         ctx_clip_params.verbosity = ctx_params.verbosity;
         auto res = clip_init(mmproj_fname, ctx_clip_params);
-        ctx_v = res.first;
-        ctx_a = res.second;
+        ctx_v = res.ctx_v;
+        ctx_a = res.ctx_a;
         if (!ctx_v && !ctx_a) {
             throw std::runtime_error(string_format("Failed to load CLIP model from %s\n", mmproj_fname));
         }
