@@ -6848,7 +6848,6 @@ static void ggml_compute_forward_fill_f32(
     const int nc = dst->ne[0];
 
     const size_t nb00 = dst->nb[0];
-    const size_t nb01 = dst->nb[1];
 
     const size_t nb0 = dst->nb[0];
     const size_t nb1 = dst->nb[1];

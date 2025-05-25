@@ -517,6 +517,7 @@ extern "C" {
         GGML_OP_CROSS_ENTROPY_LOSS,
         GGML_OP_CROSS_ENTROPY_LOSS_BACK,
         GGML_OP_OPT_STEP_ADAMW,
+
         GGML_OP_FILL,
 
         GGML_OP_COUNT,
