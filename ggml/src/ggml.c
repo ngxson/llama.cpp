@@ -4342,6 +4342,20 @@ struct ggml_tensor * ggml_arange(
     return result;
 }
 
+struct ggml_tensor * ggml_fill(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * a,
+        float                 value) {
+    struct ggml_tensor * result = ggml_view_tensor(ctx, a);
+
+    ggml_set_op_params(result, &value, sizeof(value));
+
+    result->op     = GGML_OP_FILL;
+    result->src[0] = a;
+
+    return result;
+}
+
 // ggml_timestep_embedding
 
 struct ggml_tensor * ggml_timestep_embedding(

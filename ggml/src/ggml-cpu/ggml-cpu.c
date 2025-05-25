@@ -1959,6 +1959,10 @@ static void ggml_compute_forward(struct ggml_compute_params * params, struct ggm
             {
                 ggml_compute_forward_arange(params, tensor);
             } break;
+        case GGML_OP_FILL:
+            {
+                ggml_compute_forward_fill(params, tensor);
+            } break;
         case GGML_OP_TIMESTEP_EMBEDDING:
             {
                 ggml_compute_forward_timestep_embedding(params, tensor);
@@ -2242,6 +2246,7 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
         case GGML_OP_TRANSPOSE:
         case GGML_OP_GET_ROWS_BACK:
         case GGML_OP_DIAG:
+        case GGML_OP_ARANGE:
             {
                 n_tasks = 1;
             } break;
@@ -2279,7 +2284,7 @@ static int ggml_get_n_tasks(struct ggml_tensor * node, int n_threads) {
         case GGML_OP_UPSCALE:
         case GGML_OP_PAD:
         case GGML_OP_PAD_REFLECT_1D:
-        case GGML_OP_ARANGE:
+        case GGML_OP_FILL:
         case GGML_OP_TIMESTEP_EMBEDDING:
         case GGML_OP_ARGSORT:
         case GGML_OP_FLASH_ATTN_EXT:
