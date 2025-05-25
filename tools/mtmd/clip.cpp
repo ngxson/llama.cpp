@@ -415,6 +415,7 @@ struct clip_ctx {
         }
     }
 
+    // this function is added so that we don't change too much of the existing code
     projector_type proj_type() const {
         return model.proj_type;
     }
@@ -2085,6 +2086,13 @@ struct clip_model_loader {
             }
             if (model.proj_type == PROJECTOR_TYPE_UNKNOWN) {
                 throw std::runtime_error(string_format("%s: unknown projector type: %s\n", __func__, proj_type.c_str()));
+            }
+
+            // correct arch for multimodal models
+            if (model.proj_type == PROJECTOR_TYPE_QWEN25O) {
+                model.proj_type = modality == CLIP_MODALITY_VISION
+                                    ? PROJECTOR_TYPE_QWEN25VL
+                                    : PROJECTOR_TYPE_QWEN2A;
             }
         }
 
@@ -4078,7 +4086,8 @@ bool clip_has_audio_encoder(const struct clip_ctx * ctx) {
 }
 
 bool clip_has_whisper_encoder(const struct clip_ctx * ctx) {
-    return ctx->proj_type() == PROJECTOR_TYPE_ULTRAVOX || ctx->proj_type() == PROJECTOR_TYPE_QWEN2A;
+    return ctx->proj_type() == PROJECTOR_TYPE_ULTRAVOX
+        || ctx->proj_type() == PROJECTOR_TYPE_QWEN2A;
 }
 
 bool clip_encode_float_image (struct clip_ctx * ctx, int n_threads, float * img, int h, int w, float * vec) {

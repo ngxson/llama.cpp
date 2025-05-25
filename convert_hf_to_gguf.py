@@ -1124,6 +1124,8 @@ class MmprojModel(ModelBase):
     preprocessor_config: dict[str, Any]
     global_config: dict[str, Any]
 
+    n_block_keys = ["n_layers", "num_hidden_layers", "n_layer", "num_layers", "depth"]
+
     has_vision_encoder: bool = True # by default
     has_audio_encoder: bool = False
 
@@ -1160,8 +1162,7 @@ class MmprojModel(ModelBase):
 
         # TODO @ngxson : this is a hack to support both vision and audio encoders
         have_multiple_encoders = self.has_audio_encoder and self.has_vision_encoder
-        self.block_count = 128 if have_multiple_encoders else \
-            self.find_hparam(["n_layers", "num_hidden_layers", "n_layer", "num_layers", "depth"], True)
+        self.block_count = 128 if have_multiple_encoders else self.find_hparam(self.n_block_keys, True)
         self.tensor_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.MMPROJ, self.block_count)
 
         # load preprocessor config
@@ -1185,32 +1186,50 @@ class MmprojModel(ModelBase):
             self.gguf_writer.add_vision_projection_dim(self.n_embd_text)
 
             # vision config
-            self.gguf_writer.add_vision_image_size(self.find_hparam(["image_size"]))
-            self.gguf_writer.add_vision_patch_size(self.find_hparam(["patch_size"]))
-            self.gguf_writer.add_vision_embedding_length(self.find_hparam(["hidden_size"]))
-            self.gguf_writer.add_vision_feed_forward_length(self.find_hparam(["intermediate_size"]))
-            self.gguf_writer.add_vision_block_count(self.block_count)
-            self.gguf_writer.add_vision_head_count(self.find_hparam(["num_attention_heads"]))
+            self.gguf_writer.add_vision_image_size(self.find_vparam(["image_size"]))
+            self.gguf_writer.add_vision_patch_size(self.find_vparam(["patch_size"]))
+            self.gguf_writer.add_vision_embedding_length(self.find_vparam(["hidden_size"]))
+            self.gguf_writer.add_vision_feed_forward_length(self.find_vparam(["intermediate_size"]))
+            self.gguf_writer.add_vision_block_count(self.find_vparam(self.n_block_keys))
+            self.gguf_writer.add_vision_head_count(self.find_vparam(["num_attention_heads"]))
 
             # preprocessor config
             self.gguf_writer.add_vision_image_mean(self.preprocessor_config["image_mean"])
             self.gguf_writer.add_vision_image_std(self.preprocessor_config["image_std"])
 
-        elif self.has_audio_encoder:
+        if self.has_audio_encoder:
             self.gguf_writer.add_clip_has_audio_encoder(True)
             self.gguf_writer.add_audio_projection_dim(self.n_embd_text)
 
             # audio config
-            self.gguf_writer.add_audio_embedding_length(self.find_hparam(["hidden_size"]))
-            self.gguf_writer.add_audio_feed_forward_length(self.find_hparam(["intermediate_size"]))
-            self.gguf_writer.add_audio_block_count(self.block_count)
-            self.gguf_writer.add_audio_head_count(self.find_hparam(["num_attention_heads"]))
+            self.gguf_writer.add_audio_embedding_length(self.find_aparam(["hidden_size"]))
+            self.gguf_writer.add_audio_feed_forward_length(self.find_aparam(["intermediate_size"]))
+            self.gguf_writer.add_audio_block_count(self.find_aparam(self.n_block_keys))
+            self.gguf_writer.add_audio_head_count(self.find_aparam(["num_attention_heads"]))
 
         else:
             raise ValueError("MmprojModel must have either vision or audio encoder")
 
     def write_vocab(self):
         raise ValueError("MmprojModel does not support vocab writing")
+
+    def find_vparam(self, keys: Iterable[str], optional: bool = False) -> Any:
+        key = next((k for k in keys if k in self.hparams), None)
+        assert self.hparams_vision is not None
+        return self._find_param(self.hparams_vision, keys, optional)
+
+    def find_aparam(self, keys: Iterable[str], optional: bool = False) -> Any:
+        key = next((k for k in keys if k in self.hparams), None)
+        assert self.hparams_audio is not None
+        return self._find_param(self.hparams_audio, keys, optional)
+
+    def _find_param(self, obj: dict[str, Any], keys: Iterable[str], optional: bool = False) -> Any:
+        key = next((k for k in keys if k in obj), None)
+        if key is not None:
+            return obj[key]
+        if optional:
+            return None
+        raise KeyError(f"could not find any of: {keys}")
 
 
 @ModelBase.register("GPTNeoXForCausalLM")
@@ -2743,9 +2762,9 @@ class Qwen2VLVisionModel(MmprojModel):
             self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.QWEN2VL)
         elif model_type == 'qwen2_5_vl' or model_type == 'qwen2_5_omni':
             if model_type == 'qwen2_5_omni':
-                self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.QWEN25VL)
-            else:
                 self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.QWEN25O)
+            else:
+                self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.QWEN25VL)
             self.gguf_writer.add_vision_use_silu(True)
             # find n_wa_pattern (window attention pattern)
             fullatt_block_indexes = hparams.get("fullatt_block_indexes")
@@ -2807,6 +2826,19 @@ class Qwen2VLVisionModel(MmprojModel):
 class Qwen25OmniModel(Qwen2VLVisionModel):
     has_vision_encoder = True
     has_audio_encoder = True
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        assert self.hparams_audio is not None
+        self.hparams_audio["hidden_size"] = self.hparams_audio["d_model"]
+        self.hparams_audio["intermediate_size"] = self.hparams_audio["encoder_ffn_dim"]
+        self.hparams_audio["num_attention_heads"] = self.hparams_audio["encoder_attention_heads"]
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        assert self.hparams_audio is not None
+        self.gguf_writer.add_audio_num_mel_bins(self.hparams_audio["num_mel_bins"])
+        self.gguf_writer.add_audio_attention_layernorm_eps(self.hparams_audio.get("layer_norm_eps", 1e-5))
 
     def get_vision_config(self) -> dict[str, Any] | None:
         return self.global_config["thinker_config"].get("vision_config")

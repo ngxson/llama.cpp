@@ -104,6 +104,7 @@ struct mtmd_context {
     int n_threads;
     std::string media_marker;
 
+    // these are not token, but strings used to mark the beginning and end of image/audio embeddings
     std::string img_beg;
     std::string img_end;
     std::string aud_beg;
