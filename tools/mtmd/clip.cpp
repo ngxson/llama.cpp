@@ -1671,10 +1671,10 @@ private:
         if (ctx->proj_type == PROJECTOR_TYPE_QWEN2A) {
             ggml_tensor * cur = inpL;
             cur = ggml_transpose(ctx0, cur);
-            cur = ggml_cast(ctx0, cur, GGML_TYPE_F32);
+            cur = ggml_cont(ctx0, cur);
             cur = ggml_pool_1d(ctx0, cur, GGML_OP_POOL_AVG, 2, 2, 0);
             cur = ggml_transpose(ctx0, cur);
-            cur = ggml_cast(ctx0, cur, GGML_TYPE_F32);
+            cur = ggml_cont(ctx0, cur);
             inpL = cur;
         }
 
