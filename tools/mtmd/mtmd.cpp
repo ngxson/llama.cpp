@@ -95,15 +95,14 @@ mtmd_context_params mtmd_context_params_default() {
 }
 
 struct mtmd_context {
-    struct clip_ctx * ctx_clip;
+    struct clip_ctx * ctx_v; // vision
+    struct clip_ctx * ctx_a; // audio
     const struct llama_model * text_model;
     std::vector<float> image_embd_v; // image embedding vector
 
     bool print_timings;
     int n_threads;
     std::string media_marker;
-    bool has_vision;
-    bool has_audio;
 
     // for llava-uhd style models, we need special tokens in-between slices
     // minicpmv calls them "slices", llama 4 calls them "tiles"
@@ -141,11 +140,14 @@ struct mtmd_context {
         clip_context_params ctx_clip_params;
         ctx_clip_params.use_gpu   = ctx_params.use_gpu;
         ctx_clip_params.verbosity = ctx_params.verbosity;
-        ctx_clip = clip_init(mmproj_fname, ctx_clip_params);
-        if (!ctx_clip) {
+        auto res = clip_init(mmproj_fname, ctx_clip_params);
+        ctx_v = res.first;
+        ctx_a = res.second;
+        if (!ctx_v && !ctx_a) {
             throw std::runtime_error(string_format("Failed to load CLIP model from %s\n", mmproj_fname));
         }
 
+        clip_ctx * ctx_clip = get_clip_ctx();
         if (llama_model_n_embd(text_model) != clip_n_mmproj_embd(ctx_clip)) {
             throw std::runtime_error(string_format(
                 "mismatch between text model (n_embd = %d) and mmproj (n_embd = %d)\n"
@@ -153,9 +155,7 @@ struct mtmd_context {
                 llama_model_n_embd(text_model), clip_n_mmproj_embd(ctx_clip)));
         }
 
-        has_vision = clip_has_vision_encoder(ctx_clip);
-        has_audio  = clip_has_audio_encoder(ctx_clip);
-        use_mrope  = clip_is_qwen2vl(ctx_clip);
+        use_mrope = clip_is_qwen2vl(ctx_clip);
 
         projector_type proj = clip_get_projector_type(ctx_clip);
         int minicpmv_version = clip_is_minicpmv(ctx_clip);
@@ -203,7 +203,7 @@ struct mtmd_context {
             ov_img_first      = false; // overview image is last
         }
 
-        if (clip_has_whisper_encoder(ctx_clip)) {
+        if (ctx_a && clip_has_whisper_encoder(ctx_a)) {
             // TODO @ngxson : check if model n_mel is 128 or 80
             w_filters = whisper_precalc_filters::get_128_bins();
         }
@@ -213,14 +213,40 @@ struct mtmd_context {
             LOG_WRN("%s: llama 4 vision is known to have degraded quality:\n"
                     "    https://github.com/ggml-org/llama.cpp/pull/13282\n", __func__);
         }
-        if (has_audio) {
+        if (ctx_a) {
             LOG_WRN("%s: audio input is in experimental stage and may have reduced quality:\n"
                     "    https://github.com/ggml-org/llama.cpp/discussions/13759\n", __func__);
         }
     }
 
+    // get the main clip ctx
+    clip_ctx * get_clip_ctx() const {
+        return ctx_v ? ctx_v : ctx_a;
+    }
+
+    // get clip ctx based on chunk type
+    clip_ctx * get_clip_ctx(const mtmd_input_chunk * chunk) const {
+        if (chunk->type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+            return ctx_v;
+        } else if (chunk->type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
+            return ctx_a;
+        }
+        GGML_ABORT("unknown chunk type");
+    }
+
+    // both audio and vision contexts have the same projector type
+    projector_type proj_type() const {
+        return clip_get_projector_type(get_clip_ctx());
+    }
+
+    // both audio and vision contexts have the n_embd output dimension
+    int n_embd_projected() const {
+        return clip_n_mmproj_embd(get_clip_ctx());
+    }
+
     ~mtmd_context() {
-        clip_free(ctx_clip);
+        clip_free(ctx_a);
+        clip_free(ctx_v);
     }
 
 private:
@@ -296,14 +322,14 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
 
     std::string prompt_modified(text->text);
     std::string marker_modified(ctx->media_marker);
-    projector_type proj_type = clip_get_projector_type(ctx->ctx_clip);
+    projector_type proj_type = ctx->proj_type();
 
     // for compatibility, we convert image marker to media marker
     string_replace_all(prompt_modified, MTMD_DEFAULT_IMAGE_MARKER, ctx->media_marker);
 
     // a bit hacky here, but works for now
     // for some models, we need to add prefix and suffix to the image embeddings
-    if (clip_is_gemma3(ctx->ctx_clip)) {
+    if (proj_type == PROJECTOR_TYPE_GEMMA3) {
         // gemma 3
         // <start_of_image> ... (image embeddings) ... <end_of_image>
         marker_modified = "<start_of_image>" + ctx->media_marker + "<end_of_image>";
@@ -362,12 +388,12 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
     };
 
     // utility for splitting batch of multiple images into chunks of batch having single images
-    auto split_batch_to_chunk = [&ctx](clip_image_f32_batch && batch_f32, const std::string & id) {
+    auto split_batch_to_chunk = [](clip_ctx * ctx_clip, clip_image_f32_batch && batch_f32, const std::string & id) {
         std::vector<mtmd_input_chunk> chunks;
 
         for (auto & entry : batch_f32.entries) {
             mtmd_image_tokens_ptr image_tokens(new mtmd_image_tokens);
-            image_tokens->nx = clip_n_output_tokens(ctx->ctx_clip, entry.get());
+            image_tokens->nx = clip_n_output_tokens(ctx_clip, entry.get());
             image_tokens->ny = 1;
             image_tokens->batch_f32.entries.push_back(std::move(entry));
             image_tokens->id = id;
@@ -413,7 +439,7 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                 return 1;
             }
 
-            if (!ctx->has_vision) {
+            if (!ctx->ctx_v) {
                 LOG_ERR("%s: error: model does not support vision input\n", __func__);
                 return 2;
             }
@@ -427,7 +453,7 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
 
             // preprocess image
             clip_image_f32_batch batch_f32;
-            bool ok = clip_image_preprocess(ctx->ctx_clip, img_u8.get(), &batch_f32);
+            bool ok = clip_image_preprocess(ctx->ctx_v, img_u8.get(), &batch_f32);
             if (!ok) {
                 LOG_ERR("Unable to preprocess image\n");
                 return 2;
@@ -440,7 +466,7 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                 || ctx->slice_tmpl == MTMD_SLICE_TMPL_LLAMA4
             ) {
                 // split batch into chunks of single images
-                auto chunks = split_batch_to_chunk(std::move(batch_f32), bitmaps[i_bm]->id);
+                auto chunks = split_batch_to_chunk(ctx->ctx_v, std::move(batch_f32), bitmaps[i_bm]->id);
                 GGML_ASSERT(chunks.size() > 0);
 
                 auto ov_chunk = std::move(chunks.front());
@@ -501,14 +527,14 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
             } else {
                 size_t n_tokens = 0;
                 for (const auto & entry : batch_f32.entries) {
-                    n_tokens += clip_n_output_tokens(ctx->ctx_clip, entry.get());
+                    n_tokens += clip_n_output_tokens(ctx->ctx_v, entry.get());
                 }
 
                 mtmd_image_tokens_ptr image_tokens(new mtmd_image_tokens);
                 if (ctx->use_mrope) {
                     // for Qwen2VL, we need this information for M-RoPE decoding positions
-                    image_tokens->nx = clip_n_output_tokens_x(ctx->ctx_clip, batch_f32.entries[0].get());
-                    image_tokens->ny = clip_n_output_tokens_y(ctx->ctx_clip, batch_f32.entries[0].get());
+                    image_tokens->nx = clip_n_output_tokens_x(ctx->ctx_v, batch_f32.entries[0].get());
+                    image_tokens->ny = clip_n_output_tokens_y(ctx->ctx_v, batch_f32.entries[0].get());
                     image_tokens->use_mrope_pos = true;
                 } else {
                     // other models, we only need the total number of tokens
@@ -542,7 +568,7 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                 return 1;
             }
 
-            if (!ctx->has_audio) {
+            if (!ctx->ctx_a) {
                 LOG_ERR("%s: error: model does not support audio input\n", __func__);
                 return 2;
             }
@@ -570,7 +596,7 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
                 mel_f32->nx  = mel_spec.n_len;
                 mel_f32->ny  = mel_spec.n_mel;
                 mel_f32->buf = std::move(mel_spec.data);
-                size_t n_tokens = clip_n_output_tokens(ctx->ctx_clip, mel_f32.get());
+                size_t n_tokens = clip_n_output_tokens(ctx->ctx_a, mel_f32.get());
 
                 clip_image_f32_batch batch_f32;
                 batch_f32.is_audio = true;
@@ -605,41 +631,54 @@ int32_t mtmd_encode_chunk(mtmd_context * ctx, const mtmd_input_chunk * chunk) {
         LOG_WRN("mtmd_encode_chunk has no effect for text chunks\n");
         return 0;
     } else if (chunk->type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
+        if (!ctx->ctx_v) {
+            LOG_ERR("%s: model does not support vision input\n", __func__);
+            return 1;
+        }
         return mtmd_encode(ctx, chunk->tokens_image.get());
     } else if (chunk->type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
-        int n_mmproj_embd = clip_n_mmproj_embd(ctx->ctx_clip);
+        if (!ctx->ctx_a) {
+            LOG_ERR("%s: model does not support audio input\n", __func__);
+            return 1;
+        }
+        int n_mmproj_embd = ctx->n_embd_projected();
         ctx->image_embd_v.resize(chunk->tokens_audio->n_tokens * n_mmproj_embd);
         bool ok = clip_image_batch_encode(
-            ctx->ctx_clip,
+            ctx->ctx_a,
             ctx->n_threads,
             &chunk->tokens_audio->batch_f32,
             ctx->image_embd_v.data());
         return ok ? 0 : 1;
     }
 
-    LOG_ERR("mtmd_encode_chunk: unknown chunk type %d\n", (int)chunk->type);
+    LOG_ERR("%s: unknown chunk type %d\n", __func__, (int)chunk->type);
     return 1;
 }
 
 int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) {
-    int n_mmproj_embd = clip_n_mmproj_embd(ctx->ctx_clip);
+    clip_ctx * ctx_clip = ctx->ctx_v;
+    if (!ctx_clip) {
+        LOG_ERR("%s: this API does not support non-vision input, please use mtmd_encode_chunk instead\n", __func__);
+        return 1;
+    }
+    int n_mmproj_embd = clip_n_mmproj_embd(ctx_clip);
     ctx->image_embd_v.resize(image_tokens->n_tokens() * n_mmproj_embd);
     bool ok = false;
 
-    if (clip_is_llava(ctx->ctx_clip) || clip_is_minicpmv(ctx->ctx_clip) || clip_is_glm(ctx->ctx_clip)) {
+    if (clip_is_llava(ctx_clip) || clip_is_minicpmv(ctx_clip) || clip_is_glm(ctx_clip)) {
         // TODO @ngxson : llava does not support batched encoding ; this should be fixed inside clip_image_batch_encode()
         const auto & entries = image_tokens->batch_f32.entries;
         for (size_t i = 0; i < entries.size(); i++) {
-            int n_tokens_per_image = clip_n_output_tokens(ctx->ctx_clip, entries[i].get());
+            int n_tokens_per_image = clip_n_output_tokens(ctx_clip, entries[i].get());
             ok = clip_image_encode(
-                ctx->ctx_clip,
+                ctx_clip,
                 ctx->n_threads,
                 entries[i].get(),
                 ctx->image_embd_v.data() + i*n_mmproj_embd*n_tokens_per_image);
         }
     } else {
         ok = clip_image_batch_encode(
-            ctx->ctx_clip,
+            ctx_clip,
             ctx->n_threads,
             &image_tokens->batch_f32,
             ctx->image_embd_v.data());
@@ -653,8 +692,7 @@ float * mtmd_get_output_embd(mtmd_context * ctx) {
 }
 
 bool mtmd_decode_use_non_causal(mtmd_context * ctx) {
-    projector_type proj_type = clip_get_projector_type(ctx->ctx_clip);
-    if (proj_type == PROJECTOR_TYPE_GEMMA3) {
+    if (ctx->proj_type() == PROJECTOR_TYPE_GEMMA3) {
         return true;
     }
     return false;
@@ -665,11 +703,11 @@ bool mtmd_decode_use_mrope(mtmd_context * ctx) {
 }
 
 bool mtmd_support_vision(mtmd_context * ctx) {
-    return ctx->has_vision;
+    return ctx->ctx_v != nullptr;
 }
 
 bool mtmd_support_audio(mtmd_context * ctx) {
-    return ctx->has_audio;
+    return ctx->ctx_a != nullptr;
 }
 
 // these 2 helpers below use internal clip_image_u8_ptr,

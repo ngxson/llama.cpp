@@ -3,6 +3,7 @@
 #include "ggml.h"
 #include <stddef.h>
 #include <stdint.h>
+#include <string>
 
 // !!! Internal header, to be used by mtmd only !!!
 
@@ -17,12 +18,19 @@ struct clip_image_f32;
 struct clip_image_u8_batch;
 struct clip_image_f32_batch;
 
+enum clip_modality {
+    CLIP_MODALITY_VISION,
+    CLIP_MODALITY_AUDIO,
+};
+
 struct clip_context_params {
     bool use_gpu;
+    enum clip_modality modality;
     enum ggml_log_level verbosity;
 };
 
-struct clip_ctx * clip_init(const char * fname, struct clip_context_params ctx_params);
+// returns pair of <vision, audio> contexts
+std::pair<clip_ctx *, clip_ctx *> clip_init(const char * fname, struct clip_context_params ctx_params);
 
 void clip_free(struct clip_ctx * ctx);
 

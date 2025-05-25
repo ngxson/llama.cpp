@@ -432,6 +432,9 @@ class ModelBase:
                 if "llm_config" in config:
                     # rename for InternVL
                     config["text_config"] = config["llm_config"]
+                if "thinker_config" in config:
+                    # rename for Qwen2.5-Omni
+                    config["text_config"] = config["thinker_config"]["text_config"]
                 return config
 
     @classmethod
@@ -1124,14 +1127,15 @@ class MmprojModel(ModelBase):
     has_vision_encoder: bool = True # by default
     has_audio_encoder: bool = False
 
+    # for models having multiple encoders, we need to separate their hparams
+    hparams_vision: dict[str, Any] | None = None
+    hparams_audio: dict[str, Any] | None = None
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
         if self.model_arch != gguf.MODEL_ARCH.MMPROJ:
             raise TypeError("MmprojModel must be subclassed with model_arch = gguf.MODEL_ARCH.MMPROJ")
-
-        if self.has_vision_encoder and self.has_audio_encoder:
-            raise NotImplementedError("both vision + audio not supported yet")
 
         # get n_embd of the text model
         if "text_config" not in self.hparams:
@@ -1143,21 +1147,32 @@ class MmprojModel(ModelBase):
         assert self.n_embd_text > 0, "n_embd not found in hparams"
 
         # move vision config to the top level, while preserving the original hparams in global_config
-        self.global_config = self.hparams
-
-        if "vision_config" in self.hparams:
-            self.hparams = self.hparams["vision_config"]
-        elif "audio_config" in self.hparams:
-            self.hparams = self.hparams["audio_config"]
-        else:
+        import copy
+        self.global_config = copy.deepcopy(self.hparams)
+        self.hparams_vision = self.get_vision_config()
+        self.hparams_audio = self.get_audio_config()
+        
+        if self.hparams_vision is None and self.hparams_audio is None:
             raise ValueError("vision_config / audio_config not found in hparams")
 
-        self.block_count = self.find_hparam(["n_layers", "num_hidden_layers", "n_layer", "num_layers", "depth"])
+        # for compat with vision-only models
+        self.hparams = self.hparams_vision or self.hparams_audio or self.hparams
+
+        # TODO @ngxson : this is a hack to support both vision and audio encoders
+        have_multiple_encoders = self.has_audio_encoder and self.has_vision_encoder
+        self.block_count = 128 if have_multiple_encoders else \
+            self.find_hparam(["n_layers", "num_hidden_layers", "n_layer", "num_layers", "depth"], True)
         self.tensor_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.MMPROJ, self.block_count)
 
         # load preprocessor config
         with open(self.dir_model / "preprocessor_config.json", "r", encoding="utf-8") as f:
             self.preprocessor_config = json.load(f)
+
+    def get_vision_config(self) -> dict[str, Any] | None:
+        return self.global_config.get("vision_config")
+
+    def get_audio_config(self) -> dict[str, Any] | None:
+        return self.global_config.get("audio_config")
 
     def set_type(self):
         self.gguf_writer.add_type(gguf.GGUFType.MMPROJ)
@@ -2674,7 +2689,12 @@ class Qwen2Model(TextModel):
         yield from super().modify_tensors(data_torch, name, bid)
 
 
-@ModelBase.register("Qwen2VLModel", "Qwen2VLForConditionalGeneration", "Qwen2_5_VLForConditionalGeneration")
+@ModelBase.register(
+    "Qwen2VLModel",
+    "Qwen2VLForConditionalGeneration",
+    "Qwen2_5_VLForConditionalGeneration",
+    "Qwen2_5OmniModel",
+)
 class Qwen2VLModel(TextModel):
     model_arch = gguf.MODEL_ARCH.QWEN2VL
 
@@ -2692,8 +2712,11 @@ class Qwen2VLModel(TextModel):
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         del bid  # unused
-        if name.startswith("visual."):
-            # skip visual tensors
+        if name.startswith("thinker."):
+            name = name.replace("thinker.", "")
+        if name.startswith("visual") or name.startswith("audio") or \
+                name.startswith("talker") or name.startswith("token2wav"):
+            # skip multimodal tensors
             return []
         return [(self.map_tensor_name(name), data_torch)]
 
@@ -2702,21 +2725,27 @@ class Qwen2VLModel(TextModel):
 class Qwen2VLVisionModel(MmprojModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.hparams["image_size"] = self.hparams.get("image_size", 560)
+        assert self.hparams_vision is not None
+        self.hparams_vision["image_size"] = self.hparams_vision.get("image_size", 560)
         # rename config.json values
-        self.hparams["num_attention_heads"] = self.hparams.get("num_heads")
-        self.hparams["num_hidden_layers"] = self.hparams.get("depth")
-        if "embed_dim" in self.hparams: # qwen2vl
-            self.hparams["intermediate_size"] = self.hparams.get("hidden_size")
-            self.hparams["hidden_size"] = self.hparams.get("embed_dim")
+        self.hparams_vision["num_attention_heads"] = self.hparams_vision.get("num_heads")
+        self.hparams_vision["num_hidden_layers"] = self.hparams_vision.get("depth")
+        if "embed_dim" in self.hparams_vision: # qwen2vl
+            self.hparams_vision["intermediate_size"] = self.hparams_vision.get("hidden_size")
+            self.hparams_vision["hidden_size"] = self.hparams_vision.get("embed_dim")
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
-        hparams = self.hparams
-        if self.global_config['model_type'] == 'qwen2_vl':
+        assert self.hparams_vision is not None
+        hparams = self.hparams_vision
+        model_type = self.global_config['model_type']
+        if model_type == 'qwen2_vl':
             self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.QWEN2VL)
-        elif self.global_config['model_type'] == 'qwen2_5_vl':
-            self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.QWEN25VL)
+        elif model_type == 'qwen2_5_vl' or model_type == 'qwen2_5_omni':
+            if model_type == 'qwen2_5_omni':
+                self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.QWEN25VL)
+            else:
+                self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.QWEN25O)
             self.gguf_writer.add_vision_use_silu(True)
             # find n_wa_pattern (window attention pattern)
             fullatt_block_indexes = hparams.get("fullatt_block_indexes")
@@ -2772,6 +2801,32 @@ class Qwen2VLVisionModel(MmprojModel):
             else:
                 return [(self.map_tensor_name(name), data_torch)]
         return [] # skip other tensors
+
+
+@ModelBase.register("Qwen2_5OmniModel")
+class Qwen25OmniModel(Qwen2VLVisionModel):
+    has_vision_encoder = True
+    has_audio_encoder = True
+
+    def get_vision_config(self) -> dict[str, Any] | None:
+        return self.global_config["thinker_config"].get("vision_config")
+
+    def get_audio_config(self) -> dict[str, Any] | None:
+        return self.global_config["thinker_config"].get("audio_config")
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        if name.startswith("thinker."):
+            name = name.replace("thinker.", "")
+
+        if name.startswith("audio_tower"):
+            # process audio tensors
+            if "audio_bos_eos_token" in name:
+                # this tensor is left unused in transformers code
+                # https://github.com/huggingface/transformers/blob/6e3063422c4b1c014aa60c32b9254fd2902f0f28/src/transformers/models/qwen2_5_omni/modular_qwen2_5_omni.py#L1809
+                return []
+            return [(self.map_tensor_name(name), data_torch)]
+
+        return super().modify_tensors(data_torch, name, bid)
 
 
 @ModelBase.register("InternVisionModel")
