@@ -25,7 +25,7 @@ RUN_HUGE_TESTS=false
 if [ "${1:-}" = "huge" ]; then
     RUN_HUGE_TESTS=true
     RUN_BIG_TESTS=true
-    echo "Include BIG models..."
+    echo "Include BIG and HUGE models..."
 fi
 
 ###############
@@ -93,18 +93,18 @@ fi
 # this will run both the big and huge models
 # huge models are > 32B parameters
 if [ "$RUN_HUGE_TESTS" = true ]; then
-    add_test "llama-mtmd-cli" "ggml-org/Qwen2.5-VL-72B-Instruct-GGUF:Q4_K_M"
-    add_test "llama-mtmd-cli" "ggml-org/Llama-4-Scout-17B-16E-Instruct-GGUF:IQ1_S"
+    add_test_vision "ggml-org/Qwen2.5-VL-72B-Instruct-GGUF:Q4_K_M"
+    add_test_vision "ggml-org/Llama-4-Scout-17B-16E-Instruct-GGUF:IQ1_S"
 fi
 
 # these models always give the wrong answer, not sure why
-# add_test "llama-mtmd-cli"  "ggml-org/SmolVLM-Instruct-GGUF:Q4_K_M"
-# add_test "llama-mtmd-cli"  "ggml-org/SmolVLM-256M-Instruct-GGUF:Q8_0"
-# add_test "llama-mtmd-cli"  "ggml-org/SmolVLM2-256M-Video-Instruct-GGUF:Q8_0"
+# add_test_vision "ggml-org/SmolVLM-Instruct-GGUF:Q4_K_M"
+# add_test_vision "ggml-org/SmolVLM-256M-Instruct-GGUF:Q8_0"
+# add_test_vision "ggml-org/SmolVLM2-256M-Video-Instruct-GGUF:Q8_0"
 
 # this model has broken chat template, not usable
-# add_test "llama-mtmd-cli"  "cmp-nct/Yi-VL-6B-GGUF:Q5_K"
-# add_test "llama-mtmd-cli"  "guinmoon/MobileVLM-3B-GGUF:Q4_K_M" "deepseek"
+# add_test_vision "cmp-nct/Yi-VL-6B-GGUF:Q5_K"
+# add_test_vision "guinmoon/MobileVLM-3B-GGUF:Q4_K_M" "deepseek"
 
 ###############
 
