@@ -64,7 +64,10 @@ add_test_vision "bartowski/Qwen2-VL-2B-Instruct-GGUF:Q4_K_M"
 add_test_vision "ggml-org/Qwen2.5-VL-3B-Instruct-GGUF:Q4_K_M"
 add_test_vision "ggml-org/InternVL2_5-1B-GGUF:Q8_0"
 add_test_vision "ggml-org/InternVL3-1B-Instruct-GGUF:Q8_0"
+add_test_vision "ggml-org/Qwen2.5-Omni-3B-GGUF:Q4_K_M"
+
 add_test_audio  "ggml-org/ultravox-v0_5-llama-3_2-1b-GGUF:Q8_0"
+add_test_audio  "ggml-org/Qwen2.5-Omni-3B-GGUF:Q4_K_M"
 
 # to test the big models, run: ./tests.sh big
 if [ "$RUN_BIG_TESTS" = true ]; then
