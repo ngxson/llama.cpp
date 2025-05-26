@@ -1214,12 +1214,10 @@ class MmprojModel(ModelBase):
         raise ValueError("MmprojModel does not support vocab writing")
 
     def find_vparam(self, keys: Iterable[str], optional: bool = False) -> Any:
-        key = next((k for k in keys if k in self.hparams), None)
         assert self.hparams_vision is not None
         return self._find_param(self.hparams_vision, keys, optional)
 
     def find_aparam(self, keys: Iterable[str], optional: bool = False) -> Any:
-        key = next((k for k in keys if k in self.hparams), None)
         assert self.hparams_audio is not None
         return self._find_param(self.hparams_audio, keys, optional)
 
@@ -2845,8 +2843,7 @@ class Qwen25OmniModel(Qwen2VLVisionModel):
 
     def get_audio_config(self) -> dict[str, Any] | None:
         return self.global_config["thinker_config"].get("audio_config")
-        
-    
+
     def generate_extra_tensors(self) -> Iterable[tuple[str, Tensor]]:
         # SinusoidsPositionEmbedding
         assert self.hparams_audio is not None
