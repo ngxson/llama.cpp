@@ -103,6 +103,7 @@ struct mtmd_context {
     bool print_timings;
     int n_threads;
     std::string media_marker;
+    const bool n_embd_text;
 
     // these are not token, but strings used to mark the beginning and end of image/audio embeddings
     std::string img_beg;
@@ -137,7 +138,8 @@ struct mtmd_context {
         text_model   (text_model),
         print_timings(ctx_params.print_timings),
         n_threads    (ctx_params.n_threads),
-        media_marker (ctx_params.media_marker)
+        media_marker (ctx_params.media_marker),
+        n_embd_text  (llama_model_n_embd(text_model))
     {
         if (std::string(ctx_params.image_marker) != MTMD_DEFAULT_IMAGE_MARKER) {
             throw std::runtime_error("custom image_marker is not supported anymore, use media_marker instead");
@@ -156,12 +158,26 @@ struct mtmd_context {
         if (!ctx_v && !ctx_a) {
             throw std::runtime_error(string_format("Failed to load CLIP model from %s\n", mmproj_fname));
         }
+        
+        // if both vision and audio mmproj are present, we need to validate their n_embd
+        if (ctx_v && ctx_a) {
+            int n_embd_v = clip_n_mmproj_embd(ctx_v);
+            int n_embd_a = clip_n_mmproj_embd(ctx_a);
+            if (n_embd_v != n_embd_a) {
+                throw std::runtime_error(string_format(
+                    "mismatch between vision and audio mmproj (n_embd_v = %d, n_embd_a = %d)\n",
+                    n_embd_v, n_embd_a));
+            }
+        }
 
-        if (llama_model_n_embd(text_model) != n_embd_projected()) {
+        // since we already validate n_embd of vision and audio mmproj,
+        // we can safely assume that they are the same
+        int n_embd_clip = clip_n_mmproj_embd(ctx_v ? ctx_v : ctx_a);
+        if (n_embd_text != n_embd_clip) {
             throw std::runtime_error(string_format(
                 "mismatch between text model (n_embd = %d) and mmproj (n_embd = %d)\n"
                 "hint: you may be using wrong mmproj\n",
-                llama_model_n_embd(text_model), n_embd_projected()));
+                n_embd_text, n_embd_clip));
         }
         if (ctx_v) {
             init_vision();
@@ -292,11 +308,6 @@ struct mtmd_context {
 
     projector_type proj_type_a() const {
         return ctx_a ? clip_get_projector_type(ctx_a) : PROJECTOR_TYPE_UNKNOWN;
-    }
-
-    // both audio and vision contexts have the n_embd output dimension
-    int n_embd_projected() const {
-        return clip_n_mmproj_embd(ctx_v ? ctx_v : ctx_a);
     }
 
     ~mtmd_context() {
@@ -716,7 +727,7 @@ int32_t mtmd_encode_chunk(mtmd_context * ctx, const mtmd_input_chunk * chunk) {
             LOG_ERR("%s: model does not support audio input\n", __func__);
             return 1;
         }
-        int n_mmproj_embd = ctx->n_embd_projected();
+        int n_mmproj_embd = ctx->n_embd_text;
         ctx->image_embd_v.resize(chunk->tokens_audio->n_tokens * n_mmproj_embd);
         bool ok = clip_image_batch_encode(
             ctx->ctx_a,
