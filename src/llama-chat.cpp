@@ -64,6 +64,7 @@ static const std::map<std::string, llm_chat_template> LLM_CHAT_TEMPLATES = {
     { "bailing",           LLM_CHAT_TEMPLATE_BAILING           },
     { "llama4",            LLM_CHAT_TEMPLATE_LLAMA4            },
     { "smolvlm",           LLM_CHAT_TEMPLATE_SMOLVLM           },
+    { "janus-pro",         LLM_CHAT_TEMPLATE_JANUS_PRO         },
 };
 
 llm_chat_template llm_chat_template_from_str(const std::string & name) {
@@ -507,6 +508,22 @@ int32_t llm_chat_apply_template(
         }
         if (add_ass) {
             ss << LU8("<｜Assistant｜>");
+        }
+    } else if (tmpl == LLM_CHAT_TEMPLATE_JANUS_PRO) {
+        // variant of DeepSeek-V2, used by Janus Pro
+        for (auto message : chat) {
+            std::string role(message->role);
+            ss << LU8("<｜begin▁of▁sentence｜>");
+            if (role == "system") {
+                //ss << message->content << "\n\n";
+            } else if (role == "user") {
+                ss << "<|User|>" << message->content << "\n\n";
+            } else if (role == "assistant") {
+                ss << "<|Assistant|>" << message->content << LU8("<｜end▁of▁sentence｜>");
+            }
+        }
+        if (add_ass) {
+            ss << "<|Assistant|>";
         }
     } else if (tmpl == LLM_CHAT_TEMPLATE_EXAONE_3) {
         // ref: https://huggingface.co/LGAI-EXAONE/EXAONE-3.0-7.8B-Instruct/discussions/8#66bae61b1893d14ee8ed85bb

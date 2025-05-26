@@ -432,6 +432,9 @@ class ModelBase:
                 if "llm_config" in config:
                     # rename for InternVL
                     config["text_config"] = config["llm_config"]
+                if "language_config" in config:
+                    # rename for Janus Pro
+                    config["text_config"] = config["language_config"]
                 return config
 
     @classmethod
@@ -1973,6 +1976,31 @@ class LlamaModel(TextModel):
             experts = [k for d in self._experts for k in d.keys()]
             if len(experts) > 0:
                 raise ValueError(f"Unprocessed experts: {experts}")
+
+
+@ModelBase.register("JanusProForCausalLM")
+class JanusProModel(TextModel):
+    model_arch = gguf.MODEL_ARCH.LLAMA
+    undo_permute = True
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.hparams["num_attention_heads"] = self.hparams.get("num_attention_heads", 32)
+        self.hparams["num_key_value_heads"] = self.hparams.get("num_key_value_heads", 32)
+        self.hparams["hidden_size"] = self.hparams.get("hidden_size", 4096)
+        self.hparams["intermediate_size"] = self.hparams.get("intermediate_size", 11008)
+        self.hparams["rms_norm_eps"] = self.hparams.get("rms_norm_eps", 1e-6)
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        self.gguf_writer.add_chat_template("janus-pro")
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        if "language_model." in name:
+            name = name.replace("language_model.", "")
+            return super().modify_tensors(data_torch, name, bid)
+        else:
+            return []
 
 
 @ModelBase.register(
@@ -6222,6 +6250,9 @@ def split_str_to_n_bytes(split_str: str) -> int:
 
 
 def get_model_architecture(hparams: dict[str, Any], model_type: ModelType) -> str:
+    # exception: Janus Pro
+    if "aligner_config" in hparams:
+        return "JanusProForCausalLM"
     # TODO @ngxson : this won't work correctly if the model has both audio & vision encoders
     # maybe we should fallback to text model's arch in that case, since not many models have both
     text_config = hparams.get("text_config", {})
