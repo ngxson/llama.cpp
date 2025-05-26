@@ -2845,6 +2845,25 @@ class Qwen25OmniModel(Qwen2VLVisionModel):
 
     def get_audio_config(self) -> dict[str, Any] | None:
         return self.global_config["thinker_config"].get("audio_config")
+        
+    
+    def generate_extra_tensors(self) -> Iterable[tuple[str, Tensor]]:
+        # SinusoidsPositionEmbedding
+        assert self.hparams_audio is not None
+        max_timescale = 10000
+        length = 1500
+        channels = self.hparams_audio["hidden_size"]
+        log_timescale_increment = np.log(max_timescale) / (channels // 2 - 1)
+        inv_timescales = torch.exp(-log_timescale_increment * torch.arange(channels // 2).float())
+        scaled_time = torch.arange(length)[:, np.newaxis] * inv_timescales[np.newaxis, :]
+        pos_embd = torch.cat([torch.sin(scaled_time), torch.cos(scaled_time)], dim=1).to(dtype=torch.float32)
+        yield ("audio_tower.embed_positions.weight", pos_embd)
+
+    def tensor_force_quant(self, name, new_name, bid, n_dims):
+        del bid, new_name, n_dims  # unused
+        if ".conv" in name and ".weight" in name:
+            return gguf.GGMLQuantizationType.F16
+        return False
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         if name.startswith("thinker."):
@@ -2852,6 +2871,9 @@ class Qwen25OmniModel(Qwen2VLVisionModel):
 
         if name.startswith("audio_tower"):
             # process audio tensors
+            if "conv1.bias" in name or "conv2.bias" in name:
+                # transpose conv1 and conv2 bias
+                data_torch = data_torch.unsqueeze(-1)
             if "audio_bos_eos_token" in name:
                 # this tensor is left unused in transformers code
                 # https://github.com/huggingface/transformers/blob/6e3063422c4b1c014aa60c32b9254fd2902f0f28/src/transformers/models/qwen2_5_omni/modular_qwen2_5_omni.py#L1809

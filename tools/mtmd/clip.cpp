@@ -4066,7 +4066,8 @@ bool clip_is_glm(const struct clip_ctx * ctx) {
 }
 
 bool clip_is_qwen2vl(const struct clip_ctx * ctx) {
-    return ctx->proj_type() == PROJECTOR_TYPE_QWEN2VL || ctx->proj_type() == PROJECTOR_TYPE_QWEN25VL;
+    return ctx->proj_type() == PROJECTOR_TYPE_QWEN2VL
+        || ctx->proj_type() == PROJECTOR_TYPE_QWEN25VL;
 }
 
 bool clip_is_llava(const struct clip_ctx * ctx) {

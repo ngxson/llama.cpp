@@ -3,7 +3,6 @@
 #include "ggml.h"
 #include <stddef.h>
 #include <stdint.h>
-#include <string>
 
 // !!! Internal header, to be used by mtmd only !!!
 

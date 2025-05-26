@@ -157,18 +157,26 @@ struct mtmd_context {
             throw std::runtime_error(string_format("Failed to load CLIP model from %s\n", mmproj_fname));
         }
 
-        clip_ctx * ctx_clip = get_clip_ctx();
-        if (llama_model_n_embd(text_model) != clip_n_mmproj_embd(ctx_clip)) {
+        if (llama_model_n_embd(text_model) != n_embd_projected()) {
             throw std::runtime_error(string_format(
                 "mismatch between text model (n_embd = %d) and mmproj (n_embd = %d)\n"
                 "hint: you may be using wrong mmproj\n",
-                llama_model_n_embd(text_model), clip_n_mmproj_embd(ctx_clip)));
+                llama_model_n_embd(text_model), n_embd_projected()));
         }
+        if (ctx_v) {
+            init_vision();
+        }
+        if (ctx_a) {
+            init_audio();
+        }
+    }
 
-        use_mrope = clip_is_qwen2vl(ctx_clip);
+    void init_vision() {
+        GGML_ASSERT(ctx_v != nullptr);
+        use_mrope = clip_is_qwen2vl(ctx_v);
 
-        projector_type proj = clip_get_projector_type(ctx_clip);
-        int minicpmv_version = clip_is_minicpmv(ctx_clip);
+        projector_type proj = clip_get_projector_type(ctx_v);
+        int minicpmv_version = clip_is_minicpmv(ctx_v);
         if (minicpmv_version == 2) {
             // minicpmv 2.5 format:
             // <image> (overview) </image><slice><image> (slice) </image><image> (slice) </image>\n ... </slice>
@@ -219,57 +227,53 @@ struct mtmd_context {
         }
 
         // set boi/eoi
-        projector_type pt = proj_type();
-        if (pt == PROJECTOR_TYPE_GEMMA3) {
+        if (proj == PROJECTOR_TYPE_GEMMA3) {
             // <start_of_image> ... (image embeddings) ... <end_of_image>
             img_beg = "<start_of_image>";
             img_end = "<end_of_image>";
 
-        } else if (pt == PROJECTOR_TYPE_IDEFICS3) {
+        } else if (proj == PROJECTOR_TYPE_IDEFICS3) {
             // https://github.com/huggingface/transformers/blob/a42ba80fa520c784c8f11a973ca9034e5f859b79/src/transformers/models/idefics3/processing_idefics3.py#L192-L215
             img_beg = "<fake_token_around_image><global-img>";
             img_end = "<fake_token_around_image>";
 
-        } else if (pt == PROJECTOR_TYPE_PIXTRAL) {
+        } else if (proj == PROJECTOR_TYPE_PIXTRAL) {
             // https://github.com/huggingface/transformers/blob/1cd110c6cb6a6237614130c470e9a902dbc1a4bd/docs/source/en/model_doc/pixtral.md
             img_end = "[IMG_END]";
 
-        } else if (pt == PROJECTOR_TYPE_QWEN2VL || pt == PROJECTOR_TYPE_QWEN25VL) {
+        } else if (proj == PROJECTOR_TYPE_QWEN2VL || proj == PROJECTOR_TYPE_QWEN25VL) {
             // <|vision_start|> ... (image embeddings) ... <|vision_end|>
             img_beg = "<|vision_start|>";
             img_end = "<|vision_end|>";
 
-        } else if (pt == PROJECTOR_TYPE_LLAMA4) {
+        } else if (proj == PROJECTOR_TYPE_LLAMA4) {
             // (more details in mtmd_context constructor)
             img_beg = "<|image_start|>";
             img_end = "<|image_end|>";
+            LOG_WRN("%s: llama 4 vision is known to have degraded quality:\n"
+                    "    https://github.com/ggml-org/llama.cpp/pull/13282\n", __func__);
 
-        } else if (pt == PROJECTOR_TYPE_INTERNVL) {
+        } else if (proj == PROJECTOR_TYPE_INTERNVL) {
             // <img> ... (image embeddings) ... </img>
             img_beg = "<img>";
             img_end = "</img>";
 
-        } else if (pt == PROJECTOR_TYPE_QWEN2A) {
+        }
+    }
+
+    void init_audio() {
+        GGML_ASSERT(ctx_a != nullptr);
+        projector_type proj = clip_get_projector_type(ctx_a);
+
+        LOG_WRN("%s: audio input is in experimental stage and may have reduced quality:\n"
+                "    https://github.com/ggml-org/llama.cpp/discussions/13759\n", __func__);
+
+        if (proj == PROJECTOR_TYPE_QWEN2A) {
             // <|audio_bos|> ... (embeddings) ... <|audio_eos|>
             aud_beg = "<|audio_bos|>";
             aud_end = "<|audio_eos|>";
 
         }
-
-        // warning messages
-        if (proj == PROJECTOR_TYPE_LLAMA4) {
-            LOG_WRN("%s: llama 4 vision is known to have degraded quality:\n"
-                    "    https://github.com/ggml-org/llama.cpp/pull/13282\n", __func__);
-        }
-        if (ctx_a) {
-            LOG_WRN("%s: audio input is in experimental stage and may have reduced quality:\n"
-                    "    https://github.com/ggml-org/llama.cpp/discussions/13759\n", __func__);
-        }
-    }
-
-    // get the main clip ctx
-    clip_ctx * get_clip_ctx() const {
-        return ctx_v ? ctx_v : ctx_a;
     }
 
     // get clip ctx based on chunk type
@@ -282,14 +286,17 @@ struct mtmd_context {
         GGML_ABORT("unknown chunk type");
     }
 
-    // both audio and vision contexts have the same projector type
-    projector_type proj_type() const {
-        return clip_get_projector_type(get_clip_ctx());
+    projector_type proj_type_v() const {
+        return ctx_v ? clip_get_projector_type(ctx_v) : PROJECTOR_TYPE_UNKNOWN;
+    }
+
+    projector_type proj_type_a() const {
+        return ctx_a ? clip_get_projector_type(ctx_a) : PROJECTOR_TYPE_UNKNOWN;
     }
 
     // both audio and vision contexts have the n_embd output dimension
     int n_embd_projected() const {
-        return clip_n_mmproj_embd(get_clip_ctx());
+        return clip_n_mmproj_embd(ctx_v ? ctx_v : ctx_a);
     }
 
     ~mtmd_context() {
@@ -400,6 +407,7 @@ struct mtmd_tokenizer {
     }
 
     void add_text(const std::string & txt, bool add_special, bool parse_special) {
+        LOG_DBG("%s: %s\n", __func__, txt.c_str());
         auto tokens = mtmd_tokenize_text_internal(vocab, txt, add_special, parse_special);
         add_text(tokens);
     }
@@ -434,7 +442,9 @@ struct mtmd_tokenizer {
                 return 2;
             }
 
-            add_text(ctx->img_beg, false, true); // add image begin token
+            if (!ctx->img_beg.empty()) {
+                add_text(ctx->img_beg, false, true); // add image begin token
+            }
 
             // convert mtmd_bitmap to clip_image_u8
             clip_image_u8_ptr img_u8(clip_image_u8_init());
@@ -549,7 +559,9 @@ struct mtmd_tokenizer {
                 cur.entries.emplace_back(std::move(chunk));
             }
 
-            add_text(ctx->img_end, false, true); // add image end token
+            if (!ctx->img_end.empty()) {
+                add_text(ctx->img_end, false, true); // add image end token
+            }
 
         } else {
             // handle audio
@@ -564,7 +576,9 @@ struct mtmd_tokenizer {
                 return 2;
             }
 
-            add_text(ctx->aud_beg, false, true); // add audio begin token
+            if (!ctx->aud_beg.empty()) {
+                add_text(ctx->aud_beg, false, true); // add audio begin token
+            }
 
             // preprocess audio
             GGML_ASSERT(ctx->w_filters.n_mel); // make sure we have filter preloaded
@@ -606,7 +620,9 @@ struct mtmd_tokenizer {
                 cur.entries.emplace_back(std::move(chunk));
             }
 
-            add_text(ctx->aud_end, false, true); // add audio end token
+            if (!ctx->aud_end.empty()) {
+                add_text(ctx->aud_end, false, true); // add audio end token
+            }
         }
 
         return 0;
@@ -751,7 +767,7 @@ float * mtmd_get_output_embd(mtmd_context * ctx) {
 }
 
 bool mtmd_decode_use_non_causal(mtmd_context * ctx) {
-    if (ctx->proj_type() == PROJECTOR_TYPE_GEMMA3) {
+    if (ctx->ctx_v && clip_get_projector_type(ctx->ctx_v) == PROJECTOR_TYPE_GEMMA3) {
         return true;
     }
     return false;
