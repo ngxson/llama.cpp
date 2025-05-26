@@ -158,7 +158,7 @@ struct mtmd_context {
         if (!ctx_v && !ctx_a) {
             throw std::runtime_error(string_format("Failed to load CLIP model from %s\n", mmproj_fname));
         }
-        
+
         // if both vision and audio mmproj are present, we need to validate their n_embd
         if (ctx_v && ctx_a) {
             int n_embd_v = clip_n_mmproj_embd(ctx_v);
