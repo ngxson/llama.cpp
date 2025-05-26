@@ -103,7 +103,7 @@ struct mtmd_context {
     bool print_timings;
     int n_threads;
     std::string media_marker;
-    const bool n_embd_text;
+    const int n_embd_text;
 
     // these are not token, but strings used to mark the beginning and end of image/audio embeddings
     std::string img_beg;
@@ -237,11 +237,6 @@ struct mtmd_context {
             ov_img_first      = false; // overview image is last
         }
 
-        if (ctx_a && clip_has_whisper_encoder(ctx_a)) {
-            // TODO @ngxson : check if model n_mel is 128 or 80
-            w_filters = whisper_precalc_filters::get_128_bins();
-        }
-
         // set boi/eoi
         if (proj == PROJECTOR_TYPE_GEMMA3) {
             // <start_of_image> ... (image embeddings) ... <end_of_image>
@@ -280,6 +275,11 @@ struct mtmd_context {
     void init_audio() {
         GGML_ASSERT(ctx_a != nullptr);
         projector_type proj = clip_get_projector_type(ctx_a);
+
+        if (clip_has_whisper_encoder(ctx_a)) {
+            // TODO @ngxson : check if model n_mel is 128 or 80
+            w_filters = whisper_precalc_filters::get_128_bins();
+        }
 
         LOG_WRN("%s: audio input is in experimental stage and may have reduced quality:\n"
                 "    https://github.com/ggml-org/llama.cpp/discussions/13759\n", __func__);
