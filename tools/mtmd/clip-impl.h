@@ -130,7 +130,7 @@ enum projector_type {
     PROJECTOR_TYPE_INTERNVL,
     PROJECTOR_TYPE_LLAMA4,
     PROJECTOR_TYPE_QWEN2A,
-    PROJECTOR_TYPE_QWEN25O,
+    PROJECTOR_TYPE_QWEN25O, // will be replaced by QWEN2A or QWEN25VL depending on clip_ctx
     PROJECTOR_TYPE_UNKNOWN,
 };
 

@@ -30,6 +30,7 @@ fi
 
 ###############
 
+arr_prefix=()
 arr_hf=()
 arr_tmpl=() # chat template
 arr_file=()
@@ -37,6 +38,7 @@ arr_file=()
 add_test_vision() {
     local hf=$1
     local tmpl=${2:-""} # default to empty string if not provided
+    arr_prefix+=("[vision]")
     arr_hf+=("$hf")
     arr_tmpl+=("$tmpl")
     arr_file+=("test-1.jpeg")
@@ -44,6 +46,7 @@ add_test_vision() {
 
 add_test_audio() {
     local hf=$1
+    arr_prefix+=("[audio] ")
     arr_hf+=("$hf")
     arr_tmpl+=("") # no need for chat tmpl
     arr_file+=("test-2.mp3")
@@ -107,6 +110,7 @@ arr_res=()
 
 for i in "${!arr_hf[@]}"; do
     bin="llama-mtmd-cli"
+    prefix="${arr_prefix[$i]}"
     hf="${arr_hf[$i]}"
     tmpl="${arr_tmpl[$i]}"
     inp_file="${arr_file[$i]}"
@@ -127,9 +131,9 @@ for i in "${!arr_hf[@]}"; do
     echo "$output" > $SCRIPT_DIR/output/$bin-$(echo "$hf" | tr '/' '-').log
 
     if echo "$output" | grep -iq "new york"; then
-        result="\033[32mOK\033[0m:   $bin $hf"
+        result="$prefix \033[32mOK\033[0m:   $bin $hf"
     else
-        result="\033[31mFAIL\033[0m: $bin $hf"
+        result="$prefix \033[31mFAIL\033[0m: $bin $hf"
     fi
     echo -e "$result"
     arr_res+=("$result")

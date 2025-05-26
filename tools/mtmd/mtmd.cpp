@@ -402,8 +402,31 @@ struct mtmd_tokenizer {
                 }
             } else {
                 // this is a text part, we should add it as text
-                add_text(part, add_special, parse_special);
+                add_text(part, parse_special);
             }
+        }
+
+        if (add_special && llama_vocab_get_add_bos(vocab)) {
+            // if first chunk is text, we add BOS token to first text chunk
+            // otherwise, create a new text chunk with BOS token
+            if (!cur.entries.empty() && cur.entries[0].type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
+                // add BOS token to the beginning of first text chunk
+                cur.entries[0].tokens_text.insert(cur.entries[0].tokens_text.begin(), llama_vocab_bos(vocab));
+            } else {
+                // create a new text chunk with BOS token at the beginning
+                mtmd_input_chunk bos_chunk{
+                    MTMD_INPUT_CHUNK_TYPE_TEXT,
+                    {llama_vocab_bos(vocab)},
+                    nullptr, // image tokens
+                    nullptr, // audio tokens
+                };
+                cur.entries.insert(cur.entries.begin(), std::move(bos_chunk));
+            }
+        }
+
+        if (add_special && llama_vocab_get_add_eos(vocab)) {
+            // if last chunk is text, we add EOS token to it
+            add_text({llama_vocab_eos(vocab)});
         }
 
         if (i_bm != bitmaps.size()) {
@@ -417,9 +440,9 @@ struct mtmd_tokenizer {
         return 0;
     }
 
-    void add_text(const std::string & txt, bool add_special, bool parse_special) {
+    void add_text(const std::string & txt, bool parse_special) {
         LOG_DBG("%s: %s\n", __func__, txt.c_str());
-        auto tokens = mtmd_tokenize_text_internal(vocab, txt, add_special, parse_special);
+        auto tokens = mtmd_tokenize_text_internal(vocab, txt, /* add_special */ false, parse_special);
         add_text(tokens);
     }
 
@@ -454,7 +477,7 @@ struct mtmd_tokenizer {
             }
 
             if (!ctx->img_beg.empty()) {
-                add_text(ctx->img_beg, false, true); // add image begin token
+                add_text(ctx->img_beg, true); // add image begin token
             }
 
             // convert mtmd_bitmap to clip_image_u8
@@ -571,7 +594,7 @@ struct mtmd_tokenizer {
             }
 
             if (!ctx->img_end.empty()) {
-                add_text(ctx->img_end, false, true); // add image end token
+                add_text(ctx->img_end, true); // add image end token
             }
 
         } else {
@@ -588,7 +611,7 @@ struct mtmd_tokenizer {
             }
 
             if (!ctx->aud_beg.empty()) {
-                add_text(ctx->aud_beg, false, true); // add audio begin token
+                add_text(ctx->aud_beg, true); // add audio begin token
             }
 
             // preprocess audio
@@ -632,7 +655,7 @@ struct mtmd_tokenizer {
             }
 
             if (!ctx->aud_end.empty()) {
-                add_text(ctx->aud_end, false, true); // add audio end token
+                add_text(ctx->aud_end, true); // add audio end token
             }
         }
 
