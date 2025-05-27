@@ -2602,7 +2602,6 @@ struct clip_model_loader {
             img->nx = hparams.warmup_audio_size;
             img->ny = hparams.n_mel_bins;
         }
-        img->buf.resize(img->nx * img->ny * 3);
         batch.entries.push_back(std::move(img));
 
         ggml_cgraph * gf = clip_image_build_graph(&ctx_clip, batch);

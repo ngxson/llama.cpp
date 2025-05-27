@@ -24,7 +24,6 @@ enum clip_modality {
 
 struct clip_context_params {
     bool use_gpu;
-    enum clip_modality modality;
     enum ggml_log_level verbosity;
 };
 
