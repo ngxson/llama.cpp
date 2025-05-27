@@ -26,6 +26,40 @@ def create_server():
 
 
 @pytest.mark.parametrize("tools", [None, [], [TEST_TOOL]])
+@pytest.mark.parametrize("template_name,reasoning_budget,expected_end", [
+    ("deepseek-ai-DeepSeek-R1-Distill-Qwen-32B", None, "<think>\n"),
+    ("deepseek-ai-DeepSeek-R1-Distill-Qwen-32B",   -1, "<think>\n"),
+    ("deepseek-ai-DeepSeek-R1-Distill-Qwen-32B",    0, "<think>\n</think>"),
+
+    ("Qwen-Qwen3-0.6B", -1, "<|im_start|>assistant\n"),
+    ("Qwen-Qwen3-0.6B",  0, "<|im_start|>assistant\n<think>\n\n</think>\n\n"),
+
+    ("Qwen-QwQ-32B", -1, "<|im_start|>assistant\n<think>\n"),
+    ("Qwen-QwQ-32B",  0, "<|im_start|>assistant\n<think>\n</think>"),
+
+    ("CohereForAI-c4ai-command-r7b-12-2024-tool_use", -1, "<|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|>"),
+    ("CohereForAI-c4ai-command-r7b-12-2024-tool_use",  0, "<|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|><|START_THINKING|><|END_THINKING|>"),
+])
+def test_reasoning_budget(template_name: str, reasoning_budget: int | None, expected_end: str, tools: list[dict]):
+    global server
+    server.jinja = True
+    server.reasoning_budget = reasoning_budget
+    server.chat_template_file = f'../../../models/templates/{template_name}.jinja'
+    server.start(timeout_seconds=TIMEOUT_SERVER_START)
+
+    res = server.make_request("POST", "/apply-template", data={
+        "messages": [
+            {"role": "user", "content": "What is today?"},
+        ],
+        "tools": tools,
+    })
+    assert res.status_code == 200
+    prompt = res.body["prompt"]
+
+    assert prompt.endswith(expected_end), f"Expected prompt to end with '{expected_end}', got '{prompt}'"
+
+
+@pytest.mark.parametrize("tools", [None, [], [TEST_TOOL]])
 @pytest.mark.parametrize("template_name,format", [
     ("meta-llama-Llama-3.3-70B-Instruct",    "%d %b %Y"),
     ("fireworks-ai-llama-3-firefunction-v2", "%b %d %Y"),
