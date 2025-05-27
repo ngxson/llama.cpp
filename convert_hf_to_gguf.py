@@ -4130,6 +4130,10 @@ class Gemma3NModel(Gemma3Model):
 
         # TODO: implement self.prediction_coefs.weight.clamp_(...)
 
+        if "embed_tokens_per_layer.weight" in name:
+            hidden_size_per_layer_input = 256
+            data_torch = data_torch * (hidden_size_per_layer_input**0.5)
+
         if "altup_unembed_projections" in name:
             data_torch = data_torch.to(device="cpu")
             if ".0." in name:

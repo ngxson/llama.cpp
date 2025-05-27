@@ -980,7 +980,7 @@ void llama_model::load_hparams(llama_model_loader & ml) {
 
                 hparams.rope_freq_base_train_swa  = 10000.0f;
                 hparams.rope_freq_scale_train_swa = 1.0f;
-                hparams.f_attention_scale         = 1.0f / std::sqrt(float(hparams.n_embd_head_k));
+                hparams.f_attention_scale         = 32.0f / 256.0f; // == query_rescale_scalar / query_pre_attn_scalar
 
                 ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,    hparams.n_swa);
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
@@ -8802,16 +8802,19 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
         // this calculates the per-layer inputs, so the final tensor shape will have n_layer as the last dim
         {
             ggml_tensor * per_layer_proj = ggml_mul_mat(ctx0, model.per_layer_model_proj, inpL);
+
             // shape: [n_embd, n_tokens]
             per_layer_proj = ggml_scale(ctx0, inp_per_layer, 1.0f / sqrtf(n_embd)); // per_layer_projection_scale
             per_layer_proj = ggml_reshape_3d(ctx0, inp_per_layer, n_embd_altup, n_layer, n_tokens);
             inp_per_layer = ggml_add(ctx0, inp_per_layer, per_layer_proj);
             inp_per_layer = ggml_scale(ctx0, inp_per_layer, sqrtf(2.0)); // per_layer_input_scale
+            cb(inp_per_layer, "inp_per_layer", -1);
+
             // permute to shape: [n_embd_altup, n_tokens, n_layer]
             inp_per_layer = ggml_cont(ctx0, ggml_permute(ctx0, inp_per_layer, 0, 2, 1, 3));
-            printf("shape of inp_per_layer: %lld %lld %lld\n", inp_per_layer->ne[0], inp_per_layer->ne[1], inp_per_layer->ne[2]);
-            cb(inp_per_layer, "inp_per_layer", -1);
             ggml_build_forward_expand(gf, inp_per_layer);
+
+            // @ngxson: matched activations ✅
         }
 
         auto calc_magnitude = [&](ggml_tensor * x) {
@@ -8822,14 +8825,17 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
         // these "added" altups will be concat to the last dim of inpL
         {
             ggml_tensor * target_magnitude = calc_magnitude(inpL);
-            ggml_tensor * altup_added = ggml_mul_mat(ctx0, inpL, model.altup_proj); // because ggml only support broadcasting A, we do (B*A)^T instead of the normal A*B
-            altup_added = ggml_cont(ctx0, ggml_permute(ctx0, altup_added, 1, 0, 2, 3)); // shape: [n_embd, n_tokens, n_altup - 1]
+            // TODO: use ggml_repeat_4d for this ⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️
+            ggml_tensor * inp_repeated = ggml_repeat(ctx0, inpL, ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, n_embd, n_tokens, n_altup - 1));
+            ggml_tensor * altup_added = ggml_mul_mat(ctx0, model.altup_proj, inp_repeated); // shape: [n_embd, n_tokens, n_altup - 1]
             ggml_tensor * new_magnitude = calc_magnitude(altup_added);
             altup_added = ggml_div(ctx0,
                                 ggml_mul(ctx0, altup_added, target_magnitude),
                                 new_magnitude);
             inpL = ggml_concat(ctx0, inpL, altup_added, 2); // shape: [n_embd, n_tokens, n_altup]
             cb(inpL, "inp_stacked", -1);
+
+            // @ngxson: matched activations ✅
         }
 
         // inpL now has shape:         [n_embd,       n_tokens, n_altup]
@@ -8845,7 +8851,9 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
             // router_input_scale
             router_inputs = ggml_scale(ctx0, router_inputs, 1.0f / (float)n_embd);
 
-            return ggml_mul_mat(ctx0, model.layers[il].altup_router, router_inputs);
+            ggml_tensor * output = ggml_mul_mat(ctx0, model.layers[il].altup_router, router_inputs);
+            return ggml_tanh(ctx0, output); // [n_altup, n_tokens]
+            // @ngxson: matched activations ✅
         };
 
         // get 2D slice view from a 3D tensor, the idx corresponds to the 3rd dim
@@ -8880,6 +8888,8 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
                 predictions = ggml_cont(ctx0, ggml_permute(ctx0, predictions, 0, 2, 1, 3));
                 predictions = ggml_add(ctx0, predictions, cur);
                 cb(predictions, "predictions", il);
+
+                // @ngxson: matched activations ✅
             }
 
             // predicted value will go through self-attention and laurel
@@ -8917,6 +8927,14 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
                 Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
                 Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head, n_head_kv, n_tokens);
 
+                Qcur = ggml_rms_norm(ctx0, Qcur, hparams.f_norm_rms_eps);
+                Kcur = ggml_rms_norm(ctx0, Kcur, hparams.f_norm_rms_eps);
+                Vcur = ggml_rms_norm(ctx0, Vcur, hparams.f_norm_rms_eps);
+
+                cb(Qcur, "Qcur_normed", il);
+                cb(Kcur, "Kcur_normed", il);
+                cb(Vcur, "Vcur_normed", il);
+
                 Qcur = ggml_rope_ext(
                         ctx0, Qcur, inp_pos, nullptr,
                         n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
@@ -8927,14 +8945,10 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
                         n_rot, rope_type, n_ctx_orig, freq_base_l, freq_scale_l,
                         ext_factor, attn_factor, beta_fast, beta_slow);
 
-                cb(Qcur, "Qcur", il);
-                cb(Kcur, "Kcur", il);
-                cb(Vcur, "Vcur", il);
+                cb(Qcur, "Qcur_pos", il);
+                cb(Kcur, "Kcur_pos", il);
 
-                // ⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️
-                // ⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️
-                // ⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️
-                // CURRENTLY STUCKED HERE
+                // SOME LAYERS DOES NOT HAVE KV ⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️
 
                 cur = build_attn(inp_attn, gf,
                         model.layers[il].wo, NULL,
@@ -8945,6 +8959,8 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
                     model.layers[il].attn_post_norm, NULL,
                     LLM_NORM_RMS, il);
             cb(cur, "attn_post_norm", il);
+
+            // @ngxson: matched activations ✅ (layer 0)
 
             // if (il == n_layer - 1) {
             //     // skip computing output for unused tokens
