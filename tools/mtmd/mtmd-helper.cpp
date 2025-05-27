@@ -87,10 +87,10 @@ struct decode_embd_batch {
     }
 
     // M-RoPE for audio
-    void set_position_mrope_1d(llama_pos pos_0, int32_t n_tokens, llama_seq_id seq_id) {
+    void set_position_mrope_1d(llama_pos pos_0, llama_seq_id seq_id) {
         GGML_ASSERT(n_pos_per_embd == 4);
         seq_id_0[0] = seq_id;
-        for (int i = 0; i < n_tokens; i++) {
+        for (int i = 0; i < batch.n_tokens; i++) {
             pos[i                     ] = pos_0 + i;
             pos[i + batch.n_tokens    ] = pos_0 + i;
             pos[i + batch.n_tokens * 2] = pos_0 + i;
@@ -174,7 +174,7 @@ int32_t mtmd_helper_decode_image_chunk(
             const int ny = mtmd_image_tokens_get_ny(image_tokens);
             batch_embd.set_position_mrope_2d(n_past, nx, ny, seq_id);
         } else if (chunk_type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
-            batch_embd.set_position_mrope_1d(n_past, n_tokens, seq_id);
+            batch_embd.set_position_mrope_1d(n_past, seq_id);
         } else {
             GGML_ABORT("invalid chunk type for M-RoPE");
         }
