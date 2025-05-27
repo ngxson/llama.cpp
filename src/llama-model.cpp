@@ -8811,14 +8811,25 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
             inp_per_layer = ggml_cont(ctx0, ggml_permute(ctx0, inp_per_layer, 0, 2, 1, 3));
             printf("shape of inp_per_layer: %lld %lld %lld\n", inp_per_layer->ne[0], inp_per_layer->ne[1], inp_per_layer->ne[2]);
             cb(inp_per_layer, "inp_per_layer", -1);
+            ggml_build_forward_expand(gf, inp_per_layer);
         }
+
+        auto calc_magnitude = [&](ggml_tensor * x) {
+            return ggml_sqrt(ctx0, ggml_sum_rows(ctx0, ggml_sqr(ctx0, x)));
+        };
 
         // inpL now has only 1 altup, project it to the rest of the altups
         // these "added" altups will be concat to the last dim of inpL
         {
-            ggml_tensor * altup_added = ggml_mul_mat(ctx0, model.altup_proj, inpL); // shape: [n_embd, n_tokens, n_altup - 1]
-            // TODO: missing new_magnitude / target_magnitude stuff
+            ggml_tensor * target_magnitude = calc_magnitude(inpL);
+            ggml_tensor * altup_added = ggml_mul_mat(ctx0, inpL, model.altup_proj); // because ggml only support broadcasting A, we do (B*A)^T instead of the normal A*B
+            altup_added = ggml_cont(ctx0, ggml_permute(ctx0, altup_added, 1, 0, 2, 3)); // shape: [n_embd, n_tokens, n_altup - 1]
+            ggml_tensor * new_magnitude = calc_magnitude(altup_added);
+            altup_added = ggml_div(ctx0,
+                                ggml_mul(ctx0, altup_added, target_magnitude),
+                                new_magnitude);
             inpL = ggml_concat(ctx0, inpL, altup_added, 2); // shape: [n_embd, n_tokens, n_altup]
+            cb(inpL, "inp_stacked", -1);
         }
 
         // inpL now has shape:         [n_embd,       n_tokens, n_altup]
@@ -8827,7 +8838,7 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
         // equivalent to compute_router_modalities() in python code
         // output shape: [n_altup, n_tokens]
         auto compute_router_modalities = [&](ggml_tensor * x, int il) {
-            ggml_tensor * router_inputs = build_norm(router_inputs,
+            ggml_tensor * router_inputs = build_norm(x,
                 model.layers[il].altup_router_norm, NULL,
                 LLM_NORM_RMS, il);
 
@@ -8866,7 +8877,7 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
                 predictions = ggml_mul_mat(ctx0, cur_permuted, all_coefs); // [n_altup, n_embd, n_tokens]
 
                 // final shape must be the same as cur: [n_embd, n_tokens, n_altup]
-                predictions = ggml_cont(ctx0, ggml_permute(ctx0, cur, 0, 2, 1, 3));
+                predictions = ggml_cont(ctx0, ggml_permute(ctx0, predictions, 0, 2, 1, 3));
                 predictions = ggml_add(ctx0, predictions, cur);
                 cb(predictions, "predictions", il);
             }
@@ -8882,8 +8893,9 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
             // laurel
             ggml_tensor * laurel_out;
             {
-                laurel_out = build_lora_mm(model.layers[il].laurel_l, cur);
-                laurel_out = build_lora_mm(model.layers[il].laurel_r, cur);
+                laurel_out = cur;
+                laurel_out = build_lora_mm(model.layers[il].laurel_l, laurel_out);
+                laurel_out = build_lora_mm(model.layers[il].laurel_r, laurel_out);
                 laurel_out = build_norm(laurel_out, model.layers[il].laurel_post_norm, NULL, LLM_NORM_RMS, il);
                 laurel_out = ggml_add(ctx0, laurel_out, cur);
                 cb(laurel_out, "laurel_out", il);
@@ -8941,6 +8953,8 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
             //     inpL = ggml_get_rows(ctx0, inpL, inp_out_ids);
             // }
 
+            cur = ggml_repeat(ctx0, cur, inpL); // DUMMY, REMOVE IT LATER
+
             ggml_tensor * sa_out = ggml_add(ctx0, cur, inpL);
             cb(sa_out, "sa_out", il);
 
@@ -8983,8 +8997,9 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
         cb(cur, "result_norm", -1);
         res->t_embd = cur;
 
-        // lm_head
-        cur = build_lora_mm(model.output, cur);
+        // DUMMY
+        cur = view_2d_slice(cur, 0);
+        cur = build_lora_mm(model.tok_embd, cur);
 
         cb(cur, "result_output", -1);
         res->t_logits = cur;
