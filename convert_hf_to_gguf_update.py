@@ -417,6 +417,10 @@ for model in models:
         logger.error(f"Failed to load tokenizer for model {name}. Error: {e}")
         continue  # Skip this model and continue with the next one in the loop
 
+    if not os.path.exists(f"models/ggml-vocab-{name}.gguf"):
+        logger.info(f"Skip vocab files for model {name}, no GGUF file found")
+        continue
+
     with open(f"models/ggml-vocab-{name}.gguf.inp", "w", encoding="utf-8") as f:
         for text in tests:
             f.write(f"{text}")
