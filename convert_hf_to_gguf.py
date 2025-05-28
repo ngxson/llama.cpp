@@ -2175,6 +2175,9 @@ class Llama4VisionModel(MmprojModel):
             # process vision tensors
             if "positional_embedding_vlm" in name and ".weight" not in name:
                 name += ".weight"
+            if "multi_modal_projector.linear_1" in name:
+                # despite the name with number postfix, this is a single fully connected layer
+                return [(gguf.TENSOR_NAMES[gguf.MODEL_TENSOR.V_MMPROJ_FC], data_torch)]
             return [(self.map_tensor_name(name), data_torch)]
         return []
 
