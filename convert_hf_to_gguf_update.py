@@ -247,6 +247,7 @@ for model in [*all_models, *pre_computed_hashes]:
     else:
         # otherwise, compute the hash of the tokenizer
         try:
+            logger.info(f"Loading tokenizer from {f'models/tokenizers/{name}'}...")
             if name == "t5":
                 tokenizer = AutoTokenizer.from_pretrained(f"models/tokenizers/{name}", use_fast=False)
             else:
