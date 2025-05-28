@@ -213,7 +213,7 @@ if not args.full:
     all_models = models.copy()
     models = [model for model in all_models if model["name"] not in existing_models]
 
-print(f"Downloading {len(models)} models...")
+logging.info(f"Downloading {len(models)} models...")
 for model in models:
     try:
         download_model(model)
