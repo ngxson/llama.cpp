@@ -1,15 +1,5 @@
 # mtmd
 
-# compile mtmd-audio separately to avoid long compile times with miniaudio.h
-# TODO @ngxson : move miniaudio.h and stb_image.h to mtmd-helper.cpp, then compile the helper as a separate library
-add_library(mtmd_audio STATIC mtmd-audio.cpp mtmd-audio.h)
-if (BUILD_SHARED_LIBS)
-    set_target_properties(mtmd_audio PROPERTIES POSITION_INDEPENDENT_CODE ON)
-endif()
-target_link_libraries(mtmd_audio PRIVATE ggml ${CMAKE_THREAD_LIBS_INIT})
-target_compile_features(mtmd_audio PRIVATE cxx_std_17)
-target_include_directories(mtmd_audio PRIVATE .)
-
 add_library(mtmd OBJECT
             mtmd.cpp
             mtmd-audio.cpp
@@ -24,7 +14,7 @@ target_include_directories(mtmd PUBLIC .)
 target_include_directories(mtmd PRIVATE ../..)
 target_compile_features(mtmd PRIVATE cxx_std_17)
 
-# Helper library for mtmd, to avoid long compile times with miniaudio.h and stb_image.h
+# compile the helper separately, to avoid long compile times with miniaudio.h and stb_image.h
 
 add_library(mtmd_helper OBJECT
             mtmd-helper.cpp
