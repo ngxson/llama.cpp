@@ -674,12 +674,12 @@ class TextModel(ModelBase):
         if chkhsh == "8aeee3860c56296a157a1fe2fad249ec40aa59b1bb5709f4ade11c4e6fe652ed":
             # ref: https://huggingface.co/tiiuae/falcon-7b
             res = "falcon"
-        if chkhsh == "9d032fcbd5501f4a38150912590928bfb36091efb5df11b8e2124b0390e3fb1e":
-            # ref: https://huggingface.co/tiiuae/Falcon3-7B-Base
-            res = "falcon3"
         if chkhsh == "0876d13b50744004aa9aeae05e7b0647eac9d801b5ba4668afc01e709c15e19f":
             # ref: https://huggingface.co/BAAI/bge-small-en-v1.5
             res = "bert-bge"
+        if chkhsh == "9d032fcbd5501f4a38150912590928bfb36091efb5df11b8e2124b0390e3fb1e":
+            # ref: https://huggingface.co/tiiuae/Falcon3-7B-Base
+            res = "falcon3"
         if chkhsh == "8e62295832751ca1e8f92f2226f403dea30dc5165e448b5bfa05af5340c64ec7":
             # ref: https://huggingface.co/BAAI/bge-large-zh-v1.5
             res = "bert-bge-large"
@@ -731,9 +731,6 @@ class TextModel(ModelBase):
         if chkhsh == "7967bfa498ade6b757b064f31e964dddbb80f8f9a4d68d4ba7998fcf281c531a":
             # ref: https://huggingface.co/jinaai/jina-embeddings-v2-base-code
             res = "jina-v2-code"
-        if chkhsh == "b6e8e1518dc4305be2fe39c313ed643381c4da5db34a98f6a04c093f8afbe99b" or chkhsh == "81d72c7348a9f0ebe86f23298d37debe0a5e71149e29bd283904c02262b27516":
-            # ref: https://huggingface.co/THUDM/glm-4-9b-chat
-            res = "chatglm-bpe"
         if chkhsh == "7fc505bd3104ca1083b150b17d088b59534ede9bde81f0dd2090967d7fe52cee":
             # ref: https://huggingface.co/LumiOpen/Viking-7B
             res = "viking"
@@ -797,6 +794,9 @@ class TextModel(ModelBase):
         if chkhsh == "d353350c764d8c3b39c763113960e4fb4919bea5fbf208a0e3b22e8469dc7406":
             # ref: https://huggingface.co/meta-llama/Llama-4-Scout-17B-16E-Instruct
             res = "llama4"
+        if chkhsh == "81d72c7348a9f0ebe86f23298d37debe0a5e71149e29bd283904c02262b27516":
+            # ref: https://huggingface.co/THUDM/glm-4-9b-chat
+            res = "chatglm-bpe"
         if chkhsh == "a1336059768a55c99a734006ffb02203cd450fed003e9a71886c88acf24fdbc2":
             # ref: https://huggingface.co/THUDM/glm-4-9b-hf
             res = "glm4"
@@ -806,6 +806,12 @@ class TextModel(ModelBase):
         if chkhsh == "d5f1dd6f980fec569fb218a81a7658ac45fc56b38c5a0adeb1c232fbe04ef5ec":
             # ref: https://huggingface.co/ByteDance-Seed/Seed-Coder-8B-Base
             res = "seed-coder"
+        if chkhsh == "b6e8e1518dc4305be2fe39c313ed643381c4da5db34a98f6a04c093f8afbe99b":
+            # ref: https://huggingface.co/THUDM/glm-4-9b-chat
+            res = "chatglm-bpe"
+        if chkhsh == "81d72c7348a9f0ebe86f23298d37debe0a5e71149e29bd283904c02262b27516":
+            # ref: https://huggingface.co/THUDM/glm-4-9b-chat
+            res = "chatglm-bpe"
 
         if res is None:
             logger.warning("\n")
