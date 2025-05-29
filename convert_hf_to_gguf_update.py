@@ -198,7 +198,7 @@ def download_model(model):
 def get_existing_models(convert_py):
     pattern = r'if chkhsh == "([a-f0-9]{64})":\s*\n\s*.*\s*res = "([^"]+)"'
     matches = re.findall(pattern, convert_py)
-    output = OrderedDict() # make sure order is preserved
+    output = {}
     for chkhsh, res in matches:
         output[res] = chkhsh
     return output
