@@ -1,6 +1,6 @@
 # mtmd
 
-add_library(mtmd OBJECT
+add_library(mtmd
             mtmd.cpp
             mtmd-audio.cpp
             mtmd.h
@@ -16,7 +16,7 @@ target_compile_features(mtmd PRIVATE cxx_std_17)
 
 # compile the helper separately, to avoid long compile times with miniaudio.h and stb_image.h
 
-add_library(mtmd_helper OBJECT
+add_library(mtmd_helper
             mtmd-helper.cpp
             mtmd-helper.h
             )
@@ -30,17 +30,15 @@ target_compile_features(mtmd_helper PRIVATE cxx_std_17)
 if (BUILD_SHARED_LIBS)
     set_target_properties(mtmd PROPERTIES POSITION_INDEPENDENT_CODE ON)
     target_compile_definitions(mtmd PRIVATE LLAMA_SHARED LLAMA_BUILD)
-    add_library(mtmd_shared SHARED $<TARGET_OBJECTS:mtmd>)
-    target_link_libraries(mtmd_shared PRIVATE ggml llama ${CMAKE_THREAD_LIBS_INIT})
-    set_target_properties(mtmd_shared PROPERTIES PUBLIC_HEADER "mtmd.h")
-    install(TARGETS mtmd_shared LIBRARY)
+    target_link_libraries(mtmd PRIVATE ggml llama ${CMAKE_THREAD_LIBS_INIT})
+    set_target_properties(mtmd PROPERTIES PUBLIC_HEADER "mtmd.h")
+    install(TARGETS mtmd LIBRARY PUBLIC_HEADER)
 
     set_target_properties(mtmd_helper PROPERTIES POSITION_INDEPENDENT_CODE ON)
     target_compile_definitions(mtmd_helper PRIVATE LLAMA_SHARED LLAMA_BUILD)
-    add_library(mtmd_helper_shared SHARED $<TARGET_OBJECTS:mtmd_helper>)
-    target_link_libraries(mtmd_helper_shared PRIVATE ggml llama mtmd ${CMAKE_THREAD_LIBS_INIT})
-    set_target_properties(mtmd_helper_shared PROPERTIES PUBLIC_HEADER "mtmd-helper.h")
-    install(TARGETS mtmd_helper_shared LIBRARY)
+    target_link_libraries(mtmd_helper PRIVATE ggml llama mtmd ${CMAKE_THREAD_LIBS_INIT})
+    set_target_properties(mtmd_helper PROPERTIES PUBLIC_HEADER "mtmd-helper.h")
+    install(TARGETS mtmd_helper LIBRARY PUBLIC_HEADER)
 endif()
 
 if (NOT MSVC)
