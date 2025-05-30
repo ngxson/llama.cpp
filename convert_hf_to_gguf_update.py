@@ -15,7 +15,6 @@ import argparse
 from hashlib import sha256
 from enum import IntEnum, auto
 from transformers import AutoTokenizer
-from collections import OrderedDict
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger("convert_hf_to_gguf_update")
