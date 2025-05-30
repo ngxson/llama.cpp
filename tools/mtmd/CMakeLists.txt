@@ -9,6 +9,8 @@ add_library(mtmd
             clip.cpp
             clip.h
             clip-impl.h
+            mtmd-helper.cpp
+            mtmd-helper.h
             )
 
 target_link_libraries     (mtmd PUBLIC ggml llama)
@@ -23,7 +25,10 @@ if (BUILD_SHARED_LIBS)
     target_compile_definitions(mtmd PUBLIC  LLAMA_SHARED)
 endif()
 
-set(MTMD_PUBLIC_HEADERS ${CMAKE_CURRENT_SOURCE_DIR}/mtmd.h)
+set(MTMD_PUBLIC_HEADERS
+    ${CMAKE_CURRENT_SOURCE_DIR}/mtmd.h
+    ${CMAKE_CURRENT_SOURCE_DIR}/mtmd-helper.h
+    )
 
 set_target_properties(mtmd
     PROPERTIES
@@ -31,25 +36,9 @@ set_target_properties(mtmd
 
 install(TARGETS mtmd LIBRARY PUBLIC_HEADER)
 
-# compile the helper separately, to avoid long compile times with miniaudio.h and stb_image.h
-
-add_library(mtmd-helper STATIC
-            mtmd-helper.cpp
-            mtmd-helper.h
-            )
-
-target_link_libraries     (mtmd-helper PRIVATE mtmd Threads::Threads)
-target_include_directories(mtmd-helper PUBLIC  .)
-target_include_directories(mtmd-helper PRIVATE ../..)
-target_compile_features   (mtmd-helper PRIVATE cxx_std_17)
-
-if (BUILD_SHARED_LIBS)
-    set_target_properties     (mtmd-helper PROPERTIES POSITION_INDEPENDENT_CODE ON)
-endif()
-
 if (NOT MSVC)
     # for stb_image.h and miniaudio.h
-    target_compile_options(mtmd-helper PRIVATE -Wno-cast-qual)
+    target_compile_options(mtmd PRIVATE -Wno-cast-qual)
 endif()
 
 if (TARGET BUILD_INFO)
@@ -66,5 +55,5 @@ set(TARGET llama-mtmd-cli)
 add_executable         (${TARGET} mtmd-cli.cpp)
 set_target_properties  (${TARGET} PROPERTIES OUTPUT_NAME llama-mtmd-cli)
 install                (TARGETS ${TARGET} RUNTIME)
-target_link_libraries  (${TARGET} PRIVATE common mtmd mtmd-helper Threads::Threads)
+target_link_libraries  (${TARGET} PRIVATE common mtmd Threads::Threads)
 target_compile_features(${TARGET} PRIVATE cxx_std_17)
