@@ -8781,7 +8781,7 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
         // TODO: is causal == true correct? might need some changes
         auto * inp_attn = build_attn_inp_kv_unified_iswa();
 
-        ggml_tensor * inp_per_layer;
+        ggml_tensor * inp_per_layer; // [n_embd_altup, n_tokens, n_layer]
 
         // equivalent to get_per_layer_inputs() in python code
         {
@@ -8792,6 +8792,7 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
                 res->t_tokens = inp->tokens;
                 inp_per_layer = ggml_get_rows(ctx0, model.tok_embd_per_layer, inp->tokens);
                 inp_per_layer = ggml_reshape_3d(ctx0, inp_per_layer, n_embd_altup, n_layer, n_tokens);
+                cb(inp_per_layer, "inp_per_layer_selected", -1);
             } else {
                 GGML_ABORT("TODO: support embd input");
             }
@@ -8802,19 +8803,19 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
         // this calculates the per-layer inputs, so the final tensor shape will have n_layer as the last dim
         {
             ggml_tensor * per_layer_proj = ggml_mul_mat(ctx0, model.per_layer_model_proj, inpL);
+            per_layer_proj = ggml_scale(ctx0, per_layer_proj, 1.0f / sqrtf((float)n_embd)); // per_layer_projection_scale
+            per_layer_proj = ggml_reshape_3d(ctx0, per_layer_proj, n_embd_altup, n_layer, n_tokens);
+            per_layer_proj = build_norm(per_layer_proj,
+                                model.per_layer_proj_norm, NULL,
+                                LLM_NORM_RMS, -1); // [n_embd_altup, n_layer, n_tokens]
+            cb(per_layer_proj, "per_layer_proj", -1);
 
-            // shape: [n_embd, n_tokens]
-            per_layer_proj = ggml_scale(ctx0, inp_per_layer, 1.0f / sqrtf(n_embd)); // per_layer_projection_scale
-            per_layer_proj = ggml_reshape_3d(ctx0, inp_per_layer, n_embd_altup, n_layer, n_tokens);
             inp_per_layer = ggml_add(ctx0, inp_per_layer, per_layer_proj);
-            inp_per_layer = ggml_scale(ctx0, inp_per_layer, sqrtf(2.0)); // per_layer_input_scale
+            inp_per_layer = ggml_scale(ctx0, inp_per_layer, 1.0f / sqrtf(2.0)); // per_layer_input_scale
             cb(inp_per_layer, "inp_per_layer", -1);
 
             // permute to shape: [n_embd_altup, n_tokens, n_layer]
             inp_per_layer = ggml_cont(ctx0, ggml_permute(ctx0, inp_per_layer, 0, 2, 1, 3));
-            ggml_build_forward_expand(gf, inp_per_layer);
-
-            // @ngxson: matched activations ✅
         }
 
         auto calc_magnitude = [&](ggml_tensor * x) {
@@ -8834,8 +8835,6 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
                                 new_magnitude);
             inpL = ggml_concat(ctx0, inpL, altup_added, 2); // shape: [n_embd, n_tokens, n_altup]
             cb(inpL, "inp_stacked", -1);
-
-            // @ngxson: matched activations ✅
         }
 
         // inpL now has shape:         [n_embd,       n_tokens, n_altup]
@@ -8853,7 +8852,6 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
 
             ggml_tensor * output = ggml_mul_mat(ctx0, model.layers[il].altup_router, router_inputs);
             return ggml_tanh(ctx0, output); // [n_altup, n_tokens]
-            // @ngxson: matched activations ✅
         };
 
         // get 2D slice view from a 3D tensor, the idx corresponds to the 3rd dim
@@ -8862,6 +8860,13 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
                                 ggml_row_size(x->type, x->ne[0]),
                                 idx * x->ne[0] * x->ne[1] * ggml_element_size(x));
         };
+
+        ggml_tensor * one; // containing single element 1.0f
+        {
+            one = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, 1);
+            one = ggml_scale(ctx0, one, 0.0f);
+            one = ggml_cos(ctx0, one);
+        }
 
         for (int il = 0; il < n_layer; ++il) {
             const float freq_base_l  = model.get_rope_freq_base (cparams, il);
@@ -8877,6 +8882,7 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
                 cb(modalities, "modalities", il);
 
                 ggml_tensor * all_coefs = build_lora_mm(model.layers[il].altup_predict_coef, modalities);
+                cb(all_coefs, "all_coefs", il);
                 // first dim now having n_altup^2 elements, we reshape it to 2D (so we end up with 3D tensor)
                 all_coefs = ggml_reshape_3d(ctx0, all_coefs, n_altup, n_altup, n_tokens);
 
@@ -8888,12 +8894,11 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
                 predictions = ggml_cont(ctx0, ggml_permute(ctx0, predictions, 0, 2, 1, 3));
                 predictions = ggml_add(ctx0, predictions, cur);
                 cb(predictions, "predictions", il);
-
-                // @ngxson: matched activations ✅
             }
 
             // predicted value will go through self-attention and laurel
-            cur = view_2d_slice(predictions, i_altup_act);
+            ggml_tensor * active_prediction = view_2d_slice(predictions, i_altup_act); // [n_embd, n_tokens]
+            cur = active_prediction;
             cb(cur, "active_prediction", il);
 
             // norm
@@ -8948,7 +8953,7 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
                 cb(Qcur, "Qcur_pos", il);
                 cb(Kcur, "Kcur_pos", il);
 
-                // SOME LAYERS DOES NOT HAVE KV ⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️
+                // SOME LAYERS DOES NOT HAVE KV ⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️
 
                 cur = build_attn(inp_attn, gf,
                         model.layers[il].wo, NULL,
@@ -8960,8 +8965,6 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
                     LLM_NORM_RMS, il);
             cb(cur, "attn_post_norm", il);
 
-            // @ngxson: matched activations ✅ (layer 0)
-
             // if (il == n_layer - 1) {
             //     // skip computing output for unused tokens
             //     ggml_tensor * inp_out_ids = build_inp_out_ids();
@@ -8969,18 +8972,22 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
             //     inpL = ggml_get_rows(ctx0, inpL, inp_out_ids);
             // }
 
-            cur = ggml_repeat(ctx0, cur, inpL); // DUMMY, REMOVE IT LATER
+            cur = ggml_add(ctx0, cur, active_prediction); // [n_embd, n_tokens]
+            cb(cur, "attn_gated", il);
 
-            ggml_tensor * sa_out = ggml_add(ctx0, cur, inpL);
-            cb(sa_out, "sa_out", il);
+            ggml_tensor * attn_laurel = ggml_scale(ctx0,
+                ggml_add(ctx0, cur, laurel_out),
+                1.0f / sqrtf(2.0f)); // [n_embd, n_tokens]
+            cb(attn_laurel, "attn_laurel", il);
 
-            cur = build_norm(sa_out,
+            cur = build_norm(attn_laurel,
                     model.layers[il].ffn_norm, NULL,
                     LLM_NORM_RMS, il);
             cb(cur, "ffn_norm", il);
 
             // feed-forward network
             {
+                // missing icdf ⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️
                 cur = build_ffn(cur,
                         model.layers[il].ffn_up,   NULL, NULL,
                         model.layers[il].ffn_gate, NULL, NULL,
@@ -8993,10 +9000,61 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
             cur = build_norm(cur,
                     model.layers[il].ffn_post_norm, NULL,
                     LLM_NORM_RMS, -1);
-            cb(cur, "ffn_post_norm", -1);
+            cb(cur, "ffn_post_norm", il);
 
-            cur = ggml_add(ctx0, cur, sa_out);
+            ggml_tensor * attn_ffw_laurel_gated = ggml_add(ctx0, cur, attn_laurel); // [n_embd, n_tokens]
+            cb(attn_ffw_laurel_gated, "attn_ffw_laurel_gated", il);
 
+            ggml_tensor * corrected; // [n_embd, n_tokens, n_altup]
+            {
+                ggml_tensor * activated = attn_ffw_laurel_gated;
+                ggml_tensor * modalities = compute_router_modalities(activated, il); // [n_altup, n_tokens]
+                cb(modalities, "modalities", il);
+
+                ggml_tensor * innovation = ggml_sub(ctx0, activated, active_prediction); // [n_embd, n_tokens]
+                cb(innovation, "innovation", il);
+
+                ggml_tensor * all_coefs = build_lora_mm(model.layers[il].altup_correct_coef, modalities); // [n_altup, n_tokens]
+                all_coefs = ggml_add(ctx0, all_coefs, one);
+                cb(all_coefs, "all_coefs", il);
+                all_coefs = ggml_cont(ctx0, ggml_transpose(ctx0, all_coefs)); // [n_tokens, n_altup]
+                all_coefs = ggml_reshape_3d(ctx0, all_coefs, 1, n_tokens, n_altup); // [1, n_tokens, n_altup]
+
+                // TODO: use ggml_repeat_4d for this ⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️
+                innovation = ggml_repeat(ctx0, innovation, ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, n_embd, n_tokens, n_altup));
+                corrected = ggml_mul(ctx0, innovation, all_coefs); // [n_embd, n_tokens, n_altup]
+                corrected = ggml_add(ctx0, corrected, predictions); // [n_embd, n_tokens, n_altup]
+                cb(corrected, "corrected", il);
+            }
+
+            ggml_tensor * first_prediction = view_2d_slice(corrected, i_altup_act); // [n_embd, n_tokens]
+            {
+                first_prediction = ggml_mul(ctx0, first_prediction, model.layers[il].altup_correct_scale);
+                first_prediction = build_lora_mm(model.layers[il].per_layer_inp_gate, first_prediction);
+                first_prediction = ggml_gelu(ctx0, first_prediction); // [n_embd_altup, n_tokens]
+                cb(first_prediction, "first_prediction_gated", il);
+                ggml_tensor * inp_this_layer = view_2d_slice(inp_per_layer, il); // [n_embd_altup, n_tokens]
+                first_prediction = ggml_mul(ctx0, first_prediction, inp_this_layer); // [n_embd_altup, n_tokens]
+                cb(first_prediction, "first_prediction_scaled", il);
+
+                first_prediction = build_lora_mm(model.layers[il].per_layer_proj, first_prediction); // [n_embd, n_tokens]
+                first_prediction = build_norm(first_prediction,
+                        model.layers[il].per_layer_post_norm, NULL,
+                        LLM_NORM_RMS, il);
+                cb(first_prediction, "first_prediction_out", il);
+            }
+
+            // equivalent to python code: corrected_predictions[1:] += first_prediction
+            for (int i_alt = 1; i_alt < n_altup; ++i_alt) {
+                ggml_tensor * view = view_2d_slice(corrected, i_alt); // [n_embd, n_tokens]
+                ggml_tensor * tmp = ggml_add(ctx0, view, first_prediction); // [n_embd, n_tokens]
+                size_t offset = i_alt * corrected->ne[0] * corrected->ne[1] * ggml_element_size(view);
+                corrected = ggml_set(ctx0, corrected, tmp,
+                                corrected->nb[1], corrected->nb[2], corrected->nb[3],
+                                offset); // [n_embd, n_tokens, n_altup]
+            }
+
+            cur = corrected; // [n_embd, n_tokens, n_altup]
             cur = build_cvec(cur, il);
             cb(cur, "l_out", il);
 
