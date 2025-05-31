@@ -8829,8 +8829,7 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
         // these "added" altups will be concat to the last dim of inpL
         {
             ggml_tensor * target_magnitude = calc_magnitude(inpL);
-            // TODO: use ggml_repeat_4d for this ⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️
-            ggml_tensor * inp_repeated = ggml_repeat(ctx0, inpL, ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, n_embd, n_tokens, n_altup - 1));
+            ggml_tensor * inp_repeated = ggml_repeat_4d(ctx0, inpL, n_embd, n_tokens, n_altup - 1, 1);
             ggml_tensor * altup_added = ggml_mul_mat(ctx0, model.altup_proj, inp_repeated); // shape: [n_embd, n_tokens, n_altup - 1]
             ggml_tensor * new_magnitude = calc_magnitude(altup_added);
             altup_added = ggml_div(ctx0,
@@ -9023,8 +9022,7 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
                 all_coefs = ggml_cont(ctx0, ggml_transpose(ctx0, all_coefs)); // [n_tokens, n_altup]
                 all_coefs = ggml_reshape_3d(ctx0, all_coefs, 1, n_tokens, n_altup); // [1, n_tokens, n_altup]
 
-                // TODO: use ggml_repeat_4d for this ⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️
-                innovation = ggml_repeat(ctx0, innovation, ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, n_embd, n_tokens, n_altup));
+                innovation = ggml_repeat_4d(ctx0, innovation, n_embd, n_tokens, n_altup, 1);
                 corrected = ggml_mul(ctx0, innovation, all_coefs); // [n_embd, n_tokens, n_altup]
                 corrected = ggml_add(ctx0, corrected, predictions); // [n_embd, n_tokens, n_altup]
                 cb(corrected, "corrected", il);
@@ -9074,7 +9072,7 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
         cb(cur, "result_norm", -1);
         res->t_embd = cur;
 
-        // DUMMY
+        // DUMMY ⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️
         cur = view_2d_slice(cur, 0);
         cur = build_lora_mm(model.tok_embd, cur);
 
