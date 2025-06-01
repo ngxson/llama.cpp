@@ -601,6 +601,17 @@ struct llm_graph_context {
                   float   kq_scale,
                     int   il) const;
 
+    // reuse cache from a previous layer, leaving no modifications to the cache
+    ggml_tensor * build_attn_reuse_cache(
+        ggml_cgraph * gf,
+        ggml_tensor * wo,
+        ggml_tensor * wo_b,
+        ggml_tensor * q_cur,
+        ggml_tensor * kq_mask,
+            float     kq_scale,
+            int       il_reuse,
+            int       il) const;
+
     //
     // recurrent
     //

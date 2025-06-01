@@ -1384,6 +1384,38 @@ ggml_tensor * llm_graph_context::build_attn(
     return cur;
 }
 
+ggml_tensor * llm_graph_context::build_attn_reuse_cache(
+        ggml_cgraph * gf,
+        ggml_tensor * wo,
+        ggml_tensor * wo_b,
+        ggml_tensor * q_cur,
+        ggml_tensor * kq_mask,
+            float     kq_scale,
+            int       il_reuse,
+            int       il) const {
+    const auto * kv_state_iswa = static_cast<const llama_kv_cache_unified_iswa_state *>(mstate);
+
+    // TODO @ngxson : this could be wrong
+    const auto * kv_state = hparams.is_swa(il_reuse) ? kv_state_iswa->get_swa() : kv_state_iswa->get_base();
+
+    ggml_tensor * q = q_cur;
+    ggml_tensor * k = kv_state->get_k(ctx0, il_reuse);
+    ggml_tensor * v = kv_state->get_v(ctx0, il_reuse);
+
+    ggml_tensor * cur = build_attn_mha(gf, q, k, v, nullptr, kq_mask, nullptr, kq_scale);
+    cb(cur, "kqv_out", il);
+
+    if (wo) {
+        cur = build_lora_mm(wo, cur);
+    }
+
+    if (wo_b) {
+        cur = ggml_add(ctx0, cur, wo_b);
+    }
+
+    return cur;
+}
+
 llm_graph_input_attn_cross * llm_graph_context::build_attn_inp_cross() const {
     auto inp = std::make_unique<llm_graph_input_attn_cross>(cross);
 
