@@ -8769,6 +8769,8 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
     const int64_t n_altup;
     const int     i_altup_act;
     const int     n_layer_kv = 20; // number of layers having KV
+    const int     n_layer_sparsity = 10; // number of layers using activation sparsity
+    const float   f_sparsity_std_mul = 1.6448533535003662f; // std_multiplier = normal_dist.icdf(0.95)
 
     ggml_tensor * one; // containing single element 1.0f
 
@@ -8931,13 +8933,17 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
 
             // feed-forward network
             {
-                // missing icdf ⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️⚠️
-                cur = build_ffn(cur,
-                        model.layers[il].ffn_up,   NULL, NULL,
-                        model.layers[il].ffn_gate, NULL, NULL,
-                        model.layers[il].ffn_down, NULL, NULL,
-                        NULL,
-                        LLM_FFN_GELU, LLM_FFN_PAR, il);
+                ggml_tensor * up_proj   = build_lora_mm(model.layers[il].ffn_up,   cur);
+                ggml_tensor * gate_proj = build_lora_mm(model.layers[il].ffn_gate, cur);
+
+                if (il < n_layer_sparsity) {
+                    // apply activation sparsity
+                    gate_proj = gaussian_topk(gate_proj);
+                }
+                gate_proj = ggml_gelu(ctx0, gate_proj);
+
+                cur = ggml_mul(ctx0, up_proj, gate_proj);
+                cur = build_lora_mm(model.layers[il].ffn_down, cur);
                 cb(cur, "ffn_out", il);
             }
 
@@ -9111,6 +9117,18 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
         tmp = ggml_add(ctx0, tmp, cur);
         cb(tmp, "laurel_out", il);
         return tmp;
+    }
+
+    // input x shape: [n_embd, n_tokens]
+    // output  shape: [n_embd, n_tokens]
+    ggml_tensor * gaussian_topk(ggml_tensor * x) {
+        ggml_tensor * mean = ggml_mean(ctx0, x);
+        ggml_tensor * std  = ggml_sqrt(ctx0, ggml_scale(ctx0,
+            ggml_sum_rows(ctx0, ggml_sqr(ctx0, ggml_sub(ctx0, x, mean))),
+            1.0f / (float)(x->ne[0] - 1)
+        ));
+        ggml_tensor * cutoff_x = ggml_add(ctx0, mean, ggml_scale(ctx0, std, f_sparsity_std_mul));
+        return ggml_relu(ctx0, ggml_sub(ctx0, x, cutoff_x));
     }
 
     //
