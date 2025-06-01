@@ -980,7 +980,7 @@ void llama_model::load_hparams(llama_model_loader & ml) {
         case LLM_ARCH_GEMMA3N:
             {
                 hparams.swa_type = LLAMA_SWA_TYPE_STANDARD;
-                hparams.n_swa_pattern = 5;
+                hparams.set_swa_pattern(5);
 
                 hparams.rope_freq_base_train_swa  = 10000.0f;
                 hparams.rope_freq_scale_train_swa = 1.0f;
@@ -8761,14 +8761,29 @@ struct llm_build_gemma3_iswa : public llm_graph_context {
 };
 
 struct llm_build_gemma3n_iswa : public llm_graph_context {
-    llm_build_gemma3n_iswa(const llama_model & model, const llm_graph_params & params, ggml_cgraph * gf) : llm_graph_context(params) {
-        const int64_t n_embd_head  = hparams.n_embd_head_k;
-        const int64_t n_embd_altup = hparams.n_embd_altup;
-        const int64_t n_altup      = hparams.n_altup;
-        const int     i_altup_act  = hparams.i_altup_act;
+    const llama_model & model;
+    ggml_cgraph * gf;
 
+    const int64_t n_embd_head;
+    const int64_t n_embd_altup;
+    const int64_t n_altup;
+    const int     i_altup_act;
+
+    ggml_tensor * one; // containing single element 1.0f
+
+    llm_build_gemma3n_iswa(const llama_model & model, const llm_graph_params & params, ggml_cgraph * gf)
+            : llm_graph_context(params),
+              model(model),
+              gf(gf),
+              n_embd_head(model.hparams.n_embd_head_k),
+              n_embd_altup(model.hparams.n_embd_altup),
+              n_altup(model.hparams.n_altup),
+              i_altup_act(model.hparams.i_altup_act) {
         ggml_tensor * cur;
         ggml_tensor * inpL;
+
+        one = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, 1);
+        one = ggml_cos(ctx0, ggml_scale(ctx0, one, 0.0f)); // cos(0.0f) = 1.0f
 
         inpL = build_inp_embd(model.tok_embd);
 
@@ -8784,46 +8799,8 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
         // TODO: is causal == true correct? might need some changes
         auto * inp_attn = build_attn_inp_kv_unified_iswa();
 
-        ggml_tensor * inp_per_layer; // [n_embd_altup, n_tokens, n_layer]
-
-        // equivalent to get_per_layer_inputs() in python code
-        {
-            auto inp = std::make_unique<llm_graph_input_embd>();
-            if (ubatch.token) {
-                inp->tokens = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, ubatch.n_tokens);
-                ggml_set_input(inp->tokens);
-                res->t_tokens = inp->tokens;
-                inp_per_layer = ggml_get_rows(ctx0, model.tok_embd_per_layer, inp->tokens);
-                inp_per_layer = ggml_reshape_3d(ctx0, inp_per_layer, n_embd_altup, n_layer, n_tokens);
-                cb(inp_per_layer, "inp_per_layer_selected", -1);
-            } else {
-                GGML_ABORT("TODO: support embd input");
-            }
-            res->add_input(std::move(inp));
-        }
-
-        // equivalent to project_per_layer_inputs() in python code
-        // this calculates the per-layer inputs, so the final tensor shape will have n_layer as the last dim
-        {
-            ggml_tensor * per_layer_proj = ggml_mul_mat(ctx0, model.per_layer_model_proj, inpL);
-            per_layer_proj = ggml_scale(ctx0, per_layer_proj, 1.0f / sqrtf((float)n_embd)); // per_layer_projection_scale
-            per_layer_proj = ggml_reshape_3d(ctx0, per_layer_proj, n_embd_altup, n_layer, n_tokens);
-            per_layer_proj = build_norm(per_layer_proj,
-                                model.per_layer_proj_norm, NULL,
-                                LLM_NORM_RMS, -1); // [n_embd_altup, n_layer, n_tokens]
-            cb(per_layer_proj, "per_layer_proj", -1);
-
-            inp_per_layer = ggml_add(ctx0, inp_per_layer, per_layer_proj);
-            inp_per_layer = ggml_scale(ctx0, inp_per_layer, 1.0f / sqrtf(2.0)); // per_layer_input_scale
-            cb(inp_per_layer, "inp_per_layer", -1);
-
-            // permute to shape: [n_embd_altup, n_tokens, n_layer]
-            inp_per_layer = ggml_cont(ctx0, ggml_permute(ctx0, inp_per_layer, 0, 2, 1, 3));
-        }
-
-        auto calc_magnitude = [&](ggml_tensor * x) {
-            return ggml_sqrt(ctx0, ggml_sum_rows(ctx0, ggml_sqr(ctx0, x)));
-        };
+        // inp_per_layer shape: [n_embd_altup, n_tokens, n_layer]
+        ggml_tensor * inp_per_layer = project_per_layer_inputs(inpL, get_per_layer_inputs());
 
         // inpL now has only 1 altup, project it to the rest of the altups
         // these "added" altups will be concat to the last dim of inpL
@@ -8842,61 +8819,14 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
         // inpL now has shape:         [n_embd,       n_tokens, n_altup]
         // inp_per_layer now hasshape: [n_embd_altup, n_tokens, n_layer]
 
-        // equivalent to compute_router_modalities() in python code
-        // output shape: [n_altup, n_tokens]
-        auto compute_router_modalities = [&](ggml_tensor * x, int il) {
-            ggml_tensor * router_inputs = build_norm(x,
-                model.layers[il].altup_router_norm, NULL,
-                LLM_NORM_RMS, il);
-
-            // router_input_scale
-            router_inputs = ggml_scale(ctx0, router_inputs, 1.0f / (float)n_embd);
-
-            ggml_tensor * output = ggml_mul_mat(ctx0, model.layers[il].altup_router, router_inputs);
-            return ggml_tanh(ctx0, output); // [n_altup, n_tokens]
-        };
-
-        // get 2D slice view from a 3D tensor, the idx corresponds to the 3rd dim
-        auto view_2d_slice = [&](ggml_tensor * x, int idx) {
-            return ggml_view_2d(ctx0, x, x->ne[0], x->ne[1],
-                                ggml_row_size(x->type, x->ne[0]),
-                                idx * x->ne[0] * x->ne[1] * ggml_element_size(x));
-        };
-
-        ggml_tensor * one; // containing single element 1.0f
-        {
-            one = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, 1);
-            one = ggml_scale(ctx0, one, 0.0f);
-            one = ggml_cos(ctx0, one);
-        }
-
         for (int il = 0; il < n_layer; ++il) {
+            // this block is made to be closely resemble Gemma3p5DecoderLayer on python code
+
             const float freq_base_l  = model.get_rope_freq_base (cparams, il);
             const float freq_scale_l = model.get_rope_freq_scale(cparams, il);
 
             ggml_tensor * cur = inpL; // [n_embd, n_tokens, n_altup]
-            ggml_tensor * activated = view_2d_slice(cur, i_altup_act);
-
-            // altup predict
-            ggml_tensor * predictions;
-            {
-                ggml_tensor * modalities = compute_router_modalities(activated, il); // [n_altup, n_tokens]
-                cb(modalities, "modalities", il);
-
-                ggml_tensor * all_coefs = build_lora_mm(model.layers[il].altup_predict_coef, modalities);
-                cb(all_coefs, "all_coefs", il);
-                // first dim now having n_altup^2 elements, we reshape it to 2D (so we end up with 3D tensor)
-                all_coefs = ggml_reshape_3d(ctx0, all_coefs, n_altup, n_altup, n_tokens);
-
-                // permute to [n_altup, n_embd, n_tokens]
-                ggml_tensor * cur_permuted = ggml_cont(ctx0, ggml_permute(ctx0, cur, 1, 2, 0, 3));
-                predictions = ggml_mul_mat(ctx0, cur_permuted, all_coefs); // [n_altup, n_embd, n_tokens]
-
-                // final shape must be the same as cur: [n_embd, n_tokens, n_altup]
-                predictions = ggml_cont(ctx0, ggml_permute(ctx0, predictions, 0, 2, 1, 3));
-                predictions = ggml_add(ctx0, predictions, cur);
-                cb(predictions, "predictions", il);
-            }
+            ggml_tensor * predictions = altup_predict(cur, il); // [n_embd, n_tokens, n_altup]
 
             // predicted value will go through self-attention and laurel
             ggml_tensor * active_prediction = view_2d_slice(predictions, i_altup_act); // [n_embd, n_tokens]
@@ -8908,15 +8838,7 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
             cb(cur, "attn_norm", il);
 
             // laurel
-            ggml_tensor * laurel_out;
-            {
-                laurel_out = cur;
-                laurel_out = build_lora_mm(model.layers[il].laurel_l, laurel_out);
-                laurel_out = build_lora_mm(model.layers[il].laurel_r, laurel_out);
-                laurel_out = build_norm(laurel_out, model.layers[il].laurel_post_norm, NULL, LLM_NORM_RMS, il);
-                laurel_out = ggml_add(ctx0, laurel_out, cur);
-                cb(laurel_out, "laurel_out", il);
-            }
+            ggml_tensor * laurel_out = laurel(cur, il); // [n_embd, n_tokens]
 
             // self-attention
             {
@@ -8978,8 +8900,8 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
             cb(cur, "attn_gated", il);
 
             ggml_tensor * attn_laurel = ggml_scale(ctx0,
-                ggml_add(ctx0, cur, laurel_out),
-                1.0f / sqrtf(2.0f)); // [n_embd, n_tokens]
+                                            ggml_add(ctx0, cur, laurel_out),
+                                            1.0f / sqrtf(2.0f)); // [n_embd, n_tokens]
             cb(attn_laurel, "attn_laurel", il);
 
             cur = build_norm(attn_laurel,
@@ -9007,29 +8929,11 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
             ggml_tensor * attn_ffw_laurel_gated = ggml_add(ctx0, cur, attn_laurel); // [n_embd, n_tokens]
             cb(attn_ffw_laurel_gated, "attn_ffw_laurel_gated", il);
 
-            ggml_tensor * corrected; // [n_embd, n_tokens, n_altup]
+            ggml_tensor * corrected = altup_corrent(predictions, attn_ffw_laurel_gated, il); // [n_embd, n_tokens, n_altup]
+
+            ggml_tensor * first_prediction; // [n_embd, n_tokens]
             {
-                ggml_tensor * activated = attn_ffw_laurel_gated;
-                ggml_tensor * modalities = compute_router_modalities(activated, il); // [n_altup, n_tokens]
-                cb(modalities, "modalities", il);
-
-                ggml_tensor * innovation = ggml_sub(ctx0, activated, active_prediction); // [n_embd, n_tokens]
-                cb(innovation, "innovation", il);
-
-                ggml_tensor * all_coefs = build_lora_mm(model.layers[il].altup_correct_coef, modalities); // [n_altup, n_tokens]
-                all_coefs = ggml_add(ctx0, all_coefs, one);
-                cb(all_coefs, "all_coefs", il);
-                all_coefs = ggml_cont(ctx0, ggml_transpose(ctx0, all_coefs)); // [n_tokens, n_altup]
-                all_coefs = ggml_reshape_3d(ctx0, all_coefs, 1, n_tokens, n_altup); // [1, n_tokens, n_altup]
-
-                innovation = ggml_repeat_4d(ctx0, innovation, n_embd, n_tokens, n_altup, 1);
-                corrected = ggml_mul(ctx0, innovation, all_coefs); // [n_embd, n_tokens, n_altup]
-                corrected = ggml_add(ctx0, corrected, predictions); // [n_embd, n_tokens, n_altup]
-                cb(corrected, "corrected", il);
-            }
-
-            ggml_tensor * first_prediction = view_2d_slice(corrected, i_altup_act); // [n_embd, n_tokens]
-            {
+                first_prediction = view_2d_slice(corrected, i_altup_act); // [n_embd, n_tokens]
                 first_prediction = ggml_mul(ctx0, first_prediction, model.layers[il].altup_correct_scale);
                 first_prediction = build_lora_mm(model.layers[il].per_layer_inp_gate, first_prediction);
                 first_prediction = ggml_gelu(ctx0, first_prediction); // [n_embd_altup, n_tokens]
@@ -9080,6 +8984,140 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
         res->t_logits = cur;
 
         ggml_build_forward_expand(gf, cur);
+    }
+
+    ggml_tensor * calc_magnitude(ggml_tensor * x) {
+        return ggml_sqrt(ctx0, ggml_sum_rows(ctx0, ggml_sqr(ctx0, x)));
+    }
+
+    // get 2D slice view from a 3D tensor, the idx corresponds to the 3rd dim
+    ggml_tensor * view_2d_slice(ggml_tensor * x, int idx) {
+        return ggml_view_2d(ctx0, x, x->ne[0], x->ne[1],
+                            ggml_row_size(x->type, x->ne[0]),
+                            idx * x->ne[0] * x->ne[1] * ggml_element_size(x));
+    }
+
+    // equivalent to get_per_layer_inputs() in python code
+    // output shape: [n_embd_altup, n_layer, n_tokens]
+    ggml_tensor * get_per_layer_inputs() {
+        auto inp = std::make_unique<llm_graph_input_embd>();
+        ggml_tensor * inp_per_layer;
+        if (ubatch.token) {
+            inp->tokens = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, ubatch.n_tokens);
+            ggml_set_input(inp->tokens);
+            res->t_tokens = inp->tokens;
+            inp_per_layer = ggml_get_rows(ctx0, model.tok_embd_per_layer, inp->tokens);
+            inp_per_layer = ggml_reshape_3d(ctx0, inp_per_layer, n_embd_altup, n_layer, n_tokens);
+            cb(inp_per_layer, "inp_per_layer_selected", -1);
+        } else {
+            GGML_ABORT("TODO: support embd input");
+        }
+        res->add_input(std::move(inp));
+        return inp_per_layer;
+    }
+
+    // equivalent to project_per_layer_inputs() in python code
+    // this calculates the per-layer inputs, so the final tensor shape will have n_layer as the last dim
+    // output shape: [n_embd_altup, n_tokens, n_layer]
+    ggml_tensor * project_per_layer_inputs(ggml_tensor * inputs_embeds, ggml_tensor * inp_per_layer) {
+        const float per_layer_projection_scale = 1.0f / sqrtf((float)n_embd);
+        const float per_layer_input_scale      = 1.0f / sqrtf(2.0f);
+
+        ggml_tensor * per_layer_proj = ggml_mul_mat(ctx0, model.per_layer_model_proj, inputs_embeds);
+        per_layer_proj = ggml_scale(ctx0, per_layer_proj, per_layer_projection_scale);
+        per_layer_proj = ggml_reshape_3d(ctx0, per_layer_proj, n_embd_altup, n_layer, n_tokens);
+        per_layer_proj = build_norm(per_layer_proj,
+                                    model.per_layer_proj_norm, NULL,
+                                    LLM_NORM_RMS, -1); // [n_embd_altup, n_layer, n_tokens]
+        cb(per_layer_proj, "per_layer_proj", -1);
+
+        inp_per_layer = ggml_add(ctx0, inp_per_layer, per_layer_proj);
+        inp_per_layer = ggml_scale(ctx0, inp_per_layer, per_layer_input_scale);
+        cb(inp_per_layer, "inp_per_layer", -1);
+
+        // permute to shape: [n_embd_altup, n_tokens, n_layer]
+        inp_per_layer = ggml_cont(ctx0, ggml_permute(ctx0, inp_per_layer, 0, 2, 1, 3));
+        return inp_per_layer;
+    }
+
+    // input cur shape: [n_altup, n_tokens]
+    // output    shape: [n_altup, n_tokens]
+    ggml_tensor * laurel(ggml_tensor * cur, int il) {
+        ggml_tensor * tmp = cur;
+        tmp = build_lora_mm(model.layers[il].laurel_l, tmp);
+        tmp = build_lora_mm(model.layers[il].laurel_r, tmp);
+        tmp = build_norm(tmp, model.layers[il].laurel_post_norm, NULL, LLM_NORM_RMS, il);
+        tmp = ggml_add(ctx0, tmp, cur);
+        cb(tmp, "laurel_out", il);
+        return tmp;
+    }
+
+    //
+    // altup functions
+    //
+
+    // equivalent to compute_router_modalities() in python code
+    // input x shape: [n_embd,  n_tokens]
+    // output  shape: [n_altup, n_tokens]
+    ggml_tensor * altup_compute_router_modalities(ggml_tensor * x, int il) {
+        ggml_tensor * router_inputs = build_norm(x,
+            model.layers[il].altup_router_norm, NULL,
+            LLM_NORM_RMS, il);
+
+        // router_input_scale
+        router_inputs = ggml_scale(ctx0, router_inputs, 1.0f / (float)n_embd);
+
+        ggml_tensor * output = ggml_mul_mat(ctx0, model.layers[il].altup_router, router_inputs);
+        return ggml_tanh(ctx0, output); // [n_altup, n_tokens]
+    }
+
+    // input cur shape: [n_embd, n_tokens, n_altup]
+    // output    shape: [n_embd, n_tokens, n_altup]
+    ggml_tensor * altup_predict(ggml_tensor * cur, int il) {
+        ggml_tensor * activated = view_2d_slice(cur, i_altup_act); // [n_embd, n_tokens]
+        ggml_tensor * modalities = altup_compute_router_modalities(activated, il); // [n_altup, n_tokens]
+        cb(modalities, "modalities", il);
+
+        ggml_tensor * all_coefs = build_lora_mm(model.layers[il].altup_predict_coef, modalities);
+        cb(all_coefs, "all_coefs", il);
+        // first dim now having n_altup^2 elements, we reshape it to 2D (so we end up with 3D tensor)
+        all_coefs = ggml_reshape_3d(ctx0, all_coefs, n_altup, n_altup, n_tokens);
+
+        // permute to [n_altup, n_embd, n_tokens]
+        ggml_tensor * cur_permuted = ggml_cont(ctx0, ggml_permute(ctx0, cur, 1, 2, 0, 3));
+        ggml_tensor * predictions = ggml_mul_mat(ctx0, cur_permuted, all_coefs); // [n_altup, n_embd, n_tokens]
+
+        // final shape must be the same as cur: [n_embd, n_tokens, n_altup]
+        predictions = ggml_cont(ctx0, ggml_permute(ctx0, predictions, 0, 2, 1, 3));
+        predictions = ggml_add(ctx0, predictions, cur);
+        cb(predictions, "predictions", il);
+
+        return predictions;
+    }
+
+    // input predictions       shape: [n_embd, n_tokens, n_altup]
+    // input activated         shape: [n_embd, n_tokens]
+    // output                  shape: [n_embd, n_tokens, n_altup]
+    ggml_tensor * altup_corrent(ggml_tensor * predictions, ggml_tensor * activated, int il) {
+        ggml_tensor * modalities = altup_compute_router_modalities(activated, il); // [n_altup, n_tokens]
+        cb(modalities, "modalities", il);
+
+        ggml_tensor * active_prediction = view_2d_slice(predictions, i_altup_act);
+        ggml_tensor * innovation = ggml_sub(ctx0, activated, active_prediction); // [n_embd, n_tokens]
+        cb(innovation, "innovation", il);
+
+        ggml_tensor * all_coefs = build_lora_mm(model.layers[il].altup_correct_coef, modalities); // [n_altup, n_tokens]
+        all_coefs = ggml_add(ctx0, all_coefs, one);
+        cb(all_coefs, "all_coefs", il);
+        all_coefs = ggml_cont(ctx0, ggml_transpose(ctx0, all_coefs)); // [n_tokens, n_altup]
+        all_coefs = ggml_reshape_3d(ctx0, all_coefs, 1, n_tokens, n_altup); // [1, n_tokens, n_altup]
+
+        innovation = ggml_repeat_4d(ctx0, innovation, n_embd, n_tokens, n_altup, 1);
+        ggml_tensor * corrected = ggml_mul(ctx0, innovation, all_coefs); // [n_embd, n_tokens, n_altup]
+        corrected = ggml_add(ctx0, corrected, predictions); // [n_embd, n_tokens, n_altup]
+        cb(corrected, "corrected", il);
+
+        return corrected;
     }
 };
 
