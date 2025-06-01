@@ -8970,13 +8970,14 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
             }
 
             // equivalent to python code: corrected_predictions[1:] += first_prediction
-            for (int i_alt = 1; i_alt < n_altup; ++i_alt) {
-                ggml_tensor * view = view_2d_slice(corrected, i_alt); // [n_embd, n_tokens]
-                ggml_tensor * tmp = ggml_add(ctx0, view, first_prediction); // [n_embd, n_tokens]
-                size_t offset = i_alt * corrected->ne[0] * corrected->ne[1] * ggml_element_size(view);
-                corrected = ggml_set(ctx0, corrected, tmp,
-                                corrected->nb[1], corrected->nb[2], corrected->nb[3],
-                                offset); // [n_embd, n_tokens, n_altup]
+            {
+                ggml_tensor * slice_first = view_2d_slice(corrected, 0);
+                ggml_tensor * slice_rest  = ggml_view_3d(ctx0, corrected, n_embd, n_tokens, n_altup - 1,
+                                                    ggml_row_size(corrected->type, n_embd),
+                                                    ggml_row_size(corrected->type, n_embd*n_tokens),
+                                                    n_embd*n_tokens*ggml_element_size(corrected));
+                ggml_tensor * tmp = ggml_add(ctx0, slice_rest, first_prediction); // [n_embd, n_tokens, n_altup - 1]
+                corrected = ggml_concat(ctx0, slice_first, tmp, 2); // [n_embd, n_tokens, n_altup]
             }
 
             cur = corrected; // [n_embd, n_tokens, n_altup]
