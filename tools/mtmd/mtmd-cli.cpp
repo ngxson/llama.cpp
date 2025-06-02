@@ -70,7 +70,7 @@ struct mtmd_cli_context {
     llama_model       * model;
     llama_context     * lctx;
     const llama_vocab * vocab;
-    common_sampler    * smpl = nullptr;
+    common_sampler    * smpl;
     llama_batch         batch;
     int                 n_batch;
 
