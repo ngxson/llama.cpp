@@ -32,7 +32,7 @@ Inference of Meta's [LLaMA](https://arxiv.org/abs/2302.13971) model (and others)
 
 Getting started with llama.cpp is straightforward. Here are several ways to install it on your machine:
 
-- **⭐ Recommended**: Install `llama.cpp` using [brew, flox, nix or winget](docs/install.md)
+- **⭐ Recommended**: Install `llama.cpp` using [brew, nix or winget](docs/install.md)
 - Run with Docker - see our [Docker documentation](docs/docker.md)
 - Download pre-built binaries from the [releases page](https://github.com/ggml-org/llama.cpp/releases)
 - Build from source by cloning this repository - check out [our build guide](docs/build.md)
