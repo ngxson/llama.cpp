@@ -1577,10 +1577,15 @@ void llm_graph_context::build_pooling(
                         cur = ggml_add(ctx0, ggml_mul_mat(ctx0, cls_out, cur), cls_out_b);
                     }
                 } else if (cls_out) {
-                    // Single layer classification head (direct projection)
-                    // https://github.com/huggingface/transformers/blob/f4fc42216cd56ab6b68270bf80d811614d8d59e4/src/transformers/models/bert/modeling_bert.py#L1476
-                    GGML_ASSERT(cls_out_b != nullptr);
-                    cur = ggml_add(ctx0, ggml_mul_mat(ctx0, cls_out, inp), cls_out_b);
+                    if (arch == LLM_ARCH_QWEN3) {
+                        cur = ggml_mul_mat(ctx0, cls_out, inp);
+                        cur = ggml_soft_max(ctx0, cur); // qwen3 uses softmax on the output
+                    } else {
+                        // Single layer classification head (direct projection)
+                        // https://github.com/huggingface/transformers/blob/f4fc42216cd56ab6b68270bf80d811614d8d59e4/src/transformers/models/bert/modeling_bert.py#L1476
+                        GGML_ASSERT(cls_out_b != nullptr);
+                        cur = ggml_add(ctx0, ggml_mul_mat(ctx0, cls_out, inp), cls_out_b);
+                    }
                 } else {
                     GGML_ABORT("RANK pooling requires either cls+cls_b or cls_out+cls_out_b");
                 }

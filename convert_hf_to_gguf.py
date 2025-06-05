@@ -3061,6 +3061,64 @@ class Qwen2MoeModel(TextModel):
 class Qwen3Model(Qwen2Model):
     model_arch = gguf.MODEL_ARCH.QWEN3
 
+    # extra logic for rerank models
+    token_false_id: int | None = None
+    token_true_id: int | None = None
+    sep_token_id: int = 0
+    is_tied_embeddings: bool = False
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # a bit hacky, but currently the only way to detect if this is a rerank model
+        readme_path = self.dir_model / "README.md"
+        readme_text = ""
+        if readme_path.exists():
+            with readme_path.open("r", encoding="utf-8") as f:
+                readme_text = f.read()
+        if "# Qwen3-Reranker" in readme_text:
+            self._find_rerank_config()
+
+    def _find_rerank_config(self):
+        from transformers import AutoTokenizer
+        tokenizer = AutoTokenizer.from_pretrained(self.dir_model)
+        self.token_false_id = tokenizer.convert_tokens_to_ids("no")
+        self.token_true_id = tokenizer.convert_tokens_to_ids("yes")
+        self.sep_token_id = tokenizer.convert_tokens_to_ids("\\n") # unused, but needed for rerank check
+        self.is_tied_embeddings = self.hparams.get("tie_word_embeddings", False)
+        logger.info(f"gguf: token_false_id = {self.token_false_id}, token_true_id = {self.token_true_id}")
+        logger.info(f"gguf: sep_token_id = {self.sep_token_id}")
+        logger.info(f"gguf: is_tied_embeddings = {self.is_tied_embeddings}")
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        is_rerank = self.token_false_id is not None and self.token_true_id is not None
+        if is_rerank:
+            self.gguf_writer.add_pooling_type(gguf.PoolingType.RANK)
+            self.gguf_writer.add_sep_token_id(self.sep_token_id)
+            self.gguf_writer.add_uint32(gguf.Keys.Classifier.OUTPUT_LABELS, 2)
+
+    def _get_cls_out_tensor(self, data_torch: Tensor) -> Tensor:
+        # extract "yes" and "no" tokens from the output lm_head tensor
+        assert self.token_false_id is not None and self.token_true_id is not None
+        false_row = data_torch[self.token_false_id]
+        true_row = data_torch[self.token_true_id]
+        return torch.stack([true_row, false_row], dim=0)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        is_rerank = self.token_false_id is not None and self.token_true_id is not None
+
+        if is_rerank:
+            if self.is_tied_embeddings and "embed_tokens" in name:
+                return [
+                    (gguf.TENSOR_NAMES[gguf.MODEL_TENSOR.CLS_OUT] + ".weight", self._get_cls_out_tensor(data_torch)),
+                    (self.map_tensor_name(name), data_torch),
+                ]
+            if not self.is_tied_embeddings and "lm_head" in name:
+                # this is the lm_head tensor, we need to extract the cls_out tensor
+                return [(gguf.TENSOR_NAMES[gguf.MODEL_TENSOR.CLS_OUT] + ".weight", self._get_cls_out_tensor(data_torch))]
+
+        return super().modify_tensors(data_torch, name, bid)
+
 
 @ModelBase.register("Qwen3MoeForCausalLM")
 class Qwen3MoeModel(Qwen2MoeModel):

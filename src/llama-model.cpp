@@ -819,7 +819,13 @@ void llama_model::load_hparams(llama_model_loader & ml) {
             } break;
         case LLM_ARCH_QWEN3:
             {
+                // default for embeddings, will be overwritten if model is rerank
+                hparams.pooling_type = LLAMA_POOLING_TYPE_LAST;
+
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
+                ml.get_key(LLM_KV_POOLING_TYPE,                hparams.pooling_type);
+                ml.get_arr_n(LLM_KV_CLASSIFIER_OUTPUT_LABELS,  hparams.n_cls_out, false);
+
                 switch (hparams.n_layer) {
                     case 28: type = hparams.n_embd == 1024 ? LLM_TYPE_0_6B : LLM_TYPE_1_7B; break;
                     case 36: type = hparams.n_embd == 2560 ? LLM_TYPE_4B : LLM_TYPE_8B; break;
@@ -2462,6 +2468,9 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
             case LLM_ARCH_QWEN3:
                 {
                     tok_embd = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, 0);
+
+                    // output rerank
+                    cls_out = create_tensor(tn(LLM_TENSOR_CLS_OUT, "weight"), {n_embd, 2}, TENSOR_NOT_REQUIRED);
 
                     // output
                     output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
