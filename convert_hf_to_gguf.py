@@ -3095,7 +3095,7 @@ class Qwen3Model(Qwen2Model):
         if is_rerank:
             self.gguf_writer.add_pooling_type(gguf.PoolingType.RANK)
             self.gguf_writer.add_sep_token_id(self.sep_token_id)
-            self.gguf_writer.add_uint32(gguf.Keys.Classifier.OUTPUT_LABELS, 2)
+            self.gguf_writer.add_classifier_output_labels(["yes", "no"])
 
     def _get_cls_out_tensor(self, data_torch: Tensor) -> Tensor:
         # extract "yes" and "no" tokens from the output lm_head tensor
