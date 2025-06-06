@@ -1585,7 +1585,7 @@ void llm_graph_context::build_pooling(
                 } else if (cls_out) {
                     if (arch == LLM_ARCH_QWEN3) {
                         cur = ggml_mul_mat(ctx0, cls_out, inp);
-                        cur = ggml_soft_max(ctx0, cur); // qwen3 uses softmax on the output
+                        cur = ggml_log(ctx0, ggml_soft_max(ctx0, cur)); // qwen3 uses log_softmax
                     } else {
                         // Single layer classification head (direct projection)
                         // https://github.com/huggingface/transformers/blob/f4fc42216cd56ab6b68270bf80d811614d8d59e4/src/transformers/models/bert/modeling_bert.py#L1476

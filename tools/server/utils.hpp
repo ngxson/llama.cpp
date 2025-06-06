@@ -260,43 +260,47 @@ static size_t validate_utf8(const std::string& text) {
 // template utils
 //
 
-// format rerank task:
+// format and tokenize rerank task:
 // - using SEP token: [BOS]query[EOS][SEP]doc[EOS]
 // - using prompt:    <rerank_prefix>query<rerank_suffix>doc
-static llama_tokens format_rerank(const struct llama_model * model, const llama_tokens & query, const llama_tokens & doc) {
+static std::vector<llama_tokens> tokenize_rerank(const struct llama_model * model, const std::string & query, const std::vector<std::string> & documents) {
     const llama_vocab * vocab = llama_model_get_vocab(model);
-    llama_tokens result;
+    std::vector<llama_tokens> result;
 
-    if (llama_vocab_sep(vocab) != LLAMA_TOKEN_NULL) {
-        // Get EOS token - use SEP token as fallback if EOS is not available
-        llama_token eos_token = llama_vocab_eos(vocab);
-        if (eos_token == LLAMA_TOKEN_NULL) {
-            eos_token = llama_vocab_sep(vocab);
+    for (const auto & doc : documents) {
+        if (llama_vocab_sep(vocab) != LLAMA_TOKEN_NULL) {
+            // Get EOS token - use SEP token as fallback if EOS is not available
+            llama_tokens tok;
+            llama_tokens tok_query = common_tokenize(vocab, query, false, false);
+            llama_tokens tok_doc   = common_tokenize(vocab, doc,   false, false);
+            llama_token  eos_token = llama_vocab_eos(vocab);
+            if (eos_token == LLAMA_TOKEN_NULL) {
+                eos_token = llama_vocab_sep(vocab);
+            }
+
+            tok.reserve(doc.size() + query.size() + 4);
+            tok.push_back(llama_vocab_bos(vocab));
+            tok.insert(tok.end(), tok_query.begin(), tok_query.end());
+            tok.push_back(eos_token);
+            tok.push_back(llama_vocab_sep(vocab));
+            tok.insert(tok.end(), tok_doc.begin(), tok_doc.end());
+            tok.push_back(eos_token);
+
+            result.push_back(std::move(tok));
+        } else {
+            // using prompt template
+            const char * tmpl = llama_model_chat_template(model, "rerank");
+            if (tmpl == nullptr) {
+                throw std::runtime_error("model does not have rerank template");
+            }
+
+            std::string prompt = tmpl;
+            // TODO: may not be efficient to call string_replace_all twice
+            string_replace_all(prompt, "{query}",    query);
+            string_replace_all(prompt, "{document}", doc);
+            llama_tokens tok = common_tokenize(vocab, prompt, true, false);
+            result.push_back(std::move(tok));
         }
-
-        result.reserve(doc.size() + query.size() + 4);
-        result.push_back(llama_vocab_bos(vocab));
-        result.insert(result.end(), query.begin(), query.end());
-        result.push_back(eos_token);
-        result.push_back(llama_vocab_sep(vocab));
-        result.insert(result.end(), doc.begin(), doc.end());
-        result.push_back(eos_token);
-    } else {
-        // using prompt template
-        const char * prefix = llama_model_chat_template(model, "rerank_prefix");
-        const char * suffix = llama_model_chat_template(model, "rerank_suffix");
-
-        if (prefix == NULL && suffix == NULL) {
-            throw std::runtime_error("Rerank prompt template not found in the model\n");
-        }
-
-        const llama_tokens prefix_tokens = prefix ? common_tokenize(vocab, prefix, true,  false) : llama_tokens();
-        const llama_tokens suffix_tokens = suffix ? common_tokenize(vocab, suffix, false, false) : llama_tokens();
-        result.reserve(prefix_tokens.size() + query.size() + suffix_tokens.size() + doc.size());
-        result.insert(result.end(), prefix_tokens.begin(), prefix_tokens.end());
-        result.insert(result.end(), query.begin(), query.end());
-        result.insert(result.end(), suffix_tokens.begin(), suffix_tokens.end());
-        result.insert(result.end(), doc.begin(), doc.end());
     }
 
     return result;
