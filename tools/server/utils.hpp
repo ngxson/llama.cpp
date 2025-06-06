@@ -260,23 +260,44 @@ static size_t validate_utf8(const std::string& text) {
 // template utils
 //
 
-// format rerank task: [BOS]query[EOS][SEP]doc[EOS]
-static llama_tokens format_rerank(const struct llama_vocab * vocab, const llama_tokens & query, const llama_tokens & doc) {
+// format rerank task:
+// - using SEP token: [BOS]query[EOS][SEP]doc[EOS]
+// - using prompt:    <rerank_prefix>query<rerank_suffix>doc
+static llama_tokens format_rerank(const struct llama_model * model, const llama_tokens & query, const llama_tokens & doc) {
+    const llama_vocab * vocab = llama_model_get_vocab(model);
     llama_tokens result;
 
-    // Get EOS token - use SEP token as fallback if EOS is not available
-    llama_token eos_token = llama_vocab_eos(vocab);
-    if (eos_token == LLAMA_TOKEN_NULL) {
-        eos_token = llama_vocab_sep(vocab);
-    }
+    if (llama_vocab_sep(vocab) != LLAMA_TOKEN_NULL) {
+        // Get EOS token - use SEP token as fallback if EOS is not available
+        llama_token eos_token = llama_vocab_eos(vocab);
+        if (eos_token == LLAMA_TOKEN_NULL) {
+            eos_token = llama_vocab_sep(vocab);
+        }
 
-    result.reserve(doc.size() + query.size() + 4);
-    result.push_back(llama_vocab_bos(vocab));
-    result.insert(result.end(), query.begin(), query.end());
-    result.push_back(eos_token);
-    result.push_back(llama_vocab_sep(vocab));
-    result.insert(result.end(), doc.begin(), doc.end());
-    result.push_back(eos_token);
+        result.reserve(doc.size() + query.size() + 4);
+        result.push_back(llama_vocab_bos(vocab));
+        result.insert(result.end(), query.begin(), query.end());
+        result.push_back(eos_token);
+        result.push_back(llama_vocab_sep(vocab));
+        result.insert(result.end(), doc.begin(), doc.end());
+        result.push_back(eos_token);
+    } else {
+        // using prompt template
+        const char * prefix = llama_model_chat_template(model, "rerank_prefix");
+        const char * suffix = llama_model_chat_template(model, "rerank_suffix");
+
+        if (prefix == NULL && suffix == NULL) {
+            throw std::runtime_error("Rerank prompt template not found in the model\n");
+        }
+
+        const llama_tokens prefix_tokens = prefix ? common_tokenize(vocab, prefix, true,  false) : llama_tokens();
+        const llama_tokens suffix_tokens = suffix ? common_tokenize(vocab, suffix, false, false) : llama_tokens();
+        result.reserve(prefix_tokens.size() + query.size() + suffix_tokens.size() + doc.size());
+        result.insert(result.end(), prefix_tokens.begin(), prefix_tokens.end());
+        result.insert(result.end(), query.begin(), query.end());
+        result.insert(result.end(), suffix_tokens.begin(), suffix_tokens.end());
+        result.insert(result.end(), doc.begin(), doc.end());
+    }
 
     return result;
 }

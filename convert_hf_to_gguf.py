@@ -3073,6 +3073,7 @@ class Qwen3Model(Qwen2Model):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         # a bit hacky, but currently the only way to detect if this is a rerank model
+        # ref: https://huggingface.co/Qwen/Qwen3-Reranker-0.6B
         readme_path = self.dir_model / "README.md"
         readme_text = ""
         if readme_path.exists():
@@ -3086,7 +3087,6 @@ class Qwen3Model(Qwen2Model):
         tokenizer = AutoTokenizer.from_pretrained(self.dir_model)
         self.token_false_id = tokenizer.convert_tokens_to_ids("no")
         self.token_true_id = tokenizer.convert_tokens_to_ids("yes")
-        self.sep_token_id = tokenizer.convert_tokens_to_ids("\\n") # unused, but needed for rerank check
         self.is_tied_embeddings = self.hparams.get("tie_word_embeddings", False)
         logger.info(f"gguf: token_false_id = {self.token_false_id}, token_true_id = {self.token_true_id}")
         logger.info(f"gguf: sep_token_id = {self.sep_token_id}")
@@ -3097,8 +3097,14 @@ class Qwen3Model(Qwen2Model):
         is_rerank = self.token_false_id is not None and self.token_true_id is not None
         if is_rerank:
             self.gguf_writer.add_pooling_type(gguf.PoolingType.RANK)
-            self.gguf_writer.add_sep_token_id(self.sep_token_id)
             self.gguf_writer.add_classifier_output_labels(["yes", "no"])
+            self.gguf_writer.add_chat_template([{
+                "name": "rerank_prefix",
+                "template": "<|im_start|>system\nJudge whether the Document meets the requirements based on the Query and the Instruct provided. Note that the answer can only be \"yes\" or \"no\".<|im_end|>\n<|im_start|>user\n",
+            }, {
+                "name": "rerank_suffix",
+                "template": "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n",
+            }])
 
     def _get_cls_out_tensor(self, data_torch: Tensor) -> Tensor:
         # extract "yes" and "no" tokens from the output lm_head tensor
