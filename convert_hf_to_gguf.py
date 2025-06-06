@@ -809,6 +809,9 @@ class TextModel(ModelBase):
         if chkhsh == "1431a23e583c97432bc230bff598d103ddb5a1f89960c8f1d1051aaa944d0b35":
             # ref: https://huggingface.co/sapienzanlp/Minerva-7B-base-v1.0
             res = "minerva-7b"
+        if chkhsh == "d4540891389ea895b53b399da6ac824becc30f2fba0e9ddbb98f92e55ca0e97c":
+            # ref: https://huggingface.co/Qwen/Qwen3-Embedding-0.6B
+            res = "qwen2"
 
         if res is None:
             logger.warning("\n")
@@ -3106,6 +3109,9 @@ class Qwen3Model(Qwen2Model):
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         is_rerank = self.token_false_id is not None and self.token_true_id is not None
+
+        if not name.startswith("model."):
+            name = "model." + name
 
         if is_rerank:
             if self.is_tied_embeddings and "embed_tokens" in name:
