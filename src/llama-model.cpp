@@ -7052,7 +7052,7 @@ struct llm_build_qwen3 : public llm_graph_context {
                         Qcur, Kcur, Vcur, nullptr, nullptr, 1.0f/sqrtf(float(n_embd_head)), il);
             }
 
-            if (il == n_layer - 1) {
+            if (il == n_layer - 1 && pooling_type == LLAMA_POOLING_TYPE_NONE) {
                 // skip computing output for unused tokens
                 ggml_tensor * inp_out_ids = build_inp_out_ids();
                 cur   = ggml_get_rows(ctx0,   cur, inp_out_ids);

@@ -167,36 +167,15 @@ void llm_graph_input_mean::set_input(const llama_ubatch * ubatch) {
 }
 
 void llm_graph_input_cls::set_input(const llama_ubatch * ubatch) {
-    if (cparams.embeddings && (
-                cparams.pooling_type == LLAMA_POOLING_TYPE_CLS ||
-                cparams.pooling_type == LLAMA_POOLING_TYPE_RANK)) {
-        const int64_t n_tokens     = ubatch->n_tokens;
-        const int64_t n_seq_tokens = ubatch->n_seq_tokens;
-        const int64_t n_seqs       = ubatch->n_seqs;
-
-        GGML_ASSERT(cls);
-        GGML_ASSERT(ggml_backend_buffer_is_host(cls->buffer));
-
-        uint32_t * data = (uint32_t *) cls->data;
-        memset(cls->data, 0, n_tokens * ggml_element_size(cls));
-
-        for (int s = 0; s < n_seqs; ++s) {
-            const llama_seq_id seq_id = ubatch->seq_id[s][0];
-
-            // TODO: adapt limits to n_seqs when ubatch->equal_seqs is true
-            GGML_ASSERT(seq_id < n_tokens && "seq_id cannot be larger than n_tokens with pooling_type == CLS or RANK");
-
-            for (int i = 0; i < n_seq_tokens; ++i) {
-                const llama_pos pos = ubatch->pos[s*n_seq_tokens + i];
-
-                if (pos == 0) {
-                    data[seq_id] = s*n_seq_tokens + i;
-                }
-            }
-        }
+    if (!cparams.embeddings) {
+        return;
     }
 
-    if (cparams.embeddings && cparams.pooling_type == LLAMA_POOLING_TYPE_LAST) {
+    const bool is_last_tok = cparams.pooling_type == LLAMA_POOLING_TYPE_LAST ||
+                             arch == LLM_ARCH_QWEN3; // qwen3 reranking & embedding models use last token
+
+    if (is_last_tok) {
+        // set output to the last token of each sequence
         const int64_t n_tokens     = ubatch->n_tokens;
         const int64_t n_seq_tokens = ubatch->n_seq_tokens;
         const int64_t n_seqs       = ubatch->n_seqs;
@@ -229,6 +208,33 @@ void llm_graph_input_cls::set_input(const llama_ubatch * ubatch) {
         for (int i = 0; i < n_tokens; ++i) {
             if (last_row[i] >= 0) {
                 data[i] = last_row[i];
+            }
+        }
+
+    } else {
+        // set output to first token of each sequence
+        const int64_t n_tokens     = ubatch->n_tokens;
+        const int64_t n_seq_tokens = ubatch->n_seq_tokens;
+        const int64_t n_seqs       = ubatch->n_seqs;
+
+        GGML_ASSERT(cls);
+        GGML_ASSERT(ggml_backend_buffer_is_host(cls->buffer));
+
+        uint32_t * data = (uint32_t *) cls->data;
+        memset(cls->data, 0, n_tokens * ggml_element_size(cls));
+
+        for (int s = 0; s < n_seqs; ++s) {
+            const llama_seq_id seq_id = ubatch->seq_id[s][0];
+
+            // TODO: adapt limits to n_seqs when ubatch->equal_seqs is true
+            GGML_ASSERT(seq_id < n_tokens && "seq_id cannot be larger than n_tokens with pooling_type == CLS or RANK");
+
+            for (int i = 0; i < n_seq_tokens; ++i) {
+                const llama_pos pos = ubatch->pos[s*n_seq_tokens + i];
+
+                if (pos == 0) {
+                    data[seq_id] = s*n_seq_tokens + i;
+                }
             }
         }
     }
@@ -943,7 +949,7 @@ ggml_tensor * llm_graph_context::build_inp_mean() const {
 }
 
 ggml_tensor * llm_graph_context::build_inp_cls() const {
-    auto inp = std::make_unique<llm_graph_input_cls>(cparams);
+    auto inp = std::make_unique<llm_graph_input_cls>(cparams, arch);
 
     auto & cur = inp->cls;
 
