@@ -824,12 +824,8 @@ void llama_model::load_hparams(llama_model_loader & ml) {
             } break;
         case LLM_ARCH_QWEN3:
             {
-                // default for embeddings, will be overwritten if model is rerank
-                hparams.pooling_type = LLAMA_POOLING_TYPE_LAST;
-
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
                 ml.get_key(LLM_KV_POOLING_TYPE,                hparams.pooling_type);
-                ml.get_arr_n(LLM_KV_CLASSIFIER_OUTPUT_LABELS,  hparams.n_cls_out, false);
 
                 switch (hparams.n_layer) {
                     case 28: type = hparams.n_embd == 1024 ? LLM_TYPE_0_6B : LLM_TYPE_1_7B; break;
