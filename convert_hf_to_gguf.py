@@ -3067,6 +3067,11 @@ class Qwen3MoeModel(Qwen2MoeModel):
     model_arch = gguf.MODEL_ARCH.QWEN3MOE
 
 
+@ModelBase.register("Dots1ForCausalLM")
+class Dots1Model(Qwen2MoeModel):
+    model_arch = gguf.MODEL_ARCH.DOTS1
+
+
 @ModelBase.register("GPT2LMHeadModel")
 class GPT2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.GPT2
@@ -5158,11 +5163,8 @@ class DeepseekModel(TextModel):
                 raise ValueError(f"Unprocessed experts: {experts}")
 
 
-@ModelBase.register(
-    "DeepseekV2ForCausalLM",
-    "DeepseekV3ForCausalLM",
-    "Dots1ForCausalLM",
-)
+@ModelBase.register("DeepseekV2ForCausalLM")
+@ModelBase.register("DeepseekV3ForCausalLM")
 class DeepseekV2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.DEEPSEEK2
 
