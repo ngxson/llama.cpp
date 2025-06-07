@@ -3071,6 +3071,21 @@ class Qwen3MoeModel(Qwen2MoeModel):
 class Dots1Model(Qwen2MoeModel):
     model_arch = gguf.MODEL_ARCH.DOTS1
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.hparams["num_experts"] = self.hparams["n_routed_experts"]
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        self.gguf_writer.add_leading_dense_block_count(self.hparams["first_k_dense_replace"])
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None):
+        if name.endswith("e_score_correction_bias"):
+            name = name.replace("e_score_correction_bias", "e_score_correction.bias")
+        if "shared_experts" in name:
+            return [(self.map_tensor_name(name), data_torch)]
+        return super().modify_tensors(data_torch, name, bid)
+
 
 @ModelBase.register("GPT2LMHeadModel")
 class GPT2Model(TextModel):
