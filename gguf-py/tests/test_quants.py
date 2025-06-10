@@ -225,6 +225,15 @@ def do_test(libggml_path: Path, quick: bool = False):
             else:
                 logger.info(f"Dequantization from random f16 data as {qtype.name} matches exactly ✅")
 
+            if has_quantize and has_dequantize:
+                pyq = gguf.quants.quantize(rc, qtype)
+                pydq = gguf.quants.dequantize(pyq, qtype)
+                py_mse_loss = np.mean((rc - pydq) ** 2)
+                ggq = ggml_quants.quantize(rc, qtype)
+                ggdq = ggml_quants.dequantize(ggq, qtype)
+                gg_mse_loss = np.mean((rc - ggdq) ** 2)
+                logger.info(f"MSE loss for {qtype.name} quant vs dequant: python = {py_mse_loss:.6f}, gg = {gg_mse_loss:.6f}")
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Test Python (de)quantization against the reference C implementation")
