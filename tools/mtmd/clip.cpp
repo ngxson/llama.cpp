@@ -3213,13 +3213,13 @@ private:
 
     /**
      * Selects the best resolution from a list of possible resolutions based on the original size.
-     * 
+     *
      * For example, when given a list of resolutions:
      *  - 100x100
      *  - 200x100
      *  - 100x200
      *  - 200x200
-     * 
+     *
      * And an input image of size 111x200, then 100x200 is the best fit (least wasted resolution).
      *
      * @param original_size The original size of the image
