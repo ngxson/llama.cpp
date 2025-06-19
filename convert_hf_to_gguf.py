@@ -4262,7 +4262,7 @@ class Gemma3Model(TextModel):
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         del bid  # unused
 
-        if name.startswith("language_model."):
+        if "language_model." in name:
             name = name.replace("language_model.", "")
 
         elif name.startswith("multi_modal_projector.") or name.startswith("vision_tower.") \
@@ -4336,7 +4336,7 @@ class Gemma3VisionModel(MmprojModel):
         return [] # skip other tensors
 
 
-@ModelBase.register("Gemma3p5ForCausalLM")
+@ModelBase.register("Gemma3nForConditionalGeneration")
 class Gemma3NModel(Gemma3Model):
     model_arch = gguf.MODEL_ARCH.GEMMA3N
     norm_shift = 0.0 # same value with Gemma3p5RMSNorm scale_shift on python code
@@ -4373,6 +4373,9 @@ class Gemma3NModel(Gemma3Model):
             name = name + ".weight"
 
         # TODO: implement self.prediction_coefs.weight.clamp_(...)
+
+        if "language_model." not in name:
+            return [] # skip non-language model tensors
 
         if "embed_tokens_per_layer.weight" in name:
             hidden_size_per_layer_input = 256
