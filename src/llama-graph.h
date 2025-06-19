@@ -606,7 +606,7 @@ struct llm_graph_context {
     llm_graph_input_attn_cross * build_attn_inp_cross() const;
 
     ggml_tensor * build_attn(
-            llm_graph_input_mem_hybrid * inp,
+            llm_graph_input_attn_cross * inp,
             ggml_cgraph * gf,
             ggml_tensor * wo,
             ggml_tensor * wo_b,
@@ -629,6 +629,18 @@ struct llm_graph_context {
             int       il_reuse,
             int       il) const;
 
+    ggml_tensor * build_attn(
+            llm_graph_input_mem_hybrid * inp,
+            ggml_cgraph * gf,
+            ggml_tensor * wo,
+            ggml_tensor * wo_b,
+            ggml_tensor * q_cur, // [n_embd_head_q, n_head_q, n_tokens]
+            ggml_tensor * k_cur, // [n_embd_head_k, n_head_k, n_tokens]
+            ggml_tensor * v_cur, // [n_embd_head_v, n_head_v, n_tokens]
+            ggml_tensor * kq_b,
+            ggml_tensor * v_mla, // [n_embd_head_v_mla, n_embd_head_v, n_head_v]
+                  float   kq_scale,
+                    int   il) const;
     //
     // recurrent
     //
