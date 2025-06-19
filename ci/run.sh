@@ -39,14 +39,27 @@ sd=`dirname $0`
 cd $sd/../
 SRC=`pwd`
 
-CMAKE_EXTRA="-DLLAMA_FATAL_WARNINGS=ON -DLLAMA_CURL=OFF"
+CMAKE_EXTRA="-DLLAMA_FATAL_WARNINGS=ON -DLLAMA_CURL=ON"
 
 if [ ! -z ${GG_BUILD_METAL} ]; then
     CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_METAL=ON -DGGML_METAL_USE_BF16=ON"
 fi
 
 if [ ! -z ${GG_BUILD_CUDA} ]; then
-    CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=native"
+    CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_CUDA=ON"
+
+    if command -v nvidia-smi >/dev/null 2>&1; then
+        CUDA_ARCH=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d '.')
+        if [[ -n "$CUDA_ARCH" && "$CUDA_ARCH" =~ ^[0-9]+$ ]]; then
+            CMAKE_EXTRA="${CMAKE_EXTRA} -DCMAKE_CUDA_ARCHITECTURES=${CUDA_ARCH}"
+        else
+            echo "Warning: Using fallback CUDA architectures"
+            CMAKE_EXTRA="${CMAKE_EXTRA} -DCMAKE_CUDA_ARCHITECTURES=61;70;75;80;86;89"
+        fi
+    else
+        echo "Error: nvidia-smi not found, cannot build with CUDA"
+        exit 1
+    fi
 fi
 
 if [ ! -z ${GG_BUILD_SYCL} ]; then

@@ -82,10 +82,10 @@ json common_chat_msg::to_json_oaicompat() const
 
 std::vector<common_chat_msg_diff> common_chat_msg_diff::compute_diffs(const common_chat_msg & previous_msg, const common_chat_msg & new_msg) {
     std::vector<common_chat_msg_diff> diffs;
-    // if (previous_msg.reasoning_content != current.reasoning_content) {
-    //     auto & diff = diffs.emplace_back();
-    //     diff.reasoning_content_delta = string_diff(previous_msg.reasoning_content, current.reasoning_content);
-    // }
+    if (previous_msg.reasoning_content != new_msg.reasoning_content) {
+        auto & diff = diffs.emplace_back();
+        diff.reasoning_content_delta = string_diff(previous_msg.reasoning_content, new_msg.reasoning_content);
+    }
     if (previous_msg.content != new_msg.content) {
         auto & diff = diffs.emplace_back();
         diff.content_delta = string_diff(previous_msg.content, new_msg.content);
@@ -385,9 +385,9 @@ json common_chat_tools_to_json_oaicompat(const std::vector<common_chat_tool> & t
 
 template <> json common_chat_msg_diff_to_json_oaicompat(const common_chat_msg_diff & diff) {
     json delta = json::object();
-    // if (!diff.reasoning_content_delta.empty()) {
-    //     delta["reasoning_content"] = msg.reasoning_content;
-    // }
+    if (!diff.reasoning_content_delta.empty()) {
+        delta["reasoning_content"] = diff.reasoning_content_delta;
+    }
     if (!diff.content_delta.empty()) {
         delta["content"] = diff.content_delta;
     }
@@ -598,6 +598,7 @@ const char * common_reasoning_format_name(common_reasoning_format format) {
     switch (format) {
         case COMMON_REASONING_FORMAT_NONE:     return "none";
         case COMMON_REASONING_FORMAT_DEEPSEEK: return "deepseek";
+        case COMMON_REASONING_FORMAT_DEEPSEEK_LEGACY: return "deepseek-legacy";
         default:
             throw std::runtime_error("Unknown reasoning format");
     }
@@ -1837,7 +1838,7 @@ static common_chat_params common_chat_templates_apply_legacy(
     if (res < 0) {
         // if the custom "tmpl" is not supported, we throw an error
         // this is a bit redundant (for good), since we're not sure if user validated the custom template with llama_chat_verify_template()
-        throw std::runtime_error("this custom template is not supported");
+        throw std::runtime_error("this custom template is not supported, try using --jinja");
     }
 
     // if it turns out that our buffer is too small, we resize it
@@ -1920,7 +1921,9 @@ common_chat_msg common_chat_parse(const std::string & input, bool is_partial, co
     } catch (const common_chat_msg_partial_exception & ex) {
         LOG_DBG("Partial parse: %s\n", ex.what());
         if (!is_partial) {
-            throw std::runtime_error(ex.what());
+            builder.clear_tools();
+            builder.move_to(0);
+            common_chat_parse_content_only(builder);
         }
     }
     auto msg = builder.result();

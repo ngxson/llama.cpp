@@ -271,7 +271,7 @@ class GGUFWriter:
 
     def add_key_value(self, key: str, val: Any, vtype: GGUFValueType, sub_type: GGUFValueType | None = None) -> None:
         if any(key in kv_data for kv_data in self.kv_data):
-            raise ValueError(f'Duplicated key name {key!r}')
+            logger.warning(f'Duplicated key name {key!r}, overwriting it with new value {val!r} of type {vtype.name}')
 
         self.kv_data[0][key] = GGUFValue(value=val, type=vtype, sub_type=sub_type)
 
@@ -934,6 +934,9 @@ class GGUFWriter:
 
     def add_eom_token_id(self, id: int) -> None:
         self.add_uint32(Keys.Tokenizer.EOM_ID, id)
+
+    def add_classifier_output_labels(self, labels: Sequence[str]) -> None:
+        self.add_array(Keys.Classifier.OUTPUT_LABELS.format(arch=self.arch), labels)
 
     # for vision models
 
