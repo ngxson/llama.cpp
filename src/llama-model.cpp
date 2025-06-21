@@ -1024,7 +1024,7 @@ void llama_model::load_hparams(llama_model_loader & ml) {
 
                 hparams.rope_freq_base_train_swa  = 10000.0f;
                 hparams.rope_freq_scale_train_swa = 1.0f;
-                hparams.f_attention_scale         = 32.0f / 256.0f; // == query_rescale_scalar / query_pre_attn_scalar
+                hparams.f_attention_scale         = 1.0f;
 
                 ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,    hparams.n_swa);
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
@@ -9164,7 +9164,7 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
 
                 cur = build_attn(inp_attn, gf,
                         model.layers[il].wo, NULL,
-                        Qcur, Kcur, Vcur, nullptr, nullptr, 1.0, il);
+                        Qcur, Kcur, Vcur, nullptr, nullptr, hparams.f_attention_scale, il);
             } else {
                 // no KV layers
                 ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
@@ -9191,7 +9191,7 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
                 );
                 cur = build_attn_reuse_cache(gf,
                     model.layers[il].wo, NULL,
-                    Qcur, kq_mask, 1.0, il_reuse, il);
+                    Qcur, kq_mask, hparams.f_attention_scale, il_reuse, il);
             }
 
             cur = build_norm(cur,
