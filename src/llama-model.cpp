@@ -2990,6 +2990,8 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                         layer.wv = create_tensor(tn(LLM_TENSOR_ATTN_V,   "weight", i), {n_embd, n_embd_v_gqa}, 0);
                         layer.wo = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd_head_k * n_head, n_embd}, 0);
 
+                        layer.attn_q_norm    = create_tensor(tn(LLM_TENSOR_ATTN_Q_NORM,    "weight", i), {n_embd_head_k}, 0);
+                        layer.attn_k_norm    = create_tensor(tn(LLM_TENSOR_ATTN_K_NORM,    "weight", i), {n_embd_head_k}, 0);
                         layer.attn_post_norm = create_tensor(tn(LLM_TENSOR_ATTN_POST_NORM, "weight", i), {n_embd}, 0);
 
                         layer.ffn_norm = create_tensor(tn(LLM_TENSOR_FFN_NORM, "weight", i), {n_embd}, 0);
@@ -9139,8 +9141,8 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
                 Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
                 Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head, n_head_kv, n_tokens);
 
-                Qcur = ggml_rms_norm(ctx0, Qcur, hparams.f_norm_rms_eps);
-                Kcur = ggml_rms_norm(ctx0, Kcur, hparams.f_norm_rms_eps);
+                Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, NULL, LLM_NORM_RMS, il);
+                Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, NULL, LLM_NORM_RMS, il);
                 Vcur = ggml_rms_norm(ctx0, Vcur, hparams.f_norm_rms_eps);
 
                 cb(Qcur, "Qcur_normed", il);
@@ -9162,14 +9164,14 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
 
                 cur = build_attn(inp_attn, gf,
                         model.layers[il].wo, NULL,
-                        Qcur, Kcur, Vcur, nullptr, nullptr, hparams.f_attention_scale, il);
+                        Qcur, Kcur, Vcur, nullptr, nullptr, 1.0, il);
             } else {
                 // no KV layers
                 ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
                 cb(Qcur, "Qcur", il);
                 Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head, n_tokens);
 
-                Qcur = ggml_rms_norm(ctx0, Qcur, hparams.f_norm_rms_eps);
+                Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, NULL, LLM_NORM_RMS, il);
                 cb(Qcur, "Qcur_normed", il);
 
                 Qcur = ggml_rope_ext(
@@ -9189,7 +9191,7 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
                 );
                 cur = build_attn_reuse_cache(gf,
                     model.layers[il].wo, NULL,
-                    Qcur, kq_mask, hparams.f_attention_scale, il_reuse, il);
+                    Qcur, kq_mask, 1.0, il_reuse, il);
             }
 
             cur = build_norm(cur,
