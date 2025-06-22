@@ -1,285 +1,394 @@
 #pragma once
 
-#include "clip.h"
-#include "clip-impl.h"
 #include "ggml.h"
 
+#include <cstdarg>
 #include <cmath>
 #include <vector>
-#include <map>
+#include <string>
+#include <functional>
+
+// mobilenet v5 implementation
+
+namespace mobilenet {
 
 using get_tensor_fn = std::function<ggml_tensor * (const std::string & name)>;
+using callback_fn   = std::function<void(ggml_tensor * cur, const char * name, int il)>;
 
-static ggml_tensor * conv2d(ggml_context * ctx, ggml_tensor * kernel, ggml_tensor * inp, int strides, bool depthwise = false) {
-    int p0 = 0;
-    int p1 = 0;
+static std::string str_fmt(const char * fmt, ...) {
+    va_list ap;
+    va_list ap2;
+    va_start(ap, fmt);
+    va_copy(ap2, ap);
+    int size = vsnprintf(NULL, 0, fmt, ap);
+    GGML_ASSERT(size >= 0 && size < INT_MAX); // NOLINT
+    std::vector<char> buf(size + 1);
+    int size2 = vsnprintf(buf.data(), size + 1, fmt, ap2);
+    GGML_ASSERT(size2 == size);
+    va_end(ap2);
+    va_end(ap);
+    return std::string(buf.data(), buf.size());
+}
 
-    {
-        const int kernel_size = kernel->ne[0];
+static std::string str_concat(const std::string & a, const std::string & b) {
+    return str_fmt("%s%s", a.c_str(), b.c_str()); // the "+" operator does not work, why?
+}
 
-        auto compute_padding_length = [](int input_length, int kernel_length, int stride) {
-            int total_padding_length = (kernel_length - 1) - (input_length - 1) % stride;
-            int left_padding = total_padding_length / 2;
-            int right_padding = (total_padding_length + 1) / 2;
-            return std::make_pair(left_padding, right_padding);
-        };
+struct v5_blk {
+    virtual ggml_tensor * build(ggml_context * ctx, ggml_tensor * cur, callback_fn & cb) = 0;
+    virtual void load_tensors(const std::string & prefix, get_tensor_fn & get_tensor) = 0;
+    virtual ~v5_blk() = default;
+};
 
-        auto [left, right] = compute_padding_length(inp->ne[0], kernel_size, strides);
-        auto [top, bottom] = compute_padding_length(inp->ne[1], kernel_size, strides);
+enum conv_type {
+    CONV_TYPE_NORMAL,    // ggml_conv_2d
+    CONV_TYPE_POINTWISE, // ggml_mul_mat
+    CONV_TYPE_DEPTHWISE, // ggml_conv_2d_dw
+};
 
-        if (left > 0 && right > 0) {
-            p0 = std::min(left, right);
-            left -= p0;
-            right -= p0;
-        }
-
-        if (top > 0 && bottom > 0) {
-            p1 = std::min(top, bottom);
-            top -= p1;
-            bottom -= p1;
-        }
-
-        GGML_ASSERT(left == 0 && top == 0);
-
-        if (right != 0 || bottom != 0) {
-            inp = ggml_pad(ctx, inp, right, bottom, 0, 0);
-        }
+static ggml_tensor * rms_norm_act_2d(
+        ggml_context * ctx,
+        ggml_tensor * cur,
+        ggml_tensor * scale,
+        int n_groups,
+        bool apply_act,
+        callback_fn & cb) {
+    cur = ggml_group_norm(ctx, cur, n_groups, 1e-6f);
+    cb(cur, "rms_norm_act.norm", -1);
+    if (scale != nullptr) {
+        cur = ggml_mul(ctx, cur, ggml_reshape_3d(ctx, scale, 1, 1, scale->ne[0]));
+        cb(cur, "rms_norm_act.norm_scaled", -1);
     }
-
-    ggml_tensor * cur;
-
-    if (depthwise) {
-        cur = ggml_conv_2d_dw(ctx,
-            kernel, inp,
-            strides, strides,
-            p0, p1, 1, 1);
-    } else {
-        cur = ggml_conv_2d(ctx,
-            kernel, inp,
-            strides, strides,
-            p0, p1, 1, 1);
+    if (apply_act) {
+        cur = ggml_gelu(ctx, cur);
+        cb(cur, "rms_norm_act.gelu", -1);
     }
-
     return cur;
 }
 
-struct mobilenet_g3n_blk {
-    virtual ggml_tensor * build(ggml_context * ctx, ggml_tensor * cur) = 0;
-    virtual void load_tensors(const std::string & prefix, get_tensor_fn & get_tensor) = 0;
-    virtual ~mobilenet_g3n_blk() = default;
-};
-
 // ConvNormAct
-struct mobilenet_g3n_cna : mobilenet_g3n_blk {
+struct v5_cna : v5_blk {
+    conv_type type = CONV_TYPE_NORMAL;
     int kernel_size = 0;
     int stride = 1;
     int dilation = 1;
-    int filters = 0;
+    int padding = 0;
+    bool apply_act = false;
     float expand_ratio = 1.0f;
+
+    int in_chs  = 0;
+    int out_chs = 0; // aka filters
 
     ggml_tensor * norm = nullptr;
     ggml_tensor * conv = nullptr;
 
     virtual void load_tensors(const std::string & prefix, get_tensor_fn & get_tensor) {
-        std::string tmp;
-        tmp = prefix + "bn.weight";
-        norm = get_tensor(tmp);
-        tmp = prefix + "conv.weight";
-        conv = get_tensor(tmp);
+        norm = get_tensor(str_concat(prefix, ".bn.weight"));
+        conv = get_tensor(str_concat(prefix, ".conv.weight"));
+
+        if (type == CONV_TYPE_POINTWISE) {
+            GGML_ASSERT(kernel_size == 1);
+            GGML_ASSERT(stride      == 1);
+            GGML_ASSERT(padding     == 0);
+            GGML_ASSERT(dilation    == 1);
+            GGML_ASSERT(conv->ne[0] == 1 && conv->ne[1] == 1);
+        } else {
+            GGML_ASSERT(conv->ne[0] == kernel_size && conv->ne[1] == kernel_size);
+            GGML_ASSERT(conv->ne[3] == norm->ne[0]); // norm size matches
+        }
+
+        in_chs  = conv->ne[2];
+        out_chs = conv->ne[3];
     }
 
-    virtual ggml_tensor * build(ggml_context * ctx, ggml_tensor * cur) {
-        cur = conv2d(ctx, conv, cur, stride, true);
-        cur = ggml_group_norm(ctx, cur, std::min<int>(32, filters * expand_ratio / 4), 1e-6f);
-        cur = ggml_mul(ctx, cur, ggml_reshape_3d(ctx, norm, 1, 1, norm->ne[0]));
+    virtual ggml_tensor * build(ggml_context * ctx, ggml_tensor * cur, callback_fn & cb) {
+        if (type == CONV_TYPE_POINTWISE) {
+            cur = ggml_conv_2d(ctx, conv, cur, 1, 1, 0, 0, 1, 1);
+            cb(cur, "conv_norm_act.pw", -1);
+        } else if (type == CONV_TYPE_DEPTHWISE) {
+            cur = ggml_conv_2d_dw(ctx, conv, cur,
+                stride, stride,
+                padding, padding,
+                dilation, dilation);
+            cb(cur, "conv_norm_act.dw", -1);
+        } else {
+            cur = ggml_conv_2d(ctx, conv, cur,
+                stride, stride,
+                padding, padding,
+                dilation, dilation);
+            cb(cur, "conv_norm_act", -1);
+        }
+
+        cur = rms_norm_act_2d(ctx, cur, norm, out_chs, apply_act, cb);
+
         return cur;
     }
 };
 
 // EdgeResidual
-struct mobilenet_g3n_er : mobilenet_g3n_blk {
+struct v5_er : v5_blk {
     int kernel_size = 0;
     int stride = 1;
     int filters = 0;
 
-    ggml_tensor * norm1 = nullptr;
-    ggml_tensor * norm2 = nullptr;
+    ggml_tensor * norm1    = nullptr;
+    ggml_tensor * norm2    = nullptr;
     ggml_tensor * conv_exp = nullptr;
     ggml_tensor * conv_pwl = nullptr;
 
-    mobilenet_g3n_er(int kernel_size, int filters, int stride) :
+    v5_er(int kernel_size, int filters, int stride) :
         kernel_size(kernel_size), stride(stride), filters(filters) {}
 
     virtual void load_tensors(const std::string & prefix, get_tensor_fn & get_tensor) {
-        std::string tmp;
-        tmp = prefix + "bn1.weight";
-        norm1 = get_tensor(tmp);
-        tmp = prefix + "bn2.weight";
-        norm2 = get_tensor(tmp);
-        tmp = prefix + "conv_exp.weight";
-        conv_exp = get_tensor(tmp);
-        tmp = prefix + "conv_pwl.weight";
-        conv_pwl = get_tensor(tmp);
+        norm1    = get_tensor(str_concat(prefix, ".bn1.weight"));
+        norm2    = get_tensor(str_concat(prefix, ".bn2.weight"));
+        conv_exp = get_tensor(str_concat(prefix, ".conv_exp.weight"));
+        conv_pwl = get_tensor(str_concat(prefix, ".conv_pwl.weight"));
+
+        GGML_ASSERT(ggml_n_dims(conv_exp) == 4); // expected 4D tensor
+        GGML_ASSERT(ggml_n_dims(conv_pwl) == 4); // expected 4D tensor
+        GGML_ASSERT(conv_exp->ne[0] == kernel_size && conv_exp->ne[1] == kernel_size);
+        GGML_ASSERT(conv_pwl->ne[0] == 1           && conv_pwl->ne[1] == 1);
     }
 
-    virtual ggml_tensor * build(ggml_context * ctx, ggml_tensor * cur) {
+    virtual ggml_tensor * build(ggml_context * ctx, ggml_tensor * cur, callback_fn & cb) {
+        int padding = (kernel_size - 1) / 2;
+        cur = ggml_conv_2d(ctx, conv_exp, cur,
+            stride, stride,
+            padding, padding,
+            1, 1);
+        cb(cur, "edge_residual.conv_exp", -1);
+
+        int mid_chs = conv_exp->ne[3];
+        cur = rms_norm_act_2d(ctx, cur, norm1, mid_chs, true, cb);
+        cb(cur, "edge_residual.norm1", -1);
+
+        cur = ggml_conv_2d(ctx, conv_pwl, cur, 1, 1, 0, 0, 1, 1);
+        cb(cur, "edge_residual.conv_pwl", -1);
+
+        int out_chs = conv_pwl->ne[1];
+        cur = rms_norm_act_2d(ctx, cur, norm2, out_chs, false, cb);
+        cb(cur, "edge_residual.norm2", -1);
+
         return cur;
     }
 };
 
 // UniversalInvertedResidual
-struct mobilenet_g3n_uir : mobilenet_g3n_blk {
-    int start_dw_kernel_size = 0;
-    int mid_dw_kernel_size = 0;
+struct v5_uir : v5_blk {
+    int dw_kernel_size_start = 0;
+    int dw_kernel_size_mid = 0;
     bool multiscale = false;
     ggml_tensor * layer_scale = nullptr;
 
-    mobilenet_g3n_cna dw_start;
-    mobilenet_g3n_cna dw_mid;
-    mobilenet_g3n_cna dw_end;
-    mobilenet_g3n_cna dw_proj;
+    v5_cna dw_start;
+    v5_cna pw_exp;
+    v5_cna dw_mid;
+    v5_cna pw_proj;
 
-    mobilenet_g3n_uir(int start_dw_kernel_size, int mid_dw_kernel_size, int filters, int stride = 1, float expand_ratio = 4.0f, bool multiscale = false) :
-            start_dw_kernel_size(start_dw_kernel_size),
-            mid_dw_kernel_size(mid_dw_kernel_size),
+    v5_uir(int dw_kernel_size_start, int dw_kernel_size_mid, int filters, int stride = 1, float expand_ratio = 4.0f, bool multiscale = false) :
+            dw_kernel_size_start(dw_kernel_size_start),
+            dw_kernel_size_mid(dw_kernel_size_mid),
             multiscale(multiscale) {
-        dw_start.stride = stride;
-        dw_start.filters = filters;
-        dw_start.expand_ratio = expand_ratio;
+        GGML_UNUSED(filters);
+        GGML_UNUSED(expand_ratio);
 
+        dw_start.type = CONV_TYPE_DEPTHWISE;
+        dw_start.kernel_size = dw_kernel_size_start;
+        dw_start.stride = !dw_kernel_size_mid ? stride : 1;
+        dw_start.padding = (dw_kernel_size_start - 1) / 2;
+
+        pw_exp.type = CONV_TYPE_POINTWISE;
+        pw_exp.kernel_size = 1;
+
+        dw_mid.type = CONV_TYPE_DEPTHWISE;
+        dw_mid.kernel_size = dw_kernel_size_mid;
         dw_mid.stride = 1;
-        dw_mid.filters = filters;
-        dw_mid.expand_ratio = expand_ratio;
+        dw_mid.padding = (dw_kernel_size_mid - 1) / 2;
 
-        dw_end.stride = 1;
-        dw_end.filters = filters;
-        dw_end.expand_ratio = expand_ratio;
-
-        dw_proj.stride = 1;
-        dw_proj.filters = filters;
-        dw_proj.expand_ratio = 1.0f; // projection does not expand
+        pw_proj.type = CONV_TYPE_POINTWISE;
+        pw_proj.kernel_size = 1;
     }
 
     virtual void load_tensors(const std::string & prefix, get_tensor_fn & get_tensor) {
-        dw_start.load_tensors(prefix + "dw_start.", get_tensor);
-        dw_mid.load_tensors(prefix + "dw_mid.", get_tensor);
-        dw_end.load_tensors(prefix + "dw_end.", get_tensor);
-        dw_proj.load_tensors(prefix + "dw_proj.", get_tensor);
-        layer_scale = get_tensor(prefix + "layer_scale.weight");
+        if (dw_kernel_size_start) {
+            dw_start.load_tensors(str_concat(prefix, ".dw_start"), get_tensor);
+        }
+        pw_exp.load_tensors(str_concat(prefix, ".pw_exp"), get_tensor);
+        if (dw_kernel_size_mid) {
+            dw_mid.load_tensors(str_concat(prefix, ".dw_mid"), get_tensor);
+        }
+        pw_proj.load_tensors(str_concat(prefix, ".pw_proj"), get_tensor);
+        layer_scale = get_tensor(str_concat(prefix, ".layer_scale.weight"));
     }
 
-    virtual ggml_tensor * build(ggml_context * ctx, ggml_tensor * cur) {
-        if (dw_start.conv) {
-            cur = dw_start.build(ctx, cur);
+    virtual ggml_tensor * build(ggml_context * ctx, ggml_tensor * cur, callback_fn & cb) {
+        if (dw_kernel_size_start) {
+            cur = dw_start.build(ctx, cur, cb);
         }
-        if (dw_mid.conv) {
-            cur = dw_mid.build(ctx, cur);
+        cur = pw_exp.build(ctx, cur, cb);
+        if (dw_kernel_size_mid) {
+            cur = dw_mid.build(ctx, cur, cb);
         }
-        if (dw_end.conv) {
-            cur = dw_end.build(ctx, cur);
-        }
-        if (dw_proj.conv) {
-            cur = dw_proj.build(ctx, cur);
-        }
-
+        cur = pw_proj.build(ctx, cur, cb);
         cur = ggml_mul(ctx, cur, ggml_reshape_3d(ctx, layer_scale, 1, 1, layer_scale->ne[0]));
-
         return cur;
     }
 };
 
 // MultiQueryAttentionBlock
-struct mobilenet_g3n_mmqa : mobilenet_g3n_blk {
+struct v5_mmqa : v5_blk {
     int num_heads = 0;
     int kv_strides = 0;
     int kv_dim = 0;
     bool mmqa_avg_pool_kv = false;
     bool multiscale = false;
 
-    mobilenet_g3n_mmqa(int num_heads, int kv_dim, int kv_strides, 
+    v5_mmqa(int num_heads, int kv_dim, int kv_strides,
                        bool mmqa_avg_pool_kv = false, bool multiscale = false) :
-        num_heads(num_heads), kv_dim(kv_dim), kv_strides(kv_strides),
+        num_heads(num_heads), kv_strides(kv_strides), kv_dim(kv_dim),
         mmqa_avg_pool_kv(mmqa_avg_pool_kv), multiscale(multiscale) {}
 
     virtual void load_tensors(const std::string & prefix, get_tensor_fn & get_tensor) {
+        // TODO
     }
 
-    virtual ggml_tensor * build(ggml_context * ctx, ggml_tensor * cur) {
+    virtual ggml_tensor * build(ggml_context * ctx, ggml_tensor * cur, callback_fn & cb) {
+        // TODO
         return cur;
     }
 };
 
-struct mobilenet_g3n {
+// MobileNetV5MultiScaleFusionAdapter
+struct v5_msfa : v5_blk {
+    v5_cna pw_exp;
+    v5_cna pw_proj;
+
+    ggml_tensor * norm;
+
+    v5_msfa() {
+        pw_exp.type = CONV_TYPE_POINTWISE;
+        pw_exp.kernel_size = 1;
+
+        pw_proj.type = CONV_TYPE_POINTWISE;
+        pw_proj.kernel_size = 1;
+    }
+
+    virtual void load_tensors(const std::string & prefix, get_tensor_fn & get_tensor) {
+        pw_exp .load_tensors(str_concat(prefix, ".ffn.pw_exp"),  get_tensor);
+        pw_proj.load_tensors(str_concat(prefix, ".ffn.pw_proj"), get_tensor);
+        norm    = get_tensor(str_concat(prefix, ".norm.weight"));
+    }
+
+    virtual ggml_tensor * build(ggml_context * ctx, ggml_tensor * cur, callback_fn & cb) {
+        cur = pw_exp .build(ctx, cur, cb);
+        cb(cur, "msfa.ffn.pw_exp.output", -1);
+        cur = pw_proj.build(ctx, cur, cb);
+        cb(cur, "msfa.ffn.pw_proj.output", -1);
+        cur = ggml_mul(ctx, cur, ggml_reshape_3d(ctx, norm, 1, 1, norm->ne[0]));
+        cb(cur, "msfa.norm", -1);
+        return cur;
+    }
+};
+
+struct v5_model {
+    v5_cna  conv_stem; // input
+    v5_msfa msfa;      // output
+
     // mapping prefix to block, order is important
-    std::map<mobilenet_g3n_blk *, std::string> blocks;
+    std::vector<std::pair<v5_blk *, std::string>> blocks;
 
     // temporary variables
     int stg_idx = 0;
     int blk_idx = 0;
 
-    mobilenet_g3n() {
-        // Stage 1: Edge Residuals
-        stg_idx = 0; blk_idx = 0;
-        add(    new mobilenet_g3n_er(3, 128, 2));
-        add(2,  new mobilenet_g3n_er(3, 128, 1));
-
-        // Stage 2: Universal Inverted Residuals
-        stg_idx = 1; blk_idx = 0;
-        add(    new mobilenet_g3n_uir(3, 5, 256, 2, 6.0f));
-        add(    new mobilenet_g3n_uir(5, 0, 256));
-        add(    new mobilenet_g3n_uir(3, 0, 256));
-        add(    new mobilenet_g3n_uir(5, 0, 256));
-        add(    new mobilenet_g3n_uir(3, 0, 256));
-
-        // Stage 3: Universal Inverted Residuals with Multi-Query Attention
-        stg_idx = 2; blk_idx = 0;
-        add(    new mobilenet_g3n_uir(5, 5, 640, 2, 6.0f));
-        add(7,  new mobilenet_g3n_uir(5, 0, 640));
-        add(    new mobilenet_g3n_uir(0, 0, 640, 1, 1.0f));
-        add(13, new mobilenet_g3n_mmqa(12, 64, 2), new mobilenet_g3n_uir(0, 0, 640, 1, 2.0f));
-        add(    new mobilenet_g3n_mmqa(12, 64, 2), new mobilenet_g3n_uir(0, 0, 640, 1, 2.0f, true));
-
-        // Stage 4: Universal Inverted Residuals with Multi-Query Attention
-        stg_idx = 3; blk_idx = 0;
-        add(    new mobilenet_g3n_uir(5, 5, 1280, 2, 6.0f));
-        add(18, new mobilenet_g3n_mmqa(16, 96, 1), new mobilenet_g3n_uir(0, 0, 1280, 1, 2.0f));
-        add(    new mobilenet_g3n_mmqa(16, 96, 1), new mobilenet_g3n_uir(0, 0, 1280, 1, 2.0f, true));
+    v5_model() {
+        conv_stem.type = CONV_TYPE_NORMAL;
+        conv_stem.kernel_size = 3;
+        conv_stem.stride = 2;
+        conv_stem.padding = 1;
     }
 
-    ~mobilenet_g3n() {
+    ~v5_model() {
         for (auto & blk : blocks) {
             delete blk.first;
         }
     }
 
-    void load_tensors(get_tensor_fn & get_tensor) {
+    void load(get_tensor_fn & get_tensor) {
+        // Convolution Stem
+        conv_stem.load_tensors("v.mobilenet.conv_stem", get_tensor);
+
+        // Stage 1: Edge Residuals
+        stg_idx = 0; blk_idx = 0;
+        add(    new v5_er(3, 128, 2));
+        add(2,  new v5_er(3, 128, 1));
+
+        // Stage 2: Universal Inverted Residuals
+        stg_idx = 1; blk_idx = 0;
+        add(    new v5_uir(3, 5, 256, 2, 6.0f));
+        add(    new v5_uir(5, 0, 256));
+        add(    new v5_uir(3, 0, 256));
+        add(    new v5_uir(5, 0, 256));
+        add(    new v5_uir(3, 0, 256));
+
+        // Stage 3: Universal Inverted Residuals with Multi-Query Attention
+        stg_idx = 2; blk_idx = 0;
+        add(    new v5_uir(5, 5, 640, 2, 6.0f));
+        add(7,  new v5_uir(5, 0, 640));
+        add(    new v5_uir(0, 0, 640, 1, 1.0f));
+        add(13, new v5_mmqa(12, 64, 2), new v5_uir(0, 0, 640, 1, 2.0f));
+        add(    new v5_mmqa(12, 64, 2), new v5_uir(0, 0, 640, 1, 2.0f, true));
+
+        // Stage 4: Universal Inverted Residuals with Multi-Query Attention
+        stg_idx = 3; blk_idx = 0;
+        add(    new v5_uir(5, 5, 1280, 2, 6.0f));
+        add(18, new v5_mmqa(16, 96, 1), new v5_uir(0, 0, 1280, 1, 2.0f));
+        add(    new v5_mmqa(16, 96, 1), new v5_uir(0, 0, 1280, 1, 2.0f, true));
+
         for (auto blk : blocks) {
             blk.first->load_tensors(blk.second, get_tensor);
         }
+
+        // Output
+        msfa.load_tensors("v.mobilenet.msfa", get_tensor);
     }
 
-    ggml_tensor * build(ggml_context * ctx, ggml_tensor * cur) {
+    ggml_tensor * build(ggml_context * ctx, ggml_tensor * cur, callback_fn & cb) {
+        cur = conv_stem.build(ctx, cur, cb);
+        cb(cur, "conv_stem.output", -1);
+
+        for (auto & blk : blocks) {
+            cur = blk.first->build(ctx, cur, cb);
+            cb(cur, str_concat(blk.second, ".output").c_str(), -1);
+        }
+
+        cur = msfa.build(ctx, cur, cb);
+        cb(cur, "msfa.output", -1);
+
         return cur;
     }
 
-    void add(mobilenet_g3n_blk * blk) {
-        blocks.insert({ blk, string_format("v.mobilenet.%d.%d.", stg_idx, blk_idx++) });
+    void add(v5_blk * blk) {
+        blocks.emplace_back(blk, str_fmt("v.mobilenet.blocks.%d.%d", stg_idx, blk_idx++));
     }
 
-    void add(mobilenet_g3n_blk * blk0, mobilenet_g3n_blk * blk1) {
+    void add(v5_blk * blk0, v5_blk * blk1) {
         add(blk0);
         add(blk1);
     }
 
-    void add(int count, mobilenet_g3n_blk * blk) {
+    void add(int count, v5_blk * blk) {
         for (int i = 0; i < count; ++i) {
             add(blk);
         }
     }
 
-    void add(int count, mobilenet_g3n_blk * blk0, mobilenet_g3n_blk * blk1) {
+    void add(int count, v5_blk * blk0, v5_blk * blk1) {
         for (int i = 0; i < count; ++i) {
             add(blk0, blk1);
         }
     }
 };
+
+} // namespace mobilenet

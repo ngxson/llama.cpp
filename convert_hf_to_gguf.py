@@ -4429,14 +4429,14 @@ class Gemma3NMmprojModel(MmprojModel):
         self.hparams["image_size"] = 768
         self.hparams["patch_size"] = 3
         # below are dummy values, unused
-        self.hparams["intermediate_size"] = 1 
-        self.hparams["n_layers"] = self.block_count
+        self.hparams["intermediate_size"] = 1
+        self.hparams["n_layers"] = 0
         self.hparams["num_attention_heads"] = 0
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
         hparams = self.hparams
-        self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.GEMMA3N)
+        self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.GEMMA3NV)
         self.gguf_writer.add_vision_attention_layernorm_eps(hparams.get("layer_norm_eps", 1e-6))
         self.gguf_writer.add_vision_use_gelu(True)
 
@@ -4452,11 +4452,11 @@ class Gemma3NMmprojModel(MmprojModel):
             name = name.replace(".gamma", ".weight")
             name = name.replace("model.vision_tower.timm_model.", "v.mobilenet.")
 
-            if "conv" in name or "attn" in name:
-                # check if we have 1x1 kernel (last 2 dims are 1x1)
-                if data_torch.dim() == 4 and data_torch.shape[-2:] == (1, 1):
-                    # convert 4D conv with 1x1 kernel to 2D matrix for matmul operation
-                    data_torch = data_torch.squeeze(-1).squeeze(-1)
+            # if "conv" in name or "attn" in name:
+            #     # check if we have 1x1 kernel (last 2 dims are 1x1)
+            #     if data_torch.dim() == 4 and data_torch.shape[-2:] == (1, 1):
+            #         # convert 4D conv with 1x1 kernel to 2D matrix for matmul operation
+            #         data_torch = data_torch.squeeze(-1).squeeze(-1)
 
             return [(name, data_torch)] # not using map_tensor_name here
 

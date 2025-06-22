@@ -4,6 +4,7 @@
 // Note: Even when using identical normalized image inputs (see normalize_image_u8_to_f32()) we have a significant difference in resulting embeddings compared to pytorch
 #include "clip.h"
 #include "clip-impl.h"
+#include "clip-mobilenet.h"
 #include "ggml.h"
 #include "ggml-cpp.h"
 #include "ggml-cpu.h"
@@ -354,6 +355,9 @@ struct clip_model {
     ggml_tensor * conv1d_2_b = nullptr;
     ggml_tensor * mm_norm_pre_w = nullptr;
     ggml_tensor * mm_norm_mid_w = nullptr;
+
+    // mobilenetv5 (gemma3n)
+    mobilenet::v5_model mobilenetv5;
 };
 
 struct clip_ctx {
@@ -1536,12 +1540,25 @@ struct clip_graph {
         return gf;
     }
 
+    ggml_cgraph * build_gemma3n() {
+        ggml_tensor * cur = build_inp_raw();
+        mobilenet::callback_fn fn_cb = std::bind(&clip_graph::cb,
+            this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
+
+        ctx->model.mobilenetv5.build(ctx0, cur, fn_cb);
+        ggml_build_forward_expand(gf, cur);
+
+        return gf;
+    }
+
 private:
     //
     // utility functions
     //
 
     void cb(ggml_tensor * cur0, const char * name, int il) const {
+        printf("cb: %s, shape = [%lld, %lld, %lld, %lld]\n",
+                    name, cur0->ne[0], cur0->ne[1], cur0->ne[2], cur0->ne[3]);
         if (ctx->debug_graph) {
             ggml_tensor * cur = ggml_cpy(ctx0, cur0, ggml_dup_tensor(ctx0, cur0));
             std::string cur_name = il >= 0 ? std::string(name) + "_" + std::to_string(il) : name;
@@ -1980,6 +1997,10 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
         case PROJECTOR_TYPE_QWEN2A:
             {
                 res = graph.build_whisper_enc();
+            } break;
+        case PROJECTOR_TYPE_GEMMA3NV:
+            {
+                res = graph.build_gemma3n();
             } break;
         default:
             {
@@ -2496,6 +2517,14 @@ struct clip_model_loader {
                 {
                     model.mm_input_proj_w = get_tensor(TN_MM_INP_PROJ);
                     model.mm_soft_emb_norm_w = get_tensor(TN_MM_SOFT_EMB_N);
+                } break;
+            case PROJECTOR_TYPE_GEMMA3NV:
+                {
+                    mobilenet::get_tensor_fn fn_get_tensor = [&](const std::string & name) {
+                        // printf(">> %s\n", name.c_str());
+                        return get_tensor(name, true);
+                    };
+                    model.mobilenetv5.load(fn_get_tensor);
                 } break;
             case PROJECTOR_TYPE_IDEFICS3:
                 {
@@ -3571,6 +3600,10 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
                 // another divide by 2 because of nn.AvgPool1d(2, stride=2)
                 n_patches_sq = img->nx / 4;
             } break;
+        case PROJECTOR_TYPE_GEMMA3NV:
+            {
+                n_patches_sq = 256; // vision_soft_tokens_per_image
+            } break;
         default:
             GGML_ABORT("unsupported projector type");
     }
@@ -3971,6 +4004,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 set_input_i32("patches", patches);
             } break;
         case PROJECTOR_TYPE_GEMMA3:
+        case PROJECTOR_TYPE_GEMMA3NV:
         case PROJECTOR_TYPE_IDEFICS3:
         case PROJECTOR_TYPE_INTERNVL:
         case PROJECTOR_TYPE_QWEN2A:
@@ -4072,6 +4106,8 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
             return ctx->model.mm_1_b->ne[0];
         case PROJECTOR_TYPE_GEMMA3:
             return ctx->model.mm_input_proj_w->ne[0];
+        case PROJECTOR_TYPE_GEMMA3NV:
+            return 2048; // TODO: read this from tensor shape
         case PROJECTOR_TYPE_IDEFICS3:
             return ctx->model.projection->ne[1];
         case PROJECTOR_TYPE_ULTRAVOX:
