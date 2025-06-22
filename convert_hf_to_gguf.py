@@ -1135,6 +1135,7 @@ class MmprojModel(ModelBase):
     preprocessor_config: dict[str, Any]
     global_config: dict[str, Any]
 
+    block_count: Any = None  # will be set in __init__
     n_block_keys = ["n_layers", "num_hidden_layers", "n_layer", "num_layers", "depth"]
 
     has_vision_encoder: bool = True # by default
@@ -1173,7 +1174,8 @@ class MmprojModel(ModelBase):
 
         # TODO @ngxson : this is a hack to support both vision and audio encoders
         have_multiple_encoders = self.has_audio_encoder and self.has_vision_encoder
-        self.block_count = 128 if have_multiple_encoders else self.find_hparam(self.n_block_keys, True)
+        if self.block_count is None:
+            self.block_count = 128 if have_multiple_encoders else self.find_hparam(self.n_block_keys, True)
         self.tensor_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.MMPROJ, self.block_count)
 
         # load preprocessor config
@@ -4414,6 +4416,51 @@ class Gemma3NModel(Gemma3Model):
                 return []
 
         return super().modify_tensors(data_torch, name, bid)
+
+
+@ModelBase.register("Gemma3nForConditionalGeneration")
+class Gemma3NMmprojModel(MmprojModel):
+    has_audio_encoder = False # TODO
+    has_vision_encoder = True
+    block_count = 128 # dummy, unused
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.hparams["image_size"] = 768
+        self.hparams["patch_size"] = 3
+        # below are dummy values, unused
+        self.hparams["intermediate_size"] = 1 
+        self.hparams["n_layers"] = self.block_count
+        self.hparams["num_attention_heads"] = 0
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        hparams = self.hparams
+        self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.GEMMA3N)
+        self.gguf_writer.add_vision_attention_layernorm_eps(hparams.get("layer_norm_eps", 1e-6))
+        self.gguf_writer.add_vision_use_gelu(True)
+
+    # def tensor_force_quant(self, name, new_name, bid, n_dims):
+    #     del bid, new_name, n_dims  # unused
+    #     return False
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        del bid  # unused
+
+        if name.startswith("model.vision_tower.timm_model"):
+            # process vision tensors
+            name = name.replace(".gamma", ".weight")
+            name = name.replace("model.vision_tower.timm_model.", "v.mobilenet.")
+
+            if "conv" in name or "attn" in name:
+                # check if we have 1x1 kernel (last 2 dims are 1x1)
+                if data_torch.dim() == 4 and data_torch.shape[-2:] == (1, 1):
+                    # convert 4D conv with 1x1 kernel to 2D matrix for matmul operation
+                    data_torch = data_torch.squeeze(-1).squeeze(-1)
+
+            return [(name, data_torch)] # not using map_tensor_name here
+
+        return [] # skip other tensors
 
 
 @ModelBase.register("Starcoder2ForCausalLM")

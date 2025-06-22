@@ -2382,6 +2382,7 @@ class GGUFValueType(IntEnum):
 
 class VisionProjectorType:
     GEMMA3 = "gemma3"
+    GEMMA3N = "gemma3n"
     IDEFICS3 = "idefics3"
     PIXTRAL = "pixtral"
     LLAMA4 = "llama4"
