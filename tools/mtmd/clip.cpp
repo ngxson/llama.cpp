@@ -1545,7 +1545,7 @@ struct clip_graph {
         mobilenet::callback_fn fn_cb = std::bind(&clip_graph::cb,
             this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3);
 
-        ctx->model.mobilenetv5.build(ctx0, cur, fn_cb);
+        cur = ctx->model.mobilenetv5.build(ctx0, cur, fn_cb);
         ggml_build_forward_expand(gf, cur);
 
         return gf;
@@ -3380,6 +3380,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
     }
     else if (ctx->proj_type() == PROJECTOR_TYPE_GLM_EDGE
             || ctx->proj_type() == PROJECTOR_TYPE_GEMMA3
+            || ctx->proj_type() == PROJECTOR_TYPE_GEMMA3NV
             || ctx->proj_type() == PROJECTOR_TYPE_IDEFICS3
             || ctx->proj_type() == PROJECTOR_TYPE_INTERNVL // TODO @ngxson : support dynamic resolution
     ) {
