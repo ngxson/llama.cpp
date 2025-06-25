@@ -49,18 +49,20 @@ enum conv_type {
 static ggml_tensor * rms_norm_act_2d(
         ggml_context * ctx,
         ggml_tensor * cur,
-        ggml_tensor * scale,
+        ggml_tensor * weight,
         int n_groups,
         bool apply_act,
         callback_fn & cb) {
-    cur = ggml_group_norm(ctx, cur, n_groups, 1e-6f);
-    cb(cur, "rms_norm_act.norm", -1);
-    if (scale != nullptr) {
-        cur = ggml_mul(ctx, cur, ggml_reshape_3d(ctx, scale, 1, 1, scale->ne[0]));
-        cb(cur, "rms_norm_act.norm_scaled", -1);
+    // TODO @ngxson : prevent using ggml_cont here
+    cur = ggml_cont(ctx, ggml_permute(ctx, cur, 1, 2, 0, 3)); // first dim is now channels
+    cur = ggml_rms_norm(ctx, cur, 1e-6f);
+    cur = ggml_cont(ctx, ggml_permute(ctx, cur, 2, 0, 1, 3)); // back to original order
+    if (weight != nullptr) {
+        cur = ggml_mul(ctx, cur, ggml_reshape_3d(ctx, weight, 1, 1, weight->ne[0]));
+        cb(cur, "rms_norm_act.norm_w", -1);
     }
     if (apply_act) {
-        cur = ggml_gelu(ctx, cur);
+        cur = ggml_gelu_erf(ctx, cur);
         cb(cur, "rms_norm_act.gelu", -1);
     }
     return cur;
