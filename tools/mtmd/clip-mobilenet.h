@@ -46,6 +46,20 @@ enum conv_type {
     CONV_TYPE_DEPTHWISE, // ggml_conv_2d_dw
 };
 
+static ggml_tensor * conv2d_pw(ggml_context * ctx, ggml_tensor * a, ggml_tensor * b) {
+    GGML_ASSERT(a->ne[0] == 1 && a->ne[1] == 1); // pointwise conv expects 1x1 kernel
+    // return ggml_conv_2d(ctx, a, b, 1, 1, 0, 0, 1, 1);
+    int w = b->ne[0];
+    int h = b->ne[1];
+    int c = b->ne[2];
+    GGML_ASSERT(b->ne[3] == 1); // not support batch size > 1 for now
+    ggml_tensor * cur = ggml_cont(ctx, ggml_permute(ctx, b, 1, 2, 0, 3)); // first dim is now channels
+    a = ggml_reshape_2d(ctx, a, a->ne[2], a->ne[3]);
+    cur = ggml_mul_mat(ctx, a, cur);
+    cur = ggml_cont(ctx, ggml_permute(ctx, cur, 2, 0, 1, 3)); // back to original order
+    return cur;
+}
+
 static ggml_tensor * rms_norm_act_2d(
         ggml_context * ctx,
         ggml_tensor * cur,
@@ -53,6 +67,7 @@ static ggml_tensor * rms_norm_act_2d(
         int n_groups,
         bool apply_act,
         callback_fn & cb) {
+    GGML_UNUSED(n_groups); // also unused in python impl
     // TODO @ngxson : prevent using ggml_cont here
     cur = ggml_cont(ctx, ggml_permute(ctx, cur, 1, 2, 0, 3)); // first dim is now channels
     cur = ggml_rms_norm(ctx, cur, 1e-6f);
@@ -105,7 +120,7 @@ struct v5_cna : v5_blk {
 
     virtual ggml_tensor * build(ggml_context * ctx, ggml_tensor * cur, callback_fn & cb) {
         if (type == CONV_TYPE_POINTWISE) {
-            cur = ggml_conv_2d(ctx, conv, cur, 1, 1, 0, 0, 1, 1);
+            cur = conv2d_pw(ctx, conv, cur);
             cb(cur, "conv_norm_act.pw", -1);
         } else if (type == CONV_TYPE_DEPTHWISE) {
             cur = ggml_conv_2d_dw(ctx, conv, cur,
@@ -165,7 +180,7 @@ struct v5_er : v5_blk {
         cur = rms_norm_act_2d(ctx, cur, norm1, mid_chs, true, cb);
         cb(cur, "edge_residual.norm1", -1);
 
-        cur = ggml_conv_2d(ctx, conv_pwl, cur, 1, 1, 0, 0, 1, 1);
+        cur = conv2d_pw(ctx, conv_pwl, cur);
         cb(cur, "edge_residual.conv_pwl", -1);
 
         int out_chs = conv_pwl->ne[1];
@@ -287,10 +302,10 @@ struct v5_mmqa : v5_blk {
             k = ggml_conv_2d_dw(ctx, k_down_conv, cur, kv_strides, kv_strides, 0, 0, 1, 1);
             cb(k, "mmqa.k_down_conv", -1);
             k = rms_norm_act_2d(ctx, k, k_norm, kv_dim, false, cb);
-            k = ggml_conv_2d(ctx, k_proj, k, 1, 1, 0, 0, 1, 1);
+            k = conv2d_pw(ctx, k_proj, k);
             cb(k, "mmqa.k_proj", -1);
         } else {
-            k = ggml_conv_2d(ctx, k_proj, cur, 1, 1, 0, 0, 1, 1);
+            k = conv2d_pw(ctx, k_proj, cur);
             cb(k, "mmqa.k_proj", -1);
         }
 
@@ -298,14 +313,14 @@ struct v5_mmqa : v5_blk {
             v = ggml_conv_2d_dw(ctx, v_down_conv, cur, kv_strides, kv_strides, 0, 0, 1, 1);
             cb(v, "mmqa.v_down_conv", -1);
             v = rms_norm_act_2d(ctx, v, v_norm, kv_dim, false, cb);
-            v = ggml_conv_2d(ctx, v_proj, v, 1, 1, 0, 0, 1, 1);
+            v = conv2d_pw(ctx, v_proj, v);
             cb(v, "mmqa.v_proj", -1);
         } else {
-            v = ggml_conv_2d(ctx, v_proj, cur, 1, 1, 0, 0, 1, 1);
+            v = conv2d_pw(ctx, v_proj, cur);
             cb(v, "mmqa.v_proj", -1);
         }
 
-        q = ggml_conv_2d(ctx, q_proj, cur, 1, 1, 0, 0, 1, 1);
+        q = conv2d_pw(ctx, q_proj, cur);
         cb(q, "mmqa.q_proj", -1);
 
         // reshape k, v, q
@@ -365,7 +380,7 @@ struct v5_mmqa : v5_blk {
         }
 
         // output projection
-        cur = ggml_conv_2d(ctx0, wo, cur, 1, 1, 0, 0, 1, 1);
+        cur = conv2d_pw(ctx0, wo, cur);
 
         return cur;
     }
@@ -404,7 +419,7 @@ struct v5_msfa : v5_blk {
         cur = pw_proj.build(ctx, cur, cb);
         cb(cur, "msfa.ffn.pw_proj.output", -1);
 
-        cur = ggml_mul(ctx, cur, ggml_reshape_3d(ctx, norm, 1, 1, norm->ne[0]));
+        cur = rms_norm_act_2d(ctx, cur, norm, pw_proj.out_chs, false, cb);
         cb(cur, "msfa.norm", -1);
 
         return cur;
@@ -482,6 +497,8 @@ struct v5_model {
             cur = blk.first->build(ctx, cur, cb);
             cb(cur, str_concat(blk.second, ".output").c_str(), -1);
         }
+
+        // TODO (IMPORTANT): mfsa also takes some intermediate results as input
 
         cur = msfa.build(ctx, cur, cb);
         cb(cur, "msfa.output", -1);
