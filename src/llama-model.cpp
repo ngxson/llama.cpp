@@ -9081,8 +9081,13 @@ struct llm_build_gemma3n_iswa : public llm_graph_context {
         ggml_tensor * cur;
         ggml_tensor * inpL;
 
+        // TODO: remove this when ggml_scale_add is implemented
         one = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, 1);
-        one = ggml_cos(ctx0, ggml_scale(ctx0, one, 0.0f)); // cos(0.0f) = 1.0f
+        {
+            auto inp = std::make_unique<llm_graph_input_one>();
+            inp->one = one;
+            res->add_input(std::move(inp));
+        }
 
         inpL = build_inp_embd(model.tok_embd);
 
