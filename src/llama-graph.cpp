@@ -1267,8 +1267,14 @@ ggml_tensor * llm_graph_context::build_attn(
     // these nodes are added to the graph together so that they are not reordered
     // by doing so, the number of splits in the graph is reduced
     ggml_build_forward_expand(gf, q_cur);
-    ggml_build_forward_expand(gf, k_cur);
-    ggml_build_forward_expand(gf, v_cur);
+
+    if (k_cur) {
+        ggml_build_forward_expand(gf, k_cur);
+    }
+
+    if (v_cur) {
+        ggml_build_forward_expand(gf, v_cur);
+    }
 
     const auto * mctx_iswa = static_cast<const llama_kv_cache_unified_iswa_context *>(mctx);
 
@@ -1276,9 +1282,12 @@ ggml_tensor * llm_graph_context::build_attn(
 
     const auto * mctx_cur = is_swa ? mctx_iswa->get_swa() : mctx_iswa->get_base();
 
-    // store to KV cache
-    {
+    // optionally store to KV cache
+    if (k_cur) {
         ggml_build_forward_expand(gf, mctx_cur->cpy_k(ctx0, k_cur, il));
+    }
+
+    if (v_cur) {
         ggml_build_forward_expand(gf, mctx_cur->cpy_v(ctx0, v_cur, il));
     }
 
