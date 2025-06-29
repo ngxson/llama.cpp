@@ -894,9 +894,6 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
             if (params->token_embedding_type < GGML_TYPE_COUNT && strcmp(tensor->name, "token_embd.weight") == 0) {
                 new_type = params->token_embedding_type;
             }
-            if (params->token_embedding_type < GGML_TYPE_COUNT && strcmp(tensor->name, "per_layer_token_embd.weight") == 0) {
-                new_type = params->token_embedding_type;
-            }
             if (params->output_tensor_type < GGML_TYPE_COUNT && strcmp(tensor->name, "output.weight") == 0) {
                 new_type = params->output_tensor_type;
             }
