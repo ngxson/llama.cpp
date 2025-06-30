@@ -1511,11 +1511,6 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,        hparams.n_ff_exp);
                 ml.get_key(LLM_KV_EXPERT_SHARED_FEED_FORWARD_LENGTH, hparams.n_ff_shexp);
 
-                // TODO: read from gguf
-                float n_dim = hparams.n_embd_head_k;
-                float alpha = 1000.0f; // NTK-Aware
-                hparams.rope_freq_base_train = 10000.0f * std::powf(alpha, n_dim / (n_dim - 2.0f));
-
                 switch (hparams.n_layer) {
                     case 32: type = LLM_TYPE_A13B; break;
                     default: type = LLM_TYPE_UNKNOWN;
@@ -14437,8 +14432,10 @@ struct llm_build_hunyuan_moe : public llm_graph_context {
                     model.layers[il].ffn_down_exps,
                     nullptr,
                     n_expert, n_expert_used,
-                    LLM_FFN_SILU, false,
-                    false, 0.0,
+                    LLM_FFN_SILU,
+                    true, // norm_topk_prob
+                    false,
+                    0.0,
                     LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX,
                     il);
             cb(cur_moe, "ffn_moe_out", il);
