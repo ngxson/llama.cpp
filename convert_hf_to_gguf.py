@@ -6465,7 +6465,7 @@ class HunYuanMoEModel(TextModel):
             if len(token) == 1:
                 continue
             merged = QwenModel.bpe(mergeable_ranks, token, max_rank=rank)
-            if len(merged) == 2: #todo this is an assert in Qwen, why?
+            if len(merged) == 2: # todo this is an assert in Qwen, why?
                 merges.append(' '.join(map(QwenModel.token_bytes_to_string, merged)))
 
         # 3. Generate the tokens and toktypes lists
@@ -6527,11 +6527,11 @@ class HunYuanMoEModel(TextModel):
             alpha = rope_scaling.get("alpha", 1000)
             base = hparams.get("rope_theta", 10000.0)
             dim = (hparams["hidden_size"] // hparams["num_attention_heads"]) # 128
-            scaled_base = base * (alpha ** (dim / (dim-2))) # 10000 * (1000 ** (128 / 126)) = 11158839.9251
+            scaled_base = base * (alpha ** (dim / (dim - 2))) # 10000 * (1000 ** (128 / 126)) = 11158839.9251
             self.gguf_writer.add_rope_freq_base(scaled_base)
             self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.NONE)
             self.gguf_writer.add_rope_scaling_factor(1)
-            #There is no consistent way to calculate ctx from alpha, and the config is incorrectly set to 32k
+            # There is no consistent way to calculate ctx from alpha, and the config is incorrectly set to 32k
             self.gguf_writer.add_rope_scaling_orig_ctx_len(256 * 1024) # 256k context length
             self.gguf_writer.add_context_length(256 * 1024) # 256k context length
 
