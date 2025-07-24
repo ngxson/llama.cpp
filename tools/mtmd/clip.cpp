@@ -2277,7 +2277,7 @@ struct clip_model_loader {
                 case PROJECTOR_TYPE_QWEN2A:
                 case PROJECTOR_TYPE_VOXTRAL:
                     {
-                        bool require_stack = model.proj_type == PROJECTOR_TYPE_ULTRAVOX || 
+                        bool require_stack = model.proj_type == PROJECTOR_TYPE_ULTRAVOX ||
                                              model.proj_type == PROJECTOR_TYPE_VOXTRAL;
                         get_u32(KEY_A_PROJ_STACK_FACTOR, hparams.proj_stack_factor, require_stack);
                         if (hparams.n_mel_bins != 128) {
