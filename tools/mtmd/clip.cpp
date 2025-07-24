@@ -354,6 +354,16 @@ struct clip_model {
     ggml_tensor * conv1d_2_b = nullptr;
     ggml_tensor * mm_norm_pre_w = nullptr;
     ggml_tensor * mm_norm_mid_w = nullptr;
+
+    bool audio_has_avgpool() const {
+        return proj_type == PROJECTOR_TYPE_QWEN2A
+            || proj_type == PROJECTOR_TYPE_VOXTRAL;
+    }
+
+    bool audio_has_stack_frames() const {
+        return proj_type == PROJECTOR_TYPE_ULTRAVOX
+            || proj_type == PROJECTOR_TYPE_VOXTRAL;
+    }
 };
 
 struct clip_ctx {
@@ -1483,10 +1493,22 @@ struct clip_graph {
 
         cb(cur, "after_transformer", -1);
 
-        if (ctx->proj_type() == PROJECTOR_TYPE_ULTRAVOX) {
-            cur = build_whisper_stack_audio_frames(cur);
+        if (model.audio_has_stack_frames()) {
+            // StackAudioFrames
+            // https://huggingface.co/fixie-ai/ultravox-v0_5-llama-3_2-1b/blob/main/ultravox_model.py
+            int64_t stride = n_embd * hparams.proj_stack_factor;
+            int64_t padded_len = GGML_PAD(ggml_nelements(cur), stride);
+            int64_t pad = padded_len - ggml_nelements(cur);
+            if (pad > 0) {
+                cur = ggml_view_1d(ctx0, cur, ggml_nelements(cur), 0);
+                cur = ggml_pad(ctx0, cur, pad, 0, 0, 0);
+            }
+            cur = ggml_view_2d(ctx0, cur, stride, padded_len / stride,
+                                ggml_row_size(cur->type, stride), 0);
             cb(cur, "after_stacked", -1);
+        }
 
+        if (ctx->proj_type() == PROJECTOR_TYPE_ULTRAVOX) {
             // UltravoxProjector
             {
                 // pre-norm
@@ -1514,7 +1536,7 @@ struct clip_graph {
             cur = ggml_add(ctx0, cur, model.mm_fc_b);
 
         } else if (ctx->proj_type() == PROJECTOR_TYPE_VOXTRAL) {
-            cur = build_whisper_stack_audio_frames(cur);
+            // projector
             cb(cur, "after_stacked", -1);
             cur = ggml_mul_mat(ctx0, model.mm_1_w, cur);
             cur = ggml_relu(ctx0, cur);
@@ -1529,21 +1551,6 @@ struct clip_graph {
         ggml_build_forward_expand(gf, cur);
 
         return gf;
-    }
-
-    ggml_tensor * build_whisper_stack_audio_frames(ggml_tensor * cur) {
-        // StackAudioFrames
-        // https://huggingface.co/fixie-ai/ultravox-v0_5-llama-3_2-1b/blob/main/ultravox_model.py
-        int64_t stride = n_embd * hparams.proj_stack_factor;
-        int64_t padded_len = GGML_PAD(ggml_nelements(cur), stride);
-        int64_t pad = padded_len - ggml_nelements(cur);
-        if (pad > 0) {
-            cur = ggml_view_1d(ctx0, cur, ggml_nelements(cur), 0);
-            cur = ggml_pad(ctx0, cur, pad, 0, 0, 0);
-        }
-        cur = ggml_view_2d(ctx0, cur, stride, padded_len / stride,
-                            ggml_row_size(cur->type, stride), 0);
-        return cur;
     }
 
 private:
@@ -1679,8 +1686,7 @@ private:
             inpL = cur;
         }
 
-        // TODO @ngxson : find a way to move this outside
-        if (ctx->proj_type() == PROJECTOR_TYPE_QWEN2A || ctx->proj_type() == PROJECTOR_TYPE_VOXTRAL) {
+        if (ctx->model.audio_has_avgpool()) {
             ggml_tensor * cur = inpL;
             cur = ggml_transpose(ctx0, cur);
             cur = ggml_cont(ctx0, cur);
@@ -3593,20 +3599,22 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
             } break;
         case PROJECTOR_TYPE_VOXTRAL:
         case PROJECTOR_TYPE_ULTRAVOX:
-            {
-                const int proj_stack_factor = ctx->model.hparams.proj_stack_factor;
-                const int n_len = CLIP_ALIGN(img->nx, proj_stack_factor);
-                n_patches_sq = n_len / proj_stack_factor / 2;
-
-                if (proj == PROJECTOR_TYPE_VOXTRAL) {
-                    n_patches_sq /= 2; // divide by 2 because of nn.AvgPool1d(2, stride=2)
-                }
-            } break;
         case PROJECTOR_TYPE_QWEN2A:
             {
-                // divide by 2 because of whisper
-                // another divide by 2 because of nn.AvgPool1d(2, stride=2)
-                n_patches_sq = img->nx / 4;
+                // whisper downscales input token by half after conv1d
+                n_patches_sq = img->nx / 2;
+
+                const int proj_stack_factor = ctx->model.hparams.proj_stack_factor;
+                if (ctx->model.audio_has_stack_frames()) {
+                    GGML_ASSERT(proj_stack_factor > 0);
+                    const int n_len = CLIP_ALIGN(n_patches_sq, proj_stack_factor);
+                    n_patches_sq = n_len / proj_stack_factor;
+                }
+
+                if (ctx->model.audio_has_avgpool()) {
+                    // divide by 2 because of nn.AvgPool1d(2, stride=2)
+                    n_patches_sq /= 2;
+                }
             } break;
         default:
             GGML_ABORT("unsupported projector type");
