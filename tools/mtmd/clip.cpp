@@ -1510,25 +1510,23 @@ struct clip_graph {
 
         if (ctx->proj_type() == PROJECTOR_TYPE_ULTRAVOX) {
             // UltravoxProjector
-            {
-                // pre-norm
-                cur = ggml_rms_norm(ctx0, cur, 1e-6);
-                cur = ggml_mul(ctx0, cur, model.mm_norm_pre_w);
+            // pre-norm
+            cur = ggml_rms_norm(ctx0, cur, 1e-6);
+            cur = ggml_mul(ctx0, cur, model.mm_norm_pre_w);
 
-                // ffn in
-                cur = ggml_mul_mat(ctx0, model.mm_1_w, cur);
+            // ffn in
+            cur = ggml_mul_mat(ctx0, model.mm_1_w, cur);
 
-                // swiglu
-                // see SwiGLU in ultravox_model.py, the second half passed through is silu, not the first half
-                cur = ggml_swiglu_swapped(ctx0, cur);
+            // swiglu
+            // see SwiGLU in ultravox_model.py, the second half passed through is silu, not the first half
+            cur = ggml_swiglu_swapped(ctx0, cur);
 
-                // mid-norm
-                cur = ggml_rms_norm(ctx0, cur, 1e-6);
-                cur = ggml_mul(ctx0, cur, model.mm_norm_mid_w);
+            // mid-norm
+            cur = ggml_rms_norm(ctx0, cur, 1e-6);
+            cur = ggml_mul(ctx0, cur, model.mm_norm_mid_w);
 
-                // ffn out
-                cur = ggml_mul_mat(ctx0, model.mm_2_w, cur);
-            }
+            // ffn out
+            cur = ggml_mul_mat(ctx0, model.mm_2_w, cur);
 
         } else if (ctx->proj_type() == PROJECTOR_TYPE_QWEN2A) {
             // projector
