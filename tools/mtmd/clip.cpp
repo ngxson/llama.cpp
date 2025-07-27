@@ -3601,8 +3601,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         case PROJECTOR_TYPE_ULTRAVOX:
         case PROJECTOR_TYPE_QWEN2A:
             {
-                // whisper downscales input token by half after conv1d
-                n_patches_sq = img->nx / 2;
+                n_patches_sq = img->nx;
 
                 const int proj_stack_factor = ctx->model.hparams.proj_stack_factor;
                 if (ctx->model.audio_has_stack_frames()) {
@@ -3610,6 +3609,9 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
                     const int n_len = CLIP_ALIGN(n_patches_sq, proj_stack_factor);
                     n_patches_sq = n_len / proj_stack_factor;
                 }
+
+                // whisper downscales input token by half after conv1d
+                n_patches_sq /= 2;
 
                 if (ctx->model.audio_has_avgpool()) {
                     // divide by 2 because of nn.AvgPool1d(2, stride=2)
