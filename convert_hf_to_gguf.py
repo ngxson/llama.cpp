@@ -1900,6 +1900,7 @@ class StableLMModel(TextModel):
     "MixtralForCausalLM",
     "VLlama3ForCausalLM",
     "LlavaForConditionalGeneration",
+    "VoxtralForConditionalGeneration",
     "LlamaModel")
 class LlamaModel(TextModel):
     model_arch = gguf.MODEL_ARCH.LLAMA
@@ -1912,6 +1913,11 @@ class LlamaModel(TextModel):
             self.hparams["num_attention_heads"] = self.hparams.get("num_attention_heads", 32)
 
     def set_vocab(self):
+        path_tekken_json = self.dir_model / "tekken.json"
+        path_tokenizer_json = self.dir_model / "tokenizer.json"
+        if path_tekken_json.is_file() and not path_tokenizer_json.is_file():
+            return self.set_vocab_tekken()
+
         try:
             self._set_vocab_sentencepiece()
         except FileNotFoundError:
@@ -1944,6 +1950,52 @@ class LlamaModel(TextModel):
         if self.hparams.get("vocab_size", 32000) == 49152:
             self.gguf_writer.add_add_bos_token(False)
 
+    def set_vocab_tekken(self):
+        vocab = gguf.vocab.MistralVocab(self.dir_model)
+        self.gguf_writer.add_tokenizer_model(vocab.gguf_tokenizer_model)
+
+        tokens = []
+        scores = []
+        toktypes = []
+
+        for text, score, toktype in vocab.all_tokens():
+            tokens.append(text)
+            scores.append(score)
+            toktypes.append(toktype)
+
+        assert len(tokens) == vocab.vocab_size, (
+            f"token count ({len(tokens)}) != vocab size ({vocab.vocab_size})"
+        )
+
+        if vocab.tokenizer_type == gguf.vocab.MistralTokenizerType.tekken:
+            self.gguf_writer.add_tokenizer_pre("tekken")
+            self.gguf_writer.add_token_merges(
+                vocab.extract_vocab_merges_from_model()
+            )
+
+        logger.info(
+            f"Setting bos, eos, unk and pad token IDs to {vocab.bos_id}, {vocab.eos_id}, {vocab.unk_id}, {vocab.pad_id}."
+        )
+
+        self.gguf_writer.add_bos_token_id(vocab.bos_id)
+        self.gguf_writer.add_eos_token_id(vocab.eos_id)
+        self.gguf_writer.add_unk_token_id(vocab.unk_id)
+        self.gguf_writer.add_pad_token_id(vocab.pad_id)
+
+        self.gguf_writer.add_token_list(tokens)
+        self.gguf_writer.add_token_scores(scores)
+        self.gguf_writer.add_token_types(toktypes)
+        self.gguf_writer.add_vocab_size(vocab.vocab_size)
+
+        self.gguf_writer.add_add_bos_token(True)
+        self.gguf_writer.add_add_eos_token(False)
+
+        script_dir = Path(__file__).parent
+        template_path = script_dir / "models/templates/unsloth-mistral-Devstral-Small-2507.jinja"
+        with open(template_path, "r", encoding="utf-8") as f:
+            template = f.read()
+            self.gguf_writer.add_chat_template(template)
+
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
         hparams = self.hparams
@@ -1971,12 +2023,13 @@ class LlamaModel(TextModel):
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         n_head = self.hparams["num_attention_heads"]
         n_kv_head = self.hparams.get("num_key_value_heads")
-        is_vision_tensor = "vision_tower" in name \
+        is_multimodal_tensor = "vision_tower" in name \
             or "vision_model" in name \
+            or "audio_tower" in name \
             or "model.connector" in name \
             or "multi_modal_projector" in name
 
-        if is_vision_tensor:
+        if is_multimodal_tensor:
             return [] # skip vision tensors
         elif self.hf_arch == "LlamaModel":
             name = "model." + name
@@ -2256,63 +2309,6 @@ class Mistral3Model(LlamaModel):
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None):
         name = name.replace("language_model.", "")
         if "multi_modal_projector" in name or "vision_tower" in name:
-            return []
-        return super().modify_tensors(data_torch, name, bid)
-
-
-@ModelBase.register("VoxtralForConditionalGeneration")
-class VoxtralModel(LlamaModel):
-    model_arch = gguf.MODEL_ARCH.LLAMA
-
-    def set_vocab(self):
-        vocab = gguf.vocab.MistralVocab(self.dir_model)
-        self.gguf_writer.add_tokenizer_model(vocab.gguf_tokenizer_model)
-
-        tokens = []
-        scores = []
-        toktypes = []
-
-        for text, score, toktype in vocab.all_tokens():
-            tokens.append(text)
-            scores.append(score)
-            toktypes.append(toktype)
-
-        assert len(tokens) == vocab.vocab_size, (
-            f"token count ({len(tokens)}) != vocab size ({vocab.vocab_size})"
-        )
-
-        if vocab.tokenizer_type == gguf.vocab.MistralTokenizerType.tekken:
-            self.gguf_writer.add_tokenizer_pre("tekken")
-            self.gguf_writer.add_token_merges(
-                vocab.extract_vocab_merges_from_model()
-            )
-
-        logger.info(
-            f"Setting bos, eos, unk and pad token IDs to {vocab.bos_id}, {vocab.eos_id}, {vocab.unk_id}, {vocab.pad_id}."
-        )
-
-        self.gguf_writer.add_bos_token_id(vocab.bos_id)
-        self.gguf_writer.add_eos_token_id(vocab.eos_id)
-        self.gguf_writer.add_unk_token_id(vocab.unk_id)
-        self.gguf_writer.add_pad_token_id(vocab.pad_id)
-
-        self.gguf_writer.add_token_list(tokens)
-        self.gguf_writer.add_token_scores(scores)
-        self.gguf_writer.add_token_types(toktypes)
-        self.gguf_writer.add_vocab_size(vocab.vocab_size)
-
-        self.gguf_writer.add_add_bos_token(True)
-        self.gguf_writer.add_add_eos_token(False)
-
-        script_dir = Path(__file__).parent
-        template_path = script_dir / "models/templates/unsloth-mistral-Devstral-Small-2507.jinja"
-        with open(template_path, "r", encoding="utf-8") as f:
-            template = f.read()
-            self.gguf_writer.add_chat_template(template)
-
-    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None):
-        name = name.replace("language_model.", "")
-        if "multi_modal_projector" in name or "audio_tower" in name:
             return []
         return super().modify_tensors(data_torch, name, bid)
 

@@ -18,7 +18,7 @@ try:
     from mistral_common.tokens.tokenizers.tekken import Tekkenizer
     # from mistral_common.tokens.tokenizers.utils import (
     #     _filter_valid_tokenizer_files,
-    # )
+    # ) # FIXME: this function is removed in newer versions of mistral_common
     from mistral_common.tokens.tokenizers.sentencepiece import (
         SentencePieceTokenizer,
     )
