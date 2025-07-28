@@ -1535,9 +1535,8 @@ struct clip_graph {
 
         } else if (ctx->proj_type() == PROJECTOR_TYPE_VOXTRAL) {
             // projector
-            cb(cur, "after_stacked", -1);
             cur = ggml_mul_mat(ctx0, model.mm_1_w, cur);
-            cur = ggml_relu(ctx0, cur);
+            cur = ggml_gelu_erf(ctx0, cur);
             cur = ggml_mul_mat(ctx0, model.mm_2_w, cur);
 
         } else {
