@@ -16,9 +16,9 @@ except ImportError:
 try:
     from mistral_common.tokens.tokenizers.mistral import MistralTokenizer
     from mistral_common.tokens.tokenizers.tekken import Tekkenizer
-    # from mistral_common.tokens.tokenizers.utils import (
-    #     _filter_valid_tokenizer_files,
-    # ) # FIXME: this function is removed in newer versions of mistral_common
+    from mistral_common.tokens.tokenizers.utils import (
+        _filter_valid_tokenizer_files,
+    )
     from mistral_common.tokens.tokenizers.sentencepiece import (
         SentencePieceTokenizer,
     )
@@ -30,7 +30,6 @@ except ImportError:
     _filter_valid_tokenizer_files = None
 else:
     _mistral_common_installed = True
-    _filter_valid_tokenizer_files = lambda x: x  # noqa: E731
 
 
 import gguf
