@@ -7997,7 +7997,6 @@ class GptOssModel(TextModel):
     def generate_extra_tensors(self) -> Iterable[tuple[str, Tensor]]:
         blocks0: Tensor = torch.zeros(1)
         blocks1: Tensor = torch.zeros(1)
-        found_mxfp4_tensors = False
         # we assume that tensors are loaded in the correct order
         for name, data_torch in self.get_tensors():
             if "mlp.experts.down_proj_blocks" in name:
@@ -8005,7 +8004,6 @@ class GptOssModel(TextModel):
             elif "mlp.experts.down_proj_scales" in name:
                 new_name = self.map_tensor_name(name.replace("_scales", ".weight"))
                 self.repack_mxfp4(new_name, blocks0, data_torch)
-                found_mxfp4_tensors = True
             elif "mlp.experts.gate_up_proj_blocks" in name:
                 blocks0, blocks1 = data_torch[:, ::2, :, :], data_torch[:, 1::2, :, :]
             elif "mlp.experts.gate_up_proj_scales" in name:
@@ -8014,9 +8012,6 @@ class GptOssModel(TextModel):
                 new_name_up = self.map_tensor_name(name.replace("gate_up_proj_scales", "up_proj.weight"))
                 self.repack_mxfp4(new_name_gate, blocks0, scales0)
                 self.repack_mxfp4(new_name_up, blocks1, scales1)
-                found_mxfp4_tensors = True
-        if not found_mxfp4_tensors:
-            raise ValueError("No MXFP4 tensors found in the model. Please make sure you are using MXFP4 model.")
         return []
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
