@@ -8029,7 +8029,12 @@ class GptOssModel(TextModel):
         if "down_proj" in name:
             if name.endswith("_bias"):
                 name = name.replace("down_proj_bias", "down_proj.bias")
+            elif "_blocks" not in name and "_scales" not in name:
+                logger.warning(f"{name} is not in MXFP4, performance may be degraded")
+                name = name.replace("down_proj", "down_proj.weight")
+                data_torch = data_torch.transpose(-1, -2)
             else:
+                # otherwise, it should already be repacked to ggml MXFP4 format
                 return []
 
         # split the gate_up into gate and up
@@ -8042,7 +8047,18 @@ class GptOssModel(TextModel):
                     (self.map_tensor_name(name_gate), gate_proj_bias),
                     (self.map_tensor_name(name_up), up_proj_bias)
                 ]
+            elif "_blocks" not in name and "_scales" not in name:
+                logger.warning(f"{name} is not in MXFP4, performance may be degraded")
+                name_up = name.replace("gate_up_proj", "up_proj.weight")
+                name_gate = name.replace("gate_up_proj", "gate_proj.weight")
+                data_torch = data_torch.transpose(-1, -2)
+                gate_proj_weight, up_proj_weight = data_torch[:, ::2, :], data_torch[:, 1::2, :]
+                return [
+                    (self.map_tensor_name(name_gate), gate_proj_weight),
+                    (self.map_tensor_name(name_up), up_proj_weight)
+                ]
             else:
+                # otherwise, it should already be repacked to ggml MXFP4 format
                 return []
 
         return [(self.map_tensor_name(name), data_torch)]
