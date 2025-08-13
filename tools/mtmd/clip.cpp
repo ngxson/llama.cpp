@@ -1986,6 +1986,45 @@ private:
         return cur;
     }
 
+    // lfm2vl
+    static ggml_tensor * build_pixel_unshuffle_block(ggml_context * ctx, ggml_tensor * x, const int factor) {
+        // [n, w, h, c]
+        const int64_t n = x->ne[3];
+        int64_t       w = x->ne[2];
+        int64_t       h = x->ne[1];
+        const int64_t c = x->ne[0];
+
+        if (factor == 1) {
+            return x;
+        }
+
+        GGML_ASSERT(factor > 1 && (factor & (factor - 1)) == 0); // factor must be power of two for GGML_PAD
+        GGML_ASSERT(n == 1); // only support batch size of 1
+        GGML_ASSERT(w > 0 && h > 0); // width and height must be positive
+
+        // pad w and h to factor
+        const int64_t pad_w = GGML_PAD(w, factor) - w;
+        const int64_t pad_h = GGML_PAD(h, factor) - h;
+
+        if (pad_w || pad_h) {
+            x = ggml_pad(ctx, x, 0, pad_h, pad_w, 0);
+            w += pad_w;
+            h += pad_h;
+        }
+
+        // unshuffle h
+        x = ggml_view_3d(ctx, x, c * factor, h / factor, w, x->nb[1] * factor, x->nb[2], 0);
+        x = ggml_permute(ctx, x, 0, 2, 1, 3);
+        x = ggml_cont(ctx, x);
+
+        // unshuffle w
+        x = ggml_view_3d(ctx, x, c * factor * factor, w / factor, h / factor, x->nb[1] * factor, x->nb[2], 0);
+        x = ggml_permute(ctx, x, 0, 2, 1, 3);
+        x = ggml_cont(ctx, x);
+
+        return x;
+    }
+
 };
 
 static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32_batch & imgs) {
