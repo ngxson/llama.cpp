@@ -2833,6 +2833,7 @@ class VisionProjectorType:
     QWEN25O = "qwen2.5o" # omni
     VOXTRAL = "voxtral"
     LFM2 = "lfm2"
+    KIMIVL = "kimivl"
 
 
 # Items here are (block size, type size)
