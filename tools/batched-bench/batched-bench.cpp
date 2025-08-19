@@ -57,6 +57,15 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
+    const llama_vocab * vocab   = llama_model_get_vocab(model);
+    const int32_t       n_vocab = llama_vocab_n_tokens(vocab);
+
+    const auto get_token_rand = [n_vocab]() -> llama_token {
+        return std::rand() % n_vocab;
+    };
+
+    auto * mem = llama_get_memory(ctx);
+
     const int32_t n_kv_max = llama_n_ctx(ctx);
 
     llama_batch batch = llama_batch_init(n_kv_max, 0, 1);
@@ -91,7 +100,7 @@ int main(int argc, char ** argv) {
     // warm up
     {
         for (int i = 0; i < 16; ++i) {
-            common_batch_add(batch, 0, i, { 0 }, false);
+            common_batch_add(batch, get_token_rand(), i, { 0 }, false);
         }
 
         if (!decode_helper(ctx, batch, ctx_params.n_batch)) {
@@ -125,14 +134,13 @@ int main(int argc, char ** argv) {
 
                 for (int j = 0; j < (is_pp_shared ? 1 : pl); ++j) {
                     for (int i = 0; i < pp; ++i) {
-                        common_batch_add(batch, 0, i, { j }, false);
+                        common_batch_add(batch, get_token_rand(), i, { j }, i == pp - 1);
                     }
                 }
-                batch.logits[batch.n_tokens - 1] = true;
 
                 const auto t_pp_start = ggml_time_us();
 
-                llama_kv_self_clear(ctx);
+                llama_memory_clear(mem, false);
 
                 if (!decode_helper(ctx, batch, ctx_params.n_batch)) {
                     LOG_ERR("%s: llama_decode() failed\n", __func__);
@@ -141,7 +149,7 @@ int main(int argc, char ** argv) {
 
                 if (is_pp_shared) {
                     for (int32_t i = 1; i < pl; ++i) {
-                        llama_kv_self_seq_cp(ctx, 0, i, -1, -1);
+                        llama_memory_seq_cp(mem, 0, i, -1, -1);
                     }
                 }
 
@@ -153,7 +161,7 @@ int main(int argc, char ** argv) {
                     common_batch_clear(batch);
 
                     for (int j = 0; j < pl; ++j) {
-                        common_batch_add(batch, 0, pp + i, { j }, true);
+                        common_batch_add(batch, get_token_rand(), pp + i, { j }, true);
                     }
 
                     if (!decode_helper(ctx, batch, ctx_params.n_batch)) {

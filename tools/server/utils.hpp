@@ -6,17 +6,19 @@
 #include "arg.h" // common_remote_get_content
 #include "base64.hpp"
 #include "mtmd.h"
+#include "mtmd-helper.h"
+#include "chat.h"
 
 // increase max payload length to allow use of larger context size
 #define CPPHTTPLIB_FORM_URL_ENCODED_PAYLOAD_MAX_LENGTH 1048576
+// increase backlog size to avoid connection resets for >> 1 slots
+#define CPPHTTPLIB_LISTEN_BACKLOG 512
 // disable Nagle's algorithm
 #define CPPHTTPLIB_TCP_NODELAY true
-#include "httplib.h"
+#include <cpp-httplib/httplib.h>
 
-// Change JSON_ASSERT from assert() to GGML_ASSERT:
 #define JSON_ASSERT GGML_ASSERT
-#include "json.hpp"
-#include "chat.h"
+#include <nlohmann/json.hpp>
 
 #include <random>
 #include <sstream>
@@ -264,13 +266,27 @@ static size_t validate_utf8(const std::string& text) {
 static llama_tokens format_rerank(const struct llama_vocab * vocab, const llama_tokens & query, const llama_tokens & doc) {
     llama_tokens result;
 
+    // Get EOS token - use SEP token as fallback if EOS is not available
+    llama_token eos_token = llama_vocab_eos(vocab);
+    if (eos_token == LLAMA_TOKEN_NULL) {
+        eos_token = llama_vocab_sep(vocab);
+    }
+
     result.reserve(doc.size() + query.size() + 4);
-    result.push_back(llama_vocab_bos(vocab));
+    if (llama_vocab_get_add_bos(vocab)) {
+        result.push_back(llama_vocab_bos(vocab));
+    }
     result.insert(result.end(), query.begin(), query.end());
-    result.push_back(llama_vocab_eos(vocab));
-    result.push_back(llama_vocab_sep(vocab));
+    if (llama_vocab_get_add_eos(vocab)) {
+        result.push_back(eos_token);
+    }
+    if (llama_vocab_get_add_sep(vocab)) {
+        result.push_back(llama_vocab_sep(vocab));
+    }
     result.insert(result.end(), doc.begin(), doc.end());
-    result.push_back(llama_vocab_eos(vocab));
+    if (llama_vocab_get_add_eos(vocab)) {
+        result.push_back(eos_token);
+    }
 
     return result;
 }
@@ -565,6 +581,7 @@ struct oaicompat_parser_options {
     bool use_jinja;
     bool prefill_assistant;
     common_reasoning_format reasoning_format;
+    std::map<std::string,std::string> chat_template_kwargs;
     common_chat_templates * tmpls;
     bool allow_image;
     bool allow_audio;
@@ -573,7 +590,7 @@ struct oaicompat_parser_options {
 
 // used by /chat/completions endpoint
 static json oaicompat_chat_params_parse(
-    const json & body, /* openai api json semantics */
+    json & body, /* openai api json semantics */
     const oaicompat_parser_options & opt,
     std::vector<raw_buffer> & out_files)
 {
@@ -624,7 +641,7 @@ static json oaicompat_chat_params_parse(
     if (!body.contains("messages")) {
         throw std::runtime_error("'messages' is required");
     }
-    json messages = body.at("messages");
+    json & messages = body.at("messages");
     if (!messages.is_array()) {
         throw std::runtime_error("Expected 'messages' to be an array");
     }
@@ -742,6 +759,13 @@ static json oaicompat_chat_params_parse(
         llama_params["parse_tool_calls"] = true;
     }
 
+    // merge the template args provided from command line with the args provided in the user request
+    auto chat_template_kwargs_object = json_value(body, "chat_template_kwargs", json::object());
+    inputs.chat_template_kwargs = opt.chat_template_kwargs;
+    for (const auto & item : chat_template_kwargs_object.items()) {
+        inputs.chat_template_kwargs[item.key()] = item.value().dump();
+    }
+
     // if the assistant message appears at the end of list, we do not add end-of-turn token
     // for ex. this can be useful to modify the reasoning process in reasoning models
     bool prefill_assistant_message = !inputs.messages.empty() && inputs.messages.back().role == "assistant" && opt.prefill_assistant;
@@ -757,6 +781,11 @@ static json oaicompat_chat_params_parse(
 
         /* TODO: test this properly */
         inputs.reasoning_format = COMMON_REASONING_FORMAT_NONE;
+
+        if ( (!inputs.enable_thinking) || inputs.chat_template_kwargs.find("enable_thinking") != inputs.chat_template_kwargs.end()) {
+            throw std::runtime_error("Assistant response prefill is incompatible with enable_thinking.");
+        }
+
         inputs.add_generation_prompt = true;
     }
 
@@ -765,7 +794,13 @@ static json oaicompat_chat_params_parse(
 
     /* Append assistant prefilled message */
     if (prefill_assistant_message) {
-         chat_params.prompt += last_message.content;
+        if (!last_message.content_parts.empty()) {
+            for (auto & p : last_message.content_parts) {
+                chat_params.prompt += p.text;
+            }
+        } else {
+            chat_params.prompt += last_message.content;
+        }
     }
 
     llama_params["chat_format"]      = static_cast<int>(chat_params.format);

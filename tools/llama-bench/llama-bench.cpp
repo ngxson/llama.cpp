@@ -267,6 +267,7 @@ struct cmd_params {
     int                              delay;
     bool                             verbose;
     bool                             progress;
+    bool                             no_warmup;
     output_formats                   output_format;
     output_formats                   output_format_stderr;
 };
@@ -303,6 +304,7 @@ static const cmd_params cmd_params_defaults = {
     /* delay                */ 0,
     /* verbose              */ false,
     /* progress             */ false,
+    /* no_warmup            */ false,
     /* output_format        */ MARKDOWN,
     /* output_format_stderr */ NONE,
 };
@@ -315,7 +317,7 @@ static void print_usage(int /* argc */, char ** argv) {
     printf("  --numa <distribute|isolate|numactl>       numa mode (default: disabled)\n");
     printf("  -r, --repetitions <n>                     number of times to repeat each test (default: %d)\n",
            cmd_params_defaults.reps);
-    printf("  --prio <0|1|2|3>                          process/thread priority (default: %d)\n",
+    printf("  --prio <-1|0|1|2|3>                          process/thread priority (default: %d)\n",
            cmd_params_defaults.prio);
     printf("  --delay <0...N> (seconds)                 delay between each test (default: %d)\n",
            cmd_params_defaults.delay);
@@ -325,6 +327,7 @@ static void print_usage(int /* argc */, char ** argv) {
            output_format_str(cmd_params_defaults.output_format_stderr));
     printf("  -v, --verbose                             verbose output\n");
     printf("  --progress                                print test progress indicators\n");
+    printf("  --no-warmup                               skip warmup runs before benchmarking\n");
     printf("\n");
     printf("test parameters:\n");
     printf("  -m, --model <filename>                    (default: %s)\n", join(cmd_params_defaults.model, ",").c_str());
@@ -371,7 +374,7 @@ static void print_usage(int /* argc */, char ** argv) {
     printf("  -embd, --embeddings <0|1>                 (default: %s)\n",
            join(cmd_params_defaults.embeddings, ",").c_str());
     printf("  -ts, --tensor-split <ts0/ts1/..>          (default: 0)\n");
-    printf("  -ot --override-tensors <tensor name pattern>=<buffer type>;...\n");
+    printf("  -ot --override-tensor <tensor name pattern>=<buffer type>;...\n");
     printf("                                            (default: disabled)\n");
     printf("  -nopo, --no-op-offload <0|1>              (default: 0)\n");
     printf("\n");
@@ -425,6 +428,7 @@ static cmd_params parse_cmd_params(int argc, char ** argv) {
     params.prio                 = cmd_params_defaults.prio;
     params.delay                = cmd_params_defaults.delay;
     params.progress             = cmd_params_defaults.progress;
+    params.no_warmup            = cmd_params_defaults.no_warmup;
 
     for (int i = 1; i < argc; i++) {
         arg = argv[i];
@@ -798,6 +802,8 @@ static cmd_params parse_cmd_params(int argc, char ** argv) {
                 params.verbose = true;
             } else if (arg == "--progress") {
                 params.progress = true;
+            } else if (arg == "--no-warmup") {
+                params.no_warmup = true;
             } else {
                 invalid_param = true;
                 break;
@@ -944,6 +950,7 @@ struct cmd_params_instance {
                 }
                 static std::vector<ggml_backend_dev_t> devices;
                 devices.clear();
+                // RPC devices should always come first for performance reasons
                 for (const std::string & server : rpc_servers) {
                     ggml_backend_dev_t dev = ggml_backend_rpc_add_device_fn(server.c_str());
                     if (dev) {
@@ -951,6 +958,20 @@ struct cmd_params_instance {
                     } else {
                         fprintf(stderr, "%s: failed to add RPC device for server '%s'\n", __func__, server.c_str());
                         exit(1);
+                    }
+                }
+                // add local GPU devices if any
+                for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
+                    ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+                    switch (ggml_backend_dev_type(dev)) {
+                        case GGML_BACKEND_DEVICE_TYPE_CPU:
+                        case GGML_BACKEND_DEVICE_TYPE_ACCEL:
+                            // skip CPU backends since they are handled separately
+                            break;
+
+                        case GGML_BACKEND_DEVICE_TYPE_GPU:
+                            devices.push_back(dev);
+                            break;
                     }
                 }
                 devices.push_back(nullptr);
@@ -1717,7 +1738,7 @@ struct sql_printer : public printer {
 
     void print_header(const cmd_params & params) override {
         std::vector<std::string> fields = test::get_fields();
-        fprintf(fout, "CREATE TABLE IF NOT EXISTS test (\n");
+        fprintf(fout, "CREATE TABLE IF NOT EXISTS llama_bench (\n");
         for (size_t i = 0; i < fields.size(); i++) {
             fprintf(fout, "  %s %s%s\n", fields.at(i).c_str(), get_sql_field_type(fields.at(i)).c_str(),
                     i < fields.size() - 1 ? "," : "");
@@ -1728,7 +1749,7 @@ struct sql_printer : public printer {
     }
 
     void print_test(const test & t) override {
-        fprintf(fout, "INSERT INTO test (%s) ", join(test::get_fields(), ", ").c_str());
+        fprintf(fout, "INSERT INTO llama_bench (%s) ", join(test::get_fields(), ", ").c_str());
         fprintf(fout, "VALUES (");
         std::vector<std::string> values = t.get_values();
         for (size_t i = 0; i < values.size(); i++) {
@@ -1900,7 +1921,7 @@ int main(int argc, char ** argv) {
 
         test t(inst, lmodel, ctx);
 
-        llama_kv_self_clear(ctx);
+        llama_memory_clear(llama_get_memory(ctx), false);
 
         // cool off before the test
         if (params.delay) {
@@ -1925,30 +1946,32 @@ int main(int argc, char ** argv) {
         llama_attach_threadpool(ctx, threadpool, NULL);
 
         // warmup run
-        if (t.n_prompt > 0) {
-            if (params.progress) {
-                fprintf(stderr, "llama-bench: benchmark %d/%zu: warmup prompt run\n", params_idx, params_count);
+        if (!params.no_warmup) {
+            if (t.n_prompt > 0) {
+                if (params.progress) {
+                    fprintf(stderr, "llama-bench: benchmark %d/%zu: warmup prompt run\n", params_idx, params_count);
+                }
+                //test_prompt(ctx, std::min(t.n_batch, std::min(t.n_prompt, 32)), 0, t.n_batch, t.n_threads);
+                bool res = test_prompt(ctx, t.n_prompt, t.n_batch, t.n_threads);
+                if (!res) {
+                    fprintf(stderr, "%s: error: failed to run prompt warmup\n", __func__);
+                    exit(1);
+                }
             }
-            //test_prompt(ctx, std::min(t.n_batch, std::min(t.n_prompt, 32)), 0, t.n_batch, t.n_threads);
-            bool res = test_prompt(ctx, t.n_prompt, t.n_batch, t.n_threads);
-            if (!res) {
-                fprintf(stderr, "%s: error: failed to run prompt warmup\n", __func__);
-                exit(1);
-            }
-        }
-        if (t.n_gen > 0) {
-            if (params.progress) {
-                fprintf(stderr, "llama-bench: benchmark %d/%zu: warmup generation run\n", params_idx, params_count);
-            }
-            bool res = test_gen(ctx, 1, t.n_threads);
-            if (!res) {
-                fprintf(stderr, "%s: error: failed to run gen warmup\n", __func__);
-                exit(1);
+            if (t.n_gen > 0) {
+                if (params.progress) {
+                    fprintf(stderr, "llama-bench: benchmark %d/%zu: warmup generation run\n", params_idx, params_count);
+                }
+                bool res = test_gen(ctx, 1, t.n_threads);
+                if (!res) {
+                    fprintf(stderr, "%s: error: failed to run gen warmup\n", __func__);
+                    exit(1);
+                }
             }
         }
 
         for (int i = 0; i < params.reps; i++) {
-            llama_kv_self_clear(ctx);
+            llama_memory_clear(llama_get_memory(ctx), false);
 
             if (t.n_depth > 0) {
                 if (params.progress) {
