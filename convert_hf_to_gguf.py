@@ -8498,6 +8498,10 @@ class LFM2VLModel(MmprojModel):
         super().set_gguf_parameters()
         self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.KIMIVL)
         self.gguf_writer.add_vision_use_gelu(True)
+        self.gguf_writer.add_vision_projector_scale_factor(2)
+        # eps is the same as pytorch's default value
+        assert self.hparams_vision is not None
+        self.gguf_writer.add_vision_attention_layernorm_eps(self.hparams_vision.get("layer_norm_eps", 1e-5))
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         del bid  # unused
@@ -8506,8 +8510,9 @@ class LFM2VLModel(MmprojModel):
         if is_vision_tensor:
             if "pos_emb.weight" in name:
                 data_torch = data_torch.view(data_torch.shape[0] * data_torch.shape[1], data_torch.shape[2])
-            elif "wqkv.weight" in name or "wqkv.bias" in name:
-                wq, wk, wv = data_torch.chunk(3, dim=-1)
+            elif "wqkv" in name:
+                split_dim = 0 if "weight" in name else -1
+                wq, wk, wv = data_torch.chunk(3, dim=split_dim)
                 return [
                     (self.map_tensor_name(name.replace("wqkv", "wq")), wq),
                     (self.map_tensor_name(name.replace("wqkv", "wk")), wk),

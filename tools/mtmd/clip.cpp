@@ -1086,7 +1086,7 @@ struct clip_graph {
                 n_patches_x / scale_factor,
                 n_patches_y / scale_factor,
                 bsz);
-            cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
+            //cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
             // flatten to 2D
             cur = ggml_cont_2d(ctx0, cur,
                 n_embd * scale_factor * scale_factor,
@@ -1106,6 +1106,92 @@ struct clip_graph {
         // Llama4MultiModalProjector
         cur = ggml_mul_mat(ctx0, model.mm_model_proj, cur);
         cb(cur, "projected", -1);
+
+        // build the graph
+        ggml_build_forward_expand(gf, cur);
+
+        return gf;
+    }
+
+    ggml_cgraph * build_kimivl() {
+        // 2D input positions
+        ggml_tensor * pos_h = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_patches);
+        ggml_set_name(pos_h, "pos_h");
+        ggml_set_input(pos_h);
+
+        ggml_tensor * pos_w = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_patches);
+        ggml_set_name(pos_w, "pos_w");
+        ggml_set_input(pos_w);
+
+        ggml_tensor * learned_pos_embd = resize_position_embeddings();
+
+        // build ViT with 2D position embeddings
+        auto add_pos = [&](ggml_tensor * cur, const clip_layer &) {
+            // first half is X axis and second half is Y axis
+            return build_rope_2d(ctx0, cur, pos_w, pos_h, hparams.rope_theta, false);
+        };
+
+        ggml_tensor * inp = build_inp();
+        ggml_tensor * cur = build_vit(
+                                inp, n_patches,
+                                NORM_TYPE_NORMAL,
+                                hparams.ffn_op,
+                                learned_pos_embd,
+                                add_pos);
+
+        cb(cur, "vit_out", -1);
+
+        {
+            // pixel unshuffle block
+            const int scale_factor = model.hparams.proj_scale_factor;
+            GGML_ASSERT(scale_factor > 1);
+
+            const int n_embd = cur->ne[0];
+            int width  = img.nx / patch_size;
+            int height = img.ny / patch_size;
+
+            // pad width and height to factor
+            const int64_t pad_width = CLIP_ALIGN(width, scale_factor) - width;
+            const int64_t pad_height = CLIP_ALIGN(height, scale_factor) - height;
+            cur = ggml_reshape_3d(ctx0, cur, n_embd, width, height);
+            if (pad_width || pad_height) {
+                cur     = ggml_pad(ctx0, cur, 0, pad_width, pad_height, 0);
+                width  += pad_width;
+                height += pad_height;
+            }
+
+            // unshuffle h
+            cur = ggml_reshape_3d(ctx0, cur, n_embd * scale_factor, width / scale_factor, height);
+            cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
+
+            // unshuffle w
+            cur = ggml_cont_3d(ctx0, cur, n_embd * scale_factor * scale_factor, height / scale_factor, width / scale_factor);
+            cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
+
+            cur = ggml_cont_2d(ctx0, cur, cur->ne[0], cur->ne[1] * cur->ne[2]);
+            cb(cur, "pixel_unshuffle", -1);
+
+            // projection norm
+            int proj_inp_dim = cur->ne[0];
+            cur = ggml_view_2d(ctx0, cur,
+                n_embd, cur->ne[1] * scale_factor * scale_factor,
+                ggml_row_size(cur->type, n_embd), 0);
+            cur = ggml_norm(ctx0, cur, 1e-5); // default nn.LayerNorm
+            cur = ggml_mul(ctx0, cur, model.mm_input_norm_w);
+            cur = ggml_add(ctx0, cur, model.mm_input_norm_b);
+            cur = ggml_view_2d(ctx0, cur,
+                proj_inp_dim, cur->ne[1] / scale_factor / scale_factor,
+                ggml_row_size(cur->type, proj_inp_dim), 0);
+            cb(cur, "proj_inp_normed", -1);
+
+            // projection mlp
+            cur = ggml_mul_mat(ctx0, model.mm_1_w, cur);
+            cur = ggml_add(ctx0, cur, model.mm_1_b);
+            cur = ggml_gelu(ctx0, cur);
+            cur = ggml_mul_mat(ctx0, model.mm_2_w, cur);
+            cur = ggml_add(ctx0, cur, model.mm_2_b);
+            cb(cur, "proj_out", -1);
+        }
 
         // build the graph
         ggml_build_forward_expand(gf, cur);
@@ -2063,6 +2149,10 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
             {
                 res = graph.build_whisper_enc();
             } break;
+        case PROJECTOR_TYPE_KIMIVL:
+            {
+                res = graph.build_kimivl();
+            } break;
         default:
             {
                 res = graph.build_llava();
@@ -2311,6 +2401,12 @@ struct clip_model_loader {
                         hparams.image_size = 1024;
                         get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.spatial_merge_size, false);
                     } break;
+                case PROJECTOR_TYPE_KIMIVL:
+                    {
+                        hparams.rope_theta = 10000.0f;
+                        hparams.warmup_image_size = hparams.patch_size * 8;
+                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
+                    } break;
                 case PROJECTOR_TYPE_GEMMA3:
                     {
                         // default value (used by all model sizes in gemma 3 family)
@@ -2475,7 +2571,17 @@ struct clip_model_loader {
 
             // some models already exported with legacy (incorrect) naming which is quite messy, let's fix it here
             // note: Qwen model converted from the old surgery script has n_ff = 0, so we cannot use n_ff to check!
-            if (layer.ff_up_w && layer.ff_down_w && layer.ff_down_w->ne[0] == hparams.n_embd) {
+            bool is_ffn_swapped = (
+                    model.proj_type == PROJECTOR_TYPE_MLP
+                    || model.proj_type == PROJECTOR_TYPE_MLP_NORM
+                    || model.proj_type == PROJECTOR_TYPE_LDP
+                    || model.proj_type == PROJECTOR_TYPE_LDPV2
+                    || model.proj_type == PROJECTOR_TYPE_QWEN2VL
+                    || model.proj_type == PROJECTOR_TYPE_QWEN25VL
+                    || model.proj_type == PROJECTOR_TYPE_GLM_EDGE
+                    || model.proj_type == PROJECTOR_TYPE_GEMMA3
+                ) && layer.ff_up_w && layer.ff_down_w && layer.ff_down_w->ne[0] == hparams.n_embd;
+            if (is_ffn_swapped) {
                 // swap up and down weights
                 ggml_tensor * tmp = layer.ff_up_w;
                 layer.ff_up_w = layer.ff_down_w;
@@ -2484,6 +2590,9 @@ struct clip_model_loader {
                 tmp = layer.ff_up_b;
                 layer.ff_up_b = layer.ff_down_b;
                 layer.ff_down_b = tmp;
+                if (il == 0) {
+                    LOG_WRN("%s: ffn up/down are swapped\n", __func__);
+                }
             }
         }
 
@@ -2602,6 +2711,7 @@ struct clip_model_loader {
                     model.projection = get_tensor(TN_MM_PROJECTOR);
                 } break;
             case PROJECTOR_TYPE_LFM2:
+            case PROJECTOR_TYPE_KIMIVL:
                 {
                     model.mm_input_norm_w = get_tensor(TN_MM_INP_NORM);
                     model.mm_input_norm_b = get_tensor(TN_MM_INP_NORM_B);
@@ -3481,7 +3591,9 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         res_imgs->entries.push_back(std::move(img_f32));
         return true;
 
-    } else if (ctx->proj_type() == PROJECTOR_TYPE_PIXTRAL) {
+    } else if (ctx->proj_type() == PROJECTOR_TYPE_PIXTRAL
+            || ctx->proj_type() == PROJECTOR_TYPE_KIMIVL
+    ) {
         clip_image_u8 resized_image;
         auto new_size = image_manipulation::calc_size_preserved_ratio(original_size, params.patch_size, params.image_size);
         image_manipulation::bilinear_resize(*img, resized_image, new_size.width, new_size.height);
@@ -3704,6 +3816,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         case PROJECTOR_TYPE_INTERNVL:
         case PROJECTOR_TYPE_LLAMA4:
         case PROJECTOR_TYPE_LFM2:
+        case PROJECTOR_TYPE_KIMIVL:
             {
                 // both W and H are divided by proj_scale_factor
                 int scale_factor = ctx->model.hparams.proj_scale_factor;
@@ -4091,6 +4204,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 set_input_i32("positions", positions);
             } break;
         case PROJECTOR_TYPE_PIXTRAL:
+        case PROJECTOR_TYPE_KIMIVL:
             {
                 // set the 2D positions
                 int n_patches_per_col = image_size_width / patch_size;
@@ -4245,6 +4359,7 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
         case PROJECTOR_TYPE_QWEN2A:
             return ctx->model.mm_fc_w->ne[1];
         case PROJECTOR_TYPE_LFM2:
+        case PROJECTOR_TYPE_KIMIVL:
             return ctx->model.mm_2_w->ne[1];
         default:
             GGML_ABORT("Unknown projector type");
