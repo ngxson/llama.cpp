@@ -526,57 +526,16 @@ struct clip_graph {
                 cur);
 
         } else if (ctx->proj_type() == PROJECTOR_TYPE_IDEFICS3) {
+            // pixel_shuffle
             // https://github.com/huggingface/transformers/blob/0a950e0bbe1ed58d5401a6b547af19f15f0c195e/src/transformers/models/idefics3/modeling_idefics3.py#L578
-
             const int scale_factor = model.hparams.proj_scale_factor;
-            const int n_embd = cur->ne[0];
-            const int seq    = cur->ne[1];
-            const int bsz    = 1; // batch size, always 1 for now since we don't support batching
-            const int height = std::sqrt(seq);
-            const int width  = std::sqrt(seq);
-            GGML_ASSERT(scale_factor != 0);
-            cur = ggml_reshape_4d(ctx0, cur, n_embd * scale_factor, width / scale_factor, height, bsz);
-            cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
-            cur = ggml_cont_4d(ctx0, cur,
-                n_embd * scale_factor * scale_factor,
-                height / scale_factor,
-                width / scale_factor,
-                bsz);
-            cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
-            cur = ggml_cont_3d(ctx0, cur,
-                n_embd * scale_factor * scale_factor,
-                seq / (scale_factor * scale_factor),
-                bsz);
-
+            cur = build_pixel_shuffle(cur, scale_factor);
             cur = ggml_mul_mat(ctx0, model.projection, cur);
+
         } else if (ctx->proj_type() == PROJECTOR_TYPE_LFM2) {
             // pixel unshuffle block
             const int scale_factor = model.hparams.proj_scale_factor;
-            GGML_ASSERT(scale_factor > 1);
-
-            const int n_embd = cur->ne[0];
-            int width  = img.nx / patch_size;
-            int height = img.ny / patch_size;
-
-            // pad width and height to factor
-            const int64_t pad_width = CLIP_ALIGN(width, scale_factor) - width;
-            const int64_t pad_height = CLIP_ALIGN(height, scale_factor) - height;
-            cur = ggml_reshape_3d(ctx0, cur, n_embd, width, height);
-            if (pad_width || pad_height) {
-                cur     = ggml_pad(ctx0, cur, 0, pad_width, pad_height, 0);
-                width  += pad_width;
-                height += pad_height;
-            }
-
-            // unshuffle h
-            cur = ggml_reshape_3d(ctx0, cur, n_embd * scale_factor, width / scale_factor, height);
-            cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
-
-            // unshuffle w
-            cur = ggml_cont_3d(ctx0, cur, n_embd * scale_factor * scale_factor, height / scale_factor, width / scale_factor);
-            cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
-
-            cur = ggml_cont_2d(ctx0, cur, cur->ne[0], cur->ne[1] * cur->ne[2]);
+            cur = build_pixel_shuffle(cur, scale_factor);
 
             // projection
             cur = ggml_norm(ctx0, cur, 1e-5); // default nn.LayerNorm
@@ -1142,34 +1101,9 @@ struct clip_graph {
         cb(cur, "vit_out", -1);
 
         {
-            // pixel unshuffle block
+            // patch_merger
             const int scale_factor = model.hparams.proj_scale_factor;
-            GGML_ASSERT(scale_factor > 1);
-
-            const int n_embd = cur->ne[0];
-            int width  = img.nx / patch_size;
-            int height = img.ny / patch_size;
-
-            // pad width and height to factor
-            const int64_t pad_width = CLIP_ALIGN(width, scale_factor) - width;
-            const int64_t pad_height = CLIP_ALIGN(height, scale_factor) - height;
-            cur = ggml_reshape_3d(ctx0, cur, n_embd, width, height);
-            if (pad_width || pad_height) {
-                cur     = ggml_pad(ctx0, cur, 0, pad_width, pad_height, 0);
-                width  += pad_width;
-                height += pad_height;
-            }
-
-            // unshuffle h
-            cur = ggml_reshape_3d(ctx0, cur, n_embd * scale_factor, width / scale_factor, height);
-            cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
-
-            // unshuffle w
-            cur = ggml_cont_3d(ctx0, cur, n_embd * scale_factor * scale_factor, height / scale_factor, width / scale_factor);
-            cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
-
-            cur = ggml_cont_2d(ctx0, cur, cur->ne[0], cur->ne[1] * cur->ne[2]);
-            cb(cur, "pixel_unshuffle", -1);
+            cur = build_pixel_shuffle(cur, scale_factor);
 
             // projection norm
             int proj_inp_dim = cur->ne[0];
@@ -2107,6 +2041,39 @@ private:
         return cur;
     }
 
+    // aka pixel_unshuffle in Siglip2, aka patch_merger in Kimi
+    // support dynamic resolution
+    ggml_tensor * build_pixel_shuffle(ggml_tensor * cur, int scale_factor) {
+        GGML_ASSERT(scale_factor > 1);
+
+        const int n_embd = cur->ne[0];
+        int width  = img.nx / patch_size;
+        int height = img.ny / patch_size;
+
+        // pad width and height to factor
+        const int64_t pad_width  = CLIP_ALIGN(width,  scale_factor) - width;
+        const int64_t pad_height = CLIP_ALIGN(height, scale_factor) - height;
+        cur = ggml_reshape_3d(ctx0, cur, n_embd, width, height);
+        if (pad_width || pad_height) {
+            cur     = ggml_pad(ctx0, cur, 0, pad_width, pad_height, 0);
+            width  += pad_width;
+            height += pad_height;
+        }
+
+        // unshuffle h
+        cur = ggml_reshape_3d(ctx0, cur, n_embd * scale_factor, width / scale_factor, height);
+        cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
+
+        // unshuffle w
+        cur = ggml_cont_3d(ctx0, cur, n_embd * scale_factor * scale_factor, height / scale_factor, width / scale_factor);
+        cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
+
+        cur = ggml_cont_2d(ctx0, cur, cur->ne[0], cur->ne[1] * cur->ne[2]);
+        cb(cur, "pixel_shuffle", -1);
+
+        return cur;
+    }
+
 };
 
 static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32_batch & imgs) {
@@ -2572,6 +2539,7 @@ struct clip_model_loader {
             // some models already exported with legacy (incorrect) naming which is quite messy, let's fix it here
             // note: Qwen model converted from the old surgery script has n_ff = 0, so we cannot use n_ff to check!
             bool is_ffn_swapped = (
+                    // only old models need this fix
                     model.proj_type == PROJECTOR_TYPE_MLP
                     || model.proj_type == PROJECTOR_TYPE_MLP_NORM
                     || model.proj_type == PROJECTOR_TYPE_LDP
@@ -2580,6 +2548,8 @@ struct clip_model_loader {
                     || model.proj_type == PROJECTOR_TYPE_QWEN25VL
                     || model.proj_type == PROJECTOR_TYPE_GLM_EDGE
                     || model.proj_type == PROJECTOR_TYPE_GEMMA3
+                    || model.proj_type == PROJECTOR_TYPE_IDEFICS3
+                    || model.proj_type == PROJECTOR_TYPE_MINICPMV
                 ) && layer.ff_up_w && layer.ff_down_w && layer.ff_down_w->ne[0] == hparams.n_embd;
             if (is_ffn_swapped) {
                 // swap up and down weights
