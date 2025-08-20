@@ -8488,11 +8488,11 @@ class PixtralModel(LlavaVisionModel):
 
 
 @ModelBase.register("KimiVLForConditionalGeneration")
-class LFM2VLModel(MmprojModel):
+class KimiVLModel(MmprojModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         assert self.hparams_vision is not None
-        self.hparams_vision["image_size"] = 64*14 # for compatibility
+        self.hparams_vision["image_size"] = 64 * 14 # for compatibility
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
