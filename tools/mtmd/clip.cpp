@@ -3788,9 +3788,12 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         case PROJECTOR_TYPE_LFM2:
         case PROJECTOR_TYPE_KIMIVL:
             {
-                // both W and H are divided by proj_scale_factor
+                // dynamic size
                 int scale_factor = ctx->model.hparams.proj_scale_factor;
-                n_patches /= (scale_factor * scale_factor);
+                int out_patch_size = params.patch_size * scale_factor;
+                int x_patch = CLIP_ALIGN(img->nx, out_patch_size) / out_patch_size;
+                int y_patch = CLIP_ALIGN(img->ny, out_patch_size) / out_patch_size;
+                n_patches = x_patch * y_patch;
             } break;
         case PROJECTOR_TYPE_PIXTRAL:
             {
