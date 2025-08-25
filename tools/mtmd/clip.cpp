@@ -529,13 +529,13 @@ struct clip_graph {
             // pixel_shuffle
             // https://github.com/huggingface/transformers/blob/0a950e0bbe1ed58d5401a6b547af19f15f0c195e/src/transformers/models/idefics3/modeling_idefics3.py#L578
             const int scale_factor = model.hparams.proj_scale_factor;
-            cur = build_pixel_shuffle(cur, scale_factor);
+            cur = build_patch_merge_permute(cur, scale_factor);
             cur = ggml_mul_mat(ctx0, model.projection, cur);
 
         } else if (ctx->proj_type() == PROJECTOR_TYPE_LFM2) {
             // pixel unshuffle block
             const int scale_factor = model.hparams.proj_scale_factor;
-            cur = build_pixel_shuffle(cur, scale_factor);
+            cur = build_patch_merge_permute(cur, scale_factor);
 
             // projection
             cur = ggml_norm(ctx0, cur, 1e-5); // default nn.LayerNorm
@@ -1103,7 +1103,7 @@ struct clip_graph {
         {
             // patch_merger
             const int scale_factor = model.hparams.proj_scale_factor;
-            cur = build_pixel_shuffle(cur, scale_factor);
+            cur = build_patch_merge_permute(cur, scale_factor);
 
             // projection norm
             int proj_inp_dim = cur->ne[0];
@@ -2043,9 +2043,9 @@ private:
         return cur;
     }
 
-    // aka pixel_unshuffle in Siglip2, aka patch_merger in Kimi
+    // aka pixel_shuffle / pixel_unshuffle / patch_merger (Kimi-VL)
     // support dynamic resolution
-    ggml_tensor * build_pixel_shuffle(ggml_tensor * cur, int scale_factor) {
+    ggml_tensor * build_patch_merge_permute(ggml_tensor * cur, int scale_factor) {
         GGML_ASSERT(scale_factor > 1);
 
         const int n_embd = cur->ne[0];
