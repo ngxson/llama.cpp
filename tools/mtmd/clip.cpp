@@ -1631,18 +1631,20 @@ private:
         ggml_tensor * pos_embd = model.position_embeddings;
         const int height       = img.ny / patch_size;
         const int width        = img.nx / patch_size;
+        const uint32_t mode    = GGML_SCALE_MODE_BILINEAR;
+        const int n_per_side   = (int)std::sqrt(pos_embd->ne[1]);
 
-        if (!pos_embd || height * width == pos_embd->ne[1]) {
+        GGML_ASSERT(pos_embd);
+
+        if (height == n_per_side && width == n_per_side) {
             return pos_embd;
         }
 
-        const int n_pos_embd = std::sqrt(pos_embd->ne[1]);
-        pos_embd = ggml_reshape_3d(ctx0, pos_embd, n_embd, n_pos_embd, n_pos_embd);  // -> (n_embd, n_pos_embd, n_pos_embd)
-        pos_embd = ggml_permute(ctx0, pos_embd, 2, 0, 1, 3);                         // -> (n_pos_embd, n_pos_embd, n_embd)
-        pos_embd = ggml_interpolate(ctx0, pos_embd, width, height, n_embd, 1, 1);    // -> (width, height, n_embd)
-        pos_embd = ggml_reshape_2d(ctx0, pos_embd, height * width, n_embd);          // -> (height * width, n_embd)
-        pos_embd = ggml_transpose(ctx0, pos_embd);                                   // -> (n_embd, height * width)
-        pos_embd = ggml_cont(ctx0, pos_embd);
+        pos_embd = ggml_reshape_3d(ctx0, pos_embd, n_embd, n_per_side, n_per_side);  // -> (n_embd, n_per_side, n_per_side)
+        pos_embd = ggml_permute(ctx0, pos_embd, 2, 0, 1, 3);                         // -> (n_per_side, n_per_side, n_embd)
+        pos_embd = ggml_interpolate(ctx0, pos_embd, width, height, n_embd, 1, mode); // -> (width, height, n_embd)
+        pos_embd = ggml_permute(ctx0, pos_embd, 1, 2, 0, 3);                         // -> (n_embd, width, height)
+        pos_embd = ggml_cont_2d(ctx0, pos_embd, n_embd, width * height);             // -> (n_embd, width * height)
 
         return pos_embd;
     }
@@ -3561,9 +3563,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         res_imgs->entries.push_back(std::move(img_f32));
         return true;
 
-    } else if (ctx->proj_type() == PROJECTOR_TYPE_PIXTRAL
-            || ctx->proj_type() == PROJECTOR_TYPE_KIMIVL
-    ) {
+    } else if (ctx->proj_type() == PROJECTOR_TYPE_PIXTRAL) {
         clip_image_u8 resized_image;
         auto new_size = image_manipulation::calc_size_preserved_ratio(original_size, params.patch_size, params.image_size);
         image_manipulation::bilinear_resize(*img, resized_image, new_size.width, new_size.height);
@@ -3587,7 +3587,9 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         res_imgs->grid_y = inst.grid_size.height;
         return true;
 
-    } else if (ctx->proj_type() == PROJECTOR_TYPE_LFM2) {
+    } else if ( ctx->proj_type() == PROJECTOR_TYPE_LFM2
+             || ctx->proj_type() == PROJECTOR_TYPE_KIMIVL
+    ) {
         GGML_ASSERT(params.proj_scale_factor);
 
         // smart resize
