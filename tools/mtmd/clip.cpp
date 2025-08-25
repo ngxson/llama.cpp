@@ -3787,6 +3787,11 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         case PROJECTOR_TYPE_IDEFICS3:
         case PROJECTOR_TYPE_INTERNVL:
         case PROJECTOR_TYPE_LLAMA4:
+            {
+                // both X and Y are downscaled by the scale factor
+                int scale_factor = ctx->model.hparams.proj_scale_factor;
+                n_patches /= (scale_factor * scale_factor);
+            } break;
         case PROJECTOR_TYPE_LFM2:
         case PROJECTOR_TYPE_KIMIVL:
             {
