@@ -395,7 +395,7 @@ def test_context_size_exceeded():
             {"role": "user", "content": "What is the best book"},
         ] * 100, # make the prompt too long
     })
-    assert res.status_code == 500
+    assert res.status_code == 400
     assert "error" in res.body
     assert res.body["error"]["type"] == "exceed_context_size_error"
     assert res.body["error"]["n_prompt_tokens"] > 0
