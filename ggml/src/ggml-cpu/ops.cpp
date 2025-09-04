@@ -776,6 +776,24 @@ static void ggml_compute_forward_dup_f32(
                         id += ne00 * (ne01 - ir1);
                     }
                 }
+            } else if (dst->type == GGML_TYPE_I32) {
+                size_t id = 0;
+                int32_t * dst_ptr = (int32_t *) dst->data;
+
+                for (int i03 = 0; i03 < ne03; i03++) {
+                    for (int i02 = 0; i02 < ne02; i02++) {
+                        id += ne00 * ir0;
+                        for (int i01 = ir0; i01 < ir1; i01++) {
+                            for (int i00 = 0; i00 < ne00; i00++) {
+                                const float * src0_ptr = (float *) ((char *) src0->data + i00*nb00 + i01*nb01 + i02*nb02 + i03*nb03);
+
+                                dst_ptr[id] = *src0_ptr;
+                                id++;
+                            }
+                        }
+                        id += ne00 * (ne01 - ir1);
+                    }
+                }
             } else {
                 GGML_ABORT("fatal error"); // TODO: implement
             }
