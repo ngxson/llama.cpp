@@ -39,9 +39,7 @@ template<typename dst_t, typename src_t>
     } else if constexpr(std::is_same_v<src_t, nv_bfloat16>) {
         return __bfloat162float(x);
     } else if constexpr(std::is_same_v<dst_t, int32_t>) {
-        return __float2int_rd(x);
-    } else if constexpr(std::is_same_v<src_t, int32_t>) {
-        return __int2float_rd(x);
+        return int32_t(x);
     } else {
         return float(x);
     }
