@@ -9,6 +9,10 @@
 #include "ggml-impl.h"
 #include "ggml-wgsl-shaders.hpp"
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten/emscripten.h>
+#endif
+
 #include <webgpu/webgpu_cpp.h>
 
 #include <condition_variable>
@@ -1173,8 +1177,12 @@ static ggml_backend_dev_t ggml_backend_webgpu_reg_get_device(ggml_backend_reg_t 
     ctx->adapter.GetInfo(&info);
 
     // Initialize device
-    std::vector<wgpu::FeatureName> required_features = { wgpu::FeatureName::ShaderF16,
-                                                         wgpu::FeatureName::ImplicitDeviceSynchronization };
+    std::vector<wgpu::FeatureName> required_features = {
+        wgpu::FeatureName::ShaderF16,
+#ifndef __EMSCRIPTEN__
+        wgpu::FeatureName::ImplicitDeviceSynchronization,
+#endif
+    };
     wgpu::DeviceDescriptor         dev_desc;
     dev_desc.requiredLimits       = &ctx->limits;
     dev_desc.requiredFeatures     = required_features.data();

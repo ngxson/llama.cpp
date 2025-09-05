@@ -39,8 +39,17 @@ add_dependencies(ggml-webgpu generate_shaders)
 if(EMSCRIPTEN)
     set(EMDAWNWEBGPU_DIR "" CACHE PATH "Path to emdawnwebgpu_pkg")
 
-    target_compile_options(ggml-webgpu PRIVATE "--use-port=${EMDAWNWEBGPU_DIR}/emdawnwebgpu.port.py")
-    target_link_options(ggml-webgpu PRIVATE "--use-port=${EMDAWNWEBGPU_DIR}/emdawnwebgpu.port.py")
+    if(NOT EMDAWNWEBGPU_DIR)
+        # default built-in port
+        target_compile_options(ggml-webgpu PRIVATE "--use-port=emdawnwebgpu")
+        target_link_options(ggml-webgpu INTERFACE "--use-port=emdawnwebgpu")
+    else()
+        # custom port
+        target_compile_options(ggml-webgpu PRIVATE "--use-port=${EMDAWNWEBGPU_DIR}/emdawnwebgpu.port.py")
+        target_link_options(ggml-webgpu INTERFACE "--use-port=${EMDAWNWEBGPU_DIR}/emdawnwebgpu.port.py")
+    endif()
+
+    set(DawnWebGPU_TARGET webgpu_cpp)
 else()
     find_package(Dawn REQUIRED)
     set(DawnWebGPU_TARGET dawn::webgpu_dawn)
