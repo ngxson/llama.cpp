@@ -1295,6 +1295,17 @@ ggml_backend_reg_t ggml_backend_webgpu_reg() {
     instance_descriptor.requiredFeatures                     = instance_features.data();
     instance_descriptor.requiredFeatureCount                 = instance_features.size();
     webgpu_ctx->instance                                     = wgpu::CreateInstance(&instance_descriptor);
+
+#ifdef __EMSCRIPTEN__
+#ifndef __EMSCRIPTEN_PTHREADS__
+    GGML_LOG_WARN("ggml_webgpu: pthread is disabled. This may cause bugs\n");
+#endif
+
+    if (webgpu_ctx->instance == nullptr) {
+        GGML_LOG_ERROR("ggml_webgpu: Failed to create WebGPU instance. Make sure -sASYNCIFY is set\n");
+        return nullptr;
+    }
+#endif
     GGML_ASSERT(webgpu_ctx->instance != nullptr);
 
     static ggml_backend_reg reg = {
