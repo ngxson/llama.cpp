@@ -161,11 +161,6 @@ endif()
 # 3rd-party
 #
 
-if (EMSCRIPTEN)
-    add_compile_options(-pthread)
-    link_libraries     (-pthread)
-endif()
-
 if (LLAMA_USE_SYSTEM_GGML)
     message(STATUS "Using system-provided libggml, skipping ggml build")
     find_package(ggml REQUIRED)

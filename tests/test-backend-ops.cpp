@@ -19,6 +19,7 @@
 #include <ggml-alloc.h>
 #include <ggml-backend.h>
 #include <ggml-cpp.h>
+#include <ggml-cpu.h>
 
 #include <algorithm>
 #include <array>
@@ -6703,6 +6704,9 @@ static bool test_backend(ggml_backend_t backend, test_mode mode, const char * op
             output_printer->print_operation(info);
             return false;
         }
+
+        // TODO: find a better way to set the number of threads for the CPU backend
+        ggml_backend_cpu_set_n_threads(backend_cpu, N_THREADS);
 
         size_t n_ok = 0;
         for (auto & test : test_cases) {
