@@ -287,40 +287,37 @@ static void ggml_compute_forward_dup_to_q(
     const int ir0 = dr * ith;
     const int ir1 = MIN(ir0 + dr, nr);
 
-    if (ggml_is_contiguous(dst)) {
-        if (nb00 == sizeof(src_t)) {
-            if (ggml_get_type_traits_cpu(dst->type)->from_float) {
-                // casting non-quantized types --> intermediate f32 --> quantized
-                ggml_from_float_t const quantize_row_q = ggml_get_type_traits_cpu(dst->type)->from_float;
-                float * src0_f32 = (float *) params->wdata + (ne00 + CACHE_LINE_SIZE_F32) * ith;
+    if (ggml_is_contiguous(dst) &&
+            nb00 == sizeof(src_t) &&
+            ggml_get_type_traits_cpu(dst->type)->from_float) {
+        // casting non-quantized types --> intermediate f32 --> quantized
+        ggml_from_float_t const quantize_row_q = ggml_get_type_traits_cpu(dst->type)->from_float;
+        float * src0_f32 = (float *) params->wdata + (ne00 + CACHE_LINE_SIZE_F32) * ith;
 
-                size_t id = 0;
-                size_t rs = nb0 * (ne00 / ggml_blck_size(dst->type));
-                char * dst_ptr = (char *) dst->data;
+        size_t id = 0;
+        size_t rs = nb0 * (ne00 / ggml_blck_size(dst->type));
+        char * dst_ptr = (char *) dst->data;
 
-                for (int i03 = 0; i03 < ne03; i03++) {
-                    for (int i02 = 0; i02 < ne02; i02++) {
-                        id += rs * ir0;
-                        for (int i01 = ir0; i01 < ir1; i01++) {
-                            const src_t * src0_ptr = (src_t *) ((char *) src0->data + i01*nb01 + i02*nb02 + i03*nb03);
+        for (int i03 = 0; i03 < ne03; i03++) {
+            for (int i02 = 0; i02 < ne02; i02++) {
+                id += rs * ir0;
+                for (int i01 = ir0; i01 < ir1; i01++) {
+                    const src_t * src0_ptr = (src_t *) ((char *) src0->data + i01*nb01 + i02*nb02 + i03*nb03);
 
-                            for (int i00 = 0; i00 < ne00; i00++) {
-                                src0_f32[i00] = type_conversion_table<src_t>::to_f32(src0_ptr[i00]);
-                            }
-
-                            quantize_row_q(src0_f32, dst_ptr + id, ne00);
-                            id += rs;
-                        }
-                        id += rs * (ne01 - ir1);
+                    for (int i00 = 0; i00 < ne00; i00++) {
+                        src0_f32[i00] = type_conversion_table<src_t>::to_f32(src0_ptr[i00]);
                     }
-                }
-                return;
-            }
-        } // TODO: else
-    }
 
-    // printf("%s %s\n", ggml_type_name(src0->type), ggml_type_name(dst->type));
-    GGML_ABORT("not implemented");
+                    quantize_row_q(src0_f32, dst_ptr + id, ne00);
+                    id += rs;
+                }
+                id += rs * (ne01 - ir1);
+            }
+        }
+    } else {
+        // printf("%s %s\n", ggml_type_name(src0->type), ggml_type_name(dst->type));
+        GGML_ABORT("not implemented");
+    }
 }
 
 // A simplified version of ggml_compute_forward_dup that doesn't do float upcasting, and just plain old memcpy.
@@ -560,7 +557,7 @@ void ggml_compute_forward_dup(
             } break;
         case GGML_TYPE_I32:
             {
-                /**/ if (dst->type == GGML_TYPE_F32) ggml_compute_forward_dup_flt<int32_t, float>(params, dst);
+                if (dst->type == GGML_TYPE_F32) ggml_compute_forward_dup_flt<int32_t, float>(params, dst);
                 else GGML_ABORT("not implemented");
             } break;
         default:
