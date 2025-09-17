@@ -622,13 +622,20 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,  hparams.n_ff_exp);
                 ml.get_key(LLM_KV_INTERLEAVE_MOE_LAYER_STEP,   hparams.n_moe_layer_step);
 
-                hparams.swa_type      = LLAMA_SWA_TYPE_CHUNKED;
-                hparams.n_swa         = 8192; // should this be a gguf kv? currently it's the same for Scout and Maverick
-                hparams.set_swa_pattern(4);   // pattern: 3 chunked - 1 full
+                const bool found_swa = ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW, hparams.n_swa, false);
+                if (found_swa && hparams.n_swa == 0) {
+                    hparams.swa_type             = LLAMA_SWA_TYPE_NONE;
+                    hparams.n_no_rope_layer_step = hparams.n_layer; // always use rope
+                } else {
+                    hparams.swa_type      = LLAMA_SWA_TYPE_CHUNKED;
+                    hparams.n_swa         = 8192;
+                    hparams.set_swa_pattern(4);   // pattern: 3 chunked - 1 full
+                }
 
                 switch (hparams.n_expert) {
                     case 16:  type = LLM_TYPE_17B_16E; break;
                     case 128: type = LLM_TYPE_17B_128E; break;
+                    // TODO: add MobileLLM variants
                     default:  type = LLM_TYPE_UNKNOWN;
                 }
 
@@ -2446,9 +2453,8 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                         output = create_tensor(tn(LLM_TENSOR_TOKEN_EMBD, "weight"), {n_embd, n_vocab}, TENSOR_DUPLICATED);
                     }
 
-                    GGML_ASSERT(hparams.n_moe_layer_step > 0 && "Llama 4 requires n_moe_layer_step > 0");
                     for (int i = 0; i < n_layer; ++i) {
-                        bool is_moe_layer = (i + 1) % hparams.n_moe_layer_step == 0;
+                        bool is_moe_layer = hparams.n_moe_layer_step > 0 && (i + 1) % hparams.n_moe_layer_step == 0;
 
                         auto & layer = layers[i];
 
@@ -6427,7 +6433,8 @@ struct llm_build_llama_iswa : public llm_graph_context {
         for (int il = 0; il < n_layer; ++il) {
             ggml_tensor * inpSA = inpL;
 
-            const bool use_rope = (il + 1) % hparams.n_no_rope_layer_step != 0;
+            const bool use_rope = hparams.n_no_rope_layer_step > 0 &&
+                                  (il + 1) % hparams.n_no_rope_layer_step != 0;
 
             // norm
             cur = build_norm(inpL,
@@ -18946,7 +18953,11 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
             } break;
         case LLM_ARCH_LLAMA4:
             {
-                llm = std::make_unique<llm_build_llama_iswa>(*this, params);
+                if (hparams.swa_type == LLAMA_SWA_TYPE_NONE) {
+                    llm = std::make_unique<llm_build_llama>(*this, params);
+                } else {
+                    llm = std::make_unique<llm_build_llama_iswa>(*this, params);
+                }
             } break;
         case LLM_ARCH_DECI:
             {
