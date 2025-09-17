@@ -6326,6 +6326,14 @@ struct llm_build_llama : public llm_graph_context {
                 cb(Kcur, "Kcur", il);
                 cb(Vcur, "Vcur", il);
 
+                if (hparams.use_kq_norm) {
+                    // Llama4TextL2Norm
+                    Qcur = ggml_rms_norm(ctx0, Qcur, hparams.f_norm_rms_eps);
+                    Kcur = ggml_rms_norm(ctx0, Kcur, hparams.f_norm_rms_eps);
+                    cb(Qcur, "Qcur_normed", il);
+                    cb(Kcur, "Kcur_normed", il);
+                }
+
                 cur = build_attn(inp_attn,
                         model.layers[il].wo, model.layers[il].bo,
                         Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, kq_scale, il);
