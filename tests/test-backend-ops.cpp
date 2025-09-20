@@ -3768,6 +3768,7 @@ struct test_rope : public test_case {
     const ggml_type type;
     const std::array<int64_t, 4> ne_a;
     int n_dims;
+    int offset;
     int mode;
     int n_ctx; // used to generate positions
     float fs; // freq_scale
@@ -3779,16 +3780,17 @@ struct test_rope : public test_case {
 
     std::string vars() override {
         // forward can be inferred from the op, does not need to be printed
-        return VARS_TO_STR10(type, ne_a, n_dims, mode, n_ctx, fs, ef, af, ff, v);
+        return VARS_TO_STR11(type, ne_a, n_dims, offset, mode, n_ctx, fs, ef, af, ff, v);
     }
 
     test_rope(ggml_type type = GGML_TYPE_F32,
             std::array<int64_t, 4> ne_a = {10, 5, 3, 1},
-            int n_dims = 10, int mode = 0, int n_ctx = 512, float fs = 1.0f,
+            int n_dims = 10, int offset = 0, int mode = 0, int n_ctx = 512, float fs = 1.0f,
             float ef = 0.0f, float af = 0.0f, bool ff = false, int v = 0, bool forward = true)
-        : type(type), ne_a(ne_a), n_dims(n_dims), mode(mode), n_ctx(n_ctx), fs(fs), ef(ef), af(af), ff(ff), v(v), forward(forward) {}
+        : type(type), ne_a(ne_a), n_dims(n_dims), offset(offset), mode(mode), n_ctx(n_ctx), fs(fs), ef(ef), af(af), ff(ff), v(v), forward(forward) {}
 
     ggml_tensor * build_graph(ggml_context * ctx) override {
+        bool inplace = false;
         ggml_tensor * a;
         if (v & 1) {
             auto ne = ne_a; ne[0] *= 2; ne[1] *= 4; ne[2] *= 3;
@@ -3806,6 +3808,14 @@ struct test_rope : public test_case {
                 ggml_set_param(a);
             }
             ggml_set_name(a, "a");
+        }
+
+        if (offset > 0) {
+            inplace = true;
+            a = ggml_view_3d(ctx, a, a->ne[0] - offset, a->ne[1], a->ne[2],
+                    ggml_row_size(a->type, a->ne[0]),
+                    ggml_row_size(a->type, a->ne[0]*a->ne[1]),
+                    offset * ggml_element_size(a));
         }
 
         const bool is_mrope = mode & GGML_ROPE_TYPE_MROPE;
@@ -3846,12 +3856,12 @@ struct test_rope : public test_case {
             }
         } else {
             if (forward) {
-                out = ggml_rope_ext     (ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                out = inplace
+                    ? ggml_rope_ext_inplace(ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f)
+                    : ggml_rope_ext        (ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
             } else {
-                out = ggml_rope_ext_back(ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                out = ggml_rope_ext_back   (ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
             }
-
-            // TODO: add test with a non-contiguous view as input ; this case is needed for build_rope_2d in clip.cpp
         }
         ggml_set_name(out, "out");
 
