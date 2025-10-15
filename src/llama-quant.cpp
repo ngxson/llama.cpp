@@ -716,7 +716,7 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
             qs.has_output = true;
         }
 
-        is_clip_model |= name.find("mm.") != std::string::npos;
+        is_clip_model |= name.rfind("mm.") == 0; // check the "mm." prefix
     }
 
     qs.n_ffn_down = qs.n_ffn_gate = qs.n_ffn_up = (int)model.hparams.n_layer;
