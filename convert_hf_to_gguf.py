@@ -511,6 +511,9 @@ class TextModel(ModelBase):
         if "text_config" in self.hparams:
             # move the text_config to the root level
             self.hparams = {**self.hparams, **self.hparams["text_config"]}
+        elif "language_config" in self.hparams:
+            # move the language_config to the root level
+            self.hparams = {**self.hparams, **self.hparams["language_config"]}
 
         self.block_count = self.find_hparam(["n_layers", "num_hidden_layers", "n_layer", "num_layers"])
         self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
@@ -6566,6 +6569,7 @@ class DeepseekModel(TextModel):
 @ModelBase.register(
     "DeepseekV2ForCausalLM",
     "DeepseekV3ForCausalLM",
+    "DeepseekOCRForCausalLM",
     "KimiVLForConditionalGeneration",
 )
 class DeepseekV2Model(TextModel):
@@ -6632,31 +6636,35 @@ class DeepseekV2Model(TextModel):
 
         super().set_gguf_parameters()
         hparams = self.hparams
+        kv_lora_rank = hparams["q_lora_rank"] if hparams["q_lora_rank"] is not None else 512
+        routed_scaling_factor = hparams.get("routed_scaling_factor", 1.0)
+        norm_topk_prob = hparams.get("norm_topk_prob", False)
+        scoring_func = hparams.get("scoring_func", "softmax")
 
         self.gguf_writer.add_leading_dense_block_count(hparams["first_k_dense_replace"])
         self.gguf_writer.add_vocab_size(hparams["vocab_size"])
         if "q_lora_rank" in hparams and hparams["q_lora_rank"] is not None:
             self.gguf_writer.add_q_lora_rank(hparams["q_lora_rank"])
-        self.gguf_writer.add_kv_lora_rank(hparams["kv_lora_rank"])
+        self.gguf_writer.add_kv_lora_rank(kv_lora_rank)
 
         # note: deepseek2 using MLA converts into MQA with larger heads, then decompresses to MHA
-        self.gguf_writer.add_key_length(hparams["kv_lora_rank"] + hparams["qk_rope_head_dim"])
-        self.gguf_writer.add_value_length(hparams["kv_lora_rank"])
+        self.gguf_writer.add_key_length(kv_lora_rank + hparams["qk_rope_head_dim"])
+        self.gguf_writer.add_value_length(kv_lora_rank)
         self.gguf_writer.add_key_length_mla(hparams["qk_nope_head_dim"] + hparams["qk_rope_head_dim"])
         self.gguf_writer.add_value_length_mla(hparams["v_head_dim"])
 
         self.gguf_writer.add_expert_feed_forward_length(hparams["moe_intermediate_size"])
         self.gguf_writer.add_expert_count(hparams["n_routed_experts"])
         self.gguf_writer.add_expert_shared_count(hparams["n_shared_experts"])
-        self.gguf_writer.add_expert_weights_scale(hparams["routed_scaling_factor"])
-        self.gguf_writer.add_expert_weights_norm(hparams["norm_topk_prob"])
+        self.gguf_writer.add_expert_weights_scale(routed_scaling_factor)
+        self.gguf_writer.add_expert_weights_norm(norm_topk_prob)
 
-        if hparams["scoring_func"] == "sigmoid":
+        if scoring_func == "sigmoid":
             self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SIGMOID)
-        elif hparams["scoring_func"] == "softmax":
+        elif scoring_func == "softmax":
             self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SOFTMAX)
         else:
-            raise ValueError(f"Unsupported scoring_func value: {hparams['scoring_func']}")
+            raise ValueError(f"Unsupported scoring_func value: {scoring_func}")
 
         self.gguf_writer.add_rope_dimension_count(hparams["qk_rope_head_dim"])
 
@@ -6667,11 +6675,14 @@ class DeepseekV2Model(TextModel):
             self.gguf_writer.add_rope_scaling_orig_ctx_len(rope_scaling["original_max_position_embeddings"])
             self.gguf_writer.add_rope_scaling_yarn_log_mul(0.1 * rope_scaling["mscale_all_dim"])
 
+        self.gguf_writer.add_layer_norm_rms_eps(self.hparams.get("rms_norm_eps", 1e-6))
+
     _experts: list[dict[str, Tensor]] | None = None
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         # skip vision tensors and remove "language_model." for Kimi-VL
-        if "vision_tower" in name or "multi_modal_projector" in name:
+        if "vision_" in name or "multi_modal_projector" in name \
+                or "image_newline" in name or "model.projector" in name or "sam_model" in name or "view_seperator" in name:
             return []
 
         if name.startswith("language_model."):
