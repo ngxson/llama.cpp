@@ -76,16 +76,16 @@ struct mtmd_cli_context {
 
     mtmd::bitmaps bitmaps;
 
-    // note: we know that gemma3 template is "linear", meaning each turn is completely separated to another
-    // so here we don't need to keep track of chat history
+    // chat template
     common_chat_templates_ptr tmpls;
+    std::vector<common_chat_msg> chat_history;
+    bool use_jinja = false;
 
     // support for legacy templates (models not having EOT token)
     llama_tokens antiprompt_tokens;
 
     int n_threads    = 1;
     llama_pos n_past = 0;
-    bool use_jinja = false;
 
     mtmd_cli_context(common_params & params) : llama_init(common_init_from_params(params)) {
         model = llama_init.model.get();
@@ -110,6 +110,12 @@ struct mtmd_cli_context {
 
         tmpls = common_chat_templates_init(model, params.chat_template);
         use_jinja = params.use_jinja;
+        if (!params.system_prompt.empty()) {
+            common_chat_msg sys_msg;
+            sys_msg.role    = "system";
+            sys_msg.content = params.system_prompt;
+            chat_history.push_back(std::move(sys_msg));
+        }
         LOG_INF("%s: chat template example:\n%s\n", __func__, common_chat_format_example(tmpls.get(), params.use_jinja, params.default_template_kwargs).c_str());
 
         init_vision_context(params);
@@ -195,19 +201,32 @@ static int generate_response(mtmd_cli_context & ctx, int n_predict) {
             return 1;
         }
     }
+
+    std::string generated_text = common_detokenize(ctx.lctx, generated_tokens);
+    common_chat_msg msg;
+    msg.role    = "assistant";
+    msg.content = generated_text;
+    ctx.chat_history.push_back(std::move(msg));
+
     return 0;
 }
 
+static std::string chat_add_and_format(mtmd_cli_context & ctx, common_chat_msg & new_msg) {
+    LOG_DBG("chat_add_and_format: new_msg.role='%s', new_msg.content='%s'\n",
+        new_msg.role.c_str(), new_msg.content.c_str());
+    auto formatted = common_chat_format_single(ctx.tmpls.get(), ctx.chat_history,
+        new_msg, new_msg.role == "user",
+        ctx.use_jinja);
+    ctx.chat_history.push_back(new_msg);
+    return formatted;
+}
+
 static int eval_message(mtmd_cli_context & ctx, common_chat_msg & msg, bool add_bos = false) {
-    common_chat_templates_inputs tmpl_inputs;
-    tmpl_inputs.messages = {msg};
-    tmpl_inputs.add_generation_prompt = true;
-    tmpl_inputs.use_jinja = ctx.use_jinja;
-    auto formatted_chat = common_chat_templates_apply(ctx.tmpls.get(), tmpl_inputs);
-    LOG_DBG("formatted_chat.prompt: %s\n", formatted_chat.prompt.c_str());
+    auto formatted_chat = chat_add_and_format(ctx, msg);
+    LOG_DBG("formatted_chat.prompt: %s\n", formatted_chat.c_str());
 
     mtmd_input_text text;
-    text.text          = formatted_chat.prompt.c_str();
+    text.text          = formatted_chat.c_str();
     text.add_special   = add_bos;
     text.parse_special = true;
 
