@@ -3374,7 +3374,7 @@ class Ernie4_5MoeModel(Ernie4_5Model):
 
 @ModelBase.register("SiglipVisionModel")
 class PaddleOCRVisionModel(MmprojModel):
-    # PaddleOCR uses Siglip under the hood
+    # PaddleOCR-VL uses a modified version of Siglip
     min_pixels: int = 0
     max_pixels: int = 0
 
@@ -3397,8 +3397,22 @@ class PaddleOCRVisionModel(MmprojModel):
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         del bid  # unused
+        name = name.replace("visual.", "model.")
+    
         if "vision_model" in name or "mlp_AR" in name:
-            return [(self.map_tensor_name(name), data_torch)]
+            if "packing_position_embedding" in name:
+                return [] # unused
+            elif "head.attention.in_proj_" in name:
+                chunks = data_torch.chunk(3, dim=0)
+                name = name.replace("_bias", ".bias")
+                name = name.replace("_weight", ".weight")
+                return [
+                    (self.map_tensor_name(name.replace("in_proj", "in_proj_q")), chunks[0]),
+                    (self.map_tensor_name(name.replace("in_proj", "in_proj_k")), chunks[1]),
+                    (self.map_tensor_name(name.replace("in_proj", "in_proj_v")), chunks[2]),
+                ]
+            else:
+                return [(self.map_tensor_name(name), data_torch)]
         return [] # skip other tensors
 
 
