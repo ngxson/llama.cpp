@@ -1370,16 +1370,13 @@ class TensorNameMap:
             "model.vision_model.head.attention.out_proj",
         ),
 
-        MODEL_TENSOR.V_RESMPL_ATTN_NORM: (
-            "model.vision_model.head.layernorm", # PaddleOCR-VL
-        ),
-
         MODEL_TENSOR.V_RESMPL_KV: (
             "resampler.kv_proj",
         ),
 
         MODEL_TENSOR.V_RESMPL_POST_NORM: (
             "resampler.ln_post",
+            "model.vision_model.head.layernorm", # PaddleOCR-VL
         ),
 
         MODEL_TENSOR.V_RESMPL_KV_NORM: (
