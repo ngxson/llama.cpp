@@ -85,6 +85,7 @@ struct mtmd_cli_context {
 
     int n_threads    = 1;
     llama_pos n_past = 0;
+    bool use_jinja = false;
 
     mtmd_cli_context(common_params & params) : llama_init(common_init_from_params(params)) {
         model = llama_init.model.get();
@@ -108,6 +109,7 @@ struct mtmd_cli_context {
         }
 
         tmpls = common_chat_templates_init(model, params.chat_template);
+        use_jinja = params.use_jinja;
         LOG_INF("%s: chat template example:\n%s\n", __func__, common_chat_format_example(tmpls.get(), params.use_jinja, params.default_template_kwargs).c_str());
 
         init_vision_context(params);
@@ -200,7 +202,7 @@ static int eval_message(mtmd_cli_context & ctx, common_chat_msg & msg, bool add_
     common_chat_templates_inputs tmpl_inputs;
     tmpl_inputs.messages = {msg};
     tmpl_inputs.add_generation_prompt = true;
-    tmpl_inputs.use_jinja = false; // jinja is buggy here
+    tmpl_inputs.use_jinja = ctx.use_jinja;
     auto formatted_chat = common_chat_templates_apply(ctx.tmpls.get(), tmpl_inputs);
     LOG_DBG("formatted_chat.prompt: %s\n", formatted_chat.prompt.c_str());
 
