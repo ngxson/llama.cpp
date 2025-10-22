@@ -80,7 +80,7 @@ struct mtmd_cli_context {
     common_chat_templates_ptr tmpls;
     std::vector<common_chat_msg> chat_history;
     bool use_jinja = false;
-    std::string system_prompt;
+    // TODO: support for --system-prompt with /clear command
 
     // support for legacy templates (models not having EOT token)
     llama_tokens antiprompt_tokens;
@@ -111,8 +111,7 @@ struct mtmd_cli_context {
 
         tmpls = common_chat_templates_init(model, params.chat_template);
         use_jinja = params.use_jinja;
-        system_prompt = params.system_prompt;
-        reset_chat_history();
+        chat_history.clear();
         LOG_INF("%s: chat template example:\n%s\n", __func__, common_chat_format_example(tmpls.get(), params.use_jinja, params.default_template_kwargs).c_str());
 
         init_vision_context(params);
@@ -128,16 +127,6 @@ struct mtmd_cli_context {
     ~mtmd_cli_context() {
         llama_batch_free(batch);
         common_sampler_free(smpl);
-    }
-
-    void reset_chat_history() {
-        chat_history.clear();
-        if (!system_prompt.empty()) {
-            common_chat_msg sys_msg;
-            sys_msg.role    = "system";
-            sys_msg.content = system_prompt;
-            chat_history.push_back(std::move(sys_msg));
-        }
     }
 
     void init_vision_context(common_params & params) {
@@ -228,7 +217,8 @@ static std::string chat_add_and_format(mtmd_cli_context & ctx, common_chat_msg &
     return formatted;
 }
 
-static int eval_message(mtmd_cli_context & ctx, common_chat_msg & msg, bool add_bos = false) {
+static int eval_message(mtmd_cli_context & ctx, common_chat_msg & msg) {
+    bool add_bos = ctx.chat_history.empty();
     auto formatted_chat = chat_add_and_format(ctx, msg);
     LOG_DBG("formatted_chat.prompt: %s\n", formatted_chat.c_str());
 
@@ -331,7 +321,7 @@ int main(int argc, char ** argv) {
                 return 1; // error is already printed by libmtmd
             }
         }
-        if (eval_message(ctx, msg, true)) {
+        if (eval_message(ctx, msg)) {
             return 1;
         }
         if (!g_is_interrupted && generate_response(ctx, n_predict)) {
@@ -350,7 +340,6 @@ int main(int argc, char ** argv) {
         LOG("\n   /quit or /exit   exit the program");
         LOG("\n");
 
-        bool is_first_msg = true;
         std::string content;
 
         while (!g_is_interrupted) {
@@ -370,7 +359,7 @@ int main(int argc, char ** argv) {
             }
             if (line == "/clear") {
                 ctx.n_past = 0;
-                ctx.reset_chat_history();
+                ctx.chat_history.clear();
                 llama_memory_clear(llama_get_memory(ctx.lctx), true);
                 LOG("Chat history cleared\n\n");
                 continue;
@@ -396,7 +385,7 @@ int main(int argc, char ** argv) {
             common_chat_msg msg;
             msg.role = "user";
             msg.content = content;
-            int ret = eval_message(ctx, msg, is_first_msg);
+            int ret = eval_message(ctx, msg);
             if (ret) {
                 return 1;
             }
@@ -405,7 +394,6 @@ int main(int argc, char ** argv) {
                 return 1;
             }
             content.clear();
-            is_first_msg = false;
         }
     }
     if (g_is_interrupted) LOG("\nInterrupted by user\n");
