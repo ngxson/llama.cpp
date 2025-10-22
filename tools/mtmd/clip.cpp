@@ -1171,7 +1171,7 @@ struct clip_graph {
         {
             // SiglipMultiheadAttentionPoolingHead
             int64_t n_pos = cur->ne[1];
-            ggml_tensor * Qcur = model.mm_model_query;
+            ggml_tensor * Qcur = ggml_repeat(ctx0, model.mm_model_query, cur);
             ggml_tensor * Kcur = cur;
             ggml_tensor * Vcur = cur;
 
@@ -3731,7 +3731,9 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         res_imgs->entries.push_back(std::move(img_f32));
         return true;
 
-    } else if (ctx->proj_type() == PROJECTOR_TYPE_PIXTRAL) {
+    } else if (ctx->proj_type() == PROJECTOR_TYPE_PIXTRAL
+            || ctx->proj_type() == PROJECTOR_TYPE_PADDLEOCR
+    ) {
         clip_image_u8 resized_image;
         auto new_size = image_manipulation::calc_size_preserved_ratio(original_size, params.patch_size, params.image_size);
         image_manipulation::bilinear_resize(*img, resized_image, new_size.width, new_size.height);
