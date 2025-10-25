@@ -342,10 +342,6 @@ struct clip_model {
     ggml_tensor * mm_model_ln_kv_b = nullptr;
     ggml_tensor * mm_model_ln_post_w = nullptr;
     ggml_tensor * mm_model_ln_post_b = nullptr;
-    ggml_tensor * mm_model_ffn_up_w = nullptr;
-    ggml_tensor * mm_model_ffn_up_b = nullptr;
-    ggml_tensor * mm_model_ffn_down_w = nullptr;
-    ggml_tensor * mm_model_ffn_down_b = nullptr;
 
     // gemma3
     ggml_tensor * mm_input_proj_w = nullptr;
@@ -1169,38 +1165,33 @@ struct clip_graph {
         cb(cur, "vit_out", -1);
 
         {
-            // SiglipMultiheadAttentionPoolingHead
-            int64_t n_pos = cur->ne[1];
-            ggml_tensor * Qcur = ggml_repeat(ctx0, model.mm_model_query, cur);
-            ggml_tensor * Kcur = cur;
-            ggml_tensor * Vcur = cur;
+            // mlp_AR
+            float proj_norm_eps = 1e-5; // PaddleOCR uses hard-coded value eps=1e-5 for Projector
+            cur = build_norm(cur,
+                        model.mm_input_norm_w, model.mm_input_norm_b,
+                        NORM_TYPE_NORMAL, proj_norm_eps, -1);
+            //cur = build_patch_merge_permute(cur, hparams.proj_scale_factor);
 
-            Qcur = ggml_reshape_3d(ctx0, Qcur, d_head, n_head, n_pos);
-            Kcur = ggml_reshape_3d(ctx0, Kcur, d_head, n_head, n_pos);
-            Vcur = ggml_reshape_3d(ctx0, Vcur, d_head, n_head, n_pos);
+            // stack and padding
+            int64_t stride          = hparams.proj_scale_factor * hparams.proj_scale_factor;
+            int64_t n_embd          = cur->ne[0];
+            int64_t n_tokens        = cur->ne[1];
+            int64_t n_tokens_padded = CLIP_ALIGN(n_tokens, stride);
+            int64_t n_pad           = n_tokens_padded - n_tokens;
+            if (n_pad > 0) {
+                cur = ggml_view_1d(ctx0, cur, ggml_nelements(cur), 0);
+                cur = ggml_pad(ctx0, cur, n_pad * n_embd, 0, 0, 0);
+            }
+            cur = ggml_view_2d(ctx0, cur,
+                n_embd * stride,
+                n_tokens_padded / stride,
+                ggml_row_size(cur->type, n_embd * stride), 0);
+            cb(cur, "after_stacked", -1);
 
-            cb(Qcur, "resampl_Qcur", -1);
-            cb(Kcur, "resampl_Kcur", -1);
-            cb(Vcur, "resampl_Vcur", -1);
-
-            float kq_scale = 1.0f / sqrtf((float)(d_head));
-            cur = build_attn(model.mm_model_attn_o_w, model.mm_model_attn_o_b,
-                Qcur, Kcur, Vcur, nullptr, kq_scale, -1);
-
-            cb(cur, "resampl_attn_out", -1);
-
-            cur = build_norm(cur, model.mm_model_ln_post_w, model.mm_model_ln_post_b,
-                NORM_TYPE_NORMAL, eps, -1);
-
-            cb(cur, "resampl_out", -1);
-        }
-
-        {
-            // SiglipMLP
             cur = build_ffn(cur,
-                        model.mm_model_ffn_up_w, model.mm_model_ffn_up_b,
+                        model.mm_1_w, model.mm_1_b,
                         nullptr, nullptr,
-                        model.mm_model_ffn_down_w, model.mm_model_ffn_down_b,
+                        model.mm_2_w, model.mm_2_b,
                         hparams.ffn_op, -1);
             cb(cur, "mlp_out", -1);
         }
@@ -2521,7 +2512,7 @@ struct clip_model_loader {
                     } break;
                 case PROJECTOR_TYPE_PADDLEOCR:
                     {
-                        hparams.proj_scale_factor = 1;
+                        hparams.proj_scale_factor = 2;
                     } break;
                 default:
                     break;
@@ -2862,11 +2853,6 @@ struct clip_model_loader {
                     model.mm_model_attn_o_b  = get_tensor(string_format(TN_RESAMPL_ATTN, "out", "bias"));
                     model.mm_model_ln_post_w = get_tensor(string_format(TN_RESAMPL_LN, "post", "weight"));
                     model.mm_model_ln_post_b = get_tensor(string_format(TN_RESAMPL_LN, "post", "bias"));
-                    // resampler ffn
-                    model.mm_model_ffn_up_w   = get_tensor(string_format(TN_RESAMPL_FFN_UP, "weight"));
-                    model.mm_model_ffn_up_b   = get_tensor(string_format(TN_RESAMPL_FFN_UP, "bias"));
-                    model.mm_model_ffn_down_w = get_tensor(string_format(TN_RESAMPL_FFN_DOWN, "weight"));
-                    model.mm_model_ffn_down_b = get_tensor(string_format(TN_RESAMPL_FFN_DOWN, "bias"));
                     // projector ffn
                     model.mm_1_w = get_tensor(string_format(TN_LLAVA_PROJ, 1, "weight"));
                     model.mm_1_b = get_tensor(string_format(TN_LLAVA_PROJ, 1, "bias"));
@@ -3967,7 +3953,6 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
             } break;
         case PROJECTOR_TYPE_LFM2:
         case PROJECTOR_TYPE_KIMIVL:
-        case PROJECTOR_TYPE_PADDLEOCR:
             {
                 // dynamic size
                 int scale_factor = ctx->model.hparams.proj_scale_factor;
@@ -3975,6 +3960,13 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
                 int x_patch = CLIP_ALIGN(img->nx, out_patch_size) / out_patch_size;
                 int y_patch = CLIP_ALIGN(img->ny, out_patch_size) / out_patch_size;
                 n_patches = x_patch * y_patch;
+            } break;
+        case PROJECTOR_TYPE_PADDLEOCR:
+            {
+                // dynamic size
+                int scale_factor = ctx->model.hparams.proj_scale_factor;
+                int stride = scale_factor * scale_factor;
+                n_patches = CLIP_ALIGN(n_patches, stride) / stride;
             } break;
         case PROJECTOR_TYPE_PIXTRAL:
             {

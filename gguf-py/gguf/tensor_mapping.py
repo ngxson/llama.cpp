@@ -1352,17 +1352,14 @@ class TensorNameMap:
 
         MODEL_TENSOR.V_RESMPL_ATTN_Q: (
             "resampler.attn.in_proj_q", # tensor generated from resampler.attn.in_proj
-            "model.vision_model.head.attention.in_proj_q", # PaddleOCR-VL (generated tensor)
         ),
 
         MODEL_TENSOR.V_RESMPL_ATTN_K: (
             "resampler.attn.in_proj_k", # tensor generated from resampler.attn.in_proj
-            "model.vision_model.head.attention.in_proj_k", # PaddleOCR-VL (generated tensor)
         ),
 
         MODEL_TENSOR.V_RESMPL_ATTN_V: (
             "resampler.attn.in_proj_v", # tensor generated from resampler.attn.in_proj
-            "model.vision_model.head.attention.in_proj_v", # PaddleOCR-VL (generated tensor)
         ),
 
         MODEL_TENSOR.V_RESMPL_ATTN_OUT: (
@@ -1376,7 +1373,6 @@ class TensorNameMap:
 
         MODEL_TENSOR.V_RESMPL_POST_NORM: (
             "resampler.ln_post",
-            "model.vision_model.head.layernorm", # PaddleOCR-VL
         ),
 
         MODEL_TENSOR.V_RESMPL_KV_NORM: (
@@ -1393,15 +1389,6 @@ class TensorNameMap:
 
         MODEL_TENSOR.V_RESMPL_QUERY: (
             "resampler.query",
-            "model.vision_model.head.probe", # PaddleOCR-VL
-        ),
-
-        MODEL_TENSOR.V_RESMPL_FFN_UP: (
-            "model.vision_model.head.mlp.fc1", # PaddleOCR-VL
-        ),
-
-        MODEL_TENSOR.V_RESMPL_FFN_DOWN: (
-            "model.vision_model.head.mlp.fc2", # PaddleOCR-VL
         ),
 
         MODEL_TENSOR.V_TOK_EMBD_IMG_BREAK: (
