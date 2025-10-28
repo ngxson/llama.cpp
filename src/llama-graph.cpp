@@ -54,13 +54,10 @@ void llm_graph_input_pos::set_input(const llama_ubatch * ubatch) {
             }
             ggml_backend_tensor_set(pos, pos_data.data(), 0, pos_data.size()*ggml_element_size(pos));
         } else {
-            llama_pos * pos_ptr = ubatch->pos;
-            // Normally, ubatch->pos stores linearly increasing position
-            // However, some multi-modal models requires special position embedding (e.g. M-Rope in qwen2vl and qwen2.5vl)
-            // But linearly increasing position is still needed for proper causal attention masking
-            // So we store both of them: the first n_tokens elements are not changed, while model-specific positions are appended after that.
-            if (ubatch->embd && n_pos_per_embd > 1) pos_ptr += n_tokens; // use mrope positions
-            ggml_backend_tensor_set(pos, pos_ptr, 0, n_tokens * n_pos_per_embd * ggml_element_size(pos));
+            const bool has_mrope = ubatch->embd && n_pos_per_embd > 1;
+            ggml_backend_tensor_set(pos,
+                ubatch->pos + (has_mrope ? n_tokens : 0), // skip the first n_tokens positions for M-RoPE
+                0, n_tokens*n_pos_per_embd*ggml_element_size(pos));
         }
     }
 }

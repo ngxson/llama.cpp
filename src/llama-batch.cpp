@@ -639,7 +639,10 @@ llama_ubatch llama_batch_allocr::ubatch_add(const std::vector<int32_t> & idxs, u
 
     auto udata = std::make_shared<llama_ubatch::data_t>();
 
-    const int32_t n_pos_cur = batch.embd ? (n_pos_per_embd + 1) : 1;
+    const int32_t n_pos_per_embd_inp = n_pos_per_embd > 1
+        ? (n_pos_per_embd + 1) // include the extra linearly increasing positions for M-RoPE
+        : 1;                   // standard RoPE
+    const int32_t n_pos_cur = batch.embd ? n_pos_per_embd_inp : 1;
 
     const int64_t n_embd_all = batch.embd ? (int64_t) n_tokens*n_embd : 0;
     const int64_t n_pos_all  =              (int64_t) n_tokens*n_pos_cur;

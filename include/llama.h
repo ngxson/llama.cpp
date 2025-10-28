@@ -218,6 +218,7 @@ extern "C" {
     // - token  : the token ids of the input (used when embd is NULL)
     // - embd   : token embeddings (i.e. float vector of size n_embd) (used when token is NULL)
     // - pos    : the positions of the respective token in the sequence
+    //            (for M-RoPE, first `n_tokens` are linearly increasing, followed by `n_pos_per_embd * n_tokens` positions for RoPE)
     //            (if set to NULL, the token position will be tracked automatically by llama_encode/llama_decode)
     // - seq_id : the sequence to which the respective token belongs
     //            (if set to NULL, the sequence ID will be assumed to be 0)
@@ -232,7 +233,7 @@ extern "C" {
 
         llama_token  *  token;
         float        *  embd;
-        llama_pos    *  pos;      // first `n_tokens` elements are always linearly increasing position for traditional llm
+        llama_pos    *  pos;
         int32_t      *  n_seq_id;
         llama_seq_id ** seq_id;
         int8_t       *  logits;   // TODO: rename this to "output"

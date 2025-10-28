@@ -191,7 +191,8 @@ static int generate_response(mtmd_cli_context & ctx, int n_predict) {
 
         // eval the token
         common_batch_clear(ctx.batch);
-        common_batch_add(ctx.batch, token_id, ctx.n_past++, {0}, true);
+        int max_pos = llama_memory_seq_pos_max(llama_get_memory(ctx.lctx), 0);
+        common_batch_add(ctx.batch, token_id, max_pos+1, {0}, true);
         if (llama_decode(ctx.lctx, ctx.batch)) {
             LOG_ERR("failed to decode token\n");
             return 1;

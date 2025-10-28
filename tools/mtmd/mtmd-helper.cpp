@@ -55,15 +55,11 @@ llama_pos mtmd_helper_get_n_pos(const mtmd_input_chunks * chunks) {
 
 // helper struct to make working with embd batch easier
 // note: this will be removed after llama_batch_ext refactoring
-// notes2: Normally, batch's `pos` stores linearly increasing position
-// However, some multi-modal models requires special position embedding (e.g. M-Rope in qwen2vl and qwen2.5vl)
-// But linearly increasing position is still needed for proper causal attention masking
-// So we store both of them: the first n_tokens elements are not changed, while model-specific positions are appended after that.
-// So `pos` has `n_tokens * (n_pos_per_embd + 1)` elements
 struct decode_embd_batch {
     int n_pos_per_embd;
     int n_mmproj_embd;
-    std::vector<llama_pos>      pos;
+    std::vector<llama_pos>      pos;      // for M-RoPE, this will have (1+n_pos_per_embd)*n_tokens elements
+                                          // the extra n_tokens are for linearly increasing positions
     std::vector<llama_pos>      pos_view; // used by mrope
     std::vector<int32_t>        n_seq_id;
     std::vector<llama_seq_id>   seq_id_0;
@@ -171,6 +167,59 @@ struct decode_embd_batch {
     }
 };
 
+// helper struct to make working with embd batch easier
+struct decode_text_batch {
+    std::vector<llama_token>    tokens;
+    std::vector<int32_t>        n_seq_id;
+    std::vector<llama_seq_id>   seq_id_0;
+    std::vector<llama_seq_id *> seq_ids;
+    std::vector<int8_t>         logits;
+    llama_seq_id                seq_id;
+    llama_batch batch;
+    decode_text_batch(int32_t n_tokens, llama_seq_id seq_id) : seq_id(seq_id) {
+        tokens  .resize(n_tokens);
+        n_seq_id.resize(n_tokens);
+        seq_ids .resize(n_tokens + 1);
+        logits  .resize(n_tokens);
+        seq_ids[n_tokens] = nullptr;
+        for (int32_t i = 0; i < n_tokens; i++) {
+            n_seq_id[i] = 1;
+            seq_ids [i] = &this->seq_id;
+        }
+        batch = {
+            /*n_tokens       =*/ n_tokens,
+            /*tokens         =*/ tokens.data(),
+            /*embd           =*/ nullptr,
+            /*pos            =*/ nullptr, // position is tracked automatically
+            /*n_seq_id       =*/ n_seq_id.data(),
+            /*seq_id         =*/ seq_ids.data(),
+            /*logits         =*/ logits.data(),
+        };
+    }
+
+    void clear() {
+        batch.n_tokens = 0;
+    }
+
+    bool is_full() const {
+        return batch.n_tokens >= (int32_t) tokens.size();
+    }
+
+    void add_token(llama_token tok, bool output) {
+        GGML_ASSERT(!is_full());
+        int32_t j = batch.n_tokens;
+        batch.token [j] = tok;
+        batch.logits[j] = output;
+        batch.n_tokens++;
+    }
+
+    void set_logits_last() {
+        if (batch.n_tokens > 0) {
+            batch.logits[batch.n_tokens - 1] = true;
+        }
+    }
+};
+
 // Helper function for decoding an image whose embeddings have already been calculated
 int32_t mtmd_helper_decode_image_chunk(
         mtmd_context * ctx,
@@ -259,7 +308,7 @@ int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
         bool logits_last,
         llama_pos * new_n_past) {
     int32_t ret;
-    llama_batch text_batch = llama_batch_init(n_batch, 0, 1);
+    decode_text_batch text_batch(n_batch, seq_id);
     auto chunk_type = mtmd_input_chunk_get_type(chunk);
 
     if (chunk_type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
@@ -268,28 +317,20 @@ int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
         // LOG_INF("decoding text chunk, n_tokens = %zu\n", n_tokens);
         size_t i = 0;
         while (i < n_tokens) { // split into batches
-            text_batch.n_tokens = 0; // clear the batch
-            for (; i < n_tokens && text_batch.n_tokens < n_batch; i++) {
-                int32_t j = text_batch.n_tokens;
-                text_batch.token   [j]    = tokens[i];
-                text_batch.pos     [j]    = n_past++;
-                text_batch.n_seq_id[j]    = 1;
-                text_batch.seq_id  [j][0] = seq_id;
-                text_batch.logits  [j]    = false;
-
-                text_batch.n_tokens++;
+            text_batch.clear();
+            for (; i < n_tokens && !text_batch.is_full(); i++) {
+                text_batch.add_token(tokens[i], false);
             }
             bool is_last_token = (i == n_tokens);
             if (logits_last && is_last_token) {
-                text_batch.logits[text_batch.n_tokens - 1] = true;
+                text_batch.set_logits_last();
             }
-            ret = llama_decode(lctx, text_batch);
+            ret = llama_decode(lctx, text_batch.batch);
             if (ret != 0) {
                 LOG_ERR("failed to decode text\n");
-                llama_batch_free(text_batch);
                 return ret;
             }
-            *new_n_past += text_batch.n_tokens;
+            *new_n_past += text_batch.batch.n_tokens;
         }
 
     } else if (chunk_type == MTMD_INPUT_CHUNK_TYPE_IMAGE || chunk_type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
@@ -301,7 +342,6 @@ int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
         ret = mtmd_encode_chunk(ctx, chunk);
         if (ret != 0) {
             LOG_ERR("failed to encode %s slice\n", name);
-            llama_batch_free(text_batch);
             return ret;
         }
 
@@ -311,14 +351,12 @@ int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
         ret = mtmd_helper_decode_image_chunk(ctx, lctx, chunk, embd, n_past, seq_id, n_batch, new_n_past);
         if (ret != 0) {
             LOG_ERR("failed to decode %s\n", name);
-            llama_batch_free(text_batch);
             return ret;
         }
     } else {
         GGML_ABORT("chunk type not supported");
     }
 
-    llama_batch_free(text_batch);
     return 0;
 }
 
