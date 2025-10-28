@@ -902,9 +902,8 @@ void llama_kv_cache::apply_ubatch(const slot_info & sinfo, const llama_ubatch & 
 
             if (ubatch.has_mrope()) {
                 cells.pos_mrope_set(idx, {
-                    ubatch.pos[i + ubatch.n_tokens],   // x
-                    ubatch.pos[i + ubatch.n_tokens*2], // y
-                    ubatch.pos[i + ubatch.n_tokens*3], // t
+                    ubatch.pos[i + ubatch.n_tokens],   // y
+                    ubatch.pos[i + ubatch.n_tokens*2], // x
                 });
             }
 
@@ -1254,9 +1253,8 @@ void llama_kv_cache::set_input_kq_mask(ggml_tensor * dst, const llama_ubatch * u
                 // for M-RoPE
                 llama_kv_pos_mrope p1_mrope;
                 if (ubatch->has_mrope()) {
-                    p1_mrope.x = ubatch->pos[i + ubatch->n_tokens];
-                    p1_mrope.y = ubatch->pos[i + ubatch->n_tokens*2];
-                    p1_mrope.t = ubatch->pos[i + ubatch->n_tokens*3];
+                    p1_mrope.y = ubatch->pos[i + ubatch->n_tokens];
+                    p1_mrope.x = ubatch->pos[i + ubatch->n_tokens*2];
                 }
 
                 const uint64_t idst = n_kv*(h*n_stream*n_tps_pad + s*n_tps_pad + ii);

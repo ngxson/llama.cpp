@@ -10,14 +10,11 @@
 #include <map>
 
 struct llama_kv_pos_mrope {
-    llama_pos x;
-    llama_pos y;
-    llama_pos t;
+    llama_pos y = 0;
+    llama_pos x = 0;
     // return true if this position is greater than the other position
     bool is_gt(const llama_kv_pos_mrope & other) const {
-        return (t >  other.t)
-            || (t == other.t && y >  other.y)
-            || (t == other.t && y == other.y && x > other.x);
+        return (y > other.y) || (y == other.y && x > other.x);
     }
 };
 
@@ -391,13 +388,8 @@ public:
     }
 
     void pos_mrope_set(uint32_t i, llama_kv_pos_mrope p) {
-        assert(i < pos.size());
-        assert(pos[i] == -1);
-        assert(seq[i].none());
-
+        assert(i < pos_mrope.size());
         pos_mrope[i] = p;
-
-        used.insert(i);
     }
 
     // pos[i] = pos[i] + d

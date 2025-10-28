@@ -251,45 +251,38 @@ bool llama_batch_allocr::init(
     // consistency checks
     //
 
-    for (uint32_t s = 0; s < n_seq_max; ++s) {
-        if (seq_pos[s].empty()) {
-            continue;
-        }
+    // TODO @ngxson : we currently can't check M-RoPE positions, as the position is increased based on image size
+    if (n_pos_per_embd == 1) {
+        for (uint32_t s = 0; s < n_seq_max; ++s) {
+            if (seq_pos[s].empty()) {
+                continue;
+            }
 
-        const llama_pos p0 = memory ? memory->seq_pos_max(s) : -1;
+            const llama_pos p0 = memory ? memory->seq_pos_max(s) : -1;
 
-        if (p0 >= 0) {
-            bool ok = true;
+            if (p0 >= 0) {
+                bool ok = true;
 
-            if (batch.token) {
                 if (seq_pos_min(s) != p0 + 1) {
                     ok = false;
                 }
-            } else {
-                assert(batch.embd);
 
-                // for embeddings (typically used as vision input), we allow them to have repeating positions
-                // ref: https://github.com/ggml-org/llama.cpp/issues/13694#issuecomment-2983871762
-                if (seq_pos_min(s) != p0 && seq_pos_min(s) != p0 + 1) {
-                    ok = false;
+                if (!ok) {
+                    LLAMA_LOG_ERROR(
+                            "%s: the tokens of sequence %d in the input batch have inconsistent sequence positions:\n"
+                            " - the last position stored in the memory module of the context (i.e. the KV cache) for sequence %d is X = %d\n"
+                            " - the tokens for sequence %d in the input batch have a starting position of Y = %d\n"
+                            " it is required that the sequence positions remain consecutive: Y = X + 1\n",
+                            __func__, s, s, p0, s, seq_pos_min(s));
+
+                    return false;
                 }
             }
 
-            if (!ok) {
-                LLAMA_LOG_ERROR(
-                        "%s: the tokens of sequence %d in the input batch have inconsistent sequence positions:\n"
-                        " - the last position stored in the memory module of the context (i.e. the KV cache) for sequence %d is X = %d\n"
-                        " - the tokens for sequence %d in the input batch have a starting position of Y = %d\n"
-                        " it is required that the sequence positions remain consecutive: Y = X + 1\n",
-                        __func__, s, s, p0, s, seq_pos_min(s));
-
+            if (seq_pos_max(s) - seq_pos_min(s) + 1 > (int) seq_pos[s].size()) {
+                LLAMA_LOG_ERROR("%s: sequence %d positions are not continuous\n", __func__, s);
                 return false;
             }
-        }
-
-        if (seq_pos_max(s) - seq_pos_min(s) + 1 > (int) seq_pos[s].size()) {
-            LLAMA_LOG_ERROR("%s: sequence %d positions are not continuous\n", __func__, s);
-            return false;
         }
     }
 
@@ -659,9 +652,6 @@ llama_ubatch llama_batch_allocr::ubatch_add(const std::vector<int32_t> & idxs, u
 
     const int64_t n_embd_all = batch.embd ? (int64_t) n_tokens*n_embd : 0;
     const int64_t n_pos_all  =              (int64_t) n_tokens*n_pos_cur;
-
-    // printf("ubatch_add: n_tokens=%d, n_seqs=%d, n_pos_cur=%d, n_embd_all=%lld, n_pos_all=%lld\n",
-    //         n_tokens, n_seqs, n_pos_cur, n_embd_all, n_pos_all);
 
     udata->token     .resize(n_tokens);
     udata->embd      .resize(n_embd_all);
