@@ -900,6 +900,14 @@ void llama_kv_cache::apply_ubatch(const slot_info & sinfo, const llama_ubatch & 
 
             cells.pos_set(idx, ubatch.pos[i]);
 
+            if (ubatch.has_mrope()) {
+                cells.pos_mrope_set(idx, {
+                    ubatch.pos[i + ubatch.n_tokens],   // x
+                    ubatch.pos[i + ubatch.n_tokens*2], // y
+                    ubatch.pos[i + ubatch.n_tokens*3], // t
+                });
+            }
+
             for (int32_t s = 0; s < ubatch.n_seq_id[i]; s++) {
                 cells.seq_add(idx, ubatch.seq_id[i][s]);
             }
@@ -1243,6 +1251,14 @@ void llama_kv_cache::set_input_kq_mask(ggml_tensor * dst, const llama_ubatch * u
 
                 const llama_pos p1 = ubatch->pos[i];
 
+                // for M-RoPE
+                llama_kv_pos_mrope p1_mrope;
+                if (ubatch->has_mrope()) {
+                    p1_mrope.x = ubatch->pos[i + ubatch->n_tokens];
+                    p1_mrope.y = ubatch->pos[i + ubatch->n_tokens*2];
+                    p1_mrope.t = ubatch->pos[i + ubatch->n_tokens*3];
+                }
+
                 const uint64_t idst = n_kv*(h*n_stream*n_tps_pad + s*n_tps_pad + ii);
 
                 for (uint32_t j = 0; j < n_kv; ++j) {
@@ -1260,6 +1276,14 @@ void llama_kv_cache::set_input_kq_mask(ggml_tensor * dst, const llama_ubatch * u
                     // mask future tokens
                     if (causal_attn && p0 > p1) {
                         continue;
+                    }
+
+                    // M-RoPE causal mask
+                    if (causal_attn && ubatch->has_mrope() && p0 == p1) {
+                        const auto & p0_mrope = cells.pos_mrope_get(j);
+                        if (p0_mrope.is_gt(p1_mrope)) {
+                            continue;
+                        }
                     }
 
                     // apply SWA if any

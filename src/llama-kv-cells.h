@@ -9,6 +9,18 @@
 #include <set>
 #include <map>
 
+struct llama_kv_pos_mrope {
+    llama_pos x;
+    llama_pos y;
+    llama_pos t;
+    // return true if this position is greater than the other position
+    bool is_gt(const llama_kv_pos_mrope & other) const {
+        return (t >  other.t)
+            || (t == other.t && y >  other.y)
+            || (t == other.t && y == other.y && x > other.x);
+    }
+};
+
 // meta information about KV cells that can be part of multiple sequences at the same time
 // TODO: add unit tests
 class llama_kv_cells {
@@ -43,6 +55,7 @@ public:
 
     void resize(uint32_t n) {
         pos.resize(n);
+        pos_mrope.resize(n);
         shift.resize(n);
         seq.resize(n);
 
@@ -107,8 +120,9 @@ public:
         for (uint32_t j = 0; j < n; ++j) {
             const auto idx = i + j;
 
-            res.pos[j] = pos[idx];
-            res.seq[j] = seq[idx];
+            res.pos      [j] = pos[idx];
+            res.pos_mrope[j] = pos_mrope[idx];
+            res.seq      [j] = seq[idx];
 
             assert(shift[idx] == 0);
         }
@@ -125,8 +139,9 @@ public:
         for (uint32_t j = 0; j < idxs.size(); ++j) {
             const auto idx = idxs[j];
 
-            res.pos[j] = pos[idx];
-            res.seq[j] = seq[idx];
+            res.pos      [j] = pos[idx];
+            res.pos_mrope[j] = pos_mrope[idx];
+            res.seq      [j] = seq[idx];
 
             assert(shift[idx] == 0);
         }
@@ -340,6 +355,13 @@ public:
         return pos[i];
     }
 
+    const llama_kv_pos_mrope & pos_mrope_get(uint32_t i) const {
+        assert(i < pos.size());
+        assert(pos[i] != -1);
+
+        return pos_mrope[i];
+    }
+
     // note: call only if the cell is not empty
     llama_pos get_shift(uint32_t i) const {
         assert(i < pos.size());
@@ -364,6 +386,16 @@ public:
         assert(seq[i].none());
 
         pos[i] = p;
+
+        used.insert(i);
+    }
+
+    void pos_mrope_set(uint32_t i, llama_kv_pos_mrope p) {
+        assert(i < pos.size());
+        assert(pos[i] == -1);
+        assert(seq[i].none());
+
+        pos_mrope[i] = p;
 
         used.insert(i);
     }
@@ -423,6 +455,9 @@ private:
     std::set<uint32_t> used;
 
     std::vector<llama_pos> pos;
+
+    // stores addition info for M-RoPE positions
+    std::vector<llama_kv_pos_mrope> pos_mrope;
 
     // this array accumulates any applied shifts to the pos array since the last reset_shift() call
     // this is used to queue multiple updates to the pos array, which in the end can be applied in one go:

@@ -17,6 +17,10 @@ struct llama_ubatch {
         return b_equal_seqs != 0;
     }
 
+    bool has_mrope() const {
+        return data->pos.size() == data->token.size()*4;
+    }
+
     uint32_t b_equal_seqs; // note: this is a boolean, but we use an int32_t for alignment
                            //       otherwise address sanitizer complains
     // TODO: whole_seqs for embeddings?
