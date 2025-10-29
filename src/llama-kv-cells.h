@@ -9,12 +9,14 @@
 #include <set>
 #include <map>
 
-struct llama_kv_pos_mrope {
-    llama_pos y = 0;
+struct llama_kv_cell_ext {
+    // 2D spatial positions, typically used for M-RoPE
     llama_pos x = 0;
-    // return true if this position is greater than the other position
-    bool is_gt(const llama_kv_pos_mrope & other) const {
-        return (y > other.y) || (y == other.y && x > other.x);
+    llama_pos y = 0;
+
+    // return true if the current 2D spatial position is greater than other
+    bool is_2d_gt(llama_pos ox, llama_pos oy) const {
+        return (y > oy) || (y == oy && x > ox);
     }
 };
 
@@ -52,7 +54,7 @@ public:
 
     void resize(uint32_t n) {
         pos.resize(n);
-        pos_mrope.resize(n);
+        ext.resize(n);
         shift.resize(n);
         seq.resize(n);
 
@@ -117,9 +119,9 @@ public:
         for (uint32_t j = 0; j < n; ++j) {
             const auto idx = i + j;
 
-            res.pos      [j] = pos[idx];
-            res.pos_mrope[j] = pos_mrope[idx];
-            res.seq      [j] = seq[idx];
+            res.pos[j] = pos[idx];
+            res.ext[j] = ext[idx];
+            res.seq[j] = seq[idx];
 
             assert(shift[idx] == 0);
         }
@@ -136,9 +138,9 @@ public:
         for (uint32_t j = 0; j < idxs.size(); ++j) {
             const auto idx = idxs[j];
 
-            res.pos      [j] = pos[idx];
-            res.pos_mrope[j] = pos_mrope[idx];
-            res.seq      [j] = seq[idx];
+            res.pos[j] = pos[idx];
+            res.ext[j] = ext[idx];
+            res.seq[j] = seq[idx];
 
             assert(shift[idx] == 0);
         }
@@ -352,11 +354,11 @@ public:
         return pos[i];
     }
 
-    const llama_kv_pos_mrope & pos_mrope_get(uint32_t i) const {
+    const llama_kv_cell_ext & ext_get(uint32_t i) const {
         assert(i < pos.size());
         assert(pos[i] != -1);
 
-        return pos_mrope[i];
+        return ext[i];
     }
 
     // note: call only if the cell is not empty
@@ -387,9 +389,9 @@ public:
         used.insert(i);
     }
 
-    void pos_mrope_set(uint32_t i, llama_kv_pos_mrope p) {
-        assert(i < pos_mrope.size());
-        pos_mrope[i] = p;
+    void ext_set(uint32_t i, llama_kv_cell_ext && p) {
+        assert(i < ext.size());
+        ext[i] = std::move(p);
     }
 
     // pos[i] = pos[i] + d
@@ -448,8 +450,8 @@ private:
 
     std::vector<llama_pos> pos;
 
-    // stores addition info for M-RoPE positions
-    std::vector<llama_kv_pos_mrope> pos_mrope;
+    // stores extra info per cell
+    std::vector<llama_kv_cell_ext> ext;
 
     // this array accumulates any applied shifts to the pos array since the last reset_shift() call
     // this is used to queue multiple updates to the pos array, which in the end can be applied in one go:

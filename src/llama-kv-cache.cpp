@@ -900,11 +900,11 @@ void llama_kv_cache::apply_ubatch(const slot_info & sinfo, const llama_ubatch & 
 
             cells.pos_set(idx, ubatch.pos[i]);
 
-            if (ubatch.has_mrope()) {
-                cells.pos_mrope_set(idx, {
-                    ubatch.pos[i + ubatch.n_tokens],   // y
-                    ubatch.pos[i + ubatch.n_tokens*2], // x
-                });
+            if (ubatch.is_pos_2d()) {
+                llama_kv_cell_ext ext;
+                ext.x = ubatch.pos[i + ubatch.n_tokens*2];
+                ext.y = ubatch.pos[i + ubatch.n_tokens];
+                cells.ext_set(idx, std::move(ext));
             }
 
             for (int32_t s = 0; s < ubatch.n_seq_id[i]; s++) {
@@ -1251,11 +1251,8 @@ void llama_kv_cache::set_input_kq_mask(ggml_tensor * dst, const llama_ubatch * u
                 const llama_pos p1 = ubatch->pos[i];
 
                 // for M-RoPE
-                llama_kv_pos_mrope p1_mrope;
-                if (ubatch->has_mrope()) {
-                    p1_mrope.y = ubatch->pos[i + ubatch->n_tokens];
-                    p1_mrope.x = ubatch->pos[i + ubatch->n_tokens*2];
-                }
+                llama_pos p1_x = ubatch->pos[i + ubatch->n_tokens*2];
+                llama_pos p1_y = ubatch->pos[i + ubatch->n_tokens];
 
                 const uint64_t idst = n_kv*(h*n_stream*n_tps_pad + s*n_tps_pad + ii);
 
@@ -1277,9 +1274,9 @@ void llama_kv_cache::set_input_kq_mask(ggml_tensor * dst, const llama_ubatch * u
                     }
 
                     // M-RoPE causal mask
-                    if (causal_attn && ubatch->has_mrope() && p0 == p1) {
-                        const auto & p0_mrope = cells.pos_mrope_get(j);
-                        if (p0_mrope.is_gt(p1_mrope)) {
+                    if (causal_attn && ubatch->is_pos_2d() && p0 == p1) {
+                        const auto & p0_ext = cells.ext_get(j);
+                        if (p0_ext.is_2d_gt(p1_x, p1_y)) {
                             continue;
                         }
                     }
