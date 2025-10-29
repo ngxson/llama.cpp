@@ -1579,6 +1579,9 @@ void llama_kv_cache::state_write_meta(llama_io_write_i & io, const cell_ranges_t
             io.write(&pos,      sizeof(pos));
             io.write(&n_seq_id, sizeof(n_seq_id));
 
+            // TODO: we also need to save llama_kv_cell_ext when apply_ubatch() support loading it
+            //       see: https://github.com/ggml-org/llama.cpp/pull/16825#issuecomment-3460868350
+
             for (const auto & seq_id : seq_ids) {
                 io.write(&seq_id, sizeof(seq_id));
             }
@@ -1724,6 +1727,8 @@ bool llama_kv_cache::state_read_meta(llama_io_read_i & io, uint32_t strm, uint32
             return false;
         }
 
+        // TODO: we cannot yet restore llama_kv_cell_ext as the apply_ubatch() does not support it yet
+        //       see: https://github.com/ggml-org/llama.cpp/pull/16825#issuecomment-3460868350
         apply_ubatch(sinfo, ubatch);
 
         const auto head_cur = sinfo.head();
