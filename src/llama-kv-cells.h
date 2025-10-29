@@ -5,9 +5,10 @@
 
 #include <bitset>
 #include <cassert>
-#include <vector>
-#include <set>
+#include <cstring>
 #include <map>
+#include <set>
+#include <vector>
 
 struct llama_kv_cell_ext {
     // 2D spatial positions, typically used for M-RoPE
