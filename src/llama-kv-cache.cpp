@@ -1256,8 +1256,9 @@ void llama_kv_cache::set_input_kq_mask(ggml_tensor * dst, const llama_ubatch * u
                 const llama_pos p1 = ubatch->pos[i];
 
                 // for M-RoPE
-                llama_pos p1_x = ubatch->pos[i + ubatch->n_tokens*2];
-                llama_pos p1_y = ubatch->pos[i + ubatch->n_tokens];
+                const bool is_2d = ubatch->is_pos_2d();
+                const llama_pos p1_x = is_2d ? ubatch->pos[i + ubatch->n_tokens*2] : 0;
+                const llama_pos p1_y = is_2d ? ubatch->pos[i + ubatch->n_tokens]   : 0;
 
                 const uint64_t idst = n_kv*(h*n_stream*n_tps_pad + s*n_tps_pad + ii);
 
@@ -1279,7 +1280,7 @@ void llama_kv_cache::set_input_kq_mask(ggml_tensor * dst, const llama_ubatch * u
                     }
 
                     // M-RoPE causal mask
-                    if (causal_attn && ubatch->is_pos_2d() && p0 == p1) {
+                    if (causal_attn && is_2d && p0 == p1) {
                         const auto & p0_ext = cells.ext_get(j);
                         if (p0_ext.is_2d_gt(p1_x, p1_y)) {
                             continue;
