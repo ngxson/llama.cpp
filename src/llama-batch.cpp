@@ -252,8 +252,27 @@ bool llama_batch_allocr::init(
     // consistency checks
     //
 
-    // TODO @ngxson : we currently can't check M-RoPE positions, as the position is increased based on image size
-    if (n_pos_per_embd == 1) {
+    if (n_pos_per_embd > 1) {
+        // M-RoPE case: allow position to "jump" forward only (non-continuous positions are allowed)
+        for (uint32_t s = 0; s < n_seq_max; ++s) {
+            if (seq_pos[s].empty()) {
+                continue;
+            }
+
+            const llama_pos p0 = memory ? memory->seq_pos_max(s) : -1;
+
+            if (p0 >= 0 && p0 >= seq_pos_min(s)) {
+                LLAMA_LOG_ERROR(
+                        "%s: the tokens of sequence %d in the input batch have inconsistent sequence positions:\n"
+                        " - the last position stored in the memory module of the context (i.e. the KV cache) for sequence %d is X = %d\n"
+                        " - the tokens for sequence %d in the input batch have a starting position of Y = %d\n"
+                        " for M-RoPE, it is required that the position satisfies: X < Y\n",
+                        __func__, s, s, p0, s, seq_pos_min(s));
+
+                return false;
+            }
+        }
+    } else {
         for (uint32_t s = 0; s < n_seq_max; ++s) {
             if (seq_pos[s].empty()) {
                 continue;
