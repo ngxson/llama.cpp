@@ -901,9 +901,10 @@ void llama_kv_cache::apply_ubatch(const slot_info & sinfo, const llama_ubatch & 
             cells.pos_set(idx, ubatch.pos[i]);
 
             if (ubatch.is_pos_2d()) {
-                llama_kv_cell_ext ext;
-                ext.x = ubatch.pos[i + ubatch.n_tokens*2];
-                ext.y = ubatch.pos[i + ubatch.n_tokens];
+                llama_kv_cell_ext ext {
+                    /*.x =*/ ubatch.pos[i + ubatch.n_tokens*2],
+                    /*.y =*/ ubatch.pos[i + ubatch.n_tokens],
+                };
                 cells.ext_set(idx, std::move(ext));
             }
 
