@@ -338,6 +338,8 @@ void llama_kv_cache::seq_cp(llama_seq_id seq_id_src, llama_seq_id seq_id_dst, ll
             llama_pos pos   = v_cells[s0].pos_get(i);
             llama_pos shift = v_cells[s0].get_shift(i);
 
+            llama_kv_cell_ext ext = v_cells[s0].ext_get(i);
+
             if (shift != 0) {
                 pos -= shift;
                 assert(pos >= 0);
@@ -349,6 +351,8 @@ void llama_kv_cache::seq_cp(llama_seq_id seq_id_src, llama_seq_id seq_id_dst, ll
             if (shift != 0) {
                 v_cells[s1].pos_add(i, shift);
             }
+
+            v_cells[s1].ext_set(i, ext);
         }
     }
 
@@ -383,6 +387,7 @@ void llama_kv_cache::seq_keep(llama_seq_id seq_id) {
 
 void llama_kv_cache::seq_add(llama_seq_id seq_id, llama_pos p0, llama_pos p1, llama_pos shift) {
     GGML_ASSERT(seq_id >= 0 && (size_t) seq_id < seq_to_stream.size());
+    GGML_ASSERT(hparams.n_pos_per_embd() == 1 && "seq_add() is only supported for n_pos_per_embd() == 1");
 
     auto & cells = v_cells[seq_to_stream[seq_id]];
     auto & head  = v_heads[seq_to_stream[seq_id]];
@@ -427,6 +432,7 @@ void llama_kv_cache::seq_add(llama_seq_id seq_id, llama_pos p0, llama_pos p1, ll
 
 void llama_kv_cache::seq_div(llama_seq_id seq_id, llama_pos p0, llama_pos p1, int d) {
     GGML_ASSERT(seq_id >= 0 && (size_t) seq_id < seq_to_stream.size());
+    GGML_ASSERT(hparams.n_pos_per_embd() == 1 && "seq_div() is only supported for n_pos_per_embd() == 1");
 
     auto & cells = v_cells[seq_to_stream[seq_id]];
 
@@ -905,7 +911,7 @@ void llama_kv_cache::apply_ubatch(const slot_info & sinfo, const llama_ubatch & 
                     /*.x =*/ ubatch.pos[i + ubatch.n_tokens*2],
                     /*.y =*/ ubatch.pos[i + ubatch.n_tokens],
                 };
-                cells.ext_set(idx, std::move(ext));
+                cells.ext_set(idx, ext);
             }
 
             for (int32_t s = 0; s < ubatch.n_seq_id[i]; s++) {

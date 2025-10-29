@@ -18,6 +18,12 @@ struct llama_kv_cell_ext {
     bool is_2d_gt(llama_pos ox, llama_pos oy) const {
         return (y > oy) || (y == oy && x > ox);
     }
+
+    void reset() {
+        static_assert(std::is_trivially_copyable_v<llama_kv_cell_ext>);
+
+        memset(this, 0, sizeof(*this));
+    }
 };
 
 // meta information about KV cells that can be part of multiple sequences at the same time
@@ -27,6 +33,7 @@ public:
     void reset() {
         for (uint32_t i = 0; i < pos.size(); ++i) {
             pos[i]   = -1;
+            ext[i].reset();
             shift[i] =  0;
             seq[i].reset();
         }
@@ -168,6 +175,7 @@ public:
             }
 
             pos[idx] = other.pos[j];
+            ext[idx] = other.ext[j];
             seq[idx] = other.seq[j];
 
             if (pos[idx] != -1) {
@@ -198,6 +206,7 @@ public:
             }
 
             pos[idx] = other.pos[j];
+            ext[idx] = other.ext[j];
             seq[idx] = other.seq[j];
 
             if (pos[idx] != -1) {
@@ -217,6 +226,7 @@ public:
         seq[i].reset();
 
         pos[i] = -1;
+        ext[i].reset();
         shift[i] = 0;
 
         used.erase(i);
@@ -235,6 +245,7 @@ public:
 
         if (seq[i].none()) {
             pos[i] = -1;
+            ext[i].reset();
             shift[i] = 0;
 
             used.erase(i);
@@ -264,6 +275,7 @@ public:
             seq[i].reset();
 
             pos[i] = -1;
+            ext[i].reset();
             shift[i] = 0;
 
             used.erase(i);
@@ -389,9 +401,9 @@ public:
         used.insert(i);
     }
 
-    void ext_set(uint32_t i, llama_kv_cell_ext && p) {
+    void ext_set(uint32_t i, llama_kv_cell_ext p) {
         assert(i < ext.size());
-        ext[i] = std::move(p);
+        ext[i] = p;
     }
 
     // pos[i] = pos[i] + d
