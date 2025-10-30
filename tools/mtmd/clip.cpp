@@ -3399,9 +3399,134 @@ static void normalize_image_u8_to_f32(const clip_image_u8 & src, clip_image_f32 
 
 // set of tools to manupulate images
 // in the future, we can have HW acceleration by allowing this struct to access 3rd party lib like imagick or opencv
-struct image_manipulation {
+struct img_tool {
+    enum resize_algo {
+        RESIZE_ALGO_BILINEAR,
+        RESIZE_ALGO_BICUBIC,
+        // RESIZE_ALGO_LANCZOS, // TODO
+    };
+
+    enum resize_pad {
+        RESIZE_PAD_NONE,
+        RESIZE_PAD_AROUND,
+        RESIZE_PAD_BOTTOM_RIGHT,
+    };
+
+    static void resize(
+            const clip_image_u8 & src,
+            clip_image_u8 & dst,
+            const clip_image_size & target_resolution,
+            resize_algo algo,
+            resize_pad pad_mode = RESIZE_PAD_AROUND,
+            std::array<uint8_t, 3> pad_color = {0, 0, 0}) {
+        dst.nx = target_resolution.width;
+        dst.ny = target_resolution.height;
+        dst.buf.resize(3 * dst.nx * dst.ny);
+
+        if (pad_mode == RESIZE_PAD_NONE) {
+            // direct resize
+            switch (algo) {
+                case RESIZE_ALGO_BILINEAR:
+                    resize_bilinear(src, dst, target_resolution.width, target_resolution.height);
+                    break;
+                case RESIZE_ALGO_BICUBIC:
+                    resize_bicubic(src, dst, target_resolution.width, target_resolution.height);
+                    break;
+                default:
+                    throw std::runtime_error("Unsupported resize algorithm");
+            }
+        } else {
+            // resize with padding
+            clip_image_u8 resized_image;
+            float scale_w = static_cast<float>(target_resolution.width) / src.nx;
+            float scale_h = static_cast<float>(target_resolution.height) / src.ny;
+            float scale = std::min(scale_w, scale_h);
+            int new_width  = std::min(static_cast<int>(std::ceil(src.nx * scale)), target_resolution.width);
+            int new_height = std::min(static_cast<int>(std::ceil(src.ny * scale)), target_resolution.height);
+
+            switch (algo) {
+                case RESIZE_ALGO_BILINEAR:
+                    resize_bilinear(src, resized_image, new_width, new_height);
+                    break;
+                case RESIZE_ALGO_BICUBIC:
+                    resize_bicubic(src, resized_image, new_width, new_height);
+                    break;
+                default:
+                    throw std::runtime_error("Unsupported resize algorithm");
+            }
+
+            // fill dst with pad_color
+            for (size_t i = 0; i < dst.buf.size(); i += 3) {
+                dst.buf[i]     = pad_color[0];
+                dst.buf[i + 1] = pad_color[1];
+                dst.buf[i + 2] = pad_color[2];
+            }
+
+            int offset_x = 0;
+            int offset_y = 0;
+            if (pad_mode == RESIZE_PAD_AROUND) {
+                offset_x = (target_resolution.width  - new_width)  / 2;
+                offset_y = (target_resolution.height - new_height) / 2;
+            } else if (pad_mode == RESIZE_PAD_BOTTOM_RIGHT) {
+                offset_x = target_resolution.width  - new_width;
+                offset_y = target_resolution.height - new_height;
+            }
+
+            draw_into(dst, resized_image, offset_x, offset_y);
+        }
+    }
+
+    static void crop(const clip_image_u8 & image, clip_image_u8 & dst, int x, int y, int w, int h) {
+        dst.nx = w;
+        dst.ny = h;
+        dst.buf.resize(3 * w * h);
+
+        for (int i = 0; i < h; ++i) {
+            for (int j = 0; j < w; ++j) {
+                int src_idx = 3 * ((y + i)*image.nx + (x + j));
+                int dst_idx = 3 * (i*w + j);
+                dst.buf[dst_idx]     = image.buf[src_idx];
+                dst.buf[dst_idx + 1] = image.buf[src_idx + 1];
+                dst.buf[dst_idx + 2] = image.buf[src_idx + 2];
+            }
+        }
+    }
+
+    // calculate the size of the **resized** image, while preserving the aspect ratio
+    // the calculated size will be aligned to the nearest multiple of align_size
+    // if H or W size is larger than max_dimension, it will be resized to max_dimension
+    static clip_image_size calc_size_preserved_ratio(const clip_image_size & inp_size, const int align_size, const int max_dimension) {
+        if (inp_size.width <= 0 || inp_size.height <= 0 || align_size <= 0 || max_dimension <= 0) {
+            return {0, 0};
+        }
+
+        float scale = std::min(static_cast<float>(max_dimension) / inp_size.width,
+                               static_cast<float>(max_dimension) / inp_size.height);
+
+        float target_width_f  = static_cast<float>(inp_size.width)  * scale;
+        float target_height_f = static_cast<float>(inp_size.height) * scale;
+
+        int aligned_width  = CLIP_ALIGN((int)target_width_f,  align_size);
+        int aligned_height = CLIP_ALIGN((int)target_height_f, align_size);
+
+        return {aligned_width, aligned_height};
+    }
+
+private:
+    // draw src image into dst image at offset (offset_x, offset_y)
+    static void draw_into(clip_image_u8 & dst, const clip_image_u8 & src, int offset_x, int offset_y) {
+        for (int y = 0; y < src.ny; ++y) {
+            for (int x = 0; x < src.nx; ++x) {
+                for (int c = 0; c < 3; ++c) {
+                    dst.buf[3 * ((y + offset_y) * dst.nx + (x + offset_x)) + c] =
+                        src.buf[3 * (y * src.nx + x) + c];
+                }
+            }
+        }
+    }
+
     // Bilinear resize function
-    static void bilinear_resize(const clip_image_u8& src, clip_image_u8& dst, int target_width, int target_height) {
+    static void resize_bilinear(const clip_image_u8 & src, clip_image_u8 & dst, int target_width, int target_height) {
         dst.nx = target_width;
         dst.ny = target_height;
         dst.buf.resize(3 * target_width * target_height);
@@ -3437,7 +3562,7 @@ struct image_manipulation {
 
     // Bicubic resize function
     // part of image will be cropped if the aspect ratio is different
-    static bool bicubic_resize(const clip_image_u8 & img, clip_image_u8 & dst, int target_width, int target_height) {
+    static bool resize_bicubic(const clip_image_u8 & img, clip_image_u8 & dst, int target_width, int target_height) {
         const int nx = img.nx;
         const int ny = img.ny;
 
@@ -3500,93 +3625,6 @@ struct image_manipulation {
         return true;
     }
 
-    // llava-1.6 type of resize_and_pad
-    // if the ratio is not 1:1, padding with pad_color will be applied
-    // pad_color is single channel, default is 0 (black)
-    static void resize_and_pad_image(const clip_image_u8 & image, clip_image_u8 & dst, const clip_image_size & target_resolution, std::array<uint8_t, 3> pad_color = {0, 0, 0}) {
-        int target_width  = target_resolution.width;
-        int target_height = target_resolution.height;
-
-        float scale_w = static_cast<float>(target_width) / image.nx;
-        float scale_h = static_cast<float>(target_height) / image.ny;
-
-        int new_width, new_height;
-
-        if (scale_w < scale_h) {
-            new_width  = target_width;
-            new_height = std::min(static_cast<int>(std::ceil(image.ny * scale_w)), target_height);
-        } else {
-            new_height = target_height;
-            new_width  = std::min(static_cast<int>(std::ceil(image.nx * scale_h)), target_width);
-        }
-
-        clip_image_u8 resized_image;
-        bicubic_resize(image, resized_image, new_width, new_height);
-
-        clip_image_u8 padded_image;
-        padded_image.nx = target_width;
-        padded_image.ny = target_height;
-        padded_image.buf.resize(3 * target_width * target_height);
-
-        // Fill the padded image with the fill color
-        for (size_t i = 0; i < padded_image.buf.size(); i += 3) {
-            padded_image.buf[i]     = pad_color[0];
-            padded_image.buf[i + 1] = pad_color[1];
-            padded_image.buf[i + 2] = pad_color[2];
-        }
-
-        // Calculate padding offsets
-        int pad_x = (target_width  - new_width)  / 2;
-        int pad_y = (target_height - new_height) / 2;
-
-        // Copy the resized image into the center of the padded buffer
-        for (int y = 0; y < new_height; ++y) {
-            for (int x = 0; x < new_width; ++x) {
-                for (int c = 0; c < 3; ++c) {
-                    padded_image.buf[3 * ((y + pad_y) * target_width + (x + pad_x)) + c] = resized_image.buf[3 * (y * new_width + x) + c];
-                }
-            }
-        }
-        dst = std::move(padded_image);
-    }
-
-    static void crop_image(const clip_image_u8 & image, clip_image_u8 & dst, int x, int y, int w, int h) {
-        dst.nx = w;
-        dst.ny = h;
-        dst.buf.resize(3 * w * h);
-
-        for (int i = 0; i < h; ++i) {
-            for (int j = 0; j < w; ++j) {
-                int src_idx = 3 * ((y + i)*image.nx + (x + j));
-                int dst_idx = 3 * (i*w + j);
-                dst.buf[dst_idx]     = image.buf[src_idx];
-                dst.buf[dst_idx + 1] = image.buf[src_idx + 1];
-                dst.buf[dst_idx + 2] = image.buf[src_idx + 2];
-            }
-        }
-    }
-
-    // calculate the size of the **resized** image, while preserving the aspect ratio
-    // the calculated size will be aligned to the nearest multiple of align_size
-    // if H or W size is larger than max_dimension, it will be resized to max_dimension
-    static clip_image_size calc_size_preserved_ratio(const clip_image_size & inp_size, const int align_size, const int max_dimension) {
-        if (inp_size.width <= 0 || inp_size.height <= 0 || align_size <= 0 || max_dimension <= 0) {
-            return {0, 0};
-        }
-
-        float scale = std::min(static_cast<float>(max_dimension) / inp_size.width,
-                               static_cast<float>(max_dimension) / inp_size.height);
-
-        float target_width_f  = static_cast<float>(inp_size.width)  * scale;
-        float target_height_f = static_cast<float>(inp_size.height) * scale;
-
-        int aligned_width  = CLIP_ALIGN((int)target_width_f,  align_size);
-        int aligned_height = CLIP_ALIGN((int)target_height_f, align_size);
-
-        return {aligned_width, aligned_height};
-    }
-
-private:
     static inline int clip(int x, int lower, int upper) {
         return std::max(lower, std::min(x, upper));
     }
@@ -3735,10 +3773,11 @@ struct llava_uhd {
 
     static std::vector<clip_image_u8_ptr> slice_image(const clip_image_u8 * img, const slice_instructions & inst) {
         std::vector<clip_image_u8_ptr> output;
+        img_tool::resize_algo interpolation = img_tool::RESIZE_ALGO_BILINEAR; // TODO: make it configurable
 
         // resize to overview size
         clip_image_u8_ptr resized_img(clip_image_u8_init());
-        image_manipulation::resize_and_pad_image(*img, *resized_img, inst.overview_size);
+        img_tool::resize(*img, *resized_img, inst.overview_size, interpolation);
         output.push_back(std::move(resized_img));
         if (inst.slices.empty()) {
             // no slices, just return the resized image
@@ -3748,9 +3787,11 @@ struct llava_uhd {
         // resize to refined size
         clip_image_u8_ptr refined_img(clip_image_u8_init());
         if (inst.padding_refined) {
-            image_manipulation::resize_and_pad_image(*img, *refined_img, inst.refined_size);
+            img_tool::resize(*img, *refined_img, inst.refined_size, interpolation);
         } else {
-            image_manipulation::bilinear_resize(*img, *refined_img, inst.refined_size.width, inst.refined_size.height);
+            // only algo bicubic preserves the ratio; old models rely on this behavior
+            // TODO: do we need to support other algos here?
+            img_tool::resize(*img, *refined_img, inst.refined_size, img_tool::RESIZE_ALGO_BICUBIC, img_tool::RESIZE_PAD_NONE);
         }
 
         // create slices
@@ -3761,7 +3802,7 @@ struct llava_uhd {
             int h = slice.size.height;
 
             clip_image_u8_ptr img_slice(clip_image_u8_init());
-            image_manipulation::crop_image(*refined_img, *img_slice, x, y, w, h);
+            img_tool::crop(*refined_img, *img_slice, x, y, w, h);
             output.push_back(std::move(img_slice));
         }
 
@@ -3896,208 +3937,224 @@ private:
 // res_imgs memory is being allocated here, previous allocations will be freed if found
 bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, struct clip_image_f32_batch * res_imgs) {
     clip_image_size original_size{img->nx, img->ny};
-    bool pad_to_square = true;
     auto & params = ctx->model.hparams;
-    // The model config actually contains all we need to decide on how to preprocess, here we automatically switch to the new llava-1.6 preprocessing
-    if (params.mm_patch_merge_type == PATCH_MERGE_SPATIAL_UNPAD) {
-        pad_to_square = false;
-    }
 
-    if (clip_is_minicpmv(ctx)) {
-        auto const inst = llava_uhd::get_slice_instructions(ctx, original_size);
-        std::vector<clip_image_u8_ptr> imgs = llava_uhd::slice_image(img, inst);
+    switch (ctx->proj_type()) {
+        case PROJECTOR_TYPE_MINICPMV:
+            {
+                auto const inst = llava_uhd::get_slice_instructions(ctx, original_size);
+                std::vector<clip_image_u8_ptr> imgs = llava_uhd::slice_image(img, inst);
 
-        for (size_t i = 0; i < imgs.size(); ++i) {
-            // clip_image_save_to_bmp(*imgs[i], "slice_" + std::to_string(i) + ".bmp");
-            clip_image_f32_ptr res(clip_image_f32_init());
-            normalize_image_u8_to_f32(*imgs[i], *res, params.image_mean, params.image_std);
-            res_imgs->entries.push_back(std::move(res));
-        }
+                for (size_t i = 0; i < imgs.size(); ++i) {
+                    // clip_image_save_to_bmp(*imgs[i], "slice_" + std::to_string(i) + ".bmp");
+                    clip_image_f32_ptr res(clip_image_f32_init());
+                    normalize_image_u8_to_f32(*imgs[i], *res, params.image_mean, params.image_std);
+                    res_imgs->entries.push_back(std::move(res));
+                }
 
-        res_imgs->grid_x = inst.grid_size.width;
-        res_imgs->grid_y = inst.grid_size.height;
-        return true;
+                res_imgs->grid_x = inst.grid_size.width;
+                res_imgs->grid_y = inst.grid_size.height;
+            } break;
 
-    } else if (ctx->proj_type() == PROJECTOR_TYPE_QWEN2VL || ctx->proj_type() == PROJECTOR_TYPE_QWEN25VL || ctx->proj_type() == PROJECTOR_TYPE_QWEN3VL) {
-        clip_image_u8 resized;
-        auto patch_size = params.patch_size * 2;
-        auto new_size = image_manipulation::calc_size_preserved_ratio(original_size, patch_size, params.image_size);
-        image_manipulation::bicubic_resize(*img, resized, new_size.width, new_size.height);
+        case PROJECTOR_TYPE_QWEN2VL:
+        case PROJECTOR_TYPE_QWEN25VL:
+        case PROJECTOR_TYPE_QWEN3VL:
+            {
+                clip_image_u8 resized;
+                auto patch_size = params.patch_size * 2;
+                auto new_size = img_tool::calc_size_preserved_ratio(original_size, patch_size, params.image_size);
+                img_tool::resize(*img, resized, new_size, img_tool::RESIZE_ALGO_BILINEAR);
 
-        clip_image_f32_ptr img_f32(clip_image_f32_init());
-        // clip_image_f32_ptr res(clip_image_f32_init());
-        normalize_image_u8_to_f32(resized, *img_f32, params.image_mean, params.image_std);
-        // res_imgs->data[0] = *res;
-        res_imgs->entries.push_back(std::move(img_f32));
-        return true;
-    } else if (ctx->proj_type() == PROJECTOR_TYPE_IDEFICS3) {
-        // The refined size has two steps:
-        // 1. Resize w/ aspect-ratio preserving such that the longer side is
-        //      the preprocessor longest size
-        // 2. Resize w/out preserving aspect ratio such that both sides are
-        //      multiples of image_size (always rounding up)
-        //
-        // CITE: https://github.com/huggingface/transformers/blob/main/src/transformers/models/idefics3/image_processing_idefics3.py#L737
-        const clip_image_size refined_size = image_manipulation::calc_size_preserved_ratio(
-            original_size, params.image_size, params.preproc_image_size);
-        // LOG_INF("%s: original size: %d x %d, refined size: %d x %d\n",
-        //         __func__, original_size.width, original_size.height,
-        //         refined_size.width, refined_size.height);
+                clip_image_f32_ptr img_f32(clip_image_f32_init());
+                // clip_image_f32_ptr res(clip_image_f32_init());
+                normalize_image_u8_to_f32(resized, *img_f32, params.image_mean, params.image_std);
+                // res_imgs->data[0] = *res;
+                res_imgs->entries.push_back(std::move(img_f32));
+            } break;
 
-        llava_uhd::slice_instructions instructions;
-        instructions.overview_size = clip_image_size{params.image_size, params.image_size};
-        instructions.refined_size = refined_size;
-        instructions.grid_size = clip_image_size{
-            static_cast<int>(std::ceil(static_cast<float>(refined_size.width) / params.image_size)),
-            static_cast<int>(std::ceil(static_cast<float>(refined_size.height) / params.image_size)),
-        };
-        for (int y = 0; y < refined_size.height; y += params.image_size) {
-            for (int x = 0; x < refined_size.width; x += params.image_size) {
-                // LOG_INF("%s: adding slice at x=%d, y=%d\n", __func__, x, y);
-                instructions.slices.push_back(llava_uhd::slice_coordinates{
-                    /* x    */x,
-                    /* y    */y,
-                    /* size */clip_image_size{
-                        std::min(params.image_size, refined_size.width - x),
-                        std::min(params.image_size, refined_size.height - y)
+        case PROJECTOR_TYPE_IDEFICS3:
+            {
+                // The refined size has two steps:
+                // 1. Resize w/ aspect-ratio preserving such that the longer side is
+                //      the preprocessor longest size
+                // 2. Resize w/out preserving aspect ratio such that both sides are
+                //      multiples of image_size (always rounding up)
+                //
+                // CITE: https://github.com/huggingface/transformers/blob/main/src/transformers/models/idefics3/image_processing_idefics3.py#L737
+                const clip_image_size refined_size = img_tool::calc_size_preserved_ratio(
+                    original_size, params.image_size, params.preproc_image_size);
+                // LOG_INF("%s: original size: %d x %d, refined size: %d x %d\n",
+                //         __func__, original_size.width, original_size.height,
+                //         refined_size.width, refined_size.height);
+
+                llava_uhd::slice_instructions instructions;
+                instructions.overview_size = clip_image_size{params.image_size, params.image_size};
+                instructions.refined_size = refined_size;
+                instructions.grid_size = clip_image_size{
+                    static_cast<int>(std::ceil(static_cast<float>(refined_size.width) / params.image_size)),
+                    static_cast<int>(std::ceil(static_cast<float>(refined_size.height) / params.image_size)),
+                };
+                for (int y = 0; y < refined_size.height; y += params.image_size) {
+                    for (int x = 0; x < refined_size.width; x += params.image_size) {
+                        // LOG_INF("%s: adding slice at x=%d, y=%d\n", __func__, x, y);
+                        instructions.slices.push_back(llava_uhd::slice_coordinates{
+                            /* x    */x,
+                            /* y    */y,
+                            /* size */clip_image_size{
+                                std::min(params.image_size, refined_size.width - x),
+                                std::min(params.image_size, refined_size.height - y)
+                            }
+                        });
                     }
-                });
-            }
-        }
-        auto imgs = llava_uhd::slice_image(img, instructions);
+                }
+                auto imgs = llava_uhd::slice_image(img, instructions);
 
-        // cast and normalize to f32
-        for (size_t i = 0; i < imgs.size(); ++i) {
-            // clip_image_save_to_bmp(*imgs[i], "slice_" + std::to_string(i) + ".bmp");
-            clip_image_f32_ptr res(clip_image_f32_init());
-            normalize_image_u8_to_f32(*imgs[i], *res, params.image_mean, params.image_std);
-            res_imgs->entries.push_back(std::move(res));
-        }
+                // cast and normalize to f32
+                for (size_t i = 0; i < imgs.size(); ++i) {
+                    // clip_image_save_to_bmp(*imgs[i], "slice_" + std::to_string(i) + ".bmp");
+                    clip_image_f32_ptr res(clip_image_f32_init());
+                    normalize_image_u8_to_f32(*imgs[i], *res, params.image_mean, params.image_std);
+                    res_imgs->entries.push_back(std::move(res));
+                }
 
-        res_imgs->grid_x = instructions.grid_size.width;
-        res_imgs->grid_y = instructions.grid_size.height;
-        return true;
-    } else if (ctx->proj_type() == PROJECTOR_TYPE_GLM_EDGE
-            || ctx->proj_type() == PROJECTOR_TYPE_GEMMA3
-            || ctx->proj_type() == PROJECTOR_TYPE_INTERNVL // TODO @ngxson : support dynamic resolution
-    ) {
-        clip_image_u8 resized_image;
-        int sz = params.image_size;
-        image_manipulation::resize_and_pad_image(*img, resized_image, {sz, sz});
-        clip_image_f32_ptr img_f32(clip_image_f32_init());
-        //clip_image_save_to_bmp(resized_image, "resized.bmp");
-        normalize_image_u8_to_f32(resized_image, *img_f32, params.image_mean, params.image_std);
-        res_imgs->entries.push_back(std::move(img_f32));
-        return true;
+                res_imgs->grid_x = instructions.grid_size.width;
+                res_imgs->grid_y = instructions.grid_size.height;
+            } break;
 
-    } else if (ctx->proj_type() == PROJECTOR_TYPE_PIXTRAL
-            || ctx->proj_type() == PROJECTOR_TYPE_LIGHTONOCR
-    ) {
-        clip_image_u8 resized_image;
-        auto new_size = image_manipulation::calc_size_preserved_ratio(original_size, params.patch_size, params.image_size);
-        image_manipulation::bilinear_resize(*img, resized_image, new_size.width, new_size.height);
-        clip_image_f32_ptr img_f32(clip_image_f32_init());
-        normalize_image_u8_to_f32(resized_image, *img_f32, params.image_mean, params.image_std);
-        res_imgs->entries.push_back(std::move(img_f32));
-        return true;
+        case PROJECTOR_TYPE_GLM_EDGE:
+        case PROJECTOR_TYPE_GEMMA3:
+        case PROJECTOR_TYPE_INTERNVL: // TODO @ngxson : support dynamic resolution
+            {
+                clip_image_u8 resized_image;
+                int sz = params.image_size;
+                img_tool::resize(*img, resized_image, {sz, sz}, img_tool::RESIZE_ALGO_BILINEAR);
+                clip_image_f32_ptr img_f32(clip_image_f32_init());
+                //clip_image_save_to_bmp(resized_image, "resized.bmp");
+                normalize_image_u8_to_f32(resized_image, *img_f32, params.image_mean, params.image_std);
+                res_imgs->entries.push_back(std::move(img_f32));
+            } break;
 
-    } else if (ctx->proj_type() == PROJECTOR_TYPE_LLAMA4) {
-        GGML_ASSERT(!params.image_res_candidates.empty());
-        auto const inst = llava_uhd::get_slice_instructions(ctx, original_size);
-        std::vector<clip_image_u8_ptr> imgs = llava_uhd::slice_image(img, inst);
+        case PROJECTOR_TYPE_PIXTRAL:
+        case PROJECTOR_TYPE_LIGHTONOCR:
+            {
+                clip_image_u8 resized_image;
+                auto new_size = img_tool::calc_size_preserved_ratio(original_size, params.patch_size, params.image_size);
+                img_tool::resize(*img, resized_image, new_size, img_tool::RESIZE_ALGO_BILINEAR);
+                clip_image_f32_ptr img_f32(clip_image_f32_init());
+                normalize_image_u8_to_f32(resized_image, *img_f32, params.image_mean, params.image_std);
+                res_imgs->entries.push_back(std::move(img_f32));
+            } break;
 
-        for (size_t i = 0; i < imgs.size(); ++i) {
-            clip_image_f32_ptr res(clip_image_f32_init());
-            normalize_image_u8_to_f32(*imgs[i], *res, params.image_mean, params.image_std);
-            res_imgs->entries.push_back(std::move(res));
-        }
+        case PROJECTOR_TYPE_LLAMA4:
+            {
+                GGML_ASSERT(!params.image_res_candidates.empty());
+                auto const inst = llava_uhd::get_slice_instructions(ctx, original_size);
+                std::vector<clip_image_u8_ptr> imgs = llava_uhd::slice_image(img, inst);
 
-        res_imgs->grid_x = inst.grid_size.width;
-        res_imgs->grid_y = inst.grid_size.height;
-        return true;
+                for (size_t i = 0; i < imgs.size(); ++i) {
+                    clip_image_f32_ptr res(clip_image_f32_init());
+                    normalize_image_u8_to_f32(*imgs[i], *res, params.image_mean, params.image_std);
+                    res_imgs->entries.push_back(std::move(res));
+                }
 
-    } else if ( ctx->proj_type() == PROJECTOR_TYPE_LFM2
-             || ctx->proj_type() == PROJECTOR_TYPE_KIMIVL
-    ) {
-        GGML_ASSERT(params.proj_scale_factor);
+                res_imgs->grid_x = inst.grid_size.width;
+                res_imgs->grid_y = inst.grid_size.height;
+            } break;
 
-        // smart resize
-        const int width = img->nx;
-        const int height = img->ny;
-        const int total_factor = params.patch_size * params.proj_scale_factor;
-        constexpr int min_image_tokens = 64;
-        constexpr int max_image_tokens = 1024;
-        const float min_pixels = min_image_tokens * total_factor * total_factor;
-        const float max_pixels = max_image_tokens * total_factor * total_factor;
+        case PROJECTOR_TYPE_LFM2:
+        case PROJECTOR_TYPE_KIMIVL:
+            {
+                GGML_ASSERT(params.proj_scale_factor);
+                // smart resize
+                const int width = img->nx;
+                const int height = img->ny;
+                const int total_factor = params.patch_size * params.proj_scale_factor;
+                constexpr int min_image_tokens = 64;
+                constexpr int max_image_tokens = 1024;
+                const float min_pixels = min_image_tokens * total_factor * total_factor;
+                const float max_pixels = max_image_tokens * total_factor * total_factor;
 
-        auto round_by_factor = [f = total_factor](float x) { return static_cast<int>(std::nearbyintf(x / static_cast<float>(f))) * f; };
-        auto ceil_by_factor  = [f = total_factor](float x) { return static_cast<int>(std::ceil(x / static_cast<float>(f))) * f; };
-        auto floor_by_factor = [f = total_factor](float x) { return static_cast<int>(std::floor(x / static_cast<float>(f))) * f; };
+                auto round_by_factor = [f = total_factor](float x) { return static_cast<int>(std::nearbyintf(x / static_cast<float>(f))) * f; };
+                auto ceil_by_factor  = [f = total_factor](float x) { return static_cast<int>(std::ceil(x / static_cast<float>(f))) * f; };
+                auto floor_by_factor = [f = total_factor](float x) { return static_cast<int>(std::floor(x / static_cast<float>(f))) * f; };
 
-        int h_bar = std::max(total_factor, round_by_factor(height));
-        int w_bar = std::max(total_factor, round_by_factor(width));
+                int h_bar = std::max(total_factor, round_by_factor(height));
+                int w_bar = std::max(total_factor, round_by_factor(width));
 
-        if (h_bar * w_bar > max_pixels) {
-            const auto beta = std::sqrt((height * width) / max_pixels);
-            h_bar = std::max(total_factor, floor_by_factor(height / beta));
-            w_bar = std::max(total_factor, floor_by_factor(width / beta));
-        } else if (h_bar * w_bar < min_pixels) {
-            const auto beta = std::sqrt(min_pixels / (height * width));
-            h_bar = ceil_by_factor(height * beta);
-            w_bar = ceil_by_factor(width * beta);
-        }
+                if (h_bar * w_bar > max_pixels) {
+                    const auto beta = std::sqrt((height * width) / max_pixels);
+                    h_bar = std::max(total_factor, floor_by_factor(height / beta));
+                    w_bar = std::max(total_factor, floor_by_factor(width / beta));
+                } else if (h_bar * w_bar < min_pixels) {
+                    const auto beta = std::sqrt(min_pixels / (height * width));
+                    h_bar = ceil_by_factor(height * beta);
+                    w_bar = ceil_by_factor(width * beta);
+                }
 
-        const std::array<uint8_t, 3> pad_color = {122, 116, 104};
+                const std::array<uint8_t, 3> pad_color = {122, 116, 104};
 
-        clip_image_u8 resized_img;
-        image_manipulation::resize_and_pad_image(*img, resized_img, clip_image_size{w_bar, h_bar}, pad_color);
-        clip_image_f32_ptr res(clip_image_f32_init());
-        normalize_image_u8_to_f32(resized_img, *res, params.image_mean, params.image_std);
-        res_imgs->entries.push_back(std::move(res));
-        return true;
+                clip_image_u8 resized_img;
+                img_tool::resize(*img, resized_img, clip_image_size{w_bar, h_bar}, img_tool::RESIZE_ALGO_BILINEAR, img_tool::RESIZE_PAD_AROUND, pad_color);
+                clip_image_f32_ptr res(clip_image_f32_init());
+                normalize_image_u8_to_f32(resized_img, *res, params.image_mean, params.image_std);
+                res_imgs->entries.push_back(std::move(res));
+            } break;
+
+        case PROJECTOR_TYPE_MLP:
+        case PROJECTOR_TYPE_MLP_NORM:
+        case PROJECTOR_TYPE_LDP:
+        case PROJECTOR_TYPE_LDPV2:
+        case PROJECTOR_TYPE_COGVLM: // TODO @ngxson : is this correct for cogvlm?
+            {
+                // TODO @ngxson : refactor the code below to avoid duplicated logic
+
+                // the logic below is to pad the shorter side to the longer side with a background color: rgb(122, 116, 104)
+                // see https://github.com/haotian-liu/LLaVA/blob/e854a2bf85118c504f6f16bf5c3c7c92f8fa8c6b/llava/conversation.py#L113-L156
+
+                clip_image_u8_ptr temp(clip_image_u8_init()); // we will keep the input image data here temporarily
+
+                // The model config actually contains all we need to decide on how to preprocess, here we automatically switch to the new llava-1.6 preprocessing
+                if (params.mm_patch_merge_type == PATCH_MERGE_SPATIAL_UNPAD) { // pad_to_square
+                    // for llava-1.5, we resize image to a square, and pad the shorter side with a background color
+                    // see https://github.com/haotian-liu/LLaVA/blob/e854a2bf85118c504f6f16bf5c3c7c92f8fa8c6b/llava/conversation.py#L113-L156
+                    const int longer_side = std::max(img->nx, img->ny);
+                    temp->nx = longer_side;
+                    temp->ny = longer_side;
+                    temp->buf.resize(3 * longer_side * longer_side);
+
+                    // background color in RGB from LLaVA (this is the mean rgb color * 255)
+                    const std::array<uint8_t, 3> pad_color = {122, 116, 104};
+
+                    // resize the image to the target_size
+                    img_tool::resize(*img, *temp, clip_image_size{params.image_size, params.image_size}, img_tool::RESIZE_ALGO_BILINEAR, img_tool::RESIZE_PAD_AROUND, pad_color);
+
+                    clip_image_f32_ptr res(clip_image_f32_init());
+                    normalize_image_u8_to_f32(*temp, *res, params.image_mean, params.image_std);
+                    res_imgs->entries.push_back(std::move(res));
+                    return true;
+
+                } else if (!params.image_res_candidates.empty()) {
+                    // "spatial_unpad" with "anyres" processing for llava-1.6
+                    auto const inst = llava_uhd::get_slice_instructions(ctx, original_size);
+                    std::vector<clip_image_u8_ptr> imgs = llava_uhd::slice_image(img, inst);
+
+                    for (size_t i = 0; i < imgs.size(); ++i) {
+                        // clip_image_save_to_bmp(*imgs[i], "slice_" + std::to_string(i) + ".bmp");
+                        clip_image_f32_ptr res(clip_image_f32_init());
+                        normalize_image_u8_to_f32(*imgs[i], *res, params.image_mean, params.image_std);
+                        res_imgs->entries.push_back(std::move(res));
+                    }
+
+                    return true;
+                }
+            } break;
+
+        default:
+            LOG_ERR("%s: unsupported projector type %d\n", __func__, ctx->proj_type());
+            return false;
     }
 
-    // the logic below is to pad the shorter side to the longer side with a background color: rgb(122, 116, 104)
-    // see https://github.com/haotian-liu/LLaVA/blob/e854a2bf85118c504f6f16bf5c3c7c92f8fa8c6b/llava/conversation.py#L113-L156
-
-    clip_image_u8_ptr temp(clip_image_u8_init()); // we will keep the input image data here temporarily
-
-    if (pad_to_square) {
-        // for llava-1.5, we resize image to a square, and pad the shorter side with a background color
-        // see https://github.com/haotian-liu/LLaVA/blob/e854a2bf85118c504f6f16bf5c3c7c92f8fa8c6b/llava/conversation.py#L113-L156
-        const int longer_side = std::max(img->nx, img->ny);
-        temp->nx = longer_side;
-        temp->ny = longer_side;
-        temp->buf.resize(3 * longer_side * longer_side);
-
-        // background color in RGB from LLaVA (this is the mean rgb color * 255)
-        const std::array<uint8_t, 3> pad_color = {122, 116, 104};
-
-        // resize the image to the target_size
-        image_manipulation::resize_and_pad_image(*img, *temp, clip_image_size{params.image_size, params.image_size}, pad_color);
-
-        clip_image_f32_ptr res(clip_image_f32_init());
-        normalize_image_u8_to_f32(*temp, *res, params.image_mean, params.image_std);
-        res_imgs->entries.push_back(std::move(res));
-        return true;
-
-    } else if (!params.image_res_candidates.empty()) {
-        // "spatial_unpad" with "anyres" processing for llava-1.6
-        auto const inst = llava_uhd::get_slice_instructions(ctx, original_size);
-        std::vector<clip_image_u8_ptr> imgs = llava_uhd::slice_image(img, inst);
-
-        for (size_t i = 0; i < imgs.size(); ++i) {
-            // clip_image_save_to_bmp(*imgs[i], "slice_" + std::to_string(i) + ".bmp");
-            clip_image_f32_ptr res(clip_image_f32_init());
-            normalize_image_u8_to_f32(*imgs[i], *res, params.image_mean, params.image_std);
-            res_imgs->entries.push_back(std::move(res));
-        }
-
-        return true;
-    } else {
-        GGML_ABORT("Unknown image preprocessing type");
-    }
-
+    return true;
 }
 
 ggml_tensor * clip_get_newline_tensor(const struct clip_ctx * ctx) {
