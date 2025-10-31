@@ -3426,24 +3426,18 @@ struct img_tool {
         // RESIZE_ALGO_LANCZOS, // TODO
     };
 
-    enum resize_pad {
-        RESIZE_PAD_NONE,
-        RESIZE_PAD_AROUND,
-        RESIZE_PAD_BOTTOM_RIGHT,
-    };
-
     static void resize(
             const clip_image_u8 & src,
             clip_image_u8 & dst,
             const clip_image_size & target_resolution,
             resize_algo algo,
-            resize_pad pad_mode = RESIZE_PAD_AROUND,
+            bool add_padding = true, // TODO: define the behavior for add_padding = false
             std::array<uint8_t, 3> pad_color = {0, 0, 0}) {
         dst.nx = target_resolution.width;
         dst.ny = target_resolution.height;
         dst.buf.resize(3 * dst.nx * dst.ny);
 
-        if (pad_mode == RESIZE_PAD_NONE) {
+        if (!add_padding) {
             // direct resize
             switch (algo) {
                 case RESIZE_ALGO_BILINEAR:
@@ -3478,15 +3472,8 @@ struct img_tool {
             // fill dst with pad_color
             fill(dst, pad_color);
 
-            int offset_x = 0;
-            int offset_y = 0;
-            if (pad_mode == RESIZE_PAD_AROUND) {
-                offset_x = (target_resolution.width  - new_width)  / 2;
-                offset_y = (target_resolution.height - new_height) / 2;
-            } else if (pad_mode == RESIZE_PAD_BOTTOM_RIGHT) {
-                offset_x = target_resolution.width  - new_width;
-                offset_y = target_resolution.height - new_height;
-            }
+            int offset_x = (target_resolution.width  - new_width)  / 2;
+            int offset_y = (target_resolution.height - new_height) / 2;
 
             composite(dst, resized_image, offset_x, offset_y);
         }
@@ -3523,8 +3510,9 @@ struct img_tool {
         float target_width_f  = static_cast<float>(inp_size.width)  * scale;
         float target_height_f = static_cast<float>(inp_size.height) * scale;
 
-        int aligned_width  = CLIP_ALIGN((int)target_width_f,  align_size);
-        int aligned_height = CLIP_ALIGN((int)target_height_f, align_size);
+        auto ceil_by_factor = [f = align_size](float x) { return static_cast<int>(std::ceil(x / static_cast<float>(f))) * f; };
+        int aligned_width  = ceil_by_factor(target_width_f);
+        int aligned_height = ceil_by_factor(target_height_f);
 
         return {aligned_width, aligned_height};
     }
@@ -3852,7 +3840,7 @@ struct llava_uhd {
         } else {
             // only algo bicubic preserves the ratio; old models rely on this behavior
             // TODO: do we need to support other algos here?
-            img_tool::resize(*img, *refined_img, inst.refined_size, img_tool::RESIZE_ALGO_BICUBIC, img_tool::RESIZE_PAD_NONE);
+            img_tool::resize(*img, *refined_img, inst.refined_size, img_tool::RESIZE_ALGO_BICUBIC, false);
         }
 
         // create slices
@@ -4022,35 +4010,17 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         case PROJECTOR_TYPE_QWEN3VL:
             {
                 // step 1: make a blank canvas which aligns to the grid
-                clip_image_u8 canvas;
-                const clip_image_size canvas_size = img_tool::calc_size_preserved_ratio(
+                clip_image_u8 resized;
+                const clip_image_size new_size = img_tool::calc_size_preserved_ratio(
                     original_size,
-                    params.patch_size * params.n_merge,
+                    params.patch_size * 2,
                     params.image_min_pixels,
                     params.image_max_pixels);
-                canvas.nx = canvas_size.width;
-                canvas.ny = canvas_size.height;
-                canvas.buf.resize(3 * canvas.nx * canvas.ny);
-                img_tool::fill(canvas, {0, 0, 0});
-
-                // step 2: composite resized image onto the canvas, top-left corner
-                if (original_size.height > canvas.ny || original_size.width > canvas.nx) {
-                    // need to resize original image first
-                    clip_image_u8 resized;
-                    const clip_image_size scaled_size = img_tool::calc_size_preserved_ratio(
-                        original_size,
-                        1, // no need to align here since we will composite onto canvas
-                        std::min(canvas.nx, canvas.ny)); // fit into the canvas
-                    img_tool::resize(*img, resized, scaled_size, img_tool::RESIZE_ALGO_BILINEAR);
-                    img_tool::composite(canvas, resized, 0, 0);
-                } else {
-                    // no resizing needed
-                    img_tool::composite(canvas, *img, 0, 0);
-                }
-
+                img_tool::resize(*img, resized, new_size, img_tool::RESIZE_ALGO_BILINEAR, false);
+                // clip_image_save_to_bmp(canvas, "preproc.bmp");
                 clip_image_f32_ptr img_f32(clip_image_f32_init());
                 // clip_image_f32_ptr res(clip_image_f32_init());
-                normalize_image_u8_to_f32(canvas, *img_f32, params.image_mean, params.image_std);
+                normalize_image_u8_to_f32(resized, *img_f32, params.image_mean, params.image_std);
                 // res_imgs->data[0] = *res;
                 res_imgs->entries.push_back(std::move(img_f32));
             } break;
@@ -4163,7 +4133,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 const std::array<uint8_t, 3> pad_color = {122, 116, 104};
 
                 clip_image_u8 resized_img;
-                img_tool::resize(*img, resized_img, target_size, img_tool::RESIZE_ALGO_BILINEAR, img_tool::RESIZE_PAD_AROUND, pad_color);
+                img_tool::resize(*img, resized_img, target_size, img_tool::RESIZE_ALGO_BILINEAR, true, pad_color);
                 clip_image_f32_ptr res(clip_image_f32_init());
                 normalize_image_u8_to_f32(resized_img, *res, params.image_mean, params.image_std);
                 res_imgs->entries.push_back(std::move(res));
@@ -4195,7 +4165,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                     const std::array<uint8_t, 3> pad_color = {122, 116, 104};
 
                     // resize the image to the target_size
-                    img_tool::resize(*img, *temp, clip_image_size{params.image_size, params.image_size}, img_tool::RESIZE_ALGO_BILINEAR, img_tool::RESIZE_PAD_AROUND, pad_color);
+                    img_tool::resize(*img, *temp, clip_image_size{params.image_size, params.image_size}, img_tool::RESIZE_ALGO_BILINEAR, true, pad_color);
 
                     clip_image_f32_ptr res(clip_image_f32_init());
                     normalize_image_u8_to_f32(*temp, *res, params.image_mean, params.image_std);
@@ -4268,7 +4238,7 @@ int clip_n_output_tokens_x(const struct clip_ctx * ctx, struct clip_image_f32 * 
     const auto & params = ctx->model.hparams;
     const int n_total = clip_n_output_tokens(ctx, img);
     if (ctx->proj_type() == PROJECTOR_TYPE_QWEN2VL || ctx->proj_type() == PROJECTOR_TYPE_QWEN25VL || ctx->proj_type() == PROJECTOR_TYPE_QWEN3VL) {
-        return img->nx / (params.patch_size * 2) + (int)(img->nx % params.patch_size > 0);
+        return img->nx / (params.patch_size * 2);
     }
     return n_total;
 }
@@ -4276,7 +4246,7 @@ int clip_n_output_tokens_x(const struct clip_ctx * ctx, struct clip_image_f32 * 
 int clip_n_output_tokens_y(const struct clip_ctx * ctx, struct clip_image_f32 * img) {
     const auto & params = ctx->model.hparams;
     if (ctx->proj_type() == PROJECTOR_TYPE_QWEN2VL || ctx->proj_type() == PROJECTOR_TYPE_QWEN25VL || ctx->proj_type() == PROJECTOR_TYPE_QWEN3VL) {
-        return img->ny / (params.patch_size * 2) + (int)(img->ny % params.patch_size > 0);
+        return img->ny / (params.patch_size * 2);
     }
     return 1;
 }
@@ -4334,9 +4304,8 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         case PROJECTOR_TYPE_QWEN3VL:
             {
                 // dynamic size (2 conv, so double patch size)
-                int patch_size = params.patch_size * 2;
-                int x_patch = img->nx / patch_size + (int)(img->nx % patch_size > 0);
-                int y_patch = img->ny / patch_size + (int)(img->ny % patch_size > 0);
+                int x_patch = img->nx / (params.patch_size * 2);
+                int y_patch = img->ny / (params.patch_size * 2);
                 n_patches = x_patch * y_patch;
             } break;
         case PROJECTOR_TYPE_GEMMA3:
