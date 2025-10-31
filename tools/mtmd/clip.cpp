@@ -216,10 +216,10 @@ struct clip_hparams {
     void set_warmup_n_tokens(int n_tokens) {
         int n_tok_per_side = static_cast<int>(std::sqrt(n_tokens));
         GGML_ASSERT(n_tok_per_side * n_tok_per_side == n_tokens && "n_tokens must be n*n");
-        warmup_image_size = n_tok_per_side * patch_size * get_scale_factor_per_side();
+        warmup_image_size = n_tok_per_side * patch_size * get_merge_kernel_size();
     }
 
-    int get_scale_factor_per_side() const {
+    int get_merge_kernel_size() const {
         return static_cast<int>(std::sqrt(proj_scale_factor));
     }
 };
@@ -550,7 +550,7 @@ struct clip_graph {
             const int batch_size = 1;
             GGML_ASSERT(n_patches_x == n_patches_y);
             const int patches_per_image = n_patches_x;
-            const int kernel_size = hparams.get_scale_factor_per_side();
+            const int kernel_size = hparams.get_merge_kernel_size();
 
             cur = ggml_transpose(ctx0, cur);
             cur = ggml_cont_4d(ctx0, cur, patches_per_image, patches_per_image, n_embd, batch_size);
@@ -602,7 +602,7 @@ struct clip_graph {
     }
 
     ggml_cgraph * build_pixtral() {
-        const int n_merge = hparams.get_scale_factor_per_side();
+        const int n_merge = hparams.get_merge_kernel_size();
 
         // 2D input positions
         ggml_tensor * pos_h = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_patches);
@@ -4034,7 +4034,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 clip_image_u8 canvas;
                 const clip_image_size canvas_size = img_tool::calc_size_preserved_ratio(
                     original_size,
-                    params.patch_size * params.get_scale_factor_per_side(),
+                    params.patch_size * params.get_merge_kernel_size(),
                     params.image_min_pixels,
                     params.image_max_pixels);
                 canvas.nx = canvas_size.width;
@@ -4133,7 +4133,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 clip_image_u8 resized_image;
                 const clip_image_size target_size = img_tool::calc_size_preserved_ratio(
                     original_size,
-                    params.patch_size * params.get_scale_factor_per_side(),
+                    params.patch_size * params.get_merge_kernel_size(),
                     params.image_min_pixels,
                     params.image_max_pixels);
                 img_tool::resize(*img, resized_image, target_size, img_tool::RESIZE_ALGO_BILINEAR);
@@ -4164,7 +4164,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 GGML_ASSERT(params.image_min_pixels && params.image_max_pixels);
                 const clip_image_size target_size = img_tool::calc_size_preserved_ratio(
                     original_size,
-                    params.patch_size * params.get_scale_factor_per_side(),
+                    params.patch_size * params.get_merge_kernel_size(),
                     params.image_min_pixels,
                     params.image_max_pixels);
                 const std::array<uint8_t, 3> pad_color = {122, 116, 104};
@@ -4359,7 +4359,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         case PROJECTOR_TYPE_KIMIVL:
             {
                 // dynamic size
-                int scale_factor = params.get_scale_factor_per_side();
+                int scale_factor = params.get_merge_kernel_size();
                 int out_patch_size = params.patch_size * scale_factor;
                 int x_patch = CLIP_ALIGN(img->nx, out_patch_size) / out_patch_size;
                 int y_patch = CLIP_ALIGN(img->ny, out_patch_size) / out_patch_size;
@@ -4369,7 +4369,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         case PROJECTOR_TYPE_LIGHTONOCR:
             {
                 // dynamic size
-                int n_merge = params.get_scale_factor_per_side();
+                int n_merge = params.get_merge_kernel_size();
                 int n_patches_x = img->nx / patch_size / (n_merge > 0 ? n_merge : 1);
                 int n_patches_y = img->ny / patch_size / (n_merge > 0 ? n_merge : 1);
                 if (ctx->model.token_embd_img_break) {
