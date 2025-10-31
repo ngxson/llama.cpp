@@ -174,7 +174,7 @@ struct clip_hparams {
     int32_t image_longest_edge = 0;
     int32_t image_min_pixels = 0;
     int32_t image_max_pixels = 0;
-    int32_t proj_scale_factor = 0;
+    int32_t proj_scale_factor = 0; // = (spatial_merge_size)^2
 
     float image_mean[3];
     float image_std[3];
@@ -196,7 +196,6 @@ struct clip_hparams {
     std::unordered_set<int32_t> vision_feature_layer;
     int32_t attn_window_size = 0;
     int32_t n_wa_pattern = 0;
-    int32_t spatial_merge_size = 0;
 
     // audio
     int32_t n_mel_bins = 0; // whisper preprocessor
@@ -209,9 +208,16 @@ struct clip_hparams {
 
     // used by LFM2 and KIMI-VL
     void set_limit_image_tokens(int n_tokens_min, int n_tokens_max) {
-        const int total_factor = patch_size * proj_scale_factor;
-        image_min_pixels = n_tokens_min * total_factor * total_factor;
-        image_max_pixels = n_tokens_max * total_factor * total_factor;
+        const int patch_area = patch_size * patch_size * proj_scale_factor;
+        image_min_pixels = n_tokens_min * patch_area;
+        image_max_pixels = n_tokens_max * patch_area;
+        warmup_image_size = static_cast<int>(std::sqrt(image_max_pixels));
+    }
+
+    void set_warmup_n_tokens(int n_tokens) {
+        int n_tok_per_side = static_cast<int>(std::sqrt(n_tokens));
+        GGML_ASSERT(n_tok_per_side * n_tok_per_side == n_tokens && "n_tokens must be n*n");
+        warmup_image_size = n_tok_per_side * patch_size * static_cast<int>(std::sqrt(proj_scale_factor));
     }
 };
 
@@ -593,7 +599,7 @@ struct clip_graph {
     }
 
     ggml_cgraph * build_pixtral() {
-        const int n_merge = hparams.spatial_merge_size;
+        const int n_merge = hparams.proj_scale_factor;
 
         // 2D input positions
         ggml_tensor * pos_h = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_patches);
@@ -619,7 +625,7 @@ struct clip_graph {
         // mistral small 3.1 patch merger
         // ref: https://github.com/huggingface/transformers/blob/7a3e208892c06a5e278144eaf38c8599a42f53e7/src/transformers/models/mistral3/modeling_mistral3.py#L67
         if (model.mm_patch_merger_w) {
-            GGML_ASSERT(hparams.spatial_merge_size > 0);
+            GGML_ASSERT(hparams.proj_scale_factor > 0);
 
             cur = ggml_mul(ctx0, ggml_rms_norm(ctx0, cur, eps), model.mm_input_norm_w);
 
@@ -935,7 +941,7 @@ struct clip_graph {
 
         // deepstack features (stack along the feature dimension), [n_embd * len(deepstack_layers), n_patches_x * n_patches_y, batch_size]
         ggml_tensor * deepstack_features = nullptr;
-        const int merge_factor = hparams.spatial_merge_size > 0 ? hparams.spatial_merge_size * hparams.spatial_merge_size : 4; // default 2x2=4 for qwen3vl
+        const int merge_factor = hparams.proj_scale_factor > 0 ? hparams.proj_scale_factor * hparams.proj_scale_factor : 4; // default 2x2=4 for qwen3vl
 
         // loop over layers
         for (int il = 0; il < n_layer; il++) {
@@ -2700,25 +2706,32 @@ struct clip_model_loader {
                         get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
                     } break;
                 case PROJECTOR_TYPE_IDEFICS3:
+                    {
+                        hparams.set_limit_image_tokens(8, 1024);
+                        hparams.set_warmup_n_tokens(256); // avoid OOM on warmup
+                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
+                    } break;
                 case PROJECTOR_TYPE_LFM2:
                     {
-                        hparams.set_limit_image_tokens(64, 1024);
+                        hparams.set_limit_image_tokens(8, 256);
                         get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
                     } break;
                 case PROJECTOR_TYPE_PIXTRAL:
                 case PROJECTOR_TYPE_LIGHTONOCR:
                     {
                         hparams.rope_theta = 10000.0f;
-                        hparams.warmup_image_size = hparams.patch_size * 8;
-                        hparams.set_limit_image_tokens(64, 1024);
-                        get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.spatial_merge_size, false);
+                        int spatial_merge = 2;
+                        get_u32(KEY_SPATIAL_MERGE_SIZE, spatial_merge, false);
+                        hparams.proj_scale_factor = spatial_merge * spatial_merge;
+                        hparams.set_limit_image_tokens(8, 1024);
+                        hparams.set_warmup_n_tokens(256); // avoid OOM on warmup
                     } break;
                 case PROJECTOR_TYPE_KIMIVL:
                     {
                         hparams.rope_theta = 10000.0f;
-                        hparams.warmup_image_size = hparams.patch_size * 8;
-                        hparams.set_limit_image_tokens(64, 1024);
                         get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
+                        hparams.set_limit_image_tokens(8, 1024);
+                        hparams.set_warmup_n_tokens(256); // avoid OOM on warmup
                     } break;
                 case PROJECTOR_TYPE_GEMMA3:
                     {
@@ -2729,29 +2742,15 @@ struct clip_model_loader {
                         get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
                     } break;
                 case PROJECTOR_TYPE_QWEN2VL:
-                    {
-                        // max image size = sqrt(max_pixels) = 3584
-                        // ref: https://huggingface.co/Qwen/Qwen2-VL-7B-Instruct/blob/main/preprocessor_config.json
-                        // however, the model use unreasonable memory past 1024 size, we force it to 1024 otherwise it's unusable
-                        // ref: https://huggingface.co/Qwen/Qwen2-VL-2B-Instruct/discussions/10
-                        hparams.image_size = 1024;
-                        hparams.warmup_image_size = hparams.patch_size * 8;
-                    } break;
                 case PROJECTOR_TYPE_QWEN25VL:
-                    {
-                        // max image size = sqrt(max_pixels)
-                        // https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct/blob/main/preprocessor_config.json
-                        // however, the model use unreasonable memory past 1024 size, we force it to 1024 otherwise it's unusable
-                        // ref: https://huggingface.co/Qwen/Qwen2-VL-2B-Instruct/discussions/10
-                        hparams.image_size = 1024;
-                        hparams.warmup_image_size = hparams.patch_size * 8;
-                        get_u32(KEY_WIN_ATTN_PATTERN, hparams.n_wa_pattern);
-                    } break;
                 case PROJECTOR_TYPE_QWEN3VL:
                     {
-                        hparams.image_size = 1024; // still need this?
-                        hparams.warmup_image_size = hparams.patch_size * 8;
-                        get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.spatial_merge_size, false);
+                        int spatial_merge = 2;
+                        get_u32(KEY_SPATIAL_MERGE_SIZE, spatial_merge, false);
+                        hparams.proj_scale_factor = spatial_merge * spatial_merge;
+                        get_u32(KEY_WIN_ATTN_PATTERN, hparams.n_wa_pattern, model.proj_type == PROJECTOR_TYPE_QWEN25VL); // only 2.5 requires it
+                        hparams.set_limit_image_tokens(8, 1024);
+                        hparams.set_warmup_n_tokens(256); // avoid OOM on warmup
                     } break;
                 case PROJECTOR_TYPE_LLAMA4:
                     {
@@ -2791,8 +2790,8 @@ struct clip_model_loader {
                 LOG_INF("%s: minicpmv_version:   %d\n", __func__, hparams.minicpmv_version);
                 LOG_INF("%s: proj_scale_factor:  %d\n", __func__, hparams.proj_scale_factor);
                 LOG_INF("%s: n_wa_pattern:       %d\n", __func__, hparams.n_wa_pattern);
-                if (hparams.spatial_merge_size > 0) {
-                    LOG_INF("%s: spatial_merge_size: %d\n", __func__, hparams.spatial_merge_size);
+                if (hparams.proj_scale_factor > 0) {
+                    LOG_INF("%s: proj_scale_factor: %d\n", __func__, hparams.proj_scale_factor);
                 }
             } else if (is_audio) {
                 LOG_INF("\n--- audio hparams ---\n");
@@ -4310,7 +4309,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         case PROJECTOR_TYPE_LIGHTONOCR:
             {
                 // dynamic size
-                int n_merge = params.spatial_merge_size;
+                int n_merge = params.proj_scale_factor;
                 int n_patches_x = img->nx / patch_size / (n_merge > 0 ? n_merge : 1);
                 int n_patches_y = img->ny / patch_size / (n_merge > 0 ? n_merge : 1);
                 if (ctx->model.token_embd_img_break) {
