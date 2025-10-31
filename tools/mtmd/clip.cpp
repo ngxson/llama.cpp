@@ -171,7 +171,9 @@ struct clip_hparams {
     int32_t n_head;
     int32_t n_layer;
     // idefics3
-    int32_t preproc_image_size = 0; // aka max_dimension
+    int32_t image_longest_edge = 0;
+    int32_t image_min_pixels = 0;
+    int32_t image_max_pixels = 0;
     int32_t proj_scale_factor = 0;
 
     float image_mean[3];
@@ -204,6 +206,13 @@ struct clip_hparams {
     bool has_llava_projector = false;
     int minicpmv_version = 0;
     int32_t minicpmv_query_num = 0;         // MiniCPM-V query number
+
+    // used by LFM2 and KIMI-VL
+    void set_limit_image_tokens(int n_tokens_min, int n_tokens_max) {
+        const int total_factor = patch_size * proj_scale_factor;
+        image_min_pixels = n_tokens_min * total_factor * total_factor;
+        image_max_pixels = n_tokens_max * total_factor * total_factor;
+    }
 };
 
 struct clip_layer {
@@ -2577,7 +2586,7 @@ struct clip_model_loader {
 
             if (is_vision) {
                 get_u32(KEY_IMAGE_SIZE, hparams.image_size);
-                get_u32(KEY_PREPROC_IMAGE_SIZE, hparams.preproc_image_size, false);
+                get_u32(KEY_PREPROC_IMAGE_SIZE, hparams.image_longest_edge, false);
                 get_u32(KEY_PATCH_SIZE, hparams.patch_size);
                 get_u32(KEY_IMAGE_CROP_RESOLUTION, hparams.image_crop_resolution, false);
                 get_i32(KEY_MINICPMV_VERSION, hparams.minicpmv_version, false); // legacy
@@ -2686,10 +2695,14 @@ struct clip_model_loader {
                             hparams.minicpmv_version = 2; // default to 2 if not set
                         }
                     } break;
-                case PROJECTOR_TYPE_IDEFICS3:
-                case PROJECTOR_TYPE_LFM2:
                 case PROJECTOR_TYPE_INTERNVL:
                     {
+                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
+                    } break;
+                case PROJECTOR_TYPE_IDEFICS3:
+                case PROJECTOR_TYPE_LFM2:
+                    {
+                        hparams.set_limit_image_tokens(64, 1024);
                         get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
                     } break;
                 case PROJECTOR_TYPE_PIXTRAL:
@@ -2697,15 +2710,14 @@ struct clip_model_loader {
                     {
                         hparams.rope_theta = 10000.0f;
                         hparams.warmup_image_size = hparams.patch_size * 8;
-                        // Mistral Small 2506 needs 1024x1024 image size cap to prevent OOM
-                        // ref: https://github.com/ggml-org/llama.cpp/issues/14310
-                        hparams.image_size = 1024;
+                        hparams.set_limit_image_tokens(64, 1024);
                         get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.spatial_merge_size, false);
                     } break;
                 case PROJECTOR_TYPE_KIMIVL:
                     {
                         hparams.rope_theta = 10000.0f;
                         hparams.warmup_image_size = hparams.patch_size * 8;
+                        hparams.set_limit_image_tokens(64, 1024);
                         get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
                     } break;
                 case PROJECTOR_TYPE_GEMMA3:
@@ -3494,14 +3506,14 @@ struct img_tool {
 
     // calculate the size of the **resized** image, while preserving the aspect ratio
     // the calculated size will be aligned to the nearest multiple of align_size
-    // if H or W size is larger than max_dimension, it will be resized to max_dimension
-    static clip_image_size calc_size_preserved_ratio(const clip_image_size & inp_size, const int align_size, const int max_dimension) {
-        if (inp_size.width <= 0 || inp_size.height <= 0 || align_size <= 0 || max_dimension <= 0) {
+    // if H or W size is larger than longest_edge, it will be resized to longest_edge
+    static clip_image_size calc_size_preserved_ratio(const clip_image_size & inp_size, const int align_size, const int longest_edge) {
+        if (inp_size.width <= 0 || inp_size.height <= 0 || align_size <= 0 || longest_edge <= 0) {
             return {0, 0};
         }
 
-        float scale = std::min(static_cast<float>(max_dimension) / inp_size.width,
-                               static_cast<float>(max_dimension) / inp_size.height);
+        float scale = std::min(static_cast<float>(longest_edge) / inp_size.width,
+                               static_cast<float>(longest_edge) / inp_size.height);
 
         float target_width_f  = static_cast<float>(inp_size.width)  * scale;
         float target_height_f = static_cast<float>(inp_size.height) * scale;
@@ -3510,6 +3522,33 @@ struct img_tool {
         int aligned_height = CLIP_ALIGN((int)target_height_f, align_size);
 
         return {aligned_width, aligned_height};
+    }
+
+    // calculate the size of the **resized** image, while preserving the aspect ratio
+    // the calculated size will have min_pixels <= W*H <= max_pixels
+    // this is referred as "smart_resize" in transformers code
+    static clip_image_size calc_size_preserved_ratio(const clip_image_size & inp_size, const int align_size, const int min_pixels, const int max_pixels) {
+        const int width  = inp_size.width;
+        const int height = inp_size.height;
+
+        auto round_by_factor = [f = align_size](float x) { return static_cast<int>(std::nearbyintf(x / static_cast<float>(f))) * f; };
+        auto ceil_by_factor  = [f = align_size](float x) { return static_cast<int>(std::ceil(x / static_cast<float>(f))) * f; };
+        auto floor_by_factor = [f = align_size](float x) { return static_cast<int>(std::floor(x / static_cast<float>(f))) * f; };
+
+        int h_bar = std::max(align_size, round_by_factor(height));
+        int w_bar = std::max(align_size, round_by_factor(width));
+
+        if (h_bar * w_bar > max_pixels) {
+            const auto beta = std::sqrt(static_cast<float>(height * width) / max_pixels);
+            h_bar = std::max(align_size, floor_by_factor(height / beta));
+            w_bar = std::max(align_size, floor_by_factor(width  / beta));
+        } else if (h_bar * w_bar < min_pixels) {
+            const auto beta = std::sqrt(static_cast<float>(min_pixels) / (height * width));
+            h_bar = ceil_by_factor(height * beta);
+            w_bar = ceil_by_factor(width * beta);
+        }
+
+        return {w_bar, h_bar};
     }
 
 private:
@@ -3982,7 +4021,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 //
                 // CITE: https://github.com/huggingface/transformers/blob/main/src/transformers/models/idefics3/image_processing_idefics3.py#L737
                 const clip_image_size refined_size = img_tool::calc_size_preserved_ratio(
-                    original_size, params.image_size, params.preproc_image_size);
+                    original_size, params.image_size, params.image_longest_edge);
                 // LOG_INF("%s: original size: %d x %d, refined size: %d x %d\n",
                 //         __func__, original_size.width, original_size.height,
                 //         refined_size.width, refined_size.height);
@@ -4064,37 +4103,15 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         case PROJECTOR_TYPE_LFM2:
         case PROJECTOR_TYPE_KIMIVL:
             {
-                GGML_ASSERT(params.proj_scale_factor);
-                // smart resize
-                const int width = img->nx;
-                const int height = img->ny;
-                const int total_factor = params.patch_size * params.proj_scale_factor;
-                constexpr int min_image_tokens = 64;
-                constexpr int max_image_tokens = 1024;
-                const float min_pixels = min_image_tokens * total_factor * total_factor;
-                const float max_pixels = max_image_tokens * total_factor * total_factor;
-
-                auto round_by_factor = [f = total_factor](float x) { return static_cast<int>(std::nearbyintf(x / static_cast<float>(f))) * f; };
-                auto ceil_by_factor  = [f = total_factor](float x) { return static_cast<int>(std::ceil(x / static_cast<float>(f))) * f; };
-                auto floor_by_factor = [f = total_factor](float x) { return static_cast<int>(std::floor(x / static_cast<float>(f))) * f; };
-
-                int h_bar = std::max(total_factor, round_by_factor(height));
-                int w_bar = std::max(total_factor, round_by_factor(width));
-
-                if (h_bar * w_bar > max_pixels) {
-                    const auto beta = std::sqrt((height * width) / max_pixels);
-                    h_bar = std::max(total_factor, floor_by_factor(height / beta));
-                    w_bar = std::max(total_factor, floor_by_factor(width / beta));
-                } else if (h_bar * w_bar < min_pixels) {
-                    const auto beta = std::sqrt(min_pixels / (height * width));
-                    h_bar = ceil_by_factor(height * beta);
-                    w_bar = ceil_by_factor(width * beta);
-                }
-
+                const clip_image_size target_size = img_tool::calc_size_preserved_ratio(
+                    original_size,
+                    params.patch_size * params.proj_scale_factor,
+                    params.image_min_pixels,
+                    params.image_max_pixels);
                 const std::array<uint8_t, 3> pad_color = {122, 116, 104};
 
                 clip_image_u8 resized_img;
-                img_tool::resize(*img, resized_img, clip_image_size{w_bar, h_bar}, img_tool::RESIZE_ALGO_BILINEAR, img_tool::RESIZE_PAD_AROUND, pad_color);
+                img_tool::resize(*img, resized_img, target_size, img_tool::RESIZE_ALGO_BILINEAR, img_tool::RESIZE_PAD_AROUND, pad_color);
                 clip_image_f32_ptr res(clip_image_f32_init());
                 normalize_image_u8_to_f32(resized_img, *res, params.image_mean, params.image_std);
                 res_imgs->entries.push_back(std::move(res));
