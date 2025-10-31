@@ -572,13 +572,13 @@ struct clip_graph {
         } else if (ctx->proj_type() == PROJECTOR_TYPE_IDEFICS3) {
             // pixel_shuffle
             // https://github.com/huggingface/transformers/blob/0a950e0bbe1ed58d5401a6b547af19f15f0c195e/src/transformers/models/idefics3/modeling_idefics3.py#L578
-            const int scale_factor = model.hparams.get_scale_factor_per_side();
+            const int scale_factor = model.hparams.proj_scale_factor;
             cur = build_patch_merge_permute(cur, scale_factor);
             cur = ggml_mul_mat(ctx0, model.projection, cur);
 
         } else if (ctx->proj_type() == PROJECTOR_TYPE_LFM2) {
             // pixel unshuffle block
-            const int scale_factor = model.hparams.get_scale_factor_per_side();
+            const int scale_factor = model.hparams.proj_scale_factor;
             cur = build_patch_merge_permute(cur, scale_factor);
 
             // projection
@@ -3570,10 +3570,17 @@ struct img_tool {
     static void composite(clip_image_u8 & dst, const clip_image_u8 & src, int offset_x, int offset_y) {
         for (int y = 0; y < src.ny; ++y) {
             for (int x = 0; x < src.nx; ++x) {
-                for (int c = 0; c < 3; ++c) {
-                    dst.buf[3 * ((y + offset_y) * dst.nx + (x + offset_x)) + c] =
-                        src.buf[3 * (y * src.nx + x) + c];
+                int dx = x + offset_x;
+                int dy = y + offset_y;
+                // skip pixels that would be out of bounds in the destination
+                if (dx < 0 || dy < 0 || dx >= dst.nx || dy >= dst.ny) {
+                    continue;
                 }
+                size_t dst_idx = 3 * (static_cast<size_t>(dy) * dst.nx + static_cast<size_t>(dx));
+                size_t src_idx = 3 * (static_cast<size_t>(y) * src.nx + static_cast<size_t>(x));
+                dst.buf[dst_idx + 0] = src.buf[src_idx + 0];
+                dst.buf[dst_idx + 1] = src.buf[src_idx + 1];
+                dst.buf[dst_idx + 2] = src.buf[src_idx + 2];
             }
         }
     }
