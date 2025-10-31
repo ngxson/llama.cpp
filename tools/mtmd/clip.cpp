@@ -216,7 +216,11 @@ struct clip_hparams {
     void set_warmup_n_tokens(int n_tokens) {
         int n_tok_per_side = static_cast<int>(std::sqrt(n_tokens));
         GGML_ASSERT(n_tok_per_side * n_tok_per_side == n_tokens && "n_tokens must be n*n");
-        warmup_image_size = n_tok_per_side * patch_size * static_cast<int>(std::sqrt(proj_scale_factor));
+        warmup_image_size = n_tok_per_side * patch_size * get_scale_factor_per_side();
+    }
+
+    int get_scale_factor_per_side() const {
+        return static_cast<int>(std::sqrt(proj_scale_factor));
     }
 };
 
@@ -546,7 +550,7 @@ struct clip_graph {
             const int batch_size = 1;
             GGML_ASSERT(n_patches_x == n_patches_y);
             const int patches_per_image = n_patches_x;
-            const int kernel_size = hparams.proj_scale_factor;
+            const int kernel_size = hparams.get_scale_factor_per_side();
 
             cur = ggml_transpose(ctx0, cur);
             cur = ggml_cont_4d(ctx0, cur, patches_per_image, patches_per_image, n_embd, batch_size);
@@ -568,13 +572,13 @@ struct clip_graph {
         } else if (ctx->proj_type() == PROJECTOR_TYPE_IDEFICS3) {
             // pixel_shuffle
             // https://github.com/huggingface/transformers/blob/0a950e0bbe1ed58d5401a6b547af19f15f0c195e/src/transformers/models/idefics3/modeling_idefics3.py#L578
-            const int scale_factor = model.hparams.proj_scale_factor;
+            const int scale_factor = model.hparams.get_scale_factor_per_side();
             cur = build_patch_merge_permute(cur, scale_factor);
             cur = ggml_mul_mat(ctx0, model.projection, cur);
 
         } else if (ctx->proj_type() == PROJECTOR_TYPE_LFM2) {
             // pixel unshuffle block
-            const int scale_factor = model.hparams.proj_scale_factor;
+            const int scale_factor = model.hparams.get_scale_factor_per_side();
             cur = build_patch_merge_permute(cur, scale_factor);
 
             // projection
@@ -598,7 +602,7 @@ struct clip_graph {
     }
 
     ggml_cgraph * build_pixtral() {
-        const int n_merge = hparams.proj_scale_factor;
+        const int n_merge = hparams.get_scale_factor_per_side();
 
         // 2D input positions
         ggml_tensor * pos_h = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_patches);
@@ -940,7 +944,8 @@ struct clip_graph {
 
         // deepstack features (stack along the feature dimension), [n_embd * len(deepstack_layers), n_patches_x * n_patches_y, batch_size]
         ggml_tensor * deepstack_features = nullptr;
-        const int merge_factor = hparams.proj_scale_factor > 0 ? hparams.proj_scale_factor * hparams.proj_scale_factor : 4; // default 2x2=4 for qwen3vl
+        const int merge_factor = hparams.proj_scale_factor > 0
+            ? hparams.proj_scale_factor : 4; // default 2x2=4 for qwen3vl
 
         // loop over layers
         for (int il = 0; il < n_layer; il++) {
@@ -2366,16 +2371,16 @@ private:
 
     // aka pixel_shuffle / pixel_unshuffle / patch_merger (Kimi-VL)
     // support dynamic resolution
-    ggml_tensor * build_patch_merge_permute(ggml_tensor * cur, int scale_factor) {
-        GGML_ASSERT(scale_factor > 1);
+    ggml_tensor * build_patch_merge_permute(ggml_tensor * cur, int kernel_size) {
+        GGML_ASSERT(kernel_size > 1);
 
         const int n_embd = cur->ne[0];
         int width  = img.nx / patch_size;
         int height = img.ny / patch_size;
 
         // pad width and height to factor
-        const int64_t pad_width  = CLIP_ALIGN(width,  scale_factor) - width;
-        const int64_t pad_height = CLIP_ALIGN(height, scale_factor) - height;
+        const int64_t pad_width  = CLIP_ALIGN(width,  kernel_size) - width;
+        const int64_t pad_height = CLIP_ALIGN(height, kernel_size) - height;
         cur = ggml_reshape_3d(ctx0, cur, n_embd, width, height);
         if (pad_width || pad_height) {
             cur     = ggml_pad(ctx0, cur, 0, pad_width, pad_height, 0);
@@ -2384,11 +2389,11 @@ private:
         }
 
         // unshuffle h
-        cur = ggml_reshape_3d(ctx0, cur, n_embd * scale_factor, width / scale_factor, height);
+        cur = ggml_reshape_3d(ctx0, cur, n_embd * kernel_size, width / kernel_size, height);
         cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
 
         // unshuffle w
-        cur = ggml_cont_3d(ctx0, cur, n_embd * scale_factor * scale_factor, height / scale_factor, width / scale_factor);
+        cur = ggml_cont_3d(ctx0, cur, n_embd * kernel_size * kernel_size, height / kernel_size, width / kernel_size);
         cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
 
         cur = ggml_cont_2d(ctx0, cur, cur->ne[0], cur->ne[1] * cur->ne[2]);
@@ -3203,9 +3208,11 @@ struct clip_model_loader {
         if (ctx_clip.model.modality == CLIP_MODALITY_VISION) {
             img->nx = hparams.warmup_image_size;
             img->ny = hparams.warmup_image_size;
+            LOG_INF("%s: warmup with image size = %d x %d\n", __func__, img->nx, img->ny);
         } else {
             img->nx = hparams.warmup_audio_size;
             img->ny = hparams.n_mel_bins;
+            LOG_INF("%s: warmup with audio size = %d\n", __func__, img->nx);
         }
         batch.entries.push_back(std::move(img));
 
@@ -4020,7 +4027,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 clip_image_u8 canvas;
                 const clip_image_size canvas_size = img_tool::calc_size_preserved_ratio(
                     original_size,
-                    params.patch_size * static_cast<int>(std::sqrt(params.proj_scale_factor)),
+                    params.patch_size * params.get_scale_factor_per_side(),
                     params.image_min_pixels,
                     params.image_max_pixels);
                 canvas.nx = canvas_size.width;
@@ -4119,10 +4126,11 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         case PROJECTOR_TYPE_PIXTRAL:
         case PROJECTOR_TYPE_LIGHTONOCR:
             {
+                GGML_ASSERT(params.image_min_pixels && params.image_max_pixels);
                 clip_image_u8 resized_image;
                 const clip_image_size target_size = img_tool::calc_size_preserved_ratio(
                     original_size,
-                    params.patch_size * static_cast<int>(std::sqrt(params.proj_scale_factor)),
+                    params.patch_size * params.get_scale_factor_per_side(),
                     params.image_min_pixels,
                     params.image_max_pixels);
                 img_tool::resize(*img, resized_image, target_size, img_tool::RESIZE_ALGO_BILINEAR);
@@ -4150,9 +4158,10 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         case PROJECTOR_TYPE_LFM2:
         case PROJECTOR_TYPE_KIMIVL:
             {
+                GGML_ASSERT(params.image_min_pixels && params.image_max_pixels);
                 const clip_image_size target_size = img_tool::calc_size_preserved_ratio(
                     original_size,
-                    params.patch_size * static_cast<int>(std::sqrt(params.proj_scale_factor)),
+                    params.patch_size * params.get_scale_factor_per_side(),
                     params.image_min_pixels,
                     params.image_max_pixels);
                 const std::array<uint8_t, 3> pad_color = {122, 116, 104};
@@ -4339,15 +4348,13 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         case PROJECTOR_TYPE_INTERNVL:
         case PROJECTOR_TYPE_LLAMA4:
             {
-                // both X and Y are downscaled by the scale factor
-                int scale_factor = ctx->model.hparams.proj_scale_factor;
-                n_patches /= (scale_factor * scale_factor);
+                n_patches /= ctx->model.hparams.proj_scale_factor;
             } break;
         case PROJECTOR_TYPE_LFM2:
         case PROJECTOR_TYPE_KIMIVL:
             {
                 // dynamic size
-                int scale_factor = ctx->model.hparams.proj_scale_factor;
+                int scale_factor = params.get_scale_factor_per_side();
                 int out_patch_size = params.patch_size * scale_factor;
                 int x_patch = CLIP_ALIGN(img->nx, out_patch_size) / out_patch_size;
                 int y_patch = CLIP_ALIGN(img->ny, out_patch_size) / out_patch_size;
@@ -4357,7 +4364,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         case PROJECTOR_TYPE_LIGHTONOCR:
             {
                 // dynamic size
-                int n_merge = params.proj_scale_factor;
+                int n_merge = params.get_scale_factor_per_side();
                 int n_patches_x = img->nx / patch_size / (n_merge > 0 ? n_merge : 1);
                 int n_patches_y = img->ny / patch_size / (n_merge > 0 ? n_merge : 1);
                 if (ctx->model.token_embd_img_break) {
