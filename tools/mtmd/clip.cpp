@@ -550,7 +550,7 @@ struct clip_graph {
             const int batch_size = 1;
             GGML_ASSERT(n_patches_x == n_patches_y);
             const int patches_per_image = n_patches_x;
-            const int kernel_size = hparams.get_merge_kernel_size();
+            const int kernel_size = hparams.proj_scale_factor;
 
             cur = ggml_transpose(ctx0, cur);
             cur = ggml_cont_4d(ctx0, cur, patches_per_image, patches_per_image, n_embd, batch_size);
@@ -578,7 +578,7 @@ struct clip_graph {
 
         } else if (ctx->proj_type() == PROJECTOR_TYPE_LFM2) {
             // pixel unshuffle block
-            const int scale_factor = model.hparams.proj_scale_factor;
+            const int scale_factor = model.hparams.get_merge_kernel_size();
             cur = build_patch_merge_permute(cur, scale_factor);
 
             // projection
@@ -2715,9 +2715,12 @@ struct clip_model_loader {
                     } break;
                 case PROJECTOR_TYPE_LFM2:
                     {
+                        // correct non-standard proj_scale_factor value
+                        int spatial_merge = 2;
+                        get_u32(KEY_PROJ_SCALE_FACTOR, spatial_merge, false);
+                        hparams.proj_scale_factor = spatial_merge * spatial_merge;
                         // ref: https://huggingface.co/LiquidAI/LFM2-VL-3B/blob/main/preprocessor_config.json
                         hparams.set_limit_image_tokens(64, 256);
-                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
                     } break;
                 case PROJECTOR_TYPE_PIXTRAL:
                 case PROJECTOR_TYPE_LIGHTONOCR:
@@ -2765,7 +2768,10 @@ struct clip_model_loader {
                 case PROJECTOR_TYPE_LLAMA4:
                     {
                         hparams.rope_theta = 10000.0f;
-                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor);
+                        // correct non-standard proj_scale_factor value
+                        int spatial_merge = 2;
+                        get_u32(KEY_PROJ_SCALE_FACTOR, spatial_merge, false);
+                        hparams.proj_scale_factor = spatial_merge * spatial_merge;
                         set_llava_uhd_res_candidates(model, 3);
                     } break;
                 case PROJECTOR_TYPE_ULTRAVOX:
@@ -2783,6 +2789,14 @@ struct clip_model_loader {
                     } break;
                 default:
                     break;
+            }
+
+            // sanity check
+            {
+                if (hparams.proj_scale_factor) {
+                    const int n_merge = hparams.get_merge_kernel_size();
+                    GGML_ASSERT(n_merge * n_merge == hparams.proj_scale_factor);
+                }
             }
 
             LOG_INF("%s: projector:          %s\n", __func__, proj_type.c_str());
@@ -4359,7 +4373,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         case PROJECTOR_TYPE_KIMIVL:
             {
                 // dynamic size
-                int scale_factor = params.get_merge_kernel_size();
+                int scale_factor = ctx->model.hparams.get_merge_kernel_size();
                 int out_patch_size = params.patch_size * scale_factor;
                 int x_patch = CLIP_ALIGN(img->nx, out_patch_size) / out_patch_size;
                 int y_patch = CLIP_ALIGN(img->ny, out_patch_size) / out_patch_size;
