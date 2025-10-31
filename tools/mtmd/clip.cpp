@@ -4114,7 +4114,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 clip_image_u8_ptr temp(clip_image_u8_init()); // we will keep the input image data here temporarily
 
                 // The model config actually contains all we need to decide on how to preprocess, here we automatically switch to the new llava-1.6 preprocessing
-                if (params.mm_patch_merge_type == PATCH_MERGE_SPATIAL_UNPAD) { // pad_to_square
+                if (params.image_res_candidates.empty()) { // pad_to_square
                     // for llava-1.5, we resize image to a square, and pad the shorter side with a background color
                     // see https://github.com/haotian-liu/LLaVA/blob/e854a2bf85118c504f6f16bf5c3c7c92f8fa8c6b/llava/conversation.py#L113-L156
                     const int longer_side = std::max(img->nx, img->ny);
@@ -4131,9 +4131,8 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                     clip_image_f32_ptr res(clip_image_f32_init());
                     normalize_image_u8_to_f32(*temp, *res, params.image_mean, params.image_std);
                     res_imgs->entries.push_back(std::move(res));
-                    return true;
 
-                } else if (!params.image_res_candidates.empty()) {
+                } else {
                     // "spatial_unpad" with "anyres" processing for llava-1.6
                     auto const inst = llava_uhd::get_slice_instructions(ctx, original_size);
                     std::vector<clip_image_u8_ptr> imgs = llava_uhd::slice_image(img, inst);
@@ -4144,8 +4143,6 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                         normalize_image_u8_to_f32(*imgs[i], *res, params.image_mean, params.image_std);
                         res_imgs->entries.push_back(std::move(res));
                     }
-
-                    return true;
                 }
             } break;
 
