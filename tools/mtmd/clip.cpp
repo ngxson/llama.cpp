@@ -2753,8 +2753,11 @@ struct clip_model_loader {
                         // the actual max limit is 12845056/14/14/2/2/4 = 4096 tokens
                         // but we set a lower value to avoid OOM
                         // TODO: make it configurable by user
-                        hparams.set_limit_image_tokens(1, 2048);
-                        hparams.set_warmup_n_tokens(256); // avoid OOM on warmup
+                        // TODO (2): bbox coordinates become inaccurate with small number of tokens,
+                        //           therefore we need to increase the min_tokens
+                        //           see: https://github.com/ggml-org/llama.cpp/issues/16842#issuecomment-3475144858
+                        hparams.set_limit_image_tokens(256, 2048);
+                        hparams.set_warmup_n_tokens(1024); // avoid OOM on warmup
                     } break;
                 case PROJECTOR_TYPE_LLAMA4:
                     {
