@@ -3546,12 +3546,12 @@ struct img_tool {
         const int width  = inp_size.width;
         const int height = inp_size.height;
 
-        auto round_by_factor = [f = align_size](float x) { return static_cast<int>(std::nearbyintf(x / static_cast<float>(f))) * f; };
         auto ceil_by_factor  = [f = align_size](float x) { return static_cast<int>(std::ceil(x / static_cast<float>(f))) * f; };
         auto floor_by_factor = [f = align_size](float x) { return static_cast<int>(std::floor(x / static_cast<float>(f))) * f; };
 
-        int h_bar = std::max(align_size, round_by_factor(height));
-        int w_bar = std::max(align_size, round_by_factor(width));
+        // always align up first
+        int h_bar = std::max(align_size, ceil_by_factor(height));
+        int w_bar = std::max(align_size, ceil_by_factor(width));
 
         if (h_bar * w_bar > max_pixels) {
             const auto beta = std::sqrt(static_cast<float>(height * width) / max_pixels);
@@ -4030,7 +4030,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         case PROJECTOR_TYPE_QWEN25VL:
         case PROJECTOR_TYPE_QWEN3VL:
             {
-                // step 1: make a blank canvas which aligns with grid
+                // step 1: make a blank canvas which aligns to the grid
                 clip_image_u8 canvas;
                 const clip_image_size canvas_size = img_tool::calc_size_preserved_ratio(
                     original_size,
@@ -4042,22 +4042,18 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 canvas.buf.resize(3 * canvas.nx * canvas.ny);
                 img_tool::fill(canvas, {0, 0, 0});
 
-                // step 2: resize original image to fit into the canvas
-                const clip_image_size scaled_size = img_tool::calc_size_preserved_ratio(
-                    original_size,
-                    1, // avoid distorting which causes bbox misalignment
-                    params.image_min_pixels,
-                    params.image_max_pixels);
-
-                if (scaled_size.height != original_size.height ||
-                    scaled_size.width  != original_size.width) {
+                // step 2: composite resized image onto the canvas, top-left corner
+                if (original_size.height > canvas.ny || original_size.width > canvas.nx) {
+                    // need to resize original image first
                     clip_image_u8 resized;
+                    const clip_image_size scaled_size = img_tool::calc_size_preserved_ratio(
+                        original_size,
+                        1, // no need to align here since we will composite onto canvas
+                        std::min(canvas.nx, canvas.ny)); // fit into the canvas
                     img_tool::resize(*img, resized, scaled_size, img_tool::RESIZE_ALGO_BILINEAR);
-                    // step 3: composite resized image onto the canvas, top-left corner
                     img_tool::composite(canvas, resized, 0, 0);
                 } else {
                     // no resizing needed
-                    // step 3: composite original image onto the canvas, top-left corner
                     img_tool::composite(canvas, *img, 0, 0);
                 }
 
