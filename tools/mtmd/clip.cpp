@@ -174,7 +174,7 @@ struct clip_hparams {
     int32_t image_longest_edge = 0;
     int32_t image_min_pixels = 0;
     int32_t image_max_pixels = 0;
-    int32_t proj_scale_factor = 0; // = (spatial_merge_size)^2
+    int32_t n_merge = 0; // number of patch merges **per-side**
 
     float image_mean[3];
     float image_std[3];
@@ -207,7 +207,8 @@ struct clip_hparams {
     int32_t minicpmv_query_num = 0;         // MiniCPM-V query number
 
     void set_limit_image_tokens(int n_tokens_min, int n_tokens_max) {
-        const int patch_area = patch_size * patch_size * proj_scale_factor;
+        const int cur_merge = n_merge == 0 ? 1 : n_merge;
+        const int patch_area = patch_size * patch_size * cur_merge * cur_merge;
         image_min_pixels = n_tokens_min * patch_area;
         image_max_pixels = n_tokens_max * patch_area;
         warmup_image_size = static_cast<int>(std::sqrt(image_max_pixels));
@@ -216,11 +217,8 @@ struct clip_hparams {
     void set_warmup_n_tokens(int n_tokens) {
         int n_tok_per_side = static_cast<int>(std::sqrt(n_tokens));
         GGML_ASSERT(n_tok_per_side * n_tok_per_side == n_tokens && "n_tokens must be n*n");
-        warmup_image_size = n_tok_per_side * patch_size * get_merge_kernel_size();
-    }
-
-    int get_merge_kernel_size() const {
-        return static_cast<int>(std::sqrt(proj_scale_factor));
+        const int cur_merge = n_merge == 0 ? 1 : n_merge;
+        warmup_image_size = n_tok_per_side * patch_size * cur_merge;
     }
 };
 
@@ -550,7 +548,7 @@ struct clip_graph {
             const int batch_size = 1;
             GGML_ASSERT(n_patches_x == n_patches_y);
             const int patches_per_image = n_patches_x;
-            const int kernel_size = hparams.proj_scale_factor;
+            const int kernel_size = hparams.n_merge;
 
             cur = ggml_transpose(ctx0, cur);
             cur = ggml_cont_4d(ctx0, cur, patches_per_image, patches_per_image, n_embd, batch_size);
@@ -572,13 +570,13 @@ struct clip_graph {
         } else if (ctx->proj_type() == PROJECTOR_TYPE_IDEFICS3) {
             // pixel_shuffle
             // https://github.com/huggingface/transformers/blob/0a950e0bbe1ed58d5401a6b547af19f15f0c195e/src/transformers/models/idefics3/modeling_idefics3.py#L578
-            const int scale_factor = model.hparams.proj_scale_factor;
+            const int scale_factor = model.hparams.n_merge;
             cur = build_patch_merge_permute(cur, scale_factor);
             cur = ggml_mul_mat(ctx0, model.projection, cur);
 
         } else if (ctx->proj_type() == PROJECTOR_TYPE_LFM2) {
             // pixel unshuffle block
-            const int scale_factor = model.hparams.get_merge_kernel_size();
+            const int scale_factor = model.hparams.n_merge;
             cur = build_patch_merge_permute(cur, scale_factor);
 
             // projection
@@ -602,7 +600,7 @@ struct clip_graph {
     }
 
     ggml_cgraph * build_pixtral() {
-        const int n_merge = hparams.get_merge_kernel_size();
+        const int n_merge = hparams.n_merge;
 
         // 2D input positions
         ggml_tensor * pos_h = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_patches);
@@ -628,7 +626,7 @@ struct clip_graph {
         // mistral small 3.1 patch merger
         // ref: https://github.com/huggingface/transformers/blob/7a3e208892c06a5e278144eaf38c8599a42f53e7/src/transformers/models/mistral3/modeling_mistral3.py#L67
         if (model.mm_patch_merger_w) {
-            GGML_ASSERT(hparams.proj_scale_factor > 0);
+            GGML_ASSERT(hparams.n_merge > 0);
 
             cur = ggml_mul(ctx0, ggml_rms_norm(ctx0, cur, eps), model.mm_input_norm_w);
 
@@ -944,8 +942,7 @@ struct clip_graph {
 
         // deepstack features (stack along the feature dimension), [n_embd * len(deepstack_layers), n_patches_x * n_patches_y, batch_size]
         ggml_tensor * deepstack_features = nullptr;
-        const int merge_factor = hparams.proj_scale_factor > 0
-            ? hparams.proj_scale_factor : 4; // default 2x2=4 for qwen3vl
+        const int merge_factor = hparams.n_merge > 0 ? hparams.n_merge * hparams.n_merge : 4; // default 2x2=4 for qwen3vl
 
         // loop over layers
         for (int il = 0; il < n_layer; il++) {
@@ -1168,7 +1165,7 @@ struct clip_graph {
 
         // pixel shuffle
         {
-            const int scale_factor = model.hparams.proj_scale_factor;
+            const int scale_factor = model.hparams.n_merge;
             const int bsz    = 1; // batch size, always 1 for now since we don't support batching
             const int height = n_patches_y;
             const int width  = n_patches_x;
@@ -1258,7 +1255,7 @@ struct clip_graph {
         // based on Llama4VisionPixelShuffleMLP
         // https://github.com/huggingface/transformers/blob/2932f318a20d9e54cc7aea052e040164d85de7d6/src/transformers/models/llama4/modeling_llama4.py#L1151
         {
-            const int scale_factor = model.hparams.proj_scale_factor;
+            const int scale_factor = model.hparams.n_merge;
             const int bsz = 1; // batch size, always 1 for now since we don't support batching
             GGML_ASSERT(scale_factor > 0);
             GGML_ASSERT(n_patches_x == n_patches_y); // llama4 only supports square images
@@ -1330,7 +1327,7 @@ struct clip_graph {
 
         {
             // patch_merger
-            const int scale_factor = model.hparams.proj_scale_factor;
+            const int scale_factor = model.hparams.n_merge;
             cur = build_patch_merge_permute(cur, scale_factor);
 
             // projection norm
@@ -2706,19 +2703,16 @@ struct clip_model_loader {
                     } break;
                 case PROJECTOR_TYPE_INTERNVL:
                     {
-                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
+                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.n_merge, false);
                     } break;
                 case PROJECTOR_TYPE_IDEFICS3:
                     {
-                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
+                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.n_merge, false);
                         get_u32(KEY_PREPROC_IMAGE_SIZE, hparams.image_longest_edge, false);
                     } break;
                 case PROJECTOR_TYPE_LFM2:
                     {
-                        // correct non-standard proj_scale_factor value
-                        int spatial_merge = 2;
-                        get_u32(KEY_PROJ_SCALE_FACTOR, spatial_merge, false);
-                        hparams.proj_scale_factor = spatial_merge * spatial_merge;
+                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.n_merge, false);
                         // ref: https://huggingface.co/LiquidAI/LFM2-VL-3B/blob/main/preprocessor_config.json
                         hparams.set_limit_image_tokens(64, 256);
                     } break;
@@ -2728,16 +2722,14 @@ struct clip_model_loader {
                         // ref: https://huggingface.co/mistral-community/pixtral-12b/blob/main/preprocessor_config.json
                         // TODO: verify the image_min_tokens
                         hparams.rope_theta = 10000.0f;
-                        int spatial_merge = 2;
-                        get_u32(KEY_SPATIAL_MERGE_SIZE, spatial_merge, false);
-                        hparams.proj_scale_factor = spatial_merge * spatial_merge;
+                        get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.n_merge, false);
                         hparams.set_limit_image_tokens(8, 1024);
                         hparams.set_warmup_n_tokens(256); // avoid OOM on warmup
                     } break;
                 case PROJECTOR_TYPE_KIMIVL:
                     {
                         hparams.rope_theta = 10000.0f;
-                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
+                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.n_merge, false);
                         // TODO: check kimivl preprocessor for exact values
                         hparams.set_limit_image_tokens(8, 1024);
                         hparams.set_warmup_n_tokens(256); // avoid OOM on warmup
@@ -2746,17 +2738,16 @@ struct clip_model_loader {
                     {
                         // default value (used by all model sizes in gemma 3 family)
                         // number of patches for each **side** is reduced by a factor of 4
-                        hparams.proj_scale_factor = 4;
+                        hparams.n_merge = 4;
                         // test model (tinygemma3) has a different value, we optionally read it
-                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
+                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.n_merge, false);
                     } break;
                 case PROJECTOR_TYPE_QWEN2VL:
                 case PROJECTOR_TYPE_QWEN25VL:
                 case PROJECTOR_TYPE_QWEN3VL:
                     {
-                        int spatial_merge = 2;
-                        get_u32(KEY_SPATIAL_MERGE_SIZE, spatial_merge, false);
-                        hparams.proj_scale_factor = spatial_merge * spatial_merge;
+                        hparams.n_merge = 2; // default value for Qwen 2 and 2.5
+                        get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.n_merge, false);
                         get_u32(KEY_WIN_ATTN_PATTERN, hparams.n_wa_pattern, model.proj_type == PROJECTOR_TYPE_QWEN25VL); // only 2.5 requires it
                         // ref: https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct/blob/main/preprocessor_config.json
                         // the actual max limit is 12845056/14/14/2/2/4 = 4096 tokens
@@ -2768,10 +2759,7 @@ struct clip_model_loader {
                 case PROJECTOR_TYPE_LLAMA4:
                     {
                         hparams.rope_theta = 10000.0f;
-                        // correct non-standard proj_scale_factor value
-                        int spatial_merge = 2;
-                        get_u32(KEY_PROJ_SCALE_FACTOR, spatial_merge, false);
-                        hparams.proj_scale_factor = spatial_merge * spatial_merge;
+                        get_u32(KEY_PROJ_SCALE_FACTOR, hparams.n_merge, false);
                         set_llava_uhd_res_candidates(model, 3);
                     } break;
                 case PROJECTOR_TYPE_ULTRAVOX:
@@ -2791,14 +2779,6 @@ struct clip_model_loader {
                     break;
             }
 
-            // sanity check
-            {
-                if (hparams.proj_scale_factor) {
-                    const int n_merge = hparams.get_merge_kernel_size();
-                    GGML_ASSERT(n_merge * n_merge == hparams.proj_scale_factor);
-                }
-            }
-
             LOG_INF("%s: projector:          %s\n", __func__, proj_type.c_str());
             LOG_INF("%s: n_embd:             %d\n", __func__, hparams.n_embd);
             LOG_INF("%s: n_head:             %d\n", __func__, hparams.n_head);
@@ -2812,11 +2792,8 @@ struct clip_model_loader {
                 LOG_INF("%s: patch_size:         %d\n", __func__, hparams.patch_size);
                 LOG_INF("%s: has_llava_proj:     %d\n", __func__, hparams.has_llava_projector);
                 LOG_INF("%s: minicpmv_version:   %d\n", __func__, hparams.minicpmv_version);
-                LOG_INF("%s: proj_scale_factor:  %d\n", __func__, hparams.proj_scale_factor);
+                LOG_INF("%s: n_merge:            %d\n", __func__, hparams.n_merge);
                 LOG_INF("%s: n_wa_pattern:       %d\n", __func__, hparams.n_wa_pattern);
-                if (hparams.proj_scale_factor > 0) {
-                    LOG_INF("%s: proj_scale_factor:  %d\n", __func__, hparams.proj_scale_factor);
-                }
                 if (hparams.image_min_pixels > 0) {
                     LOG_INF("%s: image_min_pixels:   %d\n", __func__, hparams.image_min_pixels);
                 }
@@ -4048,7 +4025,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 clip_image_u8 canvas;
                 const clip_image_size canvas_size = img_tool::calc_size_preserved_ratio(
                     original_size,
-                    params.patch_size * params.get_merge_kernel_size(),
+                    params.patch_size * params.n_merge,
                     params.image_min_pixels,
                     params.image_max_pixels);
                 canvas.nx = canvas_size.width;
@@ -4145,9 +4122,11 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
             {
                 GGML_ASSERT(params.image_min_pixels && params.image_max_pixels);
                 clip_image_u8 resized_image;
+                // the original pixtral model doesn't have n_merge
+                const int cur_merge = params.n_merge == 0 ? 1 : params.n_merge;
                 const clip_image_size target_size = img_tool::calc_size_preserved_ratio(
                     original_size,
-                    params.patch_size * params.get_merge_kernel_size(),
+                    params.patch_size * cur_merge,
                     params.image_min_pixels,
                     params.image_max_pixels);
                 img_tool::resize(*img, resized_image, target_size, img_tool::RESIZE_ALGO_BILINEAR);
@@ -4178,7 +4157,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 GGML_ASSERT(params.image_min_pixels && params.image_max_pixels);
                 const clip_image_size target_size = img_tool::calc_size_preserved_ratio(
                     original_size,
-                    params.patch_size * params.get_merge_kernel_size(),
+                    params.patch_size * params.n_merge,
                     params.image_min_pixels,
                     params.image_max_pixels);
                 const std::array<uint8_t, 3> pad_color = {122, 116, 104};
@@ -4366,15 +4345,14 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         case PROJECTOR_TYPE_LLAMA4:
             {
                 // both X and Y are downscaled by the scale factor
-                int scale_factor = ctx->model.hparams.proj_scale_factor;
+                int scale_factor = ctx->model.hparams.n_merge;
                 n_patches /= (scale_factor * scale_factor);
             } break;
         case PROJECTOR_TYPE_LFM2:
         case PROJECTOR_TYPE_KIMIVL:
             {
                 // dynamic size
-                int scale_factor = ctx->model.hparams.get_merge_kernel_size();
-                int out_patch_size = params.patch_size * scale_factor;
+                int out_patch_size = params.patch_size * ctx->model.hparams.n_merge;
                 int x_patch = CLIP_ALIGN(img->nx, out_patch_size) / out_patch_size;
                 int y_patch = CLIP_ALIGN(img->ny, out_patch_size) / out_patch_size;
                 n_patches = x_patch * y_patch;
@@ -4383,7 +4361,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         case PROJECTOR_TYPE_LIGHTONOCR:
             {
                 // dynamic size
-                int n_merge = params.get_merge_kernel_size();
+                int n_merge = ctx->model.hparams.n_merge;
                 int n_patches_x = img->nx / patch_size / (n_merge > 0 ? n_merge : 1);
                 int n_patches_y = img->ny / patch_size / (n_merge > 0 ? n_merge : 1);
                 if (ctx->model.token_embd_img_break) {
