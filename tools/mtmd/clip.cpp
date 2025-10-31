@@ -2371,16 +2371,16 @@ private:
 
     // aka pixel_shuffle / pixel_unshuffle / patch_merger (Kimi-VL)
     // support dynamic resolution
-    ggml_tensor * build_patch_merge_permute(ggml_tensor * cur, int kernel_size) {
-        GGML_ASSERT(kernel_size > 1);
+    ggml_tensor * build_patch_merge_permute(ggml_tensor * cur, int scale_factor) {
+        GGML_ASSERT(scale_factor > 1);
 
         const int n_embd = cur->ne[0];
         int width  = img.nx / patch_size;
         int height = img.ny / patch_size;
 
         // pad width and height to factor
-        const int64_t pad_width  = CLIP_ALIGN(width,  kernel_size) - width;
-        const int64_t pad_height = CLIP_ALIGN(height, kernel_size) - height;
+        const int64_t pad_width  = CLIP_ALIGN(width,  scale_factor) - width;
+        const int64_t pad_height = CLIP_ALIGN(height, scale_factor) - height;
         cur = ggml_reshape_3d(ctx0, cur, n_embd, width, height);
         if (pad_width || pad_height) {
             cur     = ggml_pad(ctx0, cur, 0, pad_width, pad_height, 0);
@@ -2389,11 +2389,11 @@ private:
         }
 
         // unshuffle h
-        cur = ggml_reshape_3d(ctx0, cur, n_embd * kernel_size, width / kernel_size, height);
+        cur = ggml_reshape_3d(ctx0, cur, n_embd * scale_factor, width / scale_factor, height);
         cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
 
         // unshuffle w
-        cur = ggml_cont_3d(ctx0, cur, n_embd * kernel_size * kernel_size, height / kernel_size, width / kernel_size);
+        cur = ggml_cont_3d(ctx0, cur, n_embd * scale_factor * scale_factor, height / scale_factor, width / scale_factor);
         cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
 
         cur = ggml_cont_2d(ctx0, cur, cur->ne[0], cur->ne[1] * cur->ne[2]);
@@ -4351,7 +4351,9 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
         case PROJECTOR_TYPE_INTERNVL:
         case PROJECTOR_TYPE_LLAMA4:
             {
-                n_patches /= ctx->model.hparams.proj_scale_factor;
+                // both X and Y are downscaled by the scale factor
+                int scale_factor = ctx->model.hparams.proj_scale_factor;
+                n_patches /= (scale_factor * scale_factor);
             } break;
         case PROJECTOR_TYPE_LFM2:
         case PROJECTOR_TYPE_KIMIVL:
