@@ -206,7 +206,6 @@ struct clip_hparams {
     int minicpmv_version = 0;
     int32_t minicpmv_query_num = 0;         // MiniCPM-V query number
 
-    // used by LFM2 and KIMI-VL
     void set_limit_image_tokens(int n_tokens_min, int n_tokens_max) {
         const int patch_area = patch_size * patch_size * proj_scale_factor;
         image_min_pixels = n_tokens_min * patch_area;
@@ -2592,7 +2591,6 @@ struct clip_model_loader {
 
             if (is_vision) {
                 get_u32(KEY_IMAGE_SIZE, hparams.image_size);
-                get_u32(KEY_PREPROC_IMAGE_SIZE, hparams.image_longest_edge, false);
                 get_u32(KEY_PATCH_SIZE, hparams.patch_size);
                 get_u32(KEY_IMAGE_CROP_RESOLUTION, hparams.image_crop_resolution, false);
                 get_i32(KEY_MINICPMV_VERSION, hparams.minicpmv_version, false); // legacy
@@ -2707,18 +2705,20 @@ struct clip_model_loader {
                     } break;
                 case PROJECTOR_TYPE_IDEFICS3:
                     {
-                        hparams.set_limit_image_tokens(8, 1024);
-                        hparams.set_warmup_n_tokens(256); // avoid OOM on warmup
                         get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
+                        get_u32(KEY_PREPROC_IMAGE_SIZE, hparams.image_longest_edge, false);
                     } break;
                 case PROJECTOR_TYPE_LFM2:
                     {
-                        hparams.set_limit_image_tokens(8, 256);
+                        // ref: https://huggingface.co/LiquidAI/LFM2-VL-3B/blob/main/preprocessor_config.json
+                        hparams.set_limit_image_tokens(64, 256);
                         get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
                     } break;
                 case PROJECTOR_TYPE_PIXTRAL:
                 case PROJECTOR_TYPE_LIGHTONOCR:
                     {
+                        // ref: https://huggingface.co/mistral-community/pixtral-12b/blob/main/preprocessor_config.json
+                        // TODO: verify the image_min_tokens
                         hparams.rope_theta = 10000.0f;
                         int spatial_merge = 2;
                         get_u32(KEY_SPATIAL_MERGE_SIZE, spatial_merge, false);
@@ -2730,6 +2730,7 @@ struct clip_model_loader {
                     {
                         hparams.rope_theta = 10000.0f;
                         get_u32(KEY_PROJ_SCALE_FACTOR, hparams.proj_scale_factor, false);
+                        // TODO: check kimivl preprocessor for exact values
                         hparams.set_limit_image_tokens(8, 1024);
                         hparams.set_warmup_n_tokens(256); // avoid OOM on warmup
                     } break;
@@ -2749,7 +2750,11 @@ struct clip_model_loader {
                         get_u32(KEY_SPATIAL_MERGE_SIZE, spatial_merge, false);
                         hparams.proj_scale_factor = spatial_merge * spatial_merge;
                         get_u32(KEY_WIN_ATTN_PATTERN, hparams.n_wa_pattern, model.proj_type == PROJECTOR_TYPE_QWEN25VL); // only 2.5 requires it
-                        hparams.set_limit_image_tokens(8, 1024);
+                        // ref: https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct/blob/main/preprocessor_config.json
+                        // the actual max limit is 12845056/14/14/2/2/4 = 4096 tokens
+                        // but we set a lower value to avoid OOM
+                        // TODO: make it configurable by user
+                        hparams.set_limit_image_tokens(1, 2048);
                         hparams.set_warmup_n_tokens(256); // avoid OOM on warmup
                     } break;
                 case PROJECTOR_TYPE_LLAMA4:
@@ -2791,7 +2796,13 @@ struct clip_model_loader {
                 LOG_INF("%s: proj_scale_factor:  %d\n", __func__, hparams.proj_scale_factor);
                 LOG_INF("%s: n_wa_pattern:       %d\n", __func__, hparams.n_wa_pattern);
                 if (hparams.proj_scale_factor > 0) {
-                    LOG_INF("%s: proj_scale_factor: %d\n", __func__, hparams.proj_scale_factor);
+                    LOG_INF("%s: proj_scale_factor:  %d\n", __func__, hparams.proj_scale_factor);
+                }
+                if (hparams.image_min_pixels > 0) {
+                    LOG_INF("%s: image_min_pixels:   %d\n", __func__, hparams.image_min_pixels);
+                }
+                if (hparams.image_max_pixels > 0) {
+                    LOG_INF("%s: image_max_pixels:   %d\n", __func__, hparams.image_max_pixels);
                 }
             } else if (is_audio) {
                 LOG_INF("\n--- audio hparams ---\n");
@@ -3467,11 +3478,7 @@ struct img_tool {
             }
 
             // fill dst with pad_color
-            for (size_t i = 0; i < dst.buf.size(); i += 3) {
-                dst.buf[i]     = pad_color[0];
-                dst.buf[i + 1] = pad_color[1];
-                dst.buf[i + 2] = pad_color[2];
-            }
+            fill(dst, pad_color);
 
             int offset_x = 0;
             int offset_y = 0;
@@ -3483,7 +3490,7 @@ struct img_tool {
                 offset_y = target_resolution.height - new_height;
             }
 
-            draw_into(dst, resized_image, offset_x, offset_y);
+            composite(dst, resized_image, offset_x, offset_y);
         }
     }
 
@@ -3507,7 +3514,8 @@ struct img_tool {
     // the calculated size will be aligned to the nearest multiple of align_size
     // if H or W size is larger than longest_edge, it will be resized to longest_edge
     static clip_image_size calc_size_preserved_ratio(const clip_image_size & inp_size, const int align_size, const int longest_edge) {
-        if (inp_size.width <= 0 || inp_size.height <= 0 || align_size <= 0 || longest_edge <= 0) {
+        GGML_ASSERT(align_size > 0);
+        if (inp_size.width <= 0 || inp_size.height <= 0 || longest_edge <= 0) {
             return {0, 0};
         }
 
@@ -3527,6 +3535,7 @@ struct img_tool {
     // the calculated size will have min_pixels <= W*H <= max_pixels
     // this is referred as "smart_resize" in transformers code
     static clip_image_size calc_size_preserved_ratio(const clip_image_size & inp_size, const int align_size, const int min_pixels, const int max_pixels) {
+        GGML_ASSERT(align_size > 0);
         const int width  = inp_size.width;
         const int height = inp_size.height;
 
@@ -3550,9 +3559,8 @@ struct img_tool {
         return {w_bar, h_bar};
     }
 
-private:
     // draw src image into dst image at offset (offset_x, offset_y)
-    static void draw_into(clip_image_u8 & dst, const clip_image_u8 & src, int offset_x, int offset_y) {
+    static void composite(clip_image_u8 & dst, const clip_image_u8 & src, int offset_x, int offset_y) {
         for (int y = 0; y < src.ny; ++y) {
             for (int x = 0; x < src.nx; ++x) {
                 for (int c = 0; c < 3; ++c) {
@@ -3563,6 +3571,16 @@ private:
         }
     }
 
+    // fill the image with a solid color
+    static void fill(clip_image_u8 & img, const std::array<uint8_t, 3> & color) {
+        for (size_t i = 0; i < img.buf.size(); i += 3) {
+            img.buf[i]     = color[0];
+            img.buf[i + 1] = color[1];
+            img.buf[i + 2] = color[2];
+        }
+    }
+
+private:
     // Bilinear resize function
     static void resize_bilinear(const clip_image_u8 & src, clip_image_u8 & dst, int target_width, int target_height) {
         dst.nx = target_width;
@@ -3998,14 +4016,40 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         case PROJECTOR_TYPE_QWEN25VL:
         case PROJECTOR_TYPE_QWEN3VL:
             {
-                clip_image_u8 resized;
-                auto patch_size = params.patch_size * 2;
-                auto new_size = img_tool::calc_size_preserved_ratio(original_size, patch_size, params.image_size);
-                img_tool::resize(*img, resized, new_size, img_tool::RESIZE_ALGO_BILINEAR);
+                // step 1: make a blank canvas which aligns with grid
+                clip_image_u8 canvas;
+                const clip_image_size canvas_size = img_tool::calc_size_preserved_ratio(
+                    original_size,
+                    params.patch_size * static_cast<int>(std::sqrt(params.proj_scale_factor)),
+                    params.image_min_pixels,
+                    params.image_max_pixels);
+                canvas.nx = canvas_size.width;
+                canvas.ny = canvas_size.height;
+                canvas.buf.resize(3 * canvas.nx * canvas.ny);
+                img_tool::fill(canvas, {0, 0, 0});
+
+                // step 2: resize original image to fit into the canvas
+                const clip_image_size scaled_size = img_tool::calc_size_preserved_ratio(
+                    original_size,
+                    1, // avoid distorting which causes bbox misalignment
+                    params.image_min_pixels,
+                    params.image_max_pixels);
+
+                if (scaled_size.height != original_size.height ||
+                    scaled_size.width  != original_size.width) {
+                    clip_image_u8 resized;
+                    img_tool::resize(*img, resized, scaled_size, img_tool::RESIZE_ALGO_BILINEAR);
+                    // step 3: composite resized image onto the canvas, top-left corner
+                    img_tool::composite(canvas, resized, 0, 0);
+                } else {
+                    // no resizing needed
+                    // step 3: composite original image onto the canvas, top-left corner
+                    img_tool::composite(canvas, *img, 0, 0);
+                }
 
                 clip_image_f32_ptr img_f32(clip_image_f32_init());
                 // clip_image_f32_ptr res(clip_image_f32_init());
-                normalize_image_u8_to_f32(resized, *img_f32, params.image_mean, params.image_std);
+                normalize_image_u8_to_f32(canvas, *img_f32, params.image_mean, params.image_std);
                 // res_imgs->data[0] = *res;
                 res_imgs->entries.push_back(std::move(img_f32));
             } break;
@@ -4076,8 +4120,12 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         case PROJECTOR_TYPE_LIGHTONOCR:
             {
                 clip_image_u8 resized_image;
-                auto new_size = img_tool::calc_size_preserved_ratio(original_size, params.patch_size, params.image_size);
-                img_tool::resize(*img, resized_image, new_size, img_tool::RESIZE_ALGO_BILINEAR);
+                const clip_image_size target_size = img_tool::calc_size_preserved_ratio(
+                    original_size,
+                    params.patch_size * static_cast<int>(std::sqrt(params.proj_scale_factor)),
+                    params.image_min_pixels,
+                    params.image_max_pixels);
+                img_tool::resize(*img, resized_image, target_size, img_tool::RESIZE_ALGO_BILINEAR);
                 clip_image_f32_ptr img_f32(clip_image_f32_init());
                 normalize_image_u8_to_f32(resized_image, *img_f32, params.image_mean, params.image_std);
                 res_imgs->entries.push_back(std::move(img_f32));
@@ -4104,7 +4152,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
             {
                 const clip_image_size target_size = img_tool::calc_size_preserved_ratio(
                     original_size,
-                    params.patch_size * params.proj_scale_factor,
+                    params.patch_size * static_cast<int>(std::sqrt(params.proj_scale_factor)),
                     params.image_min_pixels,
                     params.image_max_pixels);
                 const std::array<uint8_t, 3> pad_color = {122, 116, 104};
