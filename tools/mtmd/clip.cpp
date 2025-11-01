@@ -3440,6 +3440,12 @@ struct img_tool {
         dst.ny = target_resolution.height;
         dst.buf.resize(3 * dst.nx * dst.ny);
 
+        if (dst.nx == src.nx && dst.ny == src.ny) {
+            // no resize needed, simple copy
+            dst.buf = src.buf;
+            return;
+        }
+
         if (!add_padding) {
             // direct resize
             switch (algo) {
@@ -4020,7 +4026,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                     params.image_min_pixels,
                     params.image_max_pixels);
                 img_tool::resize(*img, resized, new_size, img_tool::RESIZE_ALGO_BILINEAR, false);
-                // clip_image_save_to_bmp(canvas, "preproc.bmp");
+                // clip_image_save_to_bmp(resized, "preproc.bmp");
                 clip_image_f32_ptr img_f32(clip_image_f32_init());
                 // clip_image_f32_ptr res(clip_image_f32_init());
                 normalize_image_u8_to_f32(resized, *img_f32, params.image_mean, params.image_std);
