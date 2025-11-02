@@ -458,3 +458,6 @@ mtmd_bitmap * mtmd_helper_bitmap_init_from_file(mtmd_context * ctx, const char *
 
     return mtmd_helper_bitmap_init_from_buf(ctx, buf.data(), buf.size());
 }
+
+
+// TODO: implement video support here

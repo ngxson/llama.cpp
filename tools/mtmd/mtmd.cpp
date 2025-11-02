@@ -22,21 +22,29 @@
 #include <limits>
 #include <vector>
 
+enum mtmd_bitmap_type {
+    MTMD_BITMAP_TYPE_IMAGE,
+    MTMD_BITMAP_TYPE_AUDIO,
+    MTMD_BITMAP_TYPE_VIDEO,
+};
+
 // represents raw image data, layout is RGBRGBRGB...
 // length of data must be nx * ny * 3
 struct mtmd_bitmap {
     uint32_t nx;
     uint32_t ny;
+    uint32_t nz = 1; // number of frames for video, 1 for image/audio
     std::vector<unsigned char> data;
     std::string id; // optional user-defined id, for ex: can be set to image hash, useful for KV cache tracking
-    bool is_audio = false; // true if the bitmap is audio
+    bool type = MTMD_BITMAP_TYPE_IMAGE;
 };
 
 struct mtmd_image_tokens {
     uint32_t nx; // number of tokens in x direction
     uint32_t ny; // number of tokens in y direction
+    uint32_t nz = 1; // number of tokens in z direction (aka time for video), always 1 for image
     bool use_mrope_pos = false; // use M-RoPE position counting (the whole image is 1 temporal position)
-    uint32_t n_tokens() const { return nx * ny; }
+    uint32_t n_tokens() const { return nx * ny * nz; }
     clip_image_f32_batch batch_f32; // preprocessed image patches
     std::string id; // optional user-defined ID, useful for KV cache tracking
 
@@ -44,6 +52,7 @@ struct mtmd_image_tokens {
         return mtmd_image_tokens{
             nx,
             ny,
+            nz,
             use_mrope_pos,
             batch_f32.clone(),
             id
@@ -492,7 +501,7 @@ struct mtmd_tokenizer {
     }
 
     int32_t add_media(const mtmd_bitmap * bitmap) {
-        if (!bitmap->is_audio) {
+        if (bitmap->type == MTMD_BITMAP_TYPE_IMAGE) {
             // handle image
 
             if (!ctx->ctx_v) {
@@ -616,7 +625,7 @@ struct mtmd_tokenizer {
                 add_text(ctx->img_end, true); // add image end token
             }
 
-        } else {
+        } else if (bitmap->type == MTMD_BITMAP_TYPE_AUDIO) {
             // handle audio
 
             if (!ctx->ctx_a) {
@@ -676,6 +685,12 @@ struct mtmd_tokenizer {
             if (!ctx->aud_end.empty()) {
                 add_text(ctx->aud_end, true); // add audio end token
             }
+        } else if (bitmap->type == MTMD_BITMAP_TYPE_VIDEO) {
+            GGML_ABORT("TODO: implement this");
+            return 0;
+        } else {
+            LOG_ERR("%s: error: unknown bitmap type %d\n", __func__, (int)bitmap->type);
+            return 1;
         }
 
         return 0;
@@ -858,7 +873,8 @@ mtmd_bitmap * mtmd_bitmap_init(uint32_t nx,
                                uint32_t ny,
                                const unsigned char * data) {
     mtmd_bitmap * bitmap = new mtmd_bitmap;
-    bitmap->nx = nx;
+    bitmap->type = MTMD_BITMAP_TYPE_IMAGE;
+    bitmap->ny = ny;
     bitmap->ny = ny;
     size_t data_size = (size_t)nx * ny * 3;
     bitmap->data.resize(data_size);
@@ -869,12 +885,29 @@ mtmd_bitmap * mtmd_bitmap_init(uint32_t nx,
 mtmd_bitmap * mtmd_bitmap_init_from_audio(size_t n_samples,
                                           const float * data) {
     mtmd_bitmap * bitmap = new mtmd_bitmap;
+    bitmap->type = MTMD_BITMAP_TYPE_AUDIO;
     bitmap->nx = n_samples;
     bitmap->ny = 1;
-    bitmap->is_audio = true;
     size_t data_size = n_samples * sizeof(float);
     bitmap->data.resize(data_size);
     std::memcpy(bitmap->data.data(), data, data_size);
+    return bitmap;
+}
+
+mtmd_bitmap * mtmd_bitmap_init_from_video(uint32_t nx,
+                                          uint32_t ny,
+                                          uint32_t nframes,
+                                          const unsigned char * data) {
+    mtmd_bitmap * bitmap = new mtmd_bitmap;
+    bitmap->type = MTMD_BITMAP_TYPE_VIDEO;
+    bitmap->nx = nx;
+    bitmap->ny = ny;
+    bitmap->nz = nframes;
+    size_t data_size = (size_t)nx * ny * 3 * nframes;
+    bitmap->data.resize(data_size);
+    if (data != nullptr) {
+        std::memcpy(bitmap->data.data(), data, data_size);
+    }
     return bitmap;
 }
 
@@ -894,8 +927,16 @@ size_t mtmd_bitmap_get_n_bytes(const mtmd_bitmap * bitmap) {
     return bitmap->data.size();
 }
 
+bool mtmd_bitmap_is_image(const mtmd_bitmap * bitmap) {
+    return bitmap->type == MTMD_BITMAP_TYPE_IMAGE;
+}
+
 bool mtmd_bitmap_is_audio(const mtmd_bitmap * bitmap) {
-    return bitmap->is_audio;
+    return bitmap->type == MTMD_BITMAP_TYPE_AUDIO;
+}
+
+bool mtmd_bitmap_is_video(const mtmd_bitmap * bitmap) {
+    return bitmap->type == MTMD_BITMAP_TYPE_VIDEO;
 }
 
 const char * mtmd_bitmap_get_id(const mtmd_bitmap * bitmap) {
@@ -914,6 +955,20 @@ void mtmd_bitmap_free(mtmd_bitmap * bitmap) {
     if (bitmap) {
         delete bitmap;
     }
+}
+
+bool mtmd_bitmap_set_frame(mtmd_bitmap * bitmap, size_t i, const unsigned char * data) {
+    if (bitmap->type != MTMD_BITMAP_TYPE_VIDEO) {
+        LOG_ERR("%s: error: bitmap is not a video\n", __func__);
+        return false;
+    }
+    if (i >= (size_t)bitmap->nz) {
+        LOG_ERR("%s: error: frame index %zu out of range (nz = %u)\n", __func__, i, bitmap->nz);
+        return false;
+    }
+    size_t frame_size = (size_t)bitmap->nx * bitmap->ny * 3;
+    std::memcpy(bitmap->data.data() + i * frame_size, data, frame_size);
+    return true;
 }
 
 // mtmd_input_chunks
