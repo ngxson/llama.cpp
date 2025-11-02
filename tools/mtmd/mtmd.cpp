@@ -36,7 +36,7 @@ struct mtmd_bitmap {
     uint32_t nz = 1; // number of frames for video, 1 for image/audio
     std::vector<unsigned char> data;
     std::string id; // optional user-defined id, for ex: can be set to image hash, useful for KV cache tracking
-    bool type = MTMD_BITMAP_TYPE_IMAGE;
+    mtmd_bitmap_type type = MTMD_BITMAP_TYPE_IMAGE;
 };
 
 struct mtmd_image_tokens {
@@ -687,7 +687,6 @@ struct mtmd_tokenizer {
             }
         } else if (bitmap->type == MTMD_BITMAP_TYPE_VIDEO) {
             GGML_ABORT("TODO: implement this");
-            return 0;
         } else {
             LOG_ERR("%s: error: unknown bitmap type %d\n", __func__, (int)bitmap->type);
             return 1;
@@ -874,8 +873,9 @@ mtmd_bitmap * mtmd_bitmap_init(uint32_t nx,
                                const unsigned char * data) {
     mtmd_bitmap * bitmap = new mtmd_bitmap;
     bitmap->type = MTMD_BITMAP_TYPE_IMAGE;
+    bitmap->nx = nx;
     bitmap->ny = ny;
-    bitmap->ny = ny;
+    bitmap->nz = 1;
     size_t data_size = (size_t)nx * ny * 3;
     bitmap->data.resize(data_size);
     std::memcpy(bitmap->data.data(), data, data_size);
@@ -888,6 +888,7 @@ mtmd_bitmap * mtmd_bitmap_init_from_audio(size_t n_samples,
     bitmap->type = MTMD_BITMAP_TYPE_AUDIO;
     bitmap->nx = n_samples;
     bitmap->ny = 1;
+    bitmap->nz = 1;
     size_t data_size = n_samples * sizeof(float);
     bitmap->data.resize(data_size);
     std::memcpy(bitmap->data.data(), data, data_size);

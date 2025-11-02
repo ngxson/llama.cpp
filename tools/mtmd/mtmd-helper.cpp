@@ -407,6 +407,7 @@ static bool decode_audio_from_buf(const unsigned char * buf_in, size_t len, int 
 } // namespace audio_helpers
 
 mtmd_bitmap * mtmd_helper_bitmap_init_from_buf(mtmd_context * ctx, const unsigned char * buf, size_t len) {
+    // TODO: support loading video files
     if (audio_helpers::is_audio_file((const char *)buf, len)) {
         std::vector<float> pcmf32;
         int bitrate = mtmd_get_audio_bitrate(ctx);
@@ -436,7 +437,221 @@ mtmd_bitmap * mtmd_helper_bitmap_init_from_buf(mtmd_context * ctx, const unsigne
     return result;
 }
 
+
+// internal utils for video loading and decoding
+#ifdef MTMD_HELPER_VIDEO
+extern "C" {
+#include <libavcodec/avcodec.h>
+#include <libavformat/avformat.h>
+#include <libswscale/swscale.h>
+#include <libavutil/imgutils.h>
+}
+struct mtmd_helper_video_ctx {
+public:
+    mtmd_helper_video_ctx() {}
+
+    // returns true if file is a valid video file
+    bool open_video_file(const char * fname) {
+        if (avformat_open_input(&fmt_ctx, fname, nullptr, nullptr) < 0) {
+            return false;
+        }
+
+        if (avformat_find_stream_info(fmt_ctx, nullptr) < 0) {
+            return false;
+        }
+
+        bool has_video = false;
+        for (unsigned int i = 0; i < fmt_ctx->nb_streams; i++) {
+            if (fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+                has_video = true;
+                break;
+            }
+        }
+
+        return has_video;
+    }
+
+    mtmd_bitmap * read_video_file() {
+        int video_stream_idx = -1;
+        for (unsigned int i = 0; i < fmt_ctx->nb_streams; i++) {
+            if (fmt_ctx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO) {
+                video_stream_idx = i;
+                break;
+            }
+        }
+
+        if (video_stream_idx == -1) {
+            LOG_ERR("%s: Could not find video stream in the input file\n", __func__);
+            return nullptr;
+        }
+
+        codec_par = fmt_ctx->streams[video_stream_idx]->codecpar;
+        const AVCodec * codec = avcodec_find_decoder(codec_par->codec_id);
+        if (!codec) {
+            LOG_ERR("%s: Could not find decoder for codec id %d\n", __func__, codec_par->codec_id);
+            return nullptr;
+        }
+
+        codec_ctx = avcodec_alloc_context3(codec);
+        if (!codec_ctx) {
+            LOG_ERR("%s: Could not allocate codec context\n", __func__);
+            return nullptr;
+        }
+
+        if (avcodec_parameters_to_context(codec_ctx, codec_par) < 0) {
+            LOG_ERR("%s: Could not copy codec parameters to codec context\n", __func__);
+            return nullptr;
+        }
+
+        if (avcodec_open2(codec_ctx, codec, nullptr) < 0) {
+            LOG_ERR("%s: Could not open codec\n", __func__);
+            return nullptr;
+        }
+
+        // prepare reading frames
+        frame = av_frame_alloc();
+        rgb_frame = av_frame_alloc();
+        if (!frame || !rgb_frame) {
+            LOG_ERR("%s: Could not allocate frame\n", __func__);
+            return nullptr;
+        }
+
+        int width = codec_ctx->width;
+        int height = codec_ctx->height;
+        AVPixelFormat dst_fmt = AV_PIX_FMT_RGB24;
+
+        // allocate output bitmap
+        int frame_count = get_frame_count(video_stream_idx);
+        if (frame_count <= 0) {
+            LOG_ERR("%s: Could not get valid frame count from video stream\n", __func__);
+            return nullptr;
+        }
+        alloc_bitmap(width, height, frame_count);
+
+        // allocate buffer for RGB frame
+        buffer = (uint8_t *)av_malloc(av_image_get_buffer_size(dst_fmt, width, height, 32));
+        av_image_fill_arrays(rgb_frame->data, rgb_frame->linesize, buffer, dst_fmt, width, height, 32);
+
+        sws_ctx = sws_getContext(width, height, codec_ctx->pix_fmt,
+                                 width, height, dst_fmt,
+                                 SWS_BILINEAR, nullptr, nullptr, nullptr);
+        if (!sws_ctx) {
+            LOG_ERR("%s: Could not initialize sws context\n", __func__);
+            return nullptr;
+        }
+
+        // read frame per packet
+        int frame_idx = 0;
+        pkt = av_packet_alloc();
+        while (av_read_frame(fmt_ctx, pkt) >= 0) {
+            if (pkt->stream_index == video_stream_idx) {
+                int ret = avcodec_send_packet(codec_ctx, pkt);
+                if (ret < 0) break;
+
+                while (ret >= 0) {
+                    ret = avcodec_receive_frame(codec_ctx, frame);
+                    if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
+                    if (ret < 0) break;
+
+                    sws_scale(sws_ctx, frame->data, frame->linesize, 0, height,
+                            rgb_frame->data, rgb_frame->linesize);
+
+                    add_frame_to_bitmap(rgb_frame->data[0], frame_idx++);
+                }
+            }
+            av_packet_unref(pkt);
+        }
+
+        // flush remaining frames
+        avcodec_send_packet(codec_ctx, nullptr);
+        int ret;
+        while (true) {
+            ret = avcodec_receive_frame(codec_ctx, frame);
+            if (ret == AVERROR(EAGAIN) || ret == AVERROR_EOF) break;
+            if (ret < 0) break;
+
+            sws_scale(sws_ctx, frame->data, frame->linesize, 0, height,
+                    rgb_frame->data, rgb_frame->linesize);
+
+            add_frame_to_bitmap(rgb_frame->data[0], frame_idx++);
+        }
+
+        // edge case: image is misrecognized as video with 1 frame
+        if (frame_idx == 1) {
+            LOG_INF("%s: only 1 frame decoded, treating as still image\n", __func__);
+            return nullptr;
+        }
+
+        LOG_INF("%s: video loaded, width: %d, height: %d, frames: %d\n", __func__, width, height, frame_idx);
+
+        success = true;
+        return bitmap;
+    }
+
+    ~mtmd_helper_video_ctx() {
+        av_packet_free(&pkt);
+        sws_freeContext(sws_ctx);
+        av_freep(&buffer);
+        av_frame_free(&rgb_frame);
+        av_frame_free(&frame);
+        avcodec_free_context(&codec_ctx);
+        avformat_close_input(&fmt_ctx);
+        if (!success && bitmap) {
+            mtmd_bitmap_free(bitmap);
+        }
+    }
+private:
+    int get_frame_count(int video_stream_idx) {
+        if (!fmt_ctx || !codec_ctx) {
+            return 0;
+        }
+        return fmt_ctx->streams[video_stream_idx]->nb_frames;
+    }
+
+    void add_frame_to_bitmap(const uint8_t * data, int frame_idx) {
+        mtmd_bitmap_set_frame(bitmap, frame_idx, data);
+    }
+
+    void alloc_bitmap(int nx, int ny, int nframes) {
+        GGML_ASSERT(!bitmap);
+        bitmap = mtmd_bitmap_init_from_video(nx, ny, nframes, nullptr);
+        if (!bitmap) {
+            LOG_ERR("%s: failed to initialize video bitmap\n", __func__);
+            return;
+        }
+    }
+
+    AVFormatContext * fmt_ctx = nullptr;
+    AVCodecParameters * codec_par = nullptr;
+    AVCodecContext * codec_ctx = nullptr;
+    SwsContext * sws_ctx = nullptr;
+    uint8_t * buffer = nullptr;
+    AVFrame * frame = nullptr;
+    AVFrame * rgb_frame = nullptr;
+    AVPacket * pkt = nullptr;
+    mtmd_bitmap * bitmap = nullptr;
+    bool success = false;
+};
+#endif // MTMD_HELPER_VIDEO
+
 mtmd_bitmap * mtmd_helper_bitmap_init_from_file(mtmd_context * ctx, const char * fname) {
+#ifdef MTMD_HELPER_VIDEO
+    // first, try to read the file as video
+    // TODO: implement a function to test if the file is a video file before loading it
+    mtmd_helper_video_ctx video_ctx;
+    if (video_ctx.open_video_file(fname)) {
+        mtmd_bitmap * bitmap = video_ctx.read_video_file();
+        if (bitmap) {
+            return bitmap;
+        } else {
+            LOG_ERR("%s: failed to load file as video, trying as image/audio\n", __func__);
+        }
+    } else {
+        LOG_INF("%s: file %s is not a video file, trying as image/audio\n", __func__, fname);
+    }
+#endif // MTMD_HELPER_VIDEO
+
+    // otherwise, read the file into memory buffer
     std::vector<unsigned char> buf;
     FILE * f = fopen(fname, "rb");
     if (!f) {
@@ -458,6 +673,3 @@ mtmd_bitmap * mtmd_helper_bitmap_init_from_file(mtmd_context * ctx, const char *
 
     return mtmd_helper_bitmap_init_from_buf(ctx, buf.data(), buf.size());
 }
-
-
-// TODO: implement video support here

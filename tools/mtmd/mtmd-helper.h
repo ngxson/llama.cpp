@@ -31,8 +31,8 @@ MTMD_API mtmd_bitmap * mtmd_helper_bitmap_init_from_file(mtmd_context * ctx, con
 // supported formats:
 //     image: formats supported by stb_image: jpg, png, bmp, gif, etc.
 //     audio: formats supported by miniaudio: wav, mp3, flac
-//     video: formats supported by ffmpeg: mp4, mov, avi, mkv, etc.
 // note: audio files will be auto-detected based on magic bytes
+// note (2): this function does NOT support video input yet
 // returns nullptr on failure
 // this function is thread-safe
 MTMD_API mtmd_bitmap * mtmd_helper_bitmap_init_from_buf(mtmd_context * ctx, const unsigned char * buf, size_t len);
