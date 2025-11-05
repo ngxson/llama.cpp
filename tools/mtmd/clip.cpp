@@ -969,11 +969,17 @@ struct clip_graph {
             inpL = build_norm(inpL, model.pre_ln_w, model.pre_ln_b, norm_t, eps, -1);
         }
 
-        // deepstack features (stack along the feature dimension), [n_embd * len(deepstack_layers), n_patches_x * n_patches_y, batch_size]
-        ggml_tensor * deepstack_features = nullptr;
         const int merge_factor = hparams.n_merge > 0 ? hparams.n_merge * hparams.n_merge : 4; // default 2x2=4 for qwen3vl
+        const int n_tokens_out = n_pos / merge_factor;
+
+        // output: main embeddings + deepstack features (stack along the feature dimension)
+        // [n_embd * (len(deepstack_layers) + 1), n_tokens_out, batch_size]
+        ggml_tensor * output = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32,
+                n_embd * (model.n_deepstack_layers + 1), // main embd + deepstack features
+                n_tokens_out); // we don't support batching for now
 
         // loop over layers
+        int i_ds = 0; // current deepstack index
         for (int il = 0; il < n_layer; il++) {
             auto & layer = model.layers[il];
 
@@ -1040,7 +1046,8 @@ struct clip_graph {
             cb(cur, "layer_out", il);
 
             if (layer.has_deepstack()) {
-                ggml_tensor * feat = ggml_reshape_3d(ctx0, cur, n_embd * merge_factor, n_pos / merge_factor, batch_size);
+                GGML_ASSERT(batch_size == 1); // not support batching for now
+                ggml_tensor * feat = ggml_reshape_2d(ctx0, cur, n_embd * merge_factor, n_pos / merge_factor);
                 feat = build_norm(feat, layer.deepstack_norm_w, layer.deepstack_norm_b, norm_t, eps, il);
                 feat = build_ffn(feat,
                     layer.deepstack_fc1_w, layer.deepstack_fc1_b,
@@ -1048,12 +1055,10 @@ struct clip_graph {
                     layer.deepstack_fc2_w, layer.deepstack_fc2_b,
                     ffn_op_type::FFN_GELU, il);
 
-                if(!deepstack_features) {
-                    deepstack_features = feat;
-                } else {
-                    // concat along the feature dimension
-                    deepstack_features = ggml_concat(ctx0, deepstack_features, feat, 0);
-                }
+                output = ggml_set_2d(ctx0, output, feat,
+                    ggml_row_size(output->type, output->ne[0]), // nb1
+                    n_embd * (i_ds + 1)); // offset
+                i_ds++;
             }
 
             inpL = cur;
@@ -1074,10 +1079,12 @@ struct clip_graph {
             model.mm_1_w, model.mm_1_b,
             ffn_op_type::FFN_GELU, -1);
 
-        embeddings = ggml_concat(ctx0, embeddings, deepstack_features, 0); // concat along the feature dimension
+        output = ggml_set_2d(ctx0, output, embeddings,
+            ggml_row_size(output->type, output->ne[0]), // nb1
+            0); // offset
 
         // build the graph
-        ggml_build_forward_expand(gf, embeddings);
+        ggml_build_forward_expand(gf, output);
 
         return gf;
     }
@@ -2790,14 +2797,8 @@ struct clip_model_loader {
                         get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.n_merge, false);
                         get_u32(KEY_WIN_ATTN_PATTERN, hparams.n_wa_pattern, model.proj_type == PROJECTOR_TYPE_QWEN25VL); // only 2.5 requires it
                         // ref: https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct/blob/main/preprocessor_config.json
-                        // the actual max limit is 12845056/14/14/2/2/4 = 4096 tokens
-                        // but we set a lower value to avoid OOM
-                        // TODO: make it configurable by user
-                        // TODO (2): bbox coordinates become inaccurate with small number of tokens,
-                        //           therefore we need to increase the min_tokens
-                        //           see: https://github.com/ggml-org/llama.cpp/issues/16842#issuecomment-3475144858
-                        hparams.set_limit_image_tokens(8, 2048);
-                        hparams.set_warmup_n_tokens(256); // avoid OOM on warmup
+                        hparams.set_limit_image_tokens(8, 4096);
+                        hparams.set_warmup_n_tokens(46*46); // avoid OOM on warmup
                         const int warn_min_pixels = 1024 * hparams.n_merge * hparams.n_merge * hparams.patch_size * hparams.patch_size;
                         if (hparams.image_min_pixels < warn_min_pixels) {
                             LOG_WRN("%s: Qwen-VL models require at minimum 1024 image tokens to function correctly on grounding tasks\n", __func__);
@@ -4813,7 +4814,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_QWEN2VL:
         case PROJECTOR_TYPE_QWEN3VL:
             {
-                const int merge_ratio = 2;
+                const int merge_ratio = hparams.n_merge;
                 const int pw = image_size_width  / patch_size;
                 const int ph = image_size_height / patch_size;
                 std::vector<int> positions(n_pos * 4);
