@@ -1084,12 +1084,13 @@ struct clip_graph {
 
     ggml_cgraph * build_minicpmv() {
         GGML_ASSERT(model.class_embedding == nullptr);
-        const int n_pos = n_patches;
+        const int n_pos       = n_patches;
+        const int n_embd_proj = clip_n_mmproj_embd(ctx);
 
         // position embeddings for the projector (not for ViT)
         // see: https://huggingface.co/openbmb/MiniCPM-o-2_6/blob/main/resampler.py#L70
         // base frequency omega
-        ggml_tensor * omega = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, n_embd / 4);
+        ggml_tensor * omega = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, n_embd_proj / 4);
         ggml_set_name(omega, "omega");
         ggml_set_input(omega);
 
@@ -1129,7 +1130,7 @@ struct clip_graph {
         ggml_tensor * pos_embed = nullptr;
         {
             // outer product
-            ggml_tensor * omega_b = ggml_repeat_4d(ctx0, omega, n_embd / 4, n_pos, 1, 1); // n_pos rows
+            ggml_tensor * omega_b = ggml_repeat_4d(ctx0, omega, omega->ne[0], n_pos, 1, 1); // n_pos rows
             ggml_tensor * theta_x = ggml_mul(ctx0, omega_b, pos_w);
             ggml_tensor * theta_y = ggml_mul(ctx0, omega_b, pos_h);
             // sin and cos
@@ -1153,9 +1154,8 @@ struct clip_graph {
 
         // attention
         {
-            int n_embd = clip_n_mmproj_embd(ctx);
             const int d_head = 128;
-            int n_head = n_embd/d_head;
+            int n_head = n_embd_proj/d_head;
             // Use actual config value if available, otherwise fall back to hardcoded values
             int num_query = ctx->model.hparams.minicpmv_query_num;
             ggml_tensor * Q = ggml_add(ctx0,
@@ -4753,11 +4753,11 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 }
                 set_input_f32("pos_w", pos_data);
                 // base frequency omega
-                const float base_freq = 10000.0f;
-                const int   n_embd    = hparams.n_embd;
-                std::vector<float> omega(n_embd / 4);
-                for (int i = 0; i < n_embd / 4; ++i) {
-                    omega[i] = 1.0f / std::pow(base_freq, static_cast<float>(i) / (n_embd / 4));
+                const float base_freq   = 10000.0f;
+                const int   n_embd_proj = clip_n_mmproj_embd(ctx);
+                std::vector<float> omega(n_embd_proj / 4);
+                for (int i = 0; i < n_embd_proj / 4; ++i) {
+                    omega[i] = 1.0f / std::pow(base_freq, static_cast<float>(i) / (n_embd_proj / 4));
                 }
                 set_input_f32("omega", omega);
             } break;
