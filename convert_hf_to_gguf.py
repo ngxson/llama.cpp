@@ -401,8 +401,6 @@ class ModelBase:
                             )
                         ]
             elif quant_method == "compressed-tensors":
-                weight_block_size = quant_config["config_groups"]["group_0"]["weights"]["group_size"]
-                quant_config["weight_block_size"] = weight_block_size
                 for name in self.model_tensors.keys():
                     if name.endswith("_packed"):
                         base_name = name.removesuffix("_packed")
