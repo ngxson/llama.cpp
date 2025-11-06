@@ -335,7 +335,6 @@ class ModelBase:
 
             # ref: https://github.com/vllm-project/compressed-tensors/blob/52792be02ec09e59f3517104e755a02d0e003fbb/src/compressed_tensors/compressors/quantized_compressors/pack_quantized.py
             def dequant_compressed_tensor(weight: Tensor, scale: Tensor) -> Tensor:
-                scale = scale.float()
                 weights_config = quant_config["config_groups"]["group_0"]["weights"]
                 group_size = weights_config["group_size"]
                 num_bits = weights_config["num_bits"]
@@ -349,15 +348,17 @@ class ModelBase:
                 mask = (1 << num_bits) - 1
                 unpacked = torch.zeros(
                     (weight.shape[0], weight.shape[1] * pack_factor),
-                    device=weight.device,
                     dtype=torch.int32,
                 )
                 if self.lazy:
                     unpacked = LazyTorchTensor.from_eager(unpacked)
+                else:
+                    unpacked = unpacked.to(weight.device) # is this needed?
                 for i in range(pack_factor):
                     unpacked[:, i::pack_factor] = (weight >> (num_bits * i)) & mask
                 # TODO: may need to unpad
                 unpacked = unpacked - (mask + 1) // 2 # convert uint4 to int4 (shift scale)
+                scale = scale.to(torch.float32)
                 scale = scale.unsqueeze(2)
                 unpacked = unpacked.to(torch.float32)
                 unpacked = unpacked.reshape(-1, unpacked.shape[1] // group_size, group_size)
