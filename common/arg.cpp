@@ -31,13 +31,6 @@
 #include <thread> // for hardware_concurrency
 #include <vector>
 
-#if defined(LLAMA_USE_CURL)
-#include <curl/curl.h>
-#include <curl/easy.h>
-#else
-#include "http.h"
-#endif
-
 #ifdef __linux__
 #include <linux/limits.h>
 #elif defined(_WIN32)
