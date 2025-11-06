@@ -352,6 +352,8 @@ class ModelBase:
                     device=weight.device,
                     dtype=torch.int32,
                 )
+                if self.lazy:
+                    unpacked = LazyTorchTensor.from_eager(unpacked)
                 for i in range(pack_factor):
                     unpacked[:, i::pack_factor] = (weight >> (num_bits * i)) & mask
                 # TODO: may need to unpad
