@@ -7153,7 +7153,7 @@ class DeepseekV2Model(TextModel):
 
                     new_name = self.map_tensor_name(merged_name)
 
-                    target_shape = (n_experts, data_packed.shape[1], data_packed.shape[2] * 32)
+                    target_shape = (n_experts, data_packed.shape[1], data_packed.shape[2] * 8)
                     self.repack_compressed_tensor(new_name, data_packed, data_scale, target_shape)
                     #tensors.append((new_name, data_torch))
                 return []
