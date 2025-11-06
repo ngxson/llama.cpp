@@ -489,7 +489,7 @@ class ModelBase:
             old_dtype = data_torch.dtype
 
             # convert any unsupported data types to float32
-            if data_torch.dtype not in (torch.float16, torch.float32):
+            if data_torch.dtype not in (torch.float16, torch.float32, torch.int32):
                 data_torch = data_torch.to(torch.float32)
 
             # use the first number-like part of the tensor name as the block id
@@ -7093,6 +7093,7 @@ class DeepseekV2Model(TextModel):
             self.gguf_writer.add_rope_scaling_yarn_log_mul(0.1 * rope_scaling["mscale_all_dim"])
 
     _experts: list[dict[str, Tensor]] | None = None
+    _experts_s: list[dict[str, Tensor]] | None = None # scale (for quantized experts)
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         # skip vision tensors and remove "language_model." for Kimi-VL
@@ -7120,28 +7121,42 @@ class DeepseekV2Model(TextModel):
             if self._experts is None:
                 self._experts = [{} for _ in range(self.block_count)]
 
-            self._experts[bid][name] = data_torch
+            if self._experts_s is None:
+                self._experts_s = [{} for _ in range(self.block_count)]
 
-            if len(self._experts[bid]) >= n_experts * 3:
-                tensors: list[tuple[str, Tensor]] = []
+            if name.endswith(".weight_packed"):
+                self._experts[bid][name] = data_torch
 
+            if name.endswith(".weight_scale"):
+                self._experts_s[bid][name] = data_torch
+
+            # TODO @ngxson : this is demo, won't compat with other models
+            if len(self._experts[bid]) + len(self._experts_s[bid]) >= n_experts * 3 * 2:
                 # merge the experts into a single 3d tensor
                 for w_name in ["down_proj", "gate_proj", "up_proj"]:
                     datas: list[Tensor] = []
+                    datas_s: list[Tensor] = []
 
                     for xid in range(n_experts):
-                        ename = f"model.layers.{bid}.mlp.experts.{xid}.{w_name}.weight"
+                        ename = f"model.layers.{bid}.mlp.experts.{xid}.{w_name}.weight_packed"
                         datas.append(self._experts[bid][ename])
                         del self._experts[bid][ename]
 
-                    data_torch = torch.stack(datas, dim=0)
+                        ename = f"model.layers.{bid}.mlp.experts.{xid}.{w_name}.weight_scale"
+                        datas_s.append(self._experts_s[bid][ename])
+                        del self._experts_s[bid][ename]
+
+                    data_packed = torch.stack(datas, dim=0)
+                    data_scale = torch.stack(datas_s, dim=0)
 
                     merged_name = f"model.layers.{bid}.mlp.experts.{w_name}.weight"
 
                     new_name = self.map_tensor_name(merged_name)
 
-                    tensors.append((new_name, data_torch))
-                return tensors
+                    target_shape = (n_experts, data_packed.shape[1], data_packed.shape[2] * 32)
+                    self.repack_compressed_tensor(new_name, data_packed, data_scale, target_shape)
+                    #tensors.append((new_name, data_torch))
+                return []
             else:
                 return []
 
@@ -7175,6 +7190,27 @@ class DeepseekV2Model(TextModel):
             experts = [k for d in self._experts for k in d.keys()]
             if len(experts) > 0:
                 raise ValueError(f"Unprocessed experts: {experts}")
+
+    def repack_compressed_tensor(self, new_name: str, blocks: Tensor, scales: Tensor, shape: Sequence[int]):
+        assert blocks.dtype == torch.int32
+        assert len(blocks.shape) == 3
+        assert len(scales.shape) == 3
+        logger.info(f"Repacking compressed_tensor {new_name} with shape {shape}")
+        # flatten the first two dimensions
+        blocks = blocks.reshape(-1, blocks.shape[2])
+        scales = scales.reshape(-1, scales.shape[2])
+        # TODO: for kimi-k2, this will cast bf16 to f16, this may reduce the accuracy of the model
+        # we have to do this because Q4_0 in GGUF only supports f16 scales
+        scales = scales.to(torch.float16)
+        scales = scales.to(torch.float16).view(torch.uint16).reshape(-1, 1)
+        repacked = blocks.reshape((blocks.shape[0] * blocks.shape[1]) // 4, 4)
+        repacked = repacked.view(torch.uint16)
+        assert repacked.shape[0] == scales.shape[0] # should have the same number of blocks
+        repacked = torch.concat([scales, repacked], dim=1)
+        repacked = repacked.view(torch.uint8)
+        shape_list = list(shape)
+        shape_list[-1] = (shape_list[-1] // 32) * 18 # block * 18 bytes for Q4_0 block size
+        self.gguf_writer.add_tensor(new_name, repacked.numpy(), raw_dtype=gguf.GGMLQuantizationType.Q4_0, raw_shape=shape_list)
 
 
 @ModelBase.register("MiniMaxM2ForCausalLM")
