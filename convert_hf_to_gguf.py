@@ -333,6 +333,35 @@ class ModelBase:
 
                 return (scales[g_idx].float() * (weight - zeros[g_idx]).float()).T
 
+            # ref: https://github.com/vllm-project/compressed-tensors/blob/52792be02ec09e59f3517104e755a02d0e003fbb/src/compressed_tensors/compressors/quantized_compressors/pack_quantized.py
+            def dequant_compressed_tensor(weight: Tensor, scale: Tensor) -> Tensor:
+                scale = scale.float()
+                weights_config = quant_config["config_groups"]["group_0"]["weights"]
+                group_size = weights_config["group_size"]
+                num_bits = weights_config["num_bits"]
+                # only tested with https://huggingface.co/moonshotai/Kimi-K2-Thinking/blob/main/config.json
+                # TODO: extend this if other configurations are needed
+                assert(group_size == 32)
+                assert(num_bits == 4)
+                assert(quant_config["format"] == "pack-quantized")
+
+                pack_factor = group_size // num_bits
+                mask = (1 << num_bits) - 1
+                unpacked = torch.zeros(
+                    (weight.shape[0], weight.shape[1] * pack_factor),
+                    device=weight.device,
+                    dtype=torch.int32,
+                )
+                for i in range(pack_factor):
+                    unpacked[:, i::pack_factor] = (weight >> (num_bits * i)) & mask
+                # TODO: may need to unpad
+                unpacked = unpacked - (mask + 1) // 2 # convert uint4 to int4 (shift scale)
+                scale = scale.unsqueeze(2)
+                unpacked = unpacked.to(torch.float32)
+                unpacked = unpacked.reshape(-1, unpacked.shape[1] // group_size, group_size)
+                dequantized = (unpacked * scale).reshape(-1, unpacked.shape[1] * group_size)
+                return dequantized
+
             if quant_method == "bitnet":
                 for name in self.model_tensors.keys():
                     if name.endswith(".weight_scale"):
@@ -369,6 +398,24 @@ class ModelBase:
                                 ".qzeros",
                                 ".qweight",
                                 ".scales",
+                            )
+                        ]
+            elif quant_method == "compressed-tensors":
+                weight_block_size = quant_config["config_groups"]["group_0"]["weights"]["group_size"]
+                quant_config["weight_block_size"] = weight_block_size
+                for name in self.model_tensors.keys():
+                    if name.endswith("_packed"):
+                        base_name = name.removesuffix("_packed")
+                        packed = self.model_tensors[base_name + "_packed"]
+                        scale = self.model_tensors[base_name + "_scale"]
+                        # TODO: use _shape for unpadding if necessary
+                        new_tensors[base_name] = lambda p=packed, s=scale: dequant_compressed_tensor(p(), s())
+                        tensors_to_remove += [
+                            base_name + n
+                            for n in (
+                                "_packed",
+                                "_scale",
+                                "_shape",
                             )
                         ]
             else:
