@@ -1,8 +1,8 @@
 #pragma once
 
-#include "common.h"
-
 #include <string>
+
+struct common_params_model;
 
 //
 // download functionalities

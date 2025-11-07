@@ -22,7 +22,6 @@
 #include <algorithm>
 #include <climits>
 #include <cstdarg>
-#include <filesystem>
 #include <fstream>
 #include <list>
 #include <regex>
@@ -46,7 +45,7 @@
 
 using json = nlohmann::ordered_json;
 
-std::initializer_list<enum llama_example> mmproj_examples = {
+static std::initializer_list<enum llama_example> mmproj_examples = {
     LLAMA_EXAMPLE_MTMD,
     LLAMA_EXAMPLE_SERVER,
 };
@@ -62,12 +61,12 @@ static std::string read_file(const std::string & fname) {
 }
 
 common_arg & common_arg::set_examples(std::initializer_list<enum llama_example> examples) {
-    this->examples = std::move(examples);
+    this->examples = examples;
     return *this;
 }
 
 common_arg & common_arg::set_excludes(std::initializer_list<enum llama_example> excludes) {
-    this->excludes = std::move(excludes);
+    this->excludes = excludes;
     return *this;
 }
 
@@ -90,7 +89,7 @@ bool common_arg::is_exclude(enum llama_example ex) {
     return excludes.find(ex) != excludes.end();
 }
 
-bool common_arg::get_value_from_env(std::string & output) {
+bool common_arg::get_value_from_env(std::string & output) const {
     if (env == nullptr) return false;
     char * value = std::getenv(env);
     if (value) {
@@ -100,7 +99,7 @@ bool common_arg::get_value_from_env(std::string & output) {
     return false;
 }
 
-bool common_arg::has_value_from_env() {
+bool common_arg::has_value_from_env() const {
     return env != nullptr && std::getenv(env);
 }
 
