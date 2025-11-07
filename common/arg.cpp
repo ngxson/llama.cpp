@@ -741,6 +741,21 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ));
     add_opt(common_arg(
+        {"-cl", "--cache-list"},
+        "show list of models in cache",
+        [](common_params &) {
+            printf("model cache directory: %s\n", fs_get_cache_directory().c_str());
+            auto models = common_list_cached_models();
+            printf("number of models in cache: %zu\n", models.size());
+            for (size_t i = 0; i < models.size(); i++) {
+                auto & model = models[i];
+                auto num = std::to_string(i+1); // so that we can print trailing space
+                printf("%4s. %-50s   tag: %s\n", num.c_str(), model.name.c_str(), model.tag.c_str());
+            }
+            exit(0);
+        }
+    ));
+    add_opt(common_arg(
         {"--completion-bash"},
         "print source-able bash completion script for llama.cpp",
         [](common_params & params) {
