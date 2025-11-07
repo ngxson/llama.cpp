@@ -11,11 +11,11 @@ struct common_params_model;
 struct common_cached_model_info {
     std::string manifest_path;
     std::string user;
-    std::string repo;
+    std::string model;
     std::string tag;
     size_t      size = 0; // GGUF size in bytes
     std::string to_string() const {
-        return user + "/" + repo + ":" + tag;
+        return user + "/" + model + ":" + tag;
     }
 };
 

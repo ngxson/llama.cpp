@@ -919,10 +919,10 @@ std::vector<common_cached_model_info> common_list_cached_models() {
             string_replace_all(fname, ".json", ""); // remove extension
             auto parts = string_split<std::string>(fname, '=');
             if (parts.size() == 4) {
-                // expect format: manifest=<user>=<repo>=<tag>=<other>
-                model_info.user = parts[1];
-                model_info.repo = parts[2];
-                model_info.tag  = parts[3];
+                // expect format: manifest=<user>=<model>=<tag>=<other>
+                model_info.user  = parts[1];
+                model_info.model = parts[2];
+                model_info.tag   = parts[3];
             } else {
                 // invalid format
                 continue;
