@@ -10,9 +10,13 @@ struct common_params_model;
 
 struct common_cached_model_info {
     std::string manifest_path;
-    std::string name; // note: this is not "repo", slashes are replaced with underscores
+    std::string user;
+    std::string repo;
     std::string tag;
     size_t      size = 0; // GGUF size in bytes
+    std::string to_string() const {
+        return user + "/" + repo + ":" + tag;
+    }
 };
 
 struct common_hf_file_res {

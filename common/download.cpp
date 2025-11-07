@@ -50,11 +50,19 @@ using json = nlohmann::ordered_json;
 // downloader
 //
 
+// validate repo name format: owner/repo
+static bool validate_repo_name(const std::string & repo) {
+    static const std::regex repo_regex(R"(^[A-Za-z0-9_.\-]+\/[A-Za-z0-9_.\-]+$)");
+    return std::regex_match(repo, repo_regex);
+}
+
 static std::string get_manifest_path(const std::string & repo, const std::string & tag) {
     // we use "=" to avoid clashing with other component, while still being allowed on windows
     std::string fname = "manifest=" + repo + "=" + tag + ".json";
-    string_replace_all(fname, "/", "_");
-    string_replace_all(fname, "\\", "_");
+    if (!validate_repo_name(repo)) {
+        throw std::runtime_error("error: repo name must be in the format 'owner/repo'");
+    }
+    string_replace_all(fname, "/", "=");
     return fs_get_cache_file(fname);
 }
 
@@ -910,11 +918,15 @@ std::vector<common_cached_model_info> common_list_cached_models() {
             std::string fname = file.name;
             string_replace_all(fname, ".json", ""); // remove extension
             auto parts = string_split<std::string>(fname, '=');
-            if (parts.size() != 3) {
+            if (parts.size() == 4) {
+                // expect format: manifest=<user>=<repo>=<tag>=<other>
+                model_info.user = parts[1];
+                model_info.repo = parts[2];
+                model_info.tag  = parts[3];
+            } else {
+                // invalid format
                 continue;
             }
-            model_info.name = parts[1];
-            model_info.tag  = parts[2];
             model_info.size = 0; // TODO: get GGUF size, not manifest size
             models.push_back(model_info);
         }

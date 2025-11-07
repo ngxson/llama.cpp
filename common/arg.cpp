@@ -750,7 +750,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
             for (size_t i = 0; i < models.size(); i++) {
                 auto & model = models[i];
                 auto num = std::to_string(i+1); // so that we can print trailing space
-                printf("%4s. %-50s   tag: %s\n", num.c_str(), model.name.c_str(), model.tag.c_str());
+                printf("%4s. %s\n", num.c_str(), model.to_string().c_str());
             }
             exit(0);
         }
