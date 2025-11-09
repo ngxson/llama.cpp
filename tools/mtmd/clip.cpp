@@ -160,13 +160,13 @@ enum patch_merge_type {
 };
 
 struct clip_hparams {
-    int32_t image_size;
-    int32_t patch_size;
-    int32_t n_embd;
-    int32_t n_ff;
-    int32_t projection_dim;
-    int32_t n_head;
-    int32_t n_layer;
+    int32_t image_size = 0;
+    int32_t patch_size = 0;
+    int32_t n_embd = 0;
+    int32_t n_ff = 0;
+    int32_t projection_dim = 0;
+    int32_t n_head = 0;
+    int32_t n_layer = 0;
     // idefics3
     int32_t image_longest_edge = 0;
     int32_t image_min_pixels = -1;
