@@ -31,6 +31,9 @@
 
 #define DEFAULT_OAICOMPAT_MODEL "gpt-3.5-turbo"
 
+// mime type for sending response
+#define MIMETYPE_JSON "application/json; charset=utf-8"
+
 using json = nlohmann::ordered_json;
 
 #define SLT_INF(slot, fmt, ...) LOG_INF("slot %12.*s: id %2d | task %d | " fmt, 12, __func__, (slot).id, ((slot).task ? (slot).task->id : -1), __VA_ARGS__)
@@ -47,6 +50,63 @@ using json = nlohmann::ordered_json;
 #define QUE_WRN(fmt, ...) LOG_WRN("que  %12.*s: " fmt, 12, __func__, __VA_ARGS__)
 #define QUE_ERR(fmt, ...) LOG_ERR("que  %12.*s: " fmt, 12, __func__, __VA_ARGS__)
 #define QUE_DBG(fmt, ...) LOG_DBG("que  %12.*s: " fmt, 12, __func__, __VA_ARGS__)
+
+// https://community.openai.com/t/openai-chat-list-of-error-codes-and-types/357791/11
+enum error_type {
+    ERROR_TYPE_INVALID_REQUEST,
+    ERROR_TYPE_AUTHENTICATION,
+    ERROR_TYPE_SERVER,
+    ERROR_TYPE_NOT_FOUND,
+    ERROR_TYPE_PERMISSION,
+    ERROR_TYPE_UNAVAILABLE, // custom error
+    ERROR_TYPE_NOT_SUPPORTED, // custom error
+    ERROR_TYPE_EXCEED_CONTEXT_SIZE, // custom error
+};
+
+// this function maybe used outside of server_task_result_error
+static json format_error_response(const std::string & message, const enum error_type type) {
+    std::string type_str;
+    int code = 500;
+    switch (type) {
+        case ERROR_TYPE_INVALID_REQUEST:
+            type_str = "invalid_request_error";
+            code = 400;
+            break;
+        case ERROR_TYPE_AUTHENTICATION:
+            type_str = "authentication_error";
+            code = 401;
+            break;
+        case ERROR_TYPE_NOT_FOUND:
+            type_str = "not_found_error";
+            code = 404;
+            break;
+        case ERROR_TYPE_SERVER:
+            type_str = "server_error";
+            code = 500;
+            break;
+        case ERROR_TYPE_PERMISSION:
+            type_str = "permission_error";
+            code = 403;
+            break;
+        case ERROR_TYPE_NOT_SUPPORTED:
+            type_str = "not_supported_error";
+            code = 501;
+            break;
+        case ERROR_TYPE_UNAVAILABLE:
+            type_str = "unavailable_error";
+            code = 503;
+            break;
+        case ERROR_TYPE_EXCEED_CONTEXT_SIZE:
+            type_str = "exceed_context_size_error";
+            code = 400;
+            break;
+    }
+    return json {
+        {"code", code},
+        {"message", message},
+        {"type", type_str},
+    };
+}
 
 using raw_buffer = std::vector<uint8_t>;
 
@@ -1554,4 +1614,15 @@ static server_tokens format_rerank(const struct llama_model * model, const struc
     }
 
     return result;
+}
+
+static void res_error(httplib::Response & res, const json & error_data) {
+    json final_response {{"error", error_data}};
+    res.set_content(safe_json_to_str(final_response), MIMETYPE_JSON);
+    res.status = json_value(error_data, "code", 500);
+}
+
+static void res_ok(httplib::Response & res, const json & data) {
+    res.set_content(safe_json_to_str(data), MIMETYPE_JSON);
+    res.status = 200;
 }

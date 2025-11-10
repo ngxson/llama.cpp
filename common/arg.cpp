@@ -404,8 +404,8 @@ static bool common_params_parse_ex(int argc, char ** argv, common_params_context
     }
 
     // handle model and download
-    {
-        auto res = common_params_handle_model(params.model, params.hf_token, DEFAULT_MODEL_PATH, params.offline);
+    if (!params.model.path.empty() || !params.model.url.empty() || !params.model.hf_repo.empty()) {
+        auto res = common_params_handle_model(params.model, params.hf_token, "", params.offline);
         if (params.no_mmproj) {
             params.mmproj = {};
         } else if (res.found_mmproj && params.mmproj.path.empty() && params.mmproj.url.empty()) {
@@ -2073,9 +2073,9 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         {"-m", "--model"}, "FNAME",
         ex == LLAMA_EXAMPLE_EXPORT_LORA
             ? std::string("model path from which to load base model")
-            : string_format(
+            : std::string(
                 "model path (default: `models/$filename` with filename from `--hf-file` "
-                "or `--model-url` if set, otherwise %s)", DEFAULT_MODEL_PATH
+                "or `--model-url` if set, otherwise empty)"
             ),
         [](common_params & params, const std::string & value) {
             params.model.path = value;
