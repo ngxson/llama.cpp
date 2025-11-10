@@ -81,8 +81,8 @@ endif()
 
 set(LLAMA_COMMON_EXTRA_LIBS build_info)
 
-# Use curl to download model url
 if (LLAMA_CURL)
+    # Use curl to download model url
     find_package(CURL)
     if (NOT CURL_FOUND)
         message(FATAL_ERROR "Could NOT find CURL. Hint: to disable this feature, set -DLLAMA_CURL=OFF")
@@ -90,6 +90,9 @@ if (LLAMA_CURL)
     target_compile_definitions(${TARGET} PUBLIC LLAMA_USE_CURL)
     include_directories(${CURL_INCLUDE_DIRS})
     set(LLAMA_COMMON_EXTRA_LIBS ${LLAMA_COMMON_EXTRA_LIBS} ${CURL_LIBRARIES})
+else()
+    # otherwise, use cpp-httplib
+    set(LLAMA_COMMON_EXTRA_LIBS ${LLAMA_COMMON_EXTRA_LIBS} cpp-httplib)
 endif()
 
 if (LLAMA_OPENSSL)
@@ -114,7 +117,6 @@ if (LLAMA_OPENSSL)
         set(CMAKE_REQUIRED_INCLUDES ${SAVED_CMAKE_REQUIRED_INCLUDES})
         if (OPENSSL_VERSION_SUPPORTED)
             message(STATUS "OpenSSL found: ${OPENSSL_VERSION}")
-            set(LLAMA_COMMON_EXTRA_LIBS ${LLAMA_COMMON_EXTRA_LIBS} cpp-httplib) # requires httplib for SSL support
             target_compile_definitions(${TARGET} PUBLIC CPPHTTPLIB_OPENSSL_SUPPORT)
             target_link_libraries(${TARGET} PUBLIC OpenSSL::SSL OpenSSL::Crypto)
             if (APPLE AND CMAKE_SYSTEM_NAME STREQUAL "Darwin")
