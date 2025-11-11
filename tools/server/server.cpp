@@ -5022,7 +5022,6 @@ int main(int argc, char ** argv) {
                 // Everything else, including multimodal completions.
                 inputs = tokenize_input_prompts(ctx_server.vocab, ctx_server.mctx, prompt, true, true);
             }
-            const size_t n_ctx_slot = ctx_server.slots.front().n_ctx;
             tasks.reserve(inputs.size());
             for (size_t i = 0; i < inputs.size(); i++) {
                 server_task task = server_task(type);
