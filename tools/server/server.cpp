@@ -4324,8 +4324,6 @@ struct server_response_generator {
     std::unordered_set<int> id_tasks;
     server_context & ctx_server;
     size_t received_count = 0;
-    server_task_result_ptr error;
-    std::vector<server_task_result_ptr> results; // used by all()
     bool cancelled = false;
 
     server_response_generator(server_context & ctx_server) : ctx_server(ctx_server) {}
@@ -4338,47 +4336,64 @@ struct server_response_generator {
         id_tasks = server_task::get_list_id(tasks);
         ctx_server.queue_results.add_waiting_tasks(tasks);
         ctx_server.queue_tasks.post(std::move(tasks));
-        results.resize(id_tasks.size());
     }
 
     bool has_next() {
-        return !error && received_count < id_tasks.size();
+        return !cancelled && received_count < id_tasks.size();
     }
 
-    bool has_error() {
-        return error != nullptr;
-    }
-
-    // can return nullptr for periodic check (checking if the connection is still alive)
-    server_task_result_ptr next() {
-        server_task_result_ptr result = ctx_server.queue_results.recv_with_timeout(id_tasks, HTTP_POLLING_SECONDS);
-        if (result != nullptr) {
-            if (result->is_error()) {
-                error = std::move(result);
-                // stop receiving further results on error
-                stop();
-                return nullptr;
-            }
-            if (result->is_stop()) {
-                received_count++;
+    // return nullptr if should_stop() is true before receiving a result
+    // note: if one error is received, it will stop further processing and return error result
+    server_task_result_ptr next(const std::function<bool()> & should_stop) {
+        while (true) {
+            server_task_result_ptr result = ctx_server.queue_results.recv_with_timeout(id_tasks, HTTP_POLLING_SECONDS);
+            if (result == nullptr) {
+                // timeout, check stop condition
+                if (should_stop()) {
+                    SRV_DBG("%s", "stopping wait for next result due to should_stop condition\n");
+                    return nullptr;
+                }
+            } else {
+                if (result->is_error()) {
+                    stop(); // cancel remaining tasks
+                    SRV_DBG("%s", "received error result, stopping further processing\n");
+                    return result;
+                }
+                if (result->is_stop()) {
+                    received_count++;
+                }
+                return result;
             }
         }
-        return result;
+
+        // should not reach here
     }
 
-    // can return FALSE for periodic check (checking if the connection is still alive)
-    bool wait_for_all() {
+    struct batch_response {
+        bool is_terminated = false; // if true, indicates that processing was stopped before all results were received
+        std::vector<server_task_result_ptr> results;
+        server_task_result_ptr error; // nullptr if no error
+    };
+
+    batch_response wait_for_all(const std::function<bool()> & should_stop) {
+        batch_response batch_res;
+        batch_res.results.resize(id_tasks.size());
         while (has_next()) {
-            auto res = next();
+            auto res = next(should_stop);
             if (res == nullptr) {
-                return false; // timeout
+                batch_res.is_terminated = true;
+                return batch_res;
+            }
+            if (res->is_error()) {
+                batch_res.error = std::move(res);
+                return batch_res;
             }
             const size_t idx = res->get_index();
-            GGML_ASSERT(idx < results.size() && "index out of range");
-            GGML_ASSERT(results[idx] == nullptr && "duplicate result received");
-            results[idx] = std::move(res);
+            GGML_ASSERT(idx < batch_res.results.size() && "index out of range");
+            GGML_ASSERT(batch_res.results[idx] == nullptr && "duplicate result received");
+            batch_res.results[idx] = std::move(res);
         }
-        return true;
+        return batch_res;
     }
 
     void stop() {
@@ -5048,21 +5063,15 @@ int main(int argc, char ** argv) {
 
         if (!stream) {
             // non-stream, wait for the results
-            while (!gen->wait_for_all()) {
-                // periodically check for connection closed
-                if (is_connection_closed()) {
-                    gen->stop();
-                    return;
-                }
-            }
-
-            // collect results
-            if (gen->has_error()) {
-                res_error(res, gen->error->to_json());
+            auto all_results = gen->wait_for_all(is_connection_closed);
+            if (all_results.is_terminated) {
+                return; // connection is closed
+            } else if (all_results.error) {
+                res_error(res, all_results.error->to_json());
                 return;
             } else {
                 json arr = json::array();
-                for (auto & res : gen->results) {
+                for (auto & res : all_results.results) {
                     GGML_ASSERT(dynamic_cast<server_task_result_cmpl_final*>(res.get()) != nullptr);
                     arr.push_back(res->to_json());
                 }
@@ -5073,9 +5082,12 @@ int main(int argc, char ** argv) {
         } else {
             // in streaming mode, the first error must be treated as non-stream response
             // this is to match the OAI API behavior
-            server_task_result_ptr first_result = gen->next();
-            if (!gen->has_error()) {
-                res_error(res, gen->error->to_json());
+            server_task_result_ptr first_result = gen->next(is_connection_closed);
+            if (first_result == nullptr) {
+                return; // connection is closed
+            }
+            if (first_result->is_error()) {
+                res_error(res, first_result->to_json());
                 return;
             }
 
@@ -5093,10 +5105,9 @@ int main(int argc, char ** argv) {
                 }
 
                 // receive subsequent results
-                auto result = gen->next();
+                auto result = gen->next([&sink]{ return !sink.is_writable(); });
                 if (result == nullptr) {
-                    // check for connection state; if false, go to on_complete()
-                    return sink.is_writable();
+                    return false; // connection is closed, go to on_complete()
                 }
 
                 // send the results
@@ -5435,20 +5446,16 @@ int main(int argc, char ** argv) {
         }
 
         // wait for the results
-        while (!gen.wait_for_all()) {
-            // periodically check for connection closed
-            if (req.is_connection_closed()) {
-                gen.stop();
-                return;
-            }
-        }
+        auto all_results = gen.wait_for_all(req.is_connection_closed);
 
         // collect results
-        if (gen.has_error()) {
-            res_error(res, gen.error->to_json());
+        if (all_results.is_terminated) {
+            return; // connection is closed
+        } else if (all_results.error) {
+            res_error(res, all_results.error->to_json());
             return;
         } else {
-            for (auto & res : gen.results) {
+            for (auto & res : all_results.results) {
                 GGML_ASSERT(dynamic_cast<server_task_result_embd*>(res.get()) != nullptr);
                 responses.push_back(res->to_json());
             }
@@ -5521,20 +5528,16 @@ int main(int argc, char ** argv) {
         }
 
         // wait for the results
-        while (!gen.wait_for_all()) {
-            // periodically check for connection closed
-            if (req.is_connection_closed()) {
-                gen.stop();
-                return;
-            }
-        }
+        auto all_results = gen.wait_for_all(req.is_connection_closed);
 
         // collect results
-        if (gen.has_error()) {
-            res_error(res, gen.error->to_json());
+        if (all_results.is_terminated) {
+            return; // connection is closed
+        } else if (all_results.error) {
+            res_error(res, all_results.error->to_json());
             return;
         } else {
-            for (auto & res : gen.results) {
+            for (auto & res : all_results.results) {
                 GGML_ASSERT(dynamic_cast<server_task_result_rerank*>(res.get()) != nullptr);
                 responses.push_back(res->to_json());
             }
