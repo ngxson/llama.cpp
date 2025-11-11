@@ -5102,6 +5102,7 @@ int main(int argc, char ** argv) {
                 // flush the first result as it's not an error
                 if (!first_result_json.empty()) {
                     if (!server_sent_event(sink, first_result_json)) {
+                        sink.done();
                         return false; // sending failed, go to on_complete()
                     }
                     first_result_json.clear(); // mark as sent
@@ -5110,6 +5111,7 @@ int main(int argc, char ** argv) {
                 // receive subsequent results
                 auto result = gen->next([&sink]{ return !sink.is_writable(); });
                 if (result == nullptr) {
+                    sink.done();
                     return false; // connection is closed, go to on_complete()
                 }
 
@@ -5118,6 +5120,7 @@ int main(int argc, char ** argv) {
                 bool ok = false;
                 if (result->is_error()) {
                     ok = server_sent_event(sink, json {{ "error", result->to_json() }});
+                    sink.done();
                     return false; // go to on_complete()
                 } else {
                     GGML_ASSERT(
@@ -5128,6 +5131,7 @@ int main(int argc, char ** argv) {
                 }
 
                 if (!ok) {
+                    sink.done();
                     return false; // sending failed, go to on_complete()
                 }
 
