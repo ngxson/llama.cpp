@@ -79,6 +79,7 @@ if (BUILD_SHARED_LIBS)
     set_target_properties(${TARGET} PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
 
+# TODO: use list(APPEND LLAMA_COMMON_EXTRA_LIBS ...)
 set(LLAMA_COMMON_EXTRA_LIBS build_info)
 
 if (LLAMA_CURL)
