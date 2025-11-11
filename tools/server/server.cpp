@@ -5082,26 +5082,29 @@ int main(int argc, char ** argv) {
         } else {
             // in streaming mode, the first error must be treated as non-stream response
             // this is to match the OAI API behavior
+            // ref: https://github.com/ggml-org/llama.cpp/pull/16486#discussion_r2419657309
             server_task_result_ptr first_result = gen->next(is_connection_closed);
             if (first_result == nullptr) {
                 return; // connection is closed
-            }
-            if (first_result->is_error()) {
+            } else if (first_result->is_error()) {
                 res_error(res, first_result->to_json());
                 return;
+            } else {
+                GGML_ASSERT(
+                    dynamic_cast<server_task_result_cmpl_partial*>(first_result.get()) != nullptr
+                    || dynamic_cast<server_task_result_cmpl_final*>(first_result.get()) != nullptr
+                );
             }
 
             // next responses are streamed
             json first_result_json = first_result->to_json();
             const auto chunked_content_provider = [first_result_json, gen, oaicompat](size_t, httplib::DataSink & sink) mutable -> bool {
                 // flush the first result as it's not an error
-                bool success = false;
                 if (!first_result_json.empty()) {
-                    success = server_sent_event(sink, first_result_json);
-                    first_result_json.clear(); // mark as sent
-                    if (!success) {
+                    if (!server_sent_event(sink, first_result_json)) {
                         return false; // sending failed, go to on_complete()
                     }
+                    first_result_json.clear(); // mark as sent
                 }
 
                 // receive subsequent results
@@ -5112,8 +5115,19 @@ int main(int argc, char ** argv) {
 
                 // send the results
                 json res_json = result->to_json();
-                success = server_sent_event(sink, res_json);
-                if (!success) {
+                bool ok = false;
+                if (result->is_error()) {
+                    ok = server_sent_event(sink, json {{ "error", result->to_json() }});
+                    return false; // go to on_complete()
+                } else {
+                    GGML_ASSERT(
+                        dynamic_cast<server_task_result_cmpl_partial*>(result.get()) != nullptr
+                        || dynamic_cast<server_task_result_cmpl_final*>(result.get()) != nullptr
+                    );
+                    ok = server_sent_event(sink, res_json);
+                }
+
+                if (!ok) {
                     return false; // sending failed, go to on_complete()
                 }
 
