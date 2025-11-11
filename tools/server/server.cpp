@@ -5136,8 +5136,8 @@ int main(int argc, char ** argv) {
                     if (oaicompat != OAICOMPAT_TYPE_NONE) {
                         static const std::string ev_done = "data: [DONE]\n\n";
                         sink.write(ev_done.data(), ev_done.size());
-                        sink.done();
                     }
+                    sink.done();
                     return false; // no more data, go to on_complete()
                 }
 
