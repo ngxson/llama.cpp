@@ -12,7 +12,7 @@
 // 1) normal response: `data` contains the full response body
 // 2) streaming response: each call to next() generates the next chunk, stored in `data`
 //    when next() returns false, no more data after the current chunk
-struct server_http_resgen {
+struct server_http_res {
     std::string content_type = "application/json; charset=utf-8";
     int status = 200;
     std::string data;
@@ -24,14 +24,14 @@ struct server_http_resgen {
         return next != nullptr;
     }
 
-    virtual ~server_http_resgen() = default;
+    virtual ~server_http_res() = default;
 };
 
 // unique pointer, used by set_chunked_content_provider
 // we need to use unique_ptr because httplib requires the stream provider to be stored in heap
-using server_http_resgen_ptr = std::unique_ptr<server_http_resgen>;
+using server_http_res_ptr = std::unique_ptr<server_http_res>;
 
-struct server_http_request {
+struct server_http_req {
     std::map<std::string, std::string> params; // path_params + query_params
     std::string body;
     const std::function<bool()> & should_stop;
@@ -63,7 +63,7 @@ struct server_http_context {
     bool start();
     void stop();
 
-    using handler_t = std::function<server_http_resgen_ptr(const server_http_request & req)>;
+    using handler_t = std::function<server_http_res_ptr(const server_http_req & req)>;
     void get(const std::string &, handler_t);
     void post(const std::string &, handler_t);
 };

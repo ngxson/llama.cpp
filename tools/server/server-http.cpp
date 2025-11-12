@@ -306,7 +306,7 @@ static std::map<std::string, std::string> get_params(const httplib::Request & re
 
 void server_http_context::get(const std::string & path, server_http_context::handler_t handler) {
     pimpl->srv->Get(path_prefix + path, [handler](const httplib::Request & req, httplib::Response & res) {
-        server_http_resgen_ptr response = handler(server_http_request{
+        server_http_res_ptr response = handler(server_http_req{
             get_params(req),
             req.body,
             req.is_connection_closed
@@ -320,7 +320,7 @@ void server_http_context::get(const std::string & path, server_http_context::han
 
 void server_http_context::post(const std::string & path, server_http_context::handler_t handler) {
     pimpl->srv->Post(path_prefix + path, [handler](const httplib::Request & req, httplib::Response & res) {
-        server_http_resgen_ptr response = handler(server_http_request{
+        server_http_res_ptr response = handler(server_http_req{
             get_params(req),
             req.body,
             req.is_connection_closed
@@ -330,7 +330,7 @@ void server_http_context::post(const std::string & path, server_http_context::ha
             set_headers(res, response->headers);
             std::string content_type = response->content_type;
             // convert to shared_ptr as both chunked_content_provider() and on_complete() need to use it
-            std::shared_ptr<server_http_resgen> r_ptr = std::move(response);
+            std::shared_ptr<server_http_res> r_ptr = std::move(response);
             const auto chunked_content_provider = [response = r_ptr](size_t, httplib::DataSink & sink) -> bool {
                 // TODO: maybe handle sink.write unsuccessful? for now, we rely on is_connection_closed()
                 sink.write(response->data.data(), response->data.size());

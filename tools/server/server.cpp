@@ -4416,9 +4416,9 @@ struct server_response_reader {
 };
 
 // generator-like API for HTTP response generation
-struct server_resgen : server_http_resgen {
+struct server_res_generator : server_http_res {
     server_response_reader rd;
-    server_resgen(server_context & ctx_server_) : rd(ctx_server_) {}
+    server_res_generator(server_context & ctx_server_) : rd(ctx_server_) {}
     void ok(const json & response_data) {
         status = 200;
         data = safe_json_to_str(response_data);
@@ -4439,15 +4439,15 @@ struct server_routes {
 public:
     // handlers using lambda function, so that they can capture `this` without `std::bind`
 
-    server_http_context::handler_t get_health = [this](const server_http_request &) {
+    server_http_context::handler_t get_health = [this](const server_http_req &) {
         // error and loading states are handled by middleware
-        auto res = std::make_unique<server_resgen>(ctx_server);
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         res->ok({{"status", "ok"}});
         return res;
     };
 
-    server_http_context::handler_t get_metrics = [this](const server_http_request &) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    server_http_context::handler_t get_metrics = [this](const server_http_req &) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         if (!params.endpoint_metrics) {
             res->error(format_error_response("This server does not support metrics endpoint. Start it with `--metrics`", ERROR_TYPE_NOT_SUPPORTED));
             return res;
@@ -4549,8 +4549,8 @@ public:
         return res;
     };
 
-    server_http_context::handler_t get_slots = [this](const server_http_request & req) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    server_http_context::handler_t get_slots = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         if (!params.endpoint_slots) {
             res->error(format_error_response("This server does not support slots endpoint. Start it with `--slots`", ERROR_TYPE_NOT_SUPPORTED));
             return res;
@@ -4590,8 +4590,8 @@ public:
         return res;
     };
 
-    server_http_context::handler_t post_slots = [this](const server_http_request & req) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    server_http_context::handler_t post_slots = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         if (params.slot_save_path.empty()) {
             res->error(format_error_response("This server does not support slots action. Start it with `--slot-save-path`", ERROR_TYPE_NOT_SUPPORTED));
             return res;
@@ -4621,8 +4621,8 @@ public:
         }
     };
 
-    server_http_context::handler_t get_props = [this](const server_http_request &) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    server_http_context::handler_t get_props = [this](const server_http_req &) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         json default_generation_settings_for_props;
 
         {
@@ -4665,8 +4665,8 @@ public:
         return res;
     };
 
-    server_http_context::handler_t post_props = [this](const server_http_request &) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    server_http_context::handler_t post_props = [this](const server_http_req &) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         if (!params.endpoint_props) {
             res->error(format_error_response("This server does not support changing global properties. Start it with `--props`", ERROR_TYPE_NOT_SUPPORTED));
             return res;
@@ -4677,8 +4677,8 @@ public:
         return res;
     };
 
-    server_http_context::handler_t get_api_show = [this](const server_http_request &) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    server_http_context::handler_t get_api_show = [this](const server_http_req &) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         bool has_mtmd = ctx_server.mctx != nullptr;
         json data = {
             {
@@ -4708,8 +4708,8 @@ public:
         return res;
     };
 
-    server_http_context::handler_t post_infill = [this](const server_http_request & req) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    server_http_context::handler_t post_infill = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         // check model compatibility
         std::string err;
         if (llama_vocab_fim_pre(ctx_server.vocab) == LLAMA_TOKEN_NULL) {
@@ -4786,7 +4786,7 @@ public:
             OAICOMPAT_TYPE_NONE); // infill is not OAI compatible
     };
 
-    server_http_context::handler_t post_completions = [this](const server_http_request & req) {
+    server_http_context::handler_t post_completions = [this](const server_http_req & req) {
         std::vector<raw_buffer> files; // dummy
         const json body = json::parse(req.body);
         return handle_completions_impl(
@@ -4797,7 +4797,7 @@ public:
             OAICOMPAT_TYPE_NONE);
     };
 
-    server_http_context::handler_t post_completions_oai = [this](const server_http_request & req) {
+    server_http_context::handler_t post_completions_oai = [this](const server_http_req & req) {
         std::vector<raw_buffer> files; // dummy
         const json body = json::parse(req.body);
         return handle_completions_impl(
@@ -4808,7 +4808,7 @@ public:
             OAICOMPAT_TYPE_COMPLETION);
     };
 
-    server_http_context::handler_t post_chat_completions = [this](const server_http_request & req) {
+    server_http_context::handler_t post_chat_completions = [this](const server_http_req & req) {
         std::vector<raw_buffer> files;
         json body = json::parse(req.body);
         json body_parsed = oaicompat_chat_params_parse(
@@ -4824,8 +4824,8 @@ public:
     };
 
     // same with handle_chat_completions, but without inference part
-    server_http_context::handler_t post_apply_template = [this](const server_http_request & req) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    server_http_context::handler_t post_apply_template = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         std::vector<raw_buffer> files; // dummy, unused
         json body = json::parse(req.body);
         json data = oaicompat_chat_params_parse(
@@ -4836,8 +4836,8 @@ public:
         return res;
     };
 
-    server_http_context::handler_t get_models = [this](const server_http_request &) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    server_http_context::handler_t get_models = [this](const server_http_req &) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         bool is_model_ready = ctx_http.is_ready.load();
         json model_meta = nullptr;
         if (is_model_ready) {
@@ -4883,8 +4883,8 @@ public:
         return res;
     };
 
-    server_http_context::handler_t post_tokenize = [this](const server_http_request & req) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    server_http_context::handler_t post_tokenize = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         const json body = json::parse(req.body);
         json tokens_response = json::array();
         if (body.count("content") != 0) {
@@ -4925,8 +4925,8 @@ public:
         return res;
     };
 
-    server_http_context::handler_t post_detokenize = [this](const server_http_request & req) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    server_http_context::handler_t post_detokenize = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         const json body = json::parse(req.body);
 
         std::string content;
@@ -4940,16 +4940,16 @@ public:
         return res;
     };
 
-    server_http_context::handler_t post_embeddings = [this](const server_http_request & req) {
+    server_http_context::handler_t post_embeddings = [this](const server_http_req & req) {
         return handle_embeddings_impl(req, OAICOMPAT_TYPE_NONE);
     };
 
-    server_http_context::handler_t post_embeddings_oai = [this](const server_http_request & req) {
+    server_http_context::handler_t post_embeddings_oai = [this](const server_http_req & req) {
         return handle_embeddings_impl(req, OAICOMPAT_TYPE_EMBEDDING);
     };
 
-    server_http_context::handler_t post_rerank = [this](const server_http_request & req) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    server_http_context::handler_t post_rerank = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         if (!ctx_server.params_base.embedding || ctx_server.params_base.pooling_type != LLAMA_POOLING_TYPE_RANK) {
             res->error(format_error_response("This server does not support reranking. Start it with `--reranking`", ERROR_TYPE_NOT_SUPPORTED));
             return res;
@@ -5028,8 +5028,8 @@ public:
         return res;
     };
 
-    server_http_context::handler_t get_lora_adapters = [this](const server_http_request &) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    server_http_context::handler_t get_lora_adapters = [this](const server_http_req &) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         json result = json::array();
         const auto & loras = ctx_server.params_base.lora_adapters;
         for (size_t i = 0; i < loras.size(); ++i) {
@@ -5059,8 +5059,8 @@ public:
         return res;
     };
 
-    server_http_context::handler_t post_lora_adapters = [this](const server_http_request & req) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    server_http_context::handler_t post_lora_adapters = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         const json body = json::parse(req.body);
         if (!body.is_array()) {
             res->error(format_error_response("Request body must be an array", ERROR_TYPE_INVALID_REQUEST));
@@ -5091,7 +5091,7 @@ public:
     };
 
 private:
-    std::unique_ptr<server_resgen> handle_completions_impl(
+    std::unique_ptr<server_res_generator> handle_completions_impl(
                 server_task_type type,
                 const json & data,
                 const std::vector<raw_buffer> & files,
@@ -5099,7 +5099,7 @@ private:
                 oaicompat_type oaicompat) {
         GGML_ASSERT(type == SERVER_TASK_TYPE_COMPLETION || type == SERVER_TASK_TYPE_INFILL);
 
-        auto res = std::make_unique<server_resgen>(ctx_server);
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         auto completion_id = gen_chatcmplid();
         auto & rd = res->rd;
 
@@ -5236,8 +5236,8 @@ private:
         return res;
     }
 
-    std::unique_ptr<server_resgen> handle_slots_save(const server_http_request & req, int id_slot) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    std::unique_ptr<server_res_generator> handle_slots_save(const server_http_req & req, int id_slot) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         const json & request_data = req.body;
         std::string filename = request_data.at("filename");
         if (!fs_validate_filename(filename)) {
@@ -5271,8 +5271,8 @@ private:
         return res;
     }
 
-    std::unique_ptr<server_resgen> handle_slots_restore(const server_http_request & req, int id_slot) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    std::unique_ptr<server_res_generator> handle_slots_restore(const server_http_req & req, int id_slot) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         const json & request_data = req.body;
         std::string filename = request_data.at("filename");
         if (!fs_validate_filename(filename)) {
@@ -5307,8 +5307,8 @@ private:
         return res;
     }
 
-    std::unique_ptr<server_resgen> handle_slots_erase(const server_http_request &, int id_slot) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    std::unique_ptr<server_res_generator> handle_slots_erase(const server_http_req &, int id_slot) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         int task_id = ctx_server.queue_tasks.get_new_id();
         {
             server_task task(SERVER_TASK_TYPE_SLOT_ERASE);
@@ -5333,8 +5333,8 @@ private:
         return res;
     }
 
-    std::unique_ptr<server_resgen> handle_embeddings_impl(const server_http_request & req, oaicompat_type oaicompat) {
-        auto res = std::make_unique<server_resgen>(ctx_server);
+    std::unique_ptr<server_res_generator> handle_embeddings_impl(const server_http_req & req, oaicompat_type oaicompat) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         if (!ctx_server.params_base.embedding) {
             res->error(format_error_response("This server does not support embeddings. Start it with `--embeddings`", ERROR_TYPE_NOT_SUPPORTED));
             return res;
@@ -5449,7 +5449,7 @@ inline void signal_handler(int signal) {
 
 // wrapper function that handles exceptions and logs errors
 static server_http_context::handler_t ex_wrapper(server_http_context::handler_t func) {
-    return [func = std::move(func)](const server_http_request & req) -> server_http_resgen_ptr {
+    return [func = std::move(func)](const server_http_req & req) -> server_http_res_ptr {
         std::string message;
         try {
             return func(req);
@@ -5459,7 +5459,7 @@ static server_http_context::handler_t ex_wrapper(server_http_context::handler_t 
             message = "unknown error";
         }
 
-        auto res = std::make_unique<server_http_resgen>();
+        auto res = std::make_unique<server_http_res>();
         res->status = 500;
         try {
             json error_data = format_error_response(message, ERROR_TYPE_SERVER);
