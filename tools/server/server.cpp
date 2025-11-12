@@ -5245,7 +5245,7 @@ private:
 
     std::unique_ptr<server_res_generator> handle_slots_save(const server_http_req & req, int id_slot) {
         auto res = std::make_unique<server_res_generator>(ctx_server);
-        const json & request_data = req.body;
+        const json request_data = json::parse(req.body);
         std::string filename = request_data.at("filename");
         if (!fs_validate_filename(filename)) {
             res->error(format_error_response("Invalid filename", ERROR_TYPE_INVALID_REQUEST));
@@ -5280,7 +5280,7 @@ private:
 
     std::unique_ptr<server_res_generator> handle_slots_restore(const server_http_req & req, int id_slot) {
         auto res = std::make_unique<server_res_generator>(ctx_server);
-        const json & request_data = req.body;
+        const json request_data = json::parse(req.body);
         std::string filename = request_data.at("filename");
         if (!fs_validate_filename(filename)) {
             res->error(format_error_response("Invalid filename", ERROR_TYPE_INVALID_REQUEST));
