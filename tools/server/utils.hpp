@@ -453,29 +453,25 @@ static std::string tokens_to_output_formatted_string(const llama_context * ctx, 
     return out;
 }
 
+// format server-sent event (SSE), return the formatted string to send
 // note: if data is a json array, it will be sent as multiple events, one per item
-static bool server_sent_event(httplib::DataSink & sink, const json & data) {
-    static auto send_single = [](httplib::DataSink & sink, const json & data) -> bool {
-        const std::string str =
-            "data: " +
-            data.dump(-1, ' ', false, json::error_handler_t::replace) +
+static std::string format_sse(const json & data) {
+    std::ostringstream ss;
+    auto send_single = [&ss](const json & data) {
+        ss << "data: " <<
+            data.dump(-1, ' ', false, json::error_handler_t::replace) <<
             "\n\n"; // required by RFC 8895 - A message is terminated by a blank line (two line terminators in a row).
-
-        LOG_DBG("data stream, to_send: %s", str.c_str());
-        return sink.write(str.c_str(), str.size());
     };
 
     if (data.is_array()) {
         for (const auto & item : data) {
-            if (!send_single(sink, item)) {
-                return false;
-            }
+            send_single(item);
         }
     } else {
-        return send_single(sink, data);
+        send_single(data);
     }
 
-    return true;
+    return ss.str();
 }
 
 //
