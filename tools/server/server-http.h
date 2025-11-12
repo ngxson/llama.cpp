@@ -6,6 +6,7 @@
 #include <functional>
 #include <string>
 #include <thread>
+#include <atomic>
 
 // generator-like API for HTTP response generation
 // this object response with one of the 2 modes:
