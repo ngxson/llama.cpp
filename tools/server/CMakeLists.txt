@@ -16,6 +16,8 @@ set(TARGET_SRCS
     utils.hpp
     server-http.cpp
     server-http.h
+    server-main.cpp
+    server-main.h
 )
 set(PUBLIC_ASSETS
     index.html.gz
