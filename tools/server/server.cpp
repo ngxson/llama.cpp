@@ -19,6 +19,7 @@
 #include <deque>
 #include <memory>
 #include <mutex>
+#include <list>
 #include <signal.h>
 #include <thread>
 #include <unordered_map>
@@ -1665,7 +1666,7 @@ struct server_slot {
     server_prompt prompt;
 
     void prompt_save(server_prompt_cache & prompt_cache) const {
-        assert(prompt.data.size() == 0);
+        GGML_ASSERT(prompt.data.size() == 0);
 
         const size_t cur_size = llama_state_seq_get_size_ext(ctx, id, 0);
 
@@ -4429,8 +4430,11 @@ struct server_resgen : server_http_resgen {
 };
 
 struct server_routes {
+    const common_params & params;
     server_context & ctx_server;
-    server_routes(server_context & ctx_server_) : ctx_server(ctx_server_) {}
+    server_http_context & ctx_http; // for reading is_ready
+    server_routes(const common_params & params, server_context & ctx_server, server_http_context & ctx_http)
+        : params(params), ctx_server(ctx_server), ctx_http(ctx_http) {}
 
 public:
     // handlers using lambda function, so that they can capture `this` without `std::bind`
@@ -4442,11 +4446,352 @@ public:
         return res;
     };
 
-    server_http_context::handler_t post_completions = [this](const server_http_request & req) {
+    server_http_context::handler_t get_metrics = [this](const server_http_request &) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        if (!params.endpoint_metrics) {
+            res->error(format_error_response("This server does not support metrics endpoint. Start it with `--metrics`", ERROR_TYPE_NOT_SUPPORTED));
+            return res;
+        }
+
+        // request slots data using task queue
+        // TODO: use server_response_reader
+        int task_id = ctx_server.queue_tasks.get_new_id();
+        {
+            server_task task(SERVER_TASK_TYPE_METRICS);
+            task.id = task_id;
+            ctx_server.queue_results.add_waiting_task_id(task_id);
+            ctx_server.queue_tasks.post(std::move(task), true); // high-priority task
+        }
+
+        // get the result
+        server_task_result_ptr result = ctx_server.queue_results.recv(task_id);
+        ctx_server.queue_results.remove_waiting_task_id(task_id);
+
+        if (result->is_error()) {
+            res->error(result->to_json());
+            return res;
+        }
+
+        // TODO: get rid of this dynamic_cast
+        auto res_task = dynamic_cast<server_task_result_metrics*>(result.get());
+        GGML_ASSERT(res_task != nullptr);
+
+        // metrics definition: https://prometheus.io/docs/practices/naming/#metric-names
+        json all_metrics_def = json {
+            {"counter", {{
+                    {"name",  "prompt_tokens_total"},
+                    {"help",  "Number of prompt tokens processed."},
+                    {"value",  (uint64_t) res_task->n_prompt_tokens_processed_total}
+            }, {
+                    {"name",  "prompt_seconds_total"},
+                    {"help",  "Prompt process time"},
+                    {"value",  (uint64_t) res_task->t_prompt_processing_total / 1.e3}
+            }, {
+                    {"name",  "tokens_predicted_total"},
+                    {"help",  "Number of generation tokens processed."},
+                    {"value",  (uint64_t) res_task->n_tokens_predicted_total}
+            }, {
+                    {"name",  "tokens_predicted_seconds_total"},
+                    {"help",  "Predict process time"},
+                    {"value",  (uint64_t) res_task->t_tokens_generation_total / 1.e3}
+            }, {
+                    {"name",  "n_decode_total"},
+                    {"help",  "Total number of llama_decode() calls"},
+                    {"value",  res_task->n_decode_total}
+            }, {
+                    {"name",  "n_tokens_max"},
+                    {"help",  "Largest observed n_tokens."},
+                    {"value",  res_task->n_tokens_max}
+            }, {
+                    {"name",  "n_busy_slots_per_decode"},
+                    {"help",  "Average number of busy slots per llama_decode() call"},
+                    {"value",  (float) res_task->n_busy_slots_total / std::max((float) res_task->n_decode_total, 1.f)}
+            }}},
+            {"gauge", {{
+                    {"name",  "prompt_tokens_seconds"},
+                    {"help",  "Average prompt throughput in tokens/s."},
+                    {"value",  res_task->n_prompt_tokens_processed ? 1.e3 / res_task->t_prompt_processing * res_task->n_prompt_tokens_processed : 0.}
+            },{
+                    {"name",  "predicted_tokens_seconds"},
+                    {"help",  "Average generation throughput in tokens/s."},
+                    {"value",  res_task->n_tokens_predicted ? 1.e3 / res_task->t_tokens_generation * res_task->n_tokens_predicted : 0.}
+            },{
+                    {"name",  "requests_processing"},
+                    {"help",  "Number of requests processing."},
+                    {"value",  (uint64_t) res_task->n_processing_slots}
+            },{
+                    {"name",  "requests_deferred"},
+                    {"help",  "Number of requests deferred."},
+                    {"value",  (uint64_t) res_task->n_tasks_deferred}
+            }}}
+        };
+
+        std::stringstream prometheus;
+
+        for (const auto & el : all_metrics_def.items()) {
+            const auto & type        = el.key();
+            const auto & metrics_def = el.value();
+
+            for (const auto & metric_def : metrics_def) {
+                const std::string name = metric_def.at("name");
+                const std::string help = metric_def.at("help");
+
+                auto value = json_value(metric_def, "value", 0.);
+                prometheus << "# HELP llamacpp:" << name << " " << help  << "\n"
+                            << "# TYPE llamacpp:" << name << " " << type  << "\n"
+                            << "llamacpp:"        << name << " " << value << "\n";
+            }
+        }
+
+        res->headers["Process-Start-Time-Unix"] = std::to_string(res_task->t_start);
+        res->content_type = "text/plain; version=0.0.4";
+        res->ok(prometheus.str());
+        return res;
+    };
+
+    server_http_context::handler_t get_slots = [this](const server_http_request & req) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        if (!params.endpoint_slots) {
+            res->error(format_error_response("This server does not support slots endpoint. Start it with `--slots`", ERROR_TYPE_NOT_SUPPORTED));
+            return res;
+        }
+
+        // request slots data using task queue
+        int task_id = ctx_server.queue_tasks.get_new_id();
+        {
+            server_task task(SERVER_TASK_TYPE_METRICS);
+            task.id = task_id;
+            ctx_server.queue_results.add_waiting_task_id(task_id);
+            ctx_server.queue_tasks.post(std::move(task), true); // high-priority task
+        }
+
+        // get the result
+        server_task_result_ptr result = ctx_server.queue_results.recv(task_id);
+        ctx_server.queue_results.remove_waiting_task_id(task_id);
+
+        if (result->is_error()) {
+            res->error(result->to_json());
+            return res;
+        }
+
+        // TODO: get rid of this dynamic_cast
+        auto res_task = dynamic_cast<server_task_result_metrics*>(result.get());
+        GGML_ASSERT(res_task != nullptr);
+
+        // optionally return "fail_on_no_slot" error
+        if (!req.get_param("fail_on_no_slot").empty()) {
+            if (res_task->n_idle_slots == 0) {
+                res->error(format_error_response("no slot available", ERROR_TYPE_UNAVAILABLE));
+                return res;
+            }
+        }
+
+        res->ok(res_task->slots_data);
+        return res;
+    };
+
+    server_http_context::handler_t post_slots = [this](const server_http_request & req) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        if (params.slot_save_path.empty()) {
+            res->error(format_error_response("This server does not support slots action. Start it with `--slot-save-path`", ERROR_TYPE_NOT_SUPPORTED));
+            return res;
+        }
+
+        std::string id_slot_str = req.get_param("id_slot");
+        int id_slot;
+
+        try {
+            id_slot = std::stoi(id_slot_str);
+        } catch (const std::exception &) {
+            res->error(format_error_response("Invalid slot ID", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+        }
+
+        std::string action = req.get_param("action");
+
+        if (action == "save") {
+            return handle_slots_save(req, id_slot);
+        } else if (action == "restore") {
+            return handle_slots_restore(req, id_slot);
+        } else if (action == "erase") {
+            return handle_slots_erase(req, id_slot);
+        } else {
+            res->error(format_error_response("Invalid action", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+        }
+    };
+
+    server_http_context::handler_t get_props = [this](const server_http_request &) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        json default_generation_settings_for_props;
+
+        {
+            slot_params params;
+
+            params.sampling = ctx_server.params_base.sampling;
+
+            default_generation_settings_for_props = json {
+                {"params", params.to_json(true)},
+                {"n_ctx",  ctx_server.slots[0].n_ctx},
+            };
+        }
+
+        // this endpoint is publicly available, please only return what is safe to be exposed
+        json data = {
+            { "default_generation_settings", default_generation_settings_for_props },
+            { "total_slots",                 ctx_server.params_base.n_parallel },
+            { "model_alias",                 ctx_server.params_base.model_alias },
+            { "model_path",                  ctx_server.params_base.model.path },
+            { "modalities",                  json {
+                {"vision", ctx_server.oai_parser_opt.allow_image},
+                {"audio",  ctx_server.oai_parser_opt.allow_audio},
+            } },
+            { "endpoint_slots",              params.endpoint_slots },
+            { "endpoint_props",              params.endpoint_props },
+            { "endpoint_metrics",            params.endpoint_metrics },
+            { "webui",                       params.webui },
+            { "chat_template",               common_chat_templates_source(ctx_server.chat_templates.get()) },
+            { "bos_token",                   common_token_to_piece(ctx_server.ctx, llama_vocab_bos(ctx_server.vocab), /* special= */ true)},
+            { "eos_token",                   common_token_to_piece(ctx_server.ctx, llama_vocab_eos(ctx_server.vocab), /* special= */ true)},
+            { "build_info",                  build_info },
+        };
+        if (ctx_server.params_base.use_jinja) {
+            if (auto tool_use_src = common_chat_templates_source(ctx_server.chat_templates.get(), "tool_use")) {
+                data["chat_template_tool_use"] = tool_use_src;
+            }
+        }
+
+        res->ok(data);
+        return res;
+    };
+
+    server_http_context::handler_t post_props = [this](const server_http_request &) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        if (!params.endpoint_props) {
+            res->error(format_error_response("This server does not support changing global properties. Start it with `--props`", ERROR_TYPE_NOT_SUPPORTED));
+            return res;
+        }
+        // update any props here
+
+        res->ok({{ "success", true }});
+        return res;
+    };
+
+    server_http_context::handler_t get_api_show = [this](const server_http_request &) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        bool has_mtmd = ctx_server.mctx != nullptr;
+        json data = {
+            {
+                "template", common_chat_templates_source(ctx_server.chat_templates.get()),
+            },
+            {
+                "model_info", {
+                    { "llama.context_length", ctx_server.slots.back().n_ctx, },
+                }
+            },
+            {"modelfile", ""},
+            {"parameters", ""},
+            {"template", common_chat_templates_source(ctx_server.chat_templates.get())},
+            {"details", {
+                {"parent_model", ""},
+                {"format", "gguf"},
+                {"family", ""},
+                {"families", {""}},
+                {"parameter_size", ""},
+                {"quantization_level", ""}
+            }},
+            {"model_info", ""},
+            {"capabilities", has_mtmd ? json({"completion","multimodal"}) : json({"completion"})}
+        };
+
+        res->ok(data);
+        return res;
+    };
+
+    server_http_context::handler_t post_infill = [this](const server_http_request & req) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        // check model compatibility
+        std::string err;
+        if (llama_vocab_fim_pre(ctx_server.vocab) == LLAMA_TOKEN_NULL) {
+            err += "prefix token is missing. ";
+        }
+        if (llama_vocab_fim_suf(ctx_server.vocab) == LLAMA_TOKEN_NULL) {
+            err += "suffix token is missing. ";
+        }
+        if (llama_vocab_fim_mid(ctx_server.vocab) == LLAMA_TOKEN_NULL) {
+            err += "middle token is missing. ";
+        }
+        if (!err.empty()) {
+            res->error(format_error_response(string_format("Infill is not supported by this model: %s", err.c_str()), ERROR_TYPE_NOT_SUPPORTED));
+            return res;
+        }
+
+        // validate input
+        json data = json::parse(req.body);
+        if (data.contains("prompt") && !data.at("prompt").is_string()) {
+            // prompt is optional
+            res->error(format_error_response("\"prompt\" must be a string", ERROR_TYPE_INVALID_REQUEST));
+        }
+
+        if (!data.contains("input_prefix")) {
+            res->error(format_error_response("\"input_prefix\" is required", ERROR_TYPE_INVALID_REQUEST));
+        }
+
+        if (!data.contains("input_suffix")) {
+            res->error(format_error_response("\"input_suffix\" is required", ERROR_TYPE_INVALID_REQUEST));
+        }
+
+        if (data.contains("input_extra") && !data.at("input_extra").is_array()) {
+            // input_extra is optional
+            res->error(format_error_response("\"input_extra\" must be an array of {\"filename\": string, \"text\": string}", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+        }
+
+        json input_extra = json_value(data, "input_extra", json::array());
+        for (const auto & chunk : input_extra) {
+            // { "text": string, "filename": string }
+            if (!chunk.contains("text") || !chunk.at("text").is_string()) {
+                res->error(format_error_response("extra_context chunk must contain a \"text\" field with a string value", ERROR_TYPE_INVALID_REQUEST));
+                return res;
+            }
+            // filename is optional
+            if (chunk.contains("filename") && !chunk.at("filename").is_string()) {
+                res->error(format_error_response("extra_context chunk's \"filename\" field must be a string", ERROR_TYPE_INVALID_REQUEST));
+                return res;
+            }
+        }
+        data["input_extra"] = input_extra; // default to empty array if it's not exist
+
+        std::string prompt = json_value(data, "prompt", std::string());
+        std::vector<server_tokens> tokenized_prompts = tokenize_input_prompts(ctx_server.vocab, ctx_server.mctx, prompt, false, true);
+        SRV_DBG("creating infill tasks, n_prompts = %d\n", (int) tokenized_prompts.size());
+        data["prompt"] = format_infill(
+            ctx_server.vocab,
+            data.at("input_prefix"),
+            data.at("input_suffix"),
+            data.at("input_extra"),
+            ctx_server.params_base.n_batch,
+            ctx_server.params_base.n_predict,
+            ctx_server.slots[0].n_ctx, // TODO: there should be a better way
+            ctx_server.params_base.spm_infill,
+            tokenized_prompts[0].get_text_tokens() // TODO: this could maybe be multimodal.
+        );
+
         std::vector<raw_buffer> files; // dummy
         return handle_completions_impl(
+            SERVER_TASK_TYPE_INFILL,
+            data,
+            files,
+            req.should_stop,
+            OAICOMPAT_TYPE_NONE); // infill is not OAI compatible
+    };
+
+    server_http_context::handler_t post_completions = [this](const server_http_request & req) {
+        std::vector<raw_buffer> files; // dummy
+        const json body = json::parse(req.body);
+        return handle_completions_impl(
             SERVER_TASK_TYPE_COMPLETION,
-            req.body,
+            body,
             files,
             req.should_stop,
             OAICOMPAT_TYPE_NONE);
@@ -4454,9 +4799,10 @@ public:
 
     server_http_context::handler_t post_completions_oai = [this](const server_http_request & req) {
         std::vector<raw_buffer> files; // dummy
+        const json body = json::parse(req.body);
         return handle_completions_impl(
             SERVER_TASK_TYPE_COMPLETION,
-            req.body,
+            body,
             files,
             req.should_stop,
             OAICOMPAT_TYPE_COMPLETION);
@@ -4464,21 +4810,288 @@ public:
 
     server_http_context::handler_t post_chat_completions = [this](const server_http_request & req) {
         std::vector<raw_buffer> files;
-        json body_cpy = req.body;
-        json data = oaicompat_chat_params_parse(
-            body_cpy,
+        json body = json::parse(req.body);
+        json body_parsed = oaicompat_chat_params_parse(
+            body,
             ctx_server.oai_parser_opt,
             files);
         return handle_completions_impl(
             SERVER_TASK_TYPE_COMPLETION,
-            body_cpy,
+            body_parsed,
             files,
             req.should_stop,
             OAICOMPAT_TYPE_CHAT);
     };
 
+    // same with handle_chat_completions, but without inference part
+    server_http_context::handler_t post_apply_template = [this](const server_http_request & req) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        std::vector<raw_buffer> files; // dummy, unused
+        json body = json::parse(req.body);
+        json data = oaicompat_chat_params_parse(
+            body,
+            ctx_server.oai_parser_opt,
+            files);
+        res->ok({{ "prompt", std::move(data.at("prompt")) }});
+        return res;
+    };
+
+    server_http_context::handler_t get_models = [this](const server_http_request &) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        bool is_model_ready = ctx_http.is_ready.load();
+        json model_meta = nullptr;
+        if (is_model_ready) {
+            model_meta = ctx_server.model_meta();
+        }
+        bool has_mtmd = ctx_server.mctx != nullptr;
+        json models = {
+            {"models", {
+                {
+                    {"name", params.model_alias.empty() ? params.model.path : params.model_alias},
+                    {"model", params.model_alias.empty() ? params.model.path : params.model_alias},
+                    {"modified_at", ""},
+                    {"size", ""},
+                    {"digest", ""}, // dummy value, llama.cpp does not support managing model file's hash
+                    {"type", "model"},
+                    {"description", ""},
+                    {"tags", {""}},
+                    {"capabilities", has_mtmd ? json({"completion","multimodal"}) : json({"completion"})},
+                    {"parameters", ""},
+                    {"details", {
+                        {"parent_model", ""},
+                        {"format", "gguf"},
+                        {"family", ""},
+                        {"families", {""}},
+                        {"parameter_size", ""},
+                        {"quantization_level", ""}
+                    }}
+                }
+            }},
+            {"object", "list"},
+            {"data", {
+                {
+                    {"id",       params.model_alias.empty() ? params.model.path : params.model_alias},
+                    {"object",   "model"},
+                    {"created",  std::time(0)},
+                    {"owned_by", "llamacpp"},
+                    {"meta",     model_meta},
+                },
+            }}
+        };
+
+        res->ok(models);
+        return res;
+    };
+
+    server_http_context::handler_t post_tokenize = [this](const server_http_request & req) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        const json body = json::parse(req.body);
+        json tokens_response = json::array();
+        if (body.count("content") != 0) {
+            const bool add_special = json_value(body, "add_special", false);
+            const bool parse_special = json_value(body, "parse_special", true);
+            const bool with_pieces = json_value(body, "with_pieces", false);
+
+            llama_tokens tokens = tokenize_mixed(ctx_server.vocab, body.at("content"), add_special, parse_special);
+
+            if (with_pieces) {
+                for (const auto& token : tokens) {
+                    std::string piece = common_token_to_piece(ctx_server.ctx, token);
+                    json piece_json;
+
+                    // Check if the piece is valid UTF-8
+                    if (is_valid_utf8(piece)) {
+                        piece_json = piece;
+                    } else {
+                        // If not valid UTF-8, store as array of byte values
+                        piece_json = json::array();
+                        for (unsigned char c : piece) {
+                            piece_json.push_back(static_cast<int>(c));
+                        }
+                    }
+
+                    tokens_response.push_back({
+                        {"id", token},
+                        {"piece", piece_json}
+                    });
+                }
+            } else {
+                tokens_response = tokens;
+            }
+        }
+
+        const json data = format_tokenizer_response(tokens_response);
+        res->ok(data);
+        return res;
+    };
+
+    server_http_context::handler_t post_detokenize = [this](const server_http_request & req) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        const json body = json::parse(req.body);
+
+        std::string content;
+        if (body.count("tokens") != 0) {
+            const llama_tokens tokens = body.at("tokens");
+            content = tokens_to_str(ctx_server.ctx, tokens.cbegin(), tokens.cend());
+        }
+
+        const json data = format_detokenized_response(content);
+        res->ok(data);
+        return res;
+    };
+
+    server_http_context::handler_t post_embeddings = [this](const server_http_request & req) {
+        return handle_embeddings_impl(req, OAICOMPAT_TYPE_NONE);
+    };
+
+    server_http_context::handler_t post_embeddings_oai = [this](const server_http_request & req) {
+        return handle_embeddings_impl(req, OAICOMPAT_TYPE_EMBEDDING);
+    };
+
+    server_http_context::handler_t post_rerank = [this](const server_http_request & req) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        if (!ctx_server.params_base.embedding || ctx_server.params_base.pooling_type != LLAMA_POOLING_TYPE_RANK) {
+            res->error(format_error_response("This server does not support reranking. Start it with `--reranking`", ERROR_TYPE_NOT_SUPPORTED));
+            return res;
+        }
+
+        const json body = json::parse(req.body);
+
+        // if true, use TEI API format, otherwise use Jina API format
+        // Jina: https://jina.ai/reranker/
+        // TEI: https://huggingface.github.io/text-embeddings-inference/#/Text%20Embeddings%20Inference/rerank
+        bool is_tei_format = body.contains("texts");
+
+        json query;
+        if (body.count("query") == 1) {
+            query = body.at("query");
+            if (!query.is_string()) {
+                res->error(format_error_response("\"query\" must be a string", ERROR_TYPE_INVALID_REQUEST));
+                return res;
+            }
+        } else {
+            res->error(format_error_response("\"query\" must be provided", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+        }
+
+        std::vector<std::string> documents = json_value(body, "documents",
+                                             json_value(body, "texts", std::vector<std::string>()));
+        if (documents.empty()) {
+            res->error(format_error_response("\"documents\" must be a non-empty string array", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+        }
+
+        int top_n = json_value(body, "top_n", (int)documents.size());
+
+        // create and queue the task
+        json responses = json::array();
+        server_response_reader rd(ctx_server);
+        {
+            std::vector<server_task> tasks;
+            tasks.reserve(documents.size());
+            for (size_t i = 0; i < documents.size(); i++) {
+                auto tmp = format_rerank(ctx_server.model, ctx_server.vocab, ctx_server.mctx, query, documents[i]);
+                server_task task = server_task(SERVER_TASK_TYPE_RERANK);
+                task.id     = ctx_server.queue_tasks.get_new_id();
+                task.index  = i;
+                task.tokens = std::move(tmp);
+                tasks.push_back(std::move(task));
+            }
+            rd.post_tasks(std::move(tasks));
+        }
+
+        // wait for the results
+        auto all_results = rd.wait_for_all(req.should_stop);
+
+        // collect results
+        if (all_results.is_terminated) {
+            return res; // connection is closed
+        } else if (all_results.error) {
+            res->error(all_results.error->to_json());
+            return res;
+        } else {
+            for (auto & res : all_results.results) {
+                GGML_ASSERT(dynamic_cast<server_task_result_rerank*>(res.get()) != nullptr);
+                responses.push_back(res->to_json());
+            }
+        }
+
+        // write JSON response
+        json root = format_response_rerank(
+            body,
+            responses,
+            is_tei_format,
+            documents,
+            top_n);
+
+        res->ok(root);
+        return res;
+    };
+
+    server_http_context::handler_t get_lora_adapters = [this](const server_http_request &) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        json result = json::array();
+        const auto & loras = ctx_server.params_base.lora_adapters;
+        for (size_t i = 0; i < loras.size(); ++i) {
+            auto & lora = loras[i];
+            json entry = {
+                {"id", i},
+                {"path", lora.path},
+                {"scale", lora.scale},
+                {"task_name", lora.task_name},
+                {"prompt_prefix", lora.prompt_prefix},
+            };
+            std::string alora_invocation_string = "";
+            const uint64_t n_alora_tokens = llama_adapter_get_alora_n_invocation_tokens(lora.ptr);
+            std::vector<llama_token> alora_invocation_tokens;
+            if (n_alora_tokens) {
+                const llama_token * alora_tokens = llama_adapter_get_alora_invocation_tokens(lora.ptr);
+                for (uint64_t i = 0; i < n_alora_tokens; ++i) {
+                    alora_invocation_string += common_token_to_piece(ctx_server.ctx, alora_tokens[i]);
+                    alora_invocation_tokens.push_back(alora_tokens[i]);
+                }
+                entry["alora_invocation_string"] = alora_invocation_string;
+                entry["alora_invocation_tokens"] = alora_invocation_tokens;
+            }
+            result.push_back(std::move(entry));
+        }
+        res->ok(result);
+        return res;
+    };
+
+    server_http_context::handler_t post_lora_adapters = [this](const server_http_request & req) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        const json body = json::parse(req.body);
+        if (!body.is_array()) {
+            res->error(format_error_response("Request body must be an array", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+        }
+
+        int task_id = ctx_server.queue_tasks.get_new_id();
+        {
+            server_task task(SERVER_TASK_TYPE_SET_LORA);
+            task.id = task_id;
+            task.set_lora = parse_lora_request(ctx_server.params_base.lora_adapters, body);
+            ctx_server.queue_results.add_waiting_task_id(task_id);
+            ctx_server.queue_tasks.post(std::move(task));
+        }
+
+        // get the result
+        server_task_result_ptr result = ctx_server.queue_results.recv(task_id);
+        ctx_server.queue_results.remove_waiting_task_id(task_id);
+
+        if (result->is_error()) {
+            res->error(result->to_json());
+            return res;
+        }
+
+        GGML_ASSERT(dynamic_cast<server_task_result_apply_lora*>(result.get()) != nullptr);
+        res->ok(result->to_json());
+        return res;
+    };
+
 private:
-    server_http_resgen_ptr handle_completions_impl(
+    std::unique_ptr<server_resgen> handle_completions_impl(
                 server_task_type type,
                 const json & data,
                 const std::vector<raw_buffer> & files,
@@ -4573,7 +5186,8 @@ private:
             }
 
             // next responses are streamed
-            res->ok(first_result->to_json());
+            res->data = format_sse(first_result->to_json()); // to be sent immediately
+            res->status = 200;
             res->content_type = "text/event-stream";
             res->next = [res_this = res.get(), oaicompat, &should_stop]() mutable -> bool {
                 if (should_stop()) {
@@ -4583,7 +5197,6 @@ private:
 
                 server_response_reader & rd = res_this->rd;
                 std::string & output = res_this->data;
-                output.clear();
 
                 // receive subsequent results
                 auto result = rd.next(should_stop);
@@ -4595,7 +5208,7 @@ private:
                 // send the results
                 json res_json = result->to_json();
                 if (result->is_error()) {
-                    output += format_sse(res_json);
+                    output = format_sse(res_json);
                     SRV_DBG("%s", "error received during streaming, terminating stream\n");
                     return false; // terminate on error
                 } else {
@@ -4603,7 +5216,7 @@ private:
                         dynamic_cast<server_task_result_cmpl_partial*>(result.get()) != nullptr
                         || dynamic_cast<server_task_result_cmpl_final*>(result.get()) != nullptr
                     );
-                    output += format_sse(res_json);
+                    output = format_sse(res_json);
                 }
 
                 // check if there is more data
@@ -4620,6 +5233,202 @@ private:
             };
         }
 
+        return res;
+    }
+
+    std::unique_ptr<server_resgen> handle_slots_save(const server_http_request & req, int id_slot) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        const json & request_data = req.body;
+        std::string filename = request_data.at("filename");
+        if (!fs_validate_filename(filename)) {
+            res->error(format_error_response("Invalid filename", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+        }
+        std::string filepath = params.slot_save_path + filename;
+
+        int task_id = ctx_server.queue_tasks.get_new_id();
+        {
+            server_task task(SERVER_TASK_TYPE_SLOT_SAVE);
+            task.id = task_id;
+            task.slot_action.slot_id  = id_slot;
+            task.slot_action.filename = filename;
+            task.slot_action.filepath = filepath;
+
+            // TODO: use server_response_reader
+            ctx_server.queue_results.add_waiting_task_id(task_id);
+            ctx_server.queue_tasks.post(std::move(task));
+        }
+
+        server_task_result_ptr result = ctx_server.queue_results.recv(task_id);
+        ctx_server.queue_results.remove_waiting_task_id(task_id);
+
+        if (result->is_error()) {
+            res->error(result->to_json());
+            return res;
+        }
+
+        res->ok(result->to_json());
+        return res;
+    }
+
+    std::unique_ptr<server_resgen> handle_slots_restore(const server_http_request & req, int id_slot) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        const json & request_data = req.body;
+        std::string filename = request_data.at("filename");
+        if (!fs_validate_filename(filename)) {
+            res->error(format_error_response("Invalid filename", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+        }
+        std::string filepath = params.slot_save_path + filename;
+
+        int task_id = ctx_server.queue_tasks.get_new_id();
+        {
+            server_task task(SERVER_TASK_TYPE_SLOT_RESTORE);
+            task.id = task_id;
+            task.slot_action.slot_id  = id_slot;
+            task.slot_action.filename = filename;
+            task.slot_action.filepath = filepath;
+
+            // TODO: use server_response_reader
+            ctx_server.queue_results.add_waiting_task_id(task_id);
+            ctx_server.queue_tasks.post(std::move(task));
+        }
+
+        server_task_result_ptr result = ctx_server.queue_results.recv(task_id);
+        ctx_server.queue_results.remove_waiting_task_id(task_id);
+
+        if (result->is_error()) {
+            res->error(result->to_json());
+            return res;
+        }
+
+        GGML_ASSERT(dynamic_cast<server_task_result_slot_save_load*>(result.get()) != nullptr);
+        res->ok(result->to_json());
+        return res;
+    }
+
+    std::unique_ptr<server_resgen> handle_slots_erase(const server_http_request &, int id_slot) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        int task_id = ctx_server.queue_tasks.get_new_id();
+        {
+            server_task task(SERVER_TASK_TYPE_SLOT_ERASE);
+            task.id = task_id;
+            task.slot_action.slot_id = id_slot;
+
+            // TODO: use server_response_reader
+            ctx_server.queue_results.add_waiting_task_id(task_id);
+            ctx_server.queue_tasks.post(std::move(task));
+        }
+
+        server_task_result_ptr result = ctx_server.queue_results.recv(task_id);
+        ctx_server.queue_results.remove_waiting_task_id(task_id);
+
+        if (result->is_error()) {
+            res->error(result->to_json());
+            return res;
+        }
+
+        GGML_ASSERT(dynamic_cast<server_task_result_slot_erase*>(result.get()) != nullptr);
+        res->ok(result->to_json());
+        return res;
+    }
+
+    std::unique_ptr<server_resgen> handle_embeddings_impl(const server_http_request & req, oaicompat_type oaicompat) {
+        auto res = std::make_unique<server_resgen>(ctx_server);
+        if (!ctx_server.params_base.embedding) {
+            res->error(format_error_response("This server does not support embeddings. Start it with `--embeddings`", ERROR_TYPE_NOT_SUPPORTED));
+            return res;
+        }
+
+        if (oaicompat != OAICOMPAT_TYPE_NONE && llama_pooling_type(ctx_server.ctx) == LLAMA_POOLING_TYPE_NONE) {
+            res->error(format_error_response("Pooling type 'none' is not OAI compatible. Please use a different pooling type", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+        }
+
+        const json body = json::parse(req.body);
+
+        // for the shape of input/content, see tokenize_input_prompts()
+        json prompt;
+        if (body.count("input") != 0) {
+            prompt = body.at("input");
+        } else if (body.contains("content")) {
+            oaicompat = OAICOMPAT_TYPE_NONE; // "content" field is not OAI compatible
+            prompt = body.at("content");
+        } else {
+            res->error(format_error_response("\"input\" or \"content\" must be provided", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+        }
+
+        bool use_base64 = false;
+        if (body.count("encoding_format") != 0) {
+            const std::string& format = body.at("encoding_format");
+            if (format == "base64") {
+                use_base64 = true;
+            } else if (format != "float") {
+                res->error(format_error_response("The format to return the embeddings in. Can be either float or base64", ERROR_TYPE_INVALID_REQUEST));
+                return res;
+            }
+        }
+
+        auto tokenized_prompts = tokenize_input_prompts(ctx_server.vocab, ctx_server.mctx, prompt, true, true);
+        for (const auto & tokens : tokenized_prompts) {
+            // this check is necessary for models that do not add BOS token to the input
+            if (tokens.empty()) {
+                res->error(format_error_response("Input content cannot be empty", ERROR_TYPE_INVALID_REQUEST));
+                return res;
+            }
+        }
+
+        int embd_normalize = 2; // default to Euclidean/L2 norm
+        if (body.count("embd_normalize") != 0) {
+            embd_normalize = body.at("embd_normalize");
+            if (llama_pooling_type(ctx_server.ctx) == LLAMA_POOLING_TYPE_NONE) {
+                SRV_DBG("embd_normalize is not supported by pooling type %d, ignoring it\n", llama_pooling_type(ctx_server.ctx));
+            }
+        }
+
+        // create and queue the task
+        json responses = json::array();
+        server_response_reader rd(ctx_server);
+        {
+            std::vector<server_task> tasks;
+            for (size_t i = 0; i < tokenized_prompts.size(); i++) {
+                server_task task = server_task(SERVER_TASK_TYPE_EMBEDDING);
+
+                task.id     = ctx_server.queue_tasks.get_new_id();
+                task.index  = i;
+                task.tokens = std::move(tokenized_prompts[i]);
+
+                // OAI-compat
+                task.params.oaicompat = oaicompat;
+                task.params.embd_normalize = embd_normalize;
+
+                tasks.push_back(std::move(task));
+            }
+            rd.post_tasks(std::move(tasks));
+        }
+
+        // wait for the results
+        auto all_results = rd.wait_for_all(req.should_stop);
+
+        // collect results
+        if (all_results.is_terminated) {
+            return res; // connection is closed
+        } else if (all_results.error) {
+            res->error(all_results.error->to_json());
+            return res;
+        } else {
+            for (auto & res : all_results.results) {
+                GGML_ASSERT(dynamic_cast<server_task_result_embd*>(res.get()) != nullptr);
+                responses.push_back(res->to_json());
+            }
+        }
+
+        // write JSON response
+        json root = oaicompat == OAICOMPAT_TYPE_EMBEDDING
+            ? format_embeddings_response_oaicompat(body, responses, use_base64)
+            : json(responses);
+        res->ok(root);
         return res;
     }
 };
@@ -4684,14 +5493,40 @@ int main(int argc, char ** argv) {
     //
 
     // register API routes
-    server_routes routes(ctx_server);
-    ctx_http.get ("/health",              routes.get_health);
+    server_routes routes(params, ctx_server, ctx_http);
+
+    ctx_http.get ("/health",              routes.get_health); // public endpoint (no API key check)
+    ctx_http.get ("/v1/health",           routes.get_health); // public endpoint (no API key check)
+    ctx_http.get ("/metrics",             routes.get_metrics);
+    ctx_http.get ("/props",               routes.get_props);
+    ctx_http.post("/props",               routes.post_props);
+    ctx_http.post("/api/show",            routes.get_api_show);
+    ctx_http.get ("/models",              routes.get_models); // public endpoint (no API key check)
+    ctx_http.get ("/v1/models",           routes.get_models); // public endpoint (no API key check)
+    ctx_http.get ("/api/tags",            routes.get_models); // ollama specific endpoint. public endpoint (no API key check)
     ctx_http.post("/completion",          routes.post_completions); // legacy
     ctx_http.post("/completions",         routes.post_completions);
     ctx_http.post("/v1/completions",      routes.post_completions_oai);
     ctx_http.post("/chat/completions",    routes.post_chat_completions);
     ctx_http.post("/v1/chat/completions", routes.post_chat_completions);
     ctx_http.post("/api/chat",            routes.post_chat_completions); // ollama specific endpoint
+    ctx_http.post("/infill",              routes.post_infill);
+    ctx_http.post("/embedding",           routes.post_embeddings); // legacy
+    ctx_http.post("/embeddings",          routes.post_embeddings);
+    ctx_http.post("/v1/embeddings",       routes.post_embeddings_oai);
+    ctx_http.post("/rerank",              routes.post_rerank);
+    ctx_http.post("/reranking",           routes.post_rerank);
+    ctx_http.post("/v1/rerank",           routes.post_rerank);
+    ctx_http.post("/v1/reranking",        routes.post_rerank);
+    ctx_http.post("/tokenize",            routes.post_tokenize);
+    ctx_http.post("/detokenize",          routes.post_detokenize);
+    ctx_http.post("/apply-template",      routes.post_apply_template);
+    // LoRA adapters hotswap
+    ctx_http.get ("/lora-adapters",       routes.get_lora_adapters);
+    ctx_http.post("/lora-adapters",       routes.post_lora_adapters);
+    // Save & load slots
+    ctx_http.get ("/slots",               routes.get_slots);
+    ctx_http.post("/slots/:id_slot",      routes.post_slots);
 
     //
     // Start the server

@@ -11,7 +11,7 @@
 // this object response with one of the 2 modes:
 // 1) normal response: `data` contains the full response body
 // 2) streaming response: each call to next() generates the next chunk, stored in `data`
-//    when next() returns false, the stream ends
+//    when next() returns false, no more data after the current chunk
 struct server_http_resgen {
     std::string content_type = "application/json; charset=utf-8";
     int status = 200;
@@ -33,7 +33,7 @@ using server_http_resgen_ptr = std::unique_ptr<server_http_resgen>;
 
 struct server_http_request {
     std::map<std::string, std::string> params; // path_params + query_params
-    json body;
+    std::string body;
     const std::function<bool()> & should_stop;
 
     std::string get_param(const std::string & key, const std::string & def = "") const {

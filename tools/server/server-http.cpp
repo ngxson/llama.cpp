@@ -80,6 +80,7 @@ bool server_http_context::init(const common_params & params) {
         // FIXME
         GGML_UNUSED(res);
         GGML_UNUSED(message);
+        printf("Exception caught in HTTP server: %s\n", message.c_str());
         // try {
         //     json formatted_error = format_error_response(message, ERROR_TYPE_SERVER);
         //     LOG_WRN("got exception: %s\n", formatted_error.dump().c_str());
@@ -306,7 +307,7 @@ void server_http_context::get(const std::string & path, server_http_context::han
     pimpl->srv->Get(path_prefix + path, [handler](const httplib::Request & req, httplib::Response & res) {
         server_http_resgen_ptr response = handler(server_http_request{
             get_params(req),
-            json{},
+            req.body,
             req.is_connection_closed
         });
         GGML_ASSERT(!response->is_stream() && "not supported for GET method");
@@ -320,7 +321,7 @@ void server_http_context::post(const std::string & path, server_http_context::ha
     pimpl->srv->Post(path_prefix + path, [handler](const httplib::Request & req, httplib::Response & res) {
         server_http_resgen_ptr response = handler(server_http_request{
             get_params(req),
-            json::parse(req.body.empty() ? "{}" : req.body),
+            req.body,
             req.is_connection_closed
         });
         if (response->is_stream()) {
@@ -330,15 +331,18 @@ void server_http_context::post(const std::string & path, server_http_context::ha
             // convert to shared_ptr as both chunked_content_provider() and on_complete() need to use it
             std::shared_ptr<server_http_resgen> r_ptr = std::move(response);
             const auto chunked_content_provider = [response = r_ptr](size_t, httplib::DataSink & sink) -> bool {
-                // TODO: maybe handle sink.write unsuccessful case? for now, we rely on is_connection_closed()
+                // TODO: maybe handle sink.write unsuccessful? for now, we rely on is_connection_closed()
                 sink.write(response->data.data(), response->data.size());
                 SRV_DBG("http: streamed chunk: %s\n", response->data.c_str());
                 if (!response->next()) {
+                    // flush the remaining data
+                    sink.write(response->data.data(), response->data.size());
+                    SRV_DBG("http: streamed chunk (last): %s\n", response->data.c_str());
                     SRV_DBG("%s", "http: stream ended\n");
                     sink.done();
                     return false; // end of stream
                 }
-                return true;
+                return true; // more data, continue the loop
             };
             const auto on_complete = [response = r_ptr](bool) mutable {
                 response.reset(); // trigger the destruction of the response object
