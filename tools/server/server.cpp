@@ -4425,7 +4425,7 @@ struct server_resgen : server_http_resgen {
     }
     void error(const json & error_data) {
         status = json_value(error_data, "code", 500);
-        data = safe_json_to_str(error_data);
+        data = safe_json_to_str({{ "error", error_data }});
     }
 };
 
@@ -5447,6 +5447,33 @@ inline void signal_handler(int signal) {
     shutdown_handler(signal);
 }
 
+// wrapper function that handles exceptions and logs errors
+static server_http_context::handler_t ex_wrapper(server_http_context::handler_t func) {
+    return [func = std::move(func)](const server_http_request & req) -> server_http_resgen_ptr {
+        std::string message;
+        try {
+            return func(req);
+        } catch (const std::exception & e) {
+            message = e.what();
+        } catch (...) {
+            message = "unknown error";
+        }
+
+        auto res = std::make_unique<server_http_resgen>();
+        res->status = 500;
+        try {
+            json error_data = format_error_response(message, ERROR_TYPE_SERVER);
+            res->status = json_value(error_data, "code", 500);
+            res->data = safe_json_to_str({{ "error", error_data }});
+            LOG_WRN("got exception: %s\n", res->data.c_str());
+        } catch (const std::exception & e) {
+            LOG_ERR("got another exception: %s | while hanlding exception: %s\n", e.what(), message.c_str());
+            res->data = "Internal Server Error";
+        }
+        return res;
+    };
+}
+
 int main(int argc, char ** argv) {
     // own arguments required by this example
     common_params params;
@@ -5495,38 +5522,38 @@ int main(int argc, char ** argv) {
     // register API routes
     server_routes routes(params, ctx_server, ctx_http);
 
-    ctx_http.get ("/health",              routes.get_health); // public endpoint (no API key check)
-    ctx_http.get ("/v1/health",           routes.get_health); // public endpoint (no API key check)
-    ctx_http.get ("/metrics",             routes.get_metrics);
-    ctx_http.get ("/props",               routes.get_props);
-    ctx_http.post("/props",               routes.post_props);
-    ctx_http.post("/api/show",            routes.get_api_show);
-    ctx_http.get ("/models",              routes.get_models); // public endpoint (no API key check)
-    ctx_http.get ("/v1/models",           routes.get_models); // public endpoint (no API key check)
-    ctx_http.get ("/api/tags",            routes.get_models); // ollama specific endpoint. public endpoint (no API key check)
-    ctx_http.post("/completion",          routes.post_completions); // legacy
-    ctx_http.post("/completions",         routes.post_completions);
-    ctx_http.post("/v1/completions",      routes.post_completions_oai);
-    ctx_http.post("/chat/completions",    routes.post_chat_completions);
-    ctx_http.post("/v1/chat/completions", routes.post_chat_completions);
-    ctx_http.post("/api/chat",            routes.post_chat_completions); // ollama specific endpoint
-    ctx_http.post("/infill",              routes.post_infill);
-    ctx_http.post("/embedding",           routes.post_embeddings); // legacy
-    ctx_http.post("/embeddings",          routes.post_embeddings);
-    ctx_http.post("/v1/embeddings",       routes.post_embeddings_oai);
-    ctx_http.post("/rerank",              routes.post_rerank);
-    ctx_http.post("/reranking",           routes.post_rerank);
-    ctx_http.post("/v1/rerank",           routes.post_rerank);
-    ctx_http.post("/v1/reranking",        routes.post_rerank);
-    ctx_http.post("/tokenize",            routes.post_tokenize);
-    ctx_http.post("/detokenize",          routes.post_detokenize);
-    ctx_http.post("/apply-template",      routes.post_apply_template);
+    ctx_http.get ("/health",              ex_wrapper(routes.get_health)); // public endpoint (no API key check)
+    ctx_http.get ("/v1/health",           ex_wrapper(routes.get_health)); // public endpoint (no API key check)
+    ctx_http.get ("/metrics",             ex_wrapper(routes.get_metrics));
+    ctx_http.get ("/props",               ex_wrapper(routes.get_props));
+    ctx_http.post("/props",               ex_wrapper(routes.post_props));
+    ctx_http.post("/api/show",            ex_wrapper(routes.get_api_show));
+    ctx_http.get ("/models",              ex_wrapper(routes.get_models)); // public endpoint (no API key check)
+    ctx_http.get ("/v1/models",           ex_wrapper(routes.get_models)); // public endpoint (no API key check)
+    ctx_http.get ("/api/tags",            ex_wrapper(routes.get_models)); // ollama specific endpoint. public endpoint (no API key check)
+    ctx_http.post("/completion",          ex_wrapper(routes.post_completions)); // legacy
+    ctx_http.post("/completions",         ex_wrapper(routes.post_completions));
+    ctx_http.post("/v1/completions",      ex_wrapper(routes.post_completions_oai));
+    ctx_http.post("/chat/completions",    ex_wrapper(routes.post_chat_completions));
+    ctx_http.post("/v1/chat/completions", ex_wrapper(routes.post_chat_completions));
+    ctx_http.post("/api/chat",            ex_wrapper(routes.post_chat_completions)); // ollama specific endpoint
+    ctx_http.post("/infill",              ex_wrapper(routes.post_infill));
+    ctx_http.post("/embedding",           ex_wrapper(routes.post_embeddings)); // legacy
+    ctx_http.post("/embeddings",          ex_wrapper(routes.post_embeddings));
+    ctx_http.post("/v1/embeddings",       ex_wrapper(routes.post_embeddings_oai));
+    ctx_http.post("/rerank",              ex_wrapper(routes.post_rerank));
+    ctx_http.post("/reranking",           ex_wrapper(routes.post_rerank));
+    ctx_http.post("/v1/rerank",           ex_wrapper(routes.post_rerank));
+    ctx_http.post("/v1/reranking",        ex_wrapper(routes.post_rerank));
+    ctx_http.post("/tokenize",            ex_wrapper(routes.post_tokenize));
+    ctx_http.post("/detokenize",          ex_wrapper(routes.post_detokenize));
+    ctx_http.post("/apply-template",      ex_wrapper(routes.post_apply_template));
     // LoRA adapters hotswap
-    ctx_http.get ("/lora-adapters",       routes.get_lora_adapters);
-    ctx_http.post("/lora-adapters",       routes.post_lora_adapters);
+    ctx_http.get ("/lora-adapters",       ex_wrapper(routes.get_lora_adapters));
+    ctx_http.post("/lora-adapters",       ex_wrapper(routes.post_lora_adapters));
     // Save & load slots
-    ctx_http.get ("/slots",               routes.get_slots);
-    ctx_http.post("/slots/:id_slot",      routes.post_slots);
+    ctx_http.get ("/slots",               ex_wrapper(routes.get_slots));
+    ctx_http.post("/slots/:id_slot",      ex_wrapper(routes.post_slots));
 
     //
     // Start the server

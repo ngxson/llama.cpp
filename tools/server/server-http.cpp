@@ -68,6 +68,8 @@ bool server_http_context::init(const common_params & params) {
     srv->set_default_headers({{"Server", "llama.cpp"}});
     srv->set_logger(log_server_request);
     srv->set_exception_handler([](const httplib::Request &, httplib::Response & res, const std::exception_ptr & ep) {
+        // this is fail-safe; exceptions should already handled by `ex_wrapper`
+
         std::string message;
         try {
             std::rethrow_exception(ep);
@@ -77,26 +79,25 @@ bool server_http_context::init(const common_params & params) {
             message = "Unknown Exception";
         }
 
-        // FIXME
-        GGML_UNUSED(res);
-        GGML_UNUSED(message);
-        printf("Exception caught in HTTP server: %s\n", message.c_str());
-        // try {
-        //     json formatted_error = format_error_response(message, ERROR_TYPE_SERVER);
-        //     LOG_WRN("got exception: %s\n", formatted_error.dump().c_str());
-        //     res_error(res, formatted_error);
-        // } catch (const std::exception & e) {
-        //     LOG_ERR("got another exception: %s | while hanlding exception: %s\n", e.what(), message.c_str());
-        // }
+        res.status = 500;
+        res.set_content(message, "text/plain");
+        LOG_ERR("got exception: %s\n", message.c_str());
     });
 
     srv->set_error_handler([](const httplib::Request &, httplib::Response & res) {
         if (res.status == 404) {
-            // FIXME
-            //res_error(res, format_error_response("File Not Found", ERROR_TYPE_NOT_FOUND));
-            res.set_content("404 Not Found", "text/plain");
+            res.set_content(
+                (json {
+                    {"error", {
+                        {"message", "File Not Found"},
+                        {"type", "not_found_error"},
+                        {"code", 404}
+                    }}
+                }).dump(),
+                "application/json; charset=utf-8"
+            );
         }
-        // for other error codes, we skip processing here because it's already done by res_error()
+        // for other error codes, we skip processing here because it's already done by res->error()
     });
 
     // set timeouts and change hostname and port
