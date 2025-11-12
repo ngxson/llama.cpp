@@ -9,8 +9,6 @@
 #include "mtmd-helper.h"
 #include "chat.h"
 
-#include <cpp-httplib/httplib.h>
-
 #define JSON_ASSERT GGML_ASSERT
 #include <nlohmann/json.hpp>
 
@@ -20,6 +18,9 @@
 #include <vector>
 #include <memory>
 #include <cinttypes>
+
+#define JSON_ASSERT GGML_ASSERT
+#include <nlohmann/json.hpp>
 
 #define DEFAULT_OAICOMPAT_MODEL "gpt-3.5-turbo"
 
