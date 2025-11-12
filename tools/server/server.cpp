@@ -4319,16 +4319,15 @@ struct server_context {
     }
 };
 
-// generator-like API for server responses
-struct server_response_generator {
+// generator-like API for server responses, support pooling connection state and aggregating results
+struct server_response_reader {
     std::unordered_set<int> id_tasks;
     server_context & ctx_server;
     size_t received_count = 0;
     bool cancelled = false;
 
-    server_response_generator(server_context & ctx_server) : ctx_server(ctx_server) {}
-    ~server_response_generator() {
-        SRV_DBG("%s", "deleting server_response_generator\n");
+    server_response_reader(server_context & ctx_server) : ctx_server(ctx_server) {}
+    ~server_response_reader() {
         stop();
     }
 
@@ -5000,9 +4999,9 @@ int main(int argc, char ** argv) {
         GGML_ASSERT(type == SERVER_TASK_TYPE_COMPLETION || type == SERVER_TASK_TYPE_INFILL);
 
         auto completion_id = gen_chatcmplid();
-        // need to store the generator as a pointer, so that it won't be destroyed when the handle returns
+        // need to store the reader as a pointer, so that it won't be destroyed when the handle returns
         // use shared_ptr as it's shared between the chunked_content_provider() and on_complete()
-        const auto gen = std::make_shared<server_response_generator>(ctx_server);
+        const auto rd = std::make_shared<server_response_reader>(ctx_server);
 
         try {
             std::vector<server_task> tasks;
@@ -5043,7 +5042,7 @@ int main(int argc, char ** argv) {
                 tasks.push_back(std::move(task));
             }
 
-            gen->post_tasks(std::move(tasks));
+            rd->post_tasks(std::move(tasks));
         } catch (const std::exception & e) {
             res_error(res, format_error_response(e.what(), ERROR_TYPE_INVALID_REQUEST));
             return;
@@ -5053,7 +5052,7 @@ int main(int argc, char ** argv) {
 
         if (!stream) {
             // non-stream, wait for the results
-            auto all_results = gen->wait_for_all(is_connection_closed);
+            auto all_results = rd->wait_for_all(is_connection_closed);
             if (all_results.is_terminated) {
                 return; // connection is closed
             } else if (all_results.error) {
@@ -5073,7 +5072,7 @@ int main(int argc, char ** argv) {
             // in streaming mode, the first error must be treated as non-stream response
             // this is to match the OAI API behavior
             // ref: https://github.com/ggml-org/llama.cpp/pull/16486#discussion_r2419657309
-            server_task_result_ptr first_result = gen->next(is_connection_closed);
+            server_task_result_ptr first_result = rd->next(is_connection_closed);
             if (first_result == nullptr) {
                 return; // connection is closed
             } else if (first_result->is_error()) {
@@ -5088,7 +5087,7 @@ int main(int argc, char ** argv) {
 
             // next responses are streamed
             json first_result_json = first_result->to_json();
-            const auto chunked_content_provider = [first_result_json, gen, oaicompat](size_t, httplib::DataSink & sink) mutable -> bool {
+            const auto chunked_content_provider = [first_result_json, rd, oaicompat](size_t, httplib::DataSink & sink) mutable -> bool {
                 // flush the first result as it's not an error
                 if (!first_result_json.empty()) {
                     if (!server_sent_event(sink, first_result_json)) {
@@ -5099,7 +5098,7 @@ int main(int argc, char ** argv) {
                 }
 
                 // receive subsequent results
-                auto result = gen->next([&sink]{ return !sink.is_writable(); });
+                auto result = rd->next([&sink]{ return !sink.is_writable(); });
                 if (result == nullptr) {
                     sink.done();
                     return false; // connection is closed, go to on_complete()
@@ -5126,7 +5125,7 @@ int main(int argc, char ** argv) {
                 }
 
                 // check if there is more data
-                if (!gen->has_next()) {
+                if (!rd->has_next()) {
                     if (oaicompat != OAICOMPAT_TYPE_NONE) {
                         static const std::string ev_done = "data: [DONE]\n\n";
                         sink.write(ev_done.data(), ev_done.size());
@@ -5139,8 +5138,8 @@ int main(int argc, char ** argv) {
                 return true;
             };
 
-            auto on_complete = [gen](bool) {
-                gen->stop();
+            auto on_complete = [rd](bool) {
+                rd->stop();
             };
 
             res.set_chunked_content_provider("text/event-stream", chunked_content_provider, on_complete);
@@ -5434,7 +5433,7 @@ int main(int argc, char ** argv) {
 
         // create and queue the task
         json responses = json::array();
-        server_response_generator gen(ctx_server);
+        server_response_reader rd(ctx_server);
         {
             std::vector<server_task> tasks;
             for (size_t i = 0; i < tokenized_prompts.size(); i++) {
@@ -5450,11 +5449,11 @@ int main(int argc, char ** argv) {
 
                 tasks.push_back(std::move(task));
             }
-            gen.post_tasks(std::move(tasks));
+            rd.post_tasks(std::move(tasks));
         }
 
         // wait for the results
-        auto all_results = gen.wait_for_all(req.is_connection_closed);
+        auto all_results = rd.wait_for_all(req.is_connection_closed);
 
         // collect results
         if (all_results.is_terminated) {
@@ -5520,7 +5519,7 @@ int main(int argc, char ** argv) {
 
         // create and queue the task
         json responses = json::array();
-        server_response_generator gen(ctx_server);
+        server_response_reader rd(ctx_server);
         {
             std::vector<server_task> tasks;
             tasks.reserve(documents.size());
@@ -5532,11 +5531,11 @@ int main(int argc, char ** argv) {
                 task.tokens = std::move(tmp);
                 tasks.push_back(std::move(task));
             }
-            gen.post_tasks(std::move(tasks));
+            rd.post_tasks(std::move(tasks));
         }
 
         // wait for the results
-        auto all_results = gen.wait_for_all(req.is_connection_closed);
+        auto all_results = rd.wait_for_all(req.is_connection_closed);
 
         // collect results
         if (all_results.is_terminated) {
