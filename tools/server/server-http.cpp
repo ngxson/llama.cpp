@@ -147,10 +147,17 @@ bool server_http_context::init(const common_params & params) {
         }
 
         // API key is invalid or not provided
-        //res_error(res, format_error_response("Invalid API Key", ERROR_TYPE_AUTHENTICATION));
-        // FIXME
         res.status = 401;
-        res.set_content("Unauthorized: Invalid API Key", "text/plain");
+        res.set_content(
+            (json {
+                {"error", {
+                    {"message", "Invalid API Key"},
+                    {"type", "authentication_error"},
+                    {"code", 401}
+                }}
+            }).dump(),
+            "application/json; charset=utf-8"
+        );
 
         LOG_WRN("Unauthorized: Invalid API Key\n");
 
@@ -168,10 +175,17 @@ bool server_http_context::init(const common_params & params) {
                 // allow the models endpoint to be accessed during loading
                 return true;
             } else {
-                // FIXME
-                //res_error(res, format_error_response("Loading model", ERROR_TYPE_UNAVAILABLE));
                 res.status = 503;
-                res.set_content("503 Service Unavailable: Loading model", "text/plain");
+                res.set_content(
+                    (json {
+                        {"error", {
+                            {"message", "Loading model"},
+                            {"type", "unavailable_error"},
+                            {"code", 503}
+                        }}
+                    }).dump(),
+                    "application/json; charset=utf-8"
+                );
             }
             return false;
         }
