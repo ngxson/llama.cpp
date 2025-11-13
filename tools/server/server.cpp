@@ -5205,6 +5205,17 @@ private:
                 server_response_reader & rd = res_this->rd;
                 std::string & output = res_this->data;
 
+                // check if there is more data
+                if (!rd.has_next()) {
+                    if (oaicompat != OAICOMPAT_TYPE_NONE) {
+                        output = "data: [DONE]\n\n";
+                    } else {
+                        output = "";
+                    }
+                    SRV_DBG("%s", "all results received, terminating stream\n");
+                    return false; // no more data, terminate
+                }
+
                 // receive subsequent results
                 auto result = rd.next(should_stop);
                 if (result == nullptr) {
@@ -5215,7 +5226,7 @@ private:
                 // send the results
                 json res_json = result->to_json();
                 if (result->is_error()) {
-                    output = format_sse(res_json);
+                    output = format_sse(json {{ "error", res_json }});
                     SRV_DBG("%s", "error received during streaming, terminating stream\n");
                     return false; // terminate on error
                 } else {
@@ -5224,15 +5235,6 @@ private:
                         || dynamic_cast<server_task_result_cmpl_final*>(result.get()) != nullptr
                     );
                     output = format_sse(res_json);
-                }
-
-                // check if there is more data
-                if (!rd.has_next()) {
-                    if (oaicompat != OAICOMPAT_TYPE_NONE) {
-                        output += "data: [DONE]\n\n";
-                    }
-                    SRV_DBG("%s", "all results received, terminating stream\n");
-                    return false; // no more data, terminate
                 }
 
                 // has next data, continue
