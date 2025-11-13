@@ -5459,6 +5459,7 @@ inline void signal_handler(int signal) {
 }
 
 // wrapper function that handles exceptions and logs errors
+// this is to make sure handler_t never throws exceptions; instead, it returns an error response
 static server_http_context::handler_t ex_wrapper(server_http_context::handler_t func) {
     return [func = std::move(func)](const server_http_req & req) -> server_http_res_ptr {
         std::string message;
@@ -5638,7 +5639,9 @@ int main(int argc, char ** argv) {
     ctx_server.queue_tasks.start_loop();
 
     clean_up();
-    ctx_http.thread.join();
+    if (ctx_http.thread.joinable()) {
+        ctx_http.thread.join();
+    }
     llama_memory_breakdown_print(ctx_server.ctx);
 
     return 0;

@@ -87,13 +87,13 @@ bool server_http_context::init(const common_params & params) {
     srv->set_error_handler([](const httplib::Request &, httplib::Response & res) {
         if (res.status == 404) {
             res.set_content(
-                (json {
+                safe_json_to_str(json {
                     {"error", {
                         {"message", "File Not Found"},
                         {"type", "not_found_error"},
                         {"code", 404}
                     }}
-                }).dump(),
+                }),
                 "application/json; charset=utf-8"
             );
         }
@@ -149,13 +149,13 @@ bool server_http_context::init(const common_params & params) {
         // API key is invalid or not provided
         res.status = 401;
         res.set_content(
-            (json {
+            safe_json_to_str(json {
                 {"error", {
                     {"message", "Invalid API Key"},
                     {"type", "authentication_error"},
                     {"code", 401}
                 }}
-            }).dump(),
+            }),
             "application/json; charset=utf-8"
         );
 
@@ -177,13 +177,13 @@ bool server_http_context::init(const common_params & params) {
             } else {
                 res.status = 503;
                 res.set_content(
-                    (json {
+                    safe_json_to_str(json {
                         {"error", {
                             {"message", "Loading model"},
                             {"type", "unavailable_error"},
                             {"code", 503}
                         }}
-                    }).dump(),
+                    }),
                     "application/json; charset=utf-8"
                 );
             }

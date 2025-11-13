@@ -30,7 +30,7 @@ struct server_http_res {
 };
 
 // unique pointer, used by set_chunked_content_provider
-// we need to use unique_ptr because httplib requires the stream provider to be stored in heap
+// httplib requires the stream provider to be stored in heap
 using server_http_res_ptr = std::unique_ptr<server_http_res>;
 
 struct server_http_req {
@@ -65,6 +65,7 @@ struct server_http_context {
     bool start();
     void stop();
 
+    // note: the handler should never throw exceptions
     using handler_t = std::function<server_http_res_ptr(const server_http_req & req)>;
     void get(const std::string &, handler_t);
     void post(const std::string &, handler_t);
