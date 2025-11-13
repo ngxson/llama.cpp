@@ -13,6 +13,7 @@
 // 1) normal response: `data` contains the full response body
 // 2) streaming response: each call to next() generates the next chunk, stored in `data`
 //    when next() returns false, no more data after the current chunk
+//    note: some chunks can be empty, in which case no data is sent for that chunk
 struct server_http_res {
     std::string content_type = "application/json; charset=utf-8";
     int status = 200;

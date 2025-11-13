@@ -347,12 +347,17 @@ void server_http_context::post(const std::string & path, server_http_context::ha
             std::shared_ptr<server_http_res> r_ptr = std::move(response);
             const auto chunked_content_provider = [response = r_ptr](size_t, httplib::DataSink & sink) -> bool {
                 // TODO: maybe handle sink.write unsuccessful? for now, we rely on is_connection_closed()
-                sink.write(response->data.data(), response->data.size());
-                SRV_DBG("http: streamed chunk: %s\n", response->data.c_str());
-                if (!response->next()) {
-                    // flush the remaining data
+                if (!response->data.empty()) {
                     sink.write(response->data.data(), response->data.size());
-                    SRV_DBG("http: streamed chunk (last): %s\n", response->data.c_str());
+                    SRV_DBG("http: streamed chunk: %s\n", response->data.c_str());
+                }
+                // get the next chunk
+                if (!response->next()) {
+                    // flush the remaining data before ending the stream
+                    if (!response->data.empty()) {
+                        sink.write(response->data.data(), response->data.size());
+                        SRV_DBG("http: streamed chunk (last): %s\n", response->data.c_str());
+                    }
                     SRV_DBG("%s", "http: stream ended\n");
                     sink.done();
                     return false; // end of stream
