@@ -460,7 +460,7 @@ static std::string format_sse(const json & data) {
     std::ostringstream ss;
     auto send_single = [&ss](const json & data) {
         ss << "data: " <<
-            data.dump(-1, ' ', false, json::error_handler_t::replace) <<
+            safe_json_to_str(data) <<
             "\n\n"; // required by RFC 8895 - A message is terminated by a blank line (two line terminators in a row).
     };
 
