@@ -19,9 +19,6 @@
 #include <memory>
 #include <cinttypes>
 
-#define JSON_ASSERT GGML_ASSERT
-#include <nlohmann/json.hpp>
-
 #define DEFAULT_OAICOMPAT_MODEL "gpt-3.5-turbo"
 
 using json = nlohmann::ordered_json;
@@ -426,6 +423,10 @@ static std::string gen_tool_call_id() {
 //
 // other common utils
 //
+
+static std::string safe_json_to_str(const json & data) {
+    return data.dump(-1, ' ', false, json::error_handler_t::replace);
+}
 
 // TODO: reuse llama_detokenize
 template <class Iter>
@@ -949,10 +950,6 @@ static json format_logit_bias(const std::vector<llama_logit_bias> & logit_bias) 
         });
     }
     return data;
-}
-
-static std::string safe_json_to_str(const json & data) {
-    return data.dump(-1, ' ', false, json::error_handler_t::replace);
 }
 
 static std::vector<llama_token_data> get_token_probabilities(llama_context * ctx, int idx) {
