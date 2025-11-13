@@ -2,9 +2,11 @@
 #include "utils.hpp"
 #include "server-http.h"
 
-#ifdef _WIN32
-#ifndef WIN32_LEAN_AND_MEAN
+// fix problem with std::min and std::max
+#if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#   define NOMINMAX
 #endif
 #include <windows.h>
 #endif
