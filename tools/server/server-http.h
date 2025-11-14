@@ -69,4 +69,7 @@ struct server_http_context {
     using handler_t = std::function<server_http_res_ptr(const server_http_req & req)>;
     void get(const std::string &, handler_t);
     void post(const std::string &, handler_t);
+
+    // for debugging
+    std::string listening_address;
 };

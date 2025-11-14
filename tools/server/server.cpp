@@ -5645,6 +5645,7 @@ int main(int argc, char ** argv) {
     SetConsoleCtrlHandler(reinterpret_cast<PHANDLER_ROUTINE>(console_ctrl_handler), true);
 #endif
 
+    LOG_INF("%s: server is listening on %s\n", __func__, ctx_http.listening_address.c_str());
     LOG_INF("%s: starting the main loop...\n", __func__);
     // this call blocks the main thread until queue_tasks.terminate() is called
     ctx_server.queue_tasks.start_loop();

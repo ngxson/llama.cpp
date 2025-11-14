@@ -289,9 +289,8 @@ bool server_http_context::start() {
     thread = std::thread([this]() { pimpl->srv->listen_after_bind(); });
     srv->wait_until_ready();
 
-    LOG_INF("%s: server is listening on %s\n", __func__,
-            is_sock ? string_format("unix://%s",    hostname.c_str()).c_str() :
-                      string_format("http://%s:%d", hostname.c_str(), port).c_str());
+    listening_address = is_sock ? string_format("unix://%s",    hostname.c_str())
+                                : string_format("http://%s:%d", hostname.c_str(), port);
     return true;
 }
 
