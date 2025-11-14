@@ -446,14 +446,18 @@ struct clip_model {
         return proj_type == PROJECTOR_TYPE_ULTRAVOX
             || proj_type == PROJECTOR_TYPE_VOXTRAL;
     }
-    ggml_tensor * neck_conv_0;
-    ggml_tensor * neck_norm_0_w;
-    ggml_tensor * neck_norm_0_b;
-    ggml_tensor * neck_conv_1;
-    ggml_tensor * neck_norm_1_w;
-    ggml_tensor * neck_norm_1_b;
+    ggml_tensor * neck_0_w;
+    ggml_tensor * neck_1_w;
+    ggml_tensor * neck_1_b;
+    ggml_tensor * neck_2_w;
+    ggml_tensor * neck_3_w;
+    ggml_tensor * neck_3_b;
+    ggml_tensor * net_2;
+    ggml_tensor * net_3;
 
-    std::vector<clip_layer> enc_layers;
+    int32_t n_sam_layers = 0; // used by deepseek-ocr sam encoder
+
+    std::vector<clip_layer> sam_layers;
 
 };
 
@@ -683,7 +687,7 @@ struct clip_graph {
 
         // loop over layers
         for (int il = 0; il < _depth; il++) {
-            auto & layer = model.enc_layers[il];
+            auto & layer = model.sam_layers[il];
 
             // layernorm1
             cur = build_norm(cur, layer.ln_1_w, layer.ln_1_b, NORM_TYPE_NORMAL, eps, il);
@@ -770,33 +774,27 @@ struct clip_graph {
                 cur = ggml_win_unpart(ctx0, cur, w0, h0, 14);
             }
 
-            if (layer.ls_1_w) {
-                cur = ggml_mul(ctx0, cur, layer.ls_1_w);
-                cb(cur, "attn_out_scaled", il);
-            }
-
             // re-add the layer input, e.g., residual
             cur = ggml_add(ctx0, cur, inpL);
 
-            cb(cur, "ffn_inp", il);
+            ggml_tensor * inpFF = cur;
+
+
+            cb(inpFF, "ffn_inp", il);
 
             // layernorm2
-            cur = build_norm(cur, layer.ln_2_w, layer.ln_2_b, NORM_TYPE_NORMAL, eps, il);
+            cur = build_norm(inpFF, layer.ln_2_w, layer.ln_2_b, NORM_TYPE_NORMAL, eps, il);
             cb(cur, "ffn_inp_normed", il);
 
             // ffn
-            cur = build_ffn(cur, layer.ff_up_w, layer.ff_up_b, layer.ff_gate_w, layer.ff_gate_b, layer.ff_down_w,
+            cur = build_ffn(cur, layer.ff_up_w, layer.ff_up_b, nullptr, nullptr, layer.ff_down_w,
                             layer.ff_down_b, hparams.ffn_op, il);
 
             cb(cur, "ffn_out", il);
 
-            if (layer.ls_2_w) {
-                cur = ggml_mul(ctx0, cur, layer.ls_2_w);
-                cb(cur, "ffn_out_scaled", il);
-            }
 
             // residual 2
-            cur = ggml_add(ctx0, inpL, cur);
+            cur = ggml_add(ctx0, cur, inpFF);
             cb(cur, "layer_out", il);
 
             return cur;  // B, 1024, 16, 16
@@ -804,15 +802,17 @@ struct clip_graph {
 
         cur = ggml_cont(ctx0, ggml_permute(ctx0, inpL, 2, 0, 1, 3));
 
-        cur = ggml_conv_2d_sk_p0(ctx0, model.neck_conv_0, cur);
+        cur = ggml_conv_2d_sk_p0(ctx0, model.neck_0_w, cur);
 
-        cur = sam_layer_norm_2d(ctx0, cur, 256, model.neck_norm_0_w, model.neck_norm_0_b, hparams.eps);
+        cur = sam_layer_norm_2d(ctx0, cur, 256, model.neck_1_w, model.neck_1_b, hparams.eps);
 
-        cur = ggml_conv_2d_s1_ph(ctx0, model.neck_conv_1, cur);
+        cur = ggml_conv_2d_s1_ph(ctx0, model.neck_2_w, cur);
 
-        cur = sam_layer_norm_2d(ctx0, cur, 256, model.neck_norm_1_w, model.neck_norm_1_b, hparams.eps);
+        cur = sam_layer_norm_2d(ctx0, cur, 256, model.neck_3_w, model.neck_3_b, hparams.eps);
 
-        //cur = ggml_cpy(ctx0, cur, state.embd_img);
+        //TODO : check conv padding
+        cur = ggml_conv_2d_s1_ph(ctx0, model.net_2, cur);
+        cur = ggml_conv_2d_s1_ph(ctx0, model.net_3, cur);
 
         ggml_build_forward_expand(gf, cur);
         return cur;
@@ -3604,6 +3604,35 @@ struct clip_model_loader {
                 } break;
             case PROJECTOR_TYPE_DEEPSEEK_OCR:
                 {
+                    model.pos_embed          = get_tensor(TN_SAM_POS_EMBD);
+                    model.patch_embed_proj_w = get_tensor(string_format(TN_SAM_PATCH_EMBD, "weight"));
+                    model.patch_embed_proj_b = get_tensor(string_format(TN_SAM_PATCH_EMBD, "bias"));
+                    model.sam_layers.resize(model.n_sam_layers);
+                    for (int il = 0; il < model.n_sam_layers; ++il) {
+                        auto & layer    = model.sam_layers[il];
+                        layer.qkv_w     = get_tensor(string_format(TN_SAM_ATTN_QKV, il, "weight"));
+                        layer.qkv_b     = get_tensor(string_format(TN_SAM_ATTN_QKV, il, "bias"));
+                        layer.o_w       = get_tensor(string_format(TN_SAM_ATTN_OUT, il, "weight"));
+                        layer.o_b       = get_tensor(string_format(TN_SAM_ATTN_OUT, il, "bias"));
+                        layer.ln_1_w    = get_tensor(string_format(TN_SAM_PRE_NORM, il, "weight"));
+                        layer.ln_1_b    = get_tensor(string_format(TN_SAM_PRE_NORM, il, "bias"));
+                        layer.ln_2_w    = get_tensor(string_format(TN_SAM_POST_NORM, il, "weight"));
+                        layer.ln_2_b    = get_tensor(string_format(TN_SAM_POST_NORM, il, "bias"));
+                        layer.rel_pos_h = get_tensor(string_format(TN_SAM_ATTN_POS_H, il));
+                        layer.rel_pos_w = get_tensor(string_format(TN_SAM_ATTN_POS_W, il));
+                        layer.ff_up_w   = get_tensor(string_format(TN_SAM_FFN_UP, il, "weight"));
+                        layer.ff_up_b   = get_tensor(string_format(TN_SAM_FFN_UP, il, "bias"));
+                        layer.ff_down_w = get_tensor(string_format(TN_SAM_FFN_DOWN, il, "weight"));
+                        layer.ff_down_b = get_tensor(string_format(TN_SAM_FFN_DOWN, il, "bias"));
+                    }
+                    model.neck_0_w = get_tensor(string_format(TN_SAM_NECK, 0, "weight"));
+                    model.neck_1_b = get_tensor(string_format(TN_SAM_NECK, 1, "bias"));
+                    model.neck_1_w = get_tensor(string_format(TN_SAM_NECK, 1, "weight"));
+                    model.neck_2_w = get_tensor(string_format(TN_SAM_NECK, 2, "weight"));
+                    model.neck_3_b = get_tensor(string_format(TN_SAM_NECK, 3, "bias"));
+                    model.neck_3_w = get_tensor(string_format(TN_SAM_NECK, 3, "weight"));
+                    model.net_2    = get_tensor(string_format(TN_SAM_NET, 2, "weight"));
+                    model.net_3    = get_tensor(string_format(TN_SAM_NET, 3, "weight"));
                 }
                 break;
             default:

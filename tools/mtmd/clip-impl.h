@@ -131,18 +131,17 @@
 
 // deepseek-ocr
 #define TN_SAM_POS_EMBD   "sam.pos_embd"
-#define TN_SAM_PATCH_EMBD "sam.patch_embd"
-#define TN_SAM_PRE_NORM   "sam.blk.%d.pre_ln"
+#define TN_SAM_PATCH_EMBD "sam.patch_embd.%s"
+#define TN_SAM_PRE_NORM   "sam.blk.%d.pre_ln.%s"
 #define TN_SAM_POST_NORM  "sam.blk.%d.post_ln"
 #define TN_SAM_ATTN_POS_H "sam.blk.%d.attn.pos_h"
 #define TN_SAM_ATTN_POS_W "sam.blk.%d.attn.pos_w"
-#define TN_SAM_ATTN_QKV   "sam.blk.%d.attn.qkv"
-#define TN_SAM_ATTN_OUT   "sam.blk.%d.attn.out"
-#define TN_SAM_MLP_LIN_1  "sam.blk.%d.mlp.lin1"
-#define TN_SAM_MLP_LIN_2  "sam.blk.%d.mlp.lin2"
-#define TN_SAM_NECK       "sam.neck.%d"
-#define TN_SAM_NET_2      "sam.net_2"
-#define TN_SAM_NET_3      "sam.net_3"
+#define TN_SAM_ATTN_QKV   "sam.blk.%d.attn.qkv.%s"
+#define TN_SAM_ATTN_OUT   "sam.blk.%d.attn.out.%s"
+#define TN_SAM_FFN_UP     "sam.blk.%d.mlp.lin1.%s"
+#define TN_SAM_FFN_DOWN   "sam.blk.%d.mlp.lin2.%s"
+#define TN_SAM_NECK       "sam.neck.%d.%s"
+#define TN_SAM_NET      "sam.net_%d.%s"
 
 
 #define TN_SAM_ATTN_OUT   "sam.blk.%d.attn_out"
