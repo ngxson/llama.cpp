@@ -5202,14 +5202,20 @@ private:
             res->data = format_sse(first_result->to_json()); // to be sent immediately
             res->status = 200;
             res->content_type = "text/event-stream";
-            res->next = [res_this = res.get(), oaicompat, &should_stop]() mutable -> bool {
+            res->next = [res_this = res.get(), oaicompat, &should_stop](std::string & output) -> bool {
                 if (should_stop()) {
                     SRV_DBG("%s", "stopping streaming due to should_stop condition\n");
                     return false; // should_stop condition met
                 }
 
+                if (!res_this->data.empty()) {
+                    // flush the first chunk
+                    output = std::move(res_this->data);
+                    res_this->data.clear();
+                    return true;
+                }
+
                 server_response_reader & rd = res_this->rd;
-                std::string & output = res_this->data;
 
                 // check if there is more data
                 if (!rd.has_next()) {
@@ -5583,14 +5589,21 @@ int main(int argc, char ** argv) {
         llama_backend_free();
     };
 
-    LOG_INF("%s: HTTP server is listening, hostname: %s, port: %d, http threads: %d\n", __func__, params.hostname.c_str(), params.port, params.n_threads_http);
+    // start the HTTP server before loading the model to be able to serve /health requests
+    if (!ctx_http.start()) {
+        clean_up();
+        LOG_ERR("%s: exiting due to HTTP server error\n", __func__);
+        return 1;
+    }
 
     // load the model
     LOG_INF("%s: loading model\n", __func__);
 
     if (!ctx_server.load_model(params)) {
         clean_up();
-        ctx_http.thread.join();
+        if (ctx_http.thread.joinable()) {
+            ctx_http.thread.join();
+        }
         LOG_ERR("%s: exiting due to model loading error\n", __func__);
         return 1;
     }
@@ -5631,12 +5644,6 @@ int main(int argc, char ** argv) {
     };
     SetConsoleCtrlHandler(reinterpret_cast<PHANDLER_ROUTINE>(console_ctrl_handler), true);
 #endif
-
-    if (!ctx_http.start()) {
-        clean_up();
-        LOG_ERR("%s: exiting due to HTTP server error\n", __func__);
-        return 1;
-    }
 
     LOG_INF("%s: starting the main loop...\n", __func__);
     // this call blocks the main thread until queue_tasks.terminate() is called

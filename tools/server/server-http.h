@@ -11,8 +11,8 @@
 // generator-like API for HTTP response generation
 // this object response with one of the 2 modes:
 // 1) normal response: `data` contains the full response body
-// 2) streaming response: each call to next() generates the next chunk, stored in `data`
-//    when next() returns false, no more data after the current chunk
+// 2) streaming response: each call to next(output) generates the next chunk
+//    when next(output) returns false, no more data after the current chunk
 //    note: some chunks can be empty, in which case no data is sent for that chunk
 struct server_http_res {
     std::string content_type = "application/json; charset=utf-8";
@@ -21,7 +21,7 @@ struct server_http_res {
     std::map<std::string, std::string> headers;
 
     // TODO: move this to a virtual function once we have proper polymorphism support
-    std::function<bool()> next = nullptr;
+    std::function<bool(std::string &)> next = nullptr;
     bool is_stream() const {
         return next != nullptr;
     }

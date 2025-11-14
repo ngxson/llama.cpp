@@ -346,23 +346,18 @@ void server_http_context::post(const std::string & path, server_http_context::ha
             // convert to shared_ptr as both chunked_content_provider() and on_complete() need to use it
             std::shared_ptr<server_http_res> r_ptr = std::move(response);
             const auto chunked_content_provider = [response = r_ptr](size_t, httplib::DataSink & sink) -> bool {
-                // TODO: maybe handle sink.write unsuccessful? for now, we rely on is_connection_closed()
-                if (!response->data.empty()) {
-                    sink.write(response->data.data(), response->data.size());
-                    SRV_DBG("http: streamed chunk: %s\n", response->data.c_str());
+                std::string chunk;
+                bool has_next = response->next(chunk);
+                if (!chunk.empty()) {
+                    // TODO: maybe handle sink.write unsuccessful? for now, we rely on is_connection_closed()
+                    sink.write(chunk.data(), chunk.size());
+                    SRV_DBG("http: streamed chunk: %s\n", chunk.c_str());
                 }
-                // get the next chunk
-                if (!response->next()) {
-                    // flush the remaining data before ending the stream
-                    if (!response->data.empty()) {
-                        sink.write(response->data.data(), response->data.size());
-                        SRV_DBG("http: streamed chunk (last): %s\n", response->data.c_str());
-                    }
-                    SRV_DBG("%s", "http: stream ended\n");
+                if (!has_next) {
                     sink.done();
-                    return false; // end of stream
+                    SRV_DBG("%s", "http: stream ended\n");
                 }
-                return true; // more data, continue the loop
+                return has_next;
             };
             const auto on_complete = [response = r_ptr](bool) mutable {
                 response.reset(); // trigger the destruction of the response object
