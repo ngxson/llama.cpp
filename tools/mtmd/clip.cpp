@@ -222,6 +222,33 @@ struct clip_hparams {
         warmup_image_size = n_tok_per_side * patch_size * cur_merge;
         // TODO: support warmup size for custom token numbers
     }
+
+    // sam vit deepseek-ocr
+    std::vector<int32_t> global_attn_indices() const {
+        switch (n_embd) {
+            case  768: return {  2,  5,  8, 11 };
+            case 1024: return {  5, 11, 17, 23 };
+            case 1280: return {  7, 15, 23, 31 };
+            default:
+            {
+                fprintf(stderr, "%s: unsupported n_enc_state = %d\n", __func__, n_embd);
+            } break;
+        };
+
+        return {};
+    }
+
+    bool is_global_attn(int32_t layer) const {
+        const auto indices = global_attn_indices();
+
+        for (const auto & idx : indices) {
+            if (layer == idx) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 };
 
 struct clip_layer {
@@ -271,6 +298,10 @@ struct clip_layer {
     bool has_deepstack() const {
         return deepstack_fc1_w != nullptr;
     }
+
+    // sam rel_pos
+    ggml_tensor * rel_pos_w = nullptr;
+    ggml_tensor * rel_pos_h = nullptr;
 };
 
 struct clip_model {
@@ -308,6 +339,7 @@ struct clip_model {
     ggml_tensor * mm_2_b = nullptr;
 
     ggml_tensor * image_newline = nullptr;
+    ggml_tensor * view_seperator = nullptr;
 
     // Yi type models with mlp+normalization projection
     ggml_tensor * mm_1_w = nullptr; // Yi type models have 0, 1, 3, 4
@@ -400,6 +432,11 @@ struct clip_model {
     ggml_tensor * mm_boi = nullptr;
     ggml_tensor * mm_eoi = nullptr;
 
+    // deepseek ocr sam
+    ggml_tensor * patch_embed_proj_w = nullptr;
+    ggml_tensor * patch_embed_proj_b = nullptr;
+    ggml_tensor * pos_embed = nullptr;
+
     bool audio_has_avgpool() const {
         return proj_type == PROJECTOR_TYPE_QWEN2A
             || proj_type == PROJECTOR_TYPE_VOXTRAL;
@@ -409,6 +446,15 @@ struct clip_model {
         return proj_type == PROJECTOR_TYPE_ULTRAVOX
             || proj_type == PROJECTOR_TYPE_VOXTRAL;
     }
+    ggml_tensor * neck_conv_0;
+    ggml_tensor * neck_norm_0_w;
+    ggml_tensor * neck_norm_0_b;
+    ggml_tensor * neck_conv_1;
+    ggml_tensor * neck_norm_1_w;
+    ggml_tensor * neck_norm_1_b;
+
+    std::vector<clip_layer> enc_layers;
+
 };
 
 struct clip_ctx {
@@ -521,9 +567,9 @@ struct clip_graph {
             hparams(model.hparams),
             img(img),
             patch_size(hparams.patch_size),
-            n_patches_x(img.nx / patch_size),
-            n_patches_y(img.ny / patch_size),
-            n_patches(n_patches_x * n_patches_y),
+            n_patches_x(img.nx / patch_size), // sam 1024 / 16 = 64
+            n_patches_y(img.ny / patch_size), // sam 1024 / 16 = 64
+            n_patches(n_patches_x * n_patches_y), // sam 64 * 64 = 4096
             n_embd(hparams.n_embd),
             n_head(hparams.n_head),
             d_head(n_embd / n_head),
@@ -618,6 +664,244 @@ struct clip_graph {
 
         return gf;
     }
+
+    ggml_tensor * build_sam_enc(ggml_tensor * inp_raw,
+        const int enc_image_size = 1024
+        ) {
+        constexpr int enc_n_embd     = 768;
+        constexpr int _depth      = 12;
+        constexpr int enc_n_heads    = 12;
+        constexpr int enc_d_heads    = enc_n_embd / enc_n_heads;
+        constexpr int _prompt_n_embd  = 256;
+        constexpr int enc_patch_size = 16;
+        constexpr int _window_size    = 14;
+
+        const int enc_n_patches = enc_image_size / enc_patch_size;  // 64
+
+        ggml_tensor * inpL = build_enc_inp(inp_raw, enc_patch_size, enc_image_size, enc_n_embd);
+        ggml_tensor * cur = ggml_add(ctx0, inpL, model.position_embeddings);
+
+        // loop over layers
+        for (int il = 0; il < _depth; il++) {
+            auto & layer = model.enc_layers[il];
+
+            // layernorm1
+            cur = build_norm(cur, layer.ln_1_w, layer.ln_1_b, NORM_TYPE_NORMAL, eps, il);
+            cb(cur, "enc_layer_inp_normed", il);
+
+            const int64_t w0 = cur->ne[1];
+            const int64_t h0 = cur->ne[2];
+
+            if (hparams.is_global_attn(il) == false) {
+                // local attention layer - apply window partition
+                // ref: https://github.com/facebookresearch/segment-anything/blob/main/segment_anything/modeling/image_encoder.py#L169-L172
+                cur = ggml_win_part(ctx0, cur, 14);
+            }
+
+            const int64_t W = cur->ne[1];
+            const int64_t H = cur->ne[2];
+
+            // self-attention
+            {
+                cur = ggml_mul_mat(ctx0, layer.qkv_w, cur);
+                cur = ggml_add(ctx0, cur, layer.qkv_b);
+                const int B = cur->ne[3];
+
+                cur = ggml_reshape_4d(ctx0, cur, enc_n_embd, 3, W * H, B);
+                cur = ggml_cont(ctx0, ggml_permute(ctx0, cur, 0, 3, 1, 2));
+
+                ggml_tensor * Qcur =
+                    ggml_view_3d(ctx0, cur, enc_n_embd, W * H, B, cur->nb[1], cur->nb[2], 0);
+                Qcur = ggml_reshape_4d(ctx0, Qcur, enc_d_heads, enc_n_heads, W * H, B);
+                Qcur = ggml_cont(ctx0, ggml_permute(ctx0, Qcur, 0, 2, 1, 3));
+                Qcur = ggml_reshape_3d(ctx0, Qcur, enc_d_heads, W * H, B * enc_n_heads);
+
+                ggml_tensor * Kcur =
+                    ggml_view_3d(ctx0, cur, enc_n_embd, W * H, B, cur->nb[1], cur->nb[2], 1 * cur->nb[3]);
+                Kcur = ggml_reshape_4d(ctx0, Kcur, enc_d_heads, enc_n_heads, W * H, B);
+                Kcur = ggml_cont(ctx0, ggml_permute(ctx0, Kcur, 0, 2, 1, 3));
+                Kcur = ggml_reshape_3d(ctx0, Kcur, enc_d_heads, W * H, B * enc_n_heads);
+
+                ggml_tensor * Vcur =
+                    ggml_view_3d(ctx0, cur, enc_n_embd, W * H, B, cur->nb[1], cur->nb[2], 2 * cur->nb[3]);
+                Vcur = ggml_reshape_4d(ctx0, Vcur, enc_d_heads, enc_n_heads, W * H, B);
+                Vcur = ggml_cont(ctx0, ggml_permute(ctx0, Vcur, 1, 2, 0, 3));  // transposed
+                Vcur = ggml_reshape_3d(ctx0, Vcur, W * H, enc_d_heads, B * enc_n_heads);
+
+                cb(Qcur, "Qcur", il);
+                cb(Kcur, "Kcur", il);
+                cb(Vcur, "Vcur", il);
+
+
+
+                struct ggml_tensor * KQ = ggml_mul_mat(ctx0, Kcur, Qcur);
+
+                struct ggml_tensor * KQ_scaled = ggml_scale_inplace(ctx0, KQ, 1.0f / sqrtf(enc_n_heads));
+
+                struct ggml_tensor * rw = ggml_get_rel_pos(ctx0, layer.rel_pos_w, W, W);
+                struct ggml_tensor * rh = ggml_get_rel_pos(ctx0, layer.rel_pos_h, H, H);
+
+                struct ggml_tensor * q_r = ggml_reshape_4d(ctx0, Qcur, enc_n_heads, W, H, B * enc_n_embd);
+
+                struct ggml_tensor * rel_w = ggml_cont(
+                    ctx0,
+                    ggml_permute(ctx0, ggml_mul_mat(ctx0, rw, ggml_cont(ctx0, ggml_permute(ctx0, q_r, 0, 2, 1, 3))), 0,
+                                 2, 1, 3));
+                struct ggml_tensor * rel_h = ggml_mul_mat(ctx0, rh, q_r);
+
+                struct ggml_tensor * attn = ggml_add_rel_pos_inplace(ctx0, KQ_scaled, rel_w, rel_h);
+
+                struct ggml_tensor * KQ_soft_max = ggml_soft_max_inplace(ctx0, attn);
+
+                struct ggml_tensor * KQV = ggml_mul_mat(ctx0, Vcur, KQ_soft_max);
+
+                cur = ggml_reshape_4d(
+                    ctx0,
+                    ggml_cont(ctx0, ggml_permute(ctx0, ggml_reshape_4d(ctx0, KQV, enc_d_heads, W * H, enc_n_heads, B),
+                                                 0, 2, 1, 3)),
+                    n_embd, W, H, B);
+
+                cur = ggml_mul_mat(ctx0, layer.o_w, cur);
+                cur = ggml_add_inplace(ctx0, cur, layer.o_b);
+            }
+
+            if (hparams.is_global_attn(il) == false) {
+                // local attention layer - reverse window partition
+                cur = ggml_win_unpart(ctx0, cur, w0, h0, 14);
+            }
+
+            if (layer.ls_1_w) {
+                cur = ggml_mul(ctx0, cur, layer.ls_1_w);
+                cb(cur, "attn_out_scaled", il);
+            }
+
+            // re-add the layer input, e.g., residual
+            cur = ggml_add(ctx0, cur, inpL);
+
+            cb(cur, "ffn_inp", il);
+
+            // layernorm2
+            cur = build_norm(cur, layer.ln_2_w, layer.ln_2_b, NORM_TYPE_NORMAL, eps, il);
+            cb(cur, "ffn_inp_normed", il);
+
+            // ffn
+            cur = build_ffn(cur, layer.ff_up_w, layer.ff_up_b, layer.ff_gate_w, layer.ff_gate_b, layer.ff_down_w,
+                            layer.ff_down_b, hparams.ffn_op, il);
+
+            cb(cur, "ffn_out", il);
+
+            if (layer.ls_2_w) {
+                cur = ggml_mul(ctx0, cur, layer.ls_2_w);
+                cb(cur, "ffn_out_scaled", il);
+            }
+
+            // residual 2
+            cur = ggml_add(ctx0, inpL, cur);
+            cb(cur, "layer_out", il);
+
+            return cur;  // B, 1024, 16, 16
+        }
+
+        cur = ggml_cont(ctx0, ggml_permute(ctx0, inpL, 2, 0, 1, 3));
+
+        cur = ggml_conv_2d_sk_p0(ctx0, model.neck_conv_0, cur);
+
+        cur = sam_layer_norm_2d(ctx0, cur, 256, model.neck_norm_0_w, model.neck_norm_0_b, hparams.eps);
+
+        cur = ggml_conv_2d_s1_ph(ctx0, model.neck_conv_1, cur);
+
+        cur = sam_layer_norm_2d(ctx0, cur, 256, model.neck_norm_1_w, model.neck_norm_1_b, hparams.eps);
+
+        //cur = ggml_cpy(ctx0, cur, state.embd_img);
+
+        ggml_build_forward_expand(gf, cur);
+        return cur;
+    }
+
+    ggml_tensor * sam_layer_norm_2d(ggml_context * ctx0,
+                                    ggml_tensor *  layer,
+                                    int            n_channels,
+                                    ggml_tensor *  w,
+                                    ggml_tensor *  b,
+                                    float          eps) {
+        // LayerNorm2d
+        // normalize along channel dimmension
+        // TODO: better implementation
+        layer = ggml_permute(ctx0, ggml_norm(ctx0, ggml_cont(ctx0, ggml_permute(ctx0, layer, 1, 2, 0, 3)), eps), 2, 0,
+                             1, 3);
+
+        layer =
+            ggml_add(ctx0, ggml_mul(ctx0, ggml_repeat(ctx0, ggml_reshape_3d(ctx0, w, 1, 1, n_channels), layer), layer),
+                     ggml_repeat(ctx0, ggml_reshape_3d(ctx0, b, 1, 1, n_channels), layer));
+
+        return layer;
+    }
+
+    ggml_cgraph * build_deepseek_ocr() {
+        //patch embedding
+        ggml_tensor * inp_raw = build_inp_raw();
+
+
+        ggml_tensor * global_features_1 = build_sam_enc(inp_raw);
+
+        ggml_tensor * global_features_2 = build_dp_ocr_clip(inp_raw, global_features_1);
+
+        // torch global_features = torch.cat((global_features_2[:, 1:], global_features_1.flatten(2).permute(0, 2, 1)), dim=-1)
+        ggml_tensor * global_features = ggml_concat(ctx0, global_features_1, global_features_2, 0);
+        global_features = build_global_local_features(
+            ctx0,
+            global_features,
+            n_patches_y,
+            n_patches_x,
+            n_embd
+        );
+
+        return gf;
+    }
+
+    // global_features: [n_dim, h*w]
+    // image_newline:   [n_dim]
+    // view_separator:  [n_dim]
+
+    ggml_tensor * build_global_local_features(ggml_context * ctx0,
+                                              ggml_tensor *  global_features,
+                                              int            h,
+                                              int            w,
+                                              int            n_dim) {
+        GGML_ASSERT(model.image_newline != nullptr);
+        GGML_ASSERT(model.view_seperator != nullptr);
+        GGML_ASSERT(global_features->ne[0] == (int64_t) n_dim);
+        GGML_ASSERT(global_features->ne[1] == (int64_t) (h * w));
+
+        // 1) global_features: [n_dim, h*w] -> [n_dim, w, h] -> [h, w, n_dim]
+        ggml_tensor * t = ggml_reshape_3d(ctx0, global_features, n_dim, w, h);  // (n_dim, w, h)
+        t               = ggml_permute(ctx0, t, 2, 1, 0, 3);                    // (h, w, n_dim)
+
+        // 2) image_newline: [n_dim] -> [1, 1, n_dim] -> repeat to [h, 1, n_dim]
+        ggml_tensor * nl = ggml_reshape_3d(ctx0, model.image_newline, 1, 1, n_dim);            // (1, 1, n_dim)
+
+        ggml_tensor * nl_target_shape = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, 1, h, n_dim);  // (1, h, n_dim)
+        nl                            = ggml_repeat(ctx0, nl, nl_target_shape);                // (1, h, n_dim)
+        nl                            = ggml_permute(ctx0, nl, 1, 0, 2, 3);                    // (h, 1, n_dim)
+
+        // 3) concat along width dimension (dim=1): (h, w, n_dim) + (h, 1, n_dim) -> (h, w+1, n_dim)
+        t = ggml_concat(ctx0, t, nl, 1);  // (h, w+1, n_dim)
+
+        // 4) flatten back to token axis: (h, w+1, n_dim) -> (n_dim, h*(w+1))
+        t = ggml_permute(ctx0, t, 2, 1, 0, 3);          // (n_dim, w+1, h)
+        t = ggml_cont_2d(ctx0, t, n_dim, (w + 1) * h);  // (n_dim, h*(w+1))
+
+        // 5) append view_separator as an extra "token":
+        //    view_separator: [n_dim] -> [n_dim, 1]
+        ggml_tensor * vs = ggml_reshape_2d(ctx0, model.view_seperator, n_dim, 1);  // (n_dim, 1)
+
+        // concat along token dimension (dim=1):
+        ggml_tensor * global_local_features = ggml_concat(ctx0, t, vs, 1);  // (n_dim, h*(w+1) + 1)
+
+        return global_local_features;
+    }
+
+
 
     ggml_cgraph * build_pixtral() {
         const int n_merge = hparams.n_merge;
@@ -1215,7 +1499,7 @@ struct clip_graph {
                                 norm_t,
                                 hparams.ffn_op,
                                 model.position_embeddings,
-                                nullptr);
+                                nullptr); // shape [1024, 16, 16]
 
         // remove CLS token
         cur = ggml_view_2d(ctx0, cur,
@@ -1259,6 +1543,65 @@ struct clip_graph {
         ggml_build_forward_expand(gf, cur);
 
         return gf;
+    }
+
+    ggml_tensor * build_dp_ocr_clip(ggml_tensor * inpL, ggml_tensor * patch_embeds) {
+        GGML_ASSERT(model.class_embedding != nullptr);
+        GGML_ASSERT(model.position_embeddings != nullptr);
+        auto n_embd_vit_clip = 1024;
+
+        const int     n_pos = n_patches + 1;
+        ggml_tensor * inp =
+            ggml_cont_3d(ctx0, ggml_dup_tensor(ctx0, patch_embeds), patch_embeds->ne[0], n_patches_x, n_patches_y);
+        //ggml_tensor * inp = ggml_cpy(ctx0, inpL, ggml_dup_tensor(ctx0, inpL));
+
+        // add CLS token
+        inp = ggml_concat(ctx0, inp, model.class_embedding, 1);
+
+        // The larger models use a different ViT, which uses RMS norm instead of layer norm
+        // ref: https://github.com/ggml-org/llama.cpp/pull/13443#issuecomment-2869786188
+        norm_type norm_t = (hparams.n_embd == 3200 && hparams.n_layer == 45) ?
+                               NORM_TYPE_RMS      // 6B ViT (Used by InternVL 2.5/3 - 26B, 38B, 78B)
+                               :
+                               NORM_TYPE_NORMAL;  // 300M ViT (Used by all smaller InternVL models)
+
+        ggml_tensor * cur = build_vit(inp, n_pos, norm_t, hparams.ffn_op, model.position_embeddings,
+                                      nullptr);  // shape [1024, 16, 16]
+
+        // remove CLS token
+        cur = ggml_view_2d(ctx0, cur, n_embd, n_patches, ggml_row_size(cur->type, n_embd), 0);
+
+        // pixel shuffle
+        {
+            const int scale_factor = model.hparams.n_merge;
+            const int bsz          = 1;  // batch size, always 1 for now since we don't support batching
+            const int height       = n_patches_y;
+            const int width        = n_patches_x;
+            GGML_ASSERT(scale_factor > 0);
+            cur = ggml_reshape_4d(ctx0, cur, n_embd * scale_factor, height / scale_factor, width, bsz);
+            cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
+            cur = ggml_cont_4d(ctx0, cur, n_embd * scale_factor * scale_factor, height / scale_factor,
+                               width / scale_factor, bsz);
+            cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
+            // flatten to 2D
+            cur = ggml_cont_2d(ctx0, cur, n_embd * scale_factor * scale_factor, cur->ne[1] * cur->ne[2]);
+        }
+
+        // projector (always using GELU activation)
+        {
+            // projector LayerNorm uses pytorch's default eps = 1e-5
+            // ref: https://huggingface.co/OpenGVLab/InternVL3-8B-Instruct/blob/a34d3e4e129a5856abfd6aa6de79776484caa14e/modeling_internvl_chat.py#L79
+            cur = build_norm(cur, model.mm_0_w, model.mm_0_b, NORM_TYPE_NORMAL, 1e-5, -1);
+            cur = ggml_mul_mat(ctx0, model.mm_1_w, cur);
+            cur = ggml_add(ctx0, cur, model.mm_1_b);
+            cur = ggml_gelu(ctx0, cur);
+            cur = ggml_mul_mat(ctx0, model.mm_3_w, cur);
+            cur = ggml_add(ctx0, cur, model.mm_3_b);
+        }
+
+        // build the graph
+
+        return cur;
     }
 
     ggml_cgraph * build_llama4() {
@@ -2166,16 +2509,39 @@ private:
 
     // build the input after conv2d (inp_raw --> patches)
     // returns tensor with shape [n_embd, n_patches]
+    ggml_tensor * build_enc_inp(ggml_tensor * inp_raw,
+                                const int     enc_patch_size,
+                                const int     enc_n_patches,
+                                const int     enc_n_embd) {
+        GGML_ASSERT(model.patch_embed_proj_w != nullptr);
+        GGML_ASSERT(model.patch_embed_proj_b != nullptr);
+        // Image to Patch Embedding.
+        // ggml_tensor * inp_raw = build_inp_raw(); // sam shape = [1024, 1024, 3]
+        // patch_embed_proj_w shape = [768, 3, 16, 16]
+        ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embed_proj_w, inp_raw, enc_patch_size, enc_patch_size, 0, 0,
+                                         1, 1);                                     // [64, 64, 768]
+        inp               = ggml_reshape_2d(ctx0, inp, enc_n_patches, enc_n_embd);  // [4096, 768]
+        inp               = ggml_cont(ctx0, ggml_transpose(ctx0, inp));             // [768, 4096]
+        inp               = ggml_add(ctx0, inp, model.patch_embed_proj_b);
+        cb(inp, "enc_patch_bias", -1);
+        return inp;
+    }
+
+    // build the input after conv2d (inp_raw --> patches)
+    // returns tensor with shape [n_embd, n_patches]
     ggml_tensor * build_inp() {
-        ggml_tensor * inp_raw = build_inp_raw();
-        ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
-        inp = ggml_reshape_2d(ctx0, inp, n_patches, n_embd);
-        inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp));
+        // Image to Patch Embedding.
+        ggml_tensor * inp_raw = build_inp_raw(); // sam shape = [1024, 1024, 3]
+        // sam patch_embeddings_0 shape = [768, 3, 16, 16]
+        ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1); // sam shape = [64, 64, 768]
+        inp = ggml_reshape_2d(ctx0, inp, n_patches, n_embd); // sam shape = [4096, 768]
+        inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp)); // sam shape = [768, 4096]
         if (model.patch_bias) {
+            // sam patch_bias shape = [768]
             inp = ggml_add(ctx0, inp, model.patch_bias);
             cb(inp, "patch_bias", -1);
         }
-        return inp;
+        return inp; // shape = [n_embd, n_patches] same as [768, 4096]
     }
 
     ggml_tensor * build_inp_raw(int channels = 3) {
@@ -3236,6 +3602,10 @@ struct clip_model_loader {
                     model.mm_1_w = get_tensor(string_format(TN_LLAVA_PROJ, 1, "weight"));
                     model.mm_1_b = get_tensor(string_format(TN_LLAVA_PROJ, 1, "bias"));
                 } break;
+            case PROJECTOR_TYPE_DEEPSEEK_OCR:
+                {
+                }
+                break;
             default:
                 GGML_ASSERT(false && "unknown projector type");
         }
@@ -4192,6 +4562,59 @@ private:
     }
 };
 
+static std::vector<std::pair<int, int>> ds_build_target_ratios(const int min_num, const int max_num) {
+    std::vector<std::pair<int, int>> ratios;
+    for (int n = min_num; n <= max_num; ++n) {
+        for (int i = 1; i <= n; ++i) {
+            for (int j = 1; j <= n; ++j) {
+                if (const int blocks = i * j; blocks >= min_num && blocks <= max_num) {
+                    ratios.emplace_back(i, j); // (cols, rows)
+                }
+            }
+        }
+    }
+
+    // sort by total blocks like in Python (key=lambda x: x[0] * x[1])
+    std::sort(ratios.begin(), ratios.end(),
+              [](const auto &a, const auto &b) {
+                  return (a.first * a.second) < (b.first * b.second);
+              });
+
+    // optional: dedup
+    ratios.erase(std::unique(ratios.begin(), ratios.end()), ratios.end());
+    return ratios;
+}
+
+static std::pair<int, int> ds_find_closest_aspect_ratio(
+    const float aspect_ratio,
+    const std::vector<std::pair<int, int>> &target_ratios,
+    const int width,
+    const int height,
+    const int image_size
+) {
+    float best_diff = std::numeric_limits<float>::infinity();
+    std::pair<int, int> best_ratio = {1, 1};
+    const float area = static_cast<float>(width) * static_cast<float>(height);
+
+    for (const auto &r : target_ratios) {
+        const float target_ar = static_cast<float>(r.first) / static_cast<float>(r.second);
+
+        if (const float diff = std::fabs(aspect_ratio - target_ar); diff < best_diff) {
+            best_diff = diff;
+            best_ratio = r;
+        } else if (diff == best_diff) {
+            // same as python: prefer this ratio if the image area is “large enough”
+            if (const float needed_area = 0.5f * image_size * image_size * r.first * r.second; area > needed_area) {
+                best_ratio = r;
+            }
+        }
+    }
+
+    return best_ratio; // (cols, rows)
+}
+
+
+
 // returns the normalized float tensor for llava-1.5, for spatial_unpad with anyres processing for llava-1.6 it returns the normalized image patch tensors as a vector
 // res_imgs memory is being allocated here, previous allocations will be freed if found
 bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, struct clip_image_f32_batch * res_imgs) {
@@ -4406,6 +4829,69 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                     }
                 }
             } break;
+        case PROJECTOR_TYPE_DEEPSEEK_OCR:
+            {
+                // configurable, or read from params
+                const int  min_num       = 2;
+                const int  max_num       = 9;
+                const int  image_size    = params.image_size;  // typically 640
+                const bool use_thumbnail = true;               // mimic python's use_thumbnail
+
+                // original image size
+                const int             orig_w        = original_size.width;
+                const int             orig_h        = original_size.height;
+
+                // 1) build candidate grids (cols, rows)
+                auto target_ratios = ds_build_target_ratios(min_num, max_num);
+
+                // 2) pick the grid that best matches the original aspect ratio
+                const float aspect_ratio = static_cast<float>(orig_w) / static_cast<float>(orig_h);
+                auto      best = ds_find_closest_aspect_ratio(aspect_ratio, target_ratios, orig_w, orig_h, image_size);
+                const int grid_cols = best.first;   // how many tiles horizontally
+                const int grid_rows = best.second;  // how many tiles vertically
+
+                // 3) compute the target (forced) size — python did:
+                //    target_width  = image_size * cols
+                //    target_height = image_size * rows
+                const clip_image_size refined_size{ image_size * grid_cols, image_size * grid_rows };
+
+                // 4) prepare slice instructions, same style as the idefics3 branch
+                llava_uhd::slice_instructions instructions;
+                instructions.overview_size = clip_image_size{ image_size, image_size };  // for thumbnail/global
+                instructions.refined_size  = refined_size;
+                instructions.grid_size     = clip_image_size{ grid_cols, grid_rows };
+
+                // in deepseek python they always produce *full* 640x640 blocks,
+                // so we can do a simple double loop over rows/cols:
+                for (int r = 0; r < grid_rows; ++r) {
+                    for (int c = 0; c < grid_cols; ++c) {
+                        const int x = c * image_size;
+                        const int y = r * image_size;
+
+                        instructions.slices.push_back(llava_uhd::slice_coordinates{
+                            /* x */ x,
+                            /* y */ y,
+                            /* size */ clip_image_size{ image_size, image_size }
+                        });
+                    }
+                }
+
+                // 5) run the actual slicing (this should: resize to refined_size, then crop every slice)
+                auto imgs = llava_uhd::slice_image(img, instructions);
+
+                // 7) cast & normalize like the idefics3 branch
+                for (size_t i = 0; i < imgs.size(); ++i) {
+                    clip_image_f32_ptr res(clip_image_f32_init());
+                    normalize_image_u8_to_f32(*imgs[i], *res, params.image_mean, params.image_std);
+                    res_imgs->entries.push_back(std::move(res));
+                }
+
+                // keep the grid info — the model may need to know how to reassemble / attend
+                res_imgs->grid_x = grid_cols;
+                res_imgs->grid_y = grid_rows;
+            }
+            break;
+
 
         default:
             LOG_ERR("%s: unsupported projector type %d\n", __func__, ctx->proj_type());

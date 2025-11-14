@@ -664,6 +664,21 @@ class MODEL_TENSOR(IntEnum):
     V_MM_GATE            = auto() # cogvlm
     V_TOK_BOI            = auto() # cogvlm
     V_TOK_EOI            = auto() # cogvlm
+    # DeepSeek-OCR sam_model
+    V_SAM_POS_EMBD       = auto()
+    V_SAM_PATCH_EMBD     = auto()
+    V_SAM_PRE_NORM       = auto()
+    V_SAM_POST_NORM      = auto()
+    V_SAM_ATTN_POS_H     = auto()
+    V_SAM_ATTN_POS_W     = auto()
+    V_SAM_ATTN_QKV       = auto()
+    V_SAM_ATTN_OUT      = auto()
+    V_SAM_MLP_LIN_1      = auto()
+    V_SAM_MLP_LIN_2      = auto()
+    V_SAM_NECK           = auto()
+    V_SAM_NET_2          = auto()
+    V_SAM_NET_3          = auto()
+
     # audio (mtmd)
     A_ENC_EMBD_POS       = auto()
     A_ENC_CONV1D         = auto()
@@ -1030,6 +1045,20 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.V_MM_GATE:                 "mm.gate",
     MODEL_TENSOR.V_TOK_BOI:                 "v.boi",
     MODEL_TENSOR.V_TOK_EOI:                 "v.eoi",
+    # DeepSeek-OCR sam_model
+    MODEL_TENSOR.V_SAM_POS_EMBD:            "v.sam.pos_embd",
+    MODEL_TENSOR.V_SAM_PATCH_EMBD:          "v.sam.patch_embd",
+    MODEL_TENSOR.V_SAM_PRE_NORM:            "v.sam.blk.{bid}.pre_ln",
+    MODEL_TENSOR.V_SAM_POST_NORM:           "v.sam.blk.{bid}.post_ln",
+    MODEL_TENSOR.V_SAM_ATTN_POS_H:          "v.sam.blk.{bid}.attn.pos_h",
+    MODEL_TENSOR.V_SAM_ATTN_POS_W:          "v.sam.blk.{bid}.attn.pos_w",
+    MODEL_TENSOR.V_SAM_ATTN_QKV:            "v.sam.blk.{bid}.attn.qkv",
+    MODEL_TENSOR.V_SAM_ATTN_OUT:            "v.sam.blk.{bid}.attn.out",
+    MODEL_TENSOR.V_SAM_MLP_LIN_1:           "v.sam.blk.{bid}.mlp.lin1",
+    MODEL_TENSOR.V_SAM_MLP_LIN_2:           "v.sam.blk.{bid}.mlp.lin2",
+    MODEL_TENSOR.V_SAM_NECK:                "v.sam.neck.{bid}",
+    MODEL_TENSOR.V_SAM_NET_2:               "v.sam.net_2",
+    MODEL_TENSOR.V_SAM_NET_3:               "v.sam.net_3",
     # audio (mtmd)
     MODEL_TENSOR.A_ENC_EMBD_POS:            "a.position_embd",
     MODEL_TENSOR.A_ENC_CONV1D:              "a.conv1d.{bid}",
@@ -2247,7 +2276,9 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.ATTN_Q_B,
         MODEL_TENSOR.ATTN_KV_A_MQA,
         MODEL_TENSOR.ATTN_KV_B,
+        MODEL_TENSOR.ATTN_K,
         MODEL_TENSOR.ATTN_K_B,
+        MODEL_TENSOR.ATTN_V,
         MODEL_TENSOR.ATTN_V_B,
         MODEL_TENSOR.ATTN_Q_A_NORM,
         MODEL_TENSOR.ATTN_KV_A_NORM,
@@ -3207,6 +3238,7 @@ class VisionProjectorType:
     LIGHTONOCR = "lightonocr"
     COGVLM = "cogvlm"
     JANUS_PRO = "janus_pro"
+    DEEPSEEKOCR = "deepseekocr"
 
 
 # Items here are (block size, type size)

@@ -620,6 +620,9 @@ class ModelBase:
         if "thinker_config" in config:
             # rename for Qwen2.5-Omni
             config["text_config"] = config["thinker_config"]["text_config"]
+        if "language_config" in config:
+            # rename for DeepSeekOCR
+            config["text_config"] = config["language_config"]
         return config
 
     @classmethod
@@ -1442,7 +1445,7 @@ class MmprojModel(ModelBase):
     preprocessor_config: dict[str, Any]
     global_config: dict[str, Any]
 
-    n_block_keys = ["n_layers", "num_hidden_layers", "n_layer", "num_layers", "depth"]
+    n_block_keys = ["n_layers", "num_hidden_layers", "n_layer", "num_layers", "depth", "width.clip-l-14-224.layers", "sam_vit_b.layers"]
 
     has_vision_encoder: bool = True # by default
     has_audio_encoder: bool = False
@@ -1488,13 +1491,31 @@ class MmprojModel(ModelBase):
         # TODO @ngxson : this is a hack to support both vision and audio encoders
         have_multiple_encoders = self.has_audio_encoder and self.has_vision_encoder
         self.block_count = 128 if have_multiple_encoders else self.find_hparam(self.n_block_keys, True)
+        # FIXME: DeepseekOCRVisionModel specific hack
+        if self.block_count is None:
+            if isinstance(self, DeepseekOCRVisionModel):
+                clip_block_count = self.hparams['width']['clip-l-14-224']['layers']
+                sam_block_count = self.hparams['width']['sam_vit_b']['layers']
+                if clip_block_count is not None:
+                    self.block_count = clip_block_count
+                if sam_block_count is not None:
+                    self.block_count = sam_block_count if self.block_count is None else self.block_count + sam_block_count
+            if self.block_count is None:
+                raise KeyError(f"could not find block count using any of: {self.n_block_keys}")
         self.tensor_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.MMPROJ, self.block_count)
 
         # load preprocessor config
         self.preprocessor_config = {}
         if not self.is_mistral_format:
-            with open(self.dir_model / "preprocessor_config.json", "r", encoding="utf-8") as f:
-                self.preprocessor_config = json.load(f)
+            # check if preprocessor_config.json exists
+            if (self.dir_model / "preprocessor_config.json").is_file():
+                with open(self.dir_model / "preprocessor_config.json", "r", encoding="utf-8") as f:
+                    self.preprocessor_config = json.load(f)
+            else:
+                # try "processing_config" file if exists
+                if (self.dir_model / "processing_config.json").is_file():
+                    with open(self.dir_model / "processing_config.json", "r", encoding="utf-8") as f:
+                        self.preprocessor_config = json.load(f)
 
     def get_vision_config(self) -> dict[str, Any] | None:
         config_name = "vision_config" if not self.is_mistral_format else "vision_encoder"
@@ -5770,6 +5791,61 @@ class Gemma3VisionModel(MmprojModel):
 
         return [] # skip other tensors
 
+@ModelBase.register("DeepseekOCRForCausalLM")
+class DeepseekOCRVisionModel(MmprojModel):
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        hparams = self.hparams
+        self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.DEEPSEEKOCR)
+        # default values below are taken from HF tranformers code
+        self.gguf_writer.add_vision_attention_layernorm_eps(hparams.get("layer_norm_eps", 1e-6))
+        self.gguf_writer.add_vision_use_gelu(True)
+        # calculate proj_scale_factor (used by tinygemma3 test model)
+        image_seq_length = self.preprocessor_config.get("image_seq_length", 256)
+        n_per_side = int(image_seq_length ** 0.5)
+        image_size = self.hparams["image_size"]
+        patch_size = self.hparams["patch_size"]
+        proj_scale_factor = (image_size // patch_size) // n_per_side
+        if proj_scale_factor > 0 and proj_scale_factor != 4:
+            # we only need to write this if it's not the default value
+            # in this case, we are converting a test model
+            self.gguf_writer.add_vision_projector_scale_factor(proj_scale_factor)
+
+    def get_vision_config(self) -> dict[str, Any]:
+        orig_vision_config = self.global_config.get("vision_config")
+
+        super().get_vision_config()
+
+    def tensor_force_quant(self, name, new_name, bid, n_dims):
+        # related to https://github.com/ggml-org/llama.cpp/issues/13025
+        if "input_projection" in name:
+            return gguf.GGMLQuantizationType.F16
+        if ".embeddings." in name:
+            return gguf.GGMLQuantizationType.F32
+        return super().tensor_force_quant(name, new_name, bid, n_dims)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        del bid  # unused
+
+        if "vision_model.head." in name:
+            return [] # skip redundant tensors for tinygemma3
+
+        if name.startswith("multi_modal_projector.") or name.startswith("vision_tower.") \
+            or name.startswith("multimodal_projector.") or name.startswith("vision_model."):
+            # process vision tensors
+            name = name.replace("_weight", ".weight")
+
+            # correct norm value ; only this "soft_emb_norm" need to be corrected as it's part of Gemma projector
+            # the other norm values are part of SigLIP model, and they are already correct
+            # ref code: Gemma3RMSNorm
+            if "soft_emb_norm.weight" in name:
+                logger.info(f"Correcting norm value for '{name}'")
+                data_torch = data_torch + 1
+
+            return [(self.map_tensor_name(name), data_torch)]
+
+        return [] # skip other tensors
+
 
 @ModelBase.register("Gemma3nForConditionalGeneration")
 class Gemma3NModel(Gemma3Model):
@@ -6943,6 +7019,7 @@ class DeepseekModel(TextModel):
 @ModelBase.register(
     "DeepseekV2ForCausalLM",
     "DeepseekV3ForCausalLM",
+    "DeepseekOCRForCausalLM",
     "KimiVLForConditionalGeneration",
 )
 class DeepseekV2Model(TextModel):
@@ -7009,31 +7086,35 @@ class DeepseekV2Model(TextModel):
 
         super().set_gguf_parameters()
         hparams = self.hparams
+        kv_lora_rank = hparams["q_lora_rank"] if hparams["q_lora_rank"] is not None else 512
+        routed_scaling_factor = hparams.get("routed_scaling_factor", 1.0)
+        norm_topk_prob = hparams.get("norm_topk_prob", False)
+        scoring_func = hparams.get("scoring_func", "softmax")
 
         self.gguf_writer.add_leading_dense_block_count(hparams["first_k_dense_replace"])
         self.gguf_writer.add_vocab_size(hparams["vocab_size"])
         if "q_lora_rank" in hparams and hparams["q_lora_rank"] is not None:
             self.gguf_writer.add_q_lora_rank(hparams["q_lora_rank"])
-        self.gguf_writer.add_kv_lora_rank(hparams["kv_lora_rank"])
+        self.gguf_writer.add_kv_lora_rank(kv_lora_rank)
 
         # note: deepseek2 using MLA converts into MQA with larger heads, then decompresses to MHA
-        self.gguf_writer.add_key_length(hparams["kv_lora_rank"] + hparams["qk_rope_head_dim"])
-        self.gguf_writer.add_value_length(hparams["kv_lora_rank"])
+        self.gguf_writer.add_key_length(kv_lora_rank + hparams["qk_rope_head_dim"])
+        self.gguf_writer.add_value_length(kv_lora_rank)
         self.gguf_writer.add_key_length_mla(hparams["qk_nope_head_dim"] + hparams["qk_rope_head_dim"])
         self.gguf_writer.add_value_length_mla(hparams["v_head_dim"])
 
         self.gguf_writer.add_expert_feed_forward_length(hparams["moe_intermediate_size"])
         self.gguf_writer.add_expert_count(hparams["n_routed_experts"])
         self.gguf_writer.add_expert_shared_count(hparams["n_shared_experts"])
-        self.gguf_writer.add_expert_weights_scale(hparams["routed_scaling_factor"])
-        self.gguf_writer.add_expert_weights_norm(hparams["norm_topk_prob"])
+        self.gguf_writer.add_expert_weights_scale(routed_scaling_factor)
+        self.gguf_writer.add_expert_weights_norm(norm_topk_prob)
 
-        if hparams["scoring_func"] == "sigmoid":
+        if scoring_func == "sigmoid":
             self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SIGMOID)
-        elif hparams["scoring_func"] == "softmax":
+        elif scoring_func == "softmax":
             self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SOFTMAX)
         else:
-            raise ValueError(f"Unsupported scoring_func value: {hparams['scoring_func']}")
+            raise ValueError(f"Unsupported scoring_func value: {scoring_func}")
 
         self.gguf_writer.add_rope_dimension_count(hparams["qk_rope_head_dim"])
 
@@ -7043,12 +7124,14 @@ class DeepseekV2Model(TextModel):
             self.gguf_writer.add_rope_scaling_factor(rope_scaling["factor"])
             self.gguf_writer.add_rope_scaling_orig_ctx_len(rope_scaling["original_max_position_embeddings"])
             self.gguf_writer.add_rope_scaling_yarn_log_mul(0.1 * rope_scaling["mscale_all_dim"])
+            self.gguf_writer.add_layer_norm_rms_eps(self.hparams.get("rms_norm_eps", 1e-6))
 
     _experts: list[dict[str, Tensor]] | None = None
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         # skip vision tensors and remove "language_model." for Kimi-VL
-        if "vision_tower" in name or "multi_modal_projector" in name:
+        if "vision_" in name or "multi_modal_projector" in name \
+            or "image_newline" in name or "model.projector" in name or "sam_model" in name or "view_seperator" in name:
             return []
 
         if name.startswith("language_model."):

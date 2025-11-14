@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Sequence
 
+from numpy.f2py.auxfuncs import throw_error
+
 from .constants import MODEL_ARCH, MODEL_TENSOR, MODEL_TENSORS, TENSOR_NAMES
 
 
@@ -1455,6 +1457,58 @@ class TensorNameMap:
 
         MODEL_TENSOR.V_DS_FC2: (
             "model.visual.deepstack_merger_list.{bid}.linear_fc2", # deepstack in qwen3vl
+        ),
+
+        MODEL_TENSOR.V_SAM_POS_EMBD: (
+            "model.sam_model.pos_embed"
+        ),
+
+        MODEL_TENSOR.V_SAM_PATCH_EMBD: (
+            "model.sam_model.patch_embed.proj"
+        ),
+
+        MODEL_TENSOR.V_SAM_PRE_NORM: (
+            "model.sam_model.blocks.{bid}.norm1", # deepstack in qwen3vl
+        ),
+
+        MODEL_TENSOR.V_SAM_POST_NORM: (
+            "model.sam_model.blocks.{bid}.norm2", # deepstack in qwen3vl
+        ),
+
+        MODEL_TENSOR.V_SAM_ATTN_POS_H: (
+            "model.sam_model.blocks.{bid}.attn.rel_pos_h"
+        ),
+
+        MODEL_TENSOR.V_SAM_ATTN_POS_W: (
+            "model.sam_model.blocks.{bid}.attn.rel_pos_w"
+        ),
+
+        MODEL_TENSOR.V_SAM_ATTN_QKV: (
+            "model.sam_model.blocks.{bid}.attn.qkv"
+        ),
+
+        MODEL_TENSOR.V_SAM_ATTN_OUT: (
+            "model.sam_model.blocks.{bid}.attn.proj"
+        ),
+
+        MODEL_TENSOR.V_SAM_MLP_LIN_1: (
+            "model.sam_model.blocks.{bid}.mlp.lin1",
+        ),
+
+        MODEL_TENSOR.V_SAM_MLP_LIN_2: (
+            "model.sam_model.blocks.{bid}.mlp.lin2",
+        ),
+
+        MODEL_TENSOR.V_SAM_NECK: (
+            "model.sam_model.neck.{bid}"
+        ),
+
+        MODEL_TENSOR.V_SAM_NET_2: (
+            "model.sam_model.net_2"
+        ),
+
+        MODEL_TENSOR.V_SAM_NET_3: (
+            "model.sam_model.net_3"
         ),
 
         MODEL_TENSOR.V_MM_POST_FC_NORM: (
