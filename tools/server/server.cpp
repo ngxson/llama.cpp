@@ -5557,7 +5557,7 @@ int main(int argc, char ** argv) {
     ctx_http.post("/completions",         ex_wrapper(routes.post_completions));
     ctx_http.post("/v1/completions",      ex_wrapper(routes.post_completions_oai));
     ctx_http.post("/chat/completions",    ex_wrapper(routes.post_chat_completions));
-    ctx_http.post("/v1/chat/completions", ex_wrapper(routes.post_chat_completions));
+    //ctx_http.post("/v1/chat/completions", ex_wrapper(routes.post_chat_completions));
     ctx_http.post("/api/chat",            ex_wrapper(routes.post_chat_completions)); // ollama specific endpoint
     ctx_http.post("/infill",              ex_wrapper(routes.post_infill));
     ctx_http.post("/embedding",           ex_wrapper(routes.post_embeddings)); // legacy
@@ -5576,6 +5576,9 @@ int main(int argc, char ** argv) {
     // Save & load slots
     ctx_http.get ("/slots",               ex_wrapper(routes.get_slots));
     ctx_http.post("/slots/:id_slot",      ex_wrapper(routes.post_slots));
+    ctx_http.post("/v1/chat/completions", [](const server_http_req & req) {
+        return server_http_client::make_request("POST", 8080, "/chat/completions", {}, req.body);
+    });
 
     //
     // Start the server

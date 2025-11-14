@@ -371,3 +371,87 @@ void server_http_context::post(const std::string & path, server_http_context::ha
     });
 }
 
+//
+// server_http_client
+//
+
+class server_http_client::Impl {
+public:
+    std::unique_ptr<httplib::Client> cli;
+};
+
+void server_http_client::ImplDeleter::operator()(Impl *p) {
+    delete p;
+}
+
+server_http_client::server_http_client()
+    : pimpl(std::unique_ptr<server_http_client::Impl, server_http_client::ImplDeleter>(new server_http_client::Impl()))
+{}
+
+std::unique_ptr<server_http_client> server_http_client::make_request(
+        const std::string & method,
+        int port,
+        const std::string & path,
+        const std::map<std::string, std::string> & headers,
+        const std::string & body) {
+
+    server_http_client * self = new server_http_client();
+
+    // wire up the receive end of the queue
+    // TODO: handle case where one of the end terminates unexpectedly
+    self->next = [self](std::string & out) -> bool {
+        std::unique_lock<std::mutex> lock(self->mutex);
+        while (self->queue.empty() && self->is_running) {
+            lock.unlock();
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            lock.lock();
+        }
+        if (!self->is_running && self->queue.empty()) {
+            return false;
+        }
+        out = std::move(self->queue.front());
+        self->queue.pop();
+        return true;
+    };
+
+    // wire up the HTTP client
+    self->pimpl->cli = std::make_unique<httplib::Client>("127.0.0.1", port);
+    httplib::ResponseHandler response_handler = [self](const httplib::Response & response) {
+        std::unique_lock<std::mutex> lock(self->mutex);
+        self->status = response.status;
+        for (const auto & [key, value] : response.headers) {
+            self->headers[key] = value;
+        }
+        self->queue.emplace(""); // flush the headers
+        return true;
+    };
+    httplib::ContentReceiverWithProgress content_receiver = [self](const char * data, size_t data_length, size_t, size_t) {
+        std::unique_lock<std::mutex> lock(self->mutex);
+        if (!self->is_running) {
+            return false;
+        }
+        self->queue.emplace(std::string(data, data_length));
+        return true;
+    };
+    httplib::Request req;
+    req.method = method;
+    req.path = path;
+    for (const auto & [key, value] : headers) {
+        req.set_header(key, value);
+    }
+    req.body = body;
+    req.response_handler = response_handler;
+    req.content_receiver = content_receiver;
+
+    self->thread = std::thread([self, req]() {
+        self->pimpl->cli->send(std::move(req));
+        self->is_running = false;
+    });
+    self->thread.detach();
+
+    // wait for the first chunk (headers)
+    std::string output;
+    self->next(output); // ignore output, it's just to flush headers
+
+    return std::unique_ptr<server_http_client>(self);
+}

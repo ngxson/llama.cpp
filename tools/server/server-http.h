@@ -7,6 +7,8 @@
 #include <string>
 #include <thread>
 #include <atomic>
+#include <queue>
+#include <mutex>
 
 // generator-like API for HTTP response generation
 // this object response with one of the 2 modes:
@@ -69,4 +71,28 @@ struct server_http_context {
     using handler_t = std::function<server_http_res_ptr(const server_http_req & req)>;
     void get(const std::string &, handler_t);
     void post(const std::string &, handler_t);
+};
+
+// simple HTTP client with blocking API
+struct server_http_client : server_http_res {
+    class Impl;
+    struct ImplDeleter
+    {
+        void operator()(Impl *p);
+    };
+    std::unique_ptr<Impl, ImplDeleter> pimpl;
+public:
+    server_http_client();
+    ~server_http_client() = default;
+    static std::unique_ptr<server_http_client> make_request(
+                    const std::string & method,
+                    int port,
+                    const std::string & path,
+                    const std::map<std::string, std::string> & headers,
+                    const std::string & body);
+private:
+    std::thread thread;
+    std::mutex mutex;
+    std::queue<std::string> queue;
+    bool is_running = true;
 };
