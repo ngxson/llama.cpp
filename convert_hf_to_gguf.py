@@ -1445,7 +1445,7 @@ class MmprojModel(ModelBase):
     preprocessor_config: dict[str, Any]
     global_config: dict[str, Any]
 
-    n_block_keys = ["n_layers", "num_hidden_layers", "n_layer", "num_layers", "depth", "width.clip-l-14-224.layers", "sam_vit_b.layers"]
+    n_block_keys = ["n_layers", "num_hidden_layers", "n_layer", "num_layers", "depth", "layers"]
 
     has_vision_encoder: bool = True # by default
     has_audio_encoder: bool = False
@@ -1494,8 +1494,8 @@ class MmprojModel(ModelBase):
         # FIXME: DeepseekOCRVisionModel specific hack
         if self.block_count is None:
             if isinstance(self, DeepseekOCRVisionModel):
-                clip_block_count = self.hparams['width']['clip-l-14-224']['layers']
-                sam_block_count = self.hparams['width']['sam_vit_b']['layers']
+                print(self.hparams)
+                clip_block_count = self.hparams['layers']
                 if clip_block_count is not None:
                     self.block_count = clip_block_count
                 if sam_block_count is not None:
@@ -5793,6 +5793,16 @@ class Gemma3VisionModel(MmprojModel):
 
 @ModelBase.register("DeepseekOCRForCausalLM")
 class DeepseekOCRVisionModel(MmprojModel):
+    def __init__(self, *args, **kwargs): 
+        super().__init__(*args, **kwargs)
+        
+        proc_fname = self.dir_model / "processor_config.json"
+        
+        if proc_fname.is_file():
+            with open(proc_fname, "r") as f:
+                self.preprocessor_config = json.load(f)
+        
+    
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
         hparams = self.hparams
@@ -5811,10 +5821,25 @@ class DeepseekOCRVisionModel(MmprojModel):
             # in this case, we are converting a test model
             self.gguf_writer.add_vision_projector_scale_factor(proj_scale_factor)
 
-    def get_vision_config(self) -> dict[str, Any]:
-        orig_vision_config = self.global_config.get("vision_config")
+        # SAM configuration
+        sam_hparams = hparams['sam']
+        self.gguf_writer.add_vision_sam_layers_count(sam_hparams['layers'])
+        self.gguf_writer.add_vision_sam_embedding_length(sam_hparams['width'])
 
-        super().get_vision_config()
+    def get_vision_config(self) -> dict[str, Any]:
+        vision_config: dict[str, Any] | None = self.global_config.get("vision_config")
+
+        if not vision_config:
+            raise ValueError("DeepseekOCR model requires 'vision_config' in the model configuration, but it was not found")
+
+        vision_config['sam'] = vision_config['width']['sam_vit_b']
+        vision_config.update(vision_config['width']['clip-l-14-224'])
+        vision_config['hidden_size'] = vision_config['width']
+        vision_config['num_heads'] = vision_config['heads']
+        vision_config['intermediate_size'] = vision_config['heads'] * 4
+
+        return vision_config
+
 
     def tensor_force_quant(self, name, new_name, bid, n_dims):
         # related to https://github.com/ggml-org/llama.cpp/issues/13025
@@ -5825,27 +5850,17 @@ class DeepseekOCRVisionModel(MmprojModel):
         return super().tensor_force_quant(name, new_name, bid, n_dims)
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
-        del bid  # unused
+        # Only process vision-related tensors, skip language model tensors
+        # Vision components: sam_model, vision_model, projector, image_newline, view_seperator
+        # Language model components to skip: lm_head, embed_tokens, layers, norm
+        if name.startswith(("lm_head.", "model.embed_tokens.", "model.layers.", "model.norm.")):
+            return []
 
-        if "vision_model.head." in name:
-            return [] # skip redundant tensors for tinygemma3
+        if ".attn.rel_pos_h" in name or ".attn.rel_pos_w" in name:
+            return [(self.map_tensor_name(name, try_suffixes=("",)), data_torch)]
 
-        if name.startswith("multi_modal_projector.") or name.startswith("vision_tower.") \
-            or name.startswith("multimodal_projector.") or name.startswith("vision_model."):
-            # process vision tensors
-            name = name.replace("_weight", ".weight")
-
-            # correct norm value ; only this "soft_emb_norm" need to be corrected as it's part of Gemma projector
-            # the other norm values are part of SigLIP model, and they are already correct
-            # ref code: Gemma3RMSNorm
-            if "soft_emb_norm.weight" in name:
-                logger.info(f"Correcting norm value for '{name}'")
-                data_torch = data_torch + 1
-
-            return [(self.map_tensor_name(name), data_torch)]
-
-        return [] # skip other tensors
-
+        return [(self.map_tensor_name(name), data_torch)]
+    
 
 @ModelBase.register("Gemma3nForConditionalGeneration")
 class Gemma3NModel(Gemma3Model):

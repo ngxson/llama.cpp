@@ -287,6 +287,10 @@ class Keys:
         class Projector:
             SCALE_FACTOR    = "clip.vision.projector.scale_factor"
 
+        class SAM:
+            BLOCK_COUNT         = "clip.vision.sam.block_count"
+            EMBEDDING_LENGTH    = "clip.vision.sam.embedding_length"
+            
     class ClipAudio:
         NUM_MEL_BINS        = "clip.audio.num_mel_bins"
         EMBEDDING_LENGTH    = "clip.audio.embedding_length"
@@ -664,20 +668,21 @@ class MODEL_TENSOR(IntEnum):
     V_MM_GATE            = auto() # cogvlm
     V_TOK_BOI            = auto() # cogvlm
     V_TOK_EOI            = auto() # cogvlm
-    # DeepSeek-OCR sam_model
-    V_SAM_POS_EMBD       = auto()
-    V_SAM_PATCH_EMBD     = auto()
-    V_SAM_PRE_NORM       = auto()
-    V_SAM_POST_NORM      = auto()
-    V_SAM_ATTN_POS_H     = auto()
-    V_SAM_ATTN_POS_W     = auto()
-    V_SAM_ATTN_QKV       = auto()
-    V_SAM_ATTN_OUT      = auto()
-    V_SAM_MLP_LIN_1      = auto()
-    V_SAM_MLP_LIN_2      = auto()
-    V_SAM_NECK           = auto()
-    V_SAM_NET_2          = auto()
-    V_SAM_NET_3          = auto()
+    V_SAM_POS_EMBD       = auto() # Deepseek-OCR
+    V_SAM_PATCH_EMBD     = auto() # Deepseek-OCR
+    V_SAM_PRE_NORM       = auto() # Deepseek-OCR
+    V_SAM_POST_NORM      = auto() # Deepseek-OCR
+    V_SAM_ATTN_POS_H     = auto() # Deepseek-OCR
+    V_SAM_ATTN_POS_W     = auto() # Deepseek-OCR
+    V_SAM_ATTN_QKV       = auto() # Deepseek-OCR
+    V_SAM_ATTN_OUT       = auto() # Deepseek-OCR
+    V_SAM_MLP_LIN_1      = auto() # Deepseek-OCR
+    V_SAM_MLP_LIN_2      = auto() # Deepseek-OCR
+    V_SAM_NECK           = auto() # Deepseek-OCR
+    V_SAM_NET_2          = auto() # Deepseek-OCR
+    V_SAM_NET_3          = auto() # Deepseek-OCR
+    V_ENC_EMBD_IMGNL     = auto() # Deepseek-OCR
+    V_ENC_EMBD_VSEP      = auto() # Deepseek-OCR
 
     # audio (mtmd)
     A_ENC_EMBD_POS       = auto()
@@ -1059,6 +1064,8 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.V_SAM_NECK:                "v.sam.neck.{bid}",
     MODEL_TENSOR.V_SAM_NET_2:               "v.sam.net_2",
     MODEL_TENSOR.V_SAM_NET_3:               "v.sam.net_3",
+    MODEL_TENSOR.V_ENC_EMBD_IMGNL:          "v.image_newline_embd", # Deepseek-OCR
+    MODEL_TENSOR.V_ENC_EMBD_VSEP:           "v.view_separator_embd", # Deepseek-OCR
     # audio (mtmd)
     MODEL_TENSOR.A_ENC_EMBD_POS:            "a.position_embd",
     MODEL_TENSOR.A_ENC_CONV1D:              "a.conv1d.{bid}",
@@ -1095,6 +1102,8 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.V_ENC_EMBD_CLS,
         MODEL_TENSOR.V_ENC_EMBD_PATCH,
         MODEL_TENSOR.V_ENC_EMBD_POS,
+        MODEL_TENSOR.V_ENC_EMBD_IMGNL,
+        MODEL_TENSOR.V_ENC_EMBD_VSEP,
         MODEL_TENSOR.V_ENC_INPUT_NORM,
         MODEL_TENSOR.V_ENC_ATTN_QKV,
         MODEL_TENSOR.V_ENC_ATTN_Q,
@@ -1137,6 +1146,19 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.V_MM_GATE,
         MODEL_TENSOR.V_TOK_BOI,
         MODEL_TENSOR.V_TOK_EOI,
+        MODEL_TENSOR.V_SAM_POS_EMBD,
+        MODEL_TENSOR.V_SAM_PATCH_EMBD,
+        MODEL_TENSOR.V_SAM_PRE_NORM,
+        MODEL_TENSOR.V_SAM_POST_NORM,
+        MODEL_TENSOR.V_SAM_ATTN_POS_H,
+        MODEL_TENSOR.V_SAM_ATTN_POS_W,
+        MODEL_TENSOR.V_SAM_ATTN_QKV,
+        MODEL_TENSOR.V_SAM_ATTN_OUT,
+        MODEL_TENSOR.V_SAM_MLP_LIN_1,
+        MODEL_TENSOR.V_SAM_MLP_LIN_2,
+        MODEL_TENSOR.V_SAM_NECK,
+        MODEL_TENSOR.V_SAM_NET_2,
+        MODEL_TENSOR.V_SAM_NET_3,
         # audio
         MODEL_TENSOR.A_ENC_EMBD_POS,
         MODEL_TENSOR.A_ENC_CONV1D,
