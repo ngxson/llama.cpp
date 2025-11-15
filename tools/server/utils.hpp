@@ -1555,3 +1555,133 @@ static server_tokens format_rerank(const struct llama_model * model, const struc
 
     return result;
 }
+
+
+
+//
+// router server utils
+//
+
+#include "utils.hpp"
+#include "download.h"
+
+#include <functional>
+#include <thread>
+#include <spawn.h>
+#include <signal.h> // for kill()
+
+#if defined(__APPLE__) && defined(__MACH__)
+// macOS: use _NSGetExecutablePath to get the executable path
+#include <mach-o/dyld.h>
+#include <limits.h>
+#endif
+
+inline std::filesystem::path server_router_get_server_exec_path() {
+#if defined(_MSC_VER)
+    wchar_t path[FILENAME_MAX] = { 0 };
+    GetModuleFileNameW(nullptr, path, FILENAME_MAX);
+    return std::filesystem::path(path);
+#elif defined(__APPLE__) && defined(__MACH__)
+    char small_path[PATH_MAX];
+    uint32_t size = sizeof(small_path);
+
+    if (_NSGetExecutablePath(small_path, &size) == 0) {
+        // resolve any symlinks to get absolute path
+        try {
+            return std::filesystem::canonical(std::filesystem::path(small_path));
+        } catch (...) {
+            return std::filesystem::path(small_path);
+        }
+    } else {
+        // buffer was too small, allocate required size and call again
+        std::vector<char> buf(size);
+        if (_NSGetExecutablePath(buf.data(), &size) == 0) {
+            try {
+                return std::filesystem::canonical(std::filesystem::path(buf.data()));
+            } catch (...) {
+                return std::filesystem::path(buf.data());
+            }
+        }
+        return std::filesystem::path(std::string(buf.data(), (size > 0) ? size : 0));
+    }
+#else
+    char path[FILENAME_MAX];
+    ssize_t count = readlink("/proc/self/exe", path, FILENAME_MAX);
+    return std::filesystem::path(std::string(path, (count > 0) ? count: 0));
+#endif
+}
+
+struct server_spawn_instance {
+    pid_t pid = 0;
+    int port = 0;
+    std::thread th;
+};
+
+inline int server_router_create_instance(char ** envp, std::map<std::string, server_spawn_instance> & mapping, const std::string & hf_model) {
+    server_spawn_instance inst;
+    inst.port = rand() % 10000 + 20000; // random port between 20000 and 29999
+
+    if (mapping.find(hf_model) != mapping.end()) {
+        throw std::runtime_error("model already loaded");
+    }
+
+    pid_t pid = 0;
+    {
+        // Prepare arguments (pass original or custom ones) using mutable storage for argv
+        std::string path = server_router_get_server_exec_path().string();
+
+        SRV_INF("spawning instance %s with hf=%s on port %d\n", path.c_str(), hf_model.c_str(), inst.port);
+        std::vector<std::string> arg_strs;
+        arg_strs.push_back(path);
+        arg_strs.push_back("-hf");
+        arg_strs.push_back(hf_model);
+        arg_strs.push_back("--port");
+        arg_strs.push_back(std::to_string(inst.port));
+
+        std::vector<char *> child_argv;
+        child_argv.reserve(arg_strs.size() + 1);
+        for (auto &s : arg_strs) {
+            child_argv.push_back(const_cast<char*>(s.c_str()));
+        }
+        child_argv.push_back(nullptr);
+
+        if (posix_spawn(&pid, path.c_str(), NULL, NULL, child_argv.data(), envp) != 0) {
+            perror("posix_spawn");
+            exit(1); // for testing only
+        } else {
+            inst.pid = pid;
+            SRV_INF("spawned instance with pid %d\n", pid);
+        }
+    }
+
+    inst.th = std::thread([hf_model, pid, &mapping]() {
+        int status = 0;
+        waitpid(pid, &status, 0);
+        SRV_INF("instance with pid %d exited with status %d\n", pid, status);
+        mapping.erase(hf_model); // TODO: thread safety
+    });
+    if (inst.th.joinable()) {
+        inst.th.detach();
+    }
+
+    mapping[hf_model] = std::move(inst); // TODO: thread safety
+    return 0;
+}
+
+inline void kill_all_instances(std::map<std::string, server_spawn_instance> & mapping) {
+    for (auto & [hf_model, inst] : mapping) {
+        LOG_INF("killing instance with hf=%s on port %d (pid %d)\n", hf_model.c_str(), inst.port, inst.pid);
+        kill(inst.pid, SIGINT);
+    }
+    mapping.clear();
+}
+
+inline void server_router_kill_single(std::map<std::string, server_spawn_instance> & mapping, const std::string & hf_model) {
+    auto it = mapping.find(hf_model);
+    if (it != mapping.end()) {
+        auto & inst = it->second;
+        LOG_INF("killing instance with hf=%s on port %d (pid %d)\n", hf_model.c_str(), inst.port, inst.pid);
+        kill(inst.pid, SIGINT);
+        mapping.erase(it);
+    }
+}
