@@ -5108,6 +5108,106 @@ public:
         return res;
     };
 
+    //
+    // router server
+    //
+    char ** envp;
+    std::map<std::string, server_spawn_instance> map_model_to_port;
+    void maybe_load_it_why_not(std::string & custom_model) {
+        // HACKYYYY, but for demo purpose; we load the model if it's in the cached list
+        if (map_model_to_port.find(custom_model) != map_model_to_port.end()) {
+            return; // already loaded, do nothing
+        }
+        auto models = common_list_cached_models();
+        for (const auto & model : models) {
+            auto m = model.to_string();
+            if (m == custom_model) {
+                server_router_create_instance(envp, map_model_to_port, m);
+                std::this_thread::sleep_for(std::chrono::seconds(5)); // hacky wait for the process to be ready
+                return; // nice
+            }
+        }
+    }
+    std::string get_one_if_has_only_one(std::string & custom_model) {
+        // HACKYYYY, but for demo purpose; we get the only model if there's only one
+        if (map_model_to_port.size() == 1) {
+            return map_model_to_port.begin()->first;
+        }
+        return custom_model;
+    }
+    server_http_context::handler_t proxy_get = [this](const server_http_req & req) {
+        std::string method = "GET";
+        std::string model = req.get_param("model");
+        maybe_load_it_why_not(model);
+        model = get_one_if_has_only_one(model);
+        return handle_proxy(req, method, model);
+    };
+    server_http_context::handler_t proxy_post = [this](const server_http_req & req) {
+        std::string method = "POST";
+        json body = json::parse(req.body);
+        std::string model = json_value(body, "model", std::string());
+        maybe_load_it_why_not(model);
+        model = get_one_if_has_only_one(model);
+        return handle_proxy(req, method, model);
+    };
+    server_http_res_ptr handle_proxy(const server_http_req & req, std::string & method, std::string model) {
+        if (map_model_to_port.find(model) == map_model_to_port.end()) {
+            auto res = std::make_unique<server_res_generator>(ctx_server);
+            res->error(format_error_response("model parameter is invalid", ERROR_TYPE_INVALID_REQUEST));
+            return server_http_res_ptr(std::move(res));
+        }
+        server_http_res_ptr res(new server_http_client(
+            method, params.hostname, map_model_to_port[model].port,
+            req.path, req.headers, req.body, req.should_stop
+        ));
+        return res;
+    }
+    server_http_context::handler_t post_router_models_load = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
+        json body = json::parse(req.body);
+        std::string model = json_value(body, "model", std::string());
+        int status = server_router_create_instance(envp, map_model_to_port, model);
+        if (status != 0) {
+            res->error(format_error_response("fail to start the process", ERROR_TYPE_SERVER));
+            return res;
+        }
+        res->ok({{"success", true}});
+        return res;
+    };
+    server_http_context::handler_t get_router_models = [this](const server_http_req &) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
+        json models_json = json::array();
+        auto models = common_list_cached_models();
+        for (const auto & model : models) {
+            auto model_name = model.to_string();
+            bool loaded = map_model_to_port.find(model.to_string()) != map_model_to_port.end(); // TODO: thread safety
+            models_json.push_back(json {
+                {"model",  model_name},
+                {"name",   model_name},
+                {"id",     model_name},
+                // TODO: other fields...
+                {"status", {
+                    {"value", loaded ? "loaded" : "unloaded"}
+                }},
+            });
+        }
+        res->ok({{"data", models_json}});
+        return res;
+    };
+    server_http_context::handler_t post_router_models_unload = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
+        json body = json::parse(req.body);
+        std::string model = json_value(body, "model", std::string());
+        model = get_one_if_has_only_one(model);
+        if (map_model_to_port.find(model) == map_model_to_port.end()) {
+            res->error(format_error_response("model parameter is invalid", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+        }
+        server_router_kill_single(map_model_to_port, model);
+        res->ok({{"success", true}});
+        return res;
+    };
+
 private:
     std::unique_ptr<server_res_generator> handle_completions_impl(
                 server_task_type type,
@@ -5501,7 +5601,7 @@ static server_http_context::handler_t ex_wrapper(server_http_context::handler_t 
     };
 }
 
-int main(int argc, char ** argv) {
+int main(int argc, char ** argv, char ** envp) {
     // own arguments required by this example
     common_params params;
 
@@ -5549,6 +5649,34 @@ int main(int argc, char ** argv) {
     // register API routes
     server_routes routes(params, ctx_server, ctx_http);
 
+    // hacky, replace handlers with proxy handlers if this is a router server
+    bool is_router_server = params.model.path == DEFAULT_MODEL_PATH;
+    if (is_router_server) {
+        routes.envp = envp;
+        routes.get_props = routes.proxy_get;
+        routes.post_props = routes.proxy_post;
+        // routes.get_models = routes.proxy_get;
+        routes.post_completions = routes.proxy_post;
+        routes.post_completions_oai = routes.proxy_post;
+        routes.post_chat_completions = routes.proxy_post;
+        routes.post_infill = routes.proxy_post;
+        routes.post_embeddings = routes.proxy_post;
+        routes.post_embeddings_oai = routes.proxy_post;
+        routes.post_rerank = routes.proxy_post;
+        routes.post_tokenize = routes.proxy_post;
+        routes.post_detokenize = routes.proxy_post;
+        routes.post_apply_template = routes.proxy_post;
+        routes.get_lora_adapters = routes.proxy_get;
+        routes.post_lora_adapters = routes.proxy_post;
+        routes.get_slots = routes.proxy_get;
+        routes.post_slots = routes.proxy_post;
+
+        // custom routes for router
+        routes.get_models = routes.get_router_models;
+        ctx_http.post("/models/load", ex_wrapper(routes.post_router_models_load));
+        ctx_http.post("/models/unload", ex_wrapper(routes.post_router_models_unload));
+    }
+
     ctx_http.get ("/health",              ex_wrapper(routes.get_health)); // public endpoint (no API key check)
     ctx_http.get ("/v1/health",           ex_wrapper(routes.get_health)); // public endpoint (no API key check)
     ctx_http.get ("/metrics",             ex_wrapper(routes.get_metrics));
@@ -5594,6 +5722,8 @@ int main(int argc, char ** argv) {
         llama_backend_free();
     };
 
+if (!is_router_server) { // HACKY
+
     // start the HTTP server before loading the model to be able to serve /health requests
     if (!ctx_http.start()) {
         clean_up();
@@ -5631,6 +5761,8 @@ int main(int argc, char ** argv) {
         ctx_server.queue_tasks.terminate();
     };
 
+} // end of !is_router_server
+
 #if defined (__unix__) || (defined (__APPLE__) && defined (__MACH__))
     struct sigaction sigint_action;
     sigint_action.sa_handler = signal_handler;
@@ -5645,6 +5777,8 @@ int main(int argc, char ** argv) {
     SetConsoleCtrlHandler(reinterpret_cast<PHANDLER_ROUTINE>(console_ctrl_handler), true);
 #endif
 
+if (!is_router_server) { // HACKY
+
     LOG_INF("%s: server is listening on %s\n", __func__, ctx_http.listening_address.c_str());
     LOG_INF("%s: starting the main loop...\n", __func__);
     // this call blocks the main thread until queue_tasks.terminate() is called
@@ -5655,6 +5789,19 @@ int main(int argc, char ** argv) {
         ctx_http.thread.join();
     }
     llama_memory_breakdown_print(ctx_server.ctx);
+} else {
+    shutdown_handler = [&](int) {
+        ctx_http.stop();
+    };
+    if (!ctx_http.start()) {
+        LOG_ERR("%s: exiting due to HTTP server error\n", __func__);
+        return 1;
+    }
+    ctx_http.is_ready.store(true);
+    ctx_http.thread.join(); // keep the main thread alive
+    // kill_all_instances(routes.map_model_to_port); // why this also kill the main instance?
+    LOG_INF("%s: server stopped\n", __func__);
+} // end of !is_router_server
 
     return 0;
 }
