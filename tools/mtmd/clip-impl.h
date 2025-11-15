@@ -141,10 +141,7 @@
 #define TN_SAM_FFN_UP     "sam.blk.%d.mlp.lin1.%s"
 #define TN_SAM_FFN_DOWN   "sam.blk.%d.mlp.lin2.%s"
 #define TN_SAM_NECK       "sam.neck.%d.%s"
-#define TN_SAM_NET      "sam.net_%d.%s"
-
-
-#define TN_SAM_ATTN_OUT   "sam.blk.%d.attn_out"
+#define TN_SAM_NET        "sam.net_%d.%s"
 
 // align x to upper multiple of n
 #define CLIP_ALIGN(x, n) ((((x) + (n) - 1) / (n)) * (n))
