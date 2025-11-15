@@ -362,6 +362,7 @@ void server_http_context::get(const std::string & path, server_http_context::han
         server_http_res_ptr response = handler(server_http_req{
             get_params(req),
             get_headers(req),
+            req.path,
             req.body,
             req.is_connection_closed
         });
@@ -374,6 +375,7 @@ void server_http_context::post(const std::string & path, server_http_context::ha
         server_http_res_ptr response = handler(server_http_req{
             get_params(req),
             get_headers(req),
+            req.path,
             req.body,
             req.is_connection_closed
         });
