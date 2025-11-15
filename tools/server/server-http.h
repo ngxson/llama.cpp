@@ -82,6 +82,7 @@ struct server_http_client : server_http_res {
     std::function<void()> cleanup = nullptr;
 public:
     server_http_client(const std::string & method,
+                       const std::string & host,
                        int port,
                        const std::string & path,
                        const std::map<std::string, std::string> & headers,

@@ -387,13 +387,14 @@ void server_http_context::post(const std::string & path, server_http_context::ha
 
 server_http_client::server_http_client(
         const std::string & method,
+        const std::string & host,
         int port,
         const std::string & path,
         const std::map<std::string, std::string> & headers,
         const std::string & body,
         const std::function<bool()> should_stop) {
     // shared between reader and writer threads
-    auto cli  = std::make_shared<httplib::Client>("127.0.0.1", port);
+    auto cli  = std::make_shared<httplib::Client>(host, port);
     auto pipe = std::make_shared<pipe_t<msg_t>>();
 
     // setup Client
