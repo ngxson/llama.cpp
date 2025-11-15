@@ -5577,7 +5577,9 @@ int main(int argc, char ** argv) {
     ctx_http.get ("/slots",               ex_wrapper(routes.get_slots));
     ctx_http.post("/slots/:id_slot",      ex_wrapper(routes.post_slots));
     ctx_http.post("/v1/chat/completions", [](const server_http_req & req) {
-        return server_http_client::make_request("POST", 8080, "/chat/completions", {}, req.body);
+        return std::unique_ptr<server_http_client>(new server_http_client(
+            "POST", 8080, "/chat/completions", {}, req.body, req.should_stop
+        ));
     });
 
     //

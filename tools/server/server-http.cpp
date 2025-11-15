@@ -375,83 +375,82 @@ void server_http_context::post(const std::string & path, server_http_context::ha
 // server_http_client
 //
 
-class server_http_client::Impl {
-public:
-    std::unique_ptr<httplib::Client> cli;
-};
-
-void server_http_client::ImplDeleter::operator()(Impl *p) {
-    delete p;
-}
-
-server_http_client::server_http_client()
-    : pimpl(std::unique_ptr<server_http_client::Impl, server_http_client::ImplDeleter>(new server_http_client::Impl()))
-{}
-
-std::unique_ptr<server_http_client> server_http_client::make_request(
+server_http_client::server_http_client(
         const std::string & method,
         int port,
         const std::string & path,
         const std::map<std::string, std::string> & headers,
-        const std::string & body) {
+        const std::string & body,
+        const std::function<bool()> should_stop) {
+    // shared between reader and writer threads
+    auto cli  = std::make_shared<httplib::Client>("127.0.0.1", port);
+    auto pipe = std::make_shared<pipe_t<msg_t>>();
 
-    server_http_client * self = new server_http_client();
+    // setup Client
+    cli->set_connection_timeout(0, 200000); // 200 milliseconds
+    this->status = 500; // to be overwritten upon response
+    this->cleanup = [pipe]() {
+        pipe->close_read();
+        pipe->close_write();
+    };
 
-    // wire up the receive end of the queue
-    // TODO: handle case where one of the end terminates unexpectedly
-    self->next = [self](std::string & out) -> bool {
-        std::unique_lock<std::mutex> lock(self->mutex);
-        while (self->queue.empty() && self->is_running) {
-            lock.unlock();
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            lock.lock();
+    // wire up the receive end of the pipe
+    this->next = [pipe, should_stop](std::string & out) -> bool {
+        msg_t msg;
+        bool has_next = pipe->read(msg, should_stop);
+        if (!msg.data.empty()) {
+            out = std::move(msg.data);
         }
-        if (!self->is_running && self->queue.empty()) {
-            return false;
-        }
-        out = std::move(self->queue.front());
-        self->queue.pop();
-        return true;
+        return has_next;
     };
 
     // wire up the HTTP client
-    self->pimpl->cli = std::make_unique<httplib::Client>("127.0.0.1", port);
-    httplib::ResponseHandler response_handler = [self](const httplib::Response & response) {
-        std::unique_lock<std::mutex> lock(self->mutex);
-        self->status = response.status;
+    // note: do NOT capture `this` pointer, as it may be destroyed before the thread ends
+    httplib::ResponseHandler response_handler = [pipe, cli](const httplib::Response & response) {
+        msg_t msg;
+        msg.status = response.status;
         for (const auto & [key, value] : response.headers) {
-            self->headers[key] = value;
+            msg.headers[key] = value;
         }
-        self->queue.emplace(""); // flush the headers
+        pipe->write(std::move(msg)); // send headers first
         return true;
     };
-    httplib::ContentReceiverWithProgress content_receiver = [self](const char * data, size_t data_length, size_t, size_t) {
-        std::unique_lock<std::mutex> lock(self->mutex);
-        if (!self->is_running) {
-            return false;
-        }
-        self->queue.emplace(std::string(data, data_length));
-        return true;
+    httplib::ContentReceiverWithProgress content_receiver = [pipe](const char * data, size_t data_length, size_t, size_t) {
+        return pipe->write({{}, 0, std::string(data, data_length)}); // send data chunks
     };
-    httplib::Request req;
-    req.method = method;
-    req.path = path;
-    for (const auto & [key, value] : headers) {
-        req.set_header(key, value);
-    }
-    req.body = body;
-    req.response_handler = response_handler;
-    req.content_receiver = content_receiver;
 
-    self->thread = std::thread([self, req]() {
-        self->pimpl->cli->send(std::move(req));
-        self->is_running = false;
+    // prepare the request to destination server
+    httplib::Request req;
+    {
+        req.method = method;
+        req.path = path;
+        for (const auto & [key, value] : headers) {
+            req.set_header(key, value);
+        }
+        req.body = body;
+        req.response_handler = response_handler;
+        req.content_receiver = content_receiver;
+    }
+
+    // start the proxy thread
+    SRV_DBG("start proxy thread %s %s\n", req.method.c_str(), req.path.c_str());
+    this->thread = std::thread([cli, pipe, req]() {
+        auto result = cli->send(std::move(req));
+        if (result.error() != httplib::Error::Success) {
+            auto err_str = httplib::to_string(result.error());
+            SRV_ERR("http client error: %s\n", err_str.c_str());
+            pipe->write({{}, 500, ""}); // header
+            pipe->write({{}, 0, "proxy error: " + err_str}); // body
+        }
+        pipe->close_write(); // signal EOF to reader
+        SRV_DBG("%s", "client request thread ended\n");
     });
-    self->thread.detach();
+    this->thread.detach();
 
     // wait for the first chunk (headers)
-    std::string output;
-    self->next(output); // ignore output, it's just to flush headers
-
-    return std::unique_ptr<server_http_client>(self);
+    msg_t header;
+    pipe->read(header, should_stop);
+    SRV_DBG("%s", "received response headers\n");
+    this->status  = header.status;
+    this->headers = header.headers;
 }
