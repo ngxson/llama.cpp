@@ -317,6 +317,14 @@ static std::map<std::string, std::string> get_params(const httplib::Request & re
     return params;
 }
 
+static std::map<std::string, std::string> get_headers(const httplib::Request & req) {
+    std::map<std::string, std::string> headers;
+    for (const auto & [key, value] : req.headers) {
+        headers[key] = value;
+    }
+    return headers;
+}
+
 static void process_handler_response(server_http_res_ptr & response, httplib::Response & res) {
     if (response->is_stream()) {
         res.status = response->status;
@@ -353,6 +361,7 @@ void server_http_context::get(const std::string & path, server_http_context::han
     pimpl->srv->Get(path_prefix + path, [handler](const httplib::Request & req, httplib::Response & res) {
         server_http_res_ptr response = handler(server_http_req{
             get_params(req),
+            get_headers(req),
             req.body,
             req.is_connection_closed
         });
@@ -364,6 +373,7 @@ void server_http_context::post(const std::string & path, server_http_context::ha
     pimpl->srv->Post(path_prefix + path, [handler](const httplib::Request & req, httplib::Response & res) {
         server_http_res_ptr response = handler(server_http_req{
             get_params(req),
+            get_headers(req),
             req.body,
             req.is_connection_closed
         });
