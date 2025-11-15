@@ -1494,12 +1494,9 @@ class MmprojModel(ModelBase):
         # FIXME: DeepseekOCRVisionModel specific hack
         if self.block_count is None:
             if isinstance(self, DeepseekOCRVisionModel):
-                print(self.hparams)
                 clip_block_count = self.hparams['layers']
                 if clip_block_count is not None:
                     self.block_count = clip_block_count
-                if sam_block_count is not None:
-                    self.block_count = sam_block_count if self.block_count is None else self.block_count + sam_block_count
             if self.block_count is None:
                 raise KeyError(f"could not find block count using any of: {self.n_block_keys}")
         self.tensor_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.MMPROJ, self.block_count)
@@ -7095,10 +7092,15 @@ class DeepseekV2Model(TextModel):
             raise NotImplementedError(f"Deepseek pre-tokenizer {tokpre!r} is not supported yet!")
 
     def set_gguf_parameters(self):
+        is_ocr = (self.hparams["num_hidden_layers"] == 12)
 
-        # note: deepseek2 using MLA converts into MQA (ie: GQA with 1 group)
-        self.hparams["num_key_value_heads"] = 1
-
+        if is_ocr:
+            self.hparams['rope_theta'] = self.hparams.get('rope_theta', 10000.0)
+            self.hparams['rms_norm_eps'] = self.hparams.get('rms_norm_eps', 1e-6)
+        else:
+            # note: deepseek2 using MLA converts into MQA (ie: GQA with 1 group)
+            self.hparams["num_key_value_heads"] = 1
+            
         super().set_gguf_parameters()
         hparams = self.hparams
         kv_lora_rank = hparams["q_lora_rank"] if hparams["q_lora_rank"] is not None else 512

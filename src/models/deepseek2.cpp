@@ -5,6 +5,7 @@
 llm_build_deepseek2::llm_build_deepseek2(const llama_model & model, const llm_graph_params & params) :
     llm_graph_context(params) {
     bool is_lite = (hparams.n_layer == 27);
+    bool is_ocr = (model.name.find("ocr") != std::string::npos || model.name.find("OCR") != std::string::npos);
 
     const bool is_mla = (hparams.n_embd_head_k_mla != 0 && hparams.n_embd_head_v_mla != 0);
 
@@ -44,7 +45,33 @@ llm_build_deepseek2::llm_build_deepseek2(const llama_model & model, const llm_gr
         cb(cur, "attn_norm", il);
 
         // self_attention
-        {
+        if (is_ocr) {
+            ggml_tensor * Qcur = NULL;
+            ggml_tensor * Kcur = NULL;
+            ggml_tensor * Vcur = NULL;
+
+            Qcur = ggml_mul_mat(ctx0, model.layers[il].wq, cur);
+            Kcur = ggml_mul_mat(ctx0, model.layers[il].wk, cur);
+            Vcur = ggml_mul_mat(ctx0, model.layers[il].wv, cur);
+            cb(Qcur, "q", il);
+            cb(Kcur, "k", il);
+            cb(Vcur, "v", il);
+
+            Qcur = ggml_reshape_3d(ctx0, Qcur, n_rot, n_head, n_tokens);
+            Kcur = ggml_reshape_3d(ctx0, Kcur, n_rot, n_head, n_tokens);
+
+            Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+                                 ext_factor, attn_factor, beta_fast, beta_slow);
+            Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+                                 ext_factor, attn_factor, beta_fast, beta_slow);
+            cb(Qcur, "q_pe", il);
+            cb(Kcur, "k_pe", il);
+
+            cur = build_attn(inp_attn,
+                        model.layers[il].wo, NULL,
+                        Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, kq_scale, il);
+        }
+        else {
             ggml_tensor * q = NULL;
             if (!is_lite) {
                 q = ggml_mul_mat(ctx0, model.layers[il].wq_a, cur);
