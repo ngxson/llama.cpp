@@ -37,6 +37,7 @@ using server_http_res_ptr = std::unique_ptr<server_http_res>;
 
 struct server_http_req {
     std::map<std::string, std::string> params; // path_params + query_params
+    std::map<std::string, std::string> headers;
     std::string body;
     const std::function<bool()> & should_stop;
 
@@ -71,6 +72,9 @@ struct server_http_context {
     using handler_t = std::function<server_http_res_ptr(const server_http_req & req)>;
     void get(const std::string &, handler_t);
     void post(const std::string &, handler_t);
+
+    // for debugging
+    std::string listening_address;
 };
 
 // simple HTTP client with blocking API

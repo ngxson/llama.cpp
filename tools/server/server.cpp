@@ -2605,6 +2605,11 @@ struct server_context {
             /* allow_audio           */ mctx ? mtmd_support_audio (mctx) : false,
             /* enable_thinking       */ enable_thinking,
         };
+
+        // print sample chat example to make it clear which template is used
+        LOG_INF("%s: chat template, chat_template: %s, example_format: '%s'\n", __func__,
+            common_chat_templates_source(chat_templates.get()),
+            common_chat_format_example(chat_templates.get(), params_base.use_jinja, params_base.default_template_kwargs).c_str());
     }
 
     server_slot * get_slot_by_id(int id) {
@@ -5618,11 +5623,6 @@ int main(int argc, char ** argv) {
 
     LOG_INF("%s: model loaded\n", __func__);
 
-    // print sample chat example to make it clear which template is used
-    LOG_INF("%s: chat template, chat_template: %s, example_format: '%s'\n", __func__,
-        common_chat_templates_source(ctx_server.chat_templates.get()),
-        common_chat_format_example(ctx_server.chat_templates.get(), ctx_server.params_base.use_jinja, ctx_server.params_base.default_template_kwargs).c_str());
-
     ctx_server.queue_tasks.on_new_task([&ctx_server](server_task && task) {
         ctx_server.process_single_task(std::move(task));
     });
@@ -5650,6 +5650,7 @@ int main(int argc, char ** argv) {
     SetConsoleCtrlHandler(reinterpret_cast<PHANDLER_ROUTINE>(console_ctrl_handler), true);
 #endif
 
+    LOG_INF("%s: server is listening on %s\n", __func__, ctx_http.listening_address.c_str());
     LOG_INF("%s: starting the main loop...\n", __func__);
     // this call blocks the main thread until queue_tasks.terminate() is called
     ctx_server.queue_tasks.start_loop();
