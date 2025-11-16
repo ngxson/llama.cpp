@@ -46,6 +46,9 @@ llm_build_deepseek2::llm_build_deepseek2(const llama_model & model, const llm_gr
 
         // self_attention
         if (is_ocr) {
+            const int n_embed_head = hparams.n_embd / hparams.n_head();
+            GGML_ASSERT(n_embed_head == n_embd_head_k && n_embed_head == n_embd_head_v);
+
             ggml_tensor * Qcur = NULL;
             ggml_tensor * Kcur = NULL;
             ggml_tensor * Vcur = NULL;
@@ -57,13 +60,13 @@ llm_build_deepseek2::llm_build_deepseek2(const llama_model & model, const llm_gr
             cb(Kcur, "k", il);
             cb(Vcur, "v", il);
 
-            Qcur = ggml_reshape_3d(ctx0, Qcur, n_rot, n_head, n_tokens);
-            Kcur = ggml_reshape_3d(ctx0, Kcur, n_rot, n_head, n_tokens);
+            Qcur = ggml_reshape_3d(ctx0, Qcur, n_embed_head, n_head, n_tokens);
+            Kcur = ggml_reshape_3d(ctx0, Kcur, n_embed_head, n_head, n_tokens);
+            Vcur = ggml_reshape_3d(ctx0, Vcur, n_embed_head, n_head, n_tokens);
 
-            Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
-                                 ext_factor, attn_factor, beta_fast, beta_slow);
-            Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
-                                 ext_factor, attn_factor, beta_fast, beta_slow);
+            GGML_ASSERT(fabs(freq_base - 10000.0) < 1e-4);
+            Qcur = ggml_rope_ext(ctx0, Qcur, inp_pos, nullptr, n_embed_head, rope_type, 0, freq_base, 1, 0, 1, 0, 0);
+            Kcur = ggml_rope_ext(ctx0, Kcur, inp_pos, nullptr, n_embed_head, rope_type, 0, freq_base, 1, 0, 1, 0, 0);
             cb(Qcur, "q_pe", il);
             cb(Kcur, "k_pe", il);
 
