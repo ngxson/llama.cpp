@@ -1615,9 +1615,10 @@ struct server_spawn_instance {
     pid_t pid = 0;
     int port = 0;
     std::thread th;
+    std::string status = "loading"; // "loading", "loaded"
 };
 
-inline int server_router_create_instance(char ** envp, std::map<std::string, server_spawn_instance> & mapping, const std::string & hf_model) {
+inline int server_router_create_instance(char ** envp, std::map<std::string, server_spawn_instance> & mapping, const std::string & hf_model, int router_port) {
     server_spawn_instance inst;
     inst.port = rand() % 10000 + 20000; // random port between 20000 and 29999
 
@@ -1635,6 +1636,8 @@ inline int server_router_create_instance(char ** envp, std::map<std::string, ser
         arg_strs.push_back(path);
         arg_strs.push_back("-hf");
         arg_strs.push_back(hf_model);
+        arg_strs.push_back("--alias");
+        arg_strs.push_back(hf_model);
         arg_strs.push_back("--port");
         arg_strs.push_back(std::to_string(inst.port));
 
@@ -1645,7 +1648,22 @@ inline int server_router_create_instance(char ** envp, std::map<std::string, ser
         }
         child_argv.push_back(nullptr);
 
-        if (posix_spawn(&pid, path.c_str(), NULL, NULL, child_argv.data(), envp) != 0) {
+        // clone envp while adding LLAMA_SERVER_ROUTER_PORT
+        std::vector<std::string> child_envs;
+        std::vector<char *> child_envp;
+        {
+            for (char ** e = envp; *e != nullptr; ++e) {
+                child_envs.emplace_back(*e);
+            }
+            child_envs.emplace_back("LLAMA_SERVER_ROUTER_PORT=" + std::to_string(router_port));
+            child_envp.reserve(child_envs.size() + 1);
+            for (auto & s : child_envs) {
+                child_envp.push_back(const_cast<char *>(s.c_str()));
+            }
+            child_envp.push_back(nullptr);
+        }
+
+        if (posix_spawn(&pid, path.c_str(), NULL, NULL, child_argv.data(), child_envp.data()) != 0) {
             perror("posix_spawn");
             exit(1); // for testing only
         } else {
