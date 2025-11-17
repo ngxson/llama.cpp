@@ -1538,15 +1538,11 @@ struct clip_graph {
         GGML_ASSERT(model.position_embeddings != nullptr);
 
         const int     n_pos = n_patches + 1;
-        ggml_tensor * inp =
-            ggml_cont_3d(ctx0, ggml_dup_tensor(ctx0, patch_embeds), patch_embeds->ne[0], n_patches_x, n_patches_y);
-
-        auto inp_n_elems = ggml_nelements(inp);
-        GGML_ASSERT(inp_n_elems == inp->ne[0] * inp->ne[1] * inp->ne[2]);
-        inp = ggml_permute(ctx0, inp, 2, 1,0,3); // [n_patches, n_embd]
+        ggml_tensor * inp = ggml_permute(ctx0, patch_embeds,2,1,0,3);
         inp = ggml_cont(ctx0, inp);
-        GGML_ASSERT(ggml_nelements(inp) == n_patches_x*patch_size*4*768);
-        inp= ggml_reshape_2d(ctx0,inp,n_patches_x*patch_size, 4*768);
+        inp = ggml_reshape_2d(ctx0, inp, n_embd, n_patches);
+
+
 
         // add CLS token
         inp = ggml_concat(ctx0, inp, model.class_embedding, 1);
