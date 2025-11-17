@@ -60,25 +60,25 @@ static std::string read_file(const std::string & fname) {
     return content;
 }
 
-common_arg & common_arg::set_examples(std::initializer_list<enum llama_example> examples) {
+common_arg && common_arg::set_examples(std::initializer_list<enum llama_example> examples) {
     this->examples = examples;
-    return *this;
+    return std::move(*this);
 }
 
-common_arg & common_arg::set_excludes(std::initializer_list<enum llama_example> excludes) {
+common_arg && common_arg::set_excludes(std::initializer_list<enum llama_example> excludes) {
     this->excludes = excludes;
-    return *this;
+    return std::move(*this);
 }
 
-common_arg & common_arg::set_env(const char * env) {
+common_arg && common_arg::set_env(const char * env) {
     help = help + "\n(env: " + env + ")";
     this->env = env;
-    return *this;
+    return std::move(*this);
 }
 
-common_arg & common_arg::set_sparam() {
+common_arg && common_arg::set_sparam() {
     is_sparam = true;
-    return *this;
+    return std::move(*this);
 }
 
 bool common_arg::in_example(enum llama_example ex) {
@@ -717,9 +717,9 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
      * - if LLAMA_EXAMPLE_* is set (other than COMMON), we only show the option in the corresponding example
      * - if both {LLAMA_EXAMPLE_COMMON, LLAMA_EXAMPLE_*,} are set, we will prioritize the LLAMA_EXAMPLE_* matching current example
      */
-    auto add_opt = [&](common_arg arg) {
+    auto add_opt = [&](common_arg && arg) {
         if ((arg.in_example(ex) || arg.in_example(LLAMA_EXAMPLE_COMMON)) && !arg.is_exclude(ex)) {
-            ctx_arg.options.push_back(std::move(arg));
+            ctx_arg.options.emplace_back(std::move(arg));
         }
     };
 
