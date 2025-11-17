@@ -786,8 +786,6 @@ struct clip_graph {
             // residual 2
             cur = ggml_add(ctx0, cur, inpFF);
             cb(cur, "layer_out", il);
-
-            return cur;  // B, 1024, 16, 16
         }
 
         cur = ggml_cont(ctx0, ggml_permute(ctx0, inpL, 2, 0, 1, 3));
@@ -1538,12 +1536,17 @@ struct clip_graph {
     ggml_tensor * build_dp_ocr_clip(ggml_tensor * inpL, ggml_tensor * patch_embeds) {
         GGML_ASSERT(model.class_embedding != nullptr);
         GGML_ASSERT(model.position_embeddings != nullptr);
-        auto n_embd_vit_clip = 1024;
 
         const int     n_pos = n_patches + 1;
         ggml_tensor * inp =
             ggml_cont_3d(ctx0, ggml_dup_tensor(ctx0, patch_embeds), patch_embeds->ne[0], n_patches_x, n_patches_y);
-        //ggml_tensor * inp = ggml_cpy(ctx0, inpL, ggml_dup_tensor(ctx0, inpL));
+
+        auto inp_n_elems = ggml_nelements(inp);
+        GGML_ASSERT(inp_n_elems == inp->ne[0] * inp->ne[1] * inp->ne[2]);
+        inp = ggml_permute(ctx0, inp, 2, 1,0,3); // [n_patches, n_embd]
+        inp = ggml_cont(ctx0, inp);
+        GGML_ASSERT(ggml_nelements(inp) == n_patches_x*patch_size*4*768);
+        inp= ggml_reshape_2d(ctx0,inp,n_patches_x*patch_size, 4*768);
 
         // add CLS token
         inp = ggml_concat(ctx0, inp, model.class_embedding, 1);
