@@ -5111,69 +5111,54 @@ public:
     //
     // router server
     //
-    char ** envp;
-    std::map<std::string, server_spawn_instance> map_model_to_port;
-    void maybe_load_it_why_not(std::string & custom_model) {
-        // HACKYYYY, but for demo purpose; we load the model if it's in the cached list
-        if (map_model_to_port.find(custom_model) != map_model_to_port.end()) {
-            return; // already loaded, do nothing
-        }
-        // TODO: maybe unload least recently used model if too many models are loaded?
-        auto wait_until_loaded = [this, custom_model]() {
-            while (true) {
-                bool load_failed = map_model_to_port.find(custom_model) == map_model_to_port.end(); // model is deleted
-                bool is_loaded = !load_failed && map_model_to_port[custom_model].status == "loaded";
-                if (is_loaded || load_failed) {
-                    return;
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(500));
-            }
-        };
-        auto models = common_list_cached_models();
-        for (const auto & model : models) {
-            auto m = model.to_string();
-            if (m == custom_model) {
-                server_router_create_instance(envp, map_model_to_port, m, params.port);
-                wait_until_loaded();
-                SRV_INF("model %s loaded on-demand\n", custom_model.c_str());
-                return;
-            }
-        }
-    }
+    server_instances instances;
     server_http_context::handler_t proxy_get = [this](const server_http_req & req) {
         std::string method = "GET";
         std::string model = req.get_param("model");
-        maybe_load_it_why_not(model);
+        if (req.path == "/props" && model.empty()) {
+            return handle_default_props(req);
+        }
+        instances.ensure_model_loaded(model);
         return handle_proxy(req, method, model);
     };
     server_http_context::handler_t proxy_post = [this](const server_http_req & req) {
         std::string method = "POST";
         json body = json::parse(req.body);
         std::string model = json_value(body, "model", std::string());
-        maybe_load_it_why_not(model);
+        instances.ensure_model_loaded(model);
         return handle_proxy(req, method, model);
     };
     server_http_res_ptr handle_proxy(const server_http_req & req, std::string & method, std::string model) {
-        if (map_model_to_port.find(model) == map_model_to_port.end()) {
+        auto meta = instances.get_meta(model);
+        if (!meta.has_value()) {
             auto res = std::make_unique<server_res_generator>(ctx_server);
-            res->error(format_error_response("model parameter is invalid", ERROR_TYPE_INVALID_REQUEST));
-            return server_http_res_ptr(std::move(res));
+            res->error(format_error_response("model is unavailable", ERROR_TYPE_UNAVAILABLE));
+            return res;
         }
         server_http_res_ptr res(new server_http_client(
-            method, params.hostname, map_model_to_port[model].port,
+            method, params.hostname, meta->port,
             req.path, req.headers, req.body, req.should_stop
         ));
+        return res;
+    }
+    server_http_res_ptr handle_default_props(const server_http_req &) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
+        // this is a dummy response to make sure webui doesn't break
+        res->ok({
+            {"model_alias", "llama-server"},
+            {"model_path",  "none"},
+            {"default_generation_settings", {
+                {"params", json{}},
+                {"n_ctx",  0},
+            }},
+        });
         return res;
     }
     server_http_context::handler_t post_router_models_load = [this](const server_http_req & req) {
         auto res = std::make_unique<server_res_generator>(ctx_server);
         json body = json::parse(req.body);
         std::string model = json_value(body, "model", std::string());
-        int status = server_router_create_instance(envp, map_model_to_port, model, params.port);
-        if (status != 0) {
-            res->error(format_error_response("fail to start the process", ERROR_TYPE_SERVER));
-            return res;
-        }
+        instances.create(model);
         res->ok({{"success", true}});
         return res;
     };
@@ -5182,11 +5167,12 @@ public:
         json body = json::parse(req.body);
         std::string model = json_value(body, "model", std::string());
         std::string value = json_value(body, "value", std::string());
-        if (map_model_to_port.find(model) == map_model_to_port.end()) {
-            res->error(format_error_response("model parameter is invalid", ERROR_TYPE_INVALID_REQUEST));
+        if (!instances.get_meta(model).has_value()) {
+            auto res = std::make_unique<server_res_generator>(ctx_server);
+            res->error(format_error_response("model is unavailable", ERROR_TYPE_UNAVAILABLE));
             return res;
         }
-        map_model_to_port[model].status = value;
+        instances.update_status(model, value);
         res->ok({{"success", true}});
         return res;
     };
@@ -5196,14 +5182,15 @@ public:
         auto models = common_list_cached_models();
         for (const auto & model : models) {
             auto model_name = model.to_string();
-            bool found = map_model_to_port.find(model.to_string()) != map_model_to_port.end(); // TODO: thread safety
+            auto meta = instances.get_meta(model_name);
+            bool found = meta.has_value();
             models_json.push_back(json {
                 {"model",  model_name},
                 {"name",   model_name},
                 {"id",     model_name},
                 // TODO: other fields...
                 {"status", {
-                    {"value", found ? map_model_to_port[model_name].status : "unloaded"}
+                    {"value", found ? meta->status : "unloaded"}
                 }},
             });
         }
@@ -5214,11 +5201,12 @@ public:
         auto res = std::make_unique<server_res_generator>(ctx_server);
         json body = json::parse(req.body);
         std::string model = json_value(body, "model", std::string());
-        if (map_model_to_port.find(model) == map_model_to_port.end()) {
-            res->error(format_error_response("model parameter is invalid", ERROR_TYPE_INVALID_REQUEST));
+        if (!instances.get_meta(model).has_value()) {
+            auto res = std::make_unique<server_res_generator>(ctx_server);
+            res->error(format_error_response("model is unavailable", ERROR_TYPE_UNAVAILABLE));
             return res;
         }
-        server_router_kill_single(map_model_to_port, model);
+        instances.kill_single(model);
         res->ok({{"success", true}});
         return res;
     };
@@ -5667,10 +5655,13 @@ int main(int argc, char ** argv, char ** envp) {
     // hacky, replace handlers with proxy handlers if this is a router server
     bool is_router_server = params.model.path == DEFAULT_MODEL_PATH;
     if (is_router_server) {
-        routes.envp = envp;
+        // setup server instances manager
+        routes.instances.envp = envp;
+        routes.instances.router_port = params.port;
+
+        // proxy handlers
         routes.get_props = routes.proxy_get;
         routes.post_props = routes.proxy_post;
-        // routes.get_models = routes.proxy_get;
         routes.post_completions = routes.proxy_post;
         routes.post_completions_oai = routes.proxy_post;
         routes.post_chat_completions = routes.proxy_post;

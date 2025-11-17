@@ -1567,6 +1567,8 @@ static server_tokens format_rerank(const struct llama_model * model, const struc
 
 #include <functional>
 #include <thread>
+#include <mutex>
+#include <condition_variable>
 #include <spawn.h>
 #include <signal.h> // for kill()
 
@@ -1576,7 +1578,7 @@ static server_tokens format_rerank(const struct llama_model * model, const struc
 #include <limits.h>
 #endif
 
-inline std::filesystem::path server_router_get_server_exec_path() {
+static std::filesystem::path get_server_exec_path() {
 #if defined(_MSC_VER)
     wchar_t path[FILENAME_MAX] = { 0 };
     GetModuleFileNameW(nullptr, path, FILENAME_MAX);
@@ -1611,95 +1613,167 @@ inline std::filesystem::path server_router_get_server_exec_path() {
 #endif
 }
 
-struct server_spawn_instance {
-    pid_t pid = 0;
-    int port = 0;
-    std::thread th;
-    std::string status = "loading"; // "loading", "loaded"
-};
+struct server_instances {
+    struct instance_metadata_t {
+        // this struct is copyable
+        int port = 0;
+        std::string status = "loading"; // "loading", "loaded"
+    };
+    struct instance_t {
+        pid_t pid = 0;
+        std::thread th;
+        instance_metadata_t meta;
+    };
 
-inline int server_router_create_instance(char ** envp, std::map<std::string, server_spawn_instance> & mapping, const std::string & hf_model, int router_port) {
-    server_spawn_instance inst;
-    inst.port = rand() % 10000 + 20000; // random port between 20000 and 29999
+private:
+    std::mutex mutex;
+    std::condition_variable cv;
+    std::map<std::string, instance_t> mapping;
 
-    if (mapping.find(hf_model) != mapping.end()) {
-        throw std::runtime_error("model already loaded");
+    void remove(const std::string & model_name) {
+        std::unique_lock<std::mutex> lock(mutex);
+        mapping.erase(model_name);
+        cv.notify_all();
     }
 
-    pid_t pid = 0;
-    {
-        // Prepare arguments (pass original or custom ones) using mutable storage for argv
-        std::string path = server_router_get_server_exec_path().string();
-
-        SRV_INF("spawning instance %s with hf=%s on port %d\n", path.c_str(), hf_model.c_str(), inst.port);
-        std::vector<std::string> arg_strs;
-        arg_strs.push_back(path);
-        arg_strs.push_back("-hf");
-        arg_strs.push_back(hf_model);
-        arg_strs.push_back("--alias");
-        arg_strs.push_back(hf_model);
-        arg_strs.push_back("--port");
-        arg_strs.push_back(std::to_string(inst.port));
-
-        std::vector<char *> child_argv;
-        child_argv.reserve(arg_strs.size() + 1);
-        for (auto &s : arg_strs) {
-            child_argv.push_back(const_cast<char*>(s.c_str()));
+    void insert(const std::string & model_name, instance_t && inst) {
+        std::unique_lock<std::mutex> lock(mutex);
+        if (mapping.find(model_name) != mapping.end()) {
+            throw std::runtime_error("instance with name=" + model_name + " already exists");
         }
-        child_argv.push_back(nullptr);
+        mapping[model_name] = std::move(inst);
+        cv.notify_all();
+    }
 
-        // clone envp while adding LLAMA_SERVER_ROUTER_PORT
-        std::vector<std::string> child_envs;
-        std::vector<char *> child_envp;
+public:
+    char ** envp;
+    int router_port;
+
+    std::optional<instance_metadata_t> get_meta(const std::string & model_name) {
+        std::unique_lock<std::mutex> lock(mutex);
+        auto it = mapping.find(model_name);
+        if (it != mapping.end()) {
+            return it->second.meta;
+        }
+        return std::nullopt;
+    }
+
+    void update_status(const std::string & model_name, const std::string & status) {
+        std::unique_lock<std::mutex> lock(mutex);
+        auto it = mapping.find(model_name);
+        if (it != mapping.end()) {
+            it->second.meta.status = status;
+            cv.notify_all();
+        }
+    }
+
+    void wait_until_loaded(const std::string & model_name) {
+        std::unique_lock<std::mutex> lock(mutex);
+        cv.wait(lock, [&]() {
+            auto it = mapping.find(model_name);
+            // either being deleted (load failed), or loaded
+            return it == mapping.end() || it->second.meta.status == "loaded";
+        });
+    }
+
+    void ensure_model_loaded(std::string & model_name) {
+        if (get_meta(model_name).has_value()) {
+            return; // already loaded, do nothing
+        }
+        // TODO: maybe unload least recently used model if too many models are loaded?
+        auto models = common_list_cached_models();
+        for (const auto & m : models) {
+            auto name = m.to_string();
+            if (name == model_name) {
+                create(name);
+                wait_until_loaded(name);
+                SRV_INF("model %s loaded on-demand\n", name.c_str());
+                return;
+            }
+        }
+    }
+
+    void create(const std::string & model_name) {
+        instance_t inst;
+        // TODO: use a better port allocation strategy
+        inst.meta.port = rand() % 10000 + 20000; // random port between 20000 and 29999
+
+        if (get_meta(model_name).has_value()) {
+            throw std::runtime_error("instance with model_name " + model_name + " already exists");
+        }
+
+        pid_t pid = 0;
         {
-            for (char ** e = envp; *e != nullptr; ++e) {
-                child_envs.emplace_back(*e);
+            // Prepare arguments (pass original or custom ones) using mutable storage for argv
+            std::string path = get_server_exec_path().string();
+
+            SRV_INF("spawning instance %s with name=%s on port %d\n", path.c_str(), model_name.c_str(), inst.meta.port);
+            std::vector<std::string> arg_strs;
+            arg_strs.push_back(path);
+            arg_strs.push_back("-hf");
+            arg_strs.push_back(model_name);
+            arg_strs.push_back("--alias");
+            arg_strs.push_back(model_name);
+            arg_strs.push_back("--port");
+            arg_strs.push_back(std::to_string(inst.meta.port));
+
+            std::vector<char *> child_argv;
+            child_argv.reserve(arg_strs.size() + 1);
+            for (auto &s : arg_strs) {
+                child_argv.push_back(const_cast<char*>(s.c_str()));
             }
-            child_envs.emplace_back("LLAMA_SERVER_ROUTER_PORT=" + std::to_string(router_port));
-            child_envp.reserve(child_envs.size() + 1);
-            for (auto & s : child_envs) {
-                child_envp.push_back(const_cast<char *>(s.c_str()));
+            child_argv.push_back(nullptr);
+
+            // clone envp while adding LLAMA_SERVER_ROUTER_PORT
+            std::vector<std::string> child_envs;
+            std::vector<char *> child_envp;
+            {
+                for (char ** e = envp; *e != nullptr; ++e) {
+                    child_envs.emplace_back(*e);
+                }
+                child_envs.emplace_back("LLAMA_SERVER_ROUTER_PORT=" + std::to_string(router_port));
+                child_envp.reserve(child_envs.size() + 1);
+                for (auto & s : child_envs) {
+                    child_envp.push_back(const_cast<char *>(s.c_str()));
+                }
+                child_envp.push_back(nullptr);
             }
-            child_envp.push_back(nullptr);
+
+            if (posix_spawn(&pid, path.c_str(), NULL, NULL, child_argv.data(), child_envp.data()) != 0) {
+                perror("posix_spawn");
+                exit(1); // for testing only
+            } else {
+                inst.pid = pid;
+                SRV_INF("spawned instance with pid %d\n", pid);
+            }
         }
 
-        if (posix_spawn(&pid, path.c_str(), NULL, NULL, child_argv.data(), child_envp.data()) != 0) {
-            perror("posix_spawn");
-            exit(1); // for testing only
-        } else {
-            inst.pid = pid;
-            SRV_INF("spawned instance with pid %d\n", pid);
+        inst.th = std::thread([this, model_name, pid]() {
+            int status = 0;
+            waitpid(pid, &status, 0);
+            SRV_INF("instance with pid %d exited with status %d\n", pid, status);
+            this->remove(model_name);
+        });
+        if (inst.th.joinable()) {
+            inst.th.detach();
+        }
+
+        insert(model_name, std::move(inst));
+    }
+
+    void kill_all() {
+        for (auto & inst : mapping) {
+            kill_single(inst.first);
         }
     }
 
-    inst.th = std::thread([hf_model, pid, &mapping]() {
-        int status = 0;
-        waitpid(pid, &status, 0);
-        SRV_INF("instance with pid %d exited with status %d\n", pid, status);
-        mapping.erase(hf_model); // TODO: thread safety
-    });
-    if (inst.th.joinable()) {
-        inst.th.detach();
+    void kill_single(const std::string & model_name) {
+        auto it = mapping.find(model_name);
+        if (it != mapping.end()) {
+            auto & inst = it->second;
+            LOG_INF("killing instance with name=%s on port %d (pid %d)\n", model_name.c_str(), inst.meta.port, inst.pid);
+            kill(inst.pid, SIGINT);
+            remove(model_name);
+        }
     }
-
-    mapping[hf_model] = std::move(inst); // TODO: thread safety
-    return 0;
-}
-
-inline void kill_all_instances(std::map<std::string, server_spawn_instance> & mapping) {
-    for (auto & [hf_model, inst] : mapping) {
-        LOG_INF("killing instance with hf=%s on port %d (pid %d)\n", hf_model.c_str(), inst.port, inst.pid);
-        kill(inst.pid, SIGINT);
-    }
-    mapping.clear();
-}
-
-inline void server_router_kill_single(std::map<std::string, server_spawn_instance> & mapping, const std::string & hf_model) {
-    auto it = mapping.find(hf_model);
-    if (it != mapping.end()) {
-        auto & inst = it->second;
-        LOG_INF("killing instance with hf=%s on port %d (pid %d)\n", hf_model.c_str(), inst.port, inst.pid);
-        kill(inst.pid, SIGINT);
-        mapping.erase(it);
-    }
-}
+};
