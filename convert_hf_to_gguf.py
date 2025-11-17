@@ -7100,7 +7100,7 @@ class DeepseekV2Model(TextModel):
         else:
             # note: deepseek2 using MLA converts into MQA (ie: GQA with 1 group)
             self.hparams["num_key_value_heads"] = 1
-
+            
         super().set_gguf_parameters()
         hparams = self.hparams
         kv_lora_rank = hparams["q_lora_rank"] if hparams["q_lora_rank"] is not None else 512

@@ -74,19 +74,19 @@ static void ggml_print_tensor(uint8_t * data, ggml_type type, const int64_t * ne
         }
     }
     for (int64_t i3 = 0; i3 < ne[3]; i3++) {
-        LOG("                                     [\n");
+        LOG("    [\n");
         for (int64_t i2 = 0; i2 < ne[2]; i2++) {
             if (i2 == n && ne[2] > 2*n) {
-                LOG("                                      ..., \n");
+                LOG("     ..., \n");
                 i2 = ne[2] - n;
             }
-            LOG("                                      [\n");
+            LOG("     [\n");
             for (int64_t i1 = 0; i1 < ne[1]; i1++) {
                 if (i1 == n && ne[1] > 2*n) {
-                    LOG("                                       ..., \n");
+                    LOG("      ..., \n");
                     i1 = ne[1] - n;
                 }
-                LOG("                                       [");
+                LOG("      [");
                 for (int64_t i0 = 0; i0 < ne[0]; i0++) {
                     if (i0 == n && ne[0] > 2*n) {
                         LOG("..., ");
@@ -98,10 +98,10 @@ static void ggml_print_tensor(uint8_t * data, ggml_type type, const int64_t * ne
                 }
                 LOG("],\n");
             }
-            LOG("                                      ],\n");
+            LOG("     ],\n");
         }
-        LOG("                                     ]\n");
-        LOG("                                     sum = %f\n", sum);
+        LOG("    ]\n");
+        LOG("    sum = %f\n", sum);
     }
 
     // TODO: make this abort configurable/optional?
@@ -136,7 +136,7 @@ static bool ggml_debug(struct ggml_tensor * t, bool ask, void * user_data) {
         snprintf(src1_str, sizeof(src1_str), "%s{%s}", src1->name, ggml_ne_string(src1).c_str());
     }
 
-    LOG("%s: %24s = (%s) %10s(%s{%s}, %s}) = {%s}\n", __func__,
+    LOG("%s: %16s = (%s) %10s(%s{%s}, %s}) = {%s}\n", __func__,
          t->name, ggml_type_name(t->type), ggml_op_desc(t),
          src0->name, ggml_ne_string(src0).c_str(),
          src1 ? src1_str : "",
