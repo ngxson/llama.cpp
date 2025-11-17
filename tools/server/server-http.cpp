@@ -272,7 +272,8 @@ bool server_http_context::start() {
         // bind HTTP listen port
         if (port == 0) {
             int bound_port = srv->bind_to_any_port(hostname);
-            if ((was_bound = (bound_port >= 0))) {
+            was_bound = (bound_port >= 0);
+            if (was_bound) {
                 port = bound_port;
             }
         } else {
@@ -294,7 +295,7 @@ bool server_http_context::start() {
     return true;
 }
 
-void server_http_context::stop() {
+void server_http_context::stop() const {
     if (pimpl->srv) {
         pimpl->srv->stop();
     }
@@ -357,7 +358,7 @@ static void process_handler_response(server_http_res_ptr & response, httplib::Re
     }
 }
 
-void server_http_context::get(const std::string & path, server_http_context::handler_t handler) {
+void server_http_context::get(const std::string & path, const server_http_context::handler_t & handler) const {
     pimpl->srv->Get(path_prefix + path, [handler](const httplib::Request & req, httplib::Response & res) {
         server_http_res_ptr response = handler(server_http_req{
             get_params(req),
@@ -370,7 +371,7 @@ void server_http_context::get(const std::string & path, server_http_context::han
     });
 }
 
-void server_http_context::post(const std::string & path, server_http_context::handler_t handler) {
+void server_http_context::post(const std::string & path, const server_http_context::handler_t & handler) const {
     pimpl->srv->Post(path_prefix + path, [handler](const httplib::Request & req, httplib::Response & res) {
         server_http_res_ptr response = handler(server_http_req{
             get_params(req),

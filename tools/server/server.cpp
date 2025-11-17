@@ -2,15 +2,6 @@
 #include "utils.hpp"
 #include "server-http.h"
 
-// fix problem with std::min and std::max
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#ifndef NOMINMAX
-#   define NOMINMAX
-#endif
-#include <windows.h>
-#endif
-
 #include "arg.h"
 #include "common.h"
 #include "json-schema-to-grammar.h"
@@ -31,8 +22,16 @@
 #include <list>
 #include <signal.h>
 #include <thread>
-#include <unordered_map>
 #include <unordered_set>
+
+// fix problem with std::min and std::max
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#   define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 using json = nlohmann::ordered_json;
 
@@ -4353,7 +4352,7 @@ struct server_response_reader {
         ctx_server.queue_tasks.post(std::move(tasks));
     }
 
-    bool has_next() {
+    bool has_next() const {
         return !cancelled && received_count < id_tasks.size();
     }
 

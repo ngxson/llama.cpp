@@ -1,12 +1,12 @@
 #pragma once
 
-#include "utils.hpp"
-#include "common.h"
-
+#include <atomic>
 #include <functional>
+#include <map>
 #include <string>
 #include <thread>
-#include <atomic>
+
+struct common_params;
 
 // generator-like API for HTTP response generation
 // this object response with one of the 2 modes:
@@ -65,12 +65,13 @@ struct server_http_context {
 
     bool init(const common_params & params);
     bool start();
-    void stop();
+    void stop() const;
 
     // note: the handler should never throw exceptions
     using handler_t = std::function<server_http_res_ptr(const server_http_req & req)>;
-    void get(const std::string &, handler_t);
-    void post(const std::string &, handler_t);
+
+    void get(const std::string & path, const handler_t & handler) const;
+    void post(const std::string & path, const handler_t & handler) const;
 
     // for debugging
     std::string listening_address;
