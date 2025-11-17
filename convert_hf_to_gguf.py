@@ -1581,9 +1581,26 @@ class MmprojModel(ModelBase):
 
         # load preprocessor config
         self.preprocessor_config = {}
-        if not self.is_mistral_format:
-            with open(self.dir_model / "preprocessor_config.json", "r", encoding="utf-8") as f:
+
+        # prefer preprocessor_config.json if possible
+        preprocessor_config_path = self.dir_model / "preprocessor_config.json"
+        if preprocessor_config_path.is_file():
+            with open(preprocessor_config_path, "r", encoding="utf-8") as f:
                 self.preprocessor_config = json.load(f)
+
+        # prefer processor_config.json if possible
+        processor_config_path = self.dir_model / "processor_config.json"
+        if processor_config_path.is_file():
+            with open(processor_config_path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+                # move image_processor to root level for compat
+                if "image_processor" in cfg:
+                    cfg = {
+                        **cfg,
+                        **cfg["image_processor"],
+                    }
+                # merge configs
+                self.preprocessor_config = {**self.preprocessor_config, **cfg}
 
     def get_vision_config(self) -> dict[str, Any] | None:
         config_name = "vision_config" if not self.is_mistral_format else "vision_encoder"
