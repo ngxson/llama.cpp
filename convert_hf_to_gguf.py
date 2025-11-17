@@ -5856,6 +5856,27 @@ class DeepseekOCRVisionModel(MmprojModel):
         if ".attn.rel_pos_h" in name or ".attn.rel_pos_w" in name:
             return [(self.map_tensor_name(name, try_suffixes=("",)), data_torch)]
 
+        if name.startswith("model.vision_model.transformer.layers."):
+            # process visual tensors
+            # split QKV tensors if needed
+            if ".qkv_proj." in name:
+                if data_torch.ndim == 2: # weight
+                    c3, _ = data_torch.shape
+                else: # bias
+                    c3 = data_torch.shape[0]
+                assert c3 % 3 == 0
+                c = c3 // 3
+                wq = data_torch[:c]
+                wk = data_torch[c: c * 2]
+                wv = data_torch[c * 2:]
+                return [
+                    (self.map_tensor_name(name.replace("qkv", "q")), wq),
+                    (self.map_tensor_name(name.replace("qkv", "k")), wk),
+                    (self.map_tensor_name(name.replace("qkv", "v")), wv),
+                ]
+            else:
+                return [(self.map_tensor_name(name), data_torch)]
+
         return [(self.map_tensor_name(name), data_torch)]
 
 
@@ -7100,7 +7121,7 @@ class DeepseekV2Model(TextModel):
         else:
             # note: deepseek2 using MLA converts into MQA (ie: GQA with 1 group)
             self.hparams["num_key_value_heads"] = 1
-            
+
         super().set_gguf_parameters()
         hparams = self.hparams
         kv_lora_rank = hparams["q_lora_rank"] if hparams["q_lora_rank"] is not None else 512
