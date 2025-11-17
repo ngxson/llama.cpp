@@ -1494,12 +1494,9 @@ class MmprojModel(ModelBase):
         # FIXME: DeepseekOCRVisionModel specific hack
         if self.block_count is None:
             if isinstance(self, DeepseekOCRVisionModel):
-                print(self.hparams)
                 clip_block_count = self.hparams['layers']
                 if clip_block_count is not None:
                     self.block_count = clip_block_count
-                if sam_block_count is not None:
-                    self.block_count = sam_block_count if self.block_count is None else self.block_count + sam_block_count
             if self.block_count is None:
                 raise KeyError(f"could not find block count using any of: {self.n_block_keys}")
         self.tensor_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.MMPROJ, self.block_count)
@@ -5793,16 +5790,16 @@ class Gemma3VisionModel(MmprojModel):
 
 @ModelBase.register("DeepseekOCRForCausalLM")
 class DeepseekOCRVisionModel(MmprojModel):
-    def __init__(self, *args, **kwargs): 
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
+
         proc_fname = self.dir_model / "processor_config.json"
-        
+
         if proc_fname.is_file():
             with open(proc_fname, "r") as f:
                 self.preprocessor_config = json.load(f)
-        
-    
+
+
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
         hparams = self.hparams
@@ -5860,7 +5857,7 @@ class DeepseekOCRVisionModel(MmprojModel):
             return [(self.map_tensor_name(name, try_suffixes=("",)), data_torch)]
 
         return [(self.map_tensor_name(name), data_torch)]
-    
+
 
 @ModelBase.register("Gemma3nForConditionalGeneration")
 class Gemma3NModel(Gemma3Model):
@@ -7095,9 +7092,14 @@ class DeepseekV2Model(TextModel):
             raise NotImplementedError(f"Deepseek pre-tokenizer {tokpre!r} is not supported yet!")
 
     def set_gguf_parameters(self):
+        is_ocr = (self.hparams["num_hidden_layers"] == 12)
 
-        # note: deepseek2 using MLA converts into MQA (ie: GQA with 1 group)
-        self.hparams["num_key_value_heads"] = 1
+        if is_ocr:
+            self.hparams['rope_theta'] = self.hparams.get('rope_theta', 10000.0)
+            self.hparams['rms_norm_eps'] = self.hparams.get('rms_norm_eps', 1e-6)
+        else:
+            # note: deepseek2 using MLA converts into MQA (ie: GQA with 1 group)
+            self.hparams["num_key_value_heads"] = 1
 
         super().set_gguf_parameters()
         hparams = self.hparams
@@ -7110,13 +7112,16 @@ class DeepseekV2Model(TextModel):
         self.gguf_writer.add_vocab_size(hparams["vocab_size"])
         if "q_lora_rank" in hparams and hparams["q_lora_rank"] is not None:
             self.gguf_writer.add_q_lora_rank(hparams["q_lora_rank"])
-        self.gguf_writer.add_kv_lora_rank(kv_lora_rank)
+        if "kv_lora_rank" in hparams and hparams["kv_lora_rank"] is not None:
+            self.gguf_writer.add_kv_lora_rank(kv_lora_rank)
 
         # note: deepseek2 using MLA converts into MQA with larger heads, then decompresses to MHA
-        self.gguf_writer.add_key_length(kv_lora_rank + hparams["qk_rope_head_dim"])
-        self.gguf_writer.add_value_length(kv_lora_rank)
-        self.gguf_writer.add_key_length_mla(hparams["qk_nope_head_dim"] + hparams["qk_rope_head_dim"])
-        self.gguf_writer.add_value_length_mla(hparams["v_head_dim"])
+        if not is_ocr:
+            self.gguf_writer.add_key_length(kv_lora_rank + hparams["qk_rope_head_dim"])
+            self.gguf_writer.add_value_length(kv_lora_rank)
+            self.gguf_writer.add_key_length_mla(hparams["qk_nope_head_dim"] + hparams["qk_rope_head_dim"])
+            self.gguf_writer.add_value_length_mla(hparams["v_head_dim"])
+            self.gguf_writer.add_rope_dimension_count(hparams["qk_rope_head_dim"])
 
         self.gguf_writer.add_expert_feed_forward_length(hparams["moe_intermediate_size"])
         self.gguf_writer.add_expert_count(hparams["n_routed_experts"])
@@ -7130,8 +7135,6 @@ class DeepseekV2Model(TextModel):
             self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SOFTMAX)
         else:
             raise ValueError(f"Unsupported scoring_func value: {scoring_func}")
-
-        self.gguf_writer.add_rope_dimension_count(hparams["qk_rope_head_dim"])
 
         rope_scaling = self.hparams.get("rope_scaling") or {}
         if rope_scaling.get("rope_type", rope_scaling.get("type")) == "yarn" and "factor" in rope_scaling:

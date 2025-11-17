@@ -682,8 +682,8 @@ struct clip_graph {
 
         const int enc_n_patches = enc_image_size / enc_patch_size;  // 64
 
-        ggml_tensor * inpL = build_enc_inp(inp_raw, enc_patch_size, enc_image_size, enc_n_embd);
-        ggml_tensor * cur = ggml_add(ctx0, inpL, model.position_embeddings);
+        ggml_tensor * inpL = build_enc_inp(inp_raw, enc_patch_size, enc_n_patches, enc_n_embd);
+        ggml_tensor * cur = ggml_add(ctx0, inpL, model.pos_embed);
 
         // loop over layers
         for (int il = 0; il < _depth; il++) {
@@ -842,7 +842,7 @@ struct clip_graph {
         ggml_tensor * inp_raw = build_inp_raw();
 
 
-        ggml_tensor * global_features_1 = build_sam_enc(inp_raw);
+        ggml_tensor * global_features_1 = build_sam_enc(inp_raw, std::max(img.nx, img.ny));
 
         ggml_tensor * global_features_2 = build_dp_ocr_clip(inp_raw, global_features_1);
 
@@ -2862,6 +2862,10 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
             {
                 res = graph.build_cogvlm();
             } break;
+        case PROJECTOR_TYPE_DEEPSEEKOCR:
+        {
+            res = graph.build_deepseek_ocr();
+        } break;
         default:
             {
                 res = graph.build_llava();
@@ -3187,6 +3191,11 @@ struct clip_model_loader {
                         hparams.ffn_op = FFN_GELU_ERF;
                         log_ffn_op = "gelu_erf"; // temporary solution for logging
                     } break;
+                case PROJECTOR_TYPE_DEEPSEEKOCR:
+                {
+                    hparams.set_limit_image_tokens(8, 1024);
+                    hparams.set_warmup_n_tokens(256); // avoid OOM on warmup
+                } break;
                 default:
                     break;
             }
@@ -3574,7 +3583,7 @@ struct clip_model_loader {
                     model.mm_1_w = get_tensor(string_format(TN_LLAVA_PROJ, 1, "weight"));
                     model.mm_1_b = get_tensor(string_format(TN_LLAVA_PROJ, 1, "bias"));
                 } break;
-            case PROJECTOR_TYPE_DEEPSEEK_OCR:
+            case PROJECTOR_TYPE_DEEPSEEKOCR:
                 {
                     model.pos_embed          = get_tensor(TN_SAM_POS_EMBD);
                     model.patch_embed_proj_w = get_tensor(string_format(TN_SAM_PATCH_EMBD, "weight"));
@@ -4830,7 +4839,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                     }
                 }
             } break;
-        case PROJECTOR_TYPE_DEEPSEEK_OCR:
+        case PROJECTOR_TYPE_DEEPSEEKOCR:
             {
                 // configurable, or read from params
                 const int  min_num       = 2;
