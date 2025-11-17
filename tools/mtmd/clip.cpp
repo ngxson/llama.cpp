@@ -225,17 +225,7 @@ struct clip_hparams {
 
     // sam vit deepseek-ocr
     std::vector<int32_t> global_attn_indices() const {
-        switch (n_embd) {
-            case  768: return {  2,  5,  8, 11 };
-            case 1024: return {  5, 11, 17, 23 };
-            case 1280: return {  7, 15, 23, 31 };
-            default:
-            {
-                fprintf(stderr, "%s: unsupported n_enc_state = %d\n", __func__, n_embd);
-            } break;
-        };
-
-        return {};
+            return {  2,  5,  8, 11 };
     }
 
     bool is_global_attn(int32_t layer) const {
@@ -455,7 +445,7 @@ struct clip_model {
     ggml_tensor * net_2;
     ggml_tensor * net_3;
 
-    int32_t n_sam_layers = 0; // used by deepseek-ocr sam encoder
+    int32_t n_sam_layers = 12; // used by deepseek-ocr sam encoder
 
     std::vector<clip_layer> sam_layers;
 
@@ -721,7 +711,7 @@ struct clip_graph {
                 Qcur = ggml_reshape_3d(ctx0, Qcur, enc_d_heads, W * H, B * enc_n_heads);
 
                 ggml_tensor * Kcur =
-                    ggml_view_3d(ctx0, cur, enc_n_embd, W * H, B, cur->nb[1], cur->nb[2], 1 * cur->nb[3]);
+                    ggml_view_3d(ctx0, cur, enc_n_embd, W * H, B, cur->nb[1], cur->nb[2], cur->nb[3]);
                 Kcur = ggml_reshape_4d(ctx0, Kcur, enc_d_heads, enc_n_heads, W * H, B);
                 Kcur = ggml_cont(ctx0, ggml_permute(ctx0, Kcur, 0, 2, 1, 3));
                 Kcur = ggml_reshape_3d(ctx0, Kcur, enc_d_heads, W * H, B * enc_n_heads);
@@ -740,12 +730,12 @@ struct clip_graph {
 
                 struct ggml_tensor * KQ = ggml_mul_mat(ctx0, Kcur, Qcur);
 
-                struct ggml_tensor * KQ_scaled = ggml_scale_inplace(ctx0, KQ, 1.0f / sqrtf(enc_n_heads));
+                struct ggml_tensor * KQ_scaled = ggml_scale_inplace(ctx0, KQ, 1.0f / sqrtf(enc_d_heads));
 
                 struct ggml_tensor * rw = ggml_get_rel_pos(ctx0, layer.rel_pos_w, W, W);
                 struct ggml_tensor * rh = ggml_get_rel_pos(ctx0, layer.rel_pos_h, H, H);
 
-                struct ggml_tensor * q_r = ggml_reshape_4d(ctx0, Qcur, enc_n_heads, W, H, B * enc_n_embd);
+                struct ggml_tensor * q_r = ggml_reshape_4d(ctx0, Qcur, enc_d_heads, W, H, B * enc_n_heads);
 
                 struct ggml_tensor * rel_w = ggml_cont(
                     ctx0,
@@ -763,7 +753,7 @@ struct clip_graph {
                     ctx0,
                     ggml_cont(ctx0, ggml_permute(ctx0, ggml_reshape_4d(ctx0, KQV, enc_d_heads, W * H, enc_n_heads, B),
                                                  0, 2, 1, 3)),
-                    n_embd, W, H, B);
+                    enc_n_embd, W, H, B);
 
                 cur = ggml_mul_mat(ctx0, layer.o_w, cur);
                 cur = ggml_add_inplace(ctx0, cur, layer.o_b);
@@ -2492,9 +2482,11 @@ private:
         // patch_embed_proj_w shape = [768, 3, 16, 16]
         ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embed_proj_w, inp_raw, enc_patch_size, enc_patch_size, 0, 0,
                                          1, 1);                                     // [64, 64, 768]
-        inp               = ggml_reshape_2d(ctx0, inp, enc_n_patches, enc_n_embd);  // [4096, 768]
+        inp               = ggml_reshape_2d(ctx0, inp, enc_n_patches * enc_n_patches, enc_n_embd);  // [4096, 768]
         inp               = ggml_cont(ctx0, ggml_transpose(ctx0, inp));             // [768, 4096]
         inp               = ggml_add(ctx0, inp, model.patch_embed_proj_b);
+        inp               = ggml_cont(ctx0, inp);
+        inp               = ggml_reshape_4d(ctx0, inp, enc_n_embd, enc_n_patches, enc_n_patches, 1);
         cb(inp, "enc_patch_bias", -1);
         return inp;
     }
@@ -3193,8 +3185,9 @@ struct clip_model_loader {
                     } break;
                 case PROJECTOR_TYPE_DEEPSEEKOCR:
                 {
-                    hparams.set_limit_image_tokens(8, 1024);
-                    hparams.set_warmup_n_tokens(256); // avoid OOM on warmup
+                    hparams.patch_size = 16;
+                    hparams.image_size = 1024;
+                    hparams.warmup_image_size = 1024;
                 } break;
                 default:
                     break;

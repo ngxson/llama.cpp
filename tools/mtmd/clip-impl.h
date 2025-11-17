@@ -133,7 +133,7 @@
 #define TN_SAM_POS_EMBD   "v.sam.pos_embd"
 #define TN_SAM_PATCH_EMBD "v.sam.patch_embd.%s"
 #define TN_SAM_PRE_NORM   "v.sam.blk.%d.pre_ln.%s"
-#define TN_SAM_POST_NORM  "v.sam.blk.%d.post_ln"
+#define TN_SAM_POST_NORM  "v.sam.blk.%d.post_ln.%s"
 #define TN_SAM_ATTN_POS_H "v.sam.blk.%d.attn.pos_h"
 #define TN_SAM_ATTN_POS_W "v.sam.blk.%d.attn.pos_w"
 #define TN_SAM_ATTN_QKV   "v.sam.blk.%d.attn.qkv.%s"
