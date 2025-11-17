@@ -130,18 +130,18 @@
 #define TN_TOK_EOI         "v.eoi"
 
 // deepseek-ocr
-#define TN_SAM_POS_EMBD   "sam.pos_embd"
-#define TN_SAM_PATCH_EMBD "sam.patch_embd.%s"
-#define TN_SAM_PRE_NORM   "sam.blk.%d.pre_ln.%s"
-#define TN_SAM_POST_NORM  "sam.blk.%d.post_ln"
-#define TN_SAM_ATTN_POS_H "sam.blk.%d.attn.pos_h"
-#define TN_SAM_ATTN_POS_W "sam.blk.%d.attn.pos_w"
-#define TN_SAM_ATTN_QKV   "sam.blk.%d.attn.qkv.%s"
-#define TN_SAM_ATTN_OUT   "sam.blk.%d.attn.out.%s"
-#define TN_SAM_FFN_UP     "sam.blk.%d.mlp.lin1.%s"
-#define TN_SAM_FFN_DOWN   "sam.blk.%d.mlp.lin2.%s"
-#define TN_SAM_NECK       "sam.neck.%d.%s"
-#define TN_SAM_NET        "sam.net_%d.%s"
+#define TN_SAM_POS_EMBD   "v.sam.pos_embd"
+#define TN_SAM_PATCH_EMBD "v.sam.patch_embd.%s"
+#define TN_SAM_PRE_NORM   "v.sam.blk.%d.pre_ln.%s"
+#define TN_SAM_POST_NORM  "v.sam.blk.%d.post_ln"
+#define TN_SAM_ATTN_POS_H "v.sam.blk.%d.attn.pos_h"
+#define TN_SAM_ATTN_POS_W "v.sam.blk.%d.attn.pos_w"
+#define TN_SAM_ATTN_QKV   "v.sam.blk.%d.attn.qkv.%s"
+#define TN_SAM_ATTN_OUT   "v.sam.blk.%d.attn.out.%s"
+#define TN_SAM_FFN_UP     "v.sam.blk.%d.mlp.lin1.%s"
+#define TN_SAM_FFN_DOWN   "v.sam.blk.%d.mlp.lin2.%s"
+#define TN_SAM_NECK       "v.sam.neck.%d.%s"
+#define TN_SAM_NET        "v.sam.net_%d.%s"
 
 // align x to upper multiple of n
 #define CLIP_ALIGN(x, n) ((((x) + (n) - 1) / (n)) * (n))
@@ -170,7 +170,7 @@ enum projector_type {
     PROJECTOR_TYPE_LIGHTONOCR,
     PROJECTOR_TYPE_COGVLM,
     PROJECTOR_TYPE_JANUS_PRO,
-    PROJECTOR_TYPE_DEEPSEEK_OCR,
+    PROJECTOR_TYPE_DEEPSEEKOCR,
     PROJECTOR_TYPE_UNKNOWN,
 };
 
@@ -197,7 +197,7 @@ static std::map<projector_type, std::string> PROJECTOR_TYPE_NAMES = {
     { PROJECTOR_TYPE_LIGHTONOCR,"lightonocr"},
     { PROJECTOR_TYPE_COGVLM,    "cogvlm"},
     { PROJECTOR_TYPE_JANUS_PRO, "janus_pro"},
-    { PROJECTOR_TYPE_DEEPSEEK_OCR,"deepseek_orc"},
+    { PROJECTOR_TYPE_DEEPSEEKOCR,"deepseekocr"},
 };
 
 static projector_type clip_projector_type_from_string(const std::string & str) {

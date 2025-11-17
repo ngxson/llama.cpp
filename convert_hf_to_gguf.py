@@ -5790,16 +5790,16 @@ class Gemma3VisionModel(MmprojModel):
 
 @ModelBase.register("DeepseekOCRForCausalLM")
 class DeepseekOCRVisionModel(MmprojModel):
-    def __init__(self, *args, **kwargs): 
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
+
         proc_fname = self.dir_model / "processor_config.json"
-        
+
         if proc_fname.is_file():
             with open(proc_fname, "r") as f:
                 self.preprocessor_config = json.load(f)
-        
-    
+
+
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
         hparams = self.hparams
@@ -5857,7 +5857,7 @@ class DeepseekOCRVisionModel(MmprojModel):
             return [(self.map_tensor_name(name, try_suffixes=("",)), data_torch)]
 
         return [(self.map_tensor_name(name), data_torch)]
-    
+
 
 @ModelBase.register("Gemma3nForConditionalGeneration")
 class Gemma3NModel(Gemma3Model):
