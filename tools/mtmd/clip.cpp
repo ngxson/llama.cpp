@@ -5412,6 +5412,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_VOXTRAL:
         case PROJECTOR_TYPE_JANUS_PRO:
         case PROJECTOR_TYPE_COGVLM:
+        case PROJECTOR_TYPE_DEEPSEEKOCR:
             {
                 // do nothing
             } break;
@@ -5552,6 +5553,10 @@ bool clip_is_llava(const struct clip_ctx * ctx) {
 
 bool clip_is_gemma3(const struct clip_ctx * ctx) {
     return ctx->proj_type() == PROJECTOR_TYPE_GEMMA3;
+}
+
+bool clip_is_deepseekocr(const struct clip_ctx * ctx) {
+    return ctx->proj_type() == PROJECTOR_TYPE_DEEPSEEKOCR;
 }
 
 bool clip_has_vision_encoder(const struct clip_ctx * ctx) {
