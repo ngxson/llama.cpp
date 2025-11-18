@@ -290,7 +290,7 @@ class Keys:
         class SAM:
             BLOCK_COUNT         = "clip.vision.sam.block_count"
             EMBEDDING_LENGTH    = "clip.vision.sam.embedding_length"
-            
+
     class ClipAudio:
         NUM_MEL_BINS        = "clip.audio.num_mel_bins"
         EMBEDDING_LENGTH    = "clip.audio.embedding_length"
@@ -1064,8 +1064,8 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.V_SAM_NECK:                "v.sam.neck.{bid}",
     MODEL_TENSOR.V_SAM_NET_2:               "v.sam.net_2",
     MODEL_TENSOR.V_SAM_NET_3:               "v.sam.net_3",
-    MODEL_TENSOR.V_ENC_EMBD_IMGNL:          "v.image_newline_embd", # Deepseek-OCR
-    MODEL_TENSOR.V_ENC_EMBD_VSEP:           "v.view_separator_embd", # Deepseek-OCR
+    MODEL_TENSOR.V_ENC_EMBD_IMGNL:          "model.image_newline", # Deepseek-OCR
+    MODEL_TENSOR.V_ENC_EMBD_VSEP:           "model.view_seperator", # Deepseek-OCR
     # audio (mtmd)
     MODEL_TENSOR.A_ENC_EMBD_POS:            "a.position_embd",
     MODEL_TENSOR.A_ENC_CONV1D:              "a.conv1d.{bid}",
