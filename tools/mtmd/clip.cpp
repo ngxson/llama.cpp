@@ -835,7 +835,15 @@ struct clip_graph {
         ggml_tensor * global_features_2 = build_dp_ocr_clip(inp_raw, global_features_1);
 
         // torch global_features = torch.cat((global_features_2[:, 1:], global_features_1.flatten(2).permute(0, 2, 1)), dim=-1)
-        ggml_tensor * global_features = ggml_concat(ctx0, global_features_1, global_features_2, 0);
+        global_features_1 = ggml_permute(ctx0, global_features_1,2,1,0,3);
+        global_features_1 = ggml_cont(ctx0, global_features_1);
+        global_features_1 = ggml_reshape_2d(ctx0, global_features_1, n_embd, n_patches);
+        // remove CLS token
+        global_features_2 = ggml_view_2d(ctx0, global_features_2,
+            n_embd, n_patches,
+            ggml_row_size(global_features_2->type, n_embd), 0);
+
+        ggml_tensor * global_features = ggml_concat(ctx0, global_features_2, global_features_1, 1);
         global_features = build_global_local_features(
             ctx0,
             global_features,
@@ -843,6 +851,7 @@ struct clip_graph {
             n_patches_x,
             n_embd
         );
+        ggml_build_forward_expand(gf, global_features);
 
         return gf;
     }
@@ -858,8 +867,8 @@ struct clip_graph {
                                               int            n_dim) {
         GGML_ASSERT(model.image_newline != nullptr);
         GGML_ASSERT(model.view_seperator != nullptr);
-        GGML_ASSERT(global_features->ne[0] == (int64_t) n_dim);
-        GGML_ASSERT(global_features->ne[1] == (int64_t) (h * w));
+        GGML_ASSERT(global_features->ne[0] == static_cast<int64_t>(n_dim));
+        GGML_ASSERT(global_features->ne[1] == static_cast<int64_t>(2 * (h * w)));
 
         // 1) global_features: [n_dim, h*w] -> [n_dim, w, h] -> [h, w, n_dim]
         ggml_tensor * t = ggml_reshape_3d(ctx0, global_features, n_dim, w, h);  // (n_dim, w, h)
@@ -1552,8 +1561,7 @@ struct clip_graph {
 
         // for selecting learned pos embd, used by ViT
         struct ggml_tensor * positions = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos);
-        ggml_set_name(positions, "positions");
-        ggml_set_input(positions);
+        cb(positions, "positions", -1);
         ggml_tensor * learned_pos_embd = ggml_get_rows(ctx0, model.position_embeddings, positions);
 
 
@@ -3607,6 +3615,9 @@ struct clip_model_loader {
                     model.net_2    = get_tensor(string_format(TN_SAM_NET, 2, "weight"));
                     model.net_3    = get_tensor(string_format(TN_SAM_NET, 3, "weight"));
                 }
+                model.image_newline = get_tensor(TN_IMAGE_NEWLINE, false);
+                model.view_seperator = get_tensor(TN_IMAGE_SEPERATOR, false);
+
                 break;
             default:
                 GGML_ASSERT(false && "unknown projector type");
