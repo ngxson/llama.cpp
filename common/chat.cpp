@@ -3031,8 +3031,8 @@ static common_chat_params common_chat_templates_apply_legacy(
         const auto & msg = inputs.messages[i];
         const auto & content = contents[i];
         chat.push_back({msg.role.c_str(), content.c_str()});
-        size_t msg_sz = msg.role.size() + content.size();
-        alloc_size += msg_sz + (msg_sz / 4); // == msg_sz * 1.25 but avoiding float ops
+        size_t msg_size = msg.role.size() + content.size();
+        alloc_size += msg_size + (msg_size / 4); // == msg_size * 1.25 but avoiding float ops
     }
 
     std::vector<char> buf(alloc_size);
