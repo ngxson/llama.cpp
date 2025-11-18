@@ -23,6 +23,20 @@ using json = nlohmann::ordered_json;
 
 constexpr int HTTP_POLLING_SECONDS = 1;
 
+// state diagram: https://github.com/ggml-org/llama.cpp/pull/9283
+enum slot_state {
+    SLOT_STATE_IDLE,
+    SLOT_STATE_STARTED, // TODO: this state is only used for setting up the initial prompt processing; maybe merge it with launch_slot_with_task in the future
+    SLOT_STATE_PROCESSING_PROMPT,
+    SLOT_STATE_DONE_PROMPT,
+    SLOT_STATE_GENERATING,
+};
+
+enum server_state {
+    SERVER_STATE_LOADING_MODEL,  // Server is starting up, model not fully loaded yet
+    SERVER_STATE_READY,          // Server is ready and model is loaded
+};
+
 static bool server_task_type_need_embd(server_task_type task_type) {
     switch (task_type) {
         case SERVER_TASK_TYPE_EMBEDDING:

@@ -1,12 +1,17 @@
-#include "server-common.h"
 #include "server-task.h"
 #include "server-queue.h"
 
-#include <chrono>
-#include <condition_variable>
-#include <deque>
-#include <mutex>
-#include <unordered_set>
+#include "log.h"
+
+#define QUE_INF(fmt, ...) LOG_INF("que  %12.*s: " fmt, 12, __func__, __VA_ARGS__)
+#define QUE_WRN(fmt, ...) LOG_WRN("que  %12.*s: " fmt, 12, __func__, __VA_ARGS__)
+#define QUE_ERR(fmt, ...) LOG_ERR("que  %12.*s: " fmt, 12, __func__, __VA_ARGS__)
+#define QUE_DBG(fmt, ...) LOG_DBG("que  %12.*s: " fmt, 12, __func__, __VA_ARGS__)
+
+#define RES_INF(fmt, ...) LOG_INF("res  %12.*s: " fmt, 12, __func__, __VA_ARGS__)
+#define RES_WRN(fmt, ...) LOG_WRN("res  %12.*s: " fmt, 12, __func__, __VA_ARGS__)
+#define RES_ERR(fmt, ...) LOG_ERR("res  %12.*s: " fmt, 12, __func__, __VA_ARGS__)
+#define RES_DBG(fmt, ...) LOG_DBG("res  %12.*s: " fmt, 12, __func__, __VA_ARGS__)
 
 //
 // server_queue
@@ -150,7 +155,7 @@ void server_queue::cleanup_pending_task(int id_target) {
 //
 
 void server_response::add_waiting_task_id(int id_task) {
-    SRV_DBG("add task %d to waiting list. current waiting = %d (before add)\n", id_task, (int) waiting_task_ids.size());
+    RES_DBG("add task %d to waiting list. current waiting = %d (before add)\n", id_task, (int) waiting_task_ids.size());
 
     std::unique_lock<std::mutex> lock(mutex_results);
     waiting_task_ids.insert(id_task);
@@ -160,13 +165,13 @@ void server_response::add_waiting_tasks(const std::vector<server_task> & tasks) 
     std::unique_lock<std::mutex> lock(mutex_results);
 
     for (const auto & task : tasks) {
-        SRV_DBG("add task %d to waiting list. current waiting = %d (before add)\n", task.id, (int) waiting_task_ids.size());
+        RES_DBG("add task %d to waiting list. current waiting = %d (before add)\n", task.id, (int) waiting_task_ids.size());
         waiting_task_ids.insert(task.id);
     }
 }
 
 void server_response::remove_waiting_task_id(int id_task) {
-    SRV_DBG("remove task %d from waiting list. current waiting = %d (before remove)\n", id_task, (int) waiting_task_ids.size());
+    RES_DBG("remove task %d from waiting list. current waiting = %d (before remove)\n", id_task, (int) waiting_task_ids.size());
 
     std::unique_lock<std::mutex> lock(mutex_results);
     waiting_task_ids.erase(id_task);
@@ -182,7 +187,7 @@ void server_response::remove_waiting_task_ids(const std::unordered_set<int> & id
     std::unique_lock<std::mutex> lock(mutex_results);
 
     for (const auto & id_task : id_tasks) {
-        SRV_DBG("remove task %d from waiting list. current waiting = %d (before remove)\n", id_task, (int) waiting_task_ids.size());
+        RES_DBG("remove task %d from waiting list. current waiting = %d (before remove)\n", id_task, (int) waiting_task_ids.size());
         waiting_task_ids.erase(id_task);
     }
 }
@@ -192,7 +197,7 @@ server_task_result_ptr server_response::recv(const std::unordered_set<int> & id_
         std::unique_lock<std::mutex> lock(mutex_results);
         condition_results.wait(lock, [&]{
             if (!running) {
-                SRV_DBG("%s : queue result stop\n", __func__);
+                RES_DBG("%s : queue result stop\n", __func__);
                 std::terminate(); // we cannot return here since the caller is HTTP code
             }
             return !queue_results.empty();
@@ -224,7 +229,7 @@ server_task_result_ptr server_response::recv_with_timeout(const std::unordered_s
 
         std::cv_status cr_res = condition_results.wait_for(lock, std::chrono::seconds(timeout));
         if (!running) {
-            SRV_DBG("%s : queue result stop\n", __func__);
+            RES_DBG("%s : queue result stop\n", __func__);
             std::terminate(); // we cannot return here since the caller is HTTP code
         }
         if (cr_res == std::cv_status::timeout) {
@@ -241,12 +246,12 @@ server_task_result_ptr server_response::recv(int id_task) {
 }
 
 void server_response::send(server_task_result_ptr && result) {
-    SRV_DBG("sending result for task id = %d\n", result->id);
+    RES_DBG("sending result for task id = %d\n", result->id);
 
     std::unique_lock<std::mutex> lock(mutex_results);
     for (const auto & id_task : waiting_task_ids) {
         if (result->id == id_task) {
-            SRV_DBG("task id = %d pushed to result queue\n", result->id);
+            RES_DBG("task id = %d pushed to result queue\n", result->id);
 
             queue_results.emplace_back(std::move(result));
             condition_results.notify_all();

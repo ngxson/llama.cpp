@@ -10,9 +10,32 @@
 #include <unordered_set>
 #include <list>
 
+// TODO: prevent including the whole server-common.h as we only use server_tokens
 #include "server-common.h"
 
 using json = nlohmann::ordered_json;
+
+enum server_task_type {
+    SERVER_TASK_TYPE_COMPLETION,
+    SERVER_TASK_TYPE_EMBEDDING,
+    SERVER_TASK_TYPE_RERANK,
+    SERVER_TASK_TYPE_INFILL,
+    SERVER_TASK_TYPE_CANCEL,
+    SERVER_TASK_TYPE_NEXT_RESPONSE,
+    SERVER_TASK_TYPE_METRICS,
+    SERVER_TASK_TYPE_SLOT_SAVE,
+    SERVER_TASK_TYPE_SLOT_RESTORE,
+    SERVER_TASK_TYPE_SLOT_ERASE,
+    SERVER_TASK_TYPE_SET_LORA,
+};
+
+// TODO: change this to more generic "response_format" to replace the "format_response_*" in server-common
+enum oaicompat_type {
+    OAICOMPAT_TYPE_NONE,
+    OAICOMPAT_TYPE_CHAT,
+    OAICOMPAT_TYPE_COMPLETION,
+    OAICOMPAT_TYPE_EMBEDDING,
+};
 
 struct task_params {
     bool stream          = true;
