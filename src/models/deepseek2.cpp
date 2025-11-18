@@ -74,6 +74,7 @@ llm_build_deepseek2::llm_build_deepseek2(const llama_model & model, const llm_gr
             cur = build_attn(inp_attn,
                         model.layers[il].wo, NULL,
                         Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, kq_scale, il);
+            cb(cur, "attn_out", il);
         }
         else {
             ggml_tensor * q = NULL;
