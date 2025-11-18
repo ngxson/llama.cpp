@@ -17,6 +17,8 @@ set(TARGET_SRCS
     server-http.h
     server-task.cpp
     server-task.h
+    server-queue.cpp
+    server-queue.h
     server-common.cpp
     server-common.h
 )
