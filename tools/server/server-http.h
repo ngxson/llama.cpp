@@ -76,3 +76,79 @@ struct server_http_context {
     // for debugging
     std::string listening_address;
 };
+
+
+
+#include <queue>
+#include <mutex>
+#include <mutex>
+#include <condition_variable>
+
+struct server_http_client : server_http_res {
+    std::function<void()> cleanup = nullptr;
+public:
+    server_http_client(const std::string & method,
+                       const std::string & host,
+                       int port,
+                       const std::string & path,
+                       const std::map<std::string, std::string> & headers,
+                       const std::string & body,
+                       const std::function<bool()> should_stop);
+    ~server_http_client() {
+        if (cleanup) {
+            cleanup();
+        }
+    }
+private:
+    std::thread thread;
+    struct msg_t {
+        std::map<std::string, std::string> headers;
+        int status = 0;
+        std::string data;
+    };
+    // simple implementation of a pipe
+    template<typename T>
+    struct pipe_t {
+        std::mutex mutex;
+        std::condition_variable cv;
+        std::queue<T> queue;
+        std::atomic<bool> writer_closed{false};
+        std::atomic<bool> reader_closed{false};
+        void close_write() {
+            writer_closed.store(true);
+            cv.notify_all();
+        }
+        void close_read() {
+            reader_closed.store(true);
+            cv.notify_all();
+        }
+        bool read(T & output, const std::function<bool()> & should_stop) {
+            std::unique_lock<std::mutex> lk(mutex);
+            constexpr auto poll_interval = std::chrono::milliseconds(500);
+            while (true) {
+                if (!queue.empty()) {
+                    output = std::move(queue.front());
+                    queue.pop();
+                    return true;
+                }
+                if (writer_closed.load()) {
+                    return false; // clean EOF
+                }
+                if (should_stop()) {
+                    close_read(); // signal broken pipe to writer
+                    return false; // cancelled / reader no longer alive
+                }
+                cv.wait_for(lk, poll_interval);
+            }
+        }
+        bool write(T && data) {
+            std::lock_guard<std::mutex> lk(mutex);
+            if (reader_closed.load()) {
+                return false; // broken pipe
+            }
+            queue.push(std::move(data));
+            cv.notify_one();
+            return true;
+        }
+    };
+};

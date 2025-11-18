@@ -5107,6 +5107,109 @@ public:
         return res;
     };
 
+    //
+    // router server
+    //
+    server_instances instances;
+    server_http_context::handler_t proxy_get = [this](const server_http_req & req) {
+        std::string method = "GET";
+        std::string model = req.get_param("model");
+        if (req.path == "/props" && model.empty()) {
+            return handle_default_props(req);
+        }
+        instances.ensure_model_loaded(model);
+        return handle_proxy(req, method, model);
+    };
+    server_http_context::handler_t proxy_post = [this](const server_http_req & req) {
+        std::string method = "POST";
+        json body = json::parse(req.body);
+        std::string model = json_value(body, "model", std::string());
+        instances.ensure_model_loaded(model);
+        return handle_proxy(req, method, model);
+    };
+    server_http_res_ptr handle_proxy(const server_http_req & req, std::string & method, std::string model) {
+        auto meta = instances.get_meta(model);
+        if (!meta.has_value()) {
+            auto res = std::make_unique<server_res_generator>(ctx_server);
+            res->error(format_error_response("model is unavailable", ERROR_TYPE_UNAVAILABLE));
+            return res;
+        }
+        server_http_res_ptr res(new server_http_client(
+            method, params.hostname, meta->port,
+            req.path, req.headers, req.body, req.should_stop
+        ));
+        return res;
+    }
+    server_http_res_ptr handle_default_props(const server_http_req &) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
+        // this is a dummy response to make sure webui doesn't break
+        res->ok({
+            {"model_alias", "llama-server"},
+            {"model_path",  "none"},
+            {"default_generation_settings", {
+                {"params", json{}},
+                {"n_ctx",  0},
+            }},
+        });
+        return res;
+    }
+    server_http_context::handler_t post_router_models_load = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
+        json body = json::parse(req.body);
+        std::string model = json_value(body, "model", std::string());
+        instances.create(model);
+        res->ok({{"success", true}});
+        return res;
+    };
+    server_http_context::handler_t post_router_models_status = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
+        json body = json::parse(req.body);
+        std::string model = json_value(body, "model", std::string());
+        std::string value = json_value(body, "value", std::string());
+        if (!instances.get_meta(model).has_value()) {
+            auto res = std::make_unique<server_res_generator>(ctx_server);
+            res->error(format_error_response("model is unavailable", ERROR_TYPE_UNAVAILABLE));
+            return res;
+        }
+        instances.update_status(model, value);
+        res->ok({{"success", true}});
+        return res;
+    };
+    server_http_context::handler_t get_router_models = [this](const server_http_req &) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
+        json models_json = json::array();
+        auto models = common_list_cached_models();
+        for (const auto & model : models) {
+            auto model_name = model.to_string();
+            auto meta = instances.get_meta(model_name);
+            bool found = meta.has_value();
+            models_json.push_back(json {
+                {"model",  model_name},
+                {"name",   model_name},
+                {"id",     model_name},
+                // TODO: other fields...
+                {"status", {
+                    {"value", found ? meta->status : "unloaded"}
+                }},
+            });
+        }
+        res->ok({{"data", models_json}});
+        return res;
+    };
+    server_http_context::handler_t post_router_models_unload = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
+        json body = json::parse(req.body);
+        std::string model = json_value(body, "model", std::string());
+        if (!instances.get_meta(model).has_value()) {
+            auto res = std::make_unique<server_res_generator>(ctx_server);
+            res->error(format_error_response("model is unavailable", ERROR_TYPE_UNAVAILABLE));
+            return res;
+        }
+        instances.kill_single(model);
+        res->ok({{"success", true}});
+        return res;
+    };
+
 private:
     std::unique_ptr<server_res_generator> handle_completions_impl(
                 server_task_type type,
@@ -5500,7 +5603,7 @@ static server_http_context::handler_t ex_wrapper(server_http_context::handler_t 
     };
 }
 
-int main(int argc, char ** argv) {
+int main(int argc, char ** argv, char ** envp) {
     // own arguments required by this example
     common_params params;
 
@@ -5548,6 +5651,38 @@ int main(int argc, char ** argv) {
     // register API routes
     server_routes routes(params, ctx_server, ctx_http);
 
+    // hacky, replace handlers with proxy handlers if this is a router server
+    bool is_router_server = params.model.path == DEFAULT_MODEL_PATH;
+    if (is_router_server) {
+        // setup server instances manager
+        routes.instances.envp = envp;
+        routes.instances.router_port = params.port;
+
+        // proxy handlers
+        routes.get_props = routes.proxy_get;
+        routes.post_props = routes.proxy_post;
+        routes.post_completions = routes.proxy_post;
+        routes.post_completions_oai = routes.proxy_post;
+        routes.post_chat_completions = routes.proxy_post;
+        routes.post_infill = routes.proxy_post;
+        routes.post_embeddings = routes.proxy_post;
+        routes.post_embeddings_oai = routes.proxy_post;
+        routes.post_rerank = routes.proxy_post;
+        routes.post_tokenize = routes.proxy_post;
+        routes.post_detokenize = routes.proxy_post;
+        routes.post_apply_template = routes.proxy_post;
+        routes.get_lora_adapters = routes.proxy_get;
+        routes.post_lora_adapters = routes.proxy_post;
+        routes.get_slots = routes.proxy_get;
+        routes.post_slots = routes.proxy_post;
+
+        // custom routes for router
+        routes.get_models = routes.get_router_models;
+        ctx_http.post("/models/load",   ex_wrapper(routes.post_router_models_load));
+        ctx_http.post("/models/unload", ex_wrapper(routes.post_router_models_unload));
+        ctx_http.post("/models/status", ex_wrapper(routes.post_router_models_status));
+    }
+
     ctx_http.get ("/health",              ex_wrapper(routes.get_health)); // public endpoint (no API key check)
     ctx_http.get ("/v1/health",           ex_wrapper(routes.get_health)); // public endpoint (no API key check)
     ctx_http.get ("/metrics",             ex_wrapper(routes.get_metrics));
@@ -5593,6 +5728,8 @@ int main(int argc, char ** argv) {
         llama_backend_free();
     };
 
+if (!is_router_server) { // HACKY
+
     // start the HTTP server before loading the model to be able to serve /health requests
     if (!ctx_http.start()) {
         clean_up();
@@ -5630,6 +5767,8 @@ int main(int argc, char ** argv) {
         ctx_server.queue_tasks.terminate();
     };
 
+} // end of !is_router_server
+
 #if defined (__unix__) || (defined (__APPLE__) && defined (__MACH__))
     struct sigaction sigint_action;
     sigint_action.sa_handler = signal_handler;
@@ -5644,6 +5783,23 @@ int main(int argc, char ** argv) {
     SetConsoleCtrlHandler(reinterpret_cast<PHANDLER_ROUTINE>(console_ctrl_handler), true);
 #endif
 
+if (!is_router_server) { // HACKY
+
+    // notify to main router if needed
+    char * router_port = std::getenv("LLAMA_SERVER_ROUTER_PORT");
+    if (router_port != nullptr) {
+        SRV_INF("%s: notifying to main router on port %s\n", __func__, router_port);
+        server_http_client notify_router(
+            "POST", params.hostname, std::atoi(router_port),
+            "/models/status",
+            { {"Content-Type", "application/json"} },
+            json {{ "model", params.model_alias }, { "value", "loaded" }}.dump(),
+            []() { return false; }
+        );
+        std::string dummy;
+        notify_router.next(dummy); // ignore the response
+    }
+
     LOG_INF("%s: server is listening on %s\n", __func__, ctx_http.listening_address.c_str());
     LOG_INF("%s: starting the main loop...\n", __func__);
     // this call blocks the main thread until queue_tasks.terminate() is called
@@ -5654,6 +5810,19 @@ int main(int argc, char ** argv) {
         ctx_http.thread.join();
     }
     llama_memory_breakdown_print(ctx_server.ctx);
+} else {
+    shutdown_handler = [&](int) {
+        ctx_http.stop();
+    };
+    if (!ctx_http.start()) {
+        LOG_ERR("%s: exiting due to HTTP server error\n", __func__);
+        return 1;
+    }
+    ctx_http.is_ready.store(true);
+    ctx_http.thread.join(); // keep the main thread alive
+    // kill_all_instances(routes.map_model_to_port); // why this also kill the main instance?
+    LOG_INF("%s: server stopped\n", __func__);
+} // end of !is_router_server
 
     return 0;
 }
