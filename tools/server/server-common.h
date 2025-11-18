@@ -59,13 +59,6 @@ static T json_value(const json & body, const std::string & key, const T & defaul
     }
 }
 
-enum stop_type {
-    STOP_TYPE_NONE,
-    STOP_TYPE_EOS,
-    STOP_TYPE_WORD,
-    STOP_TYPE_LIMIT,
-};
-
 // https://community.openai.com/t/openai-chat-list-of-error-codes-and-types/357791/11
 enum error_type {
     ERROR_TYPE_INVALID_REQUEST,

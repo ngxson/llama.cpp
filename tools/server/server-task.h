@@ -2,9 +2,6 @@
 
 #include "common.h"
 #include "llama.h"
-#include "chat.h"
-#include "sampling.h"
-#include "json-schema-to-grammar.h"
 
 #include <string>
 #include <unordered_set>
@@ -35,6 +32,13 @@ enum oaicompat_type {
     OAICOMPAT_TYPE_CHAT,
     OAICOMPAT_TYPE_COMPLETION,
     OAICOMPAT_TYPE_EMBEDDING,
+};
+
+enum stop_type {
+    STOP_TYPE_NONE,
+    STOP_TYPE_EOS,
+    STOP_TYPE_WORD,
+    STOP_TYPE_LIMIT,
 };
 
 struct task_params {
