@@ -7,6 +7,16 @@
 #include <mutex>
 #include <condition_variable>
 
+// pid_t is defined in <sys/types.h> on POSIX systems. On Windows, this
+// header doesn't exist and the server code is not expected to build/run,
+// but provide a minimal fallback typedef to avoid include errors when this
+// header is parsed in non-POSIX builds.
+#if defined(_WIN32)
+using pid_t = int;
+#else
+#include <sys/types.h>
+#endif
+
 enum server_model_status {
     SERVER_MODEL_STATUS_UNLOADED,
     SERVER_MODEL_STATUS_LOADING,
@@ -34,6 +44,7 @@ static std::string server_model_status_to_string(server_model_status status) {
         case SERVER_MODEL_STATUS_LOADING:  return "loading";
         case SERVER_MODEL_STATUS_LOADED:   return "loaded";
         case SERVER_MODEL_STATUS_FAILED:   return "failed";
+        default:                           return "unknown";
     }
 }
 

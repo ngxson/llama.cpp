@@ -9,8 +9,13 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+
+#if !defined(_WIN32)
 #include <spawn.h>
-#include <signal.h> // for kill()
+#include <signal.h>   // kill()
+#include <sys/wait.h> // waitpid()
+#include <unistd.h>   // readlink()
+#endif
 
 #if defined(__APPLE__) && defined(__MACH__)
 // macOS: use _NSGetExecutablePath to get the executable path
