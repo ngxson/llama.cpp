@@ -210,7 +210,7 @@ void server_models::load(const std::string & name) {
     inst.meta.port   = get_free_port(base_params.hostname);
     inst.meta.status = SERVER_MODEL_STATUS_LOADING;
 
-    process_handle_t child_pid = SERVER_DEFAULT_PID;
+    PROCESS_HANDLE_T child_pid = SERVER_DEFAULT_PID;
     {
         std::string exec_path = get_server_exec_path().string();
         SRV_INF("spawning server instance with name=%s on port %d\n", inst.meta.name.c_str(), inst.meta.port);

@@ -7,17 +7,19 @@
 #include <mutex>
 #include <condition_variable>
 
-// pid_t is defined in <sys/types.h> on POSIX systems. On Windows, this
-// header doesn't exist and the server code is not expected to build/run,
-// but provide a minimal fallback typedef to avoid include errors when this
-// header is parsed in non-POSIX builds.
 #if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#   define NOMINMAX
+#endif
+#include <windows.h>
+
 #define SERVER_DEFAULT_PID NULL
-using process_handle_t = HANDLE;
+#define PROCESS_HANDLE_T HANDLE
 #else
 #include <sys/types.h>
 #define SERVER_DEFAULT_PID 0
-using process_handle_t = pid_t;
+#define PROCESS_HANDLE_T pid_t
 #endif
 
 enum server_model_status {
@@ -63,7 +65,7 @@ struct server_model_meta {
 struct server_models {
 private:
     struct instance_t {
-        process_handle_t pid = SERVER_DEFAULT_PID;
+        PROCESS_HANDLE_T pid = SERVER_DEFAULT_PID;
         std::thread th;
         server_model_meta meta;
     };
