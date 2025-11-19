@@ -17,17 +17,67 @@
 #include <unistd.h>   // readlink()
 #endif
 
+#if defined(_WIN32)
+#include <windows.h>
+#include <process.h>
+#include <tlhelp32.h>
+#endif
+
 #if defined(__APPLE__) && defined(__MACH__)
 // macOS: use _NSGetExecutablePath to get the executable path
 #include <mach-o/dyld.h>
 #include <limits.h>
 #endif
 
+#if defined(_WIN32)
+// UTF-8 to UTF-16 helper
+static std::wstring utf8_to_wstring(const std::string& str) {
+    if (str.empty()) return std::wstring();
+    int size = MultiByteToWideChar(CP_UTF8, 0, str.data(), (int)str.length(), nullptr, 0);
+    if (size == 0) throw std::runtime_error("UTF8 to WideChar size failed");
+    std::wstring wstr(size, 0);
+    MultiByteToWideChar(CP_UTF8, 0, str.data(), (int)str.length(), wstr.data(), size);
+    return wstr;
+}
+
+// Proper Windows command-line argument quoting (handles ", \\, etc.)
+static std::wstring quote_arg(const std::wstring& arg) {
+    if (arg.find_first_of(L" \t\"") == std::wstring::npos && !arg.empty()) {
+        return arg;
+    }
+    std::wstring quoted = L"\"";
+    for (size_t i = 0; i < arg.length(); ) {
+        if (arg[i] == L'\\') {
+            size_t count = 1;
+            while (i + count < arg.length() && arg[i + count] == L'\\') ++count;
+            if (i + count < arg.length() && arg[i + count] == L'"') {
+                quoted += std::wstring(count * 2, L'\\') + L'"';
+                i += count + 1;
+                continue;
+            } else {
+                quoted += std::wstring(count, L'\\');
+                i += count;
+            }
+        } else if (arg[i] == L'"') {
+            quoted += L"\\\"";
+            ++i;
+        } else {
+            quoted += arg[i++];
+        }
+    }
+    quoted += L"\"";
+    return quoted;
+}
+#endif
+
 static std::filesystem::path get_server_exec_path() {
-#if defined(_MSC_VER)
-    wchar_t path[FILENAME_MAX] = { 0 };
-    GetModuleFileNameW(nullptr, path, FILENAME_MAX);
-    return std::filesystem::path(path);
+#if defined(_WIN32)
+    wchar_t buf[32768] = { 0 };  // Large buffer to handle long paths
+    DWORD len = GetModuleFileNameW(nullptr, buf, _countof(buf));
+    if (len == 0 || len >= _countof(buf)) {
+        throw std::runtime_error("GetModuleFileNameW failed or path too long");
+    }
+    return std::filesystem::path(buf);
 #elif defined(__APPLE__) && defined(__MACH__)
     char small_path[PATH_MAX];
     uint32_t size = sizeof(small_path);
@@ -84,7 +134,11 @@ server_models::server_models(
             /* port        */ 0,
             /* status      */ SERVER_MODEL_STATUS_UNLOADED
         };
-        mapping[meta.name] = instance_t{0, std::thread(), meta};
+        mapping[meta.name] = instance_t{
+            /* pid  */ SERVER_DEFAULT_PID,
+            /* th   */ std::thread(),
+            /* meta */ meta
+        };
     }
 }
 
@@ -156,7 +210,7 @@ void server_models::load(const std::string & name) {
     inst.meta.port   = get_free_port(base_params.hostname);
     inst.meta.status = SERVER_MODEL_STATUS_LOADING;
 
-    pid_t pid = 0;
+    process_handle_t child_pid = SERVER_DEFAULT_PID;
     {
         std::string exec_path = get_server_exec_path().string();
         SRV_INF("spawning server instance with name=%s on port %d\n", inst.meta.name.c_str(), inst.meta.port);
@@ -187,24 +241,90 @@ void server_models::load(const std::string & name) {
             SRV_INF("  %s\n", arg.c_str());
         }
 
+#if defined(_WIN32)
+        STARTUPINFOW si = { sizeof(si) };
+        PROCESS_INFORMATION pi = { };
+
+        // Executable path (wide)
+        auto exec_path_fs = get_server_exec_path();
+        std::wstring wexec = exec_path_fs.wstring();
+
+        // Build command line (wide, properly quoted)
+        std::wstring cmdline = quote_arg(wexec);
+
+        for (const auto& arg : child_args) {
+            cmdline += L" ";
+            std::wstring warg = utf8_to_wstring(arg);
+            cmdline += quote_arg(warg);
+        }
+
+        // Writable null-terminated buffer for command line
+        std::vector<wchar_t> cmdline_buf(cmdline.begin(), cmdline.end());
+        cmdline_buf.push_back(L'\0');
+
+        // Unicode environment block
+        std::wstring env_str;
+        for (const auto& var : child_env) {
+            env_str += utf8_to_wstring(var) + L'\0';
+        }
+        env_str += L'\0'; // double null terminator
+
+        DWORD flags = CREATE_UNICODE_ENVIRONMENT;
+
+        if (!CreateProcessW(
+                nullptr,                  // lpApplicationName (quoted exec is in cmdline)
+                cmdline_buf.data(),       // lpCommandLine – writable
+                nullptr, nullptr, FALSE, flags,
+                const_cast<wchar_t*>(env_str.c_str()), // lpEnvironment – Unicode block
+                nullptr,                  // lpCurrentDirectory
+                &si, &pi)) {
+            DWORD err = GetLastError();
+            SRV_ERR("CreateProcessW failed with error %lu\n", err);
+            throw std::runtime_error("failed to spawn server instance");
+        }
+
+        CloseHandle(pi.hThread);
+        child_pid = pi.hProcess;
+        SRV_INF("spawned instance with handle %p\n", (void*)pi.hProcess);
+#else
         std::vector<char *> argv = to_char_ptr_array(child_args);
         std::vector<char *> envp = to_char_ptr_array(child_env);
 
+        pid_t pid = 0;
         if (posix_spawn(&pid, exec_path.c_str(), NULL, NULL, argv.data(), envp.data()) != 0) {
             perror("posix_spawn");
             throw std::runtime_error("failed to spawn server instance");
         } else {
-            inst.pid = pid;
+            child_pid = pid;
             SRV_INF("spawned instance with pid %d\n", pid);
         }
+#endif
     }
 
-    inst.th = std::thread([this, name, pid]() {
+    inst.pid = child_pid;
+    inst.th = std::thread([this, name, child_pid]() {
         int exit_code = 0;
-        waitpid(pid, &exit_code, 0);
-        SRV_INF("instance with pid %d exited with status %d\n", pid, exit_code);
-        // note: if this is reached before std::move(inst) happens,
-        //       this will be blocked until lock_guard is released (no race condition)
+#if defined(_WIN32)
+        WaitForSingleObject(child_pid, INFINITE);
+        DWORD dwExitCode = 0;
+        if (GetExitCodeProcess(child_pid, &dwExitCode)) {
+            exit_code = (int)dwExitCode;
+        } else {
+            exit_code = -1; // error
+        }
+        CloseHandle(child_pid);
+        {
+            std::lock_guard<std::mutex> lk(mutex);
+            auto it = mapping.find(name);
+            if (it != mapping.end()) {
+                it->second.pid = SERVER_DEFAULT_PID;
+            }
+        }
+        SRV_INF("instance with handle %p exited with status %d\n", child_pid, exit_code);
+#else
+        waitpid(child_pid, &exit_code, 0);
+        SRV_INF("instance with pid %d exited with status %d\n", child_pid, exit_code);
+#endif
         this->update_status(name, exit_code == 0 ? SERVER_MODEL_STATUS_UNLOADED : SERVER_MODEL_STATUS_FAILED);
     });
     if (inst.th.joinable()) {
@@ -219,9 +339,15 @@ void server_models::unload(const std::string & name) {
     std::lock_guard<std::mutex> lk(mutex);
     auto it = mapping.find(name);
     if (it != mapping.end()) {
-        if (it->second.pid != 0) {
-            SRV_INF("killing instance %s with pid %d\n", name.c_str(), it->second.pid);
+        if (it->second.pid != SERVER_DEFAULT_PID) {
+#if defined(_WIN32)
+            SRV_INF("terminating instance %s with handle %p\n", name.c_str(), (void*)it->second.pid);
+            TerminateProcess(it->second.pid, 1);
+            // Do NOT CloseHandle here – monitor thread will close it
+#else
+            SRV_INF("killing instance %s with pid %d\n", name.c_str(), (int)it->second.pid);
             kill(it->second.pid, SIGTERM);
+#endif
         }
         it->second.meta.status = SERVER_MODEL_STATUS_UNLOADED;
         cv.notify_all(); // notify status change

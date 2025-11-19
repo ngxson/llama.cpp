@@ -12,9 +12,12 @@
 // but provide a minimal fallback typedef to avoid include errors when this
 // header is parsed in non-POSIX builds.
 #if defined(_WIN32)
-using pid_t = int;
+#define SERVER_DEFAULT_PID NULL
+using process_handle_t = HANDLE;
 #else
 #include <sys/types.h>
+#define SERVER_DEFAULT_PID 0
+using process_handle_t = pid_t;
 #endif
 
 enum server_model_status {
@@ -60,7 +63,7 @@ struct server_model_meta {
 struct server_models {
 private:
     struct instance_t {
-        pid_t pid = 0;
+        process_handle_t pid = SERVER_DEFAULT_PID;
         std::thread th;
         server_model_meta meta;
     };
