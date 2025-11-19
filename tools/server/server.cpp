@@ -5605,9 +5605,9 @@ static server_http_context::handler_t ex_wrapper(server_http_context::handler_t 
             json error_data = format_error_response(message, ERROR_TYPE_SERVER);
             res->status = json_value(error_data, "code", 500);
             res->data = safe_json_to_str({{ "error", error_data }});
-            LOG_WRN("got exception: %s\n", res->data.c_str());
+            SRV_WRN("got exception: %s\n", res->data.c_str());
         } catch (const std::exception & e) {
-            LOG_ERR("got another exception: %s | while hanlding exception: %s\n", e.what(), message.c_str());
+            SRV_ERR("got another exception: %s | while hanlding exception: %s\n", e.what(), message.c_str());
             res->data = "Internal Server Error";
         }
         return res;
@@ -5736,8 +5736,9 @@ int main(int argc, char ** argv, char ** envp) {
         LOG_INF("%s: starting router server, no model will be loaded in this process\n", __func__);
         ctx_http.is_ready.store(true);
 
-        clean_up = []() {
+        clean_up = [&routes]() {
             SRV_INF("%s: cleaning up before exit...\n", __func__);
+            routes.models->unload_all();
             llama_backend_free();
         };
 
@@ -5819,9 +5820,6 @@ int main(int argc, char ** argv, char ** envp) {
 
         // when the HTTP server stops, clean up and exit
         clean_up();
-
-        // TODO @ngxson : why the models are already unloaded without this line?
-        // routes.models->unload_all();
     } else {
         LOG_INF("%s: server is listening on %s\n", __func__, ctx_http.listening_address.c_str());
         LOG_INF("%s: starting the main loop...\n", __func__);

@@ -3,24 +3,11 @@
 #include "common.h"
 #include "server-http.h"
 
+#include <sheredom/subprocess.h>
+
 #include <queue>
 #include <mutex>
 #include <condition_variable>
-
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#ifndef NOMINMAX
-#   define NOMINMAX
-#endif
-#include <windows.h>
-
-#define SERVER_DEFAULT_PID NULL
-#define PROCESS_HANDLE_T HANDLE
-#else
-#include <sys/types.h>
-#define SERVER_DEFAULT_PID 0
-#define PROCESS_HANDLE_T pid_t
-#endif
 
 enum server_model_status {
     SERVER_MODEL_STATUS_UNLOADED,
@@ -65,8 +52,9 @@ struct server_model_meta {
 struct server_models {
 private:
     struct instance_t {
-        PROCESS_HANDLE_T pid = SERVER_DEFAULT_PID;
+        subprocess_s subproc;
         std::thread th;
+        std::thread th_log; // logging thread
         server_model_meta meta;
     };
 

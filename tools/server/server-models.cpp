@@ -10,64 +10,10 @@
 #include <mutex>
 #include <condition_variable>
 
-#if !defined(_WIN32)
-#include <spawn.h>
-#include <signal.h>   // kill()
-#include <sys/wait.h> // waitpid()
-#include <unistd.h>   // readlink()
-#endif
-
-#if defined(_WIN32)
-#include <windows.h>
-#include <process.h>
-#include <tlhelp32.h>
-#endif
-
 #if defined(__APPLE__) && defined(__MACH__)
 // macOS: use _NSGetExecutablePath to get the executable path
 #include <mach-o/dyld.h>
 #include <limits.h>
-#endif
-
-#if defined(_WIN32)
-// UTF-8 to UTF-16 helper
-static std::wstring utf8_to_wstring(const std::string& str) {
-    if (str.empty()) return std::wstring();
-    int size = MultiByteToWideChar(CP_UTF8, 0, str.data(), (int)str.length(), nullptr, 0);
-    if (size == 0) throw std::runtime_error("UTF8 to WideChar size failed");
-    std::wstring wstr(size, 0);
-    MultiByteToWideChar(CP_UTF8, 0, str.data(), (int)str.length(), wstr.data(), size);
-    return wstr;
-}
-
-// Proper Windows command-line argument quoting (handles ", \\, etc.)
-static std::wstring quote_arg(const std::wstring& arg) {
-    if (arg.find_first_of(L" \t\"") == std::wstring::npos && !arg.empty()) {
-        return arg;
-    }
-    std::wstring quoted = L"\"";
-    for (size_t i = 0; i < arg.length(); ) {
-        if (arg[i] == L'\\') {
-            size_t count = 1;
-            while (i + count < arg.length() && arg[i + count] == L'\\') ++count;
-            if (i + count < arg.length() && arg[i + count] == L'"') {
-                quoted += std::wstring(count * 2, L'\\') + L'"';
-                i += count + 1;
-                continue;
-            } else {
-                quoted += std::wstring(count, L'\\');
-                i += count;
-            }
-        } else if (arg[i] == L'"') {
-            quoted += L"\\\"";
-            ++i;
-        } else {
-            quoted += arg[i++];
-        }
-    }
-    quoted += L"\"";
-    return quoted;
-}
 #endif
 
 static std::filesystem::path get_server_exec_path() {
@@ -135,9 +81,10 @@ server_models::server_models(
             /* status      */ SERVER_MODEL_STATUS_UNLOADED
         };
         mapping[meta.name] = instance_t{
-            /* pid  */ SERVER_DEFAULT_PID,
-            /* th   */ std::thread(),
-            /* meta */ meta
+            /* subproc */ subprocess_s(),
+            /* th      */ std::thread(),
+            /* th_log  */ std::thread(),
+            /* meta    */ meta
         };
     }
 }
@@ -210,7 +157,7 @@ void server_models::load(const std::string & name) {
     inst.meta.port   = get_free_port(base_params.hostname);
     inst.meta.status = SERVER_MODEL_STATUS_LOADING;
 
-    PROCESS_HANDLE_T child_pid = SERVER_DEFAULT_PID;
+    subprocess_s child_proc;
     {
         std::string exec_path = get_server_exec_path().string();
         SRV_INF("spawning server instance with name=%s on port %d\n", inst.meta.name.c_str(), inst.meta.port);
@@ -241,94 +188,52 @@ void server_models::load(const std::string & name) {
             SRV_INF("  %s\n", arg.c_str());
         }
 
-#if defined(_WIN32)
-        STARTUPINFOW si = { sizeof(si) };
-        PROCESS_INFORMATION pi = { };
-
-        // Executable path (wide)
-        auto exec_path_fs = get_server_exec_path();
-        std::wstring wexec = exec_path_fs.wstring();
-
-        // Build command line (wide, properly quoted)
-        std::wstring cmdline = quote_arg(wexec);
-
-        for (const auto& arg : child_args) {
-            cmdline += L" ";
-            std::wstring warg = utf8_to_wstring(arg);
-            cmdline += quote_arg(warg);
-        }
-
-        // Writable null-terminated buffer for command line
-        std::vector<wchar_t> cmdline_buf(cmdline.begin(), cmdline.end());
-        cmdline_buf.push_back(L'\0');
-
-        // Unicode environment block
-        std::wstring env_str;
-        for (const auto& var : child_env) {
-            env_str += utf8_to_wstring(var) + L'\0';
-        }
-        env_str += L'\0'; // double null terminator
-
-        DWORD flags = CREATE_UNICODE_ENVIRONMENT;
-
-        if (!CreateProcessW(
-                nullptr,                  // lpApplicationName (quoted exec is in cmdline)
-                cmdline_buf.data(),       // lpCommandLine – writable
-                nullptr, nullptr, FALSE, flags,
-                const_cast<wchar_t*>(env_str.c_str()), // lpEnvironment – Unicode block
-                nullptr,                  // lpCurrentDirectory
-                &si, &pi)) {
-            DWORD err = GetLastError();
-            SRV_ERR("CreateProcessW failed with error %lu\n", err);
-            throw std::runtime_error("failed to spawn server instance");
-        }
-
-        CloseHandle(pi.hThread);
-        child_pid = pi.hProcess;
-        SRV_INF("spawned instance with handle %p\n", (void*)pi.hProcess);
-#else
         std::vector<char *> argv = to_char_ptr_array(child_args);
         std::vector<char *> envp = to_char_ptr_array(child_env);
 
-        pid_t pid = 0;
-        if (posix_spawn(&pid, exec_path.c_str(), NULL, NULL, argv.data(), envp.data()) != 0) {
-            perror("posix_spawn");
+        int options = subprocess_option_no_window | subprocess_option_combined_stdout_stderr;
+        int result = subprocess_create_ex(argv.data(), options, envp.data(), &child_proc);
+        if (result != 0) {
             throw std::runtime_error("failed to spawn server instance");
-        } else {
-            child_pid = pid;
-            SRV_INF("spawned instance with pid %d\n", pid);
         }
-#endif
     }
 
-    inst.pid = child_pid;
-    inst.th = std::thread([this, name, child_pid]() {
+    inst.subproc = std::move(child_proc);
+
+    // start a thread to manage the child process
+    inst.th = std::thread([this, name, child_proc = &inst.subproc]() {
         int exit_code = 0;
-#if defined(_WIN32)
-        WaitForSingleObject(child_pid, INFINITE);
-        DWORD dwExitCode = 0;
-        if (GetExitCodeProcess(child_pid, &dwExitCode)) {
-            exit_code = (int)dwExitCode;
-        } else {
-            exit_code = -1; // error
-        }
-        CloseHandle(child_pid);
+        subprocess_join(child_proc, &exit_code);
+        // update PID and status
         {
             std::lock_guard<std::mutex> lk(mutex);
             auto it = mapping.find(name);
             if (it != mapping.end()) {
-                it->second.pid = SERVER_DEFAULT_PID;
+                it->second.meta.status = exit_code == 0
+                                            ? SERVER_MODEL_STATUS_UNLOADED
+                                            : SERVER_MODEL_STATUS_FAILED;
             }
+            cv.notify_all();
         }
-        SRV_INF("instance with handle %p exited with status %d\n", child_pid, exit_code);
-#else
-        waitpid(child_pid, &exit_code, 0);
-        SRV_INF("instance with pid %d exited with status %d\n", child_pid, exit_code);
-#endif
-        this->update_status(name, exit_code == 0 ? SERVER_MODEL_STATUS_UNLOADED : SERVER_MODEL_STATUS_FAILED);
+        SRV_INF("instance name=%s exited with status %d\n", name.c_str(), exit_code);
     });
     if (inst.th.joinable()) {
         inst.th.detach();
+    }
+
+    // start a logging thread to read stdout/stderr
+    inst.th_log = std::thread([child_proc = &inst.subproc, port = inst.meta.port]() {
+        FILE * p_stdout_stderr = subprocess_stdout(child_proc);
+        if (!p_stdout_stderr) {
+            return;
+        }
+        char buffer[4096];
+        while (fgets(buffer, sizeof(buffer), p_stdout_stderr) != nullptr) {
+            LOG("[%5d] %s", port, buffer);
+        }
+    });
+    if (inst.th_log.joinable()) {
+        inst.th_log.detach();
     }
 
     mapping[name] = std::move(inst);
@@ -339,25 +244,33 @@ void server_models::unload(const std::string & name) {
     std::lock_guard<std::mutex> lk(mutex);
     auto it = mapping.find(name);
     if (it != mapping.end()) {
-        if (it->second.pid != SERVER_DEFAULT_PID) {
-#if defined(_WIN32)
-            SRV_INF("terminating instance %s with handle %p\n", name.c_str(), (void*)it->second.pid);
-            TerminateProcess(it->second.pid, 1);
-            // Do NOT CloseHandle here – monitor thread will close it
-#else
-            SRV_INF("killing instance %s with pid %d\n", name.c_str(), (int)it->second.pid);
-            kill(it->second.pid, SIGTERM);
-#endif
+        if (it->second.meta.status == SERVER_MODEL_STATUS_LOADED) {
+            SRV_INF("unloading model instance name=%s\n", name.c_str());
+            subprocess_destroy(&it->second.subproc);
+            // status change will be handled by the managing thread
+        } else {
+            SRV_WRN("model instance name=%s is not loaded\n", name.c_str());
         }
-        it->second.meta.status = SERVER_MODEL_STATUS_UNLOADED;
-        cv.notify_all(); // notify status change
     }
 }
 
 void server_models::unload_all() {
-    auto all_meta = get_all_meta();
-    for (const auto & meta : all_meta) {
-        unload(meta.name);
+    std::vector<std::thread> to_join;
+    {
+        std::lock_guard<std::mutex> lk(mutex);
+        for (auto & [name, inst] : mapping) {
+            if (inst.meta.status == SERVER_MODEL_STATUS_LOADED) {
+                SRV_INF("unloading model instance name=%s\n", name.c_str());
+                subprocess_destroy(&inst.subproc);
+                // status change will be handled by the managing thread
+                to_join.push_back(std::move(inst.th));
+            }
+        }
+    }
+    for (auto & th : to_join) {
+        if (th.joinable()) {
+            th.join();
+        }
     }
 }
 
@@ -399,7 +312,7 @@ server_http_res_ptr server_models::proxy_request(const server_http_req & req, co
         throw std::runtime_error("model name=" + name + " is not found");
     }
     ensure_model_loaded(name); // TODO: handle failure case
-    SRV_INF("proxying request to model %s at port %d\n", name.c_str(), meta->port);
+    SRV_INF("proxying request to model %s on port %d\n", name.c_str(), meta->port);
     auto proxy = std::make_unique<server_http_proxy>(
             method,
             base_params.hostname,
