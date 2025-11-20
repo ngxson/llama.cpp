@@ -91,7 +91,7 @@
 #define TN_MM_INP_NORM_B   "mm.input_norm.bias"
 #define TN_MM_INP_PROJ     "mm.input_projection.weight" // gemma3
 #define TN_MM_SOFT_EMB_N   "mm.soft_emb_norm.weight"    // gemma3
-#define TN_MM_PROJECTOR    "mm.model.fc.weight"         // idefics3
+#define TN_MM_PROJECTOR    "mm.model.fc.%s"             // idefics3, deepseekocr
 #define TN_MM_PATCH_MERGER "mm.patch_merger.weight"     // mistral small 3.1
 #define TN_TOK_IMG_BREAK   "v.token_embd.img_break"     // pixtral
 #define TN_TOK_GLM_BOI     "adapter.boi"                // glm-edge (these embeddings are not in text model)
