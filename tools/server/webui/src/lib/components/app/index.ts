@@ -45,11 +45,14 @@ export { default as DialogConfirmation } from './dialogs/DialogConfirmation.svel
 export { default as DialogConversationSelection } from './dialogs/DialogConversationSelection.svelte';
 export { default as DialogConversationTitleUpdate } from './dialogs/DialogConversationTitleUpdate.svelte';
 export { default as DialogEmptyFileAlert } from './dialogs/DialogEmptyFileAlert.svelte';
+export { default as DialogModelInformation } from './dialogs/DialogModelInformation.svelte';
 
 // Miscellanous
 
 export { default as ActionButton } from './misc/ActionButton.svelte';
 export { default as ActionDropdown } from './misc/ActionDropdown.svelte';
+export { default as BadgeModelName } from './misc/BadgeModelName.svelte';
+export { default as BadgeModality } from './misc/BadgeModality.svelte';
 export { default as ConversationSelection } from './misc/ConversationSelection.svelte';
 export { default as KeyboardShortcutInfo } from './misc/KeyboardShortcutInfo.svelte';
 export { default as MarkdownContent } from './misc/MarkdownContent.svelte';
@@ -60,4 +63,3 @@ export { default as RemoveButton } from './misc/RemoveButton.svelte';
 export { default as ServerStatus } from './server/ServerStatus.svelte';
 export { default as ServerErrorSplash } from './server/ServerErrorSplash.svelte';
 export { default as ServerLoadingSplash } from './server/ServerLoadingSplash.svelte';
-export { default as ServerInfo } from './server/ServerInfo.svelte';

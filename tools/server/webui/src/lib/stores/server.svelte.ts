@@ -113,8 +113,8 @@ class ServerStore {
 		return this._serverProps.model_path.split(/(\\|\/)/).pop() || null;
 	}
 
-	get supportedModalities(): string[] {
-		const modalities: string[] = [];
+	get supportedModalities(): ModelModality[] {
+		const modalities: ModelModality[] = [];
 		if (this._serverProps?.modalities?.audio) {
 			modalities.push(ModelModality.AUDIO);
 		}

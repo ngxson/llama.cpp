@@ -76,7 +76,6 @@ export class ChatService {
 			onReasoningChunk,
 			onToolCallChunk,
 			onModel,
-			onFirstValidChunk,
 			// Generation parameters
 			temperature,
 			max_tokens,
@@ -225,7 +224,6 @@ export class ChatService {
 					onReasoningChunk,
 					onToolCallChunk,
 					onModel,
-					onFirstValidChunk,
 					conversationId,
 					abortController.signal
 				);
@@ -300,7 +298,6 @@ export class ChatService {
 		onReasoningChunk?: (chunk: string) => void,
 		onToolCallChunk?: (chunk: string) => void,
 		onModel?: (model: string) => void,
-		onFirstValidChunk?: () => void,
 		conversationId?: string,
 		abortSignal?: AbortSignal
 	): Promise<void> {
@@ -317,7 +314,6 @@ export class ChatService {
 		let lastTimings: ChatMessageTimings | undefined;
 		let streamFinished = false;
 		let modelEmitted = false;
-		let firstValidChunkEmitted = false;
 		let toolCallIndexOffset = 0;
 		let hasOpenToolCallBatch = false;
 
@@ -384,15 +380,6 @@ export class ChatService {
 
 						try {
 							const parsed: ApiChatCompletionStreamChunk = JSON.parse(data);
-
-							if (!firstValidChunkEmitted && parsed.object === 'chat.completion.chunk') {
-								firstValidChunkEmitted = true;
-
-								if (!abortSignal?.aborted) {
-									onFirstValidChunk?.();
-								}
-							}
-
 							const content = parsed.choices[0]?.delta?.content;
 							const reasoningContent = parsed.choices[0]?.delta?.reasoning_content;
 							const toolCalls = parsed.choices[0]?.delta?.tool_calls;

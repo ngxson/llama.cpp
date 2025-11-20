@@ -101,6 +101,10 @@
 			return message.model;
 		}
 
+		if (!serverModel || serverModel === 'none' || serverModel === 'llama-server') {
+			return null;
+		}
+
 		return serverModel;
 	});
 

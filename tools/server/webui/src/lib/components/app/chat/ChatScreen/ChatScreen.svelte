@@ -9,7 +9,6 @@
 		DialogEmptyFileAlert,
 		DialogChatError,
 		ServerErrorSplash,
-		ServerInfo,
 		ServerLoadingSplash,
 		DialogConfirmation
 	} from '$lib/components/app';
@@ -44,6 +43,7 @@
 	import { fade, fly, slide } from 'svelte/transition';
 	import { Trash2 } from '@lucide/svelte';
 	import ChatScreenDragOverlay from './ChatScreenDragOverlay.svelte';
+	import { ModelModality } from '$lib/enums/model';
 
 	let { showCenteredEmpty = false } = $props();
 
@@ -334,14 +334,14 @@
 		role="main"
 	>
 		<div class="w-full max-w-[48rem] px-4">
-			<div class="mb-8 text-center" in:fade={{ duration: 300 }}>
-				<h1 class="mb-2 text-3xl font-semibold tracking-tight">llama.cpp</h1>
+			<div class="mb-10 text-center" in:fade={{ duration: 300 }}>
+				<h1 class="mb-4 text-3xl font-semibold tracking-tight">llama.cpp</h1>
 
-				<p class="text-lg text-muted-foreground">How can I help you today?</p>
-			</div>
-
-			<div class="mb-6 flex justify-center" in:fly={{ y: 10, duration: 300, delay: 200 }}>
-				<ServerInfo />
+				<p class="text-lg text-muted-foreground">
+					{serverStore.supportedModalities.includes(ModelModality.AUDIO)
+						? 'Record audio, type a message '
+						: 'Type a message'} or upload files to get started
+				</p>
 			</div>
 
 			{#if serverWarning()}
