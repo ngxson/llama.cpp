@@ -12,8 +12,19 @@ import type {
 	ApiContextSizeError,
 	ApiErrorResponse,
 	ApiLlamaCppServerProps,
-	ApiProcessingState
+	ApiProcessingState,
+	ApiRouterModelMeta,
+	ApiRouterModelsLoadRequest,
+	ApiRouterModelsLoadResponse,
+	ApiRouterModelsStatusRequest,
+	ApiRouterModelsStatusResponse,
+	ApiRouterModelsListResponse,
+	ApiRouterModelsUnloadRequest,
+	ApiRouterModelsUnloadResponse
 } from '$lib/types/api';
+
+import { ServerMode } from '$lib/enums/server';
+import { ServerModelStatus } from '$lib/enums/model';
 
 import type {
 	ChatMessageType,
@@ -60,6 +71,16 @@ declare global {
 		ApiErrorResponse,
 		ApiLlamaCppServerProps,
 		ApiProcessingState,
+		ApiRouterModelMeta,
+		ApiRouterModelsLoadRequest,
+		ApiRouterModelsLoadResponse,
+		ApiRouterModelsStatusRequest,
+		ApiRouterModelsStatusResponse,
+		ApiRouterModelsListResponse,
+		ApiRouterModelsUnloadRequest,
+		ApiRouterModelsUnloadResponse,
+		ServerMode,
+		ServerModelStatus,
 		ChatMessageData,
 		ChatMessagePromptProgress,
 		ChatMessageSiblingInfo,

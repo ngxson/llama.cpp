@@ -2,6 +2,8 @@ import { browser } from '$app/environment';
 import { SERVER_PROPS_LOCALSTORAGE_KEY } from '$lib/constants/localstorage-keys';
 import { ChatService } from '$lib/services/chat';
 import { config } from '$lib/stores/settings.svelte';
+import { ServerMode } from '$lib/enums/server';
+import { updateConfig } from '$lib/stores/settings.svelte';
 
 /**
  * ServerStore - Server state management and capability detection
@@ -52,6 +54,10 @@ class ServerStore {
 	private _error = $state<string | null>(null);
 	private _serverWarning = $state<string | null>(null);
 	private _slotsEndpointAvailable = $state<boolean | null>(null);
+	private _serverMode = $state<ServerMode | null>(null);
+	private _selectedModel = $state<string | null>(null);
+	private _availableModels = $state<ApiRouterModelMeta[]>([]);
+	private _modelLoadingStates = $state<Map<string, boolean>>(new Map());
 	private fetchServerPropsPromise: Promise<void> | null = null;
 
 	private readCachedServerProps(): ApiLlamaCppServerProps | null {
@@ -136,6 +142,48 @@ class ServerStore {
 	}
 
 	/**
+	 * Get current server mode
+	 */
+	get serverMode(): ServerMode | null {
+		return this._serverMode;
+	}
+
+	/**
+	 * Detect if server is running in router mode (multi-model management)
+	 */
+	get isRouterMode(): boolean {
+		return this._serverMode === ServerMode.ROUTER;
+	}
+
+	/**
+	 * Detect if server is running in model mode (single model loaded)
+	 */
+	get isModelMode(): boolean {
+		return this._serverMode === ServerMode.MODEL;
+	}
+
+	/**
+	 * Get currently selected model in router mode
+	 */
+	get selectedModel(): string | null {
+		return this._selectedModel;
+	}
+
+	/**
+	 * Get list of available models
+	 */
+	get availableModels(): ApiRouterModelMeta[] {
+		return this._availableModels;
+	}
+
+	/**
+	 * Check if a specific model is currently loading
+	 */
+	isModelLoading(modelName: string): boolean {
+		return this._modelLoadingStates.get(modelName) ?? false;
+	}
+
+	/**
 	 * Check if slots endpoint is available based on server properties and endpoint support
 	 */
 	private async checkSlotsEndpointAvailability(): Promise<void> {
@@ -198,6 +246,21 @@ class ServerStore {
 				this.persistServerProps(props);
 				this._error = null;
 				this._serverWarning = null;
+
+				// Detect server mode based on model_path
+				if (props.model_path === 'none') {
+					this._serverMode = ServerMode.ROUTER;
+					console.info('Server running in ROUTER mode (multi-model management)');
+
+					// Auto-enable model selector in router mode
+					if (browser) {
+						updateConfig('modelSelectorEnabled', true);
+					}
+				} else {
+					this._serverMode = ServerMode.MODEL;
+					console.info('Server running in MODEL mode (single model)');
+				}
+
 				await this.checkSlotsEndpointAvailability();
 			} catch (error) {
 				if (isSilent && hadProps) {
@@ -312,6 +375,10 @@ class ServerStore {
 		this._serverWarning = null;
 		this._loading = false;
 		this._slotsEndpointAvailable = null;
+		this._serverMode = null;
+		this._selectedModel = null;
+		this._availableModels = [];
+		this._modelLoadingStates.clear();
 		this.fetchServerPropsPromise = null;
 		this.persistServerProps(null);
 	}
@@ -329,3 +396,10 @@ export const supportsVision = () => serverStore.supportsVision;
 export const supportsAudio = () => serverStore.supportsAudio;
 export const slotsEndpointAvailable = () => serverStore.slotsEndpointAvailable;
 export const serverDefaultParams = () => serverStore.serverDefaultParams;
+
+// Server mode exports
+export const serverMode = () => serverStore.serverMode;
+export const isRouterMode = () => serverStore.isRouterMode;
+export const isModelMode = () => serverStore.isModelMode;
+export const selectedModel = () => serverStore.selectedModel;
+export const availableModels = () => serverStore.availableModels;
