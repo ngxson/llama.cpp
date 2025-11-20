@@ -8,8 +8,19 @@
 #include <queue>
 #include <mutex>
 #include <condition_variable>
+#include <functional>
+#include <memory>
 
+/**
+ * state diagram:
+ * 
+ * UNLOADED ──► LOADING ──► LOADED
+ *                 ▲           │
+ *                 │           │
+ *              FAILED ◄───────┘
+ */
 enum server_model_status {
+    // TODO: also add downloading state
     SERVER_MODEL_STATUS_UNLOADED,
     SERVER_MODEL_STATUS_LOADING,
     SERVER_MODEL_STATUS_LOADED,
@@ -47,14 +58,16 @@ struct server_model_meta {
     bool in_cache = false; // if true, use -hf; use -m otherwise
     int port = 0;
     server_model_status status = SERVER_MODEL_STATUS_UNLOADED;
+    bool is_active() const {
+        return status == SERVER_MODEL_STATUS_LOADED || status == SERVER_MODEL_STATUS_LOADING;
+    }
 };
 
 struct server_models {
 private:
     struct instance_t {
-        subprocess_s subproc;
+        std::shared_ptr<subprocess_s> subproc; // shared between main thread and monitoring thread
         std::thread th;
-        std::thread th_log; // logging thread
         server_model_meta meta;
     };
 
@@ -98,7 +111,7 @@ public:
     server_http_res_ptr proxy_request(const server_http_req & req, const std::string & method, const std::string & name);
 
     // notify the router server that a model instance is ready
-    static void notify_router_server_ready(const std::string & host, const std::string & name);
+    static void setup_child_server(const std::string & host, int router_port, const std::string & name, std::function<void(int)> & shutdown_handler);
 };
 
 /**
