@@ -57,7 +57,7 @@ static std::filesystem::path get_server_exec_path() {
                 return std::filesystem::path(buf.data());
             }
         }
-        return std::filesystem::path(std::string(buf.data(), (size > 0) ? size : 0));
+        throw std::runtime_error("_NSGetExecutablePath failed after buffer resize");
     }
 #else
     char path[FILENAME_MAX];
