@@ -286,6 +286,7 @@ void server_models::load(const std::string & name) {
         // we reach here when the child process exits
         int exit_code = 0;
         subprocess_join(child_proc.get(), &exit_code);
+        subprocess_destroy(child_proc.get());
         // update PID and status
         {
             std::lock_guard<std::mutex> lk(mutex);
@@ -315,7 +316,7 @@ void server_models::unload(const std::string & name) {
     if (it != mapping.end()) {
         if (it->second.meta.is_active()) {
             SRV_INF("unloading model instance name=%s\n", name.c_str());
-            subprocess_destroy(it->second.subproc.get());
+            subprocess_terminate(it->second.subproc.get());
             // status change will be handled by the managing thread
         } else {
             SRV_WRN("model instance name=%s is not loaded\n", name.c_str());
@@ -330,7 +331,7 @@ void server_models::unload_all() {
         for (auto & [name, inst] : mapping) {
             if (inst.meta.is_active()) {
                 SRV_INF("unloading model instance name=%s\n", name.c_str());
-                subprocess_destroy(inst.subproc.get());
+                subprocess_terminate(inst.subproc.get());
                 // status change will be handled by the managing thread
             }
             // moving the thread to join list to avoid deadlock
