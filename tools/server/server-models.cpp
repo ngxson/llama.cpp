@@ -273,15 +273,14 @@ void server_models::load(const std::string & name) {
     // start a thread to manage the child process
     inst.th = std::thread([this, name, child_proc = inst.subproc, port = inst.meta.port]() {
         // read stdout/stderr and forward to main server log
-        {
-            FILE * p_stdout_stderr = subprocess_stdout(child_proc.get());
-            if (!p_stdout_stderr) {
-                return;
-            }
+        FILE * p_stdout_stderr = subprocess_stdout(child_proc.get());
+        if (p_stdout_stderr) {
             char buffer[4096];
             while (fgets(buffer, sizeof(buffer), p_stdout_stderr) != nullptr) {
                 LOG("[%5d] %s", port, buffer);
             }
+        } else {
+            SRV_ERR("failed to get stdout/stderr of child process for name=%s\n", name.c_str());
         }
         // we reach here when the child process exits
         int exit_code = 0;
