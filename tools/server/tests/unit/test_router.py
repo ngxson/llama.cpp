@@ -16,7 +16,7 @@ def create_server():
         ("non-existent/model", False),
     ]
 )
-def test_chat_completion_stream(model: str, success: bool):
+def test_router_chat_completion_stream(model: str, success: bool):
     # TODO: make sure the model is in cache (ie. ServerProcess.load_all()) before starting the router server
     global server
     server.start()

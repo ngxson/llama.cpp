@@ -528,7 +528,7 @@ class ServerPreset:
         server.n_predict = 4
         server.seed = 42
         return server
-    
+
     @staticmethod
     def router() -> ServerProcess:
         server = ServerProcess()

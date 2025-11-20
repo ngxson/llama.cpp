@@ -98,7 +98,7 @@ public:
     server_http_res_ptr proxy_request(const server_http_req & req, const std::string & method, const std::string & name);
 
     // notify the router server that a model instance is ready
-    static void notify_router_server_ready(const std::string & name);
+    static void notify_router_server_ready(const std::string & host, const std::string & name);
 };
 
 /**

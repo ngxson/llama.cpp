@@ -5825,7 +5825,7 @@ int main(int argc, char ** argv, char ** envp) {
         LOG_INF("%s: starting the main loop...\n", __func__);
 
         // optionally, notify router server that this instance is ready
-        server_models::notify_router_server_ready(params.model_alias);
+        server_models::notify_router_server_ready(params.hostname, params.model_alias);
 
         // this call blocks the main thread until queue_tasks.terminate() is called
         ctx_server.queue_tasks.start_loop();
