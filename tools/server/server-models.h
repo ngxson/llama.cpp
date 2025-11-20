@@ -8,6 +8,7 @@
 #include <queue>
 #include <mutex>
 #include <condition_variable>
+#include <functional>
 
 enum server_model_status {
     SERVER_MODEL_STATUS_UNLOADED,
@@ -98,7 +99,7 @@ public:
     server_http_res_ptr proxy_request(const server_http_req & req, const std::string & method, const std::string & name);
 
     // notify the router server that a model instance is ready
-    static void notify_router_server_ready(const std::string & host, const std::string & name);
+    static void setup_child_server(const std::string & host, int router_port, const std::string & name, std::function<void(int)> & shutdown_handler);
 };
 
 /**
