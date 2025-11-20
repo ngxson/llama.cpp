@@ -9,6 +9,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <functional>
+#include <memory>
 
 enum server_model_status {
     SERVER_MODEL_STATUS_UNLOADED,
@@ -53,9 +54,8 @@ struct server_model_meta {
 struct server_models {
 private:
     struct instance_t {
-        subprocess_s subproc;
+        std::shared_ptr<subprocess_s> subproc; // shared between main thread and monitoring thread
         std::thread th;
-        std::thread th_log; // logging thread
         server_model_meta meta;
     };
 

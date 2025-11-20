@@ -5816,7 +5816,9 @@ int main(int argc, char ** argv, char ** envp) {
     if (is_router_server) {
         LOG_INF("%s: router server is listening on %s\n", __func__, ctx_http.listening_address.c_str());
         ctx_http.is_ready.store(true);
-        ctx_http.thread.join(); // keep the main thread alive
+        if (ctx_http.thread.joinable()) {
+            ctx_http.thread.join(); // keep the main thread alive
+        }
 
         // when the HTTP server stops, clean up and exit
         clean_up();

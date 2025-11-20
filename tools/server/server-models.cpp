@@ -91,9 +91,8 @@ server_models::server_models(
             /* status      */ SERVER_MODEL_STATUS_UNLOADED
         };
         mapping[meta.name] = instance_t{
-            /* subproc */ subprocess_s(),
+            /* subproc */ std::make_shared<subprocess_s>(),
             /* th      */ std::thread(),
-            /* th_log  */ std::thread(),
             /* meta    */ meta
         };
     }
@@ -220,7 +219,7 @@ void server_models::load(const std::string & name) {
     inst.meta.port   = get_free_port();
     inst.meta.status = SERVER_MODEL_STATUS_LOADING;
 
-    subprocess_s child_proc;
+    inst.subproc = std::make_shared<subprocess_s>();
     {
         std::string exec_path = get_server_exec_path().string();
         SRV_INF("spawning server instance with name=%s on port %d\n", inst.meta.name.c_str(), inst.meta.port);
@@ -255,19 +254,17 @@ void server_models::load(const std::string & name) {
         std::vector<char *> envp = to_char_ptr_array(child_env);
 
         int options = subprocess_option_no_window | subprocess_option_combined_stdout_stderr;
-        int result = subprocess_create_ex(argv.data(), options, envp.data(), &child_proc);
+        int result = subprocess_create_ex(argv.data(), options, envp.data(), inst.subproc.get());
         if (result != 0) {
             throw std::runtime_error("failed to spawn server instance");
         }
     }
 
-    inst.subproc = std::move(child_proc);
-
     // start a thread to manage the child process
-    inst.th = std::thread([this, name, child_proc = &inst.subproc, port = inst.meta.port]() {
+    inst.th = std::thread([this, name, child_proc = inst.subproc, port = inst.meta.port]() {
         // read stdout/stderr and forward to main server log
         {
-            FILE * p_stdout_stderr = subprocess_stdout(child_proc);
+            FILE * p_stdout_stderr = subprocess_stdout(child_proc.get());
             if (!p_stdout_stderr) {
                 return;
             }
@@ -278,7 +275,7 @@ void server_models::load(const std::string & name) {
         }
         // we reach here when the child process exits
         int exit_code = 0;
-        subprocess_join(child_proc, &exit_code);
+        subprocess_join(child_proc.get(), &exit_code);
         // update PID and status
         {
             std::lock_guard<std::mutex> lk(mutex);
@@ -308,7 +305,7 @@ void server_models::unload(const std::string & name) {
     if (it != mapping.end()) {
         if (it->second.meta.status == SERVER_MODEL_STATUS_LOADED) {
             SRV_INF("unloading model instance name=%s\n", name.c_str());
-            subprocess_destroy(&it->second.subproc);
+            subprocess_destroy(it->second.subproc.get());
             // status change will be handled by the managing thread
         } else {
             SRV_WRN("model instance name=%s is not loaded\n", name.c_str());
@@ -323,10 +320,11 @@ void server_models::unload_all() {
         for (auto & [name, inst] : mapping) {
             if (inst.meta.status == SERVER_MODEL_STATUS_LOADED) {
                 SRV_INF("unloading model instance name=%s\n", name.c_str());
-                subprocess_destroy(&inst.subproc);
+                subprocess_destroy(inst.subproc.get());
                 // status change will be handled by the managing thread
-                to_join.push_back(std::move(inst.th));
             }
+            // moving the thread to join list to avoid deadlock
+            to_join.push_back(std::move(inst.th));
         }
     }
     for (auto & th : to_join) {
@@ -361,9 +359,10 @@ void server_models::ensure_model_loaded(const std::string & name) {
     if (!meta.has_value()) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
-    if (meta->status == SERVER_MODEL_STATUS_LOADED) {
+    if (meta->status == SERVER_MODEL_STATUS_LOADED || meta->status == SERVER_MODEL_STATUS_LOADING) {
         return; // already loaded
     }
+    SRV_INF("model name=%s is not loaded, loading...\n", name.c_str());
     load(name);
     wait_until_loaded(name);
 }
