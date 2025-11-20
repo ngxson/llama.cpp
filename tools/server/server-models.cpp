@@ -303,7 +303,7 @@ void server_models::unload(const std::string & name) {
     std::lock_guard<std::mutex> lk(mutex);
     auto it = mapping.find(name);
     if (it != mapping.end()) {
-        if (it->second.meta.status == SERVER_MODEL_STATUS_LOADED) {
+        if (it->second.meta.status == SERVER_MODEL_STATUS_LOADED || it->second.meta.status == SERVER_MODEL_STATUS_LOADING) {
             SRV_INF("unloading model instance name=%s\n", name.c_str());
             subprocess_destroy(it->second.subproc.get());
             // status change will be handled by the managing thread
@@ -318,7 +318,7 @@ void server_models::unload_all() {
     {
         std::lock_guard<std::mutex> lk(mutex);
         for (auto & [name, inst] : mapping) {
-            if (inst.meta.status == SERVER_MODEL_STATUS_LOADED) {
+            if (inst.meta.status == SERVER_MODEL_STATUS_LOADED || inst.meta.status == SERVER_MODEL_STATUS_LOADING) {
                 SRV_INF("unloading model instance name=%s\n", name.c_str());
                 subprocess_destroy(inst.subproc.get());
                 // status change will be handled by the managing thread
