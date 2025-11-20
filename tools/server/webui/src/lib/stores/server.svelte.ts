@@ -3,6 +3,7 @@ import { SERVER_PROPS_LOCALSTORAGE_KEY } from '$lib/constants/localstorage-keys'
 import { ChatService } from '$lib/services/chat';
 import { config } from '$lib/stores/settings.svelte';
 import { ServerMode } from '$lib/enums/server';
+import { ModelModality } from '$lib/enums/model';
 import { updateConfig } from '$lib/stores/settings.svelte';
 
 /**
@@ -115,10 +116,10 @@ class ServerStore {
 	get supportedModalities(): string[] {
 		const modalities: string[] = [];
 		if (this._serverProps?.modalities?.audio) {
-			modalities.push('audio');
+			modalities.push(ModelModality.AUDIO);
 		}
 		if (this._serverProps?.modalities?.vision) {
-			modalities.push('vision');
+			modalities.push(ModelModality.VISION);
 		}
 		return modalities;
 	}

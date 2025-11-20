@@ -23,8 +23,8 @@ import type {
 	ApiRouterModelsUnloadResponse
 } from '$lib/types/api';
 
-import { ServerMode } from '$lib/enums/server';
-import { ServerModelStatus } from '$lib/enums/model';
+import { ServerMode, ServerModelStatus } from '$lib/enums/server';
+import { ModelModality } from '$lib/enums/model';
 
 import type {
 	ChatMessageType,
@@ -79,8 +79,6 @@ declare global {
 		ApiRouterModelsListResponse,
 		ApiRouterModelsUnloadRequest,
 		ApiRouterModelsUnloadResponse,
-		ServerMode,
-		ServerModelStatus,
 		ChatMessageData,
 		ChatMessagePromptProgress,
 		ChatMessageSiblingInfo,
@@ -96,6 +94,9 @@ declare global {
 		DatabaseMessageExtraTextFile,
 		DatabaseMessageExtraPdfFile,
 		DatabaseMessageExtraLegacyContext,
+		ModelModality,
+		ServerMode,
+		ServerModelStatus,
 		SettingsConfigValue,
 		SettingsFieldConfig,
 		SettingsConfigType,

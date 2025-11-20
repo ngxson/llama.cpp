@@ -2,10 +2,13 @@
 	import { ChatAttachmentThumbnailImage, ChatAttachmentThumbnailFile } from '$lib/components/app';
 	import { Button } from '$lib/components/ui/button';
 	import { ChevronLeft, ChevronRight } from '@lucide/svelte';
-	import { FileTypeCategory } from '$lib/enums/files';
 	import { getFileTypeCategory } from '$lib/utils/file-type';
+	import { FileTypeCategory } from '$lib/enums/files';
+	import { ModelModality } from '$lib/enums/model';
+	import { AttachmentType } from '$lib/enums/attachment';
 	import { DialogChatAttachmentPreview, DialogChatAttachmentsViewAll } from '$lib/components/app';
 	import type { ChatAttachmentDisplayItem, ChatAttachmentPreviewItem } from '$lib/types/chat';
+	import type { DatabaseMessageExtra } from '$lib/types/database';
 
 	interface Props {
 		class?: string;
@@ -68,7 +71,7 @@
 
 		// Add stored attachments (ChatMessage)
 		for (const [index, attachment] of attachments.entries()) {
-			if (attachment.type === 'imageFile') {
+			if (attachment.type === AttachmentType.IMAGE) {
 				items.push({
 					id: `attachment-${index}`,
 					name: attachment.name,
@@ -78,7 +81,7 @@
 					attachment,
 					attachmentIndex: index
 				});
-			} else if (attachment.type === 'textFile') {
+			} else if (attachment.type === AttachmentType.TEXT) {
 				items.push({
 					id: `attachment-${index}`,
 					name: attachment.name,
@@ -88,31 +91,30 @@
 					attachmentIndex: index,
 					textContent: attachment.content
 				});
-			} else if (attachment.type === 'context') {
+			} else if (attachment.type === AttachmentType.AUDIO) {
+				items.push({
+					id: `attachment-${index}`,
+					name: attachment.name,
+					type: attachment.mimeType || ModelModality.AUDIO,
+					isImage: false,
+					attachment,
+					attachmentIndex: index
+				});
+			} else if (attachment.type === AttachmentType.PDF) {
+				items.push({
+					id: `attachment-${index}`,
+					name: attachment.name,
+					type: 'application/pdf',
+					isImage: false,
+					attachment,
+					attachmentIndex: index
+				});
+			} else if (attachment.type === AttachmentType.LEGACY_CONTEXT) {
 				// Legacy format from old webui - treat as text file
 				items.push({
 					id: `attachment-${index}`,
 					name: attachment.name,
 					type: 'text',
-					isImage: false,
-					attachment,
-					attachmentIndex: index,
-					textContent: attachment.content
-				});
-			} else if (attachment.type === 'audioFile') {
-				items.push({
-					id: `attachment-${index}`,
-					name: attachment.name,
-					type: attachment.mimeType || 'audio',
-					isImage: false,
-					attachment,
-					attachmentIndex: index
-				});
-			} else if (attachment.type === 'pdfFile') {
-				items.push({
-					id: `attachment-${index}`,
-					name: attachment.name,
-					type: 'application/pdf',
 					isImage: false,
 					attachment,
 					attachmentIndex: index,
