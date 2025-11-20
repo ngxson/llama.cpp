@@ -11,7 +11,16 @@
 #include <functional>
 #include <memory>
 
+/**
+ * state diagram:
+ * 
+ * UNLOADED ──► LOADING ──► LOADED
+ *                 ▲           │
+ *                 │           │
+ *              FAILED ◄───────┘
+ */
 enum server_model_status {
+    // TODO: also add downloading state
     SERVER_MODEL_STATUS_UNLOADED,
     SERVER_MODEL_STATUS_LOADING,
     SERVER_MODEL_STATUS_LOADED,
@@ -49,6 +58,9 @@ struct server_model_meta {
     bool in_cache = false; // if true, use -hf; use -m otherwise
     int port = 0;
     server_model_status status = SERVER_MODEL_STATUS_UNLOADED;
+    bool is_active() const {
+        return status == SERVER_MODEL_STATUS_LOADED || status == SERVER_MODEL_STATUS_LOADING;
+    }
 };
 
 struct server_models {
