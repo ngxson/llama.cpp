@@ -1,26 +1,18 @@
 <script lang="ts">
-	import { ChatMessageThinkingBlock, MarkdownContent } from '$lib/components/app';
+	import { ChatMessageThinkingBlock, MarkdownContent, SelectorModel } from '$lib/components/app';
 	import { useProcessingState } from '$lib/hooks/use-processing-state.svelte';
 	import { isLoading } from '$lib/stores/chat.svelte';
 	import autoResizeTextarea from '$lib/utils/autoresize-textarea';
 	import { fade } from 'svelte/transition';
-	import {
-		Check,
-		Copy,
-		Package,
-		X,
-		Gauge,
-		Clock,
-		WholeWord,
-		ChartNoAxesColumn,
-		Wrench
-	} from '@lucide/svelte';
+	import { Check, Copy, X, Gauge, Clock, WholeWord, Wrench } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { INPUT_CLASSES } from '$lib/constants/input-classes';
 	import ChatMessageActions from './ChatMessageActions.svelte';
 	import Label from '$lib/components/ui/label/label.svelte';
 	import { config } from '$lib/stores/settings.svelte';
+	import { isRouterMode } from '$lib/stores/server.svelte';
+	import { selectModel } from '$lib/stores/models.svelte';
 	import { copyToClipboard } from '$lib/utils/copy';
 	import type { ApiChatCompletionToolCall } from '$lib/types/api';
 
@@ -92,6 +84,7 @@
 
 	const processingState = useProcessingState();
 	let currentConfig = $derived(config());
+	let isRouter = $derived(isRouterMode());
 	let displayedModel = $derived((): string | null => {
 		if (!currentConfig.showModelInfo) return null;
 
@@ -102,6 +95,16 @@
 
 		return null;
 	});
+
+	async function handleModelChange(modelId: string) {
+		try {
+			await selectModel(modelId);
+
+			onRegenerate();
+		} catch (error) {
+			console.error('Failed to change model:', error);
+		}
+	}
 
 	function handleCopyModel() {
 		const model = displayedModel();
@@ -243,21 +246,52 @@
 
 	<div class="info my-6 grid gap-4">
 		{#if displayedModel()}
-			<span class="inline-flex items-center gap-2 text-xs text-muted-foreground">
-				<span class="inline-flex items-center gap-1">
-					<Package class="h-3.5 w-3.5" />
+			<span class="inline-flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+				{#if isRouter && currentConfig.modelSelectorEnabled}
+					<SelectorModel
+						currentModel={displayedModel()}
+						onModelChange={handleModelChange}
+						disabled={isLoading()}
+					/>
+				{:else}
+					<button
+						class="inline-flex cursor-pointer items-center gap-1 rounded-sm bg-muted-foreground/15 px-1.5 py-0.75"
+						onclick={handleCopyModel}
+					>
+						{displayedModel()}
 
-					<span>Model used:</span>
-				</span>
+						<Copy class="ml-1 h-3 w-3 " />
+					</button>
+				{/if}
 
-				<button
-					class="inline-flex cursor-pointer items-center gap-1 rounded-sm bg-muted-foreground/15 px-1.5 py-0.75"
-					onclick={handleCopyModel}
-				>
-					{displayedModel()}
+				{#if currentConfig.showMessageStats && message.timings && message.timings.predicted_n && message.timings.predicted_ms}
+					{@const tokensPerSecond =
+						(message.timings.predicted_n / message.timings.predicted_ms) * 1000}
 
-					<Copy class="ml-1 h-3 w-3 " />
-				</button>
+					<span
+						class="inline-flex items-center gap-1 rounded-sm bg-muted-foreground/15 px-1.5 py-0.75"
+					>
+						<WholeWord class="h-3 w-3" />
+
+						{message.timings.predicted_n} tokens
+					</span>
+
+					<span
+						class="inline-flex items-center gap-1 rounded-sm bg-muted-foreground/15 px-1.5 py-0.75"
+					>
+						<Clock class="h-3 w-3" />
+
+						{(message.timings.predicted_ms / 1000).toFixed(2)}s
+					</span>
+
+					<span
+						class="inline-flex items-center gap-1 rounded-sm bg-muted-foreground/15 px-1.5 py-0.75"
+					>
+						<Gauge class="h-3 w-3" />
+
+						{tokensPerSecond.toFixed(2)} tokens/s
+					</span>
+				{/if}
 			</span>
 		{/if}
 
@@ -300,38 +334,6 @@
 					{/if}
 				</span>
 			{/if}
-		{/if}
-
-		{#if currentConfig.showMessageStats && message.timings && message.timings.predicted_n && message.timings.predicted_ms}
-			{@const tokensPerSecond = (message.timings.predicted_n / message.timings.predicted_ms) * 1000}
-			<span class="inline-flex items-center gap-2 text-xs text-muted-foreground">
-				<span class="inline-flex items-center gap-1">
-					<ChartNoAxesColumn class="h-3.5 w-3.5" />
-
-					<span>Statistics:</span>
-				</span>
-
-				<div class="inline-flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-					<span
-						class="inline-flex items-center gap-1 rounded-sm bg-muted-foreground/15 px-1.5 py-0.75"
-					>
-						<Gauge class="h-3 w-3" />
-						{tokensPerSecond.toFixed(2)} tokens/s
-					</span>
-					<span
-						class="inline-flex items-center gap-1 rounded-sm bg-muted-foreground/15 px-1.5 py-0.75"
-					>
-						<WholeWord class="h-3 w-3" />
-						{message.timings.predicted_n} tokens
-					</span>
-					<span
-						class="inline-flex items-center gap-1 rounded-sm bg-muted-foreground/15 px-1.5 py-0.75"
-					>
-						<Clock class="h-3 w-3" />
-						{(message.timings.predicted_ms / 1000).toFixed(2)}s
-					</span>
-				</div>
-			</span>
 		{/if}
 	</div>
 

@@ -154,8 +154,6 @@
 			</Sidebar.Menu>
 		</Sidebar.GroupContent>
 	</Sidebar.Group>
-
-	<div class="bottom-0 z-10 bg-sidebar bg-sidebar/50 px-4 py-4 backdrop-blur-lg md:sticky"></div>
 </ScrollArea>
 
 <DialogConfirmation

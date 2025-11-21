@@ -12,7 +12,6 @@ export { default as ChatFormActionRecord } from './chat/ChatForm/ChatFormActions
 export { default as ChatFormActions } from './chat/ChatForm/ChatFormActions/ChatFormActions.svelte';
 export { default as ChatFormFileInputInvisible } from './chat/ChatForm/ChatFormFileInputInvisible.svelte';
 export { default as ChatFormHelperText } from './chat/ChatForm/ChatFormHelperText.svelte';
-export { default as ChatFormModelSelector } from './chat/ChatForm/ChatFormModelSelector.svelte';
 export { default as ChatFormTextarea } from './chat/ChatForm/ChatFormTextarea.svelte';
 
 export { default as ChatMessage } from './chat/ChatMessages/ChatMessage.svelte';
@@ -57,6 +56,7 @@ export { default as ConversationSelection } from './misc/ConversationSelection.s
 export { default as KeyboardShortcutInfo } from './misc/KeyboardShortcutInfo.svelte';
 export { default as MarkdownContent } from './misc/MarkdownContent.svelte';
 export { default as RemoveButton } from './misc/RemoveButton.svelte';
+export { default as SelectorModel } from './misc/SelectorModel.svelte';
 
 // Server
 

@@ -2,15 +2,13 @@
 	import { Square, ArrowUp } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import {
-		BadgeModelName,
 		ChatFormActionFileAttachments,
-		ChatFormModelSelector,
 		ChatFormActionRecord,
-		DialogModelInformation
+		SelectorModel
 	} from '$lib/components/app';
 	import { FileTypeCategory } from '$lib/enums/files';
 	import { getFileTypeCategory } from '$lib/utils/file-type';
-	import { isRouterMode, supportsAudio } from '$lib/stores/server.svelte';
+	import { supportsAudio } from '$lib/stores/server.svelte';
 	import type { ChatUploadedFile } from '$lib/types/chat';
 
 	interface Props {
@@ -39,29 +37,18 @@
 		onStop
 	}: Props = $props();
 
-	let inRouterMode = $derived(isRouterMode());
 	let hasAudioModality = $derived(supportsAudio());
 	let hasAudioAttachments = $derived(
 		uploadedFiles.some((file) => getFileTypeCategory(file.type) === FileTypeCategory.AUDIO)
 	);
 	let shouldShowRecordButton = $derived(hasAudioModality && !hasText && !hasAudioAttachments);
 	let shouldShowSubmitButton = $derived(!shouldShowRecordButton || hasAudioAttachments);
-
-	let showModelInfoDialog = $state(false);
 </script>
 
 <div class="flex w-full items-center gap-3 {className}">
 	<ChatFormActionFileAttachments class="mr-auto" {disabled} {onFileUpload} />
 
-	{#if !inRouterMode}
-		<BadgeModelName
-			class="clickable max-w-80"
-			onclick={() => (showModelInfoDialog = true)}
-			showTooltip
-		/>
-	{:else}
-		<ChatFormModelSelector class="shrink-0" />
-	{/if}
+	<SelectorModel class="max-w-80" />
 
 	{#if isLoading}
 		<Button
@@ -89,8 +76,3 @@
 		{/if}
 	{/if}
 </div>
-
-<DialogModelInformation
-	bind:open={showModelInfoDialog}
-	onOpenChange={(open) => (showModelInfoDialog = open)}
-/>
