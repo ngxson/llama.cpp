@@ -21,7 +21,6 @@
 	import ChatMessageActions from './ChatMessageActions.svelte';
 	import Label from '$lib/components/ui/label/label.svelte';
 	import { config } from '$lib/stores/settings.svelte';
-	import { modelName as serverModelName } from '$lib/stores/server.svelte';
 	import { copyToClipboard } from '$lib/utils/copy';
 	import type { ApiChatCompletionToolCall } from '$lib/types/api';
 
@@ -93,19 +92,15 @@
 
 	const processingState = useProcessingState();
 	let currentConfig = $derived(config());
-	let serverModel = $derived(serverModelName());
 	let displayedModel = $derived((): string | null => {
 		if (!currentConfig.showModelInfo) return null;
 
+		// Only show model from streaming data, no fallbacks to server props
 		if (message.model) {
 			return message.model;
 		}
 
-		if (!serverModel || serverModel === 'none' || serverModel === 'llama-server') {
-			return null;
-		}
-
-		return serverModel;
+		return null;
 	});
 
 	function handleCopyModel() {
