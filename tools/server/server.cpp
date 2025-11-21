@@ -5662,8 +5662,7 @@ int main(int argc, char ** argv, char ** envp) {
     // register API routes
     server_routes routes(params, ctx_server, ctx_http);
 
-    // TODO: improve this by changing arg.cpp
-    bool is_router_server = params.model.path == DEFAULT_MODEL_PATH;
+    bool is_router_server = params.model.path.empty();
     if (is_router_server) {
         // setup server instances manager
         routes.models.reset(new server_models(params, argc, argv, envp));
