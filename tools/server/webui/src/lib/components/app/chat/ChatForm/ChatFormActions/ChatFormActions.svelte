@@ -9,6 +9,7 @@
 	import { FileTypeCategory } from '$lib/enums/files';
 	import { getFileTypeCategory } from '$lib/utils/file-type';
 	import { supportsAudio } from '$lib/stores/server.svelte';
+	import { config } from '$lib/stores/settings.svelte';
 	import type { ChatUploadedFile } from '$lib/types/chat';
 
 	interface Props {
@@ -37,11 +38,14 @@
 		onStop
 	}: Props = $props();
 
+	let currentConfig = $derived(config());
 	let hasAudioModality = $derived(supportsAudio());
 	let hasAudioAttachments = $derived(
 		uploadedFiles.some((file) => getFileTypeCategory(file.type) === FileTypeCategory.AUDIO)
 	);
-	let shouldShowRecordButton = $derived(hasAudioModality && !hasText && !hasAudioAttachments);
+	let shouldShowRecordButton = $derived(
+		hasAudioModality && !hasText && !hasAudioAttachments && currentConfig.autoMicOnEmpty
+	);
 	let shouldShowSubmitButton = $derived(!shouldShowRecordButton || hasAudioAttachments);
 </script>
 

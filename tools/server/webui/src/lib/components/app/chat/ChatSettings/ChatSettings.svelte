@@ -79,12 +79,6 @@
 					type: 'checkbox'
 				},
 				{
-					key: 'enableContinueGeneration',
-					label: 'Enable "Continue" button',
-					type: 'checkbox',
-					isExperimental: true
-				},
-				{
 					key: 'pdfAsImage',
 					label: 'Parse PDF as image',
 					type: 'checkbox'
@@ -93,6 +87,18 @@
 					key: 'renderUserContentAsMarkdown',
 					label: 'Render user content as Markdown',
 					type: 'checkbox'
+				},
+				{
+					key: 'autoMicOnEmpty',
+					label: 'Show microphone on empty input',
+					type: 'checkbox',
+					isExperimental: true
+				},
+				{
+					key: 'enableContinueGeneration',
+					label: 'Enable "Continue" button',
+					type: 'checkbox',
+					isExperimental: true
 				},
 				{
 					key: 'askForTitleConfirmation',
