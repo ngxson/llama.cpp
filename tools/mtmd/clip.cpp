@@ -2529,11 +2529,14 @@ private:
         );  // [q_size, k_size]
         k_coord = ggml_cont(ctx, ggml_repeat(ctx, k_coord, rel)); // [q_size, k_size]
 
+        float q_scale = std::max((float)k_size/q_size, 1.0f);
+        float k_scale = std::max((float)q_size/k_size, 1.0f);
+
         // This wouldn't be triggered in DeepSeek-OCR. Just for compatibility with 
         // the original implementation. 
         if (q_size != k_size) {
-            q_coord = ggml_scale_inplace(ctx, q_coord, std::max((float)k_size/q_size, 1.0f));
-            k_coord = ggml_scale_inplace(ctx, k_coord, std::max((float)q_size/k_size, 1.0f));
+            q_coord = ggml_scale_inplace(ctx, q_coord, q_scale);
+            k_coord = ggml_scale_inplace(ctx, k_coord, k_scale);
         }
 
         // -------------------------------------------------
@@ -2541,7 +2544,7 @@ private:
         // -------------------------------------------------
         
         rel = ggml_sub(ctx, q_coord, k_coord); // [q_size, k_size]
-        rel = ggml_scale_bias(ctx, rel, 1.0f, static_cast<float>(k_size) - 1.0f); // [q_size, k_size]
+        rel = ggml_scale_bias(ctx, rel, 1.0f, (k_size - 1.0f)*k_scale); // [q_size, k_size]
         // Clamp to [0, L-1] range for valid indexing
         rel = ggml_clamp(ctx, rel, 0.0f, static_cast<float>(rel_pos->ne[1] - 1));
 
