@@ -13,7 +13,7 @@
 
 /**
  * state diagram:
- * 
+ *
  * UNLOADED ──► LOADING ──► LOADED
  *                 ▲           │
  *                 │           │
@@ -105,7 +105,8 @@ public:
     void wait_until_loaded(const std::string & name);
 
     // load the model if not loaded, otherwise do nothing
-    void ensure_model_loaded(const std::string & name);
+    // return false if model is already loaded; return true otherwise (meta may need to be refreshed)
+    bool ensure_model_loaded(const std::string & name);
 
     // proxy an HTTP request to the model instance
     server_http_res_ptr proxy_request(const server_http_req & req, const std::string & method, const std::string & name);

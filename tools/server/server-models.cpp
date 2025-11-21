@@ -10,6 +10,8 @@
 #include <mutex>
 #include <condition_variable>
 #include <cstring>
+#include <atomic>
+#include <chrono>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -60,7 +62,10 @@ static std::filesystem::path get_server_exec_path() {
 #else
     char path[FILENAME_MAX];
     ssize_t count = readlink("/proc/self/exe", path, FILENAME_MAX);
-    return std::filesystem::path(std::string(path, (count > 0) ? count: 0));
+    if (count <= 0) {
+        throw std::runtime_error("failed to resolve /proc/self/exe");
+    }
+    return std::filesystem::path(std::string(path, count));
 #endif
 }
 
@@ -203,21 +208,26 @@ std::vector<server_model_meta> server_models::get_all_meta() {
 }
 
 void server_models::load(const std::string & name) {
-    auto meta = get_meta(name);
-    if (!meta.has_value()) {
+    std::lock_guard<std::mutex> lk(mutex);
+    if (mapping.find(name) == mapping.end()) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
 
-    std::lock_guard<std::mutex> lk(mutex);
-    if (meta->status != SERVER_MODEL_STATUS_FAILED && meta->status != SERVER_MODEL_STATUS_UNLOADED) {
+    auto meta = mapping[name].meta;
+    if (meta.status != SERVER_MODEL_STATUS_FAILED && meta.status != SERVER_MODEL_STATUS_UNLOADED) {
         SRV_INF("model %s is not ready\n", name.c_str());
         return;
     }
 
+    // prepare new instance info
     instance_t inst;
-    inst.meta        = meta.value();
+    inst.meta        = meta;
     inst.meta.port   = get_free_port();
     inst.meta.status = SERVER_MODEL_STATUS_LOADING;
+
+    if (inst.meta.port <= 0) {
+        throw std::runtime_error("failed to get a port number");
+    }
 
     inst.subproc = std::make_shared<subprocess_s>();
     {
@@ -263,19 +273,19 @@ void server_models::load(const std::string & name) {
     // start a thread to manage the child process
     inst.th = std::thread([this, name, child_proc = inst.subproc, port = inst.meta.port]() {
         // read stdout/stderr and forward to main server log
-        {
-            FILE * p_stdout_stderr = subprocess_stdout(child_proc.get());
-            if (!p_stdout_stderr) {
-                return;
-            }
+        FILE * p_stdout_stderr = subprocess_stdout(child_proc.get());
+        if (p_stdout_stderr) {
             char buffer[4096];
             while (fgets(buffer, sizeof(buffer), p_stdout_stderr) != nullptr) {
                 LOG("[%5d] %s", port, buffer);
             }
+        } else {
+            SRV_ERR("failed to get stdout/stderr of child process for name=%s\n", name.c_str());
         }
         // we reach here when the child process exits
         int exit_code = 0;
         subprocess_join(child_proc.get(), &exit_code);
+        subprocess_destroy(child_proc.get());
         // update PID and status
         {
             std::lock_guard<std::mutex> lk(mutex);
@@ -305,7 +315,7 @@ void server_models::unload(const std::string & name) {
     if (it != mapping.end()) {
         if (it->second.meta.is_active()) {
             SRV_INF("unloading model instance name=%s\n", name.c_str());
-            subprocess_destroy(it->second.subproc.get());
+            subprocess_terminate(it->second.subproc.get());
             // status change will be handled by the managing thread
         } else {
             SRV_WRN("model instance name=%s is not loaded\n", name.c_str());
@@ -320,7 +330,7 @@ void server_models::unload_all() {
         for (auto & [name, inst] : mapping) {
             if (inst.meta.is_active()) {
                 SRV_INF("unloading model instance name=%s\n", name.c_str());
-                subprocess_destroy(inst.subproc.get());
+                subprocess_terminate(inst.subproc.get());
                 // status change will be handled by the managing thread
             }
             // moving the thread to join list to avoid deadlock
@@ -354,17 +364,25 @@ void server_models::wait_until_loaded(const std::string & name) {
     });
 }
 
-void server_models::ensure_model_loaded(const std::string & name) {
+bool server_models::ensure_model_loaded(const std::string & name) {
     auto meta = get_meta(name);
     if (!meta.has_value()) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
     if (meta->is_active()) {
-        return; // already loaded
+        return false; // already loaded
     }
     SRV_INF("model name=%s is not loaded, loading...\n", name.c_str());
     load(name);
     wait_until_loaded(name);
+    {
+        // check final status
+        meta = get_meta(name);
+        if (!meta.has_value() || meta->status == SERVER_MODEL_STATUS_FAILED) {
+            throw std::runtime_error("model name=" + name + " failed to load");
+        }
+    }
+    return true;
 }
 
 server_http_res_ptr server_models::proxy_request(const server_http_req & req, const std::string & method, const std::string & name) {
@@ -372,7 +390,9 @@ server_http_res_ptr server_models::proxy_request(const server_http_req & req, co
     if (!meta.has_value()) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
-    ensure_model_loaded(name); // TODO: handle failure case
+    if (ensure_model_loaded(name)) {
+        meta = get_meta(name); // refresh meta
+    }
     SRV_INF("proxying request to model %s on port %d\n", name.c_str(), meta->port);
     auto proxy = std::make_unique<server_http_proxy>(
             method,
@@ -439,11 +459,11 @@ struct pipe_t {
     std::atomic<bool> writer_closed{false};
     std::atomic<bool> reader_closed{false};
     void close_write() {
-        writer_closed.store(true);
+        writer_closed.store(true, std::memory_order_relaxed);
         cv.notify_all();
     }
     void close_read() {
-        reader_closed.store(true);
+        reader_closed.store(true, std::memory_order_relaxed);
         cv.notify_all();
     }
     bool read(T & output, const std::function<bool()> & should_stop) {

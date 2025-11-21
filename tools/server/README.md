@@ -1343,6 +1343,78 @@ See [OpenAI Embeddings API documentation](https://platform.openai.com/docs/api-r
   }'
   ```
 
+
+## Using multiple models
+
+`llama-server` can be launched in a **router mode** that exposes an API for dynamically loading and unloading models. The main process (the "router") automatically forwards each request to the appropriate model instance.
+
+To start in router mode, launch `llama-server` **without specifying any model**:
+
+```sh
+llama-server
+```
+
+### Model sources
+
+By default, the router looks for models in the cache. You can add Hugging Face models to the cache with:
+
+```sh
+llama-server -hf <user>/<model>:<tag>
+```
+
+*The server must be restarted after adding a new model.*
+
+Alternatively, you can point the router to a local directory containing your GGUF files using `--models-dir`. Files prefixed with `mmproj-` will automatically be treated as multimodal projection files **for the model with the matching base name**:
+
+```sh
+llama-3.2-1b-Q4_K_M.gguf
+gemma-3-4b-it-Q8_0.gguf
+mmproj-gemma-3-4b-it-Q8_0.gguf   # must be "mmproj-" + text model filename
+```
+
+Example:
+
+```sh
+llama-server --models-dir ./path/to/models
+```
+
+You may also specify default arguments that will be passed to every loaded model instance:
+
+```sh
+llama-server -ctx 8192 -n 1024 -np 2
+```
+
+### Routing requests
+
+Requests are routed according to the requested model name.
+
+For **POST** endpoints (`/v1/chat/completions`, `/v1/completions`, `/infill`, etc.) The router uses the `"model"` field in the JSON body:
+
+```json
+{
+  "model": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M",
+  ...
+}
+```
+
+For **GET** endpoints (`/props`, `/metrics`, etc.) The router uses the `model` query parameter (URL-encoded):
+
+```
+GET /props?model=ggml-org%2Fgemma-3-4b-it-GGUF%3AQ4_K_M
+```
+
+### GET `/models`: List available models
+
+TODO
+
+### POST `/models/load`: Load a model
+
+TODO
+
+### POST `/models/unload`: Unload a model
+
+TODO
+
 ## More examples
 
 ### Interactive mode
