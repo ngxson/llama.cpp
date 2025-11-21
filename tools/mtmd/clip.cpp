@@ -819,6 +819,7 @@ struct clip_graph {
         // TODO: better implementation
         layer = ggml_permute(ctx0, ggml_norm(ctx0, ggml_cont(ctx0, ggml_permute(ctx0, layer, 1, 2, 0, 3)), eps), 2, 0,
                              1, 3);
+        layer = ggml_cont(ctx0, layer);
 
         layer =
             ggml_add(ctx0, ggml_mul(ctx0, ggml_repeat(ctx0, ggml_reshape_3d(ctx0, w, 1, 1, n_channels), layer), layer),
@@ -1537,8 +1538,7 @@ struct clip_graph {
         GGML_ASSERT(model.position_embeddings != nullptr);
 
         const int     n_pos = n_patches + 1;
-        ggml_tensor * inp = ggml_permute(ctx0, patch_embeds,2,1,0,3);
-        inp = ggml_cont(ctx0, inp);
+        ggml_tensor * inp = ggml_cont(ctx0,ggml_permute(ctx0, patch_embeds,2,1,0,3));
         inp = ggml_reshape_2d(ctx0, inp, n_embd, n_patches);
 
 
@@ -1550,7 +1550,7 @@ struct clip_graph {
         norm_type norm_t  = NORM_TYPE_NORMAL;
 
         // for selecting learned pos embd, used by ViT
-        struct ggml_tensor * positions = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos);
+        ggml_tensor * positions = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos);
         cb(positions, "positions", -1);
         ggml_tensor * learned_pos_embd = ggml_get_rows(ctx0, model.position_embeddings, positions);
 
@@ -5218,7 +5218,10 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
             } break;
         case PROJECTOR_TYPE_DEEPSEEKOCR:
         {
-            n_patches += 2;
+            int x_patch = img->nx / (params.patch_size);
+
+            n_patches += x_patch + 1;
+
         } break;
         default:
             GGML_ABORT("unsupported projector type");
