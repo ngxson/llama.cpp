@@ -667,9 +667,9 @@ struct clip_graph {
         constexpr int _depth      = 12;
         constexpr int enc_n_heads    = 12;
         constexpr int enc_d_heads    = enc_n_embd / enc_n_heads;
-        constexpr int _prompt_n_embd  = 256;
+        // constexpr int _prompt_n_embd  = 256;
         constexpr int enc_patch_size = 16;
-        constexpr int _window_size    = 14;
+        // constexpr int _window_size    = 14;
 
         const int enc_n_patches = enc_image_size / enc_patch_size;  // 64
 
@@ -834,7 +834,7 @@ struct clip_graph {
 
         ggml_tensor * global_features_1 = build_sam_enc(inp_raw, std::max(img.nx, img.ny));
 
-        ggml_tensor * global_features_2 = build_dp_ocr_clip(inp_raw, global_features_1);
+        ggml_tensor * global_features_2 = build_dp_ocr_clip(global_features_1);
 
         // torch global_features = torch.cat((global_features_2[:, 1:], global_features_1.flatten(2).permute(0, 2, 1)), dim=-1)
         global_features_1 = ggml_permute(ctx0, global_features_1,2,1,0,3);
@@ -1532,7 +1532,7 @@ struct clip_graph {
         return gf;
     }
 
-    ggml_tensor * build_dp_ocr_clip(ggml_tensor * inpL, ggml_tensor * patch_embeds) {
+    ggml_tensor * build_dp_ocr_clip(ggml_tensor * patch_embeds) {
         GGML_ASSERT(model.class_embedding != nullptr);
         GGML_ASSERT(model.position_embeddings != nullptr);
 
@@ -2466,6 +2466,8 @@ private:
         return inpL;
     }
 
+    // Implementation based on approach suggested by Acly
+    // See: https://github.com/ggml-org/llama.cpp/pull/17383#issuecomment-3554227091
     static ggml_tensor* window_partition(ggml_context* ctx, ggml_tensor* x, int window) {
         auto [c, w, h, b] = x->ne;
         // same as
@@ -2486,6 +2488,8 @@ private:
         return x;
     }
 
+    // Implementation based on approach suggested by Acly
+    // See: https://github.com/ggml-org/llama.cpp/pull/17383#issuecomment-3554227091
     static ggml_tensor* window_unpartition(ggml_context* m, ggml_tensor* x, int w, int h, int window) {
         int64_t c = x->ne[0];
         // same as
@@ -4881,7 +4885,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 const int  min_num       = 2;
                 const int  max_num       = 9;
                 const int  image_size    = params.image_size;  // typically 640
-                const bool use_thumbnail = true;               // mimic python's use_thumbnail
+                // const bool use_thumbnail = true;               // mimic python's use_thumbnail
 
                 // original image size
                 const int             orig_w        = original_size.width;
