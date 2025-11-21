@@ -5143,7 +5143,7 @@ public:
         std::string method = "GET";
         std::string name = req.get_param("model");
         models->ensure_model_loaded(name);
-        return models->proxy_request(req, method, name);
+        return models->proxy_request(req, method, name, false);
     };
 
     server_http_context::handler_t proxy_post = [this](const server_http_req & req) {
@@ -5151,7 +5151,7 @@ public:
         json body = json::parse(req.body);
         std::string name = json_value(body, "model", std::string());
         models->ensure_model_loaded(name);
-        return models->proxy_request(req, method, name);
+        return models->proxy_request(req, method, name, true); // update last usage for POST request only
     };
 
     server_http_context::handler_t post_router_models_load = [this](const server_http_req & req) {

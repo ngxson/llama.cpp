@@ -58,6 +58,8 @@ struct server_model_meta {
     bool in_cache = false; // if true, use -hf; use -m otherwise
     int port = 0;
     server_model_status status = SERVER_MODEL_STATUS_UNLOADED;
+    int64_t last_used = 0;
+
     bool is_active() const {
         return status == SERVER_MODEL_STATUS_LOADED || status == SERVER_MODEL_STATUS_LOADING;
     }
@@ -80,6 +82,9 @@ private:
     std::vector<std::string> base_env;
 
     void update_meta(const std::string & name, const server_model_meta & meta);
+
+    // unload least recently used models if the limit is reached
+    void unload_lru();
 
 public:
     server_models(const common_params & params, int argc, char ** argv, char ** envp);
@@ -109,7 +114,7 @@ public:
     bool ensure_model_loaded(const std::string & name);
 
     // proxy an HTTP request to the model instance
-    server_http_res_ptr proxy_request(const server_http_req & req, const std::string & method, const std::string & name);
+    server_http_res_ptr proxy_request(const server_http_req & req, const std::string & method, const std::string & name, bool update_last_used);
 
     // notify the router server that a model instance is ready
     static void setup_child_server(const std::string & host, int router_port, const std::string & name, std::function<void(int)> & shutdown_handler);

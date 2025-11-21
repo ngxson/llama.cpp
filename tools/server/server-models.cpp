@@ -135,7 +135,8 @@ server_models::server_models(
             /* path_mmproj */ "", // auto-detected when loading
             /* in_cache    */ true,
             /* port        */ 0,
-            /* status      */ SERVER_MODEL_STATUS_UNLOADED
+            /* status      */ SERVER_MODEL_STATUS_UNLOADED,
+            /* last_used   */ 0
         };
         mapping[meta.name] = instance_t{
             /* subproc */ std::make_shared<subprocess_s>(),
@@ -157,7 +158,8 @@ server_models::server_models(
                 /* path_mmproj */ model.path_mmproj,
                 /* in_cache    */ false,
                 /* port        */ 0,
-                /* status      */ SERVER_MODEL_STATUS_UNLOADED
+                /* status      */ SERVER_MODEL_STATUS_UNLOADED,
+                /* last_used   */ 0
             };
             mapping[meta.name] = instance_t{
                 /* subproc */ std::make_shared<subprocess_s>(),
@@ -272,11 +274,39 @@ std::vector<server_model_meta> server_models::get_all_meta() {
     return result;
 }
 
+void server_models::unload_lru() {
+    if (base_params.max_models <= 0) {
+        return; // no limit
+    }
+    // remove one of the servers if we passed the max_models (least recently used - LRU)
+    std::string lru_model_name = "";
+    int64_t lru_last_used = ggml_time_ms();
+    size_t count_active = 0;
+    {
+        std::lock_guard<std::mutex> lk(mutex);
+        for (const auto & m : mapping) {
+            if (m.second.meta.is_active()) {
+                count_active++;
+                if (m.second.meta.last_used < lru_last_used) {
+                    lru_model_name = m.first;
+                    lru_last_used = m.second.meta.last_used;
+                }
+            }
+        }
+    }
+    if (!lru_model_name.empty() && count_active >= (size_t)base_params.max_models) {
+        SRV_INF("max_models limit reached, removing LRU name=%s\n", lru_model_name.c_str());
+        unload(lru_model_name);
+    }
+}
+
 void server_models::load(const std::string & name) {
-    std::lock_guard<std::mutex> lk(mutex);
-    if (mapping.find(name) == mapping.end()) {
+    if (!has_model(name)) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
+    unload_lru();
+
+    std::lock_guard<std::mutex> lk(mutex);
 
     auto meta = mapping[name].meta;
     if (meta.status != SERVER_MODEL_STATUS_FAILED && meta.status != SERVER_MODEL_STATUS_UNLOADED) {
@@ -286,9 +316,10 @@ void server_models::load(const std::string & name) {
 
     // prepare new instance info
     instance_t inst;
-    inst.meta        = meta;
-    inst.meta.port   = get_free_port();
-    inst.meta.status = SERVER_MODEL_STATUS_LOADING;
+    inst.meta           = meta;
+    inst.meta.port      = get_free_port();
+    inst.meta.status    = SERVER_MODEL_STATUS_LOADING;
+    inst.meta.last_used = ggml_time_ms();
 
     if (inst.meta.port <= 0) {
         throw std::runtime_error("failed to get a port number");
@@ -450,13 +481,17 @@ bool server_models::ensure_model_loaded(const std::string & name) {
     return true;
 }
 
-server_http_res_ptr server_models::proxy_request(const server_http_req & req, const std::string & method, const std::string & name) {
+server_http_res_ptr server_models::proxy_request(const server_http_req & req, const std::string & method, const std::string & name, bool update_last_used) {
     auto meta = get_meta(name);
     if (!meta.has_value()) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
     if (ensure_model_loaded(name)) {
         meta = get_meta(name); // refresh meta
+    }
+    if (update_last_used) {
+        std::unique_lock<std::mutex> lk(mutex);
+        mapping[name].meta.last_used = ggml_time_ms();
     }
     SRV_INF("proxying request to model %s on port %d\n", name.c_str(), meta->port);
     auto proxy = std::make_unique<server_http_proxy>(
