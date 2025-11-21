@@ -104,7 +104,9 @@ static std::vector<local_model> list_local_models(const std::string & dir) {
             /* path        */ first_shard_file.path.empty() ? model_file.path : first_shard_file.path,
             /* path_mmproj */ mmproj_file.path // can be empty
         };
-        models.push_back(model);
+        if (!model.path.empty()) {
+            models.push_back(model);
+        }
     };
 
     auto files = fs_list(dir, true);
@@ -688,8 +690,11 @@ server_http_proxy::server_http_proxy(
 
     // wait for the first chunk (headers)
     msg_t header;
-    pipe->read(header, should_stop);
-    SRV_DBG("%s", "received response headers\n");
-    this->status  = header.status;
-    this->headers = header.headers;
+    if (pipe->read(header, should_stop)) {
+        SRV_DBG("%s", "received response headers\n");
+        this->status  = header.status;
+        this->headers = header.headers;
+    } else {
+        SRV_DBG("%s", "no response headers received (request cancelled?)\n");
+    }
 }
