@@ -224,7 +224,7 @@
 				<div class="space-y-1">
 					<label
 						for={field.key}
-						class="cursor-pointer text-sm leading-none font-medium {isDisabled
+						class="cursor-pointer pt-1 pb-0.5 text-sm leading-none font-medium {isDisabled
 							? 'text-muted-foreground'
 							: ''} flex items-center gap-1.5"
 					>
