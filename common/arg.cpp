@@ -2475,6 +2475,20 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples({LLAMA_EXAMPLE_SERVER}));
     add_opt(common_arg(
+        {"--models-dir"}, "PATH",
+        "directory containing models for the router server (default: disabled)",
+        [](common_params & params, const std::string & value) {
+            params.models_dir = value;
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}));
+    add_opt(common_arg(
+        {"--max-models"}, "N",
+        string_format("for router server, maximum number of models to load simultaneously (default: %d, 0 = unlimited)", params.max_models),
+        [](common_params & params, int value) {
+            params.max_models = value;
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}));
+    add_opt(common_arg(
         {"--jinja"},
         "use jinja template for chat (default: disabled)",
         [](common_params & params) {

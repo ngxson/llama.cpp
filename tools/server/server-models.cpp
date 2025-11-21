@@ -12,6 +12,7 @@
 #include <cstring>
 #include <atomic>
 #include <chrono>
+#include <unordered_set>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -69,6 +70,46 @@ static std::filesystem::path get_server_exec_path() {
 #endif
 }
 
+struct local_model {
+    std::string name;
+    std::string path;
+    std::string path_mmproj;
+};
+
+static std::vector<local_model> list_local_models(const std::string & dir) {
+    if (!std::filesystem::exists(dir) || !std::filesystem::is_directory(dir)) {
+        throw std::runtime_error(string_format("error: '%s' does not exist or is not a directory\n", dir.c_str()));
+    }
+    auto files = fs_list_files(dir);
+    std::unordered_set<std::string> files_model;
+    std::unordered_set<std::string> files_mmproj;
+    for (const auto & file : files) {
+        // TODO: also handle multiple shards
+        if (string_ends_with(file.name, ".gguf")) {
+            if (string_starts_with(file.name, "mmproj-")) {
+                files_mmproj.insert(file.name);
+            } else {
+                files_model.insert(file.name);
+            }
+        }
+    }
+    std::vector<local_model> models;
+    for (const auto & model_file : files_model) {
+        bool has_mmproj = false;
+        std::string mmproj_file = "mmproj-" + model_file;
+        if (files_mmproj.find(mmproj_file) != files_mmproj.end()) {
+            has_mmproj = true;
+        }
+        local_model model{
+            /* name        */ model_file,
+            /* path        */ dir + DIRECTORY_SEPARATOR + model_file,
+            /* path_mmproj */ has_mmproj ? (dir + DIRECTORY_SEPARATOR + mmproj_file) : ""
+        };
+        models.push_back(model);
+    }
+    return models;
+}
+
 //
 // server_models
 //
@@ -85,12 +126,13 @@ server_models::server_models(
         base_env.push_back(std::string(*env));
     }
     // TODO: allow refreshing cached model list
+    // add cached models
     auto cached_models = common_list_cached_models();
     for (const auto & model : cached_models) {
         server_model_meta meta{
             /* name        */ model.to_string(),
             /* path        */ model.manifest_path,
-            /* path_mmproj */ "",
+            /* path_mmproj */ "", // auto-detected when loading
             /* in_cache    */ true,
             /* port        */ 0,
             /* status      */ SERVER_MODEL_STATUS_UNLOADED
@@ -100,6 +142,29 @@ server_models::server_models(
             /* th      */ std::thread(),
             /* meta    */ meta
         };
+    }
+    // add local models specificed via --models-dir
+    if (!params.models_dir.empty()) {
+        auto local_models = list_local_models(params.models_dir);
+        for (const auto & model : local_models) {
+            if (mapping.find(model.name) != mapping.end()) {
+                // already exists in cached models, skip
+                continue;
+            }
+            server_model_meta meta{
+                /* name        */ model.name,
+                /* path        */ model.path,
+                /* path_mmproj */ model.path_mmproj,
+                /* in_cache    */ false,
+                /* port        */ 0,
+                /* status      */ SERVER_MODEL_STATUS_UNLOADED
+            };
+            mapping[meta.name] = instance_t{
+                /* subproc */ std::make_shared<subprocess_s>(),
+                /* th      */ std::thread(),
+                /* meta    */ meta
+            };
+        }
     }
 }
 

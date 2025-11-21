@@ -460,6 +460,10 @@ struct common_params {
     bool endpoint_props   = false; // only control POST requests, not GET
     bool endpoint_metrics = false;
 
+    // router server configs
+    std::string models_dir = ""; // directory containing models for the router server
+    int max_models = 4;          // maximum number of models to load simultaneously
+
     bool log_json = false;
 
     std::string slot_save_path;
