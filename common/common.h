@@ -625,8 +625,9 @@ struct common_file_info {
     std::string path;
     std::string name;
     size_t      size = 0; // in bytes
+    bool        is_dir = false;
 };
-std::vector<common_file_info> fs_list_files(const std::string & path);
+std::vector<common_file_info> fs_list(const std::string & path, bool include_directories);
 
 //
 // Model utils

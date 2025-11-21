@@ -80,32 +80,48 @@ static std::vector<local_model> list_local_models(const std::string & dir) {
     if (!std::filesystem::exists(dir) || !std::filesystem::is_directory(dir)) {
         throw std::runtime_error(string_format("error: '%s' does not exist or is not a directory\n", dir.c_str()));
     }
-    auto files = fs_list_files(dir);
-    std::unordered_set<std::string> files_model;
-    std::unordered_set<std::string> files_mmproj;
-    for (const auto & file : files) {
-        // TODO: also handle multiple shards
-        if (string_ends_with(file.name, ".gguf")) {
-            if (string_starts_with(file.name, "mmproj-")) {
-                files_mmproj.insert(file.name);
-            } else {
-                files_model.insert(file.name);
+
+    std::vector<local_model> models;
+    auto scan_subdir = [&models](const std::string & subdir_path, const std::string name) {
+        auto files = fs_list(subdir_path, false);
+        common_file_info model_file;
+        common_file_info first_shard_file;
+        common_file_info mmproj_file;
+        for (const auto & file : files) {
+            if (string_ends_with(file.name, ".gguf")) {
+                if (file.name.find("mmproj") != std::string::npos) {
+                    mmproj_file = file;
+                } else if (file.name.find("-00001-of-") != std::string::npos) {
+                    first_shard_file = file;
+                } else {
+                    model_file = file;
+                }
             }
         }
-    }
-    std::vector<local_model> models;
-    for (const auto & model_file : files_model) {
-        bool has_mmproj = false;
-        std::string mmproj_file = "mmproj-" + model_file;
-        if (files_mmproj.find(mmproj_file) != files_mmproj.end()) {
-            has_mmproj = true;
-        }
+        // single file model
         local_model model{
-            /* name        */ model_file,
-            /* path        */ dir + DIRECTORY_SEPARATOR + model_file,
-            /* path_mmproj */ has_mmproj ? (dir + DIRECTORY_SEPARATOR + mmproj_file) : ""
+            /* name        */ name,
+            /* path        */ first_shard_file.path.empty() ? model_file.path : first_shard_file.path,
+            /* path_mmproj */ mmproj_file.path // can be empty
         };
         models.push_back(model);
+    };
+
+    auto files = fs_list(dir, true);
+    for (const auto & file : files) {
+        if (file.is_dir) {
+            scan_subdir(file.path, file.name);
+        } else if (string_ends_with(file.name, ".gguf")) {
+            // single file model
+            std::string name = file.name;
+            string_replace_all(name, ".gguf", "");
+            local_model model{
+                /* name        */ name,
+                /* path        */ file.path,
+                /* path_mmproj */ ""
+            };
+            models.push_back(model);
+        }
     }
     return models;
 }
