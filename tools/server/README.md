@@ -1409,7 +1409,12 @@ For **POST** endpoints (`/v1/chat/completions`, `/v1/completions`, `/infill`, et
 ```json
 {
   "model": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M",
-  ...
+  "messages": [
+    {
+      "role": "user",
+      "content": "hello"
+    }
+  ]
 }
 ```
 
@@ -1421,15 +1426,92 @@ GET /props?model=ggml-org%2Fgemma-3-4b-it-GGUF%3AQ4_K_M
 
 ### GET `/models`: List available models
 
-TODO
+Listing all models in cache. The model metadata will also include a field to indicate the status of the model:
+
+```json
+{
+  "data": [{
+    "name": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M",
+    "id": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M",
+    "in_cache": true,
+    "path": "/Users/REDACTED/Library/Caches/llama.cpp/ggml-org_gemma-3-4b-it-GGUF_gemma-3-4b-it-Q4_K_M.gguf",
+    "status": {
+      "value": "loaded"
+    },
+    ...
+  }]
+}
+```
+
+Note: For a local GGUF (stored offline in a custom directory), the model object will have `"in_cache": false`.
+
+The `status` object can be:
+
+```json
+"status": {
+  "value": "unloaded"
+}
+```
+
+```json
+"status": {
+  "value": "loading"
+}
+```
+
+```json
+"status": {
+  "value": "failed"
+}
+```
+
+```json
+"status": {
+  "value": "loaded"
+}
+```
 
 ### POST `/models/load`: Load a model
 
-TODO
+
+Load a model
+
+Payload:
+
+```json
+{
+  "model": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M"
+}
+```
+
+Response:
+
+```json
+{
+  "success": true
+}
+```
 
 ### POST `/models/unload`: Unload a model
 
-TODO
+
+Unload a model
+
+Payload:
+
+```json
+{
+  "model": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M",
+}
+```
+
+Response:
+
+```json
+{
+  "success": true
+}
+```
 
 ## More examples
 

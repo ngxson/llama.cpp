@@ -5189,9 +5189,10 @@ public:
         auto all_models = models->get_all_meta();
         for (const auto & model : all_models) {
             models_json.push_back(json {
-                {"model",  model.name},
-                {"name",   model.name},
-                {"id",     model.name},
+                {"name",     model.name},
+                {"id",       model.name},
+                {"in_cache", model.in_cache},
+                {"path",     model.path},
                 // TODO: other fields...
                 {"status", {
                     {"value", server_model_status_to_string(model.status)}
