@@ -12,6 +12,7 @@
 #include <cstring>
 #include <atomic>
 #include <chrono>
+#include <unordered_set>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -57,7 +58,7 @@ static std::filesystem::path get_server_exec_path() {
                 return std::filesystem::path(buf.data());
             }
         }
-        return std::filesystem::path(std::string(buf.data(), (size > 0) ? size : 0));
+        throw std::runtime_error("_NSGetExecutablePath failed after buffer resize");
     }
 #else
     char path[FILENAME_MAX];
@@ -67,6 +68,64 @@ static std::filesystem::path get_server_exec_path() {
     }
     return std::filesystem::path(std::string(path, count));
 #endif
+}
+
+struct local_model {
+    std::string name;
+    std::string path;
+    std::string path_mmproj;
+};
+
+static std::vector<local_model> list_local_models(const std::string & dir) {
+    if (!std::filesystem::exists(dir) || !std::filesystem::is_directory(dir)) {
+        throw std::runtime_error(string_format("error: '%s' does not exist or is not a directory\n", dir.c_str()));
+    }
+
+    std::vector<local_model> models;
+    auto scan_subdir = [&models](const std::string & subdir_path, const std::string name) {
+        auto files = fs_list(subdir_path, false);
+        common_file_info model_file;
+        common_file_info first_shard_file;
+        common_file_info mmproj_file;
+        for (const auto & file : files) {
+            if (string_ends_with(file.name, ".gguf")) {
+                if (file.name.find("mmproj") != std::string::npos) {
+                    mmproj_file = file;
+                } else if (file.name.find("-00001-of-") != std::string::npos) {
+                    first_shard_file = file;
+                } else {
+                    model_file = file;
+                }
+            }
+        }
+        // single file model
+        local_model model{
+            /* name        */ name,
+            /* path        */ first_shard_file.path.empty() ? model_file.path : first_shard_file.path,
+            /* path_mmproj */ mmproj_file.path // can be empty
+        };
+        if (!model.path.empty()) {
+            models.push_back(model);
+        }
+    };
+
+    auto files = fs_list(dir, true);
+    for (const auto & file : files) {
+        if (file.is_dir) {
+            scan_subdir(file.path, file.name);
+        } else if (string_ends_with(file.name, ".gguf")) {
+            // single file model
+            std::string name = file.name;
+            string_replace_all(name, ".gguf", "");
+            local_model model{
+                /* name        */ name,
+                /* path        */ file.path,
+                /* path_mmproj */ ""
+            };
+            models.push_back(model);
+        }
+    }
+    return models;
 }
 
 //
@@ -85,21 +144,47 @@ server_models::server_models(
         base_env.push_back(std::string(*env));
     }
     // TODO: allow refreshing cached model list
+    // add cached models
     auto cached_models = common_list_cached_models();
     for (const auto & model : cached_models) {
         server_model_meta meta{
             /* name        */ model.to_string(),
             /* path        */ model.manifest_path,
-            /* path_mmproj */ "",
+            /* path_mmproj */ "", // auto-detected when loading
             /* in_cache    */ true,
             /* port        */ 0,
-            /* status      */ SERVER_MODEL_STATUS_UNLOADED
+            /* status      */ SERVER_MODEL_STATUS_UNLOADED,
+            /* last_used   */ 0
         };
         mapping[meta.name] = instance_t{
             /* subproc */ std::make_shared<subprocess_s>(),
             /* th      */ std::thread(),
             /* meta    */ meta
         };
+    }
+    // add local models specificed via --models-dir
+    if (!params.models_dir.empty()) {
+        auto local_models = list_local_models(params.models_dir);
+        for (const auto & model : local_models) {
+            if (mapping.find(model.name) != mapping.end()) {
+                // already exists in cached models, skip
+                continue;
+            }
+            server_model_meta meta{
+                /* name        */ model.name,
+                /* path        */ model.path,
+                /* path_mmproj */ model.path_mmproj,
+                /* in_cache    */ false,
+                /* port        */ 0,
+                /* status      */ SERVER_MODEL_STATUS_UNLOADED,
+                /* last_used   */ 0
+            };
+            mapping[meta.name] = instance_t{
+                /* subproc */ std::make_shared<subprocess_s>(),
+                /* th      */ std::thread(),
+                /* meta    */ meta
+            };
+        }
     }
 }
 
@@ -207,11 +292,39 @@ std::vector<server_model_meta> server_models::get_all_meta() {
     return result;
 }
 
+void server_models::unload_lru() {
+    if (base_params.max_models <= 0) {
+        return; // no limit
+    }
+    // remove one of the servers if we passed the max_models (least recently used - LRU)
+    std::string lru_model_name = "";
+    int64_t lru_last_used = ggml_time_ms();
+    size_t count_active = 0;
+    {
+        std::lock_guard<std::mutex> lk(mutex);
+        for (const auto & m : mapping) {
+            if (m.second.meta.is_active()) {
+                count_active++;
+                if (m.second.meta.last_used < lru_last_used) {
+                    lru_model_name = m.first;
+                    lru_last_used = m.second.meta.last_used;
+                }
+            }
+        }
+    }
+    if (!lru_model_name.empty() && count_active >= (size_t)base_params.max_models) {
+        SRV_INF("max_models limit reached, removing LRU name=%s\n", lru_model_name.c_str());
+        unload(lru_model_name);
+    }
+}
+
 void server_models::load(const std::string & name) {
-    std::lock_guard<std::mutex> lk(mutex);
-    if (mapping.find(name) == mapping.end()) {
+    if (!has_model(name)) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
+    unload_lru();
+
+    std::lock_guard<std::mutex> lk(mutex);
 
     auto meta = mapping[name].meta;
     if (meta.status != SERVER_MODEL_STATUS_FAILED && meta.status != SERVER_MODEL_STATUS_UNLOADED) {
@@ -221,9 +334,10 @@ void server_models::load(const std::string & name) {
 
     // prepare new instance info
     instance_t inst;
-    inst.meta        = meta;
-    inst.meta.port   = get_free_port();
-    inst.meta.status = SERVER_MODEL_STATUS_LOADING;
+    inst.meta           = meta;
+    inst.meta.port      = get_free_port();
+    inst.meta.status    = SERVER_MODEL_STATUS_LOADING;
+    inst.meta.last_used = ggml_time_ms();
 
     if (inst.meta.port <= 0) {
         throw std::runtime_error("failed to get a port number");
@@ -385,13 +499,17 @@ bool server_models::ensure_model_loaded(const std::string & name) {
     return true;
 }
 
-server_http_res_ptr server_models::proxy_request(const server_http_req & req, const std::string & method, const std::string & name) {
+server_http_res_ptr server_models::proxy_request(const server_http_req & req, const std::string & method, const std::string & name, bool update_last_used) {
     auto meta = get_meta(name);
     if (!meta.has_value()) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
     if (ensure_model_loaded(name)) {
         meta = get_meta(name); // refresh meta
+    }
+    if (update_last_used) {
+        std::unique_lock<std::mutex> lk(mutex);
+        mapping[name].meta.last_used = ggml_time_ms();
     }
     SRV_INF("proxying request to model %s on port %d\n", name.c_str(), meta->port);
     auto proxy = std::make_unique<server_http_proxy>(
@@ -572,8 +690,11 @@ server_http_proxy::server_http_proxy(
 
     // wait for the first chunk (headers)
     msg_t header;
-    pipe->read(header, should_stop);
-    SRV_DBG("%s", "received response headers\n");
-    this->status  = header.status;
-    this->headers = header.headers;
+    if (pipe->read(header, should_stop)) {
+        SRV_DBG("%s", "received response headers\n");
+        this->status  = header.status;
+        this->headers = header.headers;
+    } else {
+        SRV_DBG("%s", "no response headers received (request cancelled?)\n");
+    }
 }

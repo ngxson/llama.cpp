@@ -267,7 +267,6 @@
 		if (activeId) {
 			return options.find((option) => option.id === activeId);
 		}
-
 		return options[0];
 	}
 </script>

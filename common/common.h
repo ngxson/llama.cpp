@@ -26,8 +26,6 @@
     fprintf(stderr, "%s: built with %s for %s\n", __func__, LLAMA_COMPILER, LLAMA_BUILD_TARGET);    \
 } while(0)
 
-#define DEFAULT_MODEL_PATH "models/7B/ggml-model-f16.gguf"
-
 struct common_time_meas {
     common_time_meas(int64_t & t_acc, bool disable = false);
     ~common_time_meas();
@@ -460,6 +458,10 @@ struct common_params {
     bool endpoint_props   = false; // only control POST requests, not GET
     bool endpoint_metrics = false;
 
+    // router server configs
+    std::string models_dir = ""; // directory containing models for the router server
+    int max_models = 4;          // maximum number of models to load simultaneously
+
     bool log_json = false;
 
     std::string slot_save_path;
@@ -623,8 +625,9 @@ struct common_file_info {
     std::string path;
     std::string name;
     size_t      size = 0; // in bytes
+    bool        is_dir = false;
 };
-std::vector<common_file_info> fs_list_files(const std::string & path);
+std::vector<common_file_info> fs_list(const std::string & path, bool include_directories);
 
 //
 // Model utils

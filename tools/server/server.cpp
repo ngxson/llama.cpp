@@ -5143,7 +5143,7 @@ public:
         std::string method = "GET";
         std::string name = req.get_param("model");
         models->ensure_model_loaded(name);
-        return models->proxy_request(req, method, name);
+        return models->proxy_request(req, method, name, false);
     };
 
     server_http_context::handler_t proxy_post = [this](const server_http_req & req) {
@@ -5151,7 +5151,7 @@ public:
         json body = json::parse(req.body);
         std::string name = json_value(body, "model", std::string());
         models->ensure_model_loaded(name);
-        return models->proxy_request(req, method, name);
+        return models->proxy_request(req, method, name, true); // update last usage for POST request only
     };
 
     server_http_context::handler_t post_router_models_load = [this](const server_http_req & req) {
@@ -5189,9 +5189,10 @@ public:
         auto all_models = models->get_all_meta();
         for (const auto & model : all_models) {
             models_json.push_back(json {
-                {"model",  model.name},
-                {"name",   model.name},
-                {"id",     model.name},
+                {"name",     model.name},
+                {"id",       model.name},
+                {"in_cache", model.in_cache},
+                {"path",     model.path},
                 // TODO: other fields...
                 {"status", {
                     {"value", server_model_status_to_string(model.status)}
@@ -5662,8 +5663,7 @@ int main(int argc, char ** argv, char ** envp) {
     // register API routes
     server_routes routes(params, ctx_server, ctx_http);
 
-    // TODO: improve this by changing arg.cpp
-    bool is_router_server = params.model.path == DEFAULT_MODEL_PATH;
+    bool is_router_server = params.model.path.empty();
     if (is_router_server) {
         // setup server instances manager
         routes.models.reset(new server_models(params, argc, argv, envp));
