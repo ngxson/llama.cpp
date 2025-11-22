@@ -194,6 +194,8 @@ struct clip_hparams {
     int32_t attn_window_size = 0;
     int32_t n_wa_pattern = 0;
 
+    bool crop_mode = false;
+
     // audio
     int32_t n_mel_bins = 0; // whisper preprocessor
     int32_t proj_stack_factor = 0; // ultravox
@@ -3337,11 +3339,12 @@ struct clip_model_loader {
                         log_ffn_op = "gelu_erf"; // temporary solution for logging
                     } break;
                 case PROJECTOR_TYPE_DEEPSEEKOCR:
-                {
-                    hparams.patch_size = 16;
-                    hparams.image_size = 1024;
-                    hparams.warmup_image_size = 1024;
-                } break;
+                    {
+                        hparams.patch_size = 16;
+                        hparams.image_size = 1024;
+                        hparams.warmup_image_size = 1024;
+                        hparams.crop_mode = false;
+                    } break;
                 default:
                     break;
             }
@@ -4992,7 +4995,107 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 }
             } break;
         case PROJECTOR_TYPE_DEEPSEEKOCR:
-            {
+            if (!params.crop_mode) {
+                /* Native Resolution (Tiny/Small/Base/Large) */
+
+                const int native_resolutions[] = { 
+                    512 /* tiny */, 640 /* small */, 1024 /* base */, 1280 /* large */
+                };
+                // original image size
+                const int orig_w = original_size.width;
+                const int orig_h = original_size.height;
+                const int orig_area = orig_h * orig_w;
+
+                // mode selection logic (find most suitable resolution)
+                int mode_i = 0;
+                int min_diff = orig_area;
+
+                for (int i = 0; i < 4; i++) {
+                    int r = native_resolutions[i];
+                    if (std::abs(orig_area - r*r) < min_diff) {
+                        mode_i = i;
+                        min_diff = std::abs(orig_area - r*r);
+                    }
+                }
+
+                const int image_size = native_resolutions[mode_i];
+
+                if (mode_i < 2) {
+                    // TINY/SMALL MODE: Direct resize (no slicing)
+                    // Just resize the image to image_size × image_size
+
+                    clip_image_u8_ptr resized_img(clip_image_u8_init());
+                    img_tool::resize(*img, *resized_img,
+                                    clip_image_size{image_size, image_size},
+                                    img_tool::RESIZE_ALGO_BICUBIC);  // Match PIL default
+
+                    clip_image_f32_ptr res(clip_image_f32_init());
+                    normalize_image_u8_to_f32(*resized_img, *res, params.image_mean, params.image_std);
+                    res_imgs->entries.push_back(std::move(res));
+
+                    res_imgs->grid_x = 1;
+                    res_imgs->grid_y = 1;
+                }
+                else {
+                    // BASE/LARGE MODE: Resize with aspect ratio + padding
+                    // Resize maintaining aspect ratio, then pad to square
+
+                    float scale = std::min(
+                        static_cast<float>(image_size) / orig_w,
+                        static_cast<float>(image_size) / orig_h
+                    );
+                    int new_w = static_cast<int>(orig_w * scale);
+                    int new_h = static_cast<int>(orig_h * scale);
+
+                    clip_image_u8_ptr scaled_img(clip_image_u8_init());
+                    img_tool::resize(*img, *scaled_img, clip_image_size{new_w, new_h},
+                                    img_tool::RESIZE_ALGO_BICUBIC);
+
+                    // Use mean color for padding 
+                    unsigned char pad_r = static_cast<unsigned char>(params.image_mean[0] * 255.0f);
+                    unsigned char pad_g = static_cast<unsigned char>(params.image_mean[1] * 255.0f);
+                    unsigned char pad_b = static_cast<unsigned char>(params.image_mean[2] * 255.0f);
+
+                    // Step 2: Pad to image_size × image_size (center padding)
+                    clip_image_u8_ptr padded_img(clip_image_u8_init());
+                    padded_img->nx = image_size;
+                    padded_img->ny = image_size;
+                    padded_img->buf.resize(image_size * image_size * 3);  // black padding
+
+                    // Fill with mean color
+                    for (int i = 0; i < image_size * image_size; ++i) {
+                        padded_img->buf[i * 3 + 0] = pad_r;
+                        padded_img->buf[i * 3 + 1] = pad_g;
+                        padded_img->buf[i * 3 + 2] = pad_b;
+                    }
+
+                    // Calculate padding offsets (center the image)
+                    int pad_x = (image_size - new_w) / 2;
+                    int pad_y = (image_size - new_h) / 2;
+
+                    // Copy scaled image into padded canvas
+                    for (int y = 0; y < new_h; ++y) {
+                        for (int x = 0; x < new_w; ++x) {
+                            int src_idx = (y * new_w + x) * 3;
+                            int dst_idx = ((y + pad_y) * image_size + (x + pad_x)) * 3;
+                            padded_img->buf[dst_idx + 0] = scaled_img->buf[src_idx + 0];
+                            padded_img->buf[dst_idx + 1] = scaled_img->buf[src_idx + 1];
+                            padded_img->buf[dst_idx + 2] = scaled_img->buf[src_idx + 2];
+                        }
+                    }
+
+                    // Step 3: Normalize and output
+                    clip_image_f32_ptr res(clip_image_f32_init());
+                    normalize_image_u8_to_f32(*padded_img, *res, params.image_mean, params.image_std);
+                    res_imgs->entries.push_back(std::move(res));
+
+                    res_imgs->grid_x = 1;
+                    res_imgs->grid_y = 1;
+                }
+            }
+            else {
+                /* Dynamic Resolution (Gundam/Gundam-M) */
+
                 // configurable, or read from params
                 const int  min_num       = 2;
                 const int  max_num       = 9;
