@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { Square, ArrowUp } from '@lucide/svelte';
+	import { Square } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import {
 		ChatFormActionFileAttachments,
 		ChatFormActionRecord,
+		ChatFormActionSubmit,
 		SelectorModel
 	} from '$lib/components/app';
 	import { FileTypeCategory } from '$lib/enums/files';
@@ -69,14 +70,15 @@
 		{/if}
 
 		{#if shouldShowSubmitButton}
-			<Button
-				type="submit"
-				disabled={!canSend || disabled || isLoading}
-				class="h-8 w-8 rounded-full p-0"
-			>
-				<span class="sr-only">Send</span>
-				<ArrowUp class="h-12 w-12" />
-			</Button>
+			<ChatFormActionSubmit
+				{canSend}
+				{disabled}
+				{isLoading}
+				tooltipLabel={isLastModelInCache
+					? ''
+					: 'Selected model is not available, please select another'}
+				isModelAvailable={isLastModelInCache}
+			/>
 		{/if}
 	{/if}
 </div>
