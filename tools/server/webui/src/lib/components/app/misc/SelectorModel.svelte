@@ -1,36 +1,46 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { ChevronDown, Loader2 } from '@lucide/svelte';
+	import { ChevronDown, Loader2, Package } from '@lucide/svelte';
 	import { cn } from '$lib/components/ui/utils';
 	import { portalToBody } from '$lib/utils/portal-to-body';
 	import {
 		fetchModels,
 		modelOptions,
-		modelsError,
 		modelsLoading,
 		modelsUpdating,
 		selectModel,
 		selectedModelId
 	} from '$lib/stores/models.svelte';
+	import { isRouterMode, serverStore } from '$lib/stores/server.svelte';
+	import { DialogModelInformation } from '$lib/components/app';
 	import type { ModelOption } from '$lib/types/models';
 
 	interface Props {
 		class?: string;
+		currentModel?: string | null;
+		onModelChange?: (modelId: string, modelName: string) => void;
+		disabled?: boolean;
 	}
 
-	let { class: className = '' }: Props = $props();
+	let {
+		class: className = '',
+		currentModel = null,
+		onModelChange,
+		disabled = false
+	}: Props = $props();
 
 	let options = $derived(modelOptions());
 	let loading = $derived(modelsLoading());
 	let updating = $derived(modelsUpdating());
-	let error = $derived(modelsError());
 	let activeId = $derived(selectedModelId());
+	let isRouter = $derived(isRouterMode());
+	let serverModel = $derived(serverStore.modelName);
 
-	let isMounted = $state(false);
 	let isOpen = $state(false);
+	let showModelDialog = $state(false);
 	let container: HTMLDivElement | null = null;
-	let triggerButton = $state<HTMLButtonElement | null>(null);
 	let menuRef = $state<HTMLDivElement | null>(null);
+	let triggerButton = $state<HTMLButtonElement | null>(null);
 	let menuPosition = $state<{
 		top: number;
 		left: number;
@@ -38,17 +48,50 @@
 		placement: 'top' | 'bottom';
 		maxHeight: number;
 	} | null>(null);
-	let lockedWidth: number | null = null;
+
+	const VIEWPORT_GUTTER = 8;
+	const MENU_OFFSET = 6;
+	const MENU_MAX_WIDTH = 320;
 
 	onMount(async () => {
 		try {
 			await fetchModels();
 		} catch (error) {
 			console.error('Unable to load models:', error);
-		} finally {
-			isMounted = true;
 		}
 	});
+
+	function toggleOpen() {
+		if (loading || updating) return;
+
+		if (isRouter) {
+			// Router mode: show dropdown
+			if (isOpen) {
+				closeMenu();
+			} else {
+				openMenu();
+			}
+		} else {
+			// Single model mode: show dialog
+			showModelDialog = true;
+		}
+	}
+
+	async function openMenu() {
+		if (loading || updating) return;
+
+		isOpen = true;
+		await tick();
+		updateMenuPosition();
+		requestAnimationFrame(() => updateMenuPosition());
+	}
+
+	function closeMenu() {
+		if (!isOpen) return;
+
+		isOpen = false;
+		menuPosition = null;
+	}
 
 	function handlePointerDown(event: PointerEvent) {
 		if (!container) return;
@@ -72,75 +115,6 @@
 		}
 	}
 
-	async function handleSelect(value: string | undefined) {
-		if (!value) return;
-
-		const option = options.find((item) => item.id === value);
-		if (!option) {
-			console.error('Model is no longer available');
-			return;
-		}
-
-		try {
-			await selectModel(option.id);
-		} catch (error) {
-			console.error('Failed to switch model:', error);
-		}
-	}
-
-	const VIEWPORT_GUTTER = 8;
-	const MENU_OFFSET = 6;
-	const MENU_MAX_WIDTH = 320;
-
-	async function openMenu() {
-		if (loading || updating) return;
-
-		isOpen = true;
-		await tick();
-		updateMenuPosition();
-		requestAnimationFrame(() => updateMenuPosition());
-	}
-
-	function toggleOpen() {
-		if (loading || updating) return;
-
-		if (isOpen) {
-			closeMenu();
-		} else {
-			void openMenu();
-		}
-	}
-
-	function closeMenu() {
-		if (!isOpen) return;
-
-		isOpen = false;
-		menuPosition = null;
-		lockedWidth = null;
-	}
-
-	async function handleOptionSelect(optionId: string) {
-		try {
-			await handleSelect(optionId);
-		} finally {
-			closeMenu();
-		}
-	}
-
-	$effect(() => {
-		if (loading || updating) {
-			closeMenu();
-		}
-	});
-
-	$effect(() => {
-		const optionCount = options.length;
-
-		if (!isOpen || optionCount <= 0) return;
-
-		queueMicrotask(() => updateMenuPosition());
-	});
-
 	function updateMenuPosition() {
 		if (!isOpen || !triggerButton || !menuRef) return;
 
@@ -159,19 +133,10 @@
 			constrainedMaxWidth > 0 ? constrainedMaxWidth : Math.min(MENU_MAX_WIDTH, viewportWidth);
 		const desiredMinWidth = Math.min(160, safeMaxWidth || 160);
 
-		let width = lockedWidth;
-		if (width === null) {
-			const naturalWidth = Math.min(scrollWidth, safeMaxWidth);
-			const baseWidth = Math.max(triggerRect.width, naturalWidth, desiredMinWidth);
-			width = Math.min(baseWidth, safeMaxWidth || baseWidth);
-			lockedWidth = width;
-		} else {
-			width = Math.min(Math.max(width, desiredMinWidth), safeMaxWidth || width);
-		}
-
-		if (width > 0) {
-			menuRef.style.width = `${width}px`;
-		}
+		let width = Math.min(
+			Math.max(triggerRect.width, scrollWidth, desiredMinWidth),
+			safeMaxWidth || 320
+		);
 
 		const availableBelow = Math.max(
 			0,
@@ -220,8 +185,6 @@
 			metrics = aboveMetrics;
 		}
 
-		menuRef.style.maxHeight = metrics.maxHeight > 0 ? `${Math.round(metrics.maxHeight)}px` : '';
-
 		let left = triggerRect.right - width;
 		const maxLeft = viewportWidth - VIEWPORT_GUTTER - width;
 		if (maxLeft < VIEWPORT_GUTTER) {
@@ -244,63 +207,85 @@
 		};
 	}
 
+	function handleSelect(modelId: string) {
+		const option = options.find((opt) => opt.id === modelId);
+		if (option && onModelChange) {
+			// If callback provided, use it (for regenerate functionality)
+			onModelChange(option.id, option.model);
+		} else if (option) {
+			// Otherwise, just update the global selection (for form selector)
+			selectModel(option.id).catch(console.error);
+		}
+		closeMenu();
+	}
+
 	function getDisplayOption(): ModelOption | undefined {
+		if (!isRouter) {
+			// Single model mode: create fake option from server model
+			if (serverModel) {
+				return {
+					id: 'current',
+					model: serverModel,
+					name: serverModel.split('/').pop() || serverModel,
+					capabilities: [] // Empty array for single model mode
+				};
+			}
+			return undefined;
+		}
+
+		// Router mode: use existing logic
+		if (currentModel) {
+			return options.find((option) => option.model === currentModel);
+		}
 		if (activeId) {
 			return options.find((option) => option.id === activeId);
 		}
-
 		return options[0];
 	}
 </script>
 
 <svelte:window onresize={handleResize} />
-
 <svelte:document onpointerdown={handlePointerDown} onkeydown={handleKeydown} />
 
-<div
-	class={cn('relative z-10 flex max-w-[200px] min-w-[120px] flex-col items-end gap-1', className)}
-	bind:this={container}
->
-	{#if loading && options.length === 0 && !isMounted}
+<div class={cn('relative inline-flex flex-col items-end gap-1', className)} bind:this={container}>
+	{#if loading && options.length === 0 && isRouter}
 		<div class="flex items-center gap-2 text-xs text-muted-foreground">
-			<Loader2 class="h-4 w-4 animate-spin" />
+			<Loader2 class="h-3.5 w-3.5 animate-spin" />
 			Loading models…
 		</div>
-	{:else if options.length === 0}
+	{:else if options.length === 0 && isRouter}
 		<p class="text-xs text-muted-foreground">No models available.</p>
 	{:else}
 		{@const selectedOption = getDisplayOption()}
 
-		<div class="relative w-full">
+		<div class="relative">
 			<button
 				type="button"
 				class={cn(
-					'flex w-full items-center justify-end gap-2 rounded-md px-2 py-1 text-sm text-muted-foreground transition hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60',
+					'inline-flex cursor-pointer items-center gap-1.5 rounded-sm bg-muted-foreground/15 px-1.5 py-0.75 text-xs text-muted-foreground transition hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60',
 					isOpen ? 'text-foreground' : ''
 				)}
-				aria-haspopup="listbox"
-				aria-expanded={isOpen}
+				style="max-width: min(calc(100vw - 2rem), 32rem)"
+				aria-haspopup={isRouter ? 'listbox' : undefined}
+				aria-expanded={isRouter ? isOpen : undefined}
 				onclick={toggleOpen}
 				bind:this={triggerButton}
-				disabled={loading || updating}
+				disabled={disabled || updating}
 			>
-				<span class="max-w-[160px] truncate text-right font-medium">
+				<Package class="h-3.5 w-3.5" />
+
+				<span class="truncate font-medium">
 					{selectedOption?.name || 'Select model'}
 				</span>
 
 				{#if updating}
-					<Loader2 class="h-3.5 w-3.5 animate-spin text-muted-foreground" />
-				{:else}
-					<ChevronDown
-						class={cn(
-							'h-4 w-4 text-muted-foreground transition-transform',
-							isOpen ? 'rotate-180 text-foreground' : ''
-						)}
-					/>
+					<Loader2 class="h-3 w-3.5 animate-spin" />
+				{:else if isRouter}
+					<ChevronDown class="h-3 w-3.5" />
 				{/if}
 			</button>
 
-			{#if isOpen}
+			{#if isOpen && isRouter}
 				<div
 					bind:this={menuRef}
 					use:portalToBody
@@ -324,20 +309,16 @@
 							<button
 								type="button"
 								class={cn(
-									'flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left text-sm transition hover:bg-muted focus:bg-muted focus:outline-none',
-									option.id === selectedOption?.id ? 'bg-accent text-accent-foreground' : ''
+									'flex w-full cursor-pointer items-center px-3 py-2 text-left text-sm transition hover:bg-muted focus:bg-muted focus:outline-none',
+									currentModel === option.model || activeId === option.id
+										? 'bg-accent text-accent-foreground'
+										: 'text-popover-foreground hover:bg-accent hover:text-accent-foreground'
 								)}
 								role="option"
-								aria-selected={option.id === selectedOption?.id}
-								onclick={() => handleOptionSelect(option.id)}
+								aria-selected={currentModel === option.model || activeId === option.id}
+								onclick={() => handleSelect(option.id)}
 							>
-								<span class="block w-full truncate font-medium" title={option.name}>
-									{option.name}
-								</span>
-
-								{#if option.description}
-									<span class="text-xs text-muted-foreground">{option.description}</span>
-								{/if}
+								<span class="truncate">{option.name}</span>
 							</button>
 						{/each}
 					</div>
@@ -345,8 +326,8 @@
 			{/if}
 		</div>
 	{/if}
-
-	{#if error}
-		<p class="text-xs text-destructive">{error}</p>
-	{/if}
 </div>
+
+{#if showModelDialog && !isRouter}
+	<DialogModelInformation bind:open={showModelDialog} />
+{/if}

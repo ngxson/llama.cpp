@@ -1,8 +1,11 @@
 <script lang="ts">
+	import { Button } from '$lib/components/ui/button';
 	import { FileText, Image, Music, FileIcon, Eye } from '@lucide/svelte';
 	import { FileTypeCategory, MimeTypeApplication } from '$lib/enums/files';
+	import { ModelModality } from '$lib/enums/model';
+	import { AttachmentType } from '$lib/enums/attachment';
+	import type { DatabaseMessageExtra } from '$lib/types/database';
 	import { convertPDFToImage } from '$lib/utils/pdf-processing';
-	import { Button } from '$lib/components/ui/button';
 	import { getFileTypeCategory } from '$lib/utils/file-type';
 
 	interface Props {
@@ -21,33 +24,36 @@
 	let displayName = $derived(uploadedFile?.name || attachment?.name || name || 'Unknown File');
 
 	let displayPreview = $derived(
-		uploadedFile?.preview || (attachment?.type === 'imageFile' ? attachment.base64Url : preview)
+		uploadedFile?.preview ||
+			(attachment?.type === AttachmentType.IMAGE ? attachment.base64Url : preview)
 	);
 
 	let displayType = $derived(
-		uploadedFile?.type ||
-			(attachment?.type === 'imageFile'
+		uploadedFile
+			? uploadedFile.type
+			: attachment?.type === AttachmentType.IMAGE
 				? 'image'
-				: attachment?.type === 'textFile'
+				: attachment?.type === AttachmentType.TEXT
 					? 'text'
-					: attachment?.type === 'audioFile'
-						? attachment.mimeType || 'audio'
-						: attachment?.type === 'pdfFile'
+					: attachment?.type === AttachmentType.AUDIO
+						? attachment.mimeType || ModelModality.AUDIO
+						: attachment?.type === AttachmentType.PDF
 							? MimeTypeApplication.PDF
-							: type || 'unknown')
+							: type || 'unknown'
 	);
 
 	let displayTextContent = $derived(
 		uploadedFile?.textContent ||
-			(attachment?.type === 'textFile'
+			(attachment?.type === AttachmentType.TEXT
 				? attachment.content
-				: attachment?.type === 'pdfFile'
+				: attachment?.type === AttachmentType.PDF
 					? attachment.content
 					: textContent)
 	);
 
 	let isAudio = $derived(
-		getFileTypeCategory(displayType) === FileTypeCategory.AUDIO || displayType === 'audio'
+		getFileTypeCategory(displayType) === FileTypeCategory.AUDIO ||
+			displayType === ModelModality.AUDIO
 	);
 
 	let isImage = $derived(
@@ -87,9 +93,9 @@
 
 			if (uploadedFile?.file) {
 				file = uploadedFile.file;
-			} else if (attachment?.type === 'pdfFile') {
+			} else if (attachment?.type === AttachmentType.PDF) {
 				// Check if we have pre-processed images
-				if (attachment.images && Array.isArray(attachment.images)) {
+				if (attachment.images && Array.isArray(attachment.images) && attachment.images.length > 0) {
 					pdfImages = attachment.images;
 					return;
 				}
@@ -237,7 +243,7 @@
 				<div class="w-full max-w-md text-center">
 					<Music class="mx-auto mb-4 h-16 w-16 text-muted-foreground" />
 
-					{#if attachment?.type === 'audioFile'}
+					{#if attachment?.type === AttachmentType.AUDIO}
 						<audio
 							controls
 							class="mb-4 w-full"

@@ -7,8 +7,10 @@ import type {
 	ApiChatCompletionStreamChunk,
 	ApiChatCompletionToolCall,
 	ApiChatCompletionToolCallDelta,
-	ApiChatMessageData
+	ApiChatMessageData,
+	ApiModelListResponse
 } from '$lib/types/api';
+import { AttachmentType } from '$lib/enums/attachment';
 import type {
 	DatabaseMessage,
 	DatabaseMessageExtra,
@@ -74,7 +76,6 @@ export class ChatService {
 			onReasoningChunk,
 			onToolCallChunk,
 			onModel,
-			onFirstValidChunk,
 			// Generation parameters
 			temperature,
 			max_tokens,
@@ -223,7 +224,6 @@ export class ChatService {
 					onReasoningChunk,
 					onToolCallChunk,
 					onModel,
-					onFirstValidChunk,
 					conversationId,
 					abortController.signal
 				);
@@ -298,7 +298,6 @@ export class ChatService {
 		onReasoningChunk?: (chunk: string) => void,
 		onToolCallChunk?: (chunk: string) => void,
 		onModel?: (model: string) => void,
-		onFirstValidChunk?: () => void,
 		conversationId?: string,
 		abortSignal?: AbortSignal
 	): Promise<void> {
@@ -315,7 +314,6 @@ export class ChatService {
 		let lastTimings: ChatMessageTimings | undefined;
 		let streamFinished = false;
 		let modelEmitted = false;
-		let firstValidChunkEmitted = false;
 		let toolCallIndexOffset = 0;
 		let hasOpenToolCallBatch = false;
 
@@ -382,15 +380,6 @@ export class ChatService {
 
 						try {
 							const parsed: ApiChatCompletionStreamChunk = JSON.parse(data);
-
-							if (!firstValidChunkEmitted && parsed.object === 'chat.completion.chunk') {
-								firstValidChunkEmitted = true;
-
-								if (!abortSignal?.aborted) {
-									onFirstValidChunk?.();
-								}
-							}
-
 							const content = parsed.choices[0]?.delta?.content;
 							const reasoningContent = parsed.choices[0]?.delta?.reasoning_content;
 							const toolCalls = parsed.choices[0]?.delta?.tool_calls;
@@ -618,7 +607,7 @@ export class ChatService {
 
 		const imageFiles = message.extra.filter(
 			(extra: DatabaseMessageExtra): extra is DatabaseMessageExtraImageFile =>
-				extra.type === 'imageFile'
+				extra.type === AttachmentType.IMAGE
 		);
 
 		for (const image of imageFiles) {
@@ -630,7 +619,7 @@ export class ChatService {
 
 		const textFiles = message.extra.filter(
 			(extra: DatabaseMessageExtra): extra is DatabaseMessageExtraTextFile =>
-				extra.type === 'textFile'
+				extra.type === AttachmentType.TEXT
 		);
 
 		for (const textFile of textFiles) {
@@ -643,7 +632,7 @@ export class ChatService {
 		// Handle legacy 'context' type from old webui (pasted content)
 		const legacyContextFiles = message.extra.filter(
 			(extra: DatabaseMessageExtra): extra is DatabaseMessageExtraLegacyContext =>
-				extra.type === 'context'
+				extra.type === AttachmentType.LEGACY_CONTEXT
 		);
 
 		for (const legacyContextFile of legacyContextFiles) {
@@ -655,7 +644,7 @@ export class ChatService {
 
 		const audioFiles = message.extra.filter(
 			(extra: DatabaseMessageExtra): extra is DatabaseMessageExtraAudioFile =>
-				extra.type === 'audioFile'
+				extra.type === AttachmentType.AUDIO
 		);
 
 		for (const audio of audioFiles) {
@@ -670,7 +659,7 @@ export class ChatService {
 
 		const pdfFiles = message.extra.filter(
 			(extra: DatabaseMessageExtra): extra is DatabaseMessageExtraPdfFile =>
-				extra.type === 'pdfFile'
+				extra.type === AttachmentType.PDF
 		);
 
 		for (const pdfFile of pdfFiles) {
@@ -718,6 +707,33 @@ export class ChatService {
 			return data;
 		} catch (error) {
 			console.error('Error fetching server props:', error);
+			throw error;
+		}
+	}
+
+	/**
+	 * Get model information from /models endpoint
+	 */
+	static async getModels(): Promise<ApiModelListResponse> {
+		try {
+			const currentConfig = config();
+			const apiKey = currentConfig.apiKey?.toString().trim();
+
+			const response = await fetch(`./models`, {
+				headers: {
+					'Content-Type': 'application/json',
+					...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+				}
+			});
+
+			if (!response.ok) {
+				throw new Error(`Failed to fetch models: ${response.status} ${response.statusText}`);
+			}
+
+			const data = await response.json();
+			return data;
+		} catch (error) {
+			console.error('Error fetching models:', error);
 			throw error;
 		}
 	}
