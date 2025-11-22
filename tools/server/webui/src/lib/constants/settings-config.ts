@@ -16,6 +16,7 @@ export const SETTING_CONFIG_DEFAULT: Record<string, string | number | boolean> =
 	showModelInfo: false,
 	renderUserContentAsMarkdown: false,
 	modelSelectorEnabled: false,
+	autoMicOnEmpty: false,
 	// make sure these default values are in sync with `common.h`
 	samplers: 'top_k;typ_p;top_p;min_p;temperature',
 	temperature: 0.8,
@@ -96,6 +97,8 @@ export const SETTING_CONFIG_INFO: Record<string, string> = {
 	renderUserContentAsMarkdown: 'Render user messages using markdown formatting in the chat.',
 	modelSelectorEnabled:
 		'Enable the model selector in the chat input to choose the inference model. Sends the associated model field in API requests.',
+	autoMicOnEmpty:
+		'Automatically show microphone button instead of send button when textarea is empty for models with audio modality support.',
 	pyInterpreterEnabled:
 		'Enable Python interpreter using Pyodide. Allows running Python code in markdown code blocks.',
 	enableContinueGeneration:

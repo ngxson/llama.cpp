@@ -10,6 +10,7 @@ export { default as ChatForm } from './chat/ChatForm/ChatForm.svelte';
 export { default as ChatFormActionFileAttachments } from './chat/ChatForm/ChatFormActions/ChatFormActionFileAttachments.svelte';
 export { default as ChatFormActionRecord } from './chat/ChatForm/ChatFormActions/ChatFormActionRecord.svelte';
 export { default as ChatFormActions } from './chat/ChatForm/ChatFormActions/ChatFormActions.svelte';
+export { default as ChatFormActionSubmit } from './chat/ChatForm/ChatFormActions/ChatFormActionSubmit.svelte';
 export { default as ChatFormFileInputInvisible } from './chat/ChatForm/ChatFormFileInputInvisible.svelte';
 export { default as ChatFormHelperText } from './chat/ChatForm/ChatFormHelperText.svelte';
 export { default as ChatFormTextarea } from './chat/ChatForm/ChatFormTextarea.svelte';

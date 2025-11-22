@@ -1,0 +1,59 @@
+<script lang="ts">
+	import { ArrowUp } from '@lucide/svelte';
+	import { Button } from '$lib/components/ui/button';
+	import * as Tooltip from '$lib/components/ui/tooltip';
+	import { cn } from '$lib/components/ui/utils';
+
+	interface Props {
+		canSend?: boolean;
+		disabled?: boolean;
+		isLoading?: boolean;
+		isModelAvailable?: boolean;
+		tooltipLabel?: string;
+	}
+
+	let {
+		canSend = false,
+		disabled = false,
+		isLoading = false,
+		isModelAvailable = true,
+		tooltipLabel
+	}: Props = $props();
+
+	// Error state when model is not available
+	let isErrorState = $derived(!isModelAvailable);
+	let isDisabled = $derived(!canSend || disabled || isLoading || !isModelAvailable);
+</script>
+
+{#snippet submitButton(props = {})}
+	<Button
+		type="submit"
+		disabled={isDisabled}
+		class={cn(
+			'h-8 w-8 rounded-full p-0',
+			isErrorState
+				? 'bg-red-400/10 text-red-400 hover:bg-red-400/20 hover:text-red-400 disabled:opacity-100'
+				: ''
+		)}
+		{...props}
+	>
+		<span class="sr-only">Send</span>
+		<ArrowUp class="h-12 w-12" />
+	</Button>
+{/snippet}
+
+{#if tooltipLabel}
+	<Tooltip.Provider>
+		<Tooltip.Root>
+			<Tooltip.Trigger>
+				{@render submitButton()}
+			</Tooltip.Trigger>
+
+			<Tooltip.Content>
+				<p>{tooltipLabel}</p>
+			</Tooltip.Content>
+		</Tooltip.Root>
+	</Tooltip.Provider>
+{:else}
+	{@render submitButton()}
+{/if}

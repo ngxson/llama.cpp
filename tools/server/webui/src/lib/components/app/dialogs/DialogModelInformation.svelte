@@ -106,12 +106,21 @@
 								<Table.Head class="w-[10rem]">Model</Table.Head>
 
 								<Table.Head>
-									<span
-										class="resizable-text-container block min-w-0 flex-1 truncate"
-										style:--threshold="12rem"
-									>
-										{serverStore.modelName}
-									</span>
+									<div class="inline-flex items-center gap-2">
+										<span
+											class="resizable-text-container min-w-0 flex-1 truncate"
+											style:--threshold="12rem"
+										>
+											{serverStore.modelName}
+										</span>
+
+										<Copy
+											class="h-3 w-3 flex-shrink-0 cursor-pointer"
+											aria-label="Copy model name to clipboard"
+											onclick={() =>
+												serverStore.modelName && copyToClipboard(serverStore.modelName)}
+										/>
+									</div>
 								</Table.Head>
 							</Table.Row>
 						</Table.Header>

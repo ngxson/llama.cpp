@@ -183,26 +183,87 @@
 
 {#if displayItems.length > 0}
 	<div class={className} {style}>
-		<div class="relative">
-			<button
-				class="absolute top-1/2 left-4 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-foreground/15 shadow-md backdrop-blur-xs transition-opacity hover:bg-foreground/35 {canScrollLeft
-					? 'opacity-100'
-					: 'pointer-events-none opacity-0'}"
-				onclick={scrollLeft}
-				aria-label="Scroll left"
-			>
-				<ChevronLeft class="h-4 w-4" />
-			</button>
+		{#if limitToSingleRow}
+			<div class="relative">
+				<button
+					class="absolute top-1/2 left-4 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-foreground/15 shadow-md backdrop-blur-xs transition-opacity hover:bg-foreground/35 {canScrollLeft
+						? 'opacity-100'
+						: 'pointer-events-none opacity-0'}"
+					onclick={scrollLeft}
+					aria-label="Scroll left"
+				>
+					<ChevronLeft class="h-4 w-4" />
+				</button>
 
-			<div
-				class="scrollbar-hide flex items-start gap-3 overflow-x-auto"
-				bind:this={scrollContainer}
-				onscroll={updateScrollButtons}
-			>
+				<div
+					class="scrollbar-hide flex items-start gap-3 overflow-x-auto"
+					bind:this={scrollContainer}
+					onscroll={updateScrollButtons}
+				>
+					{#each displayItems as item (item.id)}
+						{#if item.isImage && item.preview}
+							<ChatAttachmentThumbnailImage
+								class="flex-shrink-0 cursor-pointer {limitToSingleRow
+									? 'first:ml-4 last:mr-4'
+									: ''}"
+								id={item.id}
+								name={item.name}
+								preview={item.preview}
+								{readonly}
+								onRemove={onFileRemove}
+								height={imageHeight}
+								width={imageWidth}
+								{imageClass}
+								onClick={(event) => openPreview(item, event)}
+							/>
+						{:else}
+							<ChatAttachmentThumbnailFile
+								class="flex-shrink-0 cursor-pointer {limitToSingleRow
+									? 'first:ml-4 last:mr-4'
+									: ''}"
+								id={item.id}
+								name={item.name}
+								type={item.type}
+								size={item.size}
+								{readonly}
+								onRemove={onFileRemove}
+								textContent={item.textContent}
+								onClick={(event) => openPreview(item, event)}
+							/>
+						{/if}
+					{/each}
+				</div>
+
+				<button
+					class="absolute top-1/2 right-4 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-foreground/15 shadow-md backdrop-blur-xs transition-opacity hover:bg-foreground/35 {canScrollRight
+						? 'opacity-100'
+						: 'pointer-events-none opacity-0'}"
+					onclick={scrollRight}
+					aria-label="Scroll right"
+				>
+					<ChevronRight class="h-4 w-4" />
+				</button>
+			</div>
+
+			{#if showViewAll}
+				<div class="mt-2 -mr-2 flex justify-end px-4">
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						class="h-6 text-xs text-muted-foreground hover:text-foreground"
+						onclick={() => (viewAllDialogOpen = true)}
+					>
+						View all ({displayItems.length})
+					</Button>
+				</div>
+			{/if}
+		{:else}
+			<div class="flex flex-wrap justify-end gap-3">
 				{#each displayItems as item (item.id)}
 					{#if item.isImage && item.preview}
 						<ChatAttachmentThumbnailImage
-							class="flex-shrink-0 cursor-pointer {limitToSingleRow ? 'first:ml-4 last:mr-4' : ''}"
+							class="cursor-pointer"
 							id={item.id}
 							name={item.name}
 							preview={item.preview}
@@ -215,7 +276,7 @@
 						/>
 					{:else}
 						<ChatAttachmentThumbnailFile
-							class="flex-shrink-0 cursor-pointer {limitToSingleRow ? 'first:ml-4 last:mr-4' : ''}"
+							class="cursor-pointer"
 							id={item.id}
 							name={item.name}
 							type={item.type}
@@ -227,30 +288,6 @@
 						/>
 					{/if}
 				{/each}
-			</div>
-
-			<button
-				class="absolute top-1/2 right-4 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-foreground/15 shadow-md backdrop-blur-xs transition-opacity hover:bg-foreground/35 {canScrollRight
-					? 'opacity-100'
-					: 'pointer-events-none opacity-0'}"
-				onclick={scrollRight}
-				aria-label="Scroll right"
-			>
-				<ChevronRight class="h-4 w-4" />
-			</button>
-		</div>
-
-		{#if showViewAll}
-			<div class="mt-2 -mr-2 flex justify-end px-4">
-				<Button
-					type="button"
-					variant="ghost"
-					size="sm"
-					class="h-6 text-xs text-muted-foreground hover:text-foreground"
-					onclick={() => (viewAllDialogOpen = true)}
-				>
-					View all
-				</Button>
 			</div>
 		{/if}
 	</div>

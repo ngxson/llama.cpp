@@ -1,14 +1,17 @@
 <script lang="ts">
-	import { Square, ArrowUp } from '@lucide/svelte';
+	import { Square } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import {
 		ChatFormActionFileAttachments,
 		ChatFormActionRecord,
+		ChatFormActionSubmit,
 		SelectorModel
 	} from '$lib/components/app';
 	import { FileTypeCategory } from '$lib/enums/files';
 	import { getFileTypeCategory } from '$lib/utils/file-type';
 	import { supportsAudio } from '$lib/stores/server.svelte';
+	import { config } from '$lib/stores/settings.svelte';
+	import { modelOptions, selectedModelId } from '$lib/stores/models.svelte';
 	import type { ChatUploadedFile } from '$lib/types/chat';
 
 	interface Props {
@@ -37,18 +40,29 @@
 		onStop
 	}: Props = $props();
 
+	let currentConfig = $derived(config());
 	let hasAudioModality = $derived(supportsAudio());
 	let hasAudioAttachments = $derived(
 		uploadedFiles.some((file) => getFileTypeCategory(file.type) === FileTypeCategory.AUDIO)
 	);
-	let shouldShowRecordButton = $derived(hasAudioModality && !hasText && !hasAudioAttachments);
+	let shouldShowRecordButton = $derived(
+		hasAudioModality && !hasText && !hasAudioAttachments && currentConfig.autoMicOnEmpty
+	);
 	let shouldShowSubmitButton = $derived(!shouldShowRecordButton || hasAudioAttachments);
+
+	let isSelectedModelInCache = $derived.by(() => {
+		const currentModelId = selectedModelId();
+
+		if (!currentModelId) return false;
+
+		return modelOptions().some((option) => option.id === currentModelId);
+	});
 </script>
 
 <div class="flex w-full items-center gap-3 {className}">
 	<ChatFormActionFileAttachments class="mr-auto" {disabled} {onFileUpload} />
 
-	<SelectorModel class="max-w-80" />
+	<SelectorModel class="max-w-80" forceForegroundText={true} />
 
 	{#if isLoading}
 		<Button
@@ -65,14 +79,15 @@
 		{/if}
 
 		{#if shouldShowSubmitButton}
-			<Button
-				type="submit"
-				disabled={!canSend || disabled || isLoading}
-				class="h-8 w-8 rounded-full p-0"
-			>
-				<span class="sr-only">Send</span>
-				<ArrowUp class="h-12 w-12" />
-			</Button>
+			<ChatFormActionSubmit
+				{canSend}
+				{disabled}
+				{isLoading}
+				tooltipLabel={isSelectedModelInCache
+					? ''
+					: 'Selected model is not available, please select another'}
+				isModelAvailable={isSelectedModelInCache}
+			/>
 		{/if}
 	{/if}
 </div>
