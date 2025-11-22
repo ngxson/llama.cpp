@@ -667,9 +667,9 @@ struct clip_graph {
         constexpr int _depth      = 12;
         constexpr int enc_n_heads    = 12;
         constexpr int enc_d_heads    = enc_n_embd / enc_n_heads;
-        constexpr int _prompt_n_embd  = 256;
+        // constexpr int _prompt_n_embd  = 256;
         constexpr int enc_patch_size = 16;
-        constexpr int _window_size    = 14;
+        // constexpr int _window_size    = 14;
 
         const int enc_n_patches = enc_image_size / enc_patch_size;  // 64
 
@@ -739,13 +739,14 @@ struct clip_graph {
 
                 struct ggml_tensor * q_r = ggml_reshape_4d(ctx0, Qcur, enc_d_heads, W, H, B * enc_n_heads);
 
-                struct ggml_tensor * rel_w = ggml_cont(
-                    ctx0,
-                    ggml_permute(ctx0, ggml_mul_mat(ctx0, rw, ggml_cont(ctx0, ggml_permute(ctx0, q_r, 0, 2, 1, 3))), 0,
-                                 2, 1, 3));
+                struct ggml_tensor * rel_w = ggml_cont(ctx0,ggml_permute(ctx0, 
+                            ggml_mul_mat(ctx0, 
+                                rw,
+                                ggml_cont(ctx0, ggml_permute(ctx0, q_r, 0, 2, 1, 3))),
+                            0, 2, 1, 3));
                 struct ggml_tensor * rel_h = ggml_mul_mat(ctx0, rh, q_r);
 
-                struct ggml_tensor * attn = add_rel_pos_inplace(ctx0, KQ_scaled, rel_w, rel_h, W);
+                struct ggml_tensor * attn = add_rel_pos_inplace(ctx0, KQ_scaled, rel_w, rel_h);
 
                 struct ggml_tensor * KQ_soft_max = ggml_soft_max_inplace(ctx0, attn);
 
@@ -835,7 +836,7 @@ struct clip_graph {
 
         ggml_tensor * global_features_1 = build_sam_enc(inp_raw, std::max(img.nx, img.ny));
 
-        ggml_tensor * global_features_2 = build_dp_ocr_clip(inp_raw, global_features_1);
+        ggml_tensor * global_features_2 = build_dp_ocr_clip(global_features_1);
 
         // torch global_features = torch.cat((global_features_2[:, 1:], global_features_1.flatten(2).permute(0, 2, 1)), dim=-1)
         global_features_1 = ggml_cont(ctx0,ggml_permute(ctx0, global_features_1,2,1,0,3));
@@ -1533,7 +1534,7 @@ struct clip_graph {
         return gf;
     }
 
-    ggml_tensor * build_dp_ocr_clip(ggml_tensor * inpL, ggml_tensor * patch_embeds) {
+    ggml_tensor * build_dp_ocr_clip(ggml_tensor * patch_embeds) {
         GGML_ASSERT(model.class_embedding != nullptr);
         GGML_ASSERT(model.position_embeddings != nullptr);
 
@@ -2466,103 +2467,119 @@ private:
         return inpL;
     }
 
-    // attn:   [k_h*k_w, q_h*q_w]
-// rel_h:  [q_h, q_w, k_h]
-// rel_w:  [q_h, q_w, k_w]
+    // attn:   [q_h*q_w, k_h*k_w]
+    // rel_h:  [q_h, q_w, k_h]
+    // rel_w:  [q_h, q_w, k_w]
 
-static ggml_tensor * add_rel_pos_inplace(
-    ggml_context * ctx,
-    ggml_tensor * attn,
-    ggml_tensor * rel_w,
-    ggml_tensor * rel_h,
-    int q_size
-) {
+    static ggml_tensor * add_rel_pos_inplace(
+        ggml_context * ctx,
+        ggml_tensor * attn,
+        ggml_tensor * rel_w,
+        ggml_tensor * rel_h
+    ) {
+        const int k_w = rel_w->ne[0];
+        const int k_h = rel_h->ne[0];
+        const int q_w = rel_h->ne[1];
+        const int q_h = rel_h->ne[2];
 
-    ggml_tensor *attn_4d =
-        ggml_reshape_4d(ctx, attn, q_size,q_size, attn->ne[1],  attn->ne[2]);
+        GGML_ASSERT(q_w == rel_w->ne[1]);
+        GGML_ASSERT(q_h == rel_w->ne[2]);
+        GGML_ASSERT(attn->ne[0] == k_h*k_w);
+        GGML_ASSERT(attn->ne[1] == q_h*q_w);
 
-    ggml_tensor *rel_h_4d =
-            ggml_reshape_4d(ctx, rel_h, 1, q_size, attn->ne[1], attn->ne[2]);
+        ggml_tensor *attn_4d = ggml_reshape_4d(ctx, attn, k_w, k_h, attn->ne[1],  attn->ne[2]);
 
-    ggml_tensor *rel_h_rep = ggml_repeat(ctx, rel_h_4d, attn_4d);  // now same shape as attn_5d
+        ggml_tensor *rel_h_4d = ggml_reshape_4d(ctx, rel_h, 1, k_h, attn->ne[1], attn->ne[2]);
 
-    ggml_tensor *rel_w_4d =
-        ggml_reshape_4d(ctx, rel_w, q_size, 1, attn->ne[1], attn->ne[2]);
+        ggml_tensor *rel_h_rep = ggml_repeat(ctx, rel_h_4d, attn_4d);  // now same shape as attn_5d
 
-    ggml_tensor *rel_w_rep = ggml_repeat(ctx, rel_w_4d, attn_4d);  // now same shape as attn_5d
+        ggml_tensor *rel_w_4d = ggml_reshape_4d(ctx, rel_w, k_w, 1, attn->ne[1], attn->ne[2]);
 
-    ggml_tensor * result = ggml_add(ctx, attn_4d, ggml_add(ctx, rel_h_rep, rel_w_rep));
-    result = ggml_reshape_3d(ctx, result, attn->ne[0], attn->ne[1], attn->ne[2]);
+        ggml_tensor *rel_w_rep = ggml_repeat(ctx, rel_w_4d, attn_4d);  // now same shape as attn_5d
 
-
-    return result;
-}
-
-
-static ggml_tensor * get_rel_pos(
-    ggml_context * ctx,
-    ggml_tensor * rel_pos,     // [L, C]
-    int q_size,
-    int k_size
-) {
-
-    const auto dtype = rel_pos->type;
-
-    const int64_t L = rel_pos->ne[0];   // length
-    const int64_t C = rel_pos->ne[1];   // channels
-
-    // -------------------------------------------------
-    // 1) q_idx  ← arange(0..q_size-1)   [q_size]
-    // 2) k_idx  ← arange(0..k_size-1)   [k_size]
-    // -------------------------------------------------
+        ggml_tensor * result = ggml_add_inplace(ctx, attn_4d, ggml_add_inplace(ctx, rel_h_rep, rel_w_rep));
+        result = ggml_reshape_3d(ctx, result, attn->ne[0], attn->ne[1], attn->ne[2]);
 
 
-    ggml_tensor * q_coord = ggml_cast(ctx,
-        ggml_arange(ctx, 0.0f, static_cast<float>(q_size), 1.0f),
-        GGML_TYPE_F32);   // [q_size]
-    ggml_tensor * k_coord = ggml_cast(ctx,
-        ggml_arange(ctx, 0.0f, static_cast<float>(k_size), 1.0f),
-        GGML_TYPE_F32);   // [k_size]
+        return result;
+    }
 
-    ggml_tensor * rel = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, q_size, k_size);
-    q_coord = ggml_cont(ctx,ggml_repeat(ctx, q_coord, rel)); // [q_size, k_size]
 
-    // broadcast reshape:
-    k_coord = ggml_reshape_2d(ctx, k_coord, 1, k_size);  // [1, k_size]
-    k_coord = ggml_cont(ctx,ggml_repeat(ctx, k_coord, rel)); // [q_size, k_size]
+    static ggml_tensor * get_rel_pos(
+        ggml_context * ctx,
+        ggml_tensor * rel_pos,     // [L, C]
+        int q_size,
+        int k_size
+    ) {
+        const int64_t C = rel_pos->ne[0];   // channels
+        const int64_t L = rel_pos->ne[1];   // length
 
-    // -------------------------------------------------
-    // relative_coords = q - k + (k_size - 1)    // SAME as PyTorch when no scaling
-    // -------------------------------------------------
-    rel = ggml_sub(ctx, k_coord, q_coord); // [q_size, k_size]
+        GGML_ASSERT(2*std::max(q_size, k_size) - 1 == L);
 
-    rel = ggml_scale_bias(ctx, rel, 1.0f, static_cast<float>(k_size) - 1.0f);                      // [q_size, k_size]
+        // -------------------------------------------------
+        // 1) q_idx  ← arange(0..q_size-1)   [q_size]
+        // 2) k_idx  ← arange(0..k_size-1)   [k_size]
+        // -------------------------------------------------
 
-    // -------------------------------------------------
-    // clamp to [0, L-1] and cast to int32  (for ggml_get_rows)
-    // -------------------------------------------------
+        // ggml_arange always returns FP32 tensor
+        ggml_tensor * q_coord = ggml_arange(ctx, 0.0f, static_cast<float>(q_size), 1.0f); // [q_size]
+        ggml_tensor * k_coord = ggml_arange(ctx, 0.0f, static_cast<float>(k_size), 1.0f); // [k_size]
+        ggml_tensor * rel = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, k_size, q_size);
+        
+        // broadcast reshape:
+        q_coord = ggml_cont(ctx,
+            ggml_repeat(ctx,
+                ggml_reshape_2d(ctx, q_coord, 1, q_size), // [q_size, 1]
+                rel
+            )
+        );  // [q_size, k_size]
+        k_coord = ggml_cont(ctx, ggml_repeat(ctx, k_coord, rel)); // [q_size, k_size]
 
-    ggml_tensor * rel_clamped = ggml_clamp(ctx, rel, 0, static_cast<float>(L - 1));
+        float q_scale = std::max((float)k_size/q_size, 1.0f);
+        float k_scale = std::max((float)q_size/k_size, 1.0f);
 
-    ggml_tensor * idx_2d = ggml_cast(ctx, rel_clamped, GGML_TYPE_I32);  // [q_size, k_size]
+        // This wouldn't be triggered in DeepSeek-OCR. Just for compatibility with 
+        // the original implementation. 
+        if (q_size != k_size) {
+            q_coord = ggml_scale_inplace(ctx, q_coord, q_scale);
+            k_coord = ggml_scale_inplace(ctx, k_coord, k_scale);
+        }
 
-    // flatten to 1D for ggml_get_rows
-    const int64_t qk = static_cast<int64_t>(q_size) * static_cast<int64_t>(k_size);
-    ggml_tensor * idx_flat = ggml_reshape_1d(ctx, idx_2d, qk);          // [qk]
+        // -------------------------------------------------
+        // relative_coords = q - k + (k_size - 1)    // SAME as PyTorch when no scaling
+        // -------------------------------------------------
+        
+        rel = ggml_sub(ctx, q_coord, k_coord); // [q_size, k_size]
+        rel = ggml_scale_bias(ctx, rel, 1.0f, (k_size - 1.0f)*k_scale); // [q_size, k_size]
+        // Clamp to [0, L-1] range for valid indexing
+        rel = ggml_clamp(ctx, rel, 0.0f, static_cast<float>(rel_pos->ne[1] - 1));
 
-    // -------------------------------------------------
-    // Gather from rel_pos  → [qk, C]
-    // -------------------------------------------------
-    ggml_tensor * gathered = ggml_get_rows(ctx, rel_pos, idx_flat);     // [qk, C]
+        // -------------------------------------------------
+        // clamp to [0, L-1] and cast to int32  (for ggml_get_rows)
+        // -------------------------------------------------
 
-    // reshape to final output  → [q_size, k_size, C]
-    ggml_tensor * out = ggml_reshape_3d(ctx, gathered,rel_pos->ne[0],
-                                        q_size,
-                                        k_size);
+        ggml_tensor * idx_2d = ggml_cast(ctx, rel, GGML_TYPE_I32); // [q_size, k_size]
+        
+        // Gather from rel_pos  → [qk, C]
+        // -------------------------------------------------
+        
+        // flatten to 1D for ggml_get_rows
+        int qk = q_size * k_size;
+        ggml_tensor * idx_flat = ggml_reshape_1d(ctx, idx_2d, qk);          // [qk]
+        ggml_tensor * gathered = ggml_get_rows(ctx, rel_pos, idx_flat);     // [qk, C]
 
-    return out;   // [q_size, k_size, C]
-}
+        // -------------------------------------------------
+        // Gather from rel_pos  → [qk, C]
+        // -------------------------------------------------
 
+        ggml_tensor * out = ggml_reshape_3d(ctx, gathered, C, k_size, q_size); // [qk, C]
+
+
+        return out;   // [q_size, k_size, C]
+    }
+
+    // Implementation based on approach suggested by Acly
+    // See: https://github.com/ggml-org/llama.cpp/pull/17383#issuecomment-3554227091
     static ggml_tensor* window_partition(ggml_context* ctx, ggml_tensor* x, int window) {
         auto [c, w, h, b] = x->ne;
         // same as
@@ -2583,6 +2600,8 @@ static ggml_tensor * get_rel_pos(
         return x;
     }
 
+    // Implementation based on approach suggested by Acly
+    // See: https://github.com/ggml-org/llama.cpp/pull/17383#issuecomment-3554227091
     static ggml_tensor* window_unpartition(ggml_context* m, ggml_tensor* x, int w, int h, int window) {
         int64_t c = x->ne[0];
         // same as
@@ -4978,7 +4997,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 const int  min_num       = 2;
                 const int  max_num       = 9;
                 const int  image_size    = params.image_size;  // typically 640
-                const bool use_thumbnail = true;               // mimic python's use_thumbnail
+                // const bool use_thumbnail = true;               // mimic python's use_thumbnail
 
                 // original image size
                 const int             orig_w        = original_size.width;
