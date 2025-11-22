@@ -11,6 +11,7 @@
 	import { getFileTypeCategory } from '$lib/utils/file-type';
 	import { supportsAudio } from '$lib/stores/server.svelte';
 	import { config } from '$lib/stores/settings.svelte';
+	import { modelOptions, selectedModelId } from '$lib/stores/models.svelte';
 	import type { ChatUploadedFile } from '$lib/types/chat';
 
 	interface Props {
@@ -48,12 +49,20 @@
 		hasAudioModality && !hasText && !hasAudioAttachments && currentConfig.autoMicOnEmpty
 	);
 	let shouldShowSubmitButton = $derived(!shouldShowRecordButton || hasAudioAttachments);
+
+	let isSelectedModelInCache = $derived.by(() => {
+		const currentModelId = selectedModelId();
+
+		if (!currentModelId) return false;
+
+		return modelOptions().some((option) => option.id === currentModelId);
+	});
 </script>
 
 <div class="flex w-full items-center gap-3 {className}">
 	<ChatFormActionFileAttachments class="mr-auto" {disabled} {onFileUpload} />
 
-	<SelectorModel class="max-w-80" />
+	<SelectorModel class="max-w-80" forceForegroundText={true} />
 
 	{#if isLoading}
 		<Button
@@ -74,10 +83,10 @@
 				{canSend}
 				{disabled}
 				{isLoading}
-				tooltipLabel={isLastModelInCache
+				tooltipLabel={isSelectedModelInCache
 					? ''
 					: 'Selected model is not available, please select another'}
-				isModelAvailable={isLastModelInCache}
+				isModelAvailable={isSelectedModelInCache}
 			/>
 		{/if}
 	{/if}
