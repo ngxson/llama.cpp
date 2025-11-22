@@ -20,13 +20,15 @@
 		currentModel?: string | null;
 		onModelChange?: (modelId: string, modelName: string) => void;
 		disabled?: boolean;
+		forceForegroundText?: boolean;
 	}
 
 	let {
 		class: className = '',
 		currentModel = null,
 		onModelChange,
-		disabled = false
+		disabled = false,
+		forceForegroundText = false
 	}: Props = $props();
 
 	let options = $derived(modelOptions());
@@ -35,6 +37,22 @@
 	let activeId = $derived(selectedModelId());
 	let isRouter = $derived(isRouterMode());
 	let serverModel = $derived(serverStore.modelName);
+
+	let isHighlightedCurrentModelActive = $derived(
+		!isRouter || !currentModel
+			? false
+			: (() => {
+					const currentOption = options.find((option) => option.model === currentModel);
+
+					return currentOption ? currentOption.id === activeId : false;
+				})()
+	);
+
+	let isCurrentModelInCache = $derived(() => {
+		if (!isRouter || !currentModel) return true;
+
+		return options.some((option) => option.model === currentModel);
+	});
 
 	let isOpen = $state(false);
 	let showModelDialog = $state(false);
@@ -221,7 +239,6 @@
 
 	function getDisplayOption(): ModelOption | undefined {
 		if (!isRouter) {
-			// Single model mode: create fake option from server model
 			if (serverModel) {
 				return {
 					id: 'current',
@@ -230,16 +247,27 @@
 					capabilities: [] // Empty array for single model mode
 				};
 			}
+
 			return undefined;
 		}
 
-		// Router mode: use existing logic
 		if (currentModel) {
+			if (!isCurrentModelInCache()) {
+				return {
+					id: 'not-in-cache',
+					model: currentModel,
+					name: currentModel.split('/').pop() || currentModel,
+					capabilities: []
+				};
+			}
+
 			return options.find((option) => option.model === currentModel);
 		}
+
 		if (activeId) {
 			return options.find((option) => option.id === activeId);
 		}
+
 		return options[0];
 	}
 </script>
@@ -262,7 +290,14 @@
 			<button
 				type="button"
 				class={cn(
-					'inline-flex cursor-pointer items-center gap-1.5 rounded-sm bg-muted-foreground/15 px-1.5 py-0.75 text-xs text-muted-foreground transition hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60',
+					`inline-flex cursor-pointer items-center gap-1.5 rounded-sm bg-muted-foreground/10 px-1.5 py-1 text-xs transition hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60`,
+					!isCurrentModelInCache()
+						? 'bg-red-400/10 !text-red-400 hover:bg-red-400/20 hover:text-red-400'
+						: forceForegroundText
+							? 'text-foreground'
+							: isHighlightedCurrentModelActive
+								? 'text-foreground'
+								: 'text-muted-foreground',
 					isOpen ? 'text-foreground' : ''
 				)}
 				style="max-width: min(calc(100vw - 2rem), 32rem)"
@@ -305,6 +340,21 @@
 							? `${menuPosition.maxHeight}px`
 							: undefined}
 					>
+						{#if !isCurrentModelInCache() && currentModel}
+							<!-- Show unavailable model as first option (disabled) -->
+							<button
+								type="button"
+								class="flex w-full cursor-not-allowed items-center bg-red-400/10 px-3 py-2 text-left text-sm text-red-400"
+								role="option"
+								aria-selected="true"
+								aria-disabled="true"
+								disabled
+							>
+								<span class="truncate">{selectedOption?.name || currentModel}</span>
+								<span class="ml-2 text-xs whitespace-nowrap opacity-70">(not available)</span>
+							</button>
+							<div class="my-1 h-px bg-border"></div>
+						{/if}
 						{#each options as option (option.id)}
 							<button
 								type="button"
