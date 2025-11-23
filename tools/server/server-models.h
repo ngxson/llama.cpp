@@ -58,7 +58,9 @@ struct server_model_meta {
     bool in_cache = false; // if true, use -hf; use -m otherwise
     int port = 0;
     server_model_status status = SERVER_MODEL_STATUS_UNLOADED;
-    int64_t last_used = 0;
+    int64_t last_used = 0; // for LRU unloading
+    std::vector<std::string> args; // additional args passed to the model instance (used for debugging)
+    int exit_code = 0; // exit code of the model instance process (only valid if status == FAILED)
 
     bool is_active() const {
         return status == SERVER_MODEL_STATUS_LOADED || status == SERVER_MODEL_STATUS_LOADING;

@@ -1455,19 +1455,23 @@ The `status` object can be:
 
 ```json
 "status": {
-  "value": "loading"
+  "value": "loading",
+  "args": ["llama-server", "-ctx", "4096"]
 }
 ```
 
 ```json
 "status": {
-  "value": "failed"
+  "value": "failed",
+  "args": ["llama-server", "-ctx", "4096"],
+  "exit_code": 1
 }
 ```
 
 ```json
 "status": {
-  "value": "loaded"
+  "value": "loaded",
+  "args": ["llama-server", "-ctx", "4096"]
 }
 ```
 

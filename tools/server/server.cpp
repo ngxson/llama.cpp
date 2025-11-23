@@ -5160,7 +5160,7 @@ public:
         std::string name = json_value(body, "model", std::string());
         auto model = models->get_meta(name);
         if (!model.has_value()) {
-            res->error(format_error_response("model is not found", ERROR_TYPE_INVALID_REQUEST));
+            res->error(format_error_response("model is not found", ERROR_TYPE_NOT_FOUND));
             return res;
         }
         if (model->status == SERVER_MODEL_STATUS_LOADED) {
@@ -5188,15 +5188,20 @@ public:
         json models_json = json::array();
         auto all_models = models->get_all_meta();
         for (const auto & model : all_models) {
+            json status {
+                {"value", server_model_status_to_string(model.status)},
+                {"args",  model.args},
+            };
+            if (model.status == SERVER_MODEL_STATUS_FAILED) {
+                status["exit_code"] = model.exit_code;
+            }
             models_json.push_back(json {
                 {"name",     model.name},
                 {"id",       model.name},
                 {"in_cache", model.in_cache},
                 {"path",     model.path},
+                {"status",   status},
                 // TODO: other fields...
-                {"status", {
-                    {"value", server_model_status_to_string(model.status)}
-                }},
             });
         }
         res->ok({{"data", models_json}});

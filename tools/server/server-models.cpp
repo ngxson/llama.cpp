@@ -368,11 +368,11 @@ void server_models::load(const std::string & name) {
         std::vector<std::string> child_env = base_env; // copy
         child_env.push_back("LLAMA_SERVER_ROUTER_PORT=" + std::to_string(base_params.port));
 
-        // TODO: add logging
         SRV_INF("%s", "spawning server instance with args:\n");
         for (const auto & arg : child_args) {
             SRV_INF("  %s\n", arg.c_str());
         }
+        inst.meta.args = child_args; // save for debugging
 
         std::vector<char *> argv = to_char_ptr_array(child_args);
         std::vector<char *> envp = to_char_ptr_array(child_env);
@@ -405,9 +405,11 @@ void server_models::load(const std::string & name) {
             std::lock_guard<std::mutex> lk(mutex);
             auto it = mapping.find(name);
             if (it != mapping.end()) {
-                it->second.meta.status = exit_code == 0
-                                            ? SERVER_MODEL_STATUS_UNLOADED
-                                            : SERVER_MODEL_STATUS_FAILED;
+                auto & meta = it->second.meta;
+                meta.exit_code = exit_code;
+                meta.status    = exit_code == 0
+                                    ? SERVER_MODEL_STATUS_UNLOADED
+                                    : SERVER_MODEL_STATUS_FAILED;
             }
             cv.notify_all();
         }
