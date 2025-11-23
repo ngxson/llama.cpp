@@ -59,10 +59,10 @@
 	});
 </script>
 
-<div class="flex w-full items-center gap-3 {className}">
+<div class="flex w-full items-center gap-3 {className}" style="container-type: inline-size">
 	<ChatFormActionFileAttachments class="mr-auto" {disabled} {onFileUpload} />
 
-	<SelectorModel class="max-w-80" forceForegroundText={true} />
+	<SelectorModel forceForegroundText={true} />
 
 	{#if isLoading}
 		<Button

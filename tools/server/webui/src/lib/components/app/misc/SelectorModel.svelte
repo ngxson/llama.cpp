@@ -297,9 +297,10 @@
 							: isHighlightedCurrentModelActive
 								? 'text-foreground'
 								: 'text-muted-foreground',
-					isOpen ? 'text-foreground' : ''
+					isOpen ? 'text-foreground' : '',
+					className
 				)}
-				style="max-width: min(calc(100vw - 2rem), 32rem)"
+				style="max-width: min(calc(100cqw - 6.5rem), 32rem)"
 				aria-haspopup={isRouter ? 'listbox' : undefined}
 				aria-expanded={isRouter ? isOpen : undefined}
 				onclick={toggleOpen}
