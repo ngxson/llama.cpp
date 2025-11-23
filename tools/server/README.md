@@ -1463,8 +1463,9 @@ The `status` object can be:
 
 ```json
 "status": {
-  "value": "failed",
+  "value": "unloaded",
   "args": ["llama-server", "-ctx", "4096"],
+  "failed": true,
   "exit_code": 1
 }
 ```

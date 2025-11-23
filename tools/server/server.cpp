@@ -5142,10 +5142,9 @@ public:
     server_http_context::handler_t proxy_get = [this](const server_http_req & req) {
         std::string method = "GET";
         std::string name = req.get_param("model");
-        if (name.empty()) {
-            auto res = std::make_unique<server_res_generator>(ctx_server);
-            res->error(format_error_response("model name is missing from the request", ERROR_TYPE_INVALID_REQUEST));
-            return std::unique_ptr<server_http_res>(std::move(res));
+        auto error_res = std::make_unique<server_res_generator>(ctx_server);
+        if (!router_validate_model(name, error_res)) {
+            return std::unique_ptr<server_http_res>(std::move(error_res));
         }
         models->ensure_model_loaded(name);
         return models->proxy_request(req, method, name, false);
@@ -5155,10 +5154,9 @@ public:
         std::string method = "POST";
         json body = json::parse(req.body);
         std::string name = json_value(body, "model", std::string());
-        if (name.empty()) {
-            auto res = std::make_unique<server_res_generator>(ctx_server);
-            res->error(format_error_response("model name is missing from the request", ERROR_TYPE_INVALID_REQUEST));
-            return std::unique_ptr<server_http_res>(std::move(res));
+        auto error_res = std::make_unique<server_res_generator>(ctx_server);
+        if (!router_validate_model(name, error_res)) {
+            return std::unique_ptr<server_http_res>(std::move(error_res));
         }
         models->ensure_model_loaded(name);
         return models->proxy_request(req, method, name, true); // update last usage for POST request only
@@ -5200,22 +5198,23 @@ public:
         json models_json = json::array();
         auto all_models = models->get_all_meta();
         std::time_t t = std::time(0);
-        for (const auto & model : all_models) {
+        for (const auto & meta : all_models) {
             json status {
-                {"value", server_model_status_to_string(model.status)},
-                {"args",  model.args},
+                {"value", server_model_status_to_string(meta.status)},
+                {"args",  meta.args},
             };
-            if (model.status == SERVER_MODEL_STATUS_FAILED) {
-                status["exit_code"] = model.exit_code;
+            if (meta.is_failed()) {
+                status["exit_code"] = meta.exit_code;
+                status["failed"]    = true;
             }
             models_json.push_back(json {
-                {"id",       model.name},
-                {"name",     model.name},
+                {"id",       meta.name},
+                {"name",     meta.name},
                 {"object",   "model"},    // for OAI-compat
                 {"owned_by", "llamacpp"}, // for OAI-compat
                 {"created",  t},          // for OAI-compat
-                {"in_cache", model.in_cache},
-                {"path",     model.path},
+                {"in_cache", meta.in_cache},
+                {"path",     meta.path},
                 {"status",   status},
                 // TODO: add other fields, may require reading GGUF metadata
             });
@@ -5594,6 +5593,27 @@ private:
             : json(responses);
         res->ok(root);
         return res;
+    }
+
+    bool router_validate_model(const std::string & name, std::unique_ptr<server_res_generator> & res) {
+        if (name.empty()) {
+            res->error(format_error_response("model name is missing from the request", ERROR_TYPE_INVALID_REQUEST));
+            return false;
+        }
+        auto meta = models->get_meta(name);
+        if (!meta.has_value()) {
+            res->error(format_error_response("model not found", ERROR_TYPE_INVALID_REQUEST));
+            return false;
+        }
+        if (params.models_autoload) {
+            models->ensure_model_loaded(name);
+        } else {
+            if (meta->status != SERVER_MODEL_STATUS_LOADED) {
+                res->error(format_error_response("model is not loaded", ERROR_TYPE_INVALID_REQUEST));
+                return false;
+            }
+        }
+        return true;
     }
 };
 

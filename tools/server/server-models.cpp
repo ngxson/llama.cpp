@@ -29,6 +29,8 @@
 #include <limits.h>
 #endif
 
+#define CMD_EXIT "exit"
+
 static std::filesystem::path get_server_exec_path() {
 #if defined(_WIN32)
     wchar_t buf[32768] = { 0 };  // Large buffer to handle long paths
@@ -297,10 +299,10 @@ std::vector<server_model_meta> server_models::get_all_meta() {
 }
 
 void server_models::unload_lru() {
-    if (base_params.max_models <= 0) {
+    if (base_params.models_max <= 0) {
         return; // no limit
     }
-    // remove one of the servers if we passed the max_models (least recently used - LRU)
+    // remove one of the servers if we passed the models_max (least recently used - LRU)
     std::string lru_model_name = "";
     int64_t lru_last_used = ggml_time_ms();
     size_t count_active = 0;
@@ -316,8 +318,8 @@ void server_models::unload_lru() {
             }
         }
     }
-    if (!lru_model_name.empty() && count_active >= (size_t)base_params.max_models) {
-        SRV_INF("max_models limit reached, removing LRU name=%s\n", lru_model_name.c_str());
+    if (!lru_model_name.empty() && count_active >= (size_t)base_params.models_max) {
+        SRV_INF("models_max limit reached, removing LRU name=%s\n", lru_model_name.c_str());
         unload(lru_model_name);
     }
 }
@@ -331,7 +333,7 @@ void server_models::load(const std::string & name, const std::vector<std::string
     std::lock_guard<std::mutex> lk(mutex);
 
     auto meta = mapping[name].meta;
-    if (meta.status != SERVER_MODEL_STATUS_FAILED && meta.status != SERVER_MODEL_STATUS_UNLOADED) {
+    if (meta.status != SERVER_MODEL_STATUS_UNLOADED) {
         SRV_INF("model %s is not ready\n", name.c_str());
         return;
     }
@@ -428,9 +430,7 @@ void server_models::load(const std::string & name, const std::vector<std::string
             if (it != mapping.end()) {
                 auto & meta = it->second.meta;
                 meta.exit_code = exit_code;
-                meta.status    = exit_code == 0
-                                    ? SERVER_MODEL_STATUS_UNLOADED
-                                    : SERVER_MODEL_STATUS_FAILED;
+                meta.status    = SERVER_MODEL_STATUS_UNLOADED;
             }
             cv.notify_all();
         }
@@ -446,13 +446,23 @@ void server_models::load(const std::string & name, const std::vector<std::string
     cv.notify_all();
 }
 
+static void interrupt_subprocess(subprocess_s * proc) {
+    // because subprocess.h does not provide a way to send SIGINT,
+    // we will send a command to the child process to exit gracefully
+    FILE * p_stdin = subprocess_stdin(proc);
+    if (p_stdin) {
+        fprintf(p_stdin, "%s\n", CMD_EXIT);
+        fflush(p_stdin);
+    }
+}
+
 void server_models::unload(const std::string & name) {
     std::lock_guard<std::mutex> lk(mutex);
     auto it = mapping.find(name);
     if (it != mapping.end()) {
         if (it->second.meta.is_active()) {
             SRV_INF("unloading model instance name=%s\n", name.c_str());
-            subprocess_terminate(it->second.subproc.get());
+            interrupt_subprocess(it->second.subproc.get());
             // status change will be handled by the managing thread
         } else {
             SRV_WRN("model instance name=%s is not loaded\n", name.c_str());
@@ -467,7 +477,7 @@ void server_models::unload_all() {
         for (auto & [name, inst] : mapping) {
             if (inst.meta.is_active()) {
                 SRV_INF("unloading model instance name=%s\n", name.c_str());
-                subprocess_terminate(inst.subproc.get());
+                interrupt_subprocess(inst.subproc.get());
                 // status change will be handled by the managing thread
             }
             // moving the thread to join list to avoid deadlock
@@ -498,8 +508,7 @@ void server_models::wait_until_loaded(const std::string & name) {
     cv.wait(lk, [this, &name]() {
         auto it = mapping.find(name);
         if (it != mapping.end()) {
-            return it->second.meta.status == SERVER_MODEL_STATUS_LOADED ||
-                   it->second.meta.status == SERVER_MODEL_STATUS_FAILED;
+            return it->second.meta.status != SERVER_MODEL_STATUS_LOADING;
         }
         return false;
     });
@@ -510,19 +519,23 @@ bool server_models::ensure_model_loaded(const std::string & name) {
     if (!meta.has_value()) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
-    if (meta->is_active()) {
+    if (meta->status == SERVER_MODEL_STATUS_LOADED) {
         return false; // already loaded
     }
-    SRV_INF("model name=%s is not loaded, loading...\n", name.c_str());
-    load(name, {}, true);
-    wait_until_loaded(name);
-    {
-        // check final status
-        meta = get_meta(name);
-        if (!meta.has_value() || meta->status == SERVER_MODEL_STATUS_FAILED) {
-            throw std::runtime_error("model name=" + name + " failed to load");
-        }
+    if (meta->status == SERVER_MODEL_STATUS_UNLOADED) {
+        SRV_INF("model name=%s is not loaded, loading...\n", name.c_str());
+        load(name, {}, true);
     }
+
+    SRV_INF("waiting until model name=%s is fully loaded...\n", name.c_str());
+    wait_until_loaded(name);
+
+    // check final status
+    meta = get_meta(name);
+    if (!meta.has_value() || meta->is_failed()) {
+        throw std::runtime_error("model name=" + name + " failed to load");
+    }
+
     return true;
 }
 
@@ -582,13 +595,18 @@ void server_models::setup_child_server(const common_params & base_params, int ro
         // wait for EOF on stdin
         SRV_INF("%s", "child server monitoring thread started, waiting for EOF on stdin...\n");
         while (true) {
-            int c = getchar();
-            if (c == EOF) {
-                break;
+            std::string line;
+            if (!std::getline(std::cin, line)) {
+                break; // EOF detected
+            }
+            if (line.find(CMD_EXIT) != std::string::npos) {
+                SRV_INF("%s", "exit command received, exiting...\n");
+                shutdown_handler(0);
             }
         }
-        SRV_INF("%s", "EOF on stdin detected, invoking shutdown handler...\n");
-        shutdown_handler(0); // invoke shutdown handler
+        // EOF meaning router server is unexpectedly exit or killed
+        SRV_INF("%s", "EOF on stdin detected, forcing shutdown...\n");
+        exit(1);
     }).detach();
 }
 
