@@ -53,6 +53,8 @@ export { default as DialogModelInformation } from './dialogs/DialogModelInformat
 
 export { default as ActionButton } from './misc/ActionButton.svelte';
 export { default as ActionDropdown } from './misc/ActionDropdown.svelte';
+export { default as BadgeChatStatistic } from './misc/BadgeChatStatistic.svelte';
+export { default as BadgeInfo } from './misc/BadgeInfo.svelte';
 export { default as BadgeModelName } from './misc/BadgeModelName.svelte';
 export { default as BadgeModality } from './misc/BadgeModality.svelte';
 export { default as ConversationSelection } from './misc/ConversationSelection.svelte';

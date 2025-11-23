@@ -1,46 +1,49 @@
 <script lang="ts">
 	import { Package } from '@lucide/svelte';
-	import { Badge } from '$lib/components/ui/badge';
+	import { BadgeInfo, CopyToClipboardIcon } from '$lib/components/app';
 	import { serverStore } from '$lib/stores/server.svelte';
-	import { cn } from '$lib/components/ui/utils';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { TOOLTIP_DELAY_DURATION } from '$lib/constants/tooltip-config';
 
 	interface Props {
 		class?: string;
+		model?: string;
 		onclick?: () => void;
+		showCopyIcon?: boolean;
 		showTooltip?: boolean;
 	}
 
-	let { class: className = '', onclick, showTooltip = false }: Props = $props();
+	let {
+		class: className = '',
+		model: modelProp,
+		onclick,
+		showCopyIcon = false,
+		showTooltip = false
+	}: Props = $props();
 
-	let model = $derived(serverStore.modelName);
+	let model = $derived(modelProp || serverStore.modelName);
 	let isModelMode = $derived(serverStore.isModelMode);
 </script>
 
-{#snippet badge()}
-	<Badge
-		variant="outline"
-		class={cn(
-			'text-xs',
-			onclick ? 'cursor-pointer transition-colors hover:bg-foreground/20' : '',
-			className
-		)}
-		{onclick}
-	>
-		<div class="icons mr-0.5 flex items-center gap-1.5">
+{#snippet badgeContent()}
+	<BadgeInfo class={className} {onclick}>
+		{#snippet icon()}
 			<Package class="h-3 w-3" />
-		</div>
+		{/snippet}
 
-		<span class="block truncate">{model}</span>
-	</Badge>
+		{model}
+
+		{#if showCopyIcon}
+			<CopyToClipboardIcon text={model || ''} ariaLabel="Copy model name" />
+		{/if}
+	</BadgeInfo>
 {/snippet}
 
 {#if model && isModelMode}
 	{#if showTooltip}
 		<Tooltip.Root delayDuration={TOOLTIP_DELAY_DURATION}>
 			<Tooltip.Trigger>
-				{@render badge()}
+				{@render badgeContent()}
 			</Tooltip.Trigger>
 
 			<Tooltip.Content>
@@ -48,6 +51,6 @@
 			</Tooltip.Content>
 		</Tooltip.Root>
 	{:else}
-		{@render badge()}
+		{@render badgeContent()}
 	{/if}
 {/if}

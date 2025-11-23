@@ -1,5 +1,6 @@
 <script lang="ts">
 	import {
+		BadgeModelName,
 		ChatMessageActions,
 		ChatMessageStatistics,
 		ChatMessageThinkingBlock,
@@ -260,13 +261,11 @@
 						disabled={isLoading()}
 					/>
 				{:else}
-					<button
-						class="inline-flex cursor-pointer items-center gap-1 rounded-sm bg-muted-foreground/15 px-1.5 py-0.75"
+					<BadgeModelName
+						model={displayedModel() || undefined}
 						onclick={handleCopyModel}
-					>
-						{displayedModel()}
-						<CopyToClipboardIcon text={displayedModel() || ''} ariaLabel="Copy model name" />
-					</button>
+						showCopyIcon={true}
+					/>
 				{/if}
 
 				{#if currentConfig.showMessageStats && message.timings && message.timings.predicted_n && message.timings.predicted_ms}
