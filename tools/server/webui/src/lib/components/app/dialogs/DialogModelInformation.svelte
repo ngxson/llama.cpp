@@ -1,12 +1,10 @@
 <script lang="ts">
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Table from '$lib/components/ui/table';
-	import { BadgeModality } from '$lib/components/app';
+	import { BadgeModality, CopyToClipboardIcon } from '$lib/components/app';
 	import { serverStore } from '$lib/stores/server.svelte';
 	import { ChatService } from '$lib/services/chat';
 	import type { ApiModelListResponse } from '$lib/types/api';
-	import { Copy } from '@lucide/svelte';
-	import { copyToClipboard } from '$lib/utils/copy';
 	import { formatFileSize, formatParameters, formatNumber } from '$lib/utils/formatters';
 
 	interface Props {
@@ -82,11 +80,10 @@
 											{serverStore.modelName}
 										</span>
 
-										<Copy
-											class="h-3 w-3 flex-shrink-0 cursor-pointer"
-											aria-label="Copy model name to clipboard"
-											onclick={() =>
-												serverStore.modelName && copyToClipboard(serverStore.modelName)}
+										<CopyToClipboardIcon
+											text={serverStore.modelName || ''}
+											canCopy={!!serverStore.modelName}
+											ariaLabel="Copy model name to clipboard"
 										/>
 									</div>
 								</Table.Head>
@@ -107,10 +104,9 @@
 										{serverProps.model_path}
 									</span>
 
-									<Copy
-										class="h-3 w-3 flex-shrink-0"
-										aria-label="Copy model path to clipboard"
-										onclick={() => copyToClipboard(serverProps.model_path)}
+									<CopyToClipboardIcon
+										text={serverProps.model_path}
+										ariaLabel="Copy model path to clipboard"
 									/>
 								</Table.Cell>
 							</Table.Row>

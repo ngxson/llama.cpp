@@ -3,6 +3,7 @@
 		ChatMessageActions,
 		ChatMessageStatistics,
 		ChatMessageThinkingBlock,
+		CopyToClipboardIcon,
 		MarkdownContent,
 		SelectorModel
 	} from '$lib/components/app';
@@ -10,7 +11,7 @@
 	import { isLoading } from '$lib/stores/chat.svelte';
 	import autoResizeTextarea from '$lib/utils/autoresize-textarea';
 	import { fade } from 'svelte/transition';
-	import { Check, Copy, X, Wrench } from '@lucide/svelte';
+	import { Check, X, Wrench } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { INPUT_CLASSES } from '$lib/constants/input-classes';
@@ -264,7 +265,7 @@
 						onclick={handleCopyModel}
 					>
 						{displayedModel()}
-						<Copy class="ml-1 h-3 w-3" />
+						<CopyToClipboardIcon text={displayedModel() || ''} ariaLabel="Copy model name" />
 					</button>
 				{/if}
 
@@ -297,8 +298,10 @@
 								onclick={() => handleCopyToolCall(badge.copyValue)}
 							>
 								{badge.label}
-
-								<Copy class="ml-1 h-3 w-3" />
+								<CopyToClipboardIcon
+									text={badge.copyValue}
+									ariaLabel={`Copy tool call ${badge.label}`}
+								/>
 							</button>
 						{/each}
 					{:else if fallbackToolCalls}
@@ -310,8 +313,7 @@
 							onclick={() => handleCopyToolCall(fallbackToolCalls)}
 						>
 							{fallbackToolCalls}
-
-							<Copy class="ml-1 h-3 w-3" />
+							<CopyToClipboardIcon text={fallbackToolCalls} ariaLabel="Copy tool call payload" />
 						</button>
 					{/if}
 				</span>

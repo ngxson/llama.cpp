@@ -56,6 +56,7 @@ export { default as ActionDropdown } from './misc/ActionDropdown.svelte';
 export { default as BadgeModelName } from './misc/BadgeModelName.svelte';
 export { default as BadgeModality } from './misc/BadgeModality.svelte';
 export { default as ConversationSelection } from './misc/ConversationSelection.svelte';
+export { default as CopyToClipboardIcon } from './misc/CopyToClipboardIcon.svelte';
 export { default as KeyboardShortcutInfo } from './misc/KeyboardShortcutInfo.svelte';
 export { default as MarkdownContent } from './misc/MarkdownContent.svelte';
 export { default as RemoveButton } from './misc/RemoveButton.svelte';
