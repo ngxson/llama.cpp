@@ -44,7 +44,7 @@
 			</Tooltip.Trigger>
 
 			<Tooltip.Content>
-				{onclick ? 'Click for model details' : 'Model name'}
+				{onclick ? 'Click for model details' : model}
 			</Tooltip.Content>
 		</Tooltip.Root>
 	{:else}
