@@ -5146,7 +5146,6 @@ public:
         if (!router_validate_model(name, error_res)) {
             return std::unique_ptr<server_http_res>(std::move(error_res));
         }
-        models->ensure_model_loaded(name);
         return models->proxy_request(req, method, name, false);
     };
 
@@ -5158,7 +5157,6 @@ public:
         if (!router_validate_model(name, error_res)) {
             return std::unique_ptr<server_http_res>(std::move(error_res));
         }
-        models->ensure_model_loaded(name);
         return models->proxy_request(req, method, name, true); // update last usage for POST request only
     };
 
@@ -5713,7 +5711,10 @@ int main(int argc, char ** argv, char ** envp) {
         routes.models.reset(new server_models(params, argc, argv, envp));
 
         // proxy handlers
+        // note: routes.get_health stays the same
+        routes.get_metrics           = routes.proxy_get;
         routes.post_props            = routes.proxy_post;
+        routes.get_api_show          = routes.proxy_get;
         routes.post_completions      = routes.proxy_post;
         routes.post_completions_oai  = routes.proxy_post;
         routes.post_chat_completions = routes.proxy_post;

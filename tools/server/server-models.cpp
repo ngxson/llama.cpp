@@ -408,6 +408,7 @@ void server_models::load(const std::string & name, const std::vector<std::string
     }
 
     // start a thread to manage the child process
+    // captured variables are guaranteed to be destroyed only after the thread is joined
     inst.th = std::thread([this, name, child_proc = inst.subproc, port = inst.meta.port]() {
         // read stdout/stderr and forward to main server log
         FILE * p_stdout_stderr = subprocess_stdout(child_proc.get());
@@ -437,9 +438,17 @@ void server_models::load(const std::string & name, const std::vector<std::string
         SRV_INF("instance name=%s exited with status %d\n", name.c_str(), exit_code);
     });
 
-    // clean up old thread if exists
-    if (mapping[name].th.joinable()) {
-        mapping[name].th.join();
+    // clean up old process/thread if exists
+    {
+        auto & old_instance = mapping[name];
+        // old process should have exited already, but just in case, we clean it up here
+        if (subprocess_alive(old_instance.subproc.get())) {
+            SRV_WRN("old process for model name=%s is still alive, this is unexpected\n", name.c_str());
+            subprocess_terminate(old_instance.subproc.get()); // force kill
+        }
+        if (old_instance.th.joinable()) {
+            old_instance.th.join();
+        }
     }
 
     mapping[name] = std::move(inst);
@@ -586,27 +595,31 @@ void server_models::setup_child_server(const common_params & base_params, int ro
     if (result.error() != httplib::Error::Success) {
         auto err_str = httplib::to_string(result.error());
         SRV_ERR("failed to notify router server: %s\n", err_str.c_str());
-        // TODO: maybe force shutdown here?
+        exit(1); // force exit
     }
 
     // setup thread for monitoring stdin
-    // when EOF is detected, that means the router server requested shutdown, or the parent process died
     std::thread([shutdown_handler]() {
         // wait for EOF on stdin
         SRV_INF("%s", "child server monitoring thread started, waiting for EOF on stdin...\n");
+        bool eof = false;
         while (true) {
             std::string line;
             if (!std::getline(std::cin, line)) {
-                break; // EOF detected
+                // EOF detected, that means the router server is unexpectedly exit or killed
+                eof = true;
+                break;
             }
             if (line.find(CMD_EXIT) != std::string::npos) {
                 SRV_INF("%s", "exit command received, exiting...\n");
                 shutdown_handler(0);
+                break;
             }
         }
-        // EOF meaning router server is unexpectedly exit or killed
-        SRV_INF("%s", "EOF on stdin detected, forcing shutdown...\n");
-        exit(1);
+        if (eof) {
+            SRV_INF("%s", "EOF on stdin detected, forcing shutdown...\n");
+            exit(1);
+        }
     }).detach();
 }
 
