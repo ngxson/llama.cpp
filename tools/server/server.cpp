@@ -5142,7 +5142,10 @@ public:
     server_http_context::handler_t proxy_get = [this](const server_http_req & req) {
         std::string method = "GET";
         std::string name = req.get_param("model");
-        models->ensure_model_loaded(name);
+        auto error_res = std::make_unique<server_res_generator>(ctx_server);
+        if (!router_validate_model(name, error_res)) {
+            return std::unique_ptr<server_http_res>(std::move(error_res));
+        }
         return models->proxy_request(req, method, name, false);
     };
 
@@ -5150,7 +5153,10 @@ public:
         std::string method = "POST";
         json body = json::parse(req.body);
         std::string name = json_value(body, "model", std::string());
-        models->ensure_model_loaded(name);
+        auto error_res = std::make_unique<server_res_generator>(ctx_server);
+        if (!router_validate_model(name, error_res)) {
+            return std::unique_ptr<server_http_res>(std::move(error_res));
+        }
         return models->proxy_request(req, method, name, true); // update last usage for POST request only
     };
 
@@ -5158,21 +5164,23 @@ public:
         auto res = std::make_unique<server_res_generator>(ctx_server);
         json body = json::parse(req.body);
         std::string name = json_value(body, "model", std::string());
+        std::vector<std::string> extra_args = json_value(body, "extra_args", std::vector<std::string>());
         auto model = models->get_meta(name);
         if (!model.has_value()) {
-            res->error(format_error_response("model is not found", ERROR_TYPE_INVALID_REQUEST));
+            res->error(format_error_response("model is not found", ERROR_TYPE_NOT_FOUND));
             return res;
         }
         if (model->status == SERVER_MODEL_STATUS_LOADED) {
             res->error(format_error_response("model is already loaded", ERROR_TYPE_INVALID_REQUEST));
             return res;
         }
-        models->load(name);
+        models->load(name, extra_args, false);
         res->ok({{"success", true}});
         return res;
     };
 
     // used by child process to notify the router about status change
+    // TODO @ngxson : maybe implement authentication for this endpoint in the future
     server_http_context::handler_t post_router_models_status = [this](const server_http_req & req) {
         auto res = std::make_unique<server_res_generator>(ctx_server);
         json body = json::parse(req.body);
@@ -5187,19 +5195,32 @@ public:
         auto res = std::make_unique<server_res_generator>(ctx_server);
         json models_json = json::array();
         auto all_models = models->get_all_meta();
-        for (const auto & model : all_models) {
+        std::time_t t = std::time(0);
+        for (const auto & meta : all_models) {
+            json status {
+                {"value", server_model_status_to_string(meta.status)},
+                {"args",  meta.args},
+            };
+            if (meta.is_failed()) {
+                status["exit_code"] = meta.exit_code;
+                status["failed"]    = true;
+            }
             models_json.push_back(json {
-                {"name",     model.name},
-                {"id",       model.name},
-                {"in_cache", model.in_cache},
-                {"path",     model.path},
-                // TODO: other fields...
-                {"status", {
-                    {"value", server_model_status_to_string(model.status)}
-                }},
+                {"id",       meta.name},
+                {"name",     meta.name},
+                {"object",   "model"},    // for OAI-compat
+                {"owned_by", "llamacpp"}, // for OAI-compat
+                {"created",  t},          // for OAI-compat
+                {"in_cache", meta.in_cache},
+                {"path",     meta.path},
+                {"status",   status},
+                // TODO: add other fields, may require reading GGUF metadata
             });
         }
-        res->ok({{"data", models_json}});
+        res->ok({
+            {"data", models_json},
+            {"object", "list"},
+        });
         return res;
     };
 
@@ -5571,6 +5592,27 @@ private:
         res->ok(root);
         return res;
     }
+
+    bool router_validate_model(const std::string & name, std::unique_ptr<server_res_generator> & res) {
+        if (name.empty()) {
+            res->error(format_error_response("model name is missing from the request", ERROR_TYPE_INVALID_REQUEST));
+            return false;
+        }
+        auto meta = models->get_meta(name);
+        if (!meta.has_value()) {
+            res->error(format_error_response("model not found", ERROR_TYPE_INVALID_REQUEST));
+            return false;
+        }
+        if (params.models_autoload) {
+            models->ensure_model_loaded(name);
+        } else {
+            if (meta->status != SERVER_MODEL_STATUS_LOADED) {
+                res->error(format_error_response("model is not loaded", ERROR_TYPE_INVALID_REQUEST));
+                return false;
+            }
+        }
+        return true;
+    }
 };
 
 std::function<void(int)> shutdown_handler;
@@ -5669,7 +5711,10 @@ int main(int argc, char ** argv, char ** envp) {
         routes.models.reset(new server_models(params, argc, argv, envp));
 
         // proxy handlers
+        // note: routes.get_health stays the same
+        routes.get_metrics           = routes.proxy_get;
         routes.post_props            = routes.proxy_post;
+        routes.get_api_show          = routes.proxy_get;
         routes.post_completions      = routes.proxy_post;
         routes.post_completions_oai  = routes.proxy_post;
         routes.post_chat_completions = routes.proxy_post;
@@ -5815,6 +5860,8 @@ int main(int argc, char ** argv, char ** envp) {
 
     if (is_router_server) {
         LOG_INF("%s: router server is listening on %s\n", __func__, ctx_http.listening_address.c_str());
+        LOG_INF("%s: NOTE: router mode is experimental\n", __func__);
+        LOG_INF("%s:       it is not recommended to use this mode in untrusted environments\n", __func__);
         ctx_http.is_ready.store(true);
         if (ctx_http.thread.joinable()) {
             ctx_http.thread.join(); // keep the main thread alive
@@ -5829,7 +5876,7 @@ int main(int argc, char ** argv, char ** envp) {
         // optionally, notify router server that this instance is ready
         const char * router_port = std::getenv("LLAMA_SERVER_ROUTER_PORT");
         if (router_port != nullptr) {
-            server_models::setup_child_server(params.hostname, std::atoi(router_port), params.model_alias, shutdown_handler);
+            server_models::setup_child_server(params, std::atoi(router_port), params.model_alias, shutdown_handler);
         }
 
         // this call blocks the main thread until queue_tasks.terminate() is called

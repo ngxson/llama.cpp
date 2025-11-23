@@ -460,7 +460,8 @@ struct common_params {
 
     // router server configs
     std::string models_dir = ""; // directory containing models for the router server
-    int max_models = 4;          // maximum number of models to load simultaneously
+    int models_max = 4;          // maximum number of models to load simultaneously
+    bool models_autoload = true; // automatically load models when requested via the router server
 
     bool log_json = false;
 

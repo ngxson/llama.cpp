@@ -15,16 +15,16 @@
  * state diagram:
  *
  * UNLOADED ──► LOADING ──► LOADED
- *                 ▲           │
- *                 │           │
- *              FAILED ◄───────┘
+ *  ▲            │            │
+ *  └───failed───┘            │
+ *  ▲                         │
+ *  └────────unloaded─────────┘
  */
 enum server_model_status {
-    // TODO: also add downloading state
+    // TODO: also add downloading state when the logic is added
     SERVER_MODEL_STATUS_UNLOADED,
     SERVER_MODEL_STATUS_LOADING,
-    SERVER_MODEL_STATUS_LOADED,
-    SERVER_MODEL_STATUS_FAILED
+    SERVER_MODEL_STATUS_LOADED
 };
 
 static server_model_status server_model_status_from_string(const std::string & status_str) {
@@ -34,8 +34,6 @@ static server_model_status server_model_status_from_string(const std::string & s
         return SERVER_MODEL_STATUS_LOADING;
     } else if (status_str == "loaded") {
         return SERVER_MODEL_STATUS_LOADED;
-    } else if (status_str == "failed") {
-        return SERVER_MODEL_STATUS_FAILED;
     } else {
         throw std::runtime_error("invalid server model status");
     }
@@ -46,7 +44,6 @@ static std::string server_model_status_to_string(server_model_status status) {
         case SERVER_MODEL_STATUS_UNLOADED: return "unloaded";
         case SERVER_MODEL_STATUS_LOADING:  return "loading";
         case SERVER_MODEL_STATUS_LOADED:   return "loaded";
-        case SERVER_MODEL_STATUS_FAILED:   return "failed";
         default:                           return "unknown";
     }
 }
@@ -58,10 +55,16 @@ struct server_model_meta {
     bool in_cache = false; // if true, use -hf; use -m otherwise
     int port = 0;
     server_model_status status = SERVER_MODEL_STATUS_UNLOADED;
-    int64_t last_used = 0;
+    int64_t last_used = 0; // for LRU unloading
+    std::vector<std::string> args; // additional args passed to the model instance (used for debugging)
+    int exit_code = 0; // exit code of the model instance process (only valid if status == FAILED)
 
     bool is_active() const {
         return status == SERVER_MODEL_STATUS_LOADED || status == SERVER_MODEL_STATUS_LOADING;
+    }
+
+    bool is_failed() const {
+        return status == SERVER_MODEL_STATUS_UNLOADED && exit_code != 0;
     }
 };
 
@@ -98,7 +101,8 @@ public:
     // return a copy of all model metadata
     std::vector<server_model_meta> get_all_meta();
 
-    void load(const std::string & name);
+    // if auto_load is true, load the model with previous args if any
+    void load(const std::string & name, const std::vector<std::string> & extra_args, bool auto_load);
     void unload(const std::string & name);
     void unload_all();
 
@@ -117,7 +121,7 @@ public:
     server_http_res_ptr proxy_request(const server_http_req & req, const std::string & method, const std::string & name, bool update_last_used);
 
     // notify the router server that a model instance is ready
-    static void setup_child_server(const std::string & host, int router_port, const std::string & name, std::function<void(int)> & shutdown_handler);
+    static void setup_child_server(const common_params & base_params, int router_port, const std::string & name, std::function<void(int)> & shutdown_handler);
 };
 
 /**

@@ -2482,12 +2482,19 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_MODELS_DIR"));
     add_opt(common_arg(
-        {"--max-models"}, "N",
-        string_format("for router server, maximum number of models to load simultaneously (default: %d, 0 = unlimited)", params.max_models),
+        {"--models-max"}, "N",
+        string_format("for router server, maximum number of models to load simultaneously (default: %d, 0 = unlimited)", params.models_max),
         [](common_params & params, int value) {
-            params.max_models = value;
+            params.models_max = value;
         }
-    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_MAX_MODELS"));
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_MODELS_MAX"));
+    add_opt(common_arg(
+        {"--no-models-autoload"},
+        "disables automatic loading of models (default: enabled)",
+        [](common_params & params) {
+            params.models_autoload = false;
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_NO_MODELS_AUTOLOAD"));
     add_opt(common_arg(
         {"--jinja"},
         "use jinja template for chat (default: disabled)",

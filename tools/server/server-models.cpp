@@ -29,6 +29,8 @@
 #include <limits.h>
 #endif
 
+#define CMD_EXIT "exit"
+
 static std::filesystem::path get_server_exec_path() {
 #if defined(_WIN32)
     wchar_t buf[32768] = { 0 };  // Large buffer to handle long paths
@@ -154,7 +156,9 @@ server_models::server_models(
             /* in_cache    */ true,
             /* port        */ 0,
             /* status      */ SERVER_MODEL_STATUS_UNLOADED,
-            /* last_used   */ 0
+            /* last_used   */ 0,
+            /* args        */ std::vector<std::string>(),
+            /* exit_code   */ 0
         };
         mapping[meta.name] = instance_t{
             /* subproc */ std::make_shared<subprocess_s>(),
@@ -177,7 +181,9 @@ server_models::server_models(
                 /* in_cache    */ false,
                 /* port        */ 0,
                 /* status      */ SERVER_MODEL_STATUS_UNLOADED,
-                /* last_used   */ 0
+                /* last_used   */ 0,
+                /* args        */ std::vector<std::string>(),
+                /* exit_code   */ 0
             };
             mapping[meta.name] = instance_t{
                 /* subproc */ std::make_shared<subprocess_s>(),
@@ -293,10 +299,10 @@ std::vector<server_model_meta> server_models::get_all_meta() {
 }
 
 void server_models::unload_lru() {
-    if (base_params.max_models <= 0) {
+    if (base_params.models_max <= 0) {
         return; // no limit
     }
-    // remove one of the servers if we passed the max_models (least recently used - LRU)
+    // remove one of the servers if we passed the models_max (least recently used - LRU)
     std::string lru_model_name = "";
     int64_t lru_last_used = ggml_time_ms();
     size_t count_active = 0;
@@ -312,13 +318,13 @@ void server_models::unload_lru() {
             }
         }
     }
-    if (!lru_model_name.empty() && count_active >= (size_t)base_params.max_models) {
-        SRV_INF("max_models limit reached, removing LRU name=%s\n", lru_model_name.c_str());
+    if (!lru_model_name.empty() && count_active >= (size_t)base_params.models_max) {
+        SRV_INF("models_max limit reached, removing LRU name=%s\n", lru_model_name.c_str());
         unload(lru_model_name);
     }
 }
 
-void server_models::load(const std::string & name) {
+void server_models::load(const std::string & name, const std::vector<std::string> & extra_args, bool auto_load) {
     if (!has_model(name)) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
@@ -327,7 +333,7 @@ void server_models::load(const std::string & name) {
     std::lock_guard<std::mutex> lk(mutex);
 
     auto meta = mapping[name].meta;
-    if (meta.status != SERVER_MODEL_STATUS_FAILED && meta.status != SERVER_MODEL_STATUS_UNLOADED) {
+    if (meta.status != SERVER_MODEL_STATUS_UNLOADED) {
         SRV_INF("model %s is not ready\n", name.c_str());
         return;
     }
@@ -348,31 +354,48 @@ void server_models::load(const std::string & name) {
         std::string exec_path = get_server_exec_path().string();
         SRV_INF("spawning server instance with name=%s on port %d\n", inst.meta.name.c_str(), inst.meta.port);
 
-        std::vector<std::string> child_args = base_args; // copy
-        if (inst.meta.in_cache) {
-            child_args.push_back("-hf");
-            child_args.push_back(inst.meta.name);
+        std::vector<std::string> child_args;
+        if (auto_load && !meta.args.empty()) {
+            child_args = meta.args; // reuse previous args
+            // update port arg
+            for (size_t i = 0; i < child_args.size(); i++) {
+                if (child_args[i] == "--port" && i + 1 < child_args.size()) {
+                    child_args[i + 1] = std::to_string(inst.meta.port);
+                    break;
+                }
+            }
         } else {
-            child_args.push_back("-m");
-            child_args.push_back(inst.meta.path);
-            if (!inst.meta.path_mmproj.empty()) {
-                child_args.push_back("--mmproj");
-                child_args.push_back(inst.meta.path_mmproj);
+            child_args = base_args; // copy
+            if (inst.meta.in_cache) {
+                child_args.push_back("-hf");
+                child_args.push_back(inst.meta.name);
+            } else {
+                child_args.push_back("-m");
+                child_args.push_back(inst.meta.path);
+                if (!inst.meta.path_mmproj.empty()) {
+                    child_args.push_back("--mmproj");
+                    child_args.push_back(inst.meta.path_mmproj);
+                }
+            }
+            child_args.push_back("--alias");
+            child_args.push_back(inst.meta.name);
+            child_args.push_back("--port");
+            child_args.push_back(std::to_string(inst.meta.port));
+
+            // append extra args
+            for (const auto & arg : extra_args) {
+                child_args.push_back(arg);
             }
         }
-        child_args.push_back("--alias");
-        child_args.push_back(inst.meta.name);
-        child_args.push_back("--port");
-        child_args.push_back(std::to_string(inst.meta.port));
 
         std::vector<std::string> child_env = base_env; // copy
         child_env.push_back("LLAMA_SERVER_ROUTER_PORT=" + std::to_string(base_params.port));
 
-        // TODO: add logging
         SRV_INF("%s", "spawning server instance with args:\n");
         for (const auto & arg : child_args) {
             SRV_INF("  %s\n", arg.c_str());
         }
+        inst.meta.args = child_args; // save for debugging
 
         std::vector<char *> argv = to_char_ptr_array(child_args);
         std::vector<char *> envp = to_char_ptr_array(child_env);
@@ -385,6 +408,7 @@ void server_models::load(const std::string & name) {
     }
 
     // start a thread to manage the child process
+    // captured variables are guaranteed to be destroyed only after the thread is joined
     inst.th = std::thread([this, name, child_proc = inst.subproc, port = inst.meta.port]() {
         // read stdout/stderr and forward to main server log
         FILE * p_stdout_stderr = subprocess_stdout(child_proc.get());
@@ -405,22 +429,40 @@ void server_models::load(const std::string & name) {
             std::lock_guard<std::mutex> lk(mutex);
             auto it = mapping.find(name);
             if (it != mapping.end()) {
-                it->second.meta.status = exit_code == 0
-                                            ? SERVER_MODEL_STATUS_UNLOADED
-                                            : SERVER_MODEL_STATUS_FAILED;
+                auto & meta = it->second.meta;
+                meta.exit_code = exit_code;
+                meta.status    = SERVER_MODEL_STATUS_UNLOADED;
             }
             cv.notify_all();
         }
         SRV_INF("instance name=%s exited with status %d\n", name.c_str(), exit_code);
     });
 
-    // clean up old thread if exists
-    if (mapping[name].th.joinable()) {
-        mapping[name].th.join();
+    // clean up old process/thread if exists
+    {
+        auto & old_instance = mapping[name];
+        // old process should have exited already, but just in case, we clean it up here
+        if (subprocess_alive(old_instance.subproc.get())) {
+            SRV_WRN("old process for model name=%s is still alive, this is unexpected\n", name.c_str());
+            subprocess_terminate(old_instance.subproc.get()); // force kill
+        }
+        if (old_instance.th.joinable()) {
+            old_instance.th.join();
+        }
     }
 
     mapping[name] = std::move(inst);
     cv.notify_all();
+}
+
+static void interrupt_subprocess(subprocess_s * proc) {
+    // because subprocess.h does not provide a way to send SIGINT,
+    // we will send a command to the child process to exit gracefully
+    FILE * p_stdin = subprocess_stdin(proc);
+    if (p_stdin) {
+        fprintf(p_stdin, "%s\n", CMD_EXIT);
+        fflush(p_stdin);
+    }
 }
 
 void server_models::unload(const std::string & name) {
@@ -429,7 +471,7 @@ void server_models::unload(const std::string & name) {
     if (it != mapping.end()) {
         if (it->second.meta.is_active()) {
             SRV_INF("unloading model instance name=%s\n", name.c_str());
-            subprocess_terminate(it->second.subproc.get());
+            interrupt_subprocess(it->second.subproc.get());
             // status change will be handled by the managing thread
         } else {
             SRV_WRN("model instance name=%s is not loaded\n", name.c_str());
@@ -444,7 +486,7 @@ void server_models::unload_all() {
         for (auto & [name, inst] : mapping) {
             if (inst.meta.is_active()) {
                 SRV_INF("unloading model instance name=%s\n", name.c_str());
-                subprocess_terminate(inst.subproc.get());
+                interrupt_subprocess(inst.subproc.get());
                 // status change will be handled by the managing thread
             }
             // moving the thread to join list to avoid deadlock
@@ -459,6 +501,10 @@ void server_models::unload_all() {
 }
 
 void server_models::update_status(const std::string & name, server_model_status status) {
+    // for now, we only allow updating to LOADED status
+    if (status != SERVER_MODEL_STATUS_LOADED) {
+        throw std::runtime_error("invalid status value");
+    }
     auto meta = get_meta(name);
     if (meta.has_value()) {
         meta->status = status;
@@ -471,8 +517,7 @@ void server_models::wait_until_loaded(const std::string & name) {
     cv.wait(lk, [this, &name]() {
         auto it = mapping.find(name);
         if (it != mapping.end()) {
-            return it->second.meta.status == SERVER_MODEL_STATUS_LOADED ||
-                   it->second.meta.status == SERVER_MODEL_STATUS_FAILED;
+            return it->second.meta.status != SERVER_MODEL_STATUS_LOADING;
         }
         return false;
     });
@@ -483,19 +528,23 @@ bool server_models::ensure_model_loaded(const std::string & name) {
     if (!meta.has_value()) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
-    if (meta->is_active()) {
+    if (meta->status == SERVER_MODEL_STATUS_LOADED) {
         return false; // already loaded
     }
-    SRV_INF("model name=%s is not loaded, loading...\n", name.c_str());
-    load(name);
-    wait_until_loaded(name);
-    {
-        // check final status
-        meta = get_meta(name);
-        if (!meta.has_value() || meta->status == SERVER_MODEL_STATUS_FAILED) {
-            throw std::runtime_error("model name=" + name + " failed to load");
-        }
+    if (meta->status == SERVER_MODEL_STATUS_UNLOADED) {
+        SRV_INF("model name=%s is not loaded, loading...\n", name.c_str());
+        load(name, {}, true);
     }
+
+    SRV_INF("waiting until model name=%s is fully loaded...\n", name.c_str());
+    wait_until_loaded(name);
+
+    // check final status
+    meta = get_meta(name);
+    if (!meta.has_value() || meta->is_failed()) {
+        throw std::runtime_error("model name=" + name + " failed to load");
+    }
+
     return true;
 }
 
@@ -523,15 +572,18 @@ server_http_res_ptr server_models::proxy_request(const server_http_req & req, co
     return proxy;
 }
 
-void server_models::setup_child_server(const std::string & host, int router_port, const std::string & name, std::function<void(int)> & shutdown_handler) {
+void server_models::setup_child_server(const common_params & base_params, int router_port, const std::string & name, std::function<void(int)> & shutdown_handler) {
     // send a notification to the router server that a model instance is ready
-    httplib::Client cli(host, router_port);
+    httplib::Client cli(base_params.hostname, router_port);
     cli.set_connection_timeout(0, 200000); // 200 milliseconds
 
     httplib::Request req;
     req.method = "POST";
     req.path   = "/models/status";
     req.set_header("Content-Type", "application/json");
+    if (!base_params.api_keys.empty()) {
+        req.set_header("Authorization", "Bearer " + base_params.api_keys[0]);
+    }
 
     json body;
     body["model"] = name;
@@ -543,22 +595,31 @@ void server_models::setup_child_server(const std::string & host, int router_port
     if (result.error() != httplib::Error::Success) {
         auto err_str = httplib::to_string(result.error());
         SRV_ERR("failed to notify router server: %s\n", err_str.c_str());
-        // TODO: maybe force shutdown here?
+        exit(1); // force exit
     }
 
     // setup thread for monitoring stdin
-    // when EOF is detected, that means the router server requested shutdown, or the parent process died
     std::thread([shutdown_handler]() {
         // wait for EOF on stdin
         SRV_INF("%s", "child server monitoring thread started, waiting for EOF on stdin...\n");
+        bool eof = false;
         while (true) {
-            int c = getchar();
-            if (c == EOF) {
+            std::string line;
+            if (!std::getline(std::cin, line)) {
+                // EOF detected, that means the router server is unexpectedly exit or killed
+                eof = true;
+                break;
+            }
+            if (line.find(CMD_EXIT) != std::string::npos) {
+                SRV_INF("%s", "exit command received, exiting...\n");
+                shutdown_handler(0);
                 break;
             }
         }
-        SRV_INF("%s", "EOF on stdin detected, invoking shutdown handler...\n");
-        shutdown_handler(0); // invoke shutdown handler
+        if (eof) {
+            SRV_INF("%s", "EOF on stdin detected, forcing shutdown...\n");
+            exit(1);
+        }
     }).detach();
 }
 
