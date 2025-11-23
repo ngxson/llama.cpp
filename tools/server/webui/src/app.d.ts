@@ -23,8 +23,7 @@ import type {
 	ApiRouterModelsUnloadResponse
 } from '$lib/types/api';
 
-import { ServerMode, ServerModelStatus } from '$lib/enums/server';
-import { ModelModality } from '$lib/enums/model';
+import { ServerMode, ServerModelStatus, ModelModality } from '$lib/enums';
 
 import type {
 	ChatMessageType,

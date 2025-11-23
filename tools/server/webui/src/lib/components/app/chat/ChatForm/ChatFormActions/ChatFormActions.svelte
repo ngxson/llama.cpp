@@ -7,7 +7,7 @@
 		ChatFormActionSubmit,
 		SelectorModel
 	} from '$lib/components/app';
-	import { FileTypeCategory } from '$lib/enums/files';
+	import { FileTypeCategory } from '$lib/enums';
 	import { getFileTypeCategory } from '$lib/utils/file-type';
 	import { supportsAudio } from '$lib/stores/server.svelte';
 	import { config } from '$lib/stores/settings.svelte';

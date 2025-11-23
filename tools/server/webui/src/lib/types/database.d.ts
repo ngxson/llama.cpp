@@ -1,5 +1,5 @@
 import type { ChatMessageTimings, ChatRole, ChatMessageType } from '$lib/types/chat';
-import { AttachmentType } from '$lib/enums/attachment';
+import { AttachmentType } from '$lib/enums';
 
 export interface DatabaseConversation {
 	currNode: string | null;

@@ -4,7 +4,7 @@ import {
 	PDF_FILE_TYPES,
 	TEXT_FILE_TYPES
 } from '$lib/constants/supported-file-types';
-import { FileTypeCategory } from '$lib/enums/files';
+import { FileTypeCategory } from '$lib/enums';
 
 export function getFileTypeCategory(mimeType: string): FileTypeCategory | null {
 	if (

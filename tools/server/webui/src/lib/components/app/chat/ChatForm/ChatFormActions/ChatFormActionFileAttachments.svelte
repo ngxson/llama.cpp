@@ -4,7 +4,7 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { TOOLTIP_DELAY_DURATION } from '$lib/constants/tooltip-config';
-	import { FileTypeCategory } from '$lib/enums/files';
+	import { FileTypeCategory } from '$lib/enums';
 	import { supportsAudio, supportsVision } from '$lib/stores/server.svelte';
 
 	interface Props {

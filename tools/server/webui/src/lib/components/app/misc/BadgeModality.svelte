@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Eye, Mic } from '@lucide/svelte';
-	import { ModelModality } from '$lib/enums/model';
+	import { ModelModality } from '$lib/enums';
 	import { cn } from '$lib/components/ui/utils';
 
 	interface Props {

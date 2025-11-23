@@ -10,7 +10,7 @@ import type {
 	ApiChatMessageData,
 	ApiModelListResponse
 } from '$lib/types/api';
-import { AttachmentType } from '$lib/enums/attachment';
+import { AttachmentType } from '$lib/enums';
 import type {
 	DatabaseMessage,
 	DatabaseMessageExtra,

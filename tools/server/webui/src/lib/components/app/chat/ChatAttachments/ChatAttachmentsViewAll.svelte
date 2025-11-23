@@ -4,7 +4,7 @@
 		ChatAttachmentThumbnailFile,
 		DialogChatAttachmentPreview
 	} from '$lib/components/app';
-	import { FileTypeCategory } from '$lib/enums/files';
+	import { FileTypeCategory } from '$lib/enums';
 	import { getFileTypeCategory } from '$lib/utils/file-type';
 	import { isImageFile } from '$lib/utils/attachment-type';
 	import type { ChatAttachmentDisplayItem, ChatAttachmentPreviewItem } from '$lib/types/chat';

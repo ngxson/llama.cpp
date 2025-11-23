@@ -9,15 +9,9 @@
 	} from '$lib/components/app';
 	import { INPUT_CLASSES } from '$lib/constants/input-classes';
 	import { config } from '$lib/stores/settings.svelte';
-	import { FileTypeCategory, MimeTypeApplication } from '$lib/enums/files';
 	import {
-		AudioRecorder,
-		convertToWav,
-		createAudioFile,
-		isAudioRecordingSupported
-	} from '$lib/utils/audio-recording';
-	import { onMount } from 'svelte';
-	import {
+		FileTypeCategory,
+		MimeTypeApplication,
 		FileExtensionAudio,
 		FileExtensionImage,
 		FileExtensionPdf,
@@ -25,7 +19,14 @@
 		MimeTypeAudio,
 		MimeTypeImage,
 		MimeTypeText
-	} from '$lib/enums/files';
+	} from '$lib/enums';
+	import {
+		AudioRecorder,
+		convertToWav,
+		createAudioFile,
+		isAudioRecordingSupported
+	} from '$lib/utils/audio-recording';
+	import { onMount } from 'svelte';
 	import { isIMEComposing } from '$lib/utils/is-ime-composing';
 
 	interface Props {

@@ -15,7 +15,7 @@ import {
 	MimeTypeApplication,
 	MimeTypeText,
 	FileTypeCategory
-} from '$lib/enums/files';
+} from '$lib/enums';
 
 /**
  * Check if a file type is supported by the current model's modalities

@@ -43,7 +43,7 @@
 	import { fade, fly, slide } from 'svelte/transition';
 	import { Trash2 } from '@lucide/svelte';
 	import ChatScreenDragOverlay from './ChatScreenDragOverlay.svelte';
-	import { ModelModality } from '$lib/enums/model';
+	import { ModelModality } from '$lib/enums';
 
 	let { showCenteredEmpty = false } = $props();
 

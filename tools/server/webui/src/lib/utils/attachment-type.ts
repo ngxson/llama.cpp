@@ -1,5 +1,4 @@
-import { AttachmentType } from '$lib/enums/attachment';
-import { FileTypeCategory } from '$lib/enums/files';
+import { AttachmentType, FileTypeCategory } from '$lib/enums';
 import { getFileTypeCategory } from '$lib/utils/file-type';
 import { getFileTypeLabel } from '$lib/utils/file-preview';
 import type { DatabaseMessageExtra } from '$lib/types/database';

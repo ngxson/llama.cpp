@@ -3,7 +3,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { ChevronLeft, ChevronRight } from '@lucide/svelte';
 	import { getFileTypeCategory } from '$lib/utils/file-type';
-	import { FileTypeCategory } from '$lib/enums/files';
+	import { FileTypeCategory } from '$lib/enums';
 	import { isImageFile } from '$lib/utils/attachment-type';
 	import { DialogChatAttachmentPreview, DialogChatAttachmentsViewAll } from '$lib/components/app';
 	import type { ChatAttachmentDisplayItem, ChatAttachmentPreviewItem } from '$lib/types/chat';

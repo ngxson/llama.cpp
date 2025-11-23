@@ -2,8 +2,7 @@ import { browser } from '$app/environment';
 import { SERVER_PROPS_LOCALSTORAGE_KEY } from '$lib/constants/localstorage-keys';
 import { ChatService } from '$lib/services/chat';
 import { config } from '$lib/stores/settings.svelte';
-import { ServerMode } from '$lib/enums/server';
-import { ModelModality } from '$lib/enums/model';
+import { ServerMode, ModelModality } from '$lib/enums';
 import { updateConfig } from '$lib/stores/settings.svelte';
 
 /**
