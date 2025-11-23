@@ -222,13 +222,17 @@ static std::string chat_add_and_format(mtmd_cli_context & ctx, common_chat_msg &
 
 static int eval_message(mtmd_cli_context & ctx, common_chat_msg & msg) {
     bool add_bos = ctx.chat_history.empty();
-    auto formatted_chat = chat_add_and_format(ctx, msg);
-    LOG_DBG("formatted_chat.prompt: %s\n", formatted_chat.c_str());
 
     mtmd_input_text text;
-    text.text          = formatted_chat.c_str();
+    text.text          = msg.content.c_str();
     text.add_special   = add_bos;
     text.parse_special = true;
+
+    if (!mtmd_is_deepseekocr(ctx.ctx_vision.get())) {
+        auto formatted_chat = chat_add_and_format(ctx, msg);
+        LOG_DBG("formatted_chat.prompt: %s\n", formatted_chat.c_str());
+        text.text = formatted_chat.c_str();        
+    }
 
     if (g_is_interrupted) return 0;
 
@@ -332,6 +336,11 @@ int main(int argc, char ** argv) {
         }
 
     } else {
+        if (mtmd_is_deepseekocr(ctx.ctx_vision.get())) {
+            LOG_ERR("\n DeepSeek-OCR doesn't support chat mode.");
+            return 1;
+        }
+        
         LOG("\n Running in chat mode, available commands:");
         if (mtmd_support_vision(ctx.ctx_vision.get())) {
             LOG("\n   /image <path>    load an image");

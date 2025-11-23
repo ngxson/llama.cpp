@@ -741,8 +741,8 @@ struct clip_graph {
 
                 struct ggml_tensor * q_r = ggml_reshape_4d(ctx0, Qcur, enc_d_heads, W, H, B * enc_n_heads);
 
-                struct ggml_tensor * rel_w = ggml_cont(ctx0,ggml_permute(ctx0, 
-                            ggml_mul_mat(ctx0, 
+                struct ggml_tensor * rel_w = ggml_cont(ctx0,ggml_permute(ctx0,
+                            ggml_mul_mat(ctx0,
                                 rw,
                                 ggml_cont(ctx0, ggml_permute(ctx0, q_r, 0, 2, 1, 3))),
                             0, 2, 1, 3));
@@ -803,9 +803,8 @@ struct clip_graph {
 
         cur = sam_layer_norm_2d(ctx0, cur, 256, model.neck_3_w, model.neck_3_b, hparams.eps);
 
-        //TODO : check conv padding
-        cur = ggml_conv_2d_s1_ph(ctx0, model.net_2, cur);
-        cur = ggml_conv_2d_s1_ph(ctx0, model.net_3, cur);
+        cur = ggml_conv_2d(ctx0, model.net_2, cur, 2,2,1,1, 1,1);
+        cur = ggml_conv_2d(ctx0, model.net_3, cur, 2,2,1,1, 1,1);
 
         ggml_build_forward_expand(gf, cur);
         return cur;
@@ -840,22 +839,27 @@ struct clip_graph {
 
         ggml_tensor * global_features_2 = build_dp_ocr_clip(global_features_1);
 
+        // FIXME remove n_patches is hardcoded
+        int clip_n_patches = 256; // FIXME hardcoded for sam 1024x1024 with 16x16 patches
+
         // torch global_features = torch.cat((global_features_2[:, 1:], global_features_1.flatten(2).permute(0, 2, 1)), dim=-1)
         global_features_1 = ggml_cont(ctx0,ggml_permute(ctx0, global_features_1,2,1,0,3));
-        global_features_1 = ggml_reshape_2d(ctx0, global_features_1, n_embd, n_patches);
+        // flatten 2nd and 3rd dims
+        global_features_1 = ggml_reshape_2d(ctx0, global_features_1, global_features_1->ne[0], clip_n_patches);
 
         // remove CLS token
         global_features_2 = ggml_view_2d(ctx0, global_features_2,
-            n_embd, n_patches,
+            n_embd, clip_n_patches,
             ggml_row_size(global_features_2->type, n_embd), 0);
 
         ggml_tensor * global_features = ggml_concat(ctx0, global_features_2, global_features_1, 1);
-        global_features = ggml_reshape_2d(ctx0, global_features, 2* n_embd, n_patches);
+        global_features = ggml_reshape_2d(ctx0, global_features, 2* n_embd,clip_n_patches);
         global_features = ggml_cont(ctx0, global_features);
         global_features = ggml_mul_mat(ctx0, model.fc_w, global_features);
         global_features = ggml_add(ctx0, global_features, model.fc_b);
 
         global_features = build_global_local_features(ctx0,global_features);
+        global_features = ggml_cont(ctx0, ggml_permute(ctx0, global_features, 1, 0, 2, 3));
         ggml_build_forward_expand(gf, global_features);
         return gf;
     }
@@ -870,16 +874,16 @@ struct clip_graph {
         GGML_ASSERT(model.view_seperator != nullptr);
 
         // 1) global_features: [n_dim, h*w] -> [n_dim, w, h] -> [h, w, n_dim]
-        ggml_tensor * t = ggml_reshape_4d(ctx0, global_features, 1280, 64, 64, 1);  // (n_dim, w, h)
+        ggml_tensor * t = ggml_reshape_4d(ctx0, global_features, 1280, 16, 16, 1);  // (n_dim, w, h)
         t               = ggml_cont(ctx0, ggml_permute(ctx0, t, 2, 1, 0, 3)); // (h, w, n_dim)
         ggml_tensor * nl = ggml_cont(ctx0,ggml_permute(ctx0, model.image_newline, 2, 1, 0, 3));
-        nl = ggml_repeat_4d(ctx0, nl, 64, 1, 1280, 1); // n_pos rows
+        nl = ggml_repeat_4d(ctx0, nl, 16, 1, 1280, 1); // n_pos rows
 
 
         // 2) image_newline: [n_dim] -> [1, 1, n_dim] -> repeat to [h, 1, n_dim]
         t = ggml_concat(ctx0, t, nl, 1);  // (h, w+1, n_dim)
 
-        t = ggml_reshape_2d(ctx0, t, 1280, 64 * (64 + 1));  // (n_dim, h*(w+1))
+        t = ggml_reshape_2d(ctx0, t, 1280, 16 * (16 + 1));  // (n_dim, h*(w+1))
 
 
         // 5) append view_separator as an extra "token":
@@ -1540,9 +1544,12 @@ struct clip_graph {
         GGML_ASSERT(model.class_embedding != nullptr);
         GGML_ASSERT(model.position_embeddings != nullptr);
 
-        const int     n_pos = n_patches + 1;
-        ggml_tensor * inp = ggml_cont(ctx0,ggml_permute(ctx0, patch_embeds,2,1,0,3));
-        inp = ggml_reshape_2d(ctx0, inp, n_embd, n_patches);
+        ggml_tensor * inp = ggml_cpy(ctx0, patch_embeds, ggml_dup_tensor(ctx0, patch_embeds));
+
+
+        const int n_pos = 257; // +1 for [CLS]
+        inp = ggml_cont(ctx0,ggml_permute(ctx0, inp,2,1,0,3));
+        inp = ggml_reshape_2d(ctx0, inp, n_embd, inp->ne[1]*inp->ne[2]*inp->ne[3]);
 
 
 
@@ -1554,7 +1561,9 @@ struct clip_graph {
 
         // for selecting learned pos embd, used by ViT
         ggml_tensor * positions = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos);
-        cb(positions, "positions", -1);
+        ggml_set_name(positions, "positions");
+        ggml_set_input(positions);
+
         ggml_tensor * learned_pos_embd = ggml_get_rows(ctx0, model.position_embeddings, positions);
 
 
@@ -2527,7 +2536,7 @@ private:
         ggml_tensor * q_coord = ggml_arange(ctx, 0.0f, static_cast<float>(q_size), 1.0f); // [q_size]
         ggml_tensor * k_coord = ggml_arange(ctx, 0.0f, static_cast<float>(k_size), 1.0f); // [k_size]
         ggml_tensor * rel = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, k_size, q_size);
-        
+
         // broadcast reshape:
         q_coord = ggml_cont(ctx,
             ggml_repeat(ctx,
@@ -2540,8 +2549,8 @@ private:
         float q_scale = std::max((float)k_size/q_size, 1.0f);
         float k_scale = std::max((float)q_size/k_size, 1.0f);
 
-        // This wouldn't be triggered in DeepSeek-OCR. Just for compatibility with 
-        // the original implementation. 
+        // This wouldn't be triggered in DeepSeek-OCR. Just for compatibility with
+        // the original implementation.
         if (q_size != k_size) {
             q_coord = ggml_scale_inplace(ctx, q_coord, q_scale);
             k_coord = ggml_scale_inplace(ctx, k_coord, k_scale);
@@ -2550,7 +2559,7 @@ private:
         // -------------------------------------------------
         // relative_coords = q - k + (k_size - 1)    // SAME as PyTorch when no scaling
         // -------------------------------------------------
-        
+
         rel = ggml_sub(ctx, q_coord, k_coord); // [q_size, k_size]
         rel = ggml_scale_bias(ctx, rel, 1.0f, (k_size - 1.0f)*k_scale); // [q_size, k_size]
         // Clamp to [0, L-1] range for valid indexing
@@ -2561,10 +2570,10 @@ private:
         // -------------------------------------------------
 
         ggml_tensor * idx_2d = ggml_cast(ctx, rel, GGML_TYPE_I32); // [q_size, k_size]
-        
+
         // Gather from rel_pos  → [qk, C]
         // -------------------------------------------------
-        
+
         // flatten to 1D for ggml_get_rows
         int qk = q_size * k_size;
         ggml_tensor * idx_flat = ggml_reshape_1d(ctx, idx_2d, qk);          // [qk]
@@ -5676,10 +5685,20 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_VOXTRAL:
         case PROJECTOR_TYPE_JANUS_PRO:
         case PROJECTOR_TYPE_COGVLM:
-        case PROJECTOR_TYPE_DEEPSEEKOCR:
             {
                 // do nothing
             } break;
+        case PROJECTOR_TYPE_DEEPSEEKOCR:
+        {
+            //FIXME we need correct this when all model configs are set correctly
+            //n_patch is not correct right now
+            int32_t n_pos = 16 * 16 + 1; //hardcode for now
+            std::vector<int32_t> positions(n_pos);
+            for (int i = 0; i < n_pos; i++) {
+                positions[i] = i;
+            }
+            set_input_i32("positions", positions);
+        } break;
         case PROJECTOR_TYPE_LLAMA4:
             {
                 // set the 2D positions

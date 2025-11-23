@@ -864,6 +864,10 @@ int mtmd_get_audio_bitrate(mtmd_context * ctx) {
     return 16000; // 16kHz
 }
 
+bool mtmd_is_deepseekocr(mtmd_context * ctx) {
+    return ctx->ctx_v && clip_is_deepseekocr(ctx->ctx_v);
+}
+
 //
 // public API functions
 //
