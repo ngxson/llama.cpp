@@ -16,7 +16,7 @@
 
 	interface Props {
 		canSend?: boolean;
-		className?: string;
+		class?: string;
 		disabled?: boolean;
 		isLoading?: boolean;
 		isRecording?: boolean;
@@ -29,7 +29,7 @@
 
 	let {
 		canSend = false,
-		className = '',
+		class: className = '',
 		disabled = false,
 		isLoading = false,
 		isRecording = false,
@@ -48,7 +48,6 @@
 	let shouldShowRecordButton = $derived(
 		hasAudioModality && !hasText && !hasAudioAttachments && currentConfig.autoMicOnEmpty
 	);
-	let shouldShowSubmitButton = $derived(!shouldShowRecordButton || hasAudioAttachments);
 
 	let isSelectedModelInCache = $derived.by(() => {
 		const currentModelId = selectedModelId();
@@ -73,21 +72,17 @@
 			<span class="sr-only">Stop</span>
 			<Square class="h-8 w-8 fill-destructive stroke-destructive" />
 		</Button>
+	{:else if shouldShowRecordButton}
+		<ChatFormActionRecord {disabled} {isLoading} {isRecording} {onMicClick} />
 	{:else}
-		{#if shouldShowRecordButton}
-			<ChatFormActionRecord {disabled} {isLoading} {isRecording} {onMicClick} />
-		{/if}
-
-		{#if shouldShowSubmitButton}
-			<ChatFormActionSubmit
-				{canSend}
-				{disabled}
-				{isLoading}
-				tooltipLabel={isSelectedModelInCache
-					? ''
-					: 'Selected model is not available, please select another'}
-				isModelAvailable={isSelectedModelInCache}
-			/>
-		{/if}
+		<ChatFormActionSubmit
+			{canSend}
+			{disabled}
+			{isLoading}
+			tooltipLabel={isSelectedModelInCache
+				? ''
+				: 'Selected model is not available, please select another'}
+			isModelAvailable={isSelectedModelInCache}
+		/>
 	{/if}
 </div>
