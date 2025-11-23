@@ -309,7 +309,7 @@
 				<Package class="h-3.5 w-3.5" />
 
 				<span class="truncate font-medium">
-					{selectedOption?.name || 'Select model'}
+					{selectedOption?.model || 'Select model'}
 				</span>
 
 				{#if updating}
@@ -367,7 +367,7 @@
 								aria-selected={currentModel === option.model || activeId === option.id}
 								onclick={() => handleSelect(option.id)}
 							>
-								<span class="truncate">{option.name}</span>
+								<span class="truncate">{option.model}</span>
 							</button>
 						{/each}
 					</div>
