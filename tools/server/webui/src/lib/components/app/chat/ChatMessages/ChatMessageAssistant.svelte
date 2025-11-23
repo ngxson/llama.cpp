@@ -1,14 +1,19 @@
 <script lang="ts">
-	import { ChatMessageThinkingBlock, MarkdownContent, SelectorModel } from '$lib/components/app';
+	import {
+		ChatMessageActions,
+		ChatMessageStatistics,
+		ChatMessageThinkingBlock,
+		MarkdownContent,
+		SelectorModel
+	} from '$lib/components/app';
 	import { useProcessingState } from '$lib/hooks/use-processing-state.svelte';
 	import { isLoading } from '$lib/stores/chat.svelte';
 	import autoResizeTextarea from '$lib/utils/autoresize-textarea';
 	import { fade } from 'svelte/transition';
-	import { Check, Copy, X, Gauge, Clock, WholeWord, Wrench } from '@lucide/svelte';
+	import { Check, Copy, X, Wrench } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import { Checkbox } from '$lib/components/ui/checkbox';
 	import { INPUT_CLASSES } from '$lib/constants/input-classes';
-	import ChatMessageActions from './ChatMessageActions.svelte';
 	import Label from '$lib/components/ui/label/label.svelte';
 	import { config } from '$lib/stores/settings.svelte';
 	import { isRouterMode } from '$lib/stores/server.svelte';
@@ -259,38 +264,15 @@
 						onclick={handleCopyModel}
 					>
 						{displayedModel()}
-
-						<Copy class="ml-1 h-3 w-3 " />
+						<Copy class="ml-1 h-3 w-3" />
 					</button>
 				{/if}
 
 				{#if currentConfig.showMessageStats && message.timings && message.timings.predicted_n && message.timings.predicted_ms}
-					{@const tokensPerSecond =
-						(message.timings.predicted_n / message.timings.predicted_ms) * 1000}
-
-					<span
-						class="inline-flex items-center gap-1 rounded-sm bg-muted-foreground/15 px-1.5 py-0.75"
-					>
-						<WholeWord class="h-3 w-3" />
-
-						{message.timings.predicted_n} tokens
-					</span>
-
-					<span
-						class="inline-flex items-center gap-1 rounded-sm bg-muted-foreground/15 px-1.5 py-0.75"
-					>
-						<Clock class="h-3 w-3" />
-
-						{(message.timings.predicted_ms / 1000).toFixed(2)}s
-					</span>
-
-					<span
-						class="inline-flex items-center gap-1 rounded-sm bg-muted-foreground/15 px-1.5 py-0.75"
-					>
-						<Gauge class="h-3 w-3" />
-
-						{tokensPerSecond.toFixed(2)} tokens/s
-					</span>
+					<ChatMessageStatistics
+						predictedTokens={message.timings.predicted_n}
+						predictedMs={message.timings.predicted_ms}
+					/>
 				{/if}
 			</span>
 		{/if}

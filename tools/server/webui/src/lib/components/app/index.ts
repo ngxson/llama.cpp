@@ -16,9 +16,11 @@ export { default as ChatFormHelperText } from './chat/ChatForm/ChatFormHelperTex
 export { default as ChatFormTextarea } from './chat/ChatForm/ChatFormTextarea.svelte';
 
 export { default as ChatMessage } from './chat/ChatMessages/ChatMessage.svelte';
-export { default as ChatMessages } from './chat/ChatMessages/ChatMessages.svelte';
+export { default as ChatMessageActions } from './chat/ChatMessages/ChatMessageActions.svelte';
 export { default as ChatMessageBranchingControls } from './chat/ChatMessages/ChatMessageBranchingControls.svelte';
+export { default as ChatMessageStatistics } from './chat/ChatMessages/ChatMessageStatistics.svelte';
 export { default as ChatMessageThinkingBlock } from './chat/ChatMessages/ChatMessageThinkingBlock.svelte';
+export { default as ChatMessages } from './chat/ChatMessages/ChatMessages.svelte';
 
 export { default as ChatScreen } from './chat/ChatScreen/ChatScreen.svelte';
 export { default as ChatScreenHeader } from './chat/ChatScreen/ChatScreenHeader.svelte';
