@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { RemoveButton } from '$lib/components/app';
-	import { formatFileSize, getFileTypeLabel, getPreviewText } from '$lib/utils/file-preview';
+	import { getFileTypeLabel, getPreviewText } from '$lib/utils/file-preview';
+	import { formatFileSize } from '$lib/utils/formatters';
 	import { isTextFile } from '$lib/utils/attachment-type';
 	import type { DatabaseMessageExtra } from '$lib/types/database';
 

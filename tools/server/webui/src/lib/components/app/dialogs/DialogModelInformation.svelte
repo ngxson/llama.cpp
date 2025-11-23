@@ -7,6 +7,7 @@
 	import type { ApiModelListResponse } from '$lib/types/api';
 	import { Copy } from '@lucide/svelte';
 	import { copyToClipboard } from '$lib/utils/copy';
+	import { formatFileSize, formatParameters, formatNumber } from '$lib/utils/formatters';
 
 	interface Props {
 		open?: boolean;
@@ -30,6 +31,7 @@
 
 	async function loadModelsData() {
 		isLoadingModels = true;
+
 		try {
 			modelsData = await ChatService.getModels();
 		} catch (error) {
@@ -39,40 +41,6 @@
 		} finally {
 			isLoadingModels = false;
 		}
-	}
-
-	// Format helpers
-	function formatSize(sizeBytes: number | unknown): string {
-		if (typeof sizeBytes !== 'number') return 'Unknown';
-
-		// Convert to GB for better readability
-		const sizeGB = sizeBytes / (1024 * 1024 * 1024);
-		if (sizeGB >= 1) {
-			return `${sizeGB.toFixed(2)} GB`;
-		}
-
-		// Convert to MB for smaller models
-		const sizeMB = sizeBytes / (1024 * 1024);
-		return `${sizeMB.toFixed(2)} MB`;
-	}
-
-	function formatParameters(params: number | unknown): string {
-		if (typeof params !== 'number') return 'Unknown';
-		if (params >= 1e9) {
-			return `${(params / 1e9).toFixed(2)}B`;
-		}
-		if (params >= 1e6) {
-			return `${(params / 1e6).toFixed(2)}M`;
-		}
-		if (params >= 1e3) {
-			return `${(params / 1e3).toFixed(2)}K`;
-		}
-		return params.toString();
-	}
-
-	function formatNumber(num: number | unknown): string {
-		if (typeof num !== 'number') return 'Unknown';
-		return num.toLocaleString();
 	}
 </script>
 
@@ -167,7 +135,7 @@
 							{#if modelMeta?.size}
 								<Table.Row>
 									<Table.Cell class="h-10 align-middle font-medium">Model Size</Table.Cell>
-									<Table.Cell>{formatSize(modelMeta.size)}</Table.Cell>
+									<Table.Cell>{formatFileSize(modelMeta.size)}</Table.Cell>
 								</Table.Row>
 							{/if}
 

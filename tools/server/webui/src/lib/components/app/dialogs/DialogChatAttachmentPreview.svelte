@@ -2,7 +2,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import type { DatabaseMessageExtra } from '$lib/types/database';
 	import { ChatAttachmentPreview } from '$lib/components/app';
-	import { formatFileSize } from '$lib/utils/file-preview';
+	import { formatFileSize } from '$lib/utils/formatters';
 	import { getAttachmentTypeLabel } from '$lib/utils/attachment-type';
 
 	interface Props {
