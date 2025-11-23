@@ -1385,14 +1385,14 @@ models_directory
  │    └─ mmproj-F16.gguf   # file name must start with "mmproj"
  │
  │  # multi-shard
- ├─ gemma-3-4b-it-Q8_0
+ ├─ Kimi-K2-Thinking-UD-IQ1_S
  │    ├─ Kimi-K2-Thinking-UD-IQ1_S-00001-of-00006.gguf
  │    ├─ Kimi-K2-Thinking-UD-IQ1_S-00002-of-00006.gguf
  │    ├─ ...
  │    └─ Kimi-K2-Thinking-UD-IQ1_S-00006-of-00006.gguf
 ```
 
-You may also specify default arguments that will be passed to every loaded model instance:
+You may also specify default arguments that will be passed to every model instance:
 
 ```sh
 llama-server -ctx 8192 -n 1024 -np 2
