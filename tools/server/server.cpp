@@ -5168,7 +5168,7 @@ public:
             res->error(format_error_response("model is already loaded", ERROR_TYPE_INVALID_REQUEST));
             return res;
         }
-        models->load(name, extra_args);
+        models->load(name, extra_args, false);
         res->ok({{"success", true}});
         return res;
     };

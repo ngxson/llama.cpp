@@ -322,7 +322,7 @@ void server_models::unload_lru() {
     }
 }
 
-void server_models::load(const std::string & name, const std::vector<std::string> & extra_args) {
+void server_models::load(const std::string & name, const std::vector<std::string> & extra_args, bool auto_load) {
     if (!has_model(name)) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
@@ -352,26 +352,38 @@ void server_models::load(const std::string & name, const std::vector<std::string
         std::string exec_path = get_server_exec_path().string();
         SRV_INF("spawning server instance with name=%s on port %d\n", inst.meta.name.c_str(), inst.meta.port);
 
-        std::vector<std::string> child_args = base_args; // copy
-        if (inst.meta.in_cache) {
-            child_args.push_back("-hf");
-            child_args.push_back(inst.meta.name);
-        } else {
-            child_args.push_back("-m");
-            child_args.push_back(inst.meta.path);
-            if (!inst.meta.path_mmproj.empty()) {
-                child_args.push_back("--mmproj");
-                child_args.push_back(inst.meta.path_mmproj);
+        std::vector<std::string> child_args;
+        if (auto_load && !meta.args.empty()) {
+            child_args = meta.args; // reuse previous args
+            // update port arg
+            for (size_t i = 0; i < child_args.size(); i++) {
+                if (child_args[i] == "--port" && i + 1 < child_args.size()) {
+                    child_args[i + 1] = std::to_string(inst.meta.port);
+                    break;
+                }
             }
-        }
-        child_args.push_back("--alias");
-        child_args.push_back(inst.meta.name);
-        child_args.push_back("--port");
-        child_args.push_back(std::to_string(inst.meta.port));
+        } else {
+            child_args = base_args; // copy
+            if (inst.meta.in_cache) {
+                child_args.push_back("-hf");
+                child_args.push_back(inst.meta.name);
+            } else {
+                child_args.push_back("-m");
+                child_args.push_back(inst.meta.path);
+                if (!inst.meta.path_mmproj.empty()) {
+                    child_args.push_back("--mmproj");
+                    child_args.push_back(inst.meta.path_mmproj);
+                }
+            }
+            child_args.push_back("--alias");
+            child_args.push_back(inst.meta.name);
+            child_args.push_back("--port");
+            child_args.push_back(std::to_string(inst.meta.port));
 
-        // append extra args
-        for (const auto & arg : extra_args) {
-            child_args.push_back(arg);
+            // append extra args
+            for (const auto & arg : extra_args) {
+                child_args.push_back(arg);
+            }
         }
 
         std::vector<std::string> child_env = base_env; // copy
@@ -502,7 +514,7 @@ bool server_models::ensure_model_loaded(const std::string & name) {
         return false; // already loaded
     }
     SRV_INF("model name=%s is not loaded, loading...\n", name.c_str());
-    load(name, {});
+    load(name, {}, true);
     wait_until_loaded(name);
     {
         // check final status
