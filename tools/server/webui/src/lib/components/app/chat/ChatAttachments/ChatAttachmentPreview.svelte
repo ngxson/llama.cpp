@@ -1,12 +1,9 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
 	import { FileText, Image, Music, FileIcon, Eye } from '@lucide/svelte';
-	import { FileTypeCategory, MimeTypeApplication } from '$lib/enums/files';
-	import { ModelModality } from '$lib/enums/model';
-	import { AttachmentType } from '$lib/enums/attachment';
 	import type { DatabaseMessageExtra } from '$lib/types/database';
 	import { convertPDFToImage } from '$lib/utils/pdf-processing';
-	import { getFileTypeCategory } from '$lib/utils/file-type';
+	import { isTextFile, isImageFile, isPdfFile, isAudioFile } from '$lib/utils/attachment-type';
 
 	interface Props {
 		// Either an uploaded file or a stored attachment
@@ -15,55 +12,27 @@
 		// For uploaded files
 		preview?: string;
 		name?: string;
-		type?: string;
 		textContent?: string;
 	}
 
-	let { uploadedFile, attachment, preview, name, type, textContent }: Props = $props();
+	let { uploadedFile, attachment, preview, name, textContent }: Props = $props();
 
 	let displayName = $derived(uploadedFile?.name || attachment?.name || name || 'Unknown File');
 
+	// Determine file type from uploaded file or attachment
+	let isAudio = $derived(isAudioFile(attachment, uploadedFile));
+	let isImage = $derived(isImageFile(attachment, uploadedFile));
+	let isPdf = $derived(isPdfFile(attachment, uploadedFile));
+	let isText = $derived(isTextFile(attachment, uploadedFile));
+
 	let displayPreview = $derived(
 		uploadedFile?.preview ||
-			(attachment?.type === AttachmentType.IMAGE ? attachment.base64Url : preview)
-	);
-
-	let displayType = $derived(
-		uploadedFile
-			? uploadedFile.type
-			: attachment?.type === AttachmentType.IMAGE
-				? 'image'
-				: attachment?.type === AttachmentType.TEXT
-					? 'text'
-					: attachment?.type === AttachmentType.AUDIO
-						? attachment.mimeType || ModelModality.AUDIO
-						: attachment?.type === AttachmentType.PDF
-							? MimeTypeApplication.PDF
-							: type || 'unknown'
+			(isImage && attachment && 'base64Url' in attachment ? attachment.base64Url : preview)
 	);
 
 	let displayTextContent = $derived(
 		uploadedFile?.textContent ||
-			(attachment?.type === AttachmentType.TEXT
-				? attachment.content
-				: attachment?.type === AttachmentType.PDF
-					? attachment.content
-					: textContent)
-	);
-
-	let isAudio = $derived(
-		getFileTypeCategory(displayType) === FileTypeCategory.AUDIO ||
-			displayType === ModelModality.AUDIO
-	);
-
-	let isImage = $derived(
-		getFileTypeCategory(displayType) === FileTypeCategory.IMAGE || displayType === 'image'
-	);
-
-	let isPdf = $derived(displayType === MimeTypeApplication.PDF);
-
-	let isText = $derived(
-		getFileTypeCategory(displayType) === FileTypeCategory.TEXT || displayType === 'text'
+			(attachment && 'content' in attachment ? attachment.content : textContent)
 	);
 
 	let IconComponent = $derived(() => {
@@ -93,15 +62,20 @@
 
 			if (uploadedFile?.file) {
 				file = uploadedFile.file;
-			} else if (attachment?.type === AttachmentType.PDF) {
+			} else if (isPdf && attachment) {
 				// Check if we have pre-processed images
-				if (attachment.images && Array.isArray(attachment.images) && attachment.images.length > 0) {
+				if (
+					'images' in attachment &&
+					attachment.images &&
+					Array.isArray(attachment.images) &&
+					attachment.images.length > 0
+				) {
 					pdfImages = attachment.images;
 					return;
 				}
 
 				// Convert base64 back to File for processing
-				if (attachment.base64Data) {
+				if ('base64Data' in attachment && attachment.base64Data) {
 					const base64Data = attachment.base64Data;
 					const byteCharacters = atob(base64Data);
 					const byteNumbers = new Array(byteCharacters.length);
@@ -109,7 +83,7 @@
 						byteNumbers[i] = byteCharacters.charCodeAt(i);
 					}
 					const byteArray = new Uint8Array(byteNumbers);
-					file = new File([byteArray], displayName, { type: MimeTypeApplication.PDF });
+					file = new File([byteArray], displayName, { type: 'application/pdf' });
 				}
 			}
 
@@ -243,16 +217,16 @@
 				<div class="w-full max-w-md text-center">
 					<Music class="mx-auto mb-4 h-16 w-16 text-muted-foreground" />
 
-					{#if attachment?.type === AttachmentType.AUDIO}
+					{#if uploadedFile?.preview}
+						<audio controls class="mb-4 w-full" src={uploadedFile.preview}>
+							Your browser does not support the audio element.
+						</audio>
+					{:else if isAudio && attachment && 'mimeType' in attachment && 'base64Data' in attachment}
 						<audio
 							controls
 							class="mb-4 w-full"
-							src="data:{attachment.mimeType};base64,{attachment.base64Data}"
+							src={`data:${attachment.mimeType};base64,${attachment.base64Data}`}
 						>
-							Your browser does not support the audio element.
-						</audio>
-					{:else if uploadedFile?.preview}
-						<audio controls class="mb-4 w-full" src={uploadedFile.preview}>
 							Your browser does not support the audio element.
 						</audio>
 					{:else}

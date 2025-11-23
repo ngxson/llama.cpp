@@ -5,9 +5,8 @@
 		DialogChatAttachmentPreview
 	} from '$lib/components/app';
 	import { FileTypeCategory } from '$lib/enums/files';
-	import { ModelModality } from '$lib/enums/model';
-	import { AttachmentType } from '$lib/enums/attachment';
 	import { getFileTypeCategory } from '$lib/utils/file-type';
+	import { isImageFile } from '$lib/utils/attachment-type';
 	import type { ChatAttachmentDisplayItem, ChatAttachmentPreviewItem } from '$lib/types/chat';
 	import type { DatabaseMessageExtra } from '$lib/types/database';
 
@@ -47,7 +46,6 @@
 				name: file.name,
 				size: file.size,
 				preview: file.preview,
-				type: file.type,
 				isImage: getFileTypeCategory(file.type) === FileTypeCategory.IMAGE,
 				uploadedFile: file,
 				textContent: file.textContent
@@ -55,56 +53,17 @@
 		}
 
 		for (const [index, attachment] of attachments.entries()) {
-			if (attachment.type === AttachmentType.IMAGE) {
-				items.push({
-					id: `attachment-${index}`,
-					name: attachment.name,
-					preview: attachment.base64Url,
-					type: 'image',
-					isImage: true,
-					attachment,
-					attachmentIndex: index
-				});
-			} else if (attachment.type === AttachmentType.TEXT) {
-				items.push({
-					id: `attachment-${index}`,
-					name: attachment.name,
-					type: 'text',
-					isImage: false,
-					attachment,
-					attachmentIndex: index,
-					textContent: attachment.content
-				});
-			} else if (attachment.type === AttachmentType.AUDIO) {
-				items.push({
-					id: `attachment-${index}`,
-					name: attachment.name,
-					type: attachment.mimeType || ModelModality.AUDIO,
-					isImage: false,
-					attachment,
-					attachmentIndex: index
-				});
-			} else if (attachment.type === AttachmentType.PDF) {
-				items.push({
-					id: `attachment-${index}`,
-					name: attachment.name,
-					type: 'application/pdf',
-					isImage: false,
-					attachment,
-					attachmentIndex: index
-				});
-			} else if (attachment.type === AttachmentType.LEGACY_CONTEXT) {
-				// Legacy format from old webui - treat as text file
-				items.push({
-					id: `attachment-${index}`,
-					name: attachment.name,
-					type: 'text',
-					isImage: false,
-					attachment,
-					attachmentIndex: index,
-					textContent: attachment.content
-				});
-			}
+			const isImage = isImageFile(attachment);
+
+			items.push({
+				id: `attachment-${index}`,
+				name: attachment.name,
+				preview: isImage && 'base64Url' in attachment ? attachment.base64Url : undefined,
+				isImage,
+				attachment,
+				attachmentIndex: index,
+				textContent: 'content' in attachment ? attachment.content : undefined
+			});
 		}
 
 		return items.reverse();
@@ -121,7 +80,6 @@
 			attachment: item.attachment,
 			preview: item.preview,
 			name: item.name,
-			type: item.type,
 			size: item.size,
 			textContent: item.textContent
 		};
@@ -140,12 +98,13 @@
 							class="cursor-pointer"
 							id={item.id}
 							name={item.name}
-							type={item.type}
 							size={item.size}
 							{readonly}
 							onRemove={onFileRemove}
 							textContent={item.textContent}
-							onClick={(event) => openPreview(item, event)}
+							attachment={item.attachment}
+							uploadedFile={item.uploadedFile}
+							onClick={(event?: MouseEvent) => openPreview(item, event)}
 						/>
 					{/each}
 				</div>
@@ -185,7 +144,6 @@
 		attachment={previewItem.attachment}
 		preview={previewItem.preview}
 		name={previewItem.name}
-		type={previewItem.type}
 		size={previewItem.size}
 		textContent={previewItem.textContent}
 	/>

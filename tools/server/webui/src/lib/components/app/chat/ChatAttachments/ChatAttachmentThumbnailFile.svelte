@@ -1,7 +1,8 @@
 <script lang="ts">
 	import { RemoveButton } from '$lib/components/app';
 	import { formatFileSize, getFileTypeLabel, getPreviewText } from '$lib/utils/file-preview';
-	import { FileTypeCategory, MimeTypeText } from '$lib/enums/files';
+	import { isTextFile } from '$lib/utils/attachment-type';
+	import type { DatabaseMessageExtra } from '$lib/types/database';
 
 	interface Props {
 		class?: string;
@@ -12,7 +13,9 @@
 		readonly?: boolean;
 		size?: number;
 		textContent?: string;
-		type: string;
+		// Either uploaded file or stored attachment
+		uploadedFile?: ChatUploadedFile;
+		attachment?: DatabaseMessageExtra;
 	}
 
 	let {
@@ -24,11 +27,17 @@
 		readonly = false,
 		size,
 		textContent,
-		type
+		uploadedFile,
+		attachment
 	}: Props = $props();
+
+	let isText = $derived(isTextFile(attachment, uploadedFile));
+
+	// Get file type for display
+	let fileType = $derived(uploadedFile?.type || 'unknown');
 </script>
 
-{#if type === MimeTypeText.PLAIN || type === FileTypeCategory.TEXT}
+{#if isText}
 	{#if readonly}
 		<!-- Readonly mode (ChatMessage) -->
 		<button
@@ -45,7 +54,7 @@
 						<span class="text-xs text-muted-foreground">{formatFileSize(size)}</span>
 					{/if}
 
-					{#if textContent && type === 'text'}
+					{#if textContent}
 						<div class="relative mt-2 w-full">
 							<div
 								class="overflow-hidden font-mono text-xs leading-relaxed break-words whitespace-pre-wrap text-muted-foreground"
@@ -105,7 +114,7 @@
 		<div
 			class="flex h-8 w-8 items-center justify-center rounded bg-primary/10 text-xs font-medium text-primary"
 		>
-			{getFileTypeLabel(type)}
+			{getFileTypeLabel(fileType)}
 		</div>
 
 		<div class="flex flex-col gap-1">

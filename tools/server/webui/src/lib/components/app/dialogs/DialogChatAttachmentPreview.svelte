@@ -1,10 +1,9 @@
 <script lang="ts">
 	import * as Dialog from '$lib/components/ui/dialog';
-	import { ModelModality } from '$lib/enums/model';
-	import { AttachmentType } from '$lib/enums/attachment';
 	import type { DatabaseMessageExtra } from '$lib/types/database';
 	import { ChatAttachmentPreview } from '$lib/components/app';
 	import { formatFileSize } from '$lib/utils/file-preview';
+	import { getAttachmentTypeLabel } from '$lib/utils/attachment-type';
 
 	interface Props {
 		open: boolean;
@@ -15,7 +14,6 @@
 		// For uploaded files
 		preview?: string;
 		name?: string;
-		type?: string;
 		size?: number;
 		textContent?: string;
 	}
@@ -27,7 +25,6 @@
 		attachment,
 		preview,
 		name,
-		type,
 		size,
 		textContent
 	}: Props = $props();
@@ -36,21 +33,9 @@
 
 	let displayName = $derived(uploadedFile?.name || attachment?.name || name || 'Unknown File');
 
-	let displayType = $derived(
-		uploadedFile
-			? uploadedFile.type
-			: attachment?.type === AttachmentType.IMAGE
-				? 'image'
-				: attachment?.type === AttachmentType.TEXT
-					? 'text'
-					: attachment?.type === AttachmentType.AUDIO
-						? attachment.mimeType || ModelModality.AUDIO
-						: attachment?.type === AttachmentType.PDF
-							? 'application/pdf'
-							: type || 'unknown'
-	);
-
 	let displaySize = $derived(uploadedFile?.size || size);
+
+	let typeLabel = $derived(getAttachmentTypeLabel(uploadedFile, attachment));
 
 	$effect(() => {
 		if (open && chatAttachmentPreviewRef) {
@@ -62,9 +47,9 @@
 <Dialog.Root bind:open {onOpenChange}>
 	<Dialog.Content class="grid max-h-[90vh] max-w-5xl overflow-hidden sm:w-auto sm:max-w-6xl">
 		<Dialog.Header>
-			<Dialog.Title>{displayName}</Dialog.Title>
+			<Dialog.Title class="pr-8">{displayName}</Dialog.Title>
 			<Dialog.Description>
-				{displayType}
+				{typeLabel}
 				{#if displaySize}
 					• {formatFileSize(displaySize)}
 				{/if}
@@ -76,8 +61,7 @@
 			{uploadedFile}
 			{attachment}
 			{preview}
-			{name}
-			{type}
+			name={displayName}
 			{textContent}
 		/>
 	</Dialog.Content>
