@@ -5142,6 +5142,11 @@ public:
     server_http_context::handler_t proxy_get = [this](const server_http_req & req) {
         std::string method = "GET";
         std::string name = req.get_param("model");
+        if (name.empty()) {
+            auto res = std::make_unique<server_res_generator>(ctx_server);
+            res->error(format_error_response("model name is missing from the request", ERROR_TYPE_INVALID_REQUEST));
+            return std::unique_ptr<server_http_res>(std::move(res));
+        }
         models->ensure_model_loaded(name);
         return models->proxy_request(req, method, name, false);
     };
@@ -5150,6 +5155,11 @@ public:
         std::string method = "POST";
         json body = json::parse(req.body);
         std::string name = json_value(body, "model", std::string());
+        if (name.empty()) {
+            auto res = std::make_unique<server_res_generator>(ctx_server);
+            res->error(format_error_response("model name is missing from the request", ERROR_TYPE_INVALID_REQUEST));
+            return std::unique_ptr<server_http_res>(std::move(res));
+        }
         models->ensure_model_loaded(name);
         return models->proxy_request(req, method, name, true); // update last usage for POST request only
     };
@@ -5189,6 +5199,7 @@ public:
         auto res = std::make_unique<server_res_generator>(ctx_server);
         json models_json = json::array();
         auto all_models = models->get_all_meta();
+        std::time_t t = std::time(0);
         for (const auto & model : all_models) {
             json status {
                 {"value", server_model_status_to_string(model.status)},
@@ -5198,15 +5209,21 @@ public:
                 status["exit_code"] = model.exit_code;
             }
             models_json.push_back(json {
-                {"name",     model.name},
                 {"id",       model.name},
+                {"name",     model.name},
+                {"object",   "model"},    // for OAI-compat
+                {"owned_by", "llamacpp"}, // for OAI-compat
+                {"created",  t},          // for OAI-compat
                 {"in_cache", model.in_cache},
                 {"path",     model.path},
                 {"status",   status},
-                // TODO: other fields...
+                // TODO: add other fields, may require reading GGUF metadata
             });
         }
-        res->ok({{"data", models_json}});
+        res->ok({
+            {"data", models_json},
+            {"object", "list"},
+        });
         return res;
     };
 
