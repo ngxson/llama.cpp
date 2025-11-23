@@ -154,7 +154,9 @@ server_models::server_models(
             /* in_cache    */ true,
             /* port        */ 0,
             /* status      */ SERVER_MODEL_STATUS_UNLOADED,
-            /* last_used   */ 0
+            /* last_used   */ 0,
+            /* args        */ std::vector<std::string>(),
+            /* exit_code   */ 0
         };
         mapping[meta.name] = instance_t{
             /* subproc */ std::make_shared<subprocess_s>(),
@@ -177,7 +179,9 @@ server_models::server_models(
                 /* in_cache    */ false,
                 /* port        */ 0,
                 /* status      */ SERVER_MODEL_STATUS_UNLOADED,
-                /* last_used   */ 0
+                /* last_used   */ 0,
+                /* args        */ std::vector<std::string>(),
+                /* exit_code   */ 0
             };
             mapping[meta.name] = instance_t{
                 /* subproc */ std::make_shared<subprocess_s>(),
