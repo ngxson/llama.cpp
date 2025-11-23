@@ -1343,6 +1343,176 @@ See [OpenAI Embeddings API documentation](https://platform.openai.com/docs/api-r
   }'
   ```
 
+
+## Using multiple models
+
+`llama-server` can be launched in a **router mode** that exposes an API for dynamically loading and unloading models. The main process (the "router") automatically forwards each request to the appropriate model instance.
+
+To start in router mode, launch `llama-server` **without specifying any model**:
+
+```sh
+llama-server
+```
+
+### Model sources
+
+By default, the router looks for models in the cache. You can add Hugging Face models to the cache with:
+
+```sh
+llama-server -hf <user>/<model>:<tag>
+```
+
+*The server must be restarted after adding a new model.*
+
+Alternatively, you can point the router to a local directory containing your GGUF files using `--models-dir`. Example command:
+
+```sh
+llama-server --models-dir ./models_directory
+```
+
+If the model contains multiple GGUF (for multimodal or multi-shard), files should be put into a subdirectory. The directory structure should look like this:
+
+```sh
+models_directory
+ │
+ │  # single file
+ ├─ llama-3.2-1b-Q4_K_M.gguf
+ ├─ Qwen3-8B-Q4_K_M.gguf
+ │
+ │  # multimodal
+ ├─ gemma-3-4b-it-Q8_0
+ │    ├─ gemma-3-4b-it-Q8_0.gguf
+ │    └─ mmproj-F16.gguf   # file name must start with "mmproj"
+ │
+ │  # multi-shard
+ ├─ gemma-3-4b-it-Q8_0
+ │    ├─ Kimi-K2-Thinking-UD-IQ1_S-00001-of-00006.gguf
+ │    ├─ Kimi-K2-Thinking-UD-IQ1_S-00002-of-00006.gguf
+ │    ├─ ...
+ │    └─ Kimi-K2-Thinking-UD-IQ1_S-00006-of-00006.gguf
+```
+
+You may also specify default arguments that will be passed to every loaded model instance:
+
+```sh
+llama-server -ctx 8192 -n 1024 -np 2
+```
+
+Note: model instances inherit both command line arguments and environment variables from the router server.
+
+### Routing requests
+
+Requests are routed according to the requested model name.
+
+For **POST** endpoints (`/v1/chat/completions`, `/v1/completions`, `/infill`, etc.) The router uses the `"model"` field in the JSON body:
+
+```json
+{
+  "model": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M",
+  "messages": [
+    {
+      "role": "user",
+      "content": "hello"
+    }
+  ]
+}
+```
+
+For **GET** endpoints (`/props`, `/metrics`, etc.) The router uses the `model` query parameter (URL-encoded):
+
+```
+GET /props?model=ggml-org%2Fgemma-3-4b-it-GGUF%3AQ4_K_M
+```
+
+### GET `/models`: List available models
+
+Listing all models in cache. The model metadata will also include a field to indicate the status of the model:
+
+```json
+{
+  "data": [{
+    "name": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M",
+    "id": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M",
+    "in_cache": true,
+    "path": "/Users/REDACTED/Library/Caches/llama.cpp/ggml-org_gemma-3-4b-it-GGUF_gemma-3-4b-it-Q4_K_M.gguf",
+    "status": {
+      "value": "loaded"
+    },
+    ...
+  }]
+}
+```
+
+Note: For a local GGUF (stored offline in a custom directory), the model object will have `"in_cache": false`.
+
+The `status` object can be:
+
+```json
+"status": {
+  "value": "unloaded"
+}
+```
+
+```json
+"status": {
+  "value": "loading"
+}
+```
+
+```json
+"status": {
+  "value": "failed"
+}
+```
+
+```json
+"status": {
+  "value": "loaded"
+}
+```
+
+### POST `/models/load`: Load a model
+
+
+Load a model
+
+Payload:
+
+```json
+{
+  "model": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M"
+}
+```
+
+Response:
+
+```json
+{
+  "success": true
+}
+```
+
+### POST `/models/unload`: Unload a model
+
+
+Unload a model
+
+Payload:
+
+```json
+{
+  "model": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M",
+}
+```
+
+Response:
+
+```json
+{
+  "success": true
+}
+```
+
 ## More examples
 
 ### Interactive mode

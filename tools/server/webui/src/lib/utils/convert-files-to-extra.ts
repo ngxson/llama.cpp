@@ -2,6 +2,7 @@ import { convertPDFToImage, convertPDFToText } from './pdf-processing';
 import { isSvgMimeType, svgBase64UrlToPngDataURL } from './svg-to-png';
 import { isWebpMimeType, webpBase64UrlToPngDataURL } from './webp-to-png';
 import { FileTypeCategory } from '$lib/enums/files';
+import { AttachmentType } from '$lib/enums/attachment';
 import { config, settingsStore } from '$lib/stores/settings.svelte';
 import { supportsVision } from '$lib/stores/server.svelte';
 import { getFileTypeCategory } from '$lib/utils/file-type';
@@ -56,7 +57,7 @@ export async function parseFilesToMessageExtras(
 				}
 
 				extras.push({
-					type: 'imageFile',
+					type: AttachmentType.IMAGE,
 					name: file.name,
 					base64Url
 				});
@@ -67,7 +68,7 @@ export async function parseFilesToMessageExtras(
 				const base64Data = await readFileAsBase64(file.file);
 
 				extras.push({
-					type: 'audioFile',
+					type: AttachmentType.AUDIO,
 					name: file.name,
 					base64Data: base64Data,
 					mimeType: file.type
@@ -117,7 +118,7 @@ export async function parseFilesToMessageExtras(
 						);
 
 						extras.push({
-							type: 'pdfFile',
+							type: AttachmentType.PDF,
 							name: file.name,
 							content: `PDF file with ${images.length} pages`,
 							images: images,
@@ -134,7 +135,7 @@ export async function parseFilesToMessageExtras(
 						const content = await convertPDFToText(file.file);
 
 						extras.push({
-							type: 'pdfFile',
+							type: AttachmentType.PDF,
 							name: file.name,
 							content: content,
 							processedAsImages: false,
@@ -151,7 +152,7 @@ export async function parseFilesToMessageExtras(
 					});
 
 					extras.push({
-						type: 'pdfFile',
+						type: AttachmentType.PDF,
 						name: file.name,
 						content: content,
 						processedAsImages: false,
@@ -171,7 +172,7 @@ export async function parseFilesToMessageExtras(
 					emptyFiles.push(file.name);
 				} else if (isLikelyTextFile(content)) {
 					extras.push({
-						type: 'textFile',
+						type: AttachmentType.TEXT,
 						name: file.name,
 						content: content
 					});

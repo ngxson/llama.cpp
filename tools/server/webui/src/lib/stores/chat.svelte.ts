@@ -1,7 +1,6 @@
 import { DatabaseStore } from '$lib/stores/database';
 import { chatService, slotsService } from '$lib/services';
 import { config } from '$lib/stores/settings.svelte';
-import { serverStore } from '$lib/stores/server.svelte';
 import { normalizeModelName } from '$lib/utils/model-names';
 import { filterByLeafNodeId, findLeafNode, findDescendantMessages } from '$lib/utils/branching';
 import { browser } from '$app/environment';
@@ -365,41 +364,15 @@ class ChatStore {
 
 		let resolvedModel: string | null = null;
 		let modelPersisted = false;
-		const currentConfig = config();
-		const preferServerPropsModel = !currentConfig.modelSelectorEnabled;
-		let serverPropsRefreshed = false;
-		let updateModelFromServerProps: ((persistImmediately?: boolean) => void) | null = null;
-
-		const refreshServerPropsOnce = () => {
-			if (serverPropsRefreshed) {
-				return;
-			}
-
-			serverPropsRefreshed = true;
-
-			const hasExistingProps = serverStore.serverProps !== null;
-
-			serverStore
-				.fetchServerProps({ silent: hasExistingProps })
-				.then(() => {
-					updateModelFromServerProps?.(true);
-				})
-				.catch((error) => {
-					console.warn('Failed to refresh server props after streaming started:', error);
-				});
-		};
 
 		const recordModel = (modelName: string | null | undefined, persistImmediately = true): void => {
-			const serverModelName = serverStore.modelName;
-			const preferredModelSource = preferServerPropsModel
-				? (serverModelName ?? modelName ?? null)
-				: (modelName ?? serverModelName ?? null);
-
-			if (!preferredModelSource) {
+			if (!modelName) {
 				return;
 			}
 
-			const normalizedModel = normalizeModelName(preferredModelSource);
+			const normalizedModel = normalizeModelName(modelName);
+
+			console.log('Resolved model:', normalizedModel);
 
 			if (!normalizedModel || normalizedModel === resolvedModel) {
 				return;
@@ -423,20 +396,6 @@ class ChatStore {
 			}
 		};
 
-		if (preferServerPropsModel) {
-			updateModelFromServerProps = (persistImmediately = true) => {
-				const currentServerModel = serverStore.modelName;
-
-				if (!currentServerModel) {
-					return;
-				}
-
-				recordModel(currentServerModel, persistImmediately);
-			};
-
-			updateModelFromServerProps(false);
-		}
-
 		slotsService.startStreaming();
 		slotsService.setActiveConversation(assistantMessage.convId);
 
@@ -445,9 +404,6 @@ class ChatStore {
 			{
 				...this.getApiOptions(),
 
-				onFirstValidChunk: () => {
-					refreshServerPropsOnce();
-				},
 				onChunk: (chunk: string) => {
 					streamedContent += chunk;
 					this.setConversationStreaming(

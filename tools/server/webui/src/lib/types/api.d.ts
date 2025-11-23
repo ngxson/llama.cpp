@@ -1,3 +1,4 @@
+import type { ServerModelStatus } from '$lib/enums/model';
 import type { ChatMessagePromptProgress } from './chat';
 
 export interface ApiChatMessageContentPart {
@@ -313,4 +314,75 @@ export interface ApiProcessingState {
 	progressPercent?: number;
 	promptTokens?: number;
 	cacheTokens?: number;
+}
+
+export interface ApiRouterModelMeta {
+	/** Model identifier (e.g., "unsloth/phi-4-GGUF:q4_k_m") */
+	name: string;
+	/** Path to model file or manifest */
+	path: string;
+	/** Optional path to multimodal projector */
+	path_mmproj?: string;
+	/** Whether model is in HuggingFace cache */
+	in_cache: boolean;
+	/** Port where model instance is running (0 if not loaded) */
+	port: number;
+	/** Current status of the model */
+	status: ServerModelStatus;
+	/** Error message if status is FAILED */
+	error?: string;
+}
+
+/**
+ * Request to load a model
+ */
+export interface ApiRouterModelsLoadRequest {
+	model: string;
+}
+
+/**
+ * Response from loading a model
+ */
+export interface ApiRouterModelsLoadResponse {
+	success: boolean;
+	error?: string;
+}
+
+/**
+ * Request to check model status
+ */
+export interface ApiRouterModelsStatusRequest {
+	model: string;
+}
+
+/**
+ * Response with model status
+ */
+export interface ApiRouterModelsStatusResponse {
+	model: string;
+	status: ModelStatus;
+	port?: number;
+	error?: string;
+}
+
+/**
+ * Response with list of all models
+ */
+export interface ApiRouterModelsListResponse {
+	models: ApiRouterModelMeta[];
+}
+
+/**
+ * Request to unload a model
+ */
+export interface ApiRouterModelsUnloadRequest {
+	model: string;
+}
+
+/**
+ * Response from unloading a model
+ */
+export interface ApiRouterModelsUnloadResponse {
+	success: boolean;
+	error?: string;
 }

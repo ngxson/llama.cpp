@@ -253,9 +253,11 @@
 
 		<ChatFormActions
 			canSend={message.trim().length > 0 || uploadedFiles.length > 0}
+			hasText={message.trim().length > 0}
 			{disabled}
 			{isLoading}
 			{isRecording}
+			{uploadedFiles}
 			onFileUpload={handleFileUpload}
 			onMicClick={handleMicClick}
 			onStop={handleStop}

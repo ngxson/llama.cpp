@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { Mic } from '@lucide/svelte';
+	import { Mic, Square } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { supportsAudio } from '$lib/stores/server.svelte';
@@ -27,8 +27,6 @@
 			<Button
 				class="h-8 w-8 rounded-full p-0 {isRecording
 					? 'animate-pulse bg-red-500 text-white hover:bg-red-600'
-					: 'bg-transparent text-muted-foreground hover:bg-foreground/10 hover:text-foreground'} {!supportsAudio()
-					? 'cursor-not-allowed opacity-50'
 					: ''}"
 				disabled={disabled || isLoading || !supportsAudio()}
 				onclick={onMicClick}
@@ -36,7 +34,11 @@
 			>
 				<span class="sr-only">{isRecording ? 'Stop recording' : 'Start recording'}</span>
 
-				<Mic class="h-4 w-4" />
+				{#if isRecording}
+					<Square class="h-4 w-4 animate-pulse fill-white" />
+				{:else}
+					<Mic class="h-4 w-4" />
+				{/if}
 			</Button>
 		</Tooltip.Trigger>
 
