@@ -100,7 +100,7 @@ public:
     // return a copy of all model metadata
     std::vector<server_model_meta> get_all_meta();
 
-    void load(const std::string & name);
+    void load(const std::string & name, const std::vector<std::string> & extra_args);
     void unload(const std::string & name);
     void unload_all();
 
@@ -119,7 +119,7 @@ public:
     server_http_res_ptr proxy_request(const server_http_req & req, const std::string & method, const std::string & name, bool update_last_used);
 
     // notify the router server that a model instance is ready
-    static void setup_child_server(const std::string & host, int router_port, const std::string & name, std::function<void(int)> & shutdown_handler);
+    static void setup_child_server(const common_params & base_params, int router_port, const std::string & name, std::function<void(int)> & shutdown_handler);
 };
 
 /**

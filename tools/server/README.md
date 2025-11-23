@@ -1436,7 +1436,8 @@ Listing all models in cache. The model metadata will also include a field to ind
     "in_cache": true,
     "path": "/Users/REDACTED/Library/Caches/llama.cpp/ggml-org_gemma-3-4b-it-GGUF_gemma-3-4b-it-Q4_K_M.gguf",
     "status": {
-      "value": "loaded"
+      "value": "loaded",
+      "args": ["llama-server", "-ctx", "4096"]
     },
     ...
   }]
@@ -1477,14 +1478,16 @@ The `status` object can be:
 
 ### POST `/models/load`: Load a model
 
-
 Load a model
 
 Payload:
+- `model`: name of the model to be loaded
+- `extra_args`: (optional) an array of additional arguments to be passed to the model instance
 
 ```json
 {
-  "model": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M"
+  "model": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M",
+  "extra_args": ["-n", "128", "--top-k", "4"]
 }
 ```
 
@@ -1497,7 +1500,6 @@ Response:
 ```
 
 ### POST `/models/unload`: Unload a model
-
 
 Unload a model
 

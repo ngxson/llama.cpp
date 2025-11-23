@@ -5158,6 +5158,7 @@ public:
         auto res = std::make_unique<server_res_generator>(ctx_server);
         json body = json::parse(req.body);
         std::string name = json_value(body, "model", std::string());
+        std::vector<std::string> extra_args = json_value(body, "extra_args", std::vector<std::string>());
         auto model = models->get_meta(name);
         if (!model.has_value()) {
             res->error(format_error_response("model is not found", ERROR_TYPE_NOT_FOUND));
@@ -5167,12 +5168,13 @@ public:
             res->error(format_error_response("model is already loaded", ERROR_TYPE_INVALID_REQUEST));
             return res;
         }
-        models->load(name);
+        models->load(name, extra_args);
         res->ok({{"success", true}});
         return res;
     };
 
     // used by child process to notify the router about status change
+    // TODO @ngxson : maybe implement authentication for this endpoint in the future
     server_http_context::handler_t post_router_models_status = [this](const server_http_req & req) {
         auto res = std::make_unique<server_res_generator>(ctx_server);
         json body = json::parse(req.body);
@@ -5836,7 +5838,7 @@ int main(int argc, char ** argv, char ** envp) {
         // optionally, notify router server that this instance is ready
         const char * router_port = std::getenv("LLAMA_SERVER_ROUTER_PORT");
         if (router_port != nullptr) {
-            server_models::setup_child_server(params.hostname, std::atoi(router_port), params.model_alias, shutdown_handler);
+            server_models::setup_child_server(params, std::atoi(router_port), params.model_alias, shutdown_handler);
         }
 
         // this call blocks the main thread until queue_tasks.terminate() is called

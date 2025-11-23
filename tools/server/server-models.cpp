@@ -322,7 +322,7 @@ void server_models::unload_lru() {
     }
 }
 
-void server_models::load(const std::string & name) {
+void server_models::load(const std::string & name, const std::vector<std::string> & extra_args) {
     if (!has_model(name)) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
@@ -368,6 +368,11 @@ void server_models::load(const std::string & name) {
         child_args.push_back(inst.meta.name);
         child_args.push_back("--port");
         child_args.push_back(std::to_string(inst.meta.port));
+
+        // append extra args
+        for (const auto & arg : extra_args) {
+            child_args.push_back(arg);
+        }
 
         std::vector<std::string> child_env = base_env; // copy
         child_env.push_back("LLAMA_SERVER_ROUTER_PORT=" + std::to_string(base_params.port));
@@ -465,6 +470,10 @@ void server_models::unload_all() {
 }
 
 void server_models::update_status(const std::string & name, server_model_status status) {
+    // for now, we only allow updating to LOADED status
+    if (status != SERVER_MODEL_STATUS_LOADED) {
+        throw std::runtime_error("invalid status value");
+    }
     auto meta = get_meta(name);
     if (meta.has_value()) {
         meta->status = status;
@@ -493,7 +502,7 @@ bool server_models::ensure_model_loaded(const std::string & name) {
         return false; // already loaded
     }
     SRV_INF("model name=%s is not loaded, loading...\n", name.c_str());
-    load(name);
+    load(name, {});
     wait_until_loaded(name);
     {
         // check final status
@@ -529,15 +538,18 @@ server_http_res_ptr server_models::proxy_request(const server_http_req & req, co
     return proxy;
 }
 
-void server_models::setup_child_server(const std::string & host, int router_port, const std::string & name, std::function<void(int)> & shutdown_handler) {
+void server_models::setup_child_server(const common_params & base_params, int router_port, const std::string & name, std::function<void(int)> & shutdown_handler) {
     // send a notification to the router server that a model instance is ready
-    httplib::Client cli(host, router_port);
+    httplib::Client cli(base_params.hostname, router_port);
     cli.set_connection_timeout(0, 200000); // 200 milliseconds
 
     httplib::Request req;
     req.method = "POST";
     req.path   = "/models/status";
     req.set_header("Content-Type", "application/json");
+    if (!base_params.api_keys.empty()) {
+        req.set_header("Authorization", "Bearer " + base_params.api_keys[0]);
+    }
 
     json body;
     body["model"] = name;
