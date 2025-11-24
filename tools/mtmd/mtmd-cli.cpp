@@ -228,10 +228,12 @@ static int eval_message(mtmd_cli_context & ctx, common_chat_msg & msg) {
     text.add_special   = add_bos;
     text.parse_special = true;
 
+    std::string formatted_chat;
+
     if (!mtmd_is_deepseekocr(ctx.ctx_vision.get())) {
-        auto formatted_chat = chat_add_and_format(ctx, msg);
+        formatted_chat = chat_add_and_format(ctx, msg);
         LOG_DBG("formatted_chat.prompt: %s\n", formatted_chat.c_str());
-        text.text = formatted_chat.c_str();        
+        text.text = formatted_chat.c_str();
     }
 
     if (g_is_interrupted) return 0;
