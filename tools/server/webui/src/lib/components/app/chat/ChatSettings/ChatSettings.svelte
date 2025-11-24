@@ -110,6 +110,12 @@
 					type: 'checkbox'
 				},
 				{
+					key: 'autoMicOnEmpty',
+					label: 'Show microphone on empty input',
+					type: 'checkbox',
+					isExperimental: true
+				},
+				{
 					key: 'renderUserContentAsMarkdown',
 					label: 'Render user content as Markdown',
 					type: 'checkbox'
