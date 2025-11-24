@@ -13,11 +13,16 @@ endif()
 
 set(TARGET_SRCS
     server.cpp
-    utils.hpp
     server-http.cpp
     server-http.h
     server-models.cpp
     server-models.h
+    server-task.cpp
+    server-task.h
+    server-queue.cpp
+    server-queue.h
+    server-common.cpp
+    server-common.h
 )
 set(PUBLIC_ASSETS
     index.html.gz

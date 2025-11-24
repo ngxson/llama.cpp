@@ -197,6 +197,7 @@ The project is under active development, and we are [looking for feedback and co
 | `--slot-save-path PATH` | path to save slot kv cache (default: disabled) |
 | `--models-dir PATH` | directory containing models for the router server (default: disabled)<br/>(env: LLAMA_ARG_MODELS_DIR) |
 | `--models-max N` | for router server, maximum number of models to load simultaneously (default: 4, 0 = unlimited)<br/>(env: LLAMA_ARG_MODELS_MAX) |
+| `--models-allow-extra-args` | for router server, allow extra arguments for models; important: some arguments can allow users to access local file system, use with caution (default: disabled)<br/>(env: LLAMA_ARG_MODELS_ALLOW_EXTRA_ARGS) |
 | `--no-models-autoload` | disables automatic loading of models (default: enabled)<br/>(env: LLAMA_ARG_NO_MODELS_AUTOLOAD) |
 | `--jinja` | use jinja template for chat (default: disabled)<br/>(env: LLAMA_ARG_JINJA) |
 | `--reasoning-format FORMAT` | controls whether thought tags are allowed and/or extracted from the response, and in which format they're returned; one of:<br/>- none: leaves thoughts unparsed in `message.content`<br/>- deepseek: puts thoughts in `message.reasoning_content`<br/>- deepseek-legacy: keeps `<think>` tags in `message.content` while also populating `message.reasoning_content`<br/>(default: auto)<br/>(env: LLAMA_ARG_THINK) |
@@ -1495,8 +1496,8 @@ The `status` object can be:
 Load a model
 
 Payload:
-- `model`: name of the model to be loaded
-- `extra_args`: (optional) an array of additional arguments to be passed to the model instance
+- `model`: name of the model to be loaded.
+- `extra_args`: (optional) an array of additional arguments to be passed to the model instance. Note: you must start the server with `--models-allow-extra-args` to enable this feature.
 
 ```json
 {
