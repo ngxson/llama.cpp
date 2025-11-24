@@ -789,9 +789,11 @@ class ChatStore {
 				await DatabaseStore.updateMessage(lastMessage.id, updateData);
 
 				lastMessage.content = this.currentResponse;
+
 				if (updateData.thinking !== undefined) {
 					lastMessage.thinking = updateData.thinking;
 				}
+
 				if (updateData.timings) {
 					lastMessage.timings = updateData.timings;
 				}

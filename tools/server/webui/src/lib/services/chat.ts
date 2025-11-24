@@ -451,54 +451,6 @@ export class ChatService {
 		}
 	}
 
-	private mergeToolCallDeltas(
-		existing: ApiChatCompletionToolCall[],
-		deltas: ApiChatCompletionToolCallDelta[],
-		indexOffset = 0
-	): ApiChatCompletionToolCall[] {
-		const result = existing.map((call) => ({
-			...call,
-			function: call.function ? { ...call.function } : undefined
-		}));
-
-		for (const delta of deltas) {
-			const index =
-				typeof delta.index === 'number' && delta.index >= 0
-					? delta.index + indexOffset
-					: result.length;
-
-			while (result.length <= index) {
-				result.push({ function: undefined });
-			}
-
-			const target = result[index]!;
-
-			if (delta.id) {
-				target.id = delta.id;
-			}
-
-			if (delta.type) {
-				target.type = delta.type;
-			}
-
-			if (delta.function) {
-				const fn = target.function ? { ...target.function } : {};
-
-				if (delta.function.name) {
-					fn.name = delta.function.name;
-				}
-
-				if (delta.function.arguments) {
-					fn.arguments = (fn.arguments ?? '') + delta.function.arguments;
-				}
-
-				target.function = fn;
-			}
-		}
-
-		return result;
-	}
-
 	/**
 	 * Handles non-streaming response from the chat completion API.
 	 * Parses the JSON response and extracts the generated content.
@@ -572,6 +524,63 @@ export class ChatService {
 
 			throw err;
 		}
+	}
+
+	/**
+	 * Merges tool call deltas into an existing array of tool calls.
+	 * Handles both existing and new tool calls, updating existing ones and adding new ones.
+	 *
+	 * @param existing - The existing array of tool calls to merge into
+	 * @param deltas - The array of tool call deltas to merge
+	 * @param indexOffset - Optional offset to apply to the index of new tool calls
+	 * @returns {ApiChatCompletionToolCall[]} The merged array of tool calls
+	 */
+	private mergeToolCallDeltas(
+		existing: ApiChatCompletionToolCall[],
+		deltas: ApiChatCompletionToolCallDelta[],
+		indexOffset = 0
+	): ApiChatCompletionToolCall[] {
+		const result = existing.map((call) => ({
+			...call,
+			function: call.function ? { ...call.function } : undefined
+		}));
+
+		for (const delta of deltas) {
+			const index =
+				typeof delta.index === 'number' && delta.index >= 0
+					? delta.index + indexOffset
+					: result.length;
+
+			while (result.length <= index) {
+				result.push({ function: undefined });
+			}
+
+			const target = result[index]!;
+
+			if (delta.id) {
+				target.id = delta.id;
+			}
+
+			if (delta.type) {
+				target.type = delta.type;
+			}
+
+			if (delta.function) {
+				const fn = target.function ? { ...target.function } : {};
+
+				if (delta.function.name) {
+					fn.name = delta.function.name;
+				}
+
+				if (delta.function.arguments) {
+					fn.arguments = (fn.arguments ?? '') + delta.function.arguments;
+				}
+
+				target.function = fn;
+			}
+		}
+
+		return result;
 	}
 
 	/**
