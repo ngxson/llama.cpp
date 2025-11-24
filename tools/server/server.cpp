@@ -5654,7 +5654,7 @@ static server_http_context::handler_t ex_wrapper(server_http_context::handler_t 
             res->data = safe_json_to_str({{ "error", error_data }});
             SRV_WRN("got exception: %s\n", res->data.c_str());
         } catch (const std::exception & e) {
-            SRV_ERR("got another exception: %s | while hanlding exception: %s\n", e.what(), message.c_str());
+            SRV_ERR("got another exception: %s | while handling exception: %s\n", e.what(), message.c_str());
             res->data = "Internal Server Error";
         }
         return res;
@@ -5783,7 +5783,6 @@ int main(int argc, char ** argv, char ** envp) {
 
     if (is_router_server) {
         LOG_INF("%s: starting router server, no model will be loaded in this process\n", __func__);
-        ctx_http.is_ready.store(true);
 
         clean_up = [&routes]() {
             SRV_INF("%s: cleaning up before exit...\n", __func__);
@@ -5796,6 +5795,7 @@ int main(int argc, char ** argv, char ** envp) {
             LOG_ERR("%s: exiting due to HTTP server error\n", __func__);
             return 1;
         }
+        ctx_http.is_ready.store(true);
 
         shutdown_handler = [&](int) {
             ctx_http.stop();
@@ -5869,7 +5869,6 @@ int main(int argc, char ** argv, char ** envp) {
         if (params.models_allow_extra_args) {
             LOG_WRN("%s: extra_args is enabled; this may lead to security issues if the server is exposed to untrusted clients\n", __func__);
         }
-        ctx_http.is_ready.store(true);
         if (ctx_http.thread.joinable()) {
             ctx_http.thread.join(); // keep the main thread alive
         }
