@@ -316,8 +316,18 @@ int main(int argc, char ** argv) {
     if (is_single_turn) {
         g_is_generating = true;
         if (params.prompt.find(mtmd_default_marker()) == std::string::npos) {
-            for (size_t i = 0; i < params.image.size(); i++) {
-                params.prompt += mtmd_default_marker();
+            if (mtmd_is_deepseekocr(ctx.ctx_vision.get())) {
+                std::string image_tokens = "";
+                for (size_t i = 0; i < params.image.size(); i++) {
+                    image_tokens += mtmd_default_marker();
+                    image_tokens += '\n';
+                }
+                params.prompt = image_tokens + params.prompt;
+            }
+            else {
+                for (size_t i = 0; i < params.image.size(); i++) {
+                    params.prompt += mtmd_default_marker();
+                }
             }
         }
         common_chat_msg msg;
