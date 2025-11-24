@@ -407,6 +407,8 @@ void server_models::load(const std::string & name, const std::vector<std::string
         if (result != 0) {
             throw std::runtime_error("failed to spawn server instance");
         }
+
+        inst.stdin_file = subprocess_stdin(inst.subproc.get());
     }
 
     // start a thread to manage the child process
@@ -457,13 +459,12 @@ void server_models::load(const std::string & name, const std::vector<std::string
     cv.notify_all();
 }
 
-static void interrupt_subprocess(subprocess_s * proc) {
+static void interrupt_subprocess(FILE * stdin_file) {
     // because subprocess.h does not provide a way to send SIGINT,
     // we will send a command to the child process to exit gracefully
-    FILE * p_stdin = subprocess_stdin(proc);
-    if (p_stdin) {
-        fprintf(p_stdin, "%s\n", CMD_EXIT);
-        fflush(p_stdin);
+    if (stdin_file) {
+        fprintf(stdin_file, "%s\n", CMD_EXIT);
+        fflush(stdin_file);
     }
 }
 
@@ -473,7 +474,7 @@ void server_models::unload(const std::string & name) {
     if (it != mapping.end()) {
         if (it->second.meta.is_active()) {
             SRV_INF("unloading model instance name=%s\n", name.c_str());
-            interrupt_subprocess(it->second.subproc.get());
+            interrupt_subprocess(it->second.stdin_file);
             // status change will be handled by the managing thread
         } else {
             SRV_WRN("model instance name=%s is not loaded\n", name.c_str());
@@ -488,7 +489,7 @@ void server_models::unload_all() {
         for (auto & [name, inst] : mapping) {
             if (inst.meta.is_active()) {
                 SRV_INF("unloading model instance name=%s\n", name.c_str());
-                interrupt_subprocess(inst.subproc.get());
+                interrupt_subprocess(inst.stdin_file);
                 // status change will be handled by the managing thread
             }
             // moving the thread to join list to avoid deadlock
