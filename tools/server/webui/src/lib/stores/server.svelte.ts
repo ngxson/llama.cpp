@@ -1,6 +1,6 @@
 import { browser } from '$app/environment';
 import { SERVER_PROPS_LOCALSTORAGE_KEY } from '$lib/constants/localstorage-keys';
-import { ChatService } from '$lib/services/chat';
+import { PropsService } from '$lib/services/props';
 import { config } from '$lib/stores/settings.svelte';
 import { ServerMode, ModelModality } from '$lib/enums';
 import { updateConfig } from '$lib/stores/settings.svelte';
@@ -241,7 +241,7 @@ class ServerStore {
 
 		const fetchPromise = (async () => {
 			try {
-				const props = await ChatService.getServerProps();
+				const props = await PropsService.fetch();
 				this._serverProps = props;
 				this.persistServerProps(props);
 				this._error = null;

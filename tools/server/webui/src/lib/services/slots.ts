@@ -133,16 +133,6 @@ export class SlotsService {
 		}
 	}
 
-	/**
-	 * @deprecated Polling is no longer used - timing data comes from ChatService streaming response
-	 * This method logs a warning if called to help identify outdated usage
-	 */
-	fetchAndNotify(): void {
-		console.warn(
-			'SlotsService.fetchAndNotify() is deprecated - use timing data from ChatService instead'
-		);
-	}
-
 	subscribe(callback: (state: ApiProcessingState | null) => void): () => void {
 		this.callbacks.add(callback);
 

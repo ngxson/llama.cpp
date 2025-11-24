@@ -118,7 +118,7 @@ export class ChatService {
 			.map((msg) => {
 				if ('id' in msg && 'convId' in msg && 'timestamp' in msg) {
 					const dbMsg = msg as DatabaseMessage & { extra?: DatabaseMessageExtra[] };
-					return ChatService.convertMessageToChatServiceData(dbMsg);
+					return ChatService.convertDbMessageToApiChatMessageData(dbMsg);
 				} else {
 					return msg as ApiChatMessageData;
 				}
@@ -595,7 +595,7 @@ export class ChatService {
 	 * @returns {ApiChatMessageData} object formatted for the chat completion API
 	 * @static
 	 */
-	static convertMessageToChatServiceData(
+	static convertDbMessageToApiChatMessageData(
 		message: DatabaseMessage & { extra?: DatabaseMessageExtra[] }
 	): ApiChatMessageData {
 		if (!message.extra || message.extra.length === 0) {
