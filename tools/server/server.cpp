@@ -5165,6 +5165,10 @@ public:
         json body = json::parse(req.body);
         std::string name = json_value(body, "model", std::string());
         std::vector<std::string> extra_args = json_value(body, "extra_args", std::vector<std::string>());
+        if (!params.models_allow_extra_args && !extra_args.empty()) {
+            res->error(format_error_response("extra_args is not allowed", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+        }
         auto model = models->get_meta(name);
         if (!model.has_value()) {
             res->error(format_error_response("model is not found", ERROR_TYPE_NOT_FOUND));
@@ -5862,6 +5866,9 @@ int main(int argc, char ** argv, char ** envp) {
         LOG_INF("%s: router server is listening on %s\n", __func__, ctx_http.listening_address.c_str());
         LOG_INF("%s: NOTE: router mode is experimental\n", __func__);
         LOG_INF("%s:       it is not recommended to use this mode in untrusted environments\n", __func__);
+        if (params.models_allow_extra_args) {
+            LOG_WRN("%s: extra_args is enabled; this may lead to security issues if the server is exposed to untrusted clients\n", __func__);
+        }
         ctx_http.is_ready.store(true);
         if (ctx_http.thread.joinable()) {
             ctx_http.thread.join(); // keep the main thread alive

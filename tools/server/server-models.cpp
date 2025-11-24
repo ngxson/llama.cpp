@@ -383,8 +383,10 @@ void server_models::load(const std::string & name, const std::vector<std::string
             child_args.push_back(std::to_string(inst.meta.port));
 
             // append extra args
-            for (const auto & arg : extra_args) {
-                child_args.push_back(arg);
+            if (base_params.models_allow_extra_args) {
+                for (const auto & arg : extra_args) {
+                    child_args.push_back(arg);
+                }
             }
         }
 
