@@ -2243,6 +2243,8 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                     }
                 }
 
+                // TODO: this seems to be correct with the case of mscale == mscale_all_dims == 1.0f
+                //       but may need further verification with other values
                 if (hparams.rope_yarn_log_mul != 0.0f) {
                     float factor = hparams.yarn_attn_factor;
                     float mscale = 1.0f;
