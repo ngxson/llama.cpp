@@ -2830,7 +2830,7 @@ class Mistral3Model(LlamaModel):
             assert rope_params is not None, "ministral3 must have 'rope_parameters' config"
             assert rope_params["rope_type"] == "yarn", "ministral3 rope_type must be 'yarn'"
             self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.YARN)
-            self.gguf_writer.add_rope_scaling_yarn_attn_factor(rope_params["factor"])
+            self.gguf_writer.add_rope_scaling_factor(rope_params["factor"])
             self.gguf_writer.add_rope_scaling_yarn_beta_fast(rope_params["beta_fast"])
             self.gguf_writer.add_rope_scaling_yarn_beta_slow(rope_params["beta_slow"])
             self.gguf_writer.add_rope_scaling_yarn_log_mul(rope_params["mscale_all_dim"])

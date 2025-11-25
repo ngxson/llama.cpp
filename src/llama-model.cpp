@@ -2230,7 +2230,6 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
                 ml.get_key(LLM_KV_ATTENTION_TEMPERATURE_SCALE, hparams.f_attn_temp_scale, false);
 
-                ml.get_key(LLM_KV_ROPE_SCALING_YARN_ATTN_FACTOR, hparams.yarn_attn_factor, false);
                 ml.get_key(LLM_KV_ROPE_SCALING_YARN_BETA_FAST,   hparams.yarn_beta_fast, false);
                 ml.get_key(LLM_KV_ROPE_SCALING_YARN_BETA_SLOW,   hparams.yarn_beta_slow, false);
                 ml.get_key(LLM_KV_ROPE_SCALING_YARN_LOG_MUL,     hparams.rope_yarn_log_mul, false);
@@ -2246,7 +2245,7 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 // TODO: this seems to be correct with the case of mscale == mscale_all_dims == 1.0f
                 //       but may need further verification with other values
                 if (hparams.rope_yarn_log_mul != 0.0f) {
-                    float factor = hparams.yarn_attn_factor;
+                    float factor = 1.0f / hparams.rope_freq_scale_train;
                     float mscale = 1.0f;
                     float mscale_all_dims = hparams.rope_yarn_log_mul;
                     static auto get_mscale = [](float scale, float mscale) {
