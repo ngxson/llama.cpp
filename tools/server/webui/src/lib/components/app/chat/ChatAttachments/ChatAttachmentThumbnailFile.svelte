@@ -4,6 +4,7 @@
 	import { formatFileSize } from '$lib/utils/formatters';
 	import { isTextFile } from '$lib/utils/attachment-type';
 	import type { DatabaseMessageExtra } from '$lib/types/database';
+	import { AttachmentType } from '$lib/enums';
 
 	interface Props {
 		class?: string;
@@ -34,8 +35,15 @@
 
 	let isText = $derived(isTextFile(attachment, uploadedFile));
 
-	// Get file type for display
-	let fileType = $derived(uploadedFile?.type || 'unknown');
+	// Get file type for display - check uploadedFile first, then attachment mimeType
+	let fileType = $derived.by(() => {
+		if (uploadedFile?.type) return uploadedFile.type;
+		// For audio attachments stored in DB, get mimeType from the attachment
+		if (attachment?.type === AttachmentType.AUDIO && 'mimeType' in attachment) {
+			return attachment.mimeType;
+		}
+		return 'unknown';
+	});
 </script>
 
 {#if isText}
