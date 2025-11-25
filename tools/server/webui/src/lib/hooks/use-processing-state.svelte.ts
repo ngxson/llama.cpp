@@ -1,4 +1,8 @@
-import { slotsService } from '$lib/services';
+import {
+	subscribeToProcessingState,
+	getCurrentProcessingState,
+	isChatStreaming
+} from '$lib/stores/chat.svelte';
 import { config } from '$lib/stores/settings.svelte';
 
 export interface UseProcessingStateReturn {
@@ -14,7 +18,7 @@ export interface UseProcessingStateReturn {
  * useProcessingState - Reactive processing state hook
  *
  * This hook provides reactive access to the processing state of the server.
- * It subscribes to timing data updates from the slots service and provides
+ * It subscribes to timing data updates from ChatStore and provides
  * formatted processing details for UI display.
  *
  * **Features:**
@@ -37,7 +41,7 @@ export function useProcessingState(): UseProcessingStateReturn {
 
 		isMonitoring = true;
 
-		unsubscribe = slotsService.subscribe((state) => {
+		unsubscribe = subscribeToProcessingState((state) => {
 			processingState = state;
 			if (state) {
 				lastKnownState = state;
@@ -47,19 +51,20 @@ export function useProcessingState(): UseProcessingStateReturn {
 		});
 
 		try {
-			const currentState = await slotsService.getCurrentState();
+			const currentState = await getCurrentProcessingState();
 
 			if (currentState) {
 				processingState = currentState;
 				lastKnownState = currentState;
 			}
 
-			if (slotsService.isStreaming()) {
-				slotsService.startStreaming();
+			// Check if streaming is active for UI purposes
+			if (isChatStreaming()) {
+				// Streaming is active, state will be updated via subscription
 			}
 		} catch (error) {
-			console.warn('Failed to start slots monitoring:', error);
-			// Continue without slots monitoring - graceful degradation
+			console.warn('Failed to start processing state monitoring:', error);
+			// Continue without monitoring - graceful degradation
 		}
 	}
 

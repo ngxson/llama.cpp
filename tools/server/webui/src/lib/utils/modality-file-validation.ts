@@ -4,7 +4,7 @@
  */
 
 import { getFileTypeCategory } from '$lib/utils/file-type';
-import { supportsVision, supportsAudio } from '$lib/stores/server.svelte';
+import { supportsVision, supportsAudio } from '$lib/stores/props.svelte';
 import {
 	FileExtensionAudio,
 	FileExtensionImage,

@@ -11,7 +11,7 @@
 		selectModel,
 		selectedModelId
 	} from '$lib/stores/models.svelte';
-	import { isRouterMode, serverStore } from '$lib/stores/server.svelte';
+	import { isRouterMode, propsStore } from '$lib/stores/props.svelte';
 	import { DialogModelInformation } from '$lib/components/app';
 	import type { ModelOption } from '$lib/types/models';
 
@@ -36,7 +36,7 @@
 	let updating = $derived(modelsUpdating());
 	let activeId = $derived(selectedModelId());
 	let isRouter = $derived(isRouterMode());
-	let serverModel = $derived(serverStore.modelName);
+	let serverModel = $derived(propsStore.modelName);
 
 	let isHighlightedCurrentModelActive = $derived(
 		!isRouter || !currentModel
@@ -102,6 +102,15 @@
 		await tick();
 		updateMenuPosition();
 		requestAnimationFrame(() => updateMenuPosition());
+	}
+
+	// Export open function for programmatic access
+	export function open() {
+		if (isRouter) {
+			openMenu();
+		} else {
+			showModelDialog = true;
+		}
 	}
 
 	function closeMenu() {
@@ -264,11 +273,13 @@
 			return options.find((option) => option.model === currentModel);
 		}
 
+		// Check if user has selected a model (for new chats before first message)
 		if (activeId) {
 			return options.find((option) => option.id === activeId);
 		}
 
-		return options[0];
+		// No selection - return undefined to show "Select model"
+		return undefined;
 	}
 </script>
 

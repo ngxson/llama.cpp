@@ -34,10 +34,10 @@
 	import {
 		supportsVision,
 		supportsAudio,
-		serverLoading,
+		propsLoading,
 		serverWarning,
-		serverStore
-	} from '$lib/stores/server.svelte';
+		propsStore
+	} from '$lib/stores/props.svelte';
 	import { parseFilesToMessageExtras } from '$lib/utils/convert-files-to-extra';
 	import { isFileTypeSupported } from '$lib/utils/file-type';
 	import { filterFilesByModalities } from '$lib/utils/modality-file-validation';
@@ -85,7 +85,7 @@
 	);
 
 	let activeErrorDialog = $derived(errorDialog());
-	let isServerLoading = $derived(serverLoading());
+	let isServerLoading = $derived(propsLoading());
 
 	let isCurrentConversationLoading = $derived(isLoading());
 
@@ -341,12 +341,13 @@
 			</div>
 		</div>
 	</div>
-{:else if isServerLoading}
-	<!-- Server Loading State -->
+{:else if propsStore.error && !propsStore.serverProps}
+	<!-- Server Error State (when error and no cached props) -->
+	<ServerErrorSplash error={propsStore.error} />
+{:else if isServerLoading || !propsStore.serverProps}
+	<!-- Server Loading State (also shown when props haven't loaded yet) -->
 	<ServerLoadingSplash />
-{:else if serverStore.error && !serverStore.modelName}
-	<ServerErrorSplash error={serverStore.error} />
-{:else if serverStore.modelName}
+{:else}
 	<div
 		aria-label="Welcome screen with file drop zone"
 		class="flex h-full items-center justify-center"
@@ -361,7 +362,7 @@
 				<h1 class="mb-4 text-3xl font-semibold tracking-tight">llama.cpp</h1>
 
 				<p class="text-lg text-muted-foreground">
-					{serverStore.supportedModalities.includes(ModelModality.AUDIO)
+					{propsStore.supportedModalities.includes(ModelModality.AUDIO)
 						? 'Record audio, type a message '
 						: 'Type a message'} or upload files to get started
 				</p>

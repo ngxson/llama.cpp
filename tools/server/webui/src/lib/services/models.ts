@@ -1,16 +1,52 @@
 import { base } from '$app/paths';
 import { config } from '$lib/stores/settings.svelte';
-import type { ApiModelListResponse } from '$lib/types/api';
+import { ServerModelStatus } from '$lib/enums';
+import type {
+	ApiModelListResponse,
+	ApiRouterModelsListResponse,
+	ApiRouterModelsLoadResponse,
+	ApiRouterModelsUnloadResponse,
+	ApiRouterModelsStatusResponse,
+	ApiRouterModelMeta
+} from '$lib/types/api';
 
+/**
+ * ModelsService - Stateless service for model management API communication
+ *
+ * This service handles communication with model-related endpoints:
+ * - `/v1/models` - OpenAI-compatible model list (MODEL + ROUTER mode)
+ * - `/models` - Router-specific model management (ROUTER mode only)
+ *
+ * **Responsibilities:**
+ * - List available models
+ * - Load/unload models (ROUTER mode)
+ * - Check model status (ROUTER mode)
+ *
+ * **Used by:**
+ * - ModelsStore: Primary consumer for model state management
+ */
 export class ModelsService {
-	static async list(): Promise<ApiModelListResponse> {
+	private static getHeaders(): Record<string, string> {
 		const currentConfig = config();
 		const apiKey = currentConfig.apiKey?.toString().trim();
 
+		return {
+			'Content-Type': 'application/json',
+			...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+		};
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// MODEL + ROUTER mode - OpenAI-compatible API
+	// ─────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Fetch list of models from OpenAI-compatible endpoint
+	 * Works in both MODEL and ROUTER modes
+	 */
+	static async list(): Promise<ApiModelListResponse> {
 		const response = await fetch(`${base}/v1/models`, {
-			headers: {
-				...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-			}
+			headers: this.getHeaders()
 		});
 
 		if (!response.ok) {
@@ -18,5 +54,93 @@ export class ModelsService {
 		}
 
 		return response.json() as Promise<ApiModelListResponse>;
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// ROUTER mode only - Model management API
+	// ─────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Fetch list of all models with detailed metadata (ROUTER mode)
+	 * Returns models with load status, paths, and other metadata
+	 */
+	static async listRouter(): Promise<ApiRouterModelsListResponse> {
+		const response = await fetch(`${base}/models`, {
+			headers: this.getHeaders()
+		});
+
+		if (!response.ok) {
+			throw new Error(`Failed to fetch router models list (status ${response.status})`);
+		}
+
+		return response.json() as Promise<ApiRouterModelsListResponse>;
+	}
+
+	/**
+	 * Load a model (ROUTER mode)
+	 * @param modelId - Model identifier to load
+	 */
+	static async load(modelId: string): Promise<ApiRouterModelsLoadResponse> {
+		const response = await fetch(`${base}/models`, {
+			method: 'POST',
+			headers: this.getHeaders(),
+			body: JSON.stringify({ model: modelId })
+		});
+
+		if (!response.ok) {
+			const errorData = await response.json().catch(() => ({}));
+			throw new Error(errorData.error || `Failed to load model (status ${response.status})`);
+		}
+
+		return response.json() as Promise<ApiRouterModelsLoadResponse>;
+	}
+
+	/**
+	 * Unload a model (ROUTER mode)
+	 * @param modelId - Model identifier to unload
+	 */
+	static async unload(modelId: string): Promise<ApiRouterModelsUnloadResponse> {
+		const response = await fetch(`${base}/models`, {
+			method: 'DELETE',
+			headers: this.getHeaders(),
+			body: JSON.stringify({ model: modelId })
+		});
+
+		if (!response.ok) {
+			const errorData = await response.json().catch(() => ({}));
+			throw new Error(errorData.error || `Failed to unload model (status ${response.status})`);
+		}
+
+		return response.json() as Promise<ApiRouterModelsUnloadResponse>;
+	}
+
+	/**
+	 * Get status of a specific model (ROUTER mode)
+	 * @param modelId - Model identifier to check
+	 */
+	static async getStatus(modelId: string): Promise<ApiRouterModelsStatusResponse> {
+		const response = await fetch(`${base}/models/status?model=${encodeURIComponent(modelId)}`, {
+			headers: this.getHeaders()
+		});
+
+		if (!response.ok) {
+			throw new Error(`Failed to get model status (status ${response.status})`);
+		}
+
+		return response.json() as Promise<ApiRouterModelsStatusResponse>;
+	}
+
+	/**
+	 * Check if a model is loaded based on its metadata
+	 */
+	static isModelLoaded(model: ApiRouterModelMeta): boolean {
+		return model.status === ServerModelStatus.LOADED && model.port > 0;
+	}
+
+	/**
+	 * Check if a model is currently loading
+	 */
+	static isModelLoading(model: ApiRouterModelMeta): boolean {
+		return model.status === ServerModelStatus.LOADING;
 	}
 }

@@ -1,7 +1,6 @@
 import { config } from '$lib/stores/settings.svelte';
 import { selectedModelName } from '$lib/stores/models.svelte';
-import { isRouterMode } from '$lib/stores/server.svelte';
-import { slotsService } from './slots';
+import { isRouterMode } from '$lib/stores/props.svelte';
 import type {
 	ApiChatCompletionRequest,
 	ApiChatCompletionResponse,
@@ -47,7 +46,6 @@ import type { SettingsChatServiceOptions } from '$lib/types/settings';
  *   - Handles error translation for server responses
  *
  * - **ChatStore**: Uses ChatService for all AI model communication
- * - **SlotsService**: Receives timing data updates during streaming
  * - **ConversationsStore**: Provides message context for API requests
  *
  * **Key Responsibilities:**
@@ -83,6 +81,7 @@ export class ChatService {
 			onReasoningChunk,
 			onToolCallChunk,
 			onModel,
+			onTimings,
 			// Generation parameters
 			temperature,
 			max_tokens,
@@ -231,6 +230,7 @@ export class ChatService {
 					onReasoningChunk,
 					onToolCallChunk,
 					onModel,
+					onTimings,
 					conversationId,
 					abortController.signal
 				);
@@ -305,6 +305,7 @@ export class ChatService {
 		onReasoningChunk?: (chunk: string) => void,
 		onToolCallChunk?: (chunk: string) => void,
 		onModel?: (model: string) => void,
+		onTimings?: (timings: ChatMessageTimings, promptProgress?: ChatMessagePromptProgress) => void,
 		conversationId?: string,
 		abortSignal?: AbortSignal
 	): Promise<void> {
@@ -400,7 +401,7 @@ export class ChatService {
 							}
 
 							if (timings || promptProgress) {
-								this.updateProcessingState(timings, promptProgress, conversationId);
+								this.notifyTimings(timings, promptProgress, onTimings);
 								if (timings) {
 									lastTimings = timings;
 								}
@@ -877,38 +878,22 @@ export class ChatService {
 	}
 
 	/**
-	 * Updates the processing state in SlotsService with timing data from streaming response.
-	 * Calculates tokens per second and forwards metrics for UI display.
+	 * Calls the onTimings callback with timing data from streaming response.
 	 *
 	 * @param timings - Timing information from the Chat Completions API response
 	 * @param promptProgress - Prompt processing progress data
-	 * @param conversationId - Optional conversation ID for per-conversation state tracking
+	 * @param onTimingsCallback - Callback function to invoke with timing data
 	 * @private
 	 */
-	private updateProcessingState(
-		timings?: ChatMessageTimings,
-		promptProgress?: ChatMessagePromptProgress,
-		conversationId?: string
+	private notifyTimings(
+		timings: ChatMessageTimings | undefined,
+		promptProgress: ChatMessagePromptProgress | undefined,
+		onTimingsCallback:
+			| ((timings: ChatMessageTimings, promptProgress?: ChatMessagePromptProgress) => void)
+			| undefined
 	): void {
-		const tokensPerSecond =
-			timings?.predicted_ms && timings?.predicted_n
-				? (timings.predicted_n / timings.predicted_ms) * 1000
-				: 0;
-
-		slotsService
-			.updateFromTimingData(
-				{
-					prompt_n: timings?.prompt_n || 0,
-					predicted_n: timings?.predicted_n || 0,
-					predicted_per_second: tokensPerSecond,
-					cache_n: timings?.cache_n || 0,
-					prompt_progress: promptProgress
-				},
-				conversationId
-			)
-			.catch((error) => {
-				console.warn('Failed to update processing state:', error);
-			});
+		if (!timings || !onTimingsCallback) return;
+		onTimingsCallback(timings, promptProgress);
 	}
 }
 

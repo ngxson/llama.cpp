@@ -8,7 +8,7 @@
 		canSend?: boolean;
 		disabled?: boolean;
 		isLoading?: boolean;
-		isModelAvailable?: boolean;
+		showErrorState?: boolean;
 		tooltipLabel?: string;
 	}
 
@@ -16,13 +16,11 @@
 		canSend = false,
 		disabled = false,
 		isLoading = false,
-		isModelAvailable = true,
+		showErrorState = false,
 		tooltipLabel
 	}: Props = $props();
 
-	// Error state when model is not available
-	let isErrorState = $derived(!isModelAvailable);
-	let isDisabled = $derived(!canSend || disabled || isLoading || !isModelAvailable);
+	let isDisabled = $derived(!canSend || disabled || isLoading);
 </script>
 
 {#snippet submitButton(props = {})}
@@ -31,7 +29,7 @@
 		disabled={isDisabled}
 		class={cn(
 			'h-8 w-8 rounded-full p-0',
-			isErrorState
+			showErrorState
 				? 'bg-red-400/10 text-red-400 hover:bg-red-400/20 hover:text-red-400 disabled:opacity-100'
 				: ''
 		)}

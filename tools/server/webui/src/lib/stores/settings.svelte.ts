@@ -35,7 +35,7 @@ import { browser } from '$app/environment';
 import { SETTING_CONFIG_DEFAULT } from '$lib/constants/settings-config';
 import { normalizeFloatingPoint } from '$lib/utils/precision';
 import { ParameterSyncService } from '$lib/services/parameter-sync';
-import { serverStore } from '$lib/stores/server.svelte';
+import { propsStore } from '$lib/stores/props.svelte';
 import { setConfigValue, getConfigValue, configToParameterRecord } from '$lib/utils/config-helpers';
 
 class SettingsStore {
@@ -49,7 +49,7 @@ class SettingsStore {
 	 * Centralizes the pattern of getting and extracting server defaults
 	 */
 	private getServerDefaults(): Record<string, string | number | boolean> {
-		const serverParams = serverStore.serverDefaultParams;
+		const serverParams = propsStore.defaultParams;
 		return serverParams ? ParameterSyncService.extractServerDefaults(serverParams) : {};
 	}
 
@@ -250,7 +250,7 @@ class SettingsStore {
 	 * This sets up the default values from /props endpoint
 	 */
 	syncWithServerDefaults(): void {
-		const serverParams = serverStore.serverDefaultParams;
+		const serverParams = propsStore.defaultParams;
 		if (!serverParams) {
 			console.warn('No server parameters available for initialization');
 

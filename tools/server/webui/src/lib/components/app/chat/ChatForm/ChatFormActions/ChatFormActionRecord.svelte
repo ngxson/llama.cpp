@@ -2,7 +2,7 @@
 	import { Mic, Square } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Tooltip from '$lib/components/ui/tooltip';
-	import { supportsAudio } from '$lib/stores/server.svelte';
+	import { supportsAudio } from '$lib/stores/props.svelte';
 
 	interface Props {
 		class?: string;

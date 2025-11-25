@@ -1,8 +1,12 @@
 <script lang="ts">
 	import { PROCESSING_INFO_TIMEOUT } from '$lib/constants/processing-info';
 	import { useProcessingState } from '$lib/hooks/use-processing-state.svelte';
-	import { slotsService } from '$lib/services/slots';
-	import { isLoading } from '$lib/stores/chat.svelte';
+	import {
+		isLoading,
+		clearProcessingState,
+		updateProcessingStateFromTimings,
+		setActiveProcessingConversation
+	} from '$lib/stores/chat.svelte';
 	import { activeMessages, activeConversation } from '$lib/stores/conversations.svelte';
 	import { config } from '$lib/stores/settings.svelte';
 
@@ -11,6 +15,12 @@
 	let isCurrentConversationLoading = $derived(isLoading());
 	let processingDetails = $derived(processingState.getProcessingDetails());
 	let showSlotsInfo = $derived(isCurrentConversationLoading || config().keepStatsVisible);
+
+	// Sync active processing conversation with currently viewed conversation
+	$effect(() => {
+		const conversation = activeConversation();
+		setActiveProcessingConversation(conversation?.id ?? null);
+	});
 
 	// Track loading state reactively by checking if conversation ID is in loading conversations array
 	$effect(() => {
@@ -37,7 +47,7 @@
 
 		if (keepStatsVisible && conversation) {
 			if (messages.length === 0) {
-				slotsService.clearConversationState(conversation.id);
+				clearProcessingState(conversation.id);
 				return;
 			}
 
@@ -50,28 +60,24 @@
 				if (message.role === 'assistant' && message.timings) {
 					foundTimingData = true;
 
-					slotsService
-						.updateFromTimingData(
-							{
-								prompt_n: message.timings.prompt_n || 0,
-								predicted_n: message.timings.predicted_n || 0,
-								predicted_per_second:
-									message.timings.predicted_n && message.timings.predicted_ms
-										? (message.timings.predicted_n / message.timings.predicted_ms) * 1000
-										: 0,
-								cache_n: message.timings.cache_n || 0
-							},
-							conversation.id
-						)
-						.catch((error) => {
-							console.warn('Failed to update processing state from stored timings:', error);
-						});
+					updateProcessingStateFromTimings(
+						{
+							prompt_n: message.timings.prompt_n || 0,
+							predicted_n: message.timings.predicted_n || 0,
+							predicted_per_second:
+								message.timings.predicted_n && message.timings.predicted_ms
+									? (message.timings.predicted_n / message.timings.predicted_ms) * 1000
+									: 0,
+							cache_n: message.timings.cache_n || 0
+						},
+						conversation.id
+					);
 					break;
 				}
 			}
 
 			if (!foundTimingData) {
-				slotsService.clearConversationState(conversation.id);
+				clearProcessingState(conversation.id);
 			}
 		}
 	});

@@ -1,11 +1,18 @@
 import { DatabaseService } from '$lib/services/database';
-import { chatService, slotsService } from '$lib/services';
+import { chatService } from '$lib/services';
 import { conversationsStore } from '$lib/stores/conversations.svelte';
 import { config } from '$lib/stores/settings.svelte';
+import { contextSize } from '$lib/stores/props.svelte';
 import { normalizeModelName } from '$lib/utils/model-names';
 import { filterByLeafNodeId, findDescendantMessages, findLeafNode } from '$lib/utils/branching';
-import { SvelteMap } from 'svelte/reactivity';
-import type { ChatMessageTimings, ChatRole, ChatMessageType } from '$lib/types/chat';
+import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+import { DEFAULT_CONTEXT } from '$lib/constants/default-context';
+import type {
+	ChatMessageTimings,
+	ChatRole,
+	ChatMessageType,
+	ChatMessagePromptProgress
+} from '$lib/types/chat';
 import type { DatabaseMessage, DatabaseMessageExtra } from '$lib/types/database';
 
 /**
@@ -31,7 +38,6 @@ import type { DatabaseMessage, DatabaseMessageExtra } from '$lib/types/database'
  *
  * - **ConversationsStore**: Provides conversation data and message arrays for chat context
  * - **ChatService**: Low-level API communication with llama.cpp server
- * - **SlotsService**: Processing state monitoring during streaming
  * - **DatabaseService**: Message persistence and retrieval
  *
  * **Key Features:**
@@ -45,6 +51,7 @@ import type { DatabaseMessage, DatabaseMessageExtra } from '$lib/types/database'
  * - Global `isLoading` and `currentResponse` for active chat UI
  * - `chatLoadingStates` Map for per-conversation streaming tracking
  * - `chatStreamingStates` Map for per-conversation streaming content
+ * - `processingStates` Map for per-conversation processing state (timing/context info)
  * - Automatic state sync when switching between conversations
  */
 class ChatStore {
@@ -53,6 +60,13 @@ class ChatStore {
 	isLoading = $state(false);
 	chatLoadingStates = new SvelteMap<string, boolean>();
 	chatStreamingStates = new SvelteMap<string, { response: string; messageId: string }>();
+
+	// Processing state tracking - per-conversation timing/context info
+	private processingStates = new SvelteMap<string, ApiProcessingState | null>();
+	private processingCallbacks = new SvelteSet<(state: ApiProcessingState | null) => void>();
+	private activeConversationId = $state<string | null>(null);
+	private isStreamingActive = $state(false);
+	private lastKnownProcessingState = $state<ApiProcessingState | null>(null);
 
 	// ============ API Options ============
 
@@ -143,6 +157,235 @@ class ChatStore {
 	clearUIState(): void {
 		this.isLoading = false;
 		this.currentResponse = '';
+	}
+
+	// ============ Processing State Management ============
+
+	/**
+	 * Start streaming session tracking
+	 */
+	startStreaming(): void {
+		this.isStreamingActive = true;
+	}
+
+	/**
+	 * Stop streaming session tracking
+	 */
+	stopStreaming(): void {
+		this.isStreamingActive = false;
+	}
+
+	/**
+	 * Check if currently in a streaming session
+	 */
+	isStreaming(): boolean {
+		return this.isStreamingActive;
+	}
+
+	/**
+	 * Set the active conversation for statistics display
+	 */
+	setActiveProcessingConversation(conversationId: string | null): void {
+		this.activeConversationId = conversationId;
+		this.notifyProcessingCallbacks();
+	}
+
+	/**
+	 * Get processing state for a specific conversation
+	 */
+	getProcessingState(conversationId: string): ApiProcessingState | null {
+		return this.processingStates.get(conversationId) || null;
+	}
+
+	/**
+	 * Clear processing state for a specific conversation
+	 */
+	clearProcessingState(conversationId: string): void {
+		this.processingStates.delete(conversationId);
+
+		if (conversationId === this.activeConversationId) {
+			this.lastKnownProcessingState = null;
+			this.notifyProcessingCallbacks();
+		}
+	}
+
+	/**
+	 * Subscribe to processing state changes
+	 */
+	subscribeToProcessingState(callback: (state: ApiProcessingState | null) => void): () => void {
+		this.processingCallbacks.add(callback);
+
+		if (this.lastKnownProcessingState) {
+			callback(this.lastKnownProcessingState);
+		}
+
+		return () => {
+			this.processingCallbacks.delete(callback);
+		};
+	}
+
+	/**
+	 * Updates processing state with timing data from streaming response
+	 */
+	updateProcessingStateFromTimings(
+		timingData: {
+			prompt_n: number;
+			predicted_n: number;
+			predicted_per_second: number;
+			cache_n: number;
+			prompt_progress?: ChatMessagePromptProgress;
+		},
+		conversationId?: string
+	): void {
+		const processingState = this.parseTimingData(timingData);
+
+		if (processingState === null) {
+			console.warn('Failed to parse timing data - skipping update');
+			return;
+		}
+
+		if (conversationId) {
+			this.processingStates.set(conversationId, processingState);
+
+			if (conversationId === this.activeConversationId) {
+				this.lastKnownProcessingState = processingState;
+				this.notifyProcessingCallbacks();
+			}
+		} else {
+			this.lastKnownProcessingState = processingState;
+			this.notifyProcessingCallbacks();
+		}
+	}
+
+	/**
+	 * Get current processing state
+	 */
+	async getCurrentProcessingState(): Promise<ApiProcessingState | null> {
+		if (this.activeConversationId) {
+			const conversationState = this.processingStates.get(this.activeConversationId);
+			if (conversationState) {
+				return conversationState;
+			}
+		}
+
+		if (this.lastKnownProcessingState) {
+			return this.lastKnownProcessingState;
+		}
+
+		// Try to restore from last assistant message
+		const messages = conversationsStore.activeMessages;
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const message = messages[i];
+			if (message.role === 'assistant' && message.timings) {
+				const restoredState = this.parseTimingData({
+					prompt_n: message.timings.prompt_n || 0,
+					predicted_n: message.timings.predicted_n || 0,
+					predicted_per_second:
+						message.timings.predicted_n && message.timings.predicted_ms
+							? (message.timings.predicted_n / message.timings.predicted_ms) * 1000
+							: 0,
+					cache_n: message.timings.cache_n || 0
+				});
+
+				if (restoredState) {
+					this.lastKnownProcessingState = restoredState;
+					return restoredState;
+				}
+			}
+		}
+
+		return null;
+	}
+
+	private notifyProcessingCallbacks(): void {
+		const currentState = this.activeConversationId
+			? this.processingStates.get(this.activeConversationId) || null
+			: this.lastKnownProcessingState;
+
+		for (const callback of this.processingCallbacks) {
+			try {
+				callback(currentState);
+			} catch (error) {
+				console.error('Error in processing state callback:', error);
+			}
+		}
+	}
+
+	private getContextTotal(): number {
+		if (this.lastKnownProcessingState && this.lastKnownProcessingState.contextTotal > 0) {
+			return this.lastKnownProcessingState.contextTotal;
+		}
+
+		const propsContextSize = contextSize();
+		if (propsContextSize && propsContextSize > 0) {
+			return propsContextSize;
+		}
+
+		return DEFAULT_CONTEXT;
+	}
+
+	private parseTimingData(timingData: Record<string, unknown>): ApiProcessingState | null {
+		const promptTokens = (timingData.prompt_n as number) || 0;
+		const predictedTokens = (timingData.predicted_n as number) || 0;
+		const tokensPerSecond = (timingData.predicted_per_second as number) || 0;
+		const cacheTokens = (timingData.cache_n as number) || 0;
+		const promptProgress = timingData.prompt_progress as
+			| {
+					total: number;
+					cache: number;
+					processed: number;
+					time_ms: number;
+			  }
+			| undefined;
+
+		const contextTotal = this.getContextTotal();
+		const currentConfig = config();
+		const outputTokensMax = currentConfig.max_tokens || -1;
+
+		const contextUsed = promptTokens + cacheTokens + predictedTokens;
+		const outputTokensUsed = predictedTokens;
+
+		const progressPercent = promptProgress
+			? Math.round((promptProgress.processed / promptProgress.total) * 100)
+			: undefined;
+
+		return {
+			status: predictedTokens > 0 ? 'generating' : promptProgress ? 'preparing' : 'idle',
+			tokensDecoded: predictedTokens,
+			tokensRemaining: outputTokensMax - predictedTokens,
+			contextUsed,
+			contextTotal,
+			outputTokensUsed,
+			outputTokensMax,
+			hasNextToken: predictedTokens > 0,
+			tokensPerSecond,
+			temperature: currentConfig.temperature ?? 0.8,
+			topP: currentConfig.top_p ?? 0.95,
+			speculative: false,
+			progressPercent,
+			promptTokens,
+			cacheTokens
+		};
+	}
+
+	// ============ Model Detection ============
+
+	/**
+	 * Gets the model used in a conversation based on the latest assistant message.
+	 * Returns the model from the most recent assistant message that has a model field set.
+	 *
+	 * @param messages - Array of messages to search through
+	 * @returns The model name or null if no model found
+	 */
+	getConversationModel(messages: DatabaseMessage[]): string | null {
+		// Search backwards through messages to find most recent assistant message with model
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const message = messages[i];
+			if (message.role === 'assistant' && message.model) {
+				return message.model;
+			}
+		}
+		return null;
 	}
 
 	// ============ Error Handling ============
@@ -270,8 +513,8 @@ class ChatStore {
 			}
 		};
 
-		slotsService.startStreaming();
-		slotsService.setActiveConversation(assistantMessage.convId);
+		this.startStreaming();
+		this.setActiveProcessingConversation(assistantMessage.convId);
 
 		await chatService.sendMessage(
 			allMessages,
@@ -296,13 +539,29 @@ class ChatStore {
 					conversationsStore.updateMessageAtIndex(idx, { toolCalls: streamedToolCallContent });
 				},
 				onModel: (modelName: string) => recordModel(modelName),
+				onTimings: (timings, promptProgress) => {
+					const tokensPerSecond =
+						timings?.predicted_ms && timings?.predicted_n
+							? (timings.predicted_n / timings.predicted_ms) * 1000
+							: 0;
+					this.updateProcessingStateFromTimings(
+						{
+							prompt_n: timings?.prompt_n || 0,
+							predicted_n: timings?.predicted_n || 0,
+							predicted_per_second: tokensPerSecond,
+							cache_n: timings?.cache_n || 0,
+							prompt_progress: promptProgress
+						},
+						assistantMessage.convId
+					);
+				},
 				onComplete: async (
 					finalContent?: string,
 					reasoningContent?: string,
 					timings?: ChatMessageTimings,
 					toolCallContent?: string
 				) => {
-					slotsService.stopStreaming();
+					this.stopStreaming();
 
 					// Build update data - only include model if not already persisted
 					const updateData: Record<string, unknown> = {
@@ -331,20 +590,20 @@ class ChatStore {
 					if (onComplete) await onComplete(streamedContent);
 					this.setChatLoading(assistantMessage.convId, false);
 					this.clearChatStreaming(assistantMessage.convId);
-					slotsService.clearConversationState(assistantMessage.convId);
+					this.clearProcessingState(assistantMessage.convId);
 				},
 				onError: (error: Error) => {
-					slotsService.stopStreaming();
+					this.stopStreaming();
 					if (this.isAbortError(error)) {
 						this.setChatLoading(assistantMessage.convId, false);
 						this.clearChatStreaming(assistantMessage.convId);
-						slotsService.clearConversationState(assistantMessage.convId);
+						this.clearProcessingState(assistantMessage.convId);
 						return;
 					}
 					console.error('Streaming error:', error);
 					this.setChatLoading(assistantMessage.convId, false);
 					this.clearChatStreaming(assistantMessage.convId);
-					slotsService.clearConversationState(assistantMessage.convId);
+					this.clearProcessingState(assistantMessage.convId);
 					const idx = conversationsStore.findMessageIndex(assistantMessage.id);
 					if (idx !== -1) {
 						const failedMessage = conversationsStore.removeMessageAtIndex(idx);
@@ -411,11 +670,11 @@ class ChatStore {
 		const activeConv = conversationsStore.activeConversation;
 		if (!activeConv) return;
 		await this.savePartialResponseIfNeeded(activeConv.id);
-		slotsService.stopStreaming();
+		this.stopStreaming();
 		chatService.abortChatCompletionRequest(activeConv.id);
 		this.setChatLoading(activeConv.id, false);
 		this.clearChatStreaming(activeConv.id);
-		slotsService.clearConversationState(activeConv.id);
+		this.clearProcessingState(activeConv.id);
 	}
 
 	private async savePartialResponseIfNeeded(convId?: string): Promise<void> {
@@ -437,7 +696,7 @@ class ChatStore {
 					content: streamingState.response
 				};
 				if (lastMessage.thinking?.trim()) updateData.thinking = lastMessage.thinking;
-				const lastKnownState = await slotsService.getCurrentState();
+				const lastKnownState = await this.getCurrentProcessingState();
 				if (lastKnownState) {
 					updateData.timings = {
 						prompt_n: lastKnownState.promptTokens || 0,
@@ -871,6 +1130,22 @@ class ChatStore {
 							thinking: originalThinking + appendedThinking
 						});
 					},
+					onTimings: (timings, promptProgress) => {
+						const tokensPerSecond =
+							timings?.predicted_ms && timings?.predicted_n
+								? (timings.predicted_n / timings.predicted_ms) * 1000
+								: 0;
+						this.updateProcessingStateFromTimings(
+							{
+								prompt_n: timings?.prompt_n || 0,
+								predicted_n: timings?.predicted_n || 0,
+								predicted_per_second: tokensPerSecond,
+								cache_n: timings?.cache_n || 0,
+								prompt_progress: promptProgress
+							},
+							msg.convId
+						);
+					},
 					onComplete: async (
 						finalContent?: string,
 						reasoningContent?: string,
@@ -893,7 +1168,7 @@ class ChatStore {
 						conversationsStore.updateConversationTimestamp();
 						this.setChatLoading(msg.convId, false);
 						this.clearChatStreaming(msg.convId);
-						slotsService.clearConversationState(msg.convId);
+						this.clearProcessingState(msg.convId);
 					},
 					onError: async (error: Error) => {
 						if (this.isAbortError(error)) {
@@ -911,7 +1186,7 @@ class ChatStore {
 							}
 							this.setChatLoading(msg.convId, false);
 							this.clearChatStreaming(msg.convId);
-							slotsService.clearConversationState(msg.convId);
+							this.clearProcessingState(msg.convId);
 							return;
 						}
 						console.error('Continue generation error:', error);
@@ -925,7 +1200,7 @@ class ChatStore {
 						});
 						this.setChatLoading(msg.convId, false);
 						this.clearChatStreaming(msg.convId);
-						slotsService.clearConversationState(msg.convId);
+						this.clearProcessingState(msg.convId);
 						this.showErrorDialog(
 							error.name === 'TimeoutError' ? 'timeout' : 'server',
 							error.message
@@ -996,3 +1271,17 @@ export const getAllStreamingChats = () => chatStore.getAllStreamingChats();
 // Sync/clear UI state when switching conversations
 export const syncLoadingStateForChat = chatStore.syncLoadingStateForChat.bind(chatStore);
 export const clearUIState = chatStore.clearUIState.bind(chatStore);
+
+// Processing state (timing/context info)
+export const subscribeToProcessingState = chatStore.subscribeToProcessingState.bind(chatStore);
+export const getProcessingState = chatStore.getProcessingState.bind(chatStore);
+export const getCurrentProcessingState = chatStore.getCurrentProcessingState.bind(chatStore);
+export const clearProcessingState = chatStore.clearProcessingState.bind(chatStore);
+export const updateProcessingStateFromTimings =
+	chatStore.updateProcessingStateFromTimings.bind(chatStore);
+export const setActiveProcessingConversation =
+	chatStore.setActiveProcessingConversation.bind(chatStore);
+export const isChatStreaming = () => chatStore.isStreaming();
+
+// Model detection
+export const getConversationModel = chatStore.getConversationModel.bind(chatStore);

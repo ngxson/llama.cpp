@@ -1,6 +1,7 @@
 <script lang="ts">
 	import '../app.css';
 	import { page } from '$app/state';
+	import { untrack } from 'svelte';
 	import { ChatSidebar, DialogConversationTitleUpdate } from '$lib/components/app';
 	import { isLoading } from '$lib/stores/chat.svelte';
 	import {
@@ -8,7 +9,7 @@
 		setTitleUpdateConfirmationCallback
 	} from '$lib/stores/conversations.svelte';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
-	import { serverStore } from '$lib/stores/server.svelte';
+	import { propsStore } from '$lib/stores/props.svelte';
 	import { config, settingsStore } from '$lib/stores/settings.svelte';
 	import { ModeWatcher } from 'mode-watcher';
 	import { Toaster } from 'svelte-sonner';
@@ -90,14 +91,19 @@
 		}
 	});
 
-	// Initialize server properties on app load
+	// Initialize server properties on app load (run once)
 	$effect(() => {
-		serverStore.fetchServerProps();
+		// Only fetch if we don't already have props
+		if (!propsStore.serverProps) {
+			untrack(() => {
+				propsStore.fetch();
+			});
+		}
 	});
 
 	// Sync settings when server props are loaded
 	$effect(() => {
-		const serverProps = serverStore.serverProps;
+		const serverProps = propsStore.serverProps;
 
 		if (serverProps?.default_generation_settings?.params) {
 			settingsStore.syncWithServerDefaults();

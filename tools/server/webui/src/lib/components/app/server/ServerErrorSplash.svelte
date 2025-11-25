@@ -4,7 +4,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import Label from '$lib/components/ui/label/label.svelte';
-	import { serverStore, serverLoading } from '$lib/stores/server.svelte';
+	import { propsStore, propsLoading } from '$lib/stores/props.svelte';
 	import { config, updateConfig } from '$lib/stores/settings.svelte';
 	import { fade, fly, scale } from 'svelte/transition';
 
@@ -24,7 +24,7 @@
 		showTroubleshooting = false
 	}: Props = $props();
 
-	let isServerLoading = $derived(serverLoading());
+	let isServerLoading = $derived(propsLoading());
 	let isAccessDeniedError = $derived(
 		error.toLowerCase().includes('access denied') ||
 			error.toLowerCase().includes('invalid api key') ||
@@ -42,7 +42,7 @@
 		if (onRetry) {
 			onRetry();
 		} else {
-			serverStore.fetchServerProps();
+			propsStore.fetch();
 		}
 	}
 

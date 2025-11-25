@@ -3,7 +3,7 @@ import { isTextFileByName } from './text-files';
 import { isWebpMimeType, webpBase64UrlToPngDataURL } from './webp-to-png';
 import { FileTypeCategory } from '$lib/enums';
 import { getFileTypeCategory } from '$lib/utils/file-type';
-import { supportsVision } from '$lib/stores/server.svelte';
+import { supportsVision } from '$lib/stores/props.svelte';
 import { settingsStore } from '$lib/stores/settings.svelte';
 import { toast } from 'svelte-sonner';
 

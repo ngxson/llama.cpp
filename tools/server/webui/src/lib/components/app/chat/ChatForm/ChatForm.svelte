@@ -9,6 +9,10 @@
 	} from '$lib/components/app';
 	import { INPUT_CLASSES } from '$lib/constants/input-classes';
 	import { config } from '$lib/stores/settings.svelte';
+	import { selectedModelId } from '$lib/stores/models.svelte';
+	import { isRouterMode } from '$lib/stores/props.svelte';
+	import { getConversationModel } from '$lib/stores/chat.svelte';
+	import { activeMessages } from '$lib/stores/conversations.svelte';
 	import {
 		FileTypeCategory,
 		MimeTypeApplication,
@@ -54,6 +58,7 @@
 	}: Props = $props();
 
 	let audioRecorder: AudioRecorder | undefined;
+	let chatFormActionsRef: ChatFormActions | undefined = $state(undefined);
 	let currentConfig = $derived(config());
 	let fileAcceptString = $state<string | undefined>(undefined);
 	let fileInputRef: ChatFormFileInputInvisible | undefined = $state(undefined);
@@ -63,6 +68,20 @@
 	let previousIsLoading = $state(isLoading);
 	let recordingSupported = $state(false);
 	let textareaRef: ChatFormTextarea | undefined = $state(undefined);
+
+	// Check if model is selected (in ROUTER mode)
+	let conversationModel = $derived(getConversationModel(activeMessages() as DatabaseMessage[]));
+	let isRouter = $derived(isRouterMode());
+	let hasModelSelected = $derived(!isRouter || !!conversationModel || !!selectedModelId());
+
+	function checkModelSelected(): boolean {
+		if (!hasModelSelected) {
+			// Open the model selector
+			chatFormActionsRef?.openModelSelector();
+			return false;
+		}
+		return true;
+	}
 
 	function getAcceptStringForFileType(fileType: FileTypeCategory): string {
 		switch (fileType) {
@@ -103,6 +122,9 @@
 			event.preventDefault();
 
 			if ((!message.trim() && uploadedFiles.length === 0) || disabled || isLoading) return;
+
+			// Check if model is selected first
+			if (!checkModelSelected()) return;
 
 			const messageToSend = message.trim();
 			const filesToSend = [...uploadedFiles];
@@ -188,6 +210,9 @@
 		event.preventDefault();
 		if ((!message.trim() && uploadedFiles.length === 0) || disabled || isLoading) return;
 
+		// Check if model is selected first
+		if (!checkModelSelected()) return;
+
 		const messageToSend = message.trim();
 		const filesToSend = [...uploadedFiles];
 
@@ -253,6 +278,7 @@
 		/>
 
 		<ChatFormActions
+			bind:this={chatFormActionsRef}
 			canSend={message.trim().length > 0 || uploadedFiles.length > 0}
 			hasText={message.trim().length > 0}
 			{disabled}

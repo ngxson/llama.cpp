@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { AlertTriangle, RefreshCw } from '@lucide/svelte';
-	import { serverLoading, serverStore } from '$lib/stores/server.svelte';
+	import { propsLoading, propsStore } from '$lib/stores/props.svelte';
 	import { fly } from 'svelte/transition';
 
 	interface Props {
@@ -10,7 +10,7 @@
 	let { class: className = '' }: Props = $props();
 
 	function handleRefreshServer() {
-		serverStore.fetchServerProps();
+		propsStore.fetch();
 	}
 </script>
 
@@ -27,11 +27,11 @@
 			</div>
 			<button
 				onclick={handleRefreshServer}
-				disabled={serverLoading()}
+				disabled={propsLoading()}
 				class="ml-3 flex items-center gap-1.5 rounded bg-yellow-100 px-2 py-1 text-xs font-medium text-yellow-800 hover:bg-yellow-200 disabled:opacity-50 dark:bg-yellow-900 dark:text-yellow-200 dark:hover:bg-yellow-800"
 			>
-				<RefreshCw class="h-3 w-3 {serverLoading() ? 'animate-spin' : ''}" />
-				{serverLoading() ? 'Checking...' : 'Retry'}
+				<RefreshCw class="h-3 w-3 {propsLoading() ? 'animate-spin' : ''}" />
+				{propsLoading() ? 'Checking...' : 'Retry'}
 			</button>
 		</div>
 	</div>

@@ -1,4 +1,4 @@
-import { serverStore } from '$lib/stores/server.svelte';
+import { propsStore } from '$lib/stores/props.svelte';
 
 /**
  * Mock server properties for Storybook testing
@@ -6,7 +6,7 @@ import { serverStore } from '$lib/stores/server.svelte';
  */
 export function mockServerProps(props: Partial<ApiLlamaCppServerProps>): void {
 	// Directly set the private _serverProps for testing purposes
-	(serverStore as unknown as { _serverProps: ApiLlamaCppServerProps })._serverProps = {
+	(propsStore as unknown as { _serverProps: ApiLlamaCppServerProps })._serverProps = {
 		model_path: props.model_path || 'test-model',
 		modalities: {
 			vision: props.modalities?.vision ?? false,
@@ -17,18 +17,18 @@ export function mockServerProps(props: Partial<ApiLlamaCppServerProps>): void {
 }
 
 /**
- * Reset server store to clean state for testing
+ * Reset props store to clean state for testing
  */
-export function resetServerStore(): void {
-	(serverStore as unknown as { _serverProps: ApiLlamaCppServerProps })._serverProps = {
+export function resetPropsStore(): void {
+	(propsStore as unknown as { _serverProps: ApiLlamaCppServerProps })._serverProps = {
 		model_path: '',
 		modalities: {
 			vision: false,
 			audio: false
 		}
 	} as ApiLlamaCppServerProps;
-	(serverStore as unknown as { _error: string })._error = '';
-	(serverStore as unknown as { _loading: boolean })._loading = false;
+	(propsStore as unknown as { _error: string })._error = '';
+	(propsStore as unknown as { _loading: boolean })._loading = false;
 }
 
 /**

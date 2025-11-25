@@ -1,6 +1,5 @@
 import { browser } from '$app/environment';
 import { conversationsService } from '$lib/services/conversations';
-import { slotsService } from '$lib/services/slots';
 import { config } from '$lib/stores/settings.svelte';
 import { filterByLeafNodeId, findLeafNode } from '$lib/utils/branching';
 import type { DatabaseConversation, DatabaseMessage } from '$lib/types/database';
@@ -29,7 +28,6 @@ import type { DatabaseConversation, DatabaseMessage } from '$lib/types/database'
  *
  * - **ChatStore**: Uses conversation data as context for active AI streaming
  * - **ConversationsService**: Database operations for conversation persistence
- * - **SlotsService**: Notified of active conversation changes
  * - **DatabaseService**: Low-level storage for conversations and messages
  *
  * **Key Features:**
@@ -99,7 +97,7 @@ class ConversationsStore {
 		this.activeConversation = conversation;
 		this.activeMessages = [];
 
-		slotsService.setActiveConversation(conversation.id);
+		// Active processing conversation is now set by ChatStore when streaming starts
 
 		await conversationsService.navigateToConversation(conversation.id);
 
@@ -121,7 +119,7 @@ class ConversationsStore {
 
 			this.activeConversation = conversation;
 
-			slotsService.setActiveConversation(convId);
+			// Active processing conversation is now set by ChatStore when streaming starts
 
 			if (conversation.currNode) {
 				const allMessages = await conversationsService.getConversationMessages(convId);
@@ -149,7 +147,7 @@ class ConversationsStore {
 	clearActiveConversation(): void {
 		this.activeConversation = null;
 		this.activeMessages = [];
-		slotsService.setActiveConversation(null);
+		// Active processing conversation is now managed by ChatStore
 	}
 
 	/**
