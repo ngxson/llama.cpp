@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { untrack } from 'svelte';
 	import { PROCESSING_INFO_TIMEOUT } from '$lib/constants/processing-info';
 	import { useProcessingState } from '$lib/hooks/use-processing-state.svelte';
 	import {
@@ -19,7 +20,8 @@
 	// Sync active processing conversation with currently viewed conversation
 	$effect(() => {
 		const conversation = activeConversation();
-		setActiveProcessingConversation(conversation?.id ?? null);
+		// Use untrack to prevent creating reactive dependencies on state updates
+		untrack(() => setActiveProcessingConversation(conversation?.id ?? null));
 	});
 
 	// Track loading state reactively by checking if conversation ID is in loading conversations array
@@ -27,7 +29,7 @@
 		const keepStatsVisible = config().keepStatsVisible;
 
 		if (keepStatsVisible || isCurrentConversationLoading) {
-			processingState.startMonitoring();
+			untrack(() => processingState.startMonitoring());
 		}
 
 		if (!isCurrentConversationLoading && !keepStatsVisible) {
@@ -47,7 +49,8 @@
 
 		if (keepStatsVisible && conversation) {
 			if (messages.length === 0) {
-				clearProcessingState(conversation.id);
+				// Use untrack to prevent creating reactive dependencies on state updates
+				untrack(() => clearProcessingState(conversation.id));
 				return;
 			}
 
@@ -60,24 +63,27 @@
 				if (message.role === 'assistant' && message.timings) {
 					foundTimingData = true;
 
-					updateProcessingStateFromTimings(
-						{
-							prompt_n: message.timings.prompt_n || 0,
-							predicted_n: message.timings.predicted_n || 0,
-							predicted_per_second:
-								message.timings.predicted_n && message.timings.predicted_ms
-									? (message.timings.predicted_n / message.timings.predicted_ms) * 1000
-									: 0,
-							cache_n: message.timings.cache_n || 0
-						},
-						conversation.id
+					// Use untrack to prevent creating reactive dependencies on state updates
+					untrack(() =>
+						updateProcessingStateFromTimings(
+							{
+								prompt_n: message.timings!.prompt_n || 0,
+								predicted_n: message.timings!.predicted_n || 0,
+								predicted_per_second:
+									message.timings!.predicted_n && message.timings!.predicted_ms
+										? (message.timings!.predicted_n / message.timings!.predicted_ms) * 1000
+										: 0,
+								cache_n: message.timings!.cache_n || 0
+							},
+							conversation.id
+						)
 					);
 					break;
 				}
 			}
 
 			if (!foundTimingData) {
-				clearProcessingState(conversation.id);
+				untrack(() => clearProcessingState(conversation.id));
 			}
 		}
 	});
