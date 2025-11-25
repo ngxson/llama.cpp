@@ -80,28 +80,18 @@
 			icon: Monitor,
 			fields: [
 				{
-					key: 'showThoughtInProgress',
-					label: 'Show thought in progress',
-					type: 'checkbox'
-				},
-				{
 					key: 'showMessageStats',
 					label: 'Show message generation statistics',
 					type: 'checkbox'
 				},
 				{
-					key: 'showTokensPerSecond',
-					label: 'Show tokens per second',
+					key: 'showThoughtInProgress',
+					label: 'Show thought in progress',
 					type: 'checkbox'
 				},
 				{
 					key: 'keepStatsVisible',
 					label: 'Keep stats visible after generation',
-					type: 'checkbox'
-				},
-				{
-					key: 'disableAutoScroll',
-					label: 'Disable automatic scroll',
 					type: 'checkbox'
 				},
 				{
@@ -113,6 +103,11 @@
 				{
 					key: 'renderUserContentAsMarkdown',
 					label: 'Render user content as Markdown',
+					type: 'checkbox'
+				},
+				{
+					key: 'disableAutoScroll',
+					label: 'Disable automatic scroll',
 					type: 'checkbox'
 				}
 			]

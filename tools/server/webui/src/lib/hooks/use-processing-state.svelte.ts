@@ -120,7 +120,6 @@ export function useProcessingState(): UseProcessingStateReturn {
 		}
 
 		const details: string[] = [];
-		const currentConfig = config(); // Get fresh config each time
 
 		// Always show context info when we have valid data
 		if (stateToUse.contextUsed >= 0 && stateToUse.contextTotal > 0) {
@@ -146,11 +145,7 @@ export function useProcessingState(): UseProcessingStateReturn {
 			}
 		}
 
-		if (
-			currentConfig.showTokensPerSecond &&
-			stateToUse.tokensPerSecond &&
-			stateToUse.tokensPerSecond > 0
-		) {
+		if (stateToUse.tokensPerSecond && stateToUse.tokensPerSecond > 0) {
 			details.push(`${stateToUse.tokensPerSecond.toFixed(1)} tokens/sec`);
 		}
 

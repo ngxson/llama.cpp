@@ -4,7 +4,6 @@ export const SETTING_CONFIG_DEFAULT: Record<string, string | number | boolean> =
 	apiKey: '',
 	systemMessage: '',
 	theme: 'system',
-	showTokensPerSecond: false,
 	showThoughtInProgress: false,
 	showToolCalls: false,
 	disableReasoningFormat: false,
@@ -80,7 +79,6 @@ export const SETTING_CONFIG_INFO: Record<string, string> = {
 		'DRY sampling reduces repetition in generated text even across long contexts. This parameter sets DRY penalty for the last n tokens.',
 	max_tokens: 'The maximum number of token per output. Use -1 for infinite (no limit).',
 	custom: 'Custom JSON parameters to send to the API. Must be valid JSON format.',
-	showTokensPerSecond: 'Display generation speed in tokens per second during streaming.',
 	showThoughtInProgress: 'Expand thought process by default when generating messages.',
 	showToolCalls:
 		'Display tool call labels and payloads from Harmony-compatible delta.tool_calls data below assistant messages.',
