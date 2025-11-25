@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { ChatMessage } from '$lib/components/app';
-	import { DatabaseStore } from '$lib/stores/database';
+	import { DatabaseService } from '$lib/services/database';
 	import {
 		activeConversation,
 		continueAssistantMessage,
@@ -27,7 +27,7 @@
 		const conversation = activeConversation();
 
 		if (conversation) {
-			DatabaseStore.getConversationMessages(conversation.id).then((messages) => {
+			DatabaseService.getConversationMessages(conversation.id).then((messages) => {
 				allConversationMessages = messages;
 			});
 		} else {

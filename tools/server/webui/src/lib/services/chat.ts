@@ -40,7 +40,7 @@ import type { SettingsChatServiceOptions } from '$lib/types/settings';
  * - **ChatStore**: Stateful orchestration and UI state management
  *   - Uses ChatService for all AI model communication
  *   - Manages conversation state, message history, and UI reactivity
- *   - Coordinates with DatabaseStore for persistence
+ *   - Coordinates with DatabaseService for persistence
  *   - Handles complex workflows like branching and regeneration
  *
  * **Key Responsibilities:**
