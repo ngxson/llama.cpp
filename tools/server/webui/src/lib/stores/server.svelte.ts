@@ -3,7 +3,6 @@ import { SERVER_PROPS_LOCALSTORAGE_KEY } from '$lib/constants/localstorage-keys'
 import { PropsService } from '$lib/services/props';
 import { config } from '$lib/stores/settings.svelte';
 import { ServerMode, ModelModality } from '$lib/enums';
-import { updateConfig } from '$lib/stores/settings.svelte';
 
 /**
  * ServerStore - Server state management and capability detection
@@ -251,11 +250,6 @@ class ServerStore {
 				if (props.model_path === 'none') {
 					this._serverMode = ServerMode.ROUTER;
 					console.info('Server running in ROUTER mode (multi-model management)');
-
-					// Auto-enable model selector in router mode
-					if (browser) {
-						updateConfig('modelSelectorEnabled', true);
-					}
 				} else {
 					this._serverMode = ServerMode.MODEL;
 					console.info('Server running in MODEL mode (single model)');

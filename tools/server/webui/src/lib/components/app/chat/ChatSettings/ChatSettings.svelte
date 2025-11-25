@@ -100,11 +100,6 @@
 					type: 'checkbox'
 				},
 				{
-					key: 'showModelInfo',
-					label: 'Show model information',
-					type: 'checkbox'
-				},
-				{
 					key: 'disableAutoScroll',
 					label: 'Disable automatic scroll',
 					type: 'checkbox'
@@ -238,11 +233,6 @@
 			title: 'Developer',
 			icon: Code,
 			fields: [
-				{
-					key: 'modelSelectorEnabled',
-					label: 'Enable model selector',
-					type: 'checkbox'
-				},
 				{
 					key: 'showToolCalls',
 					label: 'Show tool call labels',

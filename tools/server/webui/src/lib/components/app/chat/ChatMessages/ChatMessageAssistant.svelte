@@ -93,8 +93,6 @@
 	let currentConfig = $derived(config());
 	let isRouter = $derived(isRouterMode());
 	let displayedModel = $derived((): string | null => {
-		if (!currentConfig.showModelInfo) return null;
-
 		// Only show model from streaming data, no fallbacks to server props
 		if (message.model) {
 			return message.model;
@@ -254,7 +252,7 @@
 	<div class="info my-6 grid gap-4">
 		{#if displayedModel()}
 			<span class="inline-flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-				{#if isRouter && currentConfig.modelSelectorEnabled}
+				{#if isRouter}
 					<SelectorModel
 						currentModel={displayedModel()}
 						onModelChange={handleModelChange}

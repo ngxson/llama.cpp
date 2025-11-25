@@ -3,6 +3,7 @@
 	import ChatSidebar from '$lib/components/app/chat/ChatSidebar/ChatSidebar.svelte';
 	import { waitFor } from 'storybook/test';
 	import { screen } from 'storybook/test';
+	import type { DatabaseConversation } from '$lib/types/database';
 
 	const { Story } = defineMeta({
 		title: 'Components/ChatSidebar',
@@ -51,10 +52,10 @@
 	asChild
 	name="Default"
 	play={async () => {
-		const { chatStore } = await import('$lib/stores/chat.svelte');
+		const { conversationsStore } = await import('$lib/stores/conversations.svelte');
 		
 		waitFor(() => setTimeout(() => {
-			chatStore.conversations = mockConversations;
+			conversationsStore.conversations = mockConversations;
 		}, 0));
 	}}
 >
@@ -67,10 +68,10 @@
 	asChild
 	name="SearchActive"
 	play={async ({ userEvent }) => {
-		const { chatStore } = await import('$lib/stores/chat.svelte');
+		const { conversationsStore } = await import('$lib/stores/conversations.svelte');
 		
 		waitFor(() => setTimeout(() => {
-			chatStore.conversations = mockConversations;
+			conversationsStore.conversations = mockConversations;
 		}, 0));
 		
 		const searchTrigger = screen.getByText('Search conversations');
@@ -87,8 +88,8 @@
 	name="Empty"
 	play={async () => {
 		// Mock empty conversations store
-		const { chatStore } = await import('$lib/stores/chat.svelte');
-		chatStore.conversations = [];
+		const { conversationsStore } = await import('$lib/stores/conversations.svelte');
+		conversationsStore.conversations = [];
 	}}
 >
 	<div class="flex-column h-full h-screen w-72 bg-background">

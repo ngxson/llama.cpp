@@ -1,5 +1,6 @@
 import { config } from '$lib/stores/settings.svelte';
 import { selectedModelName } from '$lib/stores/models.svelte';
+import { isRouterMode } from '$lib/stores/server.svelte';
 import { slotsService } from './slots';
 import type {
 	ApiChatCompletionRequest,
@@ -149,10 +150,10 @@ export class ChatService {
 			stream
 		};
 
-		const modelSelectorEnabled = Boolean(currentConfig.modelSelectorEnabled);
-		const activeModel = modelSelectorEnabled ? selectedModelName() : null;
+		const isRouter = isRouterMode();
+		const activeModel = isRouter ? selectedModelName() : null;
 
-		if (modelSelectorEnabled && activeModel) {
+		if (isRouter && activeModel) {
 			requestBody.model = activeModel;
 		}
 
