@@ -2841,6 +2841,8 @@ class Mistral3Model(LlamaModel):
             self.gguf_writer.add_rope_scaling_yarn_beta_slow(rope_params["beta_slow"])
             self.gguf_writer.add_rope_scaling_yarn_log_mul(0.1 * rope_params["mscale_all_dim"]) # copied from deepseekv2
             self.gguf_writer.add_rope_scaling_orig_ctx_len(rope_params["original_max_position_embeddings"])
+            if "rope_theta" in rope_params:
+                self.gguf_writer.add_rope_freq_base(rope_params["rope_theta"])
             if "llama_4_scaling_beta" in rope_params:
                 self.gguf_writer.add_attn_temperature_scale(rope_params["llama_4_scaling_beta"])
 
