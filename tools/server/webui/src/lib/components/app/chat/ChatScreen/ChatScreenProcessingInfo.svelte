@@ -2,7 +2,8 @@
 	import { PROCESSING_INFO_TIMEOUT } from '$lib/constants/processing-info';
 	import { useProcessingState } from '$lib/hooks/use-processing-state.svelte';
 	import { slotsService } from '$lib/services/slots';
-	import { isLoading, activeMessages, activeConversation } from '$lib/stores/chat.svelte';
+	import { isLoading } from '$lib/stores/chat.svelte';
+	import { activeMessages, activeConversation } from '$lib/stores/conversations.svelte';
 	import { config } from '$lib/stores/settings.svelte';
 
 	const processingState = useProcessingState();

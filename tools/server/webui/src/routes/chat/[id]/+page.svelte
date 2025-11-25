@@ -3,13 +3,12 @@
 	import { page } from '$app/state';
 	import { afterNavigate } from '$app/navigation';
 	import { ChatScreen } from '$lib/components/app';
+	import { isLoading, stopGeneration, syncLoadingStateForChat } from '$lib/stores/chat.svelte';
 	import {
-		chatStore,
 		activeConversation,
-		isLoading,
-		stopGeneration,
-		activeMessages
-	} from '$lib/stores/chat.svelte';
+		activeMessages,
+		loadConversation
+	} from '$lib/stores/conversations.svelte';
 	import { selectModel, modelOptions, selectedModelId } from '$lib/stores/models.svelte';
 
 	let chatId = $derived(page.params.id);
@@ -67,9 +66,10 @@
 			}
 
 			(async () => {
-				const success = await chatStore.loadConversation(chatId);
-
-				if (!success) {
+				const success = await loadConversation(chatId);
+				if (success) {
+					syncLoadingStateForChat(chatId);
+				} else {
 					await goto('#/');
 				}
 			})();

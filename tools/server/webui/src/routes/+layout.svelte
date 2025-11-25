@@ -2,11 +2,11 @@
 	import '../app.css';
 	import { page } from '$app/state';
 	import { ChatSidebar, DialogConversationTitleUpdate } from '$lib/components/app';
+	import { isLoading } from '$lib/stores/chat.svelte';
 	import {
 		activeMessages,
-		isLoading,
 		setTitleUpdateConfirmationCallback
-	} from '$lib/stores/chat.svelte';
+	} from '$lib/stores/conversations.svelte';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import { serverStore } from '$lib/stores/server.svelte';
 	import { config, settingsStore } from '$lib/stores/settings.svelte';

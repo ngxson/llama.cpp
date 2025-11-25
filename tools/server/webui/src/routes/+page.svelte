@@ -1,21 +1,28 @@
 <script lang="ts">
 	import { ChatScreen } from '$lib/components/app';
-	import { chatStore, isInitialized } from '$lib/stores/chat.svelte';
+	import { sendMessage, clearUIState } from '$lib/stores/chat.svelte';
+	import {
+		conversationsStore,
+		isConversationsInitialized,
+		clearActiveConversation,
+		createConversation
+	} from '$lib/stores/conversations.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 
 	let qParam = $derived(page.url.searchParams.get('q'));
 
 	onMount(async () => {
-		if (!isInitialized) {
-			await chatStore.initialize();
+		if (!isConversationsInitialized()) {
+			await conversationsStore.initialize();
 		}
 
-		chatStore.clearActiveConversation();
+		clearActiveConversation();
+		clearUIState();
 
 		if (qParam !== null) {
-			await chatStore.createConversation();
-			await chatStore.sendMessage(qParam);
+			await createConversation();
+			await sendMessage(qParam);
 		}
 	});
 </script>

@@ -22,26 +22,32 @@ import type {
 } from '$lib/types/database';
 import type { ChatMessagePromptProgress, ChatMessageTimings } from '$lib/types/chat';
 import type { SettingsChatServiceOptions } from '$lib/types/settings';
+
 /**
- * ChatService - Low-level API communication layer for llama.cpp server interactions
+ * ChatService - Low-level API communication layer for Chat Completions
  *
- * This service handles direct communication with the llama.cpp server's chat completion API.
+ * **Terminology - Chat vs Conversation:**
+ * - **Chat**: The active interaction space with the Chat Completions API. This service
+ *   handles the real-time communication with the AI backend - sending messages, receiving
+ *   streaming responses, and managing request lifecycles. "Chat" is ephemeral and runtime-focused.
+ * - **Conversation**: The persistent database entity storing all messages and metadata.
+ *   Managed by ConversationsService/Store, conversations persist across sessions.
+ *
+ * This service handles direct communication with the llama-server's Chat Completions API.
  * It provides the network layer abstraction for AI model interactions while remaining
  * stateless and focused purely on API communication.
  *
- * **Architecture & Relationship with ChatStore:**
+ * **Architecture & Relationships:**
  * - **ChatService** (this class): Stateless API communication layer
- *   - Handles HTTP requests/responses with llama.cpp server
+ *   - Handles HTTP requests/responses with the llama-server
  *   - Manages streaming and non-streaming response parsing
- *   - Provides request abortion capabilities
+ *   - Provides per-conversation request abortion capabilities
  *   - Converts database messages to API format
  *   - Handles error translation for server responses
  *
- * - **ChatStore**: Stateful orchestration and UI state management
- *   - Uses ChatService for all AI model communication
- *   - Manages conversation state, message history, and UI reactivity
- *   - Coordinates with DatabaseService for persistence
- *   - Handles complex workflows like branching and regeneration
+ * - **ChatStore**: Uses ChatService for all AI model communication
+ * - **SlotsService**: Receives timing data updates during streaming
+ * - **ConversationsStore**: Provides message context for API requests
  *
  * **Key Responsibilities:**
  * - Message format conversion (DatabaseMessage → API format)
@@ -694,7 +700,7 @@ export class ChatService {
 	}
 
 	/**
-	 * Get server properties - static method for API compatibility
+	 * Get server properties - static method for API compatibility (to be refactored)
 	 */
 	static async getServerProps(): Promise<ApiLlamaCppServerProps> {
 		try {
@@ -721,7 +727,7 @@ export class ChatService {
 	}
 
 	/**
-	 * Get model information from /models endpoint
+	 * Get model information from /models endpoint (to be refactored)
 	 */
 	static async getModels(): Promise<ApiModelListResponse> {
 		try {
@@ -753,7 +759,7 @@ export class ChatService {
 	 *
 	 * @public
 	 */
-	public abort(conversationId?: string): void {
+	public abortChatCompletionRequest(conversationId?: string): void {
 		if (conversationId) {
 			const abortController = this.abortControllers.get(conversationId);
 			if (abortController) {
@@ -828,6 +834,14 @@ export class ChatService {
 		}
 	}
 
+	/**
+	 * Extracts model name from Chat Completions API response data.
+	 * Handles various response formats including streaming chunks and final responses.
+	 *
+	 * @param data - Raw response data from the Chat Completions API
+	 * @returns Model name string if found, undefined otherwise
+	 * @private
+	 */
 	private extractModelName(data: unknown): string | undefined {
 		const asRecord = (value: unknown): Record<string, unknown> | undefined => {
 			return typeof value === 'object' && value !== null
@@ -861,6 +875,15 @@ export class ChatService {
 		return undefined;
 	}
 
+	/**
+	 * Updates the processing state in SlotsService with timing data from streaming response.
+	 * Calculates tokens per second and forwards metrics for UI display.
+	 *
+	 * @param timings - Timing information from the Chat Completions API response
+	 * @param promptProgress - Prompt processing progress data
+	 * @param conversationId - Optional conversation ID for per-conversation state tracking
+	 * @private
+	 */
 	private updateProcessingState(
 		timings?: ChatMessageTimings,
 		promptProgress?: ChatMessagePromptProgress,

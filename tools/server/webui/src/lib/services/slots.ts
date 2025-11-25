@@ -279,8 +279,8 @@ export class SlotsService {
 			return this.lastKnownState;
 		}
 		try {
-			const { chatStore } = await import('$lib/stores/chat.svelte');
-			const messages = chatStore.activeMessages;
+			const { conversationsStore } = await import('$lib/stores/conversations.svelte');
+			const messages = conversationsStore.activeMessages;
 
 			for (let i = messages.length - 1; i >= 0; i--) {
 				const message = messages[i];

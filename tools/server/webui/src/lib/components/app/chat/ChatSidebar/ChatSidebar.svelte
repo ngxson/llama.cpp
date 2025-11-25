@@ -11,7 +11,7 @@
 		conversations,
 		deleteConversation,
 		updateConversationName
-	} from '$lib/stores/chat.svelte';
+	} from '$lib/stores/conversations.svelte';
 	import ChatSidebarActions from './ChatSidebarActions.svelte';
 
 	const sidebar = Sidebar.useSidebar();

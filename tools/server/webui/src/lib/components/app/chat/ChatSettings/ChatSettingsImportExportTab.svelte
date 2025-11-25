@@ -5,7 +5,7 @@
 	import { DatabaseService } from '$lib/services/database';
 	import type { ExportedConversations } from '$lib/types/database';
 	import { createMessageCountMap } from '$lib/utils/conversation-utils';
-	import { chatStore } from '$lib/stores/chat.svelte';
+	import { conversationsStore } from '$lib/stores/conversations.svelte';
 
 	let exportedConversations = $state<DatabaseConversation[]>([]);
 	let importedConversations = $state<DatabaseConversation[]>([]);
@@ -138,7 +138,7 @@
 
 			await DatabaseService.importConversations(selectedData);
 
-			await chatStore.loadConversations();
+			await conversationsStore.loadConversations();
 
 			importedConversations = selectedConversations;
 			showImportSummary = true;

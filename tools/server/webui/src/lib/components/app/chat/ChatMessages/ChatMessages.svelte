@@ -2,15 +2,14 @@
 	import { ChatMessage } from '$lib/components/app';
 	import { DatabaseService } from '$lib/services/database';
 	import {
-		activeConversation,
 		continueAssistantMessage,
 		deleteMessage,
 		editAssistantMessage,
 		editMessageWithBranching,
 		editUserMessagePreserveResponses,
-		navigateToSibling,
 		regenerateMessageWithBranching
 	} from '$lib/stores/chat.svelte';
+	import { activeConversation, navigateToSibling } from '$lib/stores/conversations.svelte';
 	import { getMessageSiblings } from '$lib/utils/branching';
 
 	interface Props {

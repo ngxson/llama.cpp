@@ -19,15 +19,17 @@
 		INITIAL_SCROLL_DELAY
 	} from '$lib/constants/auto-scroll';
 	import {
-		activeMessages,
-		activeConversation,
-		deleteConversation,
 		dismissErrorDialog,
 		errorDialog,
 		isLoading,
 		sendMessage,
 		stopGeneration
 	} from '$lib/stores/chat.svelte';
+	import {
+		activeMessages,
+		activeConversation,
+		deleteConversation
+	} from '$lib/stores/conversations.svelte';
 	import { config } from '$lib/stores/settings.svelte';
 	import {
 		supportsVision,
