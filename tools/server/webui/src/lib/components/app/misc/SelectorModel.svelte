@@ -9,10 +9,12 @@
 		modelsLoading,
 		modelsUpdating,
 		selectModel,
-		selectedModelId
+		selectedModelId,
+		modelsStore
 	} from '$lib/stores/models.svelte';
 	import { isRouterMode, propsStore } from '$lib/stores/props.svelte';
 	import { DialogModelInformation } from '$lib/components/app';
+	import { MODALITY_ICONS } from '$lib/constants/modality-icons';
 	import type { ModelOption } from '$lib/types/models';
 
 	interface Props {
@@ -379,19 +381,49 @@
 							<div class="my-1 h-px bg-border"></div>
 						{/if}
 						{#each options as option (option.id)}
+							{@const isLoaded = modelsStore.isModelLoaded(option.model)}
+							{@const hasVision = option.capabilities.includes('vision')}
+							{@const hasAudio = option.capabilities.includes('audio')}
+							{@const isSelected = currentModel === option.model || activeId === option.id}
 							<button
 								type="button"
 								class={cn(
-									'flex w-full cursor-pointer items-center px-3 py-2 text-left text-sm transition hover:bg-muted focus:bg-muted focus:outline-none',
-									currentModel === option.model || activeId === option.id
+									'flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm transition hover:bg-muted focus:bg-muted focus:outline-none',
+									isSelected
 										? 'bg-accent text-accent-foreground'
-										: 'text-popover-foreground hover:bg-accent hover:text-accent-foreground'
+										: 'hover:bg-accent hover:text-accent-foreground',
+									isLoaded ? 'text-popover-foreground' : 'text-muted-foreground'
 								)}
 								role="option"
-								aria-selected={currentModel === option.model || activeId === option.id}
+								aria-selected={isSelected}
 								onclick={() => handleSelect(option.id)}
 							>
-								<span class="truncate">{option.model}</span>
+								<!-- Status dot -->
+								<span
+									class={cn(
+										'h-2 w-2 shrink-0 rounded-full',
+										isLoaded ? 'bg-green-500' : 'bg-muted-foreground/50'
+									)}
+								></span>
+
+								<!-- Model name -->
+								<span class="min-w-0 flex-1 truncate">{option.model}</span>
+
+								<!-- Modality icons -->
+								<div class="flex shrink-0 items-center gap-1">
+									<MODALITY_ICONS.vision
+										class={cn(
+											'h-3.5 w-3.5',
+											hasVision ? 'text-foreground' : 'text-muted-foreground/40'
+										)}
+									/>
+									<MODALITY_ICONS.audio
+										class={cn(
+											'h-3.5 w-3.5',
+											hasAudio ? 'text-foreground' : 'text-muted-foreground/40'
+										)}
+									/>
+								</div>
 							</button>
 						{/each}
 					</div>

@@ -1,9 +1,10 @@
 <script lang="ts">
-	import { Paperclip, Image, FileText, File, Volume2 } from '@lucide/svelte';
+	import { Paperclip } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { TOOLTIP_DELAY_DURATION } from '$lib/constants/tooltip-config';
+	import { FILE_TYPE_ICONS } from '$lib/constants/modality-icons';
 	import { FileTypeCategory } from '$lib/enums';
 
 	interface Props {
@@ -63,7 +64,7 @@
 						disabled={!hasVisionModality}
 						onclick={() => handleFileUpload(FileTypeCategory.IMAGE)}
 					>
-						<Image class="h-4 w-4" />
+						<FILE_TYPE_ICONS.image class="h-4 w-4" />
 
 						<span>Images</span>
 					</DropdownMenu.Item>
@@ -83,7 +84,7 @@
 						disabled={!hasAudioModality}
 						onclick={() => handleFileUpload(FileTypeCategory.AUDIO)}
 					>
-						<Volume2 class="h-4 w-4" />
+						<FILE_TYPE_ICONS.audio class="h-4 w-4" />
 
 						<span>Audio Files</span>
 					</DropdownMenu.Item>
@@ -100,7 +101,7 @@
 				class="flex cursor-pointer items-center gap-2"
 				onclick={() => handleFileUpload(FileTypeCategory.TEXT)}
 			>
-				<FileText class="h-4 w-4" />
+				<FILE_TYPE_ICONS.text class="h-4 w-4" />
 
 				<span>Text Files</span>
 			</DropdownMenu.Item>
@@ -111,7 +112,7 @@
 						class="flex cursor-pointer items-center gap-2"
 						onclick={() => handleFileUpload(FileTypeCategory.PDF)}
 					>
-						<File class="h-4 w-4" />
+						<FILE_TYPE_ICONS.pdf class="h-4 w-4" />
 
 						<span>PDF Files</span>
 					</DropdownMenu.Item>
