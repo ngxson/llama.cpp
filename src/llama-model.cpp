@@ -2243,14 +2243,14 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                     }
                 }
 
-                // the same as deepseek2
-                hparams.rope_freq_scale_train = 1.0f;
                 if (hparams.rope_yarn_log_mul != 0.0f) {
-                    float freq_scale  = hparams.rope_freq_scale_train;
-                    float mscale      = hparams.yarn_attn_factor * (1.0f + hparams.rope_yarn_log_mul * logf(1.0f / freq_scale));
-
-                    hparams.f_attention_scale = 1.0f * mscale * mscale / sqrtf(float(hparams.n_embd_head_k));
-                    hparams.rope_attn_factor  = 1.0f / (1.0f + 0.1f * logf(1.0f / freq_scale));
+                    float factor = hparams.yarn_attn_factor;
+                    float mscale = 1.0f;
+                    float mscale_all_dims = hparams.rope_yarn_log_mul;
+                    static auto get_mscale = [](float scale, float mscale) {
+                        return scale <= 1.0f ? 1.0f : (0.1f * mscale * logf(scale) + 1.0f);
+                    };
+                    hparams.yarn_attn_factor = get_mscale(factor, mscale) / get_mscale(factor, mscale_all_dims);
                 }
 
                 switch (hparams.n_layer) {
