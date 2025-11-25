@@ -39,6 +39,10 @@ class PropsStore {
 	private _serverMode = $state<ServerMode | null>(null);
 	private fetchPromise: Promise<void> | null = null;
 
+	// Model-specific props cache (ROUTER mode)
+	private _modelPropsCache = $state<Map<string, ApiLlamaCppServerProps>>(new Map());
+	private _modelPropsFetching = $state<Set<string>>(new Set());
+
 	// ─────────────────────────────────────────────────────────────────────────────
 	// LocalStorage persistence
 	// ─────────────────────────────────────────────────────────────────────────────
@@ -239,6 +243,52 @@ class PropsStore {
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────
+	// Fetch Model-Specific Properties (ROUTER mode)
+	// ─────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Get cached props for a specific model
+	 */
+	getModelProps(modelId: string): ApiLlamaCppServerProps | null {
+		return this._modelPropsCache.get(modelId) ?? null;
+	}
+
+	/**
+	 * Check if model props are being fetched
+	 */
+	isModelPropsFetching(modelId: string): boolean {
+		return this._modelPropsFetching.has(modelId);
+	}
+
+	/**
+	 * Fetches properties for a specific model (ROUTER mode)
+	 * Results are cached for subsequent calls
+	 */
+	async fetchModelProps(modelId: string): Promise<ApiLlamaCppServerProps | null> {
+		// Return cached if available
+		const cached = this._modelPropsCache.get(modelId);
+		if (cached) return cached;
+
+		// Don't fetch if already fetching
+		if (this._modelPropsFetching.has(modelId)) {
+			return null;
+		}
+
+		this._modelPropsFetching.add(modelId);
+
+		try {
+			const props = await PropsService.fetchForModel(modelId);
+			this._modelPropsCache.set(modelId, props);
+			return props;
+		} catch (error) {
+			console.warn(`Failed to fetch props for model ${modelId}:`, error);
+			return null;
+		} finally {
+			this._modelPropsFetching.delete(modelId);
+		}
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
 	// Error Handling
 	// ─────────────────────────────────────────────────────────────────────────────
 
@@ -365,3 +415,5 @@ export const isModelMode = () => propsStore.isModelMode;
 
 // Actions
 export const fetchProps = propsStore.fetch.bind(propsStore);
+export const fetchModelProps = propsStore.fetchModelProps.bind(propsStore);
+export const getModelProps = propsStore.getModelProps.bind(propsStore);

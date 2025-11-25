@@ -150,7 +150,7 @@ export class ChatService {
 		};
 
 		const isRouter = isRouterMode();
-		const activeModel = isRouter ? selectedModelName() : null;
+		const activeModel = isRouter ? options.model || selectedModelName() : null;
 
 		if (isRouter && activeModel) {
 			requestBody.model = activeModel;

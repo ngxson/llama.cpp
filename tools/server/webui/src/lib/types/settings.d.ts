@@ -14,6 +14,8 @@ export interface SettingsFieldConfig {
 
 export interface SettingsChatServiceOptions {
 	stream?: boolean;
+	// Model override (for regenerate with specific model)
+	model?: string;
 	// Generation parameters
 	temperature?: number;
 	max_tokens?: number;

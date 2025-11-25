@@ -44,7 +44,7 @@
 		onEditKeydown?: (event: KeyboardEvent) => void;
 		onEditedContentChange?: (content: string) => void;
 		onNavigateToSibling?: (siblingId: string) => void;
-		onRegenerate: () => void;
+		onRegenerate: (modelOverride?: string) => void;
 		onSaveEdit?: () => void;
 		onShowDeleteDialogChange: (show: boolean) => void;
 		onShouldBranchAfterEditChange?: (value: boolean) => void;
@@ -101,11 +101,12 @@
 		return null;
 	});
 
-	async function handleModelChange(modelId: string) {
+	async function handleModelChange(modelId: string, modelName: string) {
 		try {
 			await selectModel(modelId);
 
-			onRegenerate();
+			// Pass the selected model name for regeneration
+			onRegenerate(modelName);
 		} catch (error) {
 			console.error('Failed to change model:', error);
 		}

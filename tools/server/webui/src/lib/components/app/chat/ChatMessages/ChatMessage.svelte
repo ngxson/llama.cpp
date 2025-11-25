@@ -20,7 +20,7 @@
 		) => void;
 		onEditUserMessagePreserveResponses?: (message: DatabaseMessage, newContent: string) => void;
 		onNavigateToSibling?: (siblingId: string) => void;
-		onRegenerateWithBranching?: (message: DatabaseMessage) => void;
+		onRegenerateWithBranching?: (message: DatabaseMessage, modelOverride?: string) => void;
 		siblingInfo?: ChatMessageSiblingInfo | null;
 	}
 
@@ -133,8 +133,8 @@
 		}
 	}
 
-	function handleRegenerate() {
-		onRegenerateWithBranching?.(message);
+	function handleRegenerate(modelOverride?: string) {
+		onRegenerateWithBranching?.(message, modelOverride);
 	}
 
 	function handleContinue() {

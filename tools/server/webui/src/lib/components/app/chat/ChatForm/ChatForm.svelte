@@ -9,8 +9,14 @@
 	} from '$lib/components/app';
 	import { INPUT_CLASSES } from '$lib/constants/input-classes';
 	import { config } from '$lib/stores/settings.svelte';
-	import { selectedModelId } from '$lib/stores/models.svelte';
-	import { isRouterMode } from '$lib/stores/props.svelte';
+	import { modelOptions, selectedModelId } from '$lib/stores/models.svelte';
+	import {
+		isRouterMode,
+		supportsAudio,
+		supportsVision,
+		fetchModelProps,
+		getModelProps
+	} from '$lib/stores/props.svelte';
 	import { getConversationModel } from '$lib/stores/chat.svelte';
 	import { activeMessages } from '$lib/stores/conversations.svelte';
 	import {
@@ -73,6 +79,68 @@
 	let conversationModel = $derived(getConversationModel(activeMessages() as DatabaseMessage[]));
 	let isRouter = $derived(isRouterMode());
 	let hasModelSelected = $derived(!isRouter || !!conversationModel || !!selectedModelId());
+
+	// Get active model ID for capability detection
+	let activeModelId = $derived.by(() => {
+		if (!isRouter) return null;
+
+		const options = modelOptions();
+
+		// First try user-selected model
+		const selectedId = selectedModelId();
+		if (selectedId) {
+			const model = options.find((m) => m.id === selectedId);
+			if (model) return model.model;
+		}
+
+		// Fallback to conversation model
+		if (conversationModel) {
+			const model = options.find((m) => m.model === conversationModel);
+			if (model) return model.model;
+		}
+
+		return null;
+	});
+
+	// State for model props reactivity
+	let modelPropsVersion = $state(0);
+
+	// Fetch model props when active model changes
+	$effect(() => {
+		if (isRouter && activeModelId) {
+			const cached = getModelProps(activeModelId);
+			if (!cached) {
+				fetchModelProps(activeModelId).then(() => {
+					modelPropsVersion++;
+				});
+			}
+		}
+	});
+
+	// Derive modalities from model props (ROUTER) or server props (MODEL)
+	let hasAudioModality = $derived.by(() => {
+		if (!isRouter) return supportsAudio();
+
+		if (activeModelId) {
+			void modelPropsVersion;
+			const props = getModelProps(activeModelId);
+			if (props) return props.modalities?.audio ?? false;
+		}
+
+		return false;
+	});
+
+	let hasVisionModality = $derived.by(() => {
+		if (!isRouter) return supportsVision();
+
+		if (activeModelId) {
+			void modelPropsVersion;
+			const props = getModelProps(activeModelId);
+			if (props) return props.modalities?.vision ?? false;
+		}
+
+		return false;
+	});
 
 	function checkModelSelected(): boolean {
 		if (!hasModelSelected) {
@@ -251,6 +319,8 @@
 <ChatFormFileInputInvisible
 	bind:this={fileInputRef}
 	bind:accept={fileAcceptString}
+	{hasAudioModality}
+	{hasVisionModality}
 	onFileSelect={handleFileSelect}
 />
 

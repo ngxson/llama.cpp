@@ -36,8 +36,13 @@
 		supportsAudio,
 		propsLoading,
 		serverWarning,
-		propsStore
+		propsStore,
+		isRouterMode,
+		fetchModelProps,
+		getModelProps
 	} from '$lib/stores/props.svelte';
+	import { modelOptions, selectedModelId } from '$lib/stores/models.svelte';
+	import { getConversationModel } from '$lib/stores/chat.svelte';
 	import { parseFilesToMessageExtras } from '$lib/utils/convert-files-to-extra';
 	import { isFileTypeSupported } from '$lib/utils/file-type';
 	import { filterFilesByModalities } from '$lib/utils/modality-file-validation';
@@ -88,6 +93,72 @@
 	let isServerLoading = $derived(propsLoading());
 
 	let isCurrentConversationLoading = $derived(isLoading());
+
+	// Model-specific capability detection (same logic as ChatFormActions)
+	let isRouter = $derived(isRouterMode());
+	let conversationModel = $derived(getConversationModel(activeMessages() as DatabaseMessage[]));
+
+	// Get active model ID for fetching props
+	let activeModelId = $derived.by(() => {
+		if (!isRouter) return null;
+
+		const options = modelOptions();
+
+		// First try user-selected model
+		const selectedId = selectedModelId();
+		if (selectedId) {
+			const model = options.find((m) => m.id === selectedId);
+			if (model) return model.model;
+		}
+
+		// Fallback to conversation model
+		if (conversationModel) {
+			const model = options.find((m) => m.model === conversationModel);
+			if (model) return model.model;
+		}
+
+		return null;
+	});
+
+	// State for model props reactivity
+	let modelPropsVersion = $state(0);
+
+	// Fetch model props when active model changes
+	$effect(() => {
+		if (isRouter && activeModelId) {
+			const cached = getModelProps(activeModelId);
+			if (!cached) {
+				fetchModelProps(activeModelId).then(() => {
+					modelPropsVersion++;
+				});
+			}
+		}
+	});
+
+	// Derive modalities from model props (ROUTER) or server props (MODEL)
+	let hasAudioModality = $derived.by(() => {
+		if (!isRouter) return supportsAudio();
+
+		if (activeModelId) {
+			void modelPropsVersion;
+			const props = getModelProps(activeModelId);
+			if (props) return props.modalities?.audio ?? false;
+		}
+
+		return false;
+	});
+
+	let hasVisionModality = $derived.by(() => {
+		if (!isRouter) return supportsVision();
+
+		if (activeModelId) {
+			void modelPropsVersion;
+			const props = getModelProps(activeModelId);
+			if (props) return props.modalities?.vision ?? false;
+		}
+
+		return false;
+	});
 
 	async function handleDeleteConfirm() {
 		const conversation = activeConversation();
@@ -220,16 +291,20 @@
 			}
 		}
 
-		const { supportedFiles, unsupportedFiles, modalityReasons } =
-			filterFilesByModalities(generallySupported);
+		// Use model-specific capabilities for file validation
+		const capabilities = { hasVision: hasVisionModality, hasAudio: hasAudioModality };
+		const { supportedFiles, unsupportedFiles, modalityReasons } = filterFilesByModalities(
+			generallySupported,
+			capabilities
+		);
 
 		const allUnsupportedFiles = [...generallyUnsupported, ...unsupportedFiles];
 
 		if (allUnsupportedFiles.length > 0) {
 			const supportedTypes: string[] = ['text files', 'PDFs'];
 
-			if (supportsVision()) supportedTypes.push('images');
-			if (supportsAudio()) supportedTypes.push('audio files');
+			if (hasVisionModality) supportedTypes.push('images');
+			if (hasAudioModality) supportedTypes.push('audio files');
 
 			fileErrorData = {
 				generallyUnsupported,

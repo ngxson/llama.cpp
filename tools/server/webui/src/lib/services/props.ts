@@ -40,4 +40,34 @@ export class PropsService {
 		const data = await response.json();
 		return data as ApiLlamaCppServerProps;
 	}
+
+	/**
+	 * Fetches server properties for a specific model (ROUTER mode)
+	 *
+	 * @param modelId - The model ID to fetch properties for
+	 * @returns {Promise<ApiLlamaCppServerProps>} Server properties for the model
+	 * @throws {Error} If the request fails or returns invalid data
+	 */
+	static async fetchForModel(modelId: string): Promise<ApiLlamaCppServerProps> {
+		const currentConfig = config();
+		const apiKey = currentConfig.apiKey?.toString().trim();
+
+		const url = new URL('./props', window.location.href);
+		url.searchParams.set('model', modelId);
+
+		const response = await fetch(url.toString(), {
+			headers: {
+				...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+			}
+		});
+
+		if (!response.ok) {
+			throw new Error(
+				`Failed to fetch model properties: ${response.status} ${response.statusText}`
+			);
+		}
+
+		const data = await response.json();
+		return data as ApiLlamaCppServerProps;
+	}
 }

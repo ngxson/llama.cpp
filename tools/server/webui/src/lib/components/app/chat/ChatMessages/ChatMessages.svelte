@@ -87,10 +87,10 @@
 		refreshAllMessages();
 	}
 
-	async function handleRegenerateWithBranching(message: DatabaseMessage) {
+	async function handleRegenerateWithBranching(message: DatabaseMessage, modelOverride?: string) {
 		onUserAction?.();
 
-		await regenerateMessageWithBranching(message.id);
+		await regenerateMessageWithBranching(message.id, modelOverride);
 
 		refreshAllMessages();
 	}

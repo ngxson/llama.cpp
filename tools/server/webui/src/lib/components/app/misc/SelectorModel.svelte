@@ -21,6 +21,8 @@
 		onModelChange?: (modelId: string, modelName: string) => void;
 		disabled?: boolean;
 		forceForegroundText?: boolean;
+		/** When true, user's global selection takes priority over currentModel (for form selector) */
+		useGlobalSelection?: boolean;
 	}
 
 	let {
@@ -28,7 +30,8 @@
 		currentModel = null,
 		onModelChange,
 		disabled = false,
-		forceForegroundText = false
+		forceForegroundText = false,
+		useGlobalSelection = false
 	}: Props = $props();
 
 	let options = $derived(modelOptions());
@@ -260,6 +263,14 @@
 			return undefined;
 		}
 
+		// When useGlobalSelection is true (form selector), prioritize user selection
+		// Otherwise (message display), prioritize currentModel
+		if (useGlobalSelection && activeId) {
+			const selected = options.find((option) => option.id === activeId);
+			if (selected) return selected;
+		}
+
+		// Show currentModel (from message payload or conversation)
 		if (currentModel) {
 			if (!isCurrentModelInCache()) {
 				return {
@@ -273,7 +284,7 @@
 			return options.find((option) => option.model === currentModel);
 		}
 
-		// Check if user has selected a model (for new chats before first message)
+		// Fallback to user selection (for new chats before first message)
 		if (activeId) {
 			return options.find((option) => option.id === activeId);
 		}

@@ -489,7 +489,8 @@ class ChatStore {
 		allMessages: DatabaseMessage[],
 		assistantMessage: DatabaseMessage,
 		onComplete?: (content: string) => Promise<void>,
-		onError?: (error: Error) => void
+		onError?: (error: Error) => void,
+		modelOverride?: string | null
 	): Promise<void> {
 		let streamedContent = '';
 		let streamedReasoningContent = '';
@@ -520,6 +521,7 @@ class ChatStore {
 			allMessages,
 			{
 				...this.getApiOptions(),
+				...(modelOverride ? { model: modelOverride } : {}),
 				onChunk: (chunk: string) => {
 					streamedContent += chunk;
 					this.setChatStreaming(assistantMessage.convId, streamedContent, assistantMessage.id);
@@ -996,7 +998,7 @@ class ChatStore {
 		}
 	}
 
-	async regenerateMessageWithBranching(messageId: string): Promise<void> {
+	async regenerateMessageWithBranching(messageId: string, modelOverride?: string): Promise<void> {
 		const activeConv = conversationsStore.activeConversation;
 		if (!activeConv || this.isLoading) return;
 		try {
@@ -1035,7 +1037,16 @@ class ChatStore {
 				parentMessage.id,
 				false
 			) as DatabaseMessage[];
-			await this.streamChatCompletion(conversationPath, newAssistantMessage);
+			// Use modelOverride if provided, otherwise use the original message's model
+			// If neither is available, don't pass model (will use global selection)
+			const modelToUse = modelOverride || msg.model || undefined;
+			await this.streamChatCompletion(
+				conversationPath,
+				newAssistantMessage,
+				undefined,
+				undefined,
+				modelToUse
+			);
 		} catch (error) {
 			if (!this.isAbortError(error))
 				console.error('Failed to regenerate message with branching:', error);
