@@ -1,7 +1,7 @@
 import { SvelteSet } from 'svelte/reactivity';
 import { ModelsService } from '$lib/services/models';
-import { ServerModelStatus } from '$lib/enums';
-import { serverStore } from '$lib/stores/server.svelte';
+import { PropsService } from '$lib/services/props';
+import { ServerModelStatus, ServerRole } from '$lib/enums';
 import type { ModelOption, ModelModalities } from '$lib/types/models';
 import type { ApiModelDataEntry } from '$lib/types/api';
 
@@ -16,10 +16,15 @@ import type { ApiModelDataEntry } from '$lib/types/api';
  * - Automatic unloading of unused models
  *
  * **Architecture & Relationships:**
- * - **ModelsService**: Stateless service for API communication
+ * - **ModelsService**: Stateless service for model API communication
+ * - **PropsService**: Stateless service for props/modalities fetching
  * - **ModelsStore** (this class): Reactive store for model state
- * - **ServerStore**: Provides server mode detection
  * - **ConversationsStore**: Tracks which conversations use which models
+ *
+ * **API Inconsistency Workaround:**
+ * In MODEL mode, `/props` returns modalities for the single model.
+ * In ROUTER mode, `/props` has no modalities - must use `/props?model=<id>` per model.
+ * This store normalizes this behavior so consumers don't need to know the server mode.
  *
  * **Key Features:**
  * - **MODEL mode**: Single model, always loaded
@@ -43,6 +48,20 @@ class ModelsStore {
 	private modelUsage = $state<Map<string, SvelteSet<string>>>(new Map());
 	private modelLoadingStates = $state<Map<string, boolean>>(new Map());
 
+	/**
+	 * Server role detection - determines API behavior
+	 * In ROUTER mode, modalities come from /props?model=<id>
+	 * In MODEL mode, modalities come from /props (single model)
+	 */
+	serverRole = $state<ServerRole | null>(null);
+
+	/**
+	 * Model-specific props cache
+	 * Key: modelId, Value: props data including modalities
+	 */
+	private modelPropsCache = $state<Map<string, ApiLlamaCppServerProps>>(new Map());
+	private modelPropsFetching = $state<Set<string>>(new Set());
+
 	// ─────────────────────────────────────────────────────────────────────────────
 	// Computed Getters
 	// ─────────────────────────────────────────────────────────────────────────────
@@ -62,6 +81,69 @@ class ModelsStore {
 		return Array.from(this.modelLoadingStates.entries())
 			.filter(([, loading]) => loading)
 			.map(([id]) => id);
+	}
+
+	get isRouterMode(): boolean {
+		return this.serverRole === ServerRole.ROUTER;
+	}
+
+	get isModelMode(): boolean {
+		return this.serverRole === ServerRole.MODEL;
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Methods - Model Modalities
+	// ─────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Get modalities for a specific model
+	 * Returns cached modalities from model props
+	 */
+	getModelModalities(modelId: string): ModelModalities | null {
+		// First check if modalities are stored in the model option
+		const model = this.models.find((m) => m.model === modelId || m.id === modelId);
+		if (model?.modalities) {
+			return model.modalities;
+		}
+
+		// Fall back to props cache
+		const props = this.modelPropsCache.get(modelId);
+		if (props?.modalities) {
+			return {
+				vision: props.modalities.vision ?? false,
+				audio: props.modalities.audio ?? false
+			};
+		}
+
+		return null;
+	}
+
+	/**
+	 * Check if a model supports vision modality
+	 */
+	modelSupportsVision(modelId: string): boolean {
+		return this.getModelModalities(modelId)?.vision ?? false;
+	}
+
+	/**
+	 * Check if a model supports audio modality
+	 */
+	modelSupportsAudio(modelId: string): boolean {
+		return this.getModelModalities(modelId)?.audio ?? false;
+	}
+
+	/**
+	 * Get props for a specific model (from cache)
+	 */
+	getModelProps(modelId: string): ApiLlamaCppServerProps | null {
+		return this.modelPropsCache.get(modelId) ?? null;
+	}
+
+	/**
+	 * Check if props are being fetched for a model
+	 */
+	isModelPropsFetching(modelId: string): boolean {
+		return this.modelPropsFetching.has(modelId);
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────
@@ -96,7 +178,8 @@ class ModelsStore {
 	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
-	 * Fetch list of models from server
+	 * Fetch list of models from server and detect server role
+	 * Also fetches modalities for MODEL mode (single model)
 	 */
 	async fetch(force = false): Promise<void> {
 		if (this.loading) return;
@@ -106,6 +189,11 @@ class ModelsStore {
 		this.error = null;
 
 		try {
+			// Fetch server props to detect role and get modalities for MODEL mode
+			const serverProps = await PropsService.fetch();
+			this.serverRole =
+				serverProps.role === ServerRole.ROUTER ? ServerRole.ROUTER : ServerRole.MODEL;
+
 			const response = await ModelsService.list();
 
 			const models: ModelOption[] = response.data.map((item, index) => {
@@ -127,6 +215,22 @@ class ModelsStore {
 			});
 
 			this.models = models;
+
+			// In MODEL mode, populate modalities from /props (single model)
+			// WORKAROUND: In MODEL mode, /props returns modalities for the single model,
+			// but /v1/models doesn't include modalities. We bridge this gap here.
+			if (this.isModelMode && this.models.length > 0 && serverProps.modalities) {
+				const modalities: ModelModalities = {
+					vision: serverProps.modalities.vision ?? false,
+					audio: serverProps.modalities.audio ?? false
+				};
+				// Cache props for the single model
+				this.modelPropsCache.set(this.models[0].model, serverProps);
+				// Update model with modalities
+				this.models = this.models.map((model, index) =>
+					index === 0 ? { ...model, modalities } : model
+				);
+			}
 		} catch (error) {
 			this.models = [];
 			this.error = error instanceof Error ? error.message : 'Failed to load models';
@@ -152,15 +256,44 @@ class ModelsStore {
 	}
 
 	/**
+	 * Fetch props for a specific model from /props endpoint
+	 * Uses caching to avoid redundant requests
+	 *
+	 * @param modelId - Model identifier to fetch props for
+	 * @returns Props data or null if fetch failed
+	 */
+	async fetchModelProps(modelId: string): Promise<ApiLlamaCppServerProps | null> {
+		// Return cached props if available
+		const cached = this.modelPropsCache.get(modelId);
+		if (cached) return cached;
+
+		// Avoid duplicate fetches
+		if (this.modelPropsFetching.has(modelId)) return null;
+
+		this.modelPropsFetching.add(modelId);
+
+		try {
+			const props = await PropsService.fetchForModel(modelId);
+			this.modelPropsCache.set(modelId, props);
+			return props;
+		} catch (error) {
+			console.warn(`Failed to fetch props for model ${modelId}:`, error);
+			return null;
+		} finally {
+			this.modelPropsFetching.delete(modelId);
+		}
+	}
+
+	/**
 	 * Fetch modalities for all loaded models from /props endpoint
-	 * This updates the modalities field in _models array
+	 * This updates the modalities field in models array
 	 */
 	async fetchModalitiesForLoadedModels(): Promise<void> {
 		const loadedModelIds = this.loadedModelIds;
 		if (loadedModelIds.length === 0) return;
 
 		// Fetch props for each loaded model in parallel
-		const propsPromises = loadedModelIds.map((modelId) => serverStore.fetchModelProps(modelId));
+		const propsPromises = loadedModelIds.map((modelId) => this.fetchModelProps(modelId));
 
 		try {
 			const results = await Promise.all(propsPromises);
@@ -191,7 +324,7 @@ class ModelsStore {
 	 */
 	async updateModelModalities(modelId: string): Promise<void> {
 		try {
-			const props = await serverStore.fetchModelProps(modelId);
+			const props = await this.fetchModelProps(modelId);
 			if (!props?.modalities) return;
 
 			const modalities: ModelModalities = {
@@ -448,8 +581,11 @@ class ModelsStore {
 		this.error = null;
 		this.selectedModelId = null;
 		this.selectedModelName = null;
+		this.serverRole = null;
 		this.modelUsage.clear();
 		this.modelLoadingStates.clear();
+		this.modelPropsCache.clear();
+		this.modelPropsFetching.clear();
 	}
 }
 
@@ -469,6 +605,8 @@ export const selectedModelName = () => modelsStore.selectedModelName;
 export const selectedModelOption = () => modelsStore.selectedModel;
 export const loadedModelIds = () => modelsStore.loadedModelIds;
 export const loadingModelIds = () => modelsStore.loadingModelIds;
+export const isRouterMode = () => modelsStore.isRouterMode;
+export const isModelMode = () => modelsStore.isModelMode;
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Actions
@@ -491,3 +629,10 @@ export const clearModelSelection = modelsStore.clearSelection.bind(modelsStore);
 export const findModelByName = modelsStore.findModelByName.bind(modelsStore);
 export const findModelById = modelsStore.findModelById.bind(modelsStore);
 export const hasModel = modelsStore.hasModel.bind(modelsStore);
+
+// Model modalities
+export const getModelModalities = modelsStore.getModelModalities.bind(modelsStore);
+export const modelSupportsVision = modelsStore.modelSupportsVision.bind(modelsStore);
+export const modelSupportsAudio = modelsStore.modelSupportsAudio.bind(modelsStore);
+export const fetchModelProps = modelsStore.fetchModelProps.bind(modelsStore);
+export const getModelProps = modelsStore.getModelProps.bind(modelsStore);

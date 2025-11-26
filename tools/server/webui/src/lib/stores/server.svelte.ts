@@ -2,21 +2,26 @@ import { PropsService } from '$lib/services/props';
 import { ServerRole, ModelModality } from '$lib/enums';
 
 /**
- * ServerStore - Server state, capabilities, and mode detection
+ * ServerStore - Server connection state, configuration, and role detection
  *
  * This store manages the server connection state and properties fetched from `/props`.
- * It provides reactive state for server configuration, capabilities, and role detection.
+ * It provides reactive state for server configuration and role detection.
  *
  * **Architecture & Relationships:**
  * - **PropsService**: Stateless service for fetching `/props` data
  * - **ServerStore** (this class): Reactive store for server state
- * - **ModelsStore**: Uses server role for model management strategy
+ * - **ModelsStore**: Independent store for model management (uses PropsService directly)
  *
  * **Key Features:**
  * - **Server State**: Connection status, loading, error handling
  * - **Role Detection**: MODEL (single model) vs ROUTER (multi-model)
- * - **Capability Detection**: Vision and audio modality support
- * - **Props Cache**: Per-model props caching for ROUTER mode
+ * - **Default Params**: Server-wide generation defaults
+ *
+ * **Note on Modalities:**
+ * Model-specific modalities (vision, audio) are now managed by ModelsStore.
+ * Use `modelsStore.getModelModalities(modelId)` for per-model modality info.
+ * The `supportsVision`/`supportsAudio` getters here are deprecated and only
+ * apply to MODEL mode (single model).
  */
 class ServerStore {
 	props = $state<ApiLlamaCppServerProps | null>(null);
@@ -24,10 +29,6 @@ class ServerStore {
 	error = $state<string | null>(null);
 	role = $state<ServerRole | null>(null);
 	private fetchPromise: Promise<void> | null = null;
-
-	// Model-specific props cache (ROUTER mode)
-	private modelPropsCache = $state<Map<string, ApiLlamaCppServerProps>>(new Map());
-	private modelPropsFetching = $state<Set<string>>(new Set());
 
 	// ─────────────────────────────────────────────────────────────────────────────
 	// Computed Getters
@@ -45,6 +46,10 @@ class ServerStore {
 		return this.props.model_path.split(/(\\|\/)/).pop() || null;
 	}
 
+	/**
+	 * @deprecated Use modelsStore.getModelModalities(modelId) for per-model modalities.
+	 * This only works in MODEL mode (single model).
+	 */
 	get supportedModalities(): ModelModality[] {
 		const modalities: ModelModality[] = [];
 		if (this.props?.modalities?.audio) modalities.push(ModelModality.AUDIO);
@@ -52,10 +57,18 @@ class ServerStore {
 		return modalities;
 	}
 
+	/**
+	 * @deprecated Use modelsStore.modelSupportsVision(modelId) for per-model check.
+	 * This only works in MODEL mode (single model).
+	 */
 	get supportsVision(): boolean {
 		return this.props?.modalities?.vision ?? false;
 	}
 
+	/**
+	 * @deprecated Use modelsStore.modelSupportsAudio(modelId) for per-model check.
+	 * This only works in MODEL mode (single model).
+	 */
 	get supportsAudio(): boolean {
 		return this.props?.modalities?.audio ?? false;
 	}
@@ -102,18 +115,9 @@ class ServerStore {
 		this.loading = true;
 		this.error = null;
 
-		const previousBuildInfo = this.props?.build_info;
-
 		const fetchPromise = (async () => {
 			try {
 				const props = await PropsService.fetch();
-
-				// Clear model-specific props cache if server was restarted
-				if (previousBuildInfo && previousBuildInfo !== props.build_info) {
-					this.modelPropsCache.clear();
-					console.info('Cleared model props cache due to server restart');
-				}
-
 				this.props = props;
 				this.error = null;
 				this.detectRole(props);
@@ -128,38 +132,6 @@ class ServerStore {
 
 		this.fetchPromise = fetchPromise;
 		await fetchPromise;
-	}
-
-	// ─────────────────────────────────────────────────────────────────────────────
-	// Fetch Model-Specific Properties (ROUTER mode)
-	// ─────────────────────────────────────────────────────────────────────────────
-
-	getModelProps(modelId: string): ApiLlamaCppServerProps | null {
-		return this.modelPropsCache.get(modelId) ?? null;
-	}
-
-	isModelPropsFetching(modelId: string): boolean {
-		return this.modelPropsFetching.has(modelId);
-	}
-
-	async fetchModelProps(modelId: string): Promise<ApiLlamaCppServerProps | null> {
-		const cached = this.modelPropsCache.get(modelId);
-		if (cached) return cached;
-
-		if (this.modelPropsFetching.has(modelId)) return null;
-
-		this.modelPropsFetching.add(modelId);
-
-		try {
-			const props = await PropsService.fetchForModel(modelId);
-			this.modelPropsCache.set(modelId, props);
-			return props;
-		} catch (error) {
-			console.warn(`Failed to fetch props for model ${modelId}:`, error);
-			return null;
-		} finally {
-			this.modelPropsFetching.delete(modelId);
-		}
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────
@@ -202,7 +174,6 @@ class ServerStore {
 		this.loading = false;
 		this.role = null;
 		this.fetchPromise = null;
-		this.modelPropsCache.clear();
 	}
 }
 
@@ -228,5 +199,3 @@ export const isModelMode = () => serverStore.isModelMode;
 
 // Actions
 export const fetchServerProps = serverStore.fetch.bind(serverStore);
-export const fetchModelProps = serverStore.fetchModelProps.bind(serverStore);
-export const getModelProps = serverStore.getModelProps.bind(serverStore);

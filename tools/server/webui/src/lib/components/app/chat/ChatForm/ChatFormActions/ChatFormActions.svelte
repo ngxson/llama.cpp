@@ -9,15 +9,17 @@
 	} from '$lib/components/app';
 	import { FileTypeCategory } from '$lib/enums';
 	import { getFileTypeCategory } from '$lib/utils/file-type';
+	import { config } from '$lib/stores/settings.svelte';
 	import {
-		supportsAudio,
-		supportsVision,
+		modelOptions,
+		selectedModelId,
+		selectModelByName,
 		isRouterMode,
 		fetchModelProps,
-		getModelProps
-	} from '$lib/stores/server.svelte';
-	import { config } from '$lib/stores/settings.svelte';
-	import { modelOptions, selectedModelId, selectModelByName } from '$lib/stores/models.svelte';
+		getModelProps,
+		modelSupportsVision,
+		modelSupportsAudio
+	} from '$lib/stores/models.svelte';
 	import { getConversationModel } from '$lib/stores/chat.svelte';
 	import { activeMessages } from '$lib/stores/conversations.svelte';
 	import type { ChatUploadedFile } from '$lib/types/chat';
@@ -101,29 +103,20 @@
 		}
 	});
 
+	// Derive modalities from active model (works for both MODEL and ROUTER mode)
 	let hasAudioModality = $derived.by(() => {
-		if (!isRouter) return supportsAudio();
-
 		if (activeModelId) {
-			void modelPropsVersion;
-
-			const props = getModelProps(activeModelId);
-			if (props) return props.modalities?.audio ?? false;
+			void modelPropsVersion; // Trigger reactivity on props fetch
+			return modelSupportsAudio(activeModelId);
 		}
-
 		return false;
 	});
 
 	let hasVisionModality = $derived.by(() => {
-		if (!isRouter) return supportsVision();
-
 		if (activeModelId) {
-			void modelPropsVersion;
-
-			const props = getModelProps(activeModelId);
-			if (props) return props.modalities?.vision ?? false;
+			void modelPropsVersion; // Trigger reactivity on props fetch
+			return modelSupportsVision(activeModelId);
 		}
-
 		return false;
 	});
 
