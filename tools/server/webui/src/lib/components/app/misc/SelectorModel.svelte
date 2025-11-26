@@ -12,7 +12,6 @@
 		selectedModelId,
 		unloadModel,
 		routerModels,
-		loadingModelIds,
 		loadModel
 	} from '$lib/stores/models.svelte';
 	import { ServerModelStatus } from '$lib/enums';
@@ -46,20 +45,13 @@
 	let isRouter = $derived(isRouterMode());
 	let serverModel = $derived(propsStore.modelName);
 
-	// Reactive router models state - needed for proper reactivity of isModelLoaded checks
+	// Reactive router models state - needed for proper reactivity of status checks
 	let currentRouterModels = $derived(routerModels());
-	let currentLoadingModelIds = $derived(loadingModelIds());
 
-	// Helper functions that create reactive dependencies
-	function checkIsModelLoaded(modelId: string): boolean {
-		// Access currentRouterModels to establish reactive dependency
+	// Helper to get model status from server - establishes reactive dependency
+	function getModelStatus(modelId: string): ServerModelStatus | null {
 		const model = currentRouterModels.find((m) => m.name === modelId);
-		return model?.status?.value === ServerModelStatus.LOADED || false;
-	}
-
-	function checkIsModelOperationInProgress(modelId: string): boolean {
-		// Access currentLoadingModelIds to establish reactive dependency
-		return currentLoadingModelIds.includes(modelId);
+		return (model?.status?.value as ServerModelStatus) ?? null;
 	}
 
 	let isHighlightedCurrentModelActive = $derived(
@@ -273,7 +265,7 @@
 		}
 
 		// Load the model if not already loaded (router mode)
-		if (isRouter && !checkIsModelLoaded(option.model)) {
+		if (isRouter && getModelStatus(option.model) !== ServerModelStatus.LOADED) {
 			try {
 				await loadModel(option.model);
 			} catch (error) {
@@ -412,8 +404,9 @@
 							<div class="my-1 h-px bg-border"></div>
 						{/if}
 						{#each options as option (option.id)}
-							{@const isLoaded = checkIsModelLoaded(option.model)}
-							{@const isUnloading = checkIsModelOperationInProgress(option.model)}
+							{@const status = getModelStatus(option.model)}
+							{@const isLoaded = status === ServerModelStatus.LOADED}
+							{@const isLoading = status === ServerModelStatus.LOADING}
 							{@const isSelected = currentModel === option.model || activeId === option.id}
 							<div
 								class={cn(
@@ -436,7 +429,7 @@
 							>
 								<span class="min-w-0 flex-1 truncate">{option.model}</span>
 
-								{#if isUnloading}
+								{#if isLoading}
 									<Loader2 class="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
 								{:else if isLoaded}
 									<!-- Green dot, on hover show red unload button -->

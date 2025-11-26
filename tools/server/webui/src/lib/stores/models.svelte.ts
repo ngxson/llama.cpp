@@ -358,6 +358,54 @@ class ModelsStore {
 	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
+	 * WORKAROUND: Polling for model status after load/unload operations.
+	 *
+	 * Currently, the `/models/load` and `/models/unload` endpoints return success
+	 * before the operation actually completes on the server. This means an immediate
+	 * request to `/models` returns stale status (e.g., "loading" after load request,
+	 * "loaded" after unload request).
+	 *
+	 * TODO: Remove this polling once llama-server properly waits for the operation
+	 * to complete before returning success from `/load` and `/unload` endpoints.
+	 * At that point, a single `fetchRouterModels()` call after the operation will
+	 * be sufficient to get the correct status.
+	 */
+
+	/** Polling interval in ms for checking model status */
+	private static readonly STATUS_POLL_INTERVAL = 500;
+	/** Maximum polling attempts before giving up */
+	private static readonly STATUS_POLL_MAX_ATTEMPTS = 60; // 30 seconds max
+
+	/**
+	 * Poll for expected model status after load/unload operation.
+	 * Keeps polling until the model reaches the expected status or max attempts reached.
+	 *
+	 * @param modelId - Model identifier to check
+	 * @param expectedStatus - Expected status to wait for
+	 * @returns Promise that resolves when expected status is reached
+	 */
+	private async pollForModelStatus(
+		modelId: string,
+		expectedStatus: ServerModelStatus
+	): Promise<void> {
+		for (let attempt = 0; attempt < ModelsStore.STATUS_POLL_MAX_ATTEMPTS; attempt++) {
+			await this.fetchRouterModels();
+
+			const currentStatus = this.getModelStatus(modelId);
+			if (currentStatus === expectedStatus) {
+				return;
+			}
+
+			// Wait before next poll
+			await new Promise((resolve) => setTimeout(resolve, ModelsStore.STATUS_POLL_INTERVAL));
+		}
+
+		console.warn(
+			`Model ${modelId} did not reach expected status ${expectedStatus} after ${ModelsStore.STATUS_POLL_MAX_ATTEMPTS} attempts`
+		);
+	}
+
+	/**
 	 * Load a model (ROUTER mode)
 	 * @param modelId - Model identifier to load
 	 */
@@ -375,9 +423,11 @@ class ModelsStore {
 
 		try {
 			await ModelsService.load(modelId);
-			await this.fetchRouterModels(); // Refresh status and modalities
 
-			// Also update modalities for this specific model
+			// Poll until model is loaded
+			await this.pollForModelStatus(modelId, ServerModelStatus.LOADED);
+
+			// Update modalities for this specific model
 			await this.updateModelModalities(modelId);
 		} catch (error) {
 			this._error = error instanceof Error ? error.message : 'Failed to load model';
@@ -405,7 +455,9 @@ class ModelsStore {
 
 		try {
 			await ModelsService.unload(modelId);
-			await this.fetchRouterModels(); // Refresh status
+
+			// Poll until model is unloaded
+			await this.pollForModelStatus(modelId, ServerModelStatus.UNLOADED);
 		} catch (error) {
 			this._error = error instanceof Error ? error.message : 'Failed to unload model';
 			throw error;
