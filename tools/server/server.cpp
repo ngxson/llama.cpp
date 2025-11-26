@@ -3353,7 +3353,6 @@ public:
             }
             models_json.push_back(json {
                 {"id",       meta.name},
-                {"name",     meta.name},
                 {"object",   "model"},    // for OAI-compat
                 {"owned_by", "llamacpp"}, // for OAI-compat
                 {"created",  t},          // for OAI-compat
@@ -3820,6 +3819,11 @@ int main(int argc, char ** argv, char ** envp) {
 
         params.n_parallel = 4;
         params.kv_unified = true;
+    }
+
+    // for consistency between server router mode and single-model mode, we set the same model name as alias
+    if (params.model_alias.empty() && !params.model.name.empty()) {
+        params.model_alias = params.model.name;
     }
 
     common_init();

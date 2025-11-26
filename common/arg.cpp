@@ -218,6 +218,7 @@ static handle_model_result common_params_handle_model(
     {
         if (!model.docker_repo.empty()) {  // Handle Docker URLs by resolving them to local paths
             model.path = common_docker_resolve_model(model.docker_repo);
+            model.name = model.docker_repo; // set name for consistency
         } else if (!model.hf_repo.empty()) {
             // short-hand to avoid specifying --hf-file -> default it to --model
             if (model.hf_file.empty()) {
@@ -226,7 +227,8 @@ static handle_model_result common_params_handle_model(
                     if (auto_detected.repo.empty() || auto_detected.ggufFile.empty()) {
                         exit(1); // built without CURL, error message already printed
                     }
-                    model.hf_repo = auto_detected.repo;
+                    model.name    = model.hf_repo;      // repo name with tag
+                    model.hf_repo = auto_detected.repo; // repo name without tag
                     model.hf_file = auto_detected.ggufFile;
                     if (!auto_detected.mmprojFile.empty()) {
                         result.found_mmproj   = true;
