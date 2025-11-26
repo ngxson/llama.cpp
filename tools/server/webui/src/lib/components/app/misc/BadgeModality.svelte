@@ -1,7 +1,9 @@
 <script lang="ts">
-	import { Eye, Mic } from '@lucide/svelte';
 	import { ModelModality } from '$lib/enums';
+	import { MODALITY_ICONS, MODALITY_LABELS } from '$lib/constants/icons';
 	import { cn } from '$lib/components/ui/utils';
+
+	type DisplayableModality = ModelModality.VISION | ModelModality.AUDIO;
 
 	interface Props {
 		modalities: ModelModality[];
@@ -10,31 +12,17 @@
 
 	let { modalities, class: className = '' }: Props = $props();
 
-	function getModalityIcon(modality: ModelModality) {
-		switch (modality) {
-			case ModelModality.VISION:
-				return Eye;
-			case ModelModality.AUDIO:
-				return Mic;
-			default:
-				return null;
-		}
-	}
-
-	function getModalityLabel(modality: ModelModality): string {
-		switch (modality) {
-			case ModelModality.VISION:
-				return 'Vision';
-			case ModelModality.AUDIO:
-				return 'Audio';
-			default:
-				return 'Unknown';
-		}
-	}
+	// Filter to only modalities that have icons (VISION, AUDIO)
+	const displayableModalities = $derived(
+		modalities.filter(
+			(m): m is DisplayableModality => m === ModelModality.VISION || m === ModelModality.AUDIO
+		)
+	);
 </script>
 
-{#each modalities as modality, index (index)}
-	{@const IconComponent = getModalityIcon(modality)}
+{#each displayableModalities as modality, index (index)}
+	{@const IconComponent = MODALITY_ICONS[modality]}
+	{@const label = MODALITY_LABELS[modality]}
 
 	<span
 		class={cn(
@@ -46,6 +34,6 @@
 			<IconComponent class="h-3 w-3" />
 		{/if}
 
-		{getModalityLabel(modality)}
+		{label}
 	</span>
 {/each}

@@ -10,12 +10,14 @@
 		modelsUpdating,
 		selectModel,
 		selectedModelId,
-		modelsStore,
-		unloadModel
+		unloadModel,
+		routerModels,
+		loadingModelIds,
+		loadModel
 	} from '$lib/stores/models.svelte';
+	import { ServerModelStatus } from '$lib/enums';
 	import { isRouterMode, propsStore } from '$lib/stores/props.svelte';
 	import { DialogModelInformation } from '$lib/components/app';
-	import { MODALITY_ICONS } from '$lib/constants/modality-icons';
 	import type { ModelOption } from '$lib/types/models';
 
 	interface Props {
@@ -43,6 +45,22 @@
 	let activeId = $derived(selectedModelId());
 	let isRouter = $derived(isRouterMode());
 	let serverModel = $derived(propsStore.modelName);
+
+	// Reactive router models state - needed for proper reactivity of isModelLoaded checks
+	let currentRouterModels = $derived(routerModels());
+	let currentLoadingModelIds = $derived(loadingModelIds());
+
+	// Helper functions that create reactive dependencies
+	function checkIsModelLoaded(modelId: string): boolean {
+		// Access currentRouterModels to establish reactive dependency
+		const model = currentRouterModels.find((m) => m.name === modelId);
+		return model?.status?.value === ServerModelStatus.LOADED || false;
+	}
+
+	function checkIsModelOperationInProgress(modelId: string): boolean {
+		// Access currentLoadingModelIds to establish reactive dependency
+		return currentLoadingModelIds.includes(modelId);
+	}
 
 	let isHighlightedCurrentModelActive = $derived(
 		!isRouter || !currentModel
@@ -240,16 +258,28 @@
 		};
 	}
 
-	function handleSelect(modelId: string) {
+	async function handleSelect(modelId: string) {
 		const option = options.find((opt) => opt.id === modelId);
-		if (option && onModelChange) {
+		if (!option) return;
+
+		closeMenu();
+
+		if (onModelChange) {
 			// If callback provided, use it (for regenerate functionality)
 			onModelChange(option.id, option.model);
-		} else if (option) {
-			// Otherwise, just update the global selection (for form selector)
-			selectModel(option.id).catch(console.error);
+		} else {
+			// Update global selection
+			await selectModel(option.id);
 		}
-		closeMenu();
+
+		// Load the model if not already loaded (router mode)
+		if (isRouter && !checkIsModelLoaded(option.model)) {
+			try {
+				await loadModel(option.model);
+			} catch (error) {
+				console.error('Failed to load model:', error);
+			}
+		}
 	}
 
 	function getDisplayOption(): ModelOption | undefined {
@@ -382,10 +412,8 @@
 							<div class="my-1 h-px bg-border"></div>
 						{/if}
 						{#each options as option (option.id)}
-							{@const isLoaded = modelsStore.isModelLoaded(option.model)}
-							{@const isUnloading = modelsStore.isModelOperationInProgress(option.model)}
-							{@const hasVision = option.modalities?.vision ?? false}
-							{@const hasAudio = option.modalities?.audio ?? false}
+							{@const isLoaded = checkIsModelLoaded(option.model)}
+							{@const isUnloading = checkIsModelOperationInProgress(option.model)}
 							{@const isSelected = currentModel === option.model || activeId === option.id}
 							<div
 								class={cn(
@@ -408,28 +436,13 @@
 							>
 								<span class="min-w-0 flex-1 truncate">{option.model}</span>
 
-								<!-- <div class="flex shrink-0 items-center gap-2"> -->
-								<MODALITY_ICONS.vision
-									class={cn(
-										'h-3.5 w-3.5',
-										hasVision ? 'text-foreground' : 'text-muted-foreground/40'
-									)}
-								/>
-								<MODALITY_ICONS.audio
-									class={cn(
-										'h-3.5 w-3.5',
-										hasAudio ? 'text-foreground' : 'text-muted-foreground/40'
-									)}
-								/>
-								<!-- </div> -->
-
 								{#if isUnloading}
 									<Loader2 class="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
 								{:else if isLoaded}
 									<!-- Green dot, on hover show red unload button -->
 									<button
 										type="button"
-										class="relative flex h-4 w-4 shrink-0 items-center justify-center"
+										class="relative ml-2 flex h-4 w-4 shrink-0 items-center justify-center"
 										onclick={(e) => {
 											e.stopPropagation();
 											unloadModel(option.model);
@@ -437,14 +450,15 @@
 										title="Unload model"
 									>
 										<span
-											class="h-2 w-2 rounded-full bg-green-500 transition-opacity group-hover:opacity-0"
+											class="mr-2 h-2 w-2 rounded-full bg-green-500 transition-opacity group-hover:opacity-0"
 										></span>
+
 										<Power
 											class="absolute h-4 w-4 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-600"
 										/>
 									</button>
 								{:else}
-									<span class="mr-1 h-2 w-2 shrink-0 rounded-full bg-muted-foreground/50"></span>
+									<span class="mx-2 h-2 w-2 shrink-0 rounded-full bg-muted-foreground/50"></span>
 								{/if}
 							</div>
 						{/each}
