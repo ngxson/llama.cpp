@@ -1,8 +1,14 @@
 import { browser } from '$app/environment';
-import { conversationsService } from '$lib/services/conversations';
+import { goto } from '$app/navigation';
+import { toast } from 'svelte-sonner';
+import { DatabaseService } from '$lib/services/database';
 import { config } from '$lib/stores/settings.svelte';
 import { filterByLeafNodeId, findLeafNode } from '$lib/utils/branching';
-import type { DatabaseConversation, DatabaseMessage } from '$lib/types/database';
+import type {
+	DatabaseConversation,
+	DatabaseMessage,
+	ExportedConversations
+} from '$lib/types/database';
 
 /**
  * ConversationsStore - Persistent conversation data and lifecycle management
@@ -22,13 +28,12 @@ import type { DatabaseConversation, DatabaseMessage } from '$lib/types/database'
  * **Architecture & Relationships:**
  * - **ConversationsStore** (this class): Persistent conversation data management
  *   - Manages conversation list and active conversation state
- *   - Handles conversation CRUD operations via ConversationsService
+ *   - Handles conversation CRUD operations via DatabaseService
  *   - Maintains active message array for current conversation
  *   - Coordinates branching navigation (currNode tracking)
  *
  * - **ChatStore**: Uses conversation data as context for active AI streaming
- * - **ConversationsService**: Database operations for conversation persistence
- * - **DatabaseService**: Low-level storage for conversations and messages
+ * - **DatabaseService**: Low-level IndexedDB storage for conversations and messages
  *
  * **Key Features:**
  * - **Conversation Lifecycle**: Create, load, update, delete conversations
@@ -82,7 +87,7 @@ class ConversationsStore {
 	 * Loads all conversations from the database
 	 */
 	async loadConversations(): Promise<void> {
-		this.conversations = await conversationsService.loadAllConversations();
+		this.conversations = await DatabaseService.getAllConversations();
 	}
 
 	/**
@@ -91,15 +96,14 @@ class ConversationsStore {
 	 * @returns The ID of the created conversation
 	 */
 	async createConversation(name?: string): Promise<string> {
-		const conversation = await conversationsService.createConversation(name);
+		const conversationName = name || `Chat ${new Date().toLocaleString()}`;
+		const conversation = await DatabaseService.createConversation(conversationName);
 
 		this.conversations.unshift(conversation);
 		this.activeConversation = conversation;
 		this.activeMessages = [];
 
-		// Active processing conversation is now set by ChatStore when streaming starts
-
-		await conversationsService.navigateToConversation(conversation.id);
+		await goto(`#/chat/${conversation.id}`);
 
 		return conversation.id;
 	}
@@ -111,7 +115,7 @@ class ConversationsStore {
 	 */
 	async loadConversation(convId: string): Promise<boolean> {
 		try {
-			const conversation = await conversationsService.loadConversation(convId);
+			const conversation = await DatabaseService.getConversation(convId);
 
 			if (!conversation) {
 				return false;
@@ -119,18 +123,15 @@ class ConversationsStore {
 
 			this.activeConversation = conversation;
 
-			// Active processing conversation is now set by ChatStore when streaming starts
-
 			if (conversation.currNode) {
-				const allMessages = await conversationsService.getConversationMessages(convId);
+				const allMessages = await DatabaseService.getConversationMessages(convId);
 				this.activeMessages = filterByLeafNodeId(
 					allMessages,
 					conversation.currNode,
 					false
 				) as DatabaseMessage[];
 			} else {
-				// Load all messages for conversations without currNode (backward compatibility)
-				this.activeMessages = await conversationsService.getConversationMessages(convId);
+				this.activeMessages = await DatabaseService.getConversationMessages(convId);
 			}
 
 			return true;
@@ -156,9 +157,7 @@ class ConversationsStore {
 	async refreshActiveMessages(): Promise<void> {
 		if (!this.activeConversation) return;
 
-		const allMessages = await conversationsService.getConversationMessages(
-			this.activeConversation.id
-		);
+		const allMessages = await DatabaseService.getConversationMessages(this.activeConversation.id);
 
 		if (allMessages.length === 0) {
 			this.activeMessages = [];
@@ -182,7 +181,7 @@ class ConversationsStore {
 	 */
 	async updateConversationName(convId: string, name: string): Promise<void> {
 		try {
-			await conversationsService.updateConversationName(convId, name);
+			await DatabaseService.updateConversation(convId, { name });
 
 			const convIndex = this.conversations.findIndex((c) => c.id === convId);
 
@@ -224,7 +223,7 @@ class ConversationsStore {
 			const currentConfig = config();
 
 			if (currentConfig.askForTitleConfirmation && onConfirmationNeeded) {
-				const conversation = await conversationsService.loadConversation(convId);
+				const conversation = await DatabaseService.getConversation(convId);
 				if (!conversation) return false;
 
 				const shouldUpdate = await onConfirmationNeeded(conversation.name, newTitle);
@@ -246,7 +245,7 @@ class ConversationsStore {
 	async updateCurrentNode(nodeId: string): Promise<void> {
 		if (!this.activeConversation) return;
 
-		await conversationsService.updateCurrentNode(this.activeConversation.id, nodeId);
+		await DatabaseService.updateCurrentNode(this.activeConversation.id, nodeId);
 		this.activeConversation.currNode = nodeId;
 	}
 
@@ -272,10 +271,7 @@ class ConversationsStore {
 	async navigateToSibling(siblingId: string): Promise<void> {
 		if (!this.activeConversation) return;
 
-		// Get the current first user message before navigation
-		const allMessages = await conversationsService.getConversationMessages(
-			this.activeConversation.id
-		);
+		const allMessages = await DatabaseService.getConversationMessages(this.activeConversation.id);
 		const rootMessage = allMessages.find((m) => m.type === 'root' && m.parent === null);
 		const currentFirstUserMessage = this.activeMessages.find(
 			(m) => m.role === 'user' && m.parent === rootMessage?.id
@@ -283,7 +279,7 @@ class ConversationsStore {
 
 		const currentLeafNodeId = findLeafNode(allMessages, siblingId);
 
-		await conversationsService.updateCurrentNode(this.activeConversation.id, currentLeafNodeId);
+		await DatabaseService.updateCurrentNode(this.activeConversation.id, currentLeafNodeId);
 		this.activeConversation.currNode = currentLeafNodeId;
 		await this.refreshActiveMessages();
 
@@ -315,14 +311,14 @@ class ConversationsStore {
 	 */
 	async deleteConversation(convId: string): Promise<void> {
 		try {
-			await conversationsService.deleteConversation(convId);
+			await DatabaseService.deleteConversation(convId);
 
 			this.conversations = this.conversations.filter((c) => c.id !== convId);
 
 			if (this.activeConversation?.id === convId) {
 				this.activeConversation = null;
 				this.activeMessages = [];
-				await conversationsService.navigateToNewChat();
+				await goto(`?new_chat=true#/`);
 			}
 		} catch (error) {
 			console.error('Failed to delete conversation:', error);
@@ -334,17 +330,19 @@ class ConversationsStore {
 	 * @param convId - The conversation ID to download
 	 */
 	async downloadConversation(convId: string): Promise<void> {
-		if (this.activeConversation?.id === convId) {
-			// Use current active conversation data
-			conversationsService.downloadConversation(this.activeConversation, this.activeMessages);
-		} else {
-			// Load the conversation if not currently active
-			const conversation = await conversationsService.loadConversation(convId);
-			if (!conversation) return;
+		let conversation: DatabaseConversation | null;
+		let messages: DatabaseMessage[];
 
-			const messages = await conversationsService.getConversationMessages(convId);
-			conversationsService.downloadConversation(conversation, messages);
+		if (this.activeConversation?.id === convId) {
+			conversation = this.activeConversation;
+			messages = this.activeMessages;
+		} else {
+			conversation = await DatabaseService.getConversation(convId);
+			if (!conversation) return;
+			messages = await DatabaseService.getConversationMessages(convId);
 		}
+
+		this.triggerDownload({ conv: conversation, messages });
 	}
 
 	/**
@@ -352,20 +350,91 @@ class ConversationsStore {
 	 * @returns The list of exported conversations
 	 */
 	async exportAllConversations(): Promise<DatabaseConversation[]> {
-		return await conversationsService.exportAllConversations();
+		const allConversations = await DatabaseService.getAllConversations();
+
+		if (allConversations.length === 0) {
+			throw new Error('No conversations to export');
+		}
+
+		const allData = await Promise.all(
+			allConversations.map(async (conv) => {
+				const messages = await DatabaseService.getConversationMessages(conv.id);
+				return { conv, messages };
+			})
+		);
+
+		const blob = new Blob([JSON.stringify(allData, null, 2)], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = `all_conversations_${new Date().toISOString().split('T')[0]}.json`;
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+		URL.revokeObjectURL(url);
+
+		toast.success(`All conversations (${allConversations.length}) prepared for download`);
+
+		return allConversations;
 	}
 
 	/**
 	 * Imports conversations from a JSON file
+	 * Opens file picker and processes the selected file
 	 * @returns The list of imported conversations
 	 */
 	async importConversations(): Promise<DatabaseConversation[]> {
-		const importedConversations = await conversationsService.importConversations();
+		return new Promise((resolve, reject) => {
+			const input = document.createElement('input');
+			input.type = 'file';
+			input.accept = '.json';
 
-		// Refresh conversations list after import
-		await this.loadConversations();
+			input.onchange = async (e) => {
+				const file = (e.target as HTMLInputElement)?.files?.[0];
 
-		return importedConversations;
+				if (!file) {
+					reject(new Error('No file selected'));
+					return;
+				}
+
+				try {
+					const text = await file.text();
+					const parsedData = JSON.parse(text);
+					let importedData: ExportedConversations;
+
+					if (Array.isArray(parsedData)) {
+						importedData = parsedData;
+					} else if (
+						parsedData &&
+						typeof parsedData === 'object' &&
+						'conv' in parsedData &&
+						'messages' in parsedData
+					) {
+						importedData = [parsedData];
+					} else {
+						throw new Error('Invalid file format');
+					}
+
+					const result = await DatabaseService.importConversations(importedData);
+					toast.success(`Imported ${result.imported} conversation(s), skipped ${result.skipped}`);
+
+					await this.loadConversations();
+
+					const importedConversations = (
+						Array.isArray(importedData) ? importedData : [importedData]
+					).map((item) => item.conv);
+
+					resolve(importedConversations);
+				} catch (err: unknown) {
+					const message = err instanceof Error ? err.message : 'Unknown error';
+					console.error('Failed to import conversations:', err);
+					toast.error('Import failed', { description: message });
+					reject(new Error(`Import failed: ${message}`));
+				}
+			};
+
+			input.click();
+		});
 	}
 
 	/**
@@ -374,7 +443,7 @@ class ConversationsStore {
 	 * @returns Array of messages
 	 */
 	async getConversationMessages(convId: string): Promise<DatabaseMessage[]> {
-		return await conversationsService.getConversationMessages(convId);
+		return await DatabaseService.getConversationMessages(convId);
 	}
 
 	/**
@@ -426,6 +495,37 @@ class ConversationsStore {
 			return this.activeMessages.splice(index, 1)[0];
 		}
 		return undefined;
+	}
+
+	/**
+	 * Triggers file download in browser
+	 */
+	private triggerDownload(data: ExportedConversations, filename?: string): void {
+		const conversation =
+			'conv' in data ? data.conv : Array.isArray(data) ? data[0]?.conv : undefined;
+
+		if (!conversation) {
+			console.error('Invalid data: missing conversation');
+			return;
+		}
+
+		const conversationName = conversation.name?.trim() || '';
+		const truncatedSuffix = conversationName
+			.toLowerCase()
+			.replace(/[^a-z0-9]/gi, '_')
+			.replace(/_+/g, '_')
+			.substring(0, 20);
+		const downloadFilename = filename || `conversation_${conversation.id}_${truncatedSuffix}.json`;
+
+		const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+		const url = URL.createObjectURL(blob);
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = downloadFilename;
+		document.body.appendChild(a);
+		a.click();
+		document.body.removeChild(a);
+		URL.revokeObjectURL(url);
 	}
 }
 
