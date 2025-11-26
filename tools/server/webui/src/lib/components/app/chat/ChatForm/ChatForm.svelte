@@ -16,7 +16,7 @@
 		supportsVision,
 		fetchModelProps,
 		getModelProps
-	} from '$lib/stores/props.svelte';
+	} from '$lib/stores/server.svelte';
 	import { getConversationModel } from '$lib/stores/chat.svelte';
 	import { activeMessages } from '$lib/stores/conversations.svelte';
 	import {

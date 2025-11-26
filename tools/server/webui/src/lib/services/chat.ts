@@ -1,7 +1,7 @@
 import { config } from '$lib/stores/settings.svelte';
 import { getJsonHeaders } from '$lib/utils/api-headers';
 import { selectedModelName } from '$lib/stores/models.svelte';
-import { isRouterMode, propsStore } from '$lib/stores/props.svelte';
+import { isRouterMode, serverStore } from '$lib/stores/server.svelte';
 import type {
 	ApiChatCompletionRequest,
 	ApiChatCompletionResponse,
@@ -792,7 +792,7 @@ export class ChatService {
 	 * Handles various response formats including streaming chunks and final responses.
 	 *
 	 * WORKAROUND: In single model mode, llama-server returns a default/incorrect model name
-	 * in the response. We override it with the actual model name from propsStore.
+	 * in the response. We override it with the actual model name from serverStore.
 	 *
 	 * @param data - Raw response data from the Chat Completions API
 	 * @returns Model name string if found, undefined otherwise
@@ -803,7 +803,7 @@ export class ChatService {
 		// because llama-server returns `gpt-3.5-turbo` value in the `model` field
 		const isRouter = isRouterMode();
 		if (!isRouter) {
-			const propsModelName = propsStore.modelName;
+			const propsModelName = serverStore.modelName;
 			if (propsModelName) {
 				return propsModelName;
 			}

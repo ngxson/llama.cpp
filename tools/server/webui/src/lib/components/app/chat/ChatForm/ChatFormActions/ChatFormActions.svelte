@@ -15,7 +15,7 @@
 		isRouterMode,
 		fetchModelProps,
 		getModelProps
-	} from '$lib/stores/props.svelte';
+	} from '$lib/stores/server.svelte';
 	import { config } from '$lib/stores/settings.svelte';
 	import { modelOptions, selectedModelId, selectModelByName } from '$lib/stores/models.svelte';
 	import { getConversationModel } from '$lib/stores/chat.svelte';

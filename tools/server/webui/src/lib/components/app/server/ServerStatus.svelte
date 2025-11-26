@@ -2,7 +2,7 @@
 	import { AlertTriangle, Server } from '@lucide/svelte';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
-	import { serverProps, propsLoading, propsError, modelName } from '$lib/stores/props.svelte';
+	import { serverProps, serverLoading, serverError, modelName } from '$lib/stores/server.svelte';
 
 	interface Props {
 		class?: string;
@@ -11,8 +11,8 @@
 
 	let { class: className = '', showActions = false }: Props = $props();
 
-	let error = $derived(propsError());
-	let loading = $derived(propsLoading());
+	let error = $derived(serverError());
+	let loading = $derived(serverLoading());
 	let model = $derived(modelName());
 	let serverData = $derived(serverProps());
 

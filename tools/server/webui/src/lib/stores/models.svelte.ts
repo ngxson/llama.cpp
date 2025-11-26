@@ -1,7 +1,7 @@
 import { SvelteSet } from 'svelte/reactivity';
 import { ModelsService } from '$lib/services/models';
 import { ServerModelStatus } from '$lib/enums';
-import { propsStore } from '$lib/stores/props.svelte';
+import { serverStore } from '$lib/stores/server.svelte';
 import type { ModelOption, ModelModalities } from '$lib/types/models';
 import type { ApiModelDataEntry } from '$lib/types/api';
 
@@ -18,7 +18,7 @@ import type { ApiModelDataEntry } from '$lib/types/api';
  * **Architecture & Relationships:**
  * - **ModelsService**: Stateless service for API communication
  * - **ModelsStore** (this class): Reactive store for model state
- * - **PropsStore**: Provides server mode detection
+ * - **ServerStore**: Provides server mode detection
  * - **ConversationsStore**: Tracks which conversations use which models
  *
  * **Key Features:**
@@ -32,121 +32,62 @@ class ModelsStore {
 	// State
 	// ─────────────────────────────────────────────────────────────────────────────
 
-	private _models = $state<ModelOption[]>([]);
-	private _routerModels = $state<ApiModelDataEntry[]>([]);
-	private _loading = $state(false);
-	private _updating = $state(false);
-	private _error = $state<string | null>(null);
-	private _selectedModelId = $state<string | null>(null);
-	private _selectedModelName = $state<string | null>(null);
+	models = $state<ModelOption[]>([]);
+	routerModels = $state<ApiModelDataEntry[]>([]);
+	loading = $state(false);
+	updating = $state(false);
+	error = $state<string | null>(null);
+	selectedModelId = $state<string | null>(null);
+	selectedModelName = $state<string | null>(null);
 
-	/** Maps modelId -> Set of conversationIds that use this model */
-	private _modelUsage = $state<Map<string, SvelteSet<string>>>(new Map());
-
-	/** Maps modelId -> loading state for load/unload operations */
-	private _modelLoadingStates = $state<Map<string, boolean>>(new Map());
+	private modelUsage = $state<Map<string, SvelteSet<string>>>(new Map());
+	private modelLoadingStates = $state<Map<string, boolean>>(new Map());
 
 	// ─────────────────────────────────────────────────────────────────────────────
-	// Getters - Basic
+	// Computed Getters
 	// ─────────────────────────────────────────────────────────────────────────────
-
-	get models(): ModelOption[] {
-		return this._models;
-	}
-
-	get routerModels(): ApiModelDataEntry[] {
-		return this._routerModels;
-	}
-
-	get loading(): boolean {
-		return this._loading;
-	}
-
-	get updating(): boolean {
-		return this._updating;
-	}
-
-	get error(): string | null {
-		return this._error;
-	}
-
-	get selectedModelId(): string | null {
-		return this._selectedModelId;
-	}
-
-	get selectedModelName(): string | null {
-		return this._selectedModelName;
-	}
 
 	get selectedModel(): ModelOption | null {
-		if (!this._selectedModelId) {
-			return null;
-		}
-
-		return this._models.find((model) => model.id === this._selectedModelId) ?? null;
+		if (!this.selectedModelId) return null;
+		return this.models.find((model) => model.id === this.selectedModelId) ?? null;
 	}
 
-	// ─────────────────────────────────────────────────────────────────────────────
-	// Getters - Loaded Models (ROUTER mode)
-	// ─────────────────────────────────────────────────────────────────────────────
-
-	/**
-	 * Get list of currently loaded model IDs
-	 */
 	get loadedModelIds(): string[] {
-		return this._routerModels
+		return this.routerModels
 			.filter((m) => m.status.value === ServerModelStatus.LOADED)
 			.map((m) => m.name);
 	}
 
-	/**
-	 * Get list of models currently being loaded/unloaded
-	 */
 	get loadingModelIds(): string[] {
-		return Array.from(this._modelLoadingStates.entries())
+		return Array.from(this.modelLoadingStates.entries())
 			.filter(([, loading]) => loading)
 			.map(([id]) => id);
 	}
 
-	/**
-	 * Check if a specific model is loaded
-	 */
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Methods - Model Status
+	// ─────────────────────────────────────────────────────────────────────────────
+
 	isModelLoaded(modelId: string): boolean {
-		const model = this._routerModels.find((m) => m.name === modelId);
+		const model = this.routerModels.find((m) => m.name === modelId);
 		return model?.status.value === ServerModelStatus.LOADED || false;
 	}
 
-	/**
-	 * Check if a specific model is currently loading/unloading
-	 */
 	isModelOperationInProgress(modelId: string): boolean {
-		return this._modelLoadingStates.get(modelId) ?? false;
+		return this.modelLoadingStates.get(modelId) ?? false;
 	}
 
-	/**
-	 * Get the status of a specific model
-	 */
 	getModelStatus(modelId: string): ServerModelStatus | null {
-		const model = this._routerModels.find((m) => m.name === modelId);
+		const model = this.routerModels.find((m) => m.name === modelId);
 		return model?.status.value ?? null;
 	}
 
-	// ─────────────────────────────────────────────────────────────────────────────
-	// Getters - Model Usage
-	// ─────────────────────────────────────────────────────────────────────────────
-
-	/**
-	 * Get set of conversation IDs using a specific model
-	 */
 	getModelUsage(modelId: string): SvelteSet<string> {
-		return this._modelUsage.get(modelId) ?? new SvelteSet<string>();
+		return this.modelUsage.get(modelId) ?? new SvelteSet<string>();
 	}
 
-	/**
-	 * Check if a model is used by any conversation
-	 */
 	isModelInUse(modelId: string): boolean {
-		const usage = this._modelUsage.get(modelId);
+		const usage = this.modelUsage.get(modelId);
 		return usage !== undefined && usage.size > 0;
 	}
 
@@ -158,11 +99,11 @@ class ModelsStore {
 	 * Fetch list of models from server
 	 */
 	async fetch(force = false): Promise<void> {
-		if (this._loading) return;
-		if (this._models.length > 0 && !force) return;
+		if (this.loading) return;
+		if (this.models.length > 0 && !force) return;
 
-		this._loading = true;
-		this._error = null;
+		this.loading = true;
+		this.error = null;
 
 		try {
 			const response = await ModelsService.list();
@@ -185,18 +126,13 @@ class ModelsStore {
 				} satisfies ModelOption;
 			});
 
-			this._models = models;
-
-			// Don't auto-select any model - selection should come from:
-			// 1. User explicitly selecting a model in the UI
-			// 2. Conversation model (synced via ChatFormActions effect)
+			this.models = models;
 		} catch (error) {
-			this._models = [];
-			this._error = error instanceof Error ? error.message : 'Failed to load models';
-
+			this.models = [];
+			this.error = error instanceof Error ? error.message : 'Failed to load models';
 			throw error;
 		} finally {
-			this._loading = false;
+			this.loading = false;
 		}
 	}
 
@@ -207,13 +143,11 @@ class ModelsStore {
 	async fetchRouterModels(): Promise<void> {
 		try {
 			const response = await ModelsService.listRouter();
-			this._routerModels = response.data;
-
-			// Fetch modalities for loaded models
+			this.routerModels = response.data;
 			await this.fetchModalitiesForLoadedModels();
 		} catch (error) {
 			console.warn('Failed to fetch router models:', error);
-			this._routerModels = [];
+			this.routerModels = [];
 		}
 	}
 
@@ -226,13 +160,13 @@ class ModelsStore {
 		if (loadedModelIds.length === 0) return;
 
 		// Fetch props for each loaded model in parallel
-		const propsPromises = loadedModelIds.map((modelId) => propsStore.fetchModelProps(modelId));
+		const propsPromises = loadedModelIds.map((modelId) => serverStore.fetchModelProps(modelId));
 
 		try {
 			const results = await Promise.all(propsPromises);
 
 			// Update models with modalities
-			this._models = this._models.map((model) => {
+			this.models = this.models.map((model) => {
 				const modelIndex = loadedModelIds.indexOf(model.model);
 				if (modelIndex === -1) return model;
 
@@ -257,7 +191,7 @@ class ModelsStore {
 	 */
 	async updateModelModalities(modelId: string): Promise<void> {
 		try {
-			const props = await propsStore.fetchModelProps(modelId);
+			const props = await serverStore.fetchModelProps(modelId);
 			if (!props?.modalities) return;
 
 			const modalities: ModelModalities = {
@@ -265,7 +199,7 @@ class ModelsStore {
 				audio: props.modalities.audio ?? false
 			};
 
-			this._models = this._models.map((model) =>
+			this.models = this.models.map((model) =>
 				model.model === modelId ? { ...model, modalities } : model
 			);
 		} catch (error) {
@@ -281,27 +215,20 @@ class ModelsStore {
 	 * Select a model for new conversations
 	 */
 	async select(modelId: string): Promise<void> {
-		if (!modelId || this._updating) {
-			return;
-		}
+		if (!modelId || this.updating) return;
+		if (this.selectedModelId === modelId) return;
 
-		if (this._selectedModelId === modelId) {
-			return;
-		}
+		const option = this.models.find((model) => model.id === modelId);
+		if (!option) throw new Error('Selected model is not available');
 
-		const option = this._models.find((model) => model.id === modelId);
-		if (!option) {
-			throw new Error('Selected model is not available');
-		}
-
-		this._updating = true;
-		this._error = null;
+		this.updating = true;
+		this.error = null;
 
 		try {
-			this._selectedModelId = option.id;
-			this._selectedModelName = option.model;
+			this.selectedModelId = option.id;
+			this.selectedModelName = option.model;
 		} finally {
-			this._updating = false;
+			this.updating = false;
 		}
 	}
 
@@ -310,47 +237,28 @@ class ModelsStore {
 	 * @param modelName - Model name to select (e.g., "unsloth/gemma-3-12b-it-GGUF:latest")
 	 */
 	selectModelByName(modelName: string): void {
-		const option = this._models.find((model) => model.model === modelName);
+		const option = this.models.find((model) => model.model === modelName);
 		if (option) {
-			this._selectedModelId = option.id;
-			this._selectedModelName = option.model;
-			// Don't persist - this is just for syncing with conversation
+			this.selectedModelId = option.id;
+			this.selectedModelName = option.model;
 		}
 	}
 
-	/**
-	 * Clear the current model selection
-	 */
 	clearSelection(): void {
-		this._selectedModelId = null;
-		this._selectedModelName = null;
+		this.selectedModelId = null;
+		this.selectedModelName = null;
 	}
 
-	/**
-	 * Find a model by its model name
-	 * @param modelName - Model name to search for (e.g., "unsloth/gemma-3-12b-it-GGUF:latest")
-	 * @returns ModelOption if found, null otherwise
-	 */
 	findModelByName(modelName: string): ModelOption | null {
-		return this._models.find((model) => model.model === modelName) ?? null;
+		return this.models.find((model) => model.model === modelName) ?? null;
 	}
 
-	/**
-	 * Find a model by its display ID
-	 * @param modelId - Model ID to search for
-	 * @returns ModelOption if found, null otherwise
-	 */
 	findModelById(modelId: string): ModelOption | null {
-		return this._models.find((model) => model.id === modelId) ?? null;
+		return this.models.find((model) => model.id === modelId) ?? null;
 	}
 
-	/**
-	 * Check if a model exists by name
-	 * @param modelName - Model name to check
-	 * @returns true if model exists
-	 */
 	hasModel(modelName: string): boolean {
-		return this._models.some((model) => model.model === modelName);
+		return this.models.some((model) => model.model === modelName);
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────
@@ -414,12 +322,10 @@ class ModelsStore {
 			return;
 		}
 
-		if (this._modelLoadingStates.get(modelId)) {
-			return; // Already loading
-		}
+		if (this.modelLoadingStates.get(modelId)) return;
 
-		this._modelLoadingStates.set(modelId, true);
-		this._error = null;
+		this.modelLoadingStates.set(modelId, true);
+		this.error = null;
 
 		try {
 			await ModelsService.load(modelId);
@@ -427,13 +333,12 @@ class ModelsStore {
 			// Poll until model is loaded
 			await this.pollForModelStatus(modelId, ServerModelStatus.LOADED);
 
-			// Update modalities for this specific model
 			await this.updateModelModalities(modelId);
 		} catch (error) {
-			this._error = error instanceof Error ? error.message : 'Failed to load model';
+			this.error = error instanceof Error ? error.message : 'Failed to load model';
 			throw error;
 		} finally {
-			this._modelLoadingStates.set(modelId, false);
+			this.modelLoadingStates.set(modelId, false);
 		}
 	}
 
@@ -446,23 +351,20 @@ class ModelsStore {
 			return;
 		}
 
-		if (this._modelLoadingStates.get(modelId)) {
-			return; // Already unloading
-		}
+		if (this.modelLoadingStates.get(modelId)) return;
 
-		this._modelLoadingStates.set(modelId, true);
-		this._error = null;
+		this.modelLoadingStates.set(modelId, true);
+		this.error = null;
 
 		try {
 			await ModelsService.unload(modelId);
 
-			// Poll until model is unloaded
 			await this.pollForModelStatus(modelId, ServerModelStatus.UNLOADED);
 		} catch (error) {
-			this._error = error instanceof Error ? error.message : 'Failed to unload model';
+			this.error = error instanceof Error ? error.message : 'Failed to unload model';
 			throw error;
 		} finally {
-			this._modelLoadingStates.set(modelId, false);
+			this.modelLoadingStates.set(modelId, false);
 		}
 	}
 
@@ -486,9 +388,9 @@ class ModelsStore {
 	 * Register that a conversation is using a model
 	 */
 	registerModelUsage(modelId: string, conversationId: string): void {
-		const usage = this._modelUsage.get(modelId) ?? new SvelteSet<string>();
+		const usage = this.modelUsage.get(modelId) ?? new SvelteSet<string>();
 		usage.add(conversationId);
-		this._modelUsage.set(modelId, usage);
+		this.modelUsage.set(modelId, usage);
 	}
 
 	/**
@@ -502,14 +404,11 @@ class ModelsStore {
 		conversationId: string,
 		autoUnload = true
 	): Promise<void> {
-		const usage = this._modelUsage.get(modelId);
+		const usage = this.modelUsage.get(modelId);
 		if (usage) {
 			usage.delete(conversationId);
-
 			if (usage.size === 0) {
-				this._modelUsage.delete(modelId);
-
-				// Auto-unload if model is not used by any conversation
+				this.modelUsage.delete(modelId);
 				if (autoUnload && this.isModelLoaded(modelId)) {
 					await this.unloadModel(modelId);
 				}
@@ -521,10 +420,8 @@ class ModelsStore {
 	 * Clear all usage for a conversation (when conversation is deleted)
 	 */
 	async clearConversationUsage(conversationId: string): Promise<void> {
-		for (const [modelId, usage] of this._modelUsage.entries()) {
-			if (usage.has(conversationId)) {
-				await this.unregisterModelUsage(modelId, conversationId);
-			}
+		for (const [modelId, usage] of this.modelUsage.entries()) {
+			if (usage.has(conversationId)) await this.unregisterModelUsage(modelId, conversationId);
 		}
 	}
 
@@ -544,15 +441,15 @@ class ModelsStore {
 	// ─────────────────────────────────────────────────────────────────────────────
 
 	clear(): void {
-		this._models = [];
-		this._routerModels = [];
-		this._loading = false;
-		this._updating = false;
-		this._error = null;
-		this._selectedModelId = null;
-		this._selectedModelName = null;
-		this._modelUsage.clear();
-		this._modelLoadingStates.clear();
+		this.models = [];
+		this.routerModels = [];
+		this.loading = false;
+		this.updating = false;
+		this.error = null;
+		this.selectedModelId = null;
+		this.selectedModelName = null;
+		this.modelUsage.clear();
+		this.modelLoadingStates.clear();
 	}
 }
 

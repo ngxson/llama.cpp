@@ -18,7 +18,7 @@
 	import { INPUT_CLASSES } from '$lib/constants/input-classes';
 	import Label from '$lib/components/ui/label/label.svelte';
 	import { config } from '$lib/stores/settings.svelte';
-	import { isRouterMode } from '$lib/stores/props.svelte';
+	import { isRouterMode } from '$lib/stores/server.svelte';
 	import { selectModel } from '$lib/stores/models.svelte';
 	import { copyToClipboard } from '$lib/utils/copy';
 	import type { ApiChatCompletionToolCall } from '$lib/types/api';

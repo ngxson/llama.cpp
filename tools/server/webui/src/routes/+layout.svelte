@@ -9,7 +9,7 @@
 		setTitleUpdateConfirmationCallback
 	} from '$lib/stores/conversations.svelte';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
-	import { isRouterMode, propsStore } from '$lib/stores/props.svelte';
+	import { isRouterMode, serverStore } from '$lib/stores/server.svelte';
 	import { config, settingsStore } from '$lib/stores/settings.svelte';
 	import { ModeWatcher } from 'mode-watcher';
 	import { Toaster } from 'svelte-sonner';
@@ -95,16 +95,16 @@
 	// Initialize server properties on app load (run once)
 	$effect(() => {
 		// Only fetch if we don't already have props
-		if (!propsStore.serverProps) {
+		if (!serverStore.props) {
 			untrack(() => {
-				propsStore.fetch();
+				serverStore.fetch();
 			});
 		}
 	});
 
 	// Sync settings when server props are loaded
 	$effect(() => {
-		const serverProps = propsStore.serverProps;
+		const serverProps = serverStore.props;
 
 		if (serverProps?.default_generation_settings?.params) {
 			settingsStore.syncWithServerDefaults();

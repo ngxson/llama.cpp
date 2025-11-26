@@ -2,7 +2,7 @@ import { DatabaseService } from '$lib/services/database';
 import { chatService } from '$lib/services';
 import { conversationsStore } from '$lib/stores/conversations.svelte';
 import { config } from '$lib/stores/settings.svelte';
-import { contextSize } from '$lib/stores/props.svelte';
+import { contextSize } from '$lib/stores/server.svelte';
 import { normalizeModelName } from '$lib/utils/model-names';
 import { filterByLeafNodeId, findDescendantMessages, findLeafNode } from '$lib/utils/branching';
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';

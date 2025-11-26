@@ -32,13 +32,13 @@
 	import {
 		supportsVision,
 		supportsAudio,
-		propsLoading,
-		propsError,
-		propsStore,
+		serverLoading,
+		serverError,
+		serverStore,
 		isRouterMode,
 		fetchModelProps,
 		getModelProps
-	} from '$lib/stores/props.svelte';
+	} from '$lib/stores/server.svelte';
 	import { modelOptions, selectedModelId } from '$lib/stores/models.svelte';
 	import { getConversationModel } from '$lib/stores/chat.svelte';
 	import { parseFilesToMessageExtras } from '$lib/utils/convert-files-to-extra';
@@ -87,8 +87,8 @@
 	);
 
 	let activeErrorDialog = $derived(errorDialog());
-	let isServerLoading = $derived(propsLoading());
-	let hasPropsError = $derived(!!propsError());
+	let isServerLoading = $derived(serverLoading());
+	let hasPropsError = $derived(!!serverError());
 
 	let isCurrentConversationLoading = $derived(isLoading());
 
@@ -407,10 +407,10 @@
 							<div class="flex items-center gap-2">
 								<AlertTriangle class="h-4 w-4 text-destructive" />
 								<span class="text-sm font-medium text-destructive">Server unavailable</span>
-								<span class="text-sm text-muted-foreground">— {propsError()}</span>
+								<span class="text-sm text-muted-foreground">— {serverError()}</span>
 							</div>
 							<button
-								onclick={() => propsStore.fetch()}
+								onclick={() => serverStore.fetch()}
 								disabled={isServerLoading}
 								class="flex items-center gap-1.5 rounded-lg bg-destructive/20 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/30 disabled:opacity-50"
 							>
@@ -454,7 +454,7 @@
 				<h1 class="mb-4 text-3xl font-semibold tracking-tight">llama.cpp</h1>
 
 				<p class="text-lg text-muted-foreground">
-					{propsStore.serverProps?.modalities?.audio
+					{serverStore.props?.modalities?.audio
 						? 'Record audio, type a message '
 						: 'Type a message'} or upload files to get started
 				</p>
@@ -467,10 +467,10 @@
 							<div class="flex items-center gap-2">
 								<AlertTriangle class="h-4 w-4 text-destructive" />
 								<span class="text-sm font-medium text-destructive">Server unavailable</span>
-								<span class="text-sm text-muted-foreground">— {propsError()}</span>
+								<span class="text-sm text-muted-foreground">— {serverError()}</span>
 							</div>
 							<button
-								onclick={() => propsStore.fetch()}
+								onclick={() => serverStore.fetch()}
 								disabled={isServerLoading}
 								class="flex items-center gap-1.5 rounded-lg bg-destructive/20 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/30 disabled:opacity-50"
 							>

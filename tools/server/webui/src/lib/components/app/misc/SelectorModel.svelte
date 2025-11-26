@@ -15,7 +15,7 @@
 		loadModel
 	} from '$lib/stores/models.svelte';
 	import { ServerModelStatus } from '$lib/enums';
-	import { isRouterMode, propsStore } from '$lib/stores/props.svelte';
+	import { isRouterMode, serverStore } from '$lib/stores/server.svelte';
 	import { DialogModelInformation } from '$lib/components/app';
 	import type { ModelOption } from '$lib/types/models';
 
@@ -43,7 +43,7 @@
 	let updating = $derived(modelsUpdating());
 	let activeId = $derived(selectedModelId());
 	let isRouter = $derived(isRouterMode());
-	let serverModel = $derived(propsStore.modelName);
+	let serverModel = $derived(serverStore.modelName);
 
 	// Reactive router models state - needed for proper reactivity of status checks
 	let currentRouterModels = $derived(routerModels());

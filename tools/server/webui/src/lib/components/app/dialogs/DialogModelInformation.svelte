@@ -2,7 +2,7 @@
 	import * as Dialog from '$lib/components/ui/dialog';
 	import * as Table from '$lib/components/ui/table';
 	import { BadgeModality, CopyToClipboardIcon } from '$lib/components/app';
-	import { propsStore } from '$lib/stores/props.svelte';
+	import { serverStore } from '$lib/stores/server.svelte';
 	import { ChatService } from '$lib/services/chat';
 	import type { ApiModelListResponse } from '$lib/types/api';
 	import { formatFileSize, formatParameters, formatNumber } from '$lib/utils/formatters';
@@ -14,8 +14,8 @@
 
 	let { open = $bindable(), onOpenChange }: Props = $props();
 
-	let serverProps = $derived(propsStore.serverProps);
-	let modalities = $derived(propsStore.supportedModalities);
+	let serverProps = $derived(serverStore.props);
+	let modalities = $derived(serverStore.supportedModalities);
 
 	let modelsData = $state<ApiModelListResponse | null>(null);
 	let isLoadingModels = $state(false);
@@ -77,12 +77,12 @@
 											class="resizable-text-container min-w-0 flex-1 truncate"
 											style:--threshold="12rem"
 										>
-											{propsStore.modelName}
+											{serverStore.modelName}
 										</span>
 
 										<CopyToClipboardIcon
-											text={propsStore.modelName || ''}
-											canCopy={!!propsStore.modelName}
+											text={serverStore.modelName || ''}
+											canCopy={!!serverStore.modelName}
 											ariaLabel="Copy model name to clipboard"
 										/>
 									</div>
