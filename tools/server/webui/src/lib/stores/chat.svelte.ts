@@ -61,6 +61,9 @@ class ChatStore {
 	chatLoadingStates = new SvelteMap<string, boolean>();
 	chatStreamingStates = new SvelteMap<string, { response: string; messageId: string }>();
 
+	// Abort controllers for per-conversation request cancellation
+	private abortControllers = new SvelteMap<string, AbortController>();
+
 	// Processing state tracking - per-conversation timing/context info
 	private processingStates = new SvelteMap<string, ApiProcessingState | null>();
 	private processingCallbacks = new SvelteSet<(state: ApiProcessingState | null) => void>();
@@ -517,6 +520,8 @@ class ChatStore {
 		this.startStreaming();
 		this.setActiveProcessingConversation(assistantMessage.convId);
 
+		const abortController = this.getOrCreateAbortController(assistantMessage.convId);
+
 		await chatService.sendMessage(
 			allMessages,
 			{
@@ -615,7 +620,8 @@ class ChatStore {
 					if (onError) onError(error);
 				}
 			},
-			assistantMessage.convId
+			assistantMessage.convId,
+			abortController.signal
 		);
 	}
 
@@ -673,10 +679,40 @@ class ChatStore {
 		if (!activeConv) return;
 		await this.savePartialResponseIfNeeded(activeConv.id);
 		this.stopStreaming();
-		chatService.abortChatCompletionRequest(activeConv.id);
+		this.abortRequest(activeConv.id);
 		this.setChatLoading(activeConv.id, false);
 		this.clearChatStreaming(activeConv.id);
 		this.clearProcessingState(activeConv.id);
+	}
+
+	/**
+	 * Gets or creates an AbortController for a conversation
+	 */
+	private getOrCreateAbortController(convId: string): AbortController {
+		let controller = this.abortControllers.get(convId);
+		if (!controller || controller.signal.aborted) {
+			controller = new AbortController();
+			this.abortControllers.set(convId, controller);
+		}
+		return controller;
+	}
+
+	/**
+	 * Aborts any ongoing request for a conversation
+	 */
+	private abortRequest(convId?: string): void {
+		if (convId) {
+			const controller = this.abortControllers.get(convId);
+			if (controller) {
+				controller.abort();
+				this.abortControllers.delete(convId);
+			}
+		} else {
+			for (const controller of this.abortControllers.values()) {
+				controller.abort();
+			}
+			this.abortControllers.clear();
+		}
 	}
 
 	private async savePartialResponseIfNeeded(convId?: string): Promise<void> {
@@ -1123,6 +1159,8 @@ class ChatStore {
 				appendedThinking = '',
 				hasReceivedContent = false;
 
+			const abortController = this.getOrCreateAbortController(msg.convId);
+
 			await chatService.sendMessage(
 				contextWithContinue,
 				{
@@ -1218,7 +1256,8 @@ class ChatStore {
 						);
 					}
 				},
-				msg.convId
+				msg.convId,
+				abortController.signal
 			);
 		} catch (error) {
 			if (!this.isAbortError(error)) console.error('Failed to continue message:', error);

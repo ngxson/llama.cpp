@@ -54,11 +54,9 @@ import type { SettingsChatServiceOptions } from '$lib/types/settings';
  * - Streaming response handling with real-time callbacks
  * - Reasoning content extraction and processing
  * - File attachment processing (images, PDFs, audio, text)
- * - Request lifecycle management (abort, cleanup)
+ * - Request lifecycle management (abort via AbortSignal)
  */
 export class ChatService {
-	private abortControllers: Map<string, AbortController> = new Map();
-
 	/**
 	 * Sends a chat completion request to the llama.cpp server.
 	 * Supports both streaming and non-streaming responses with comprehensive parameter configuration.
@@ -72,7 +70,8 @@ export class ChatService {
 	async sendMessage(
 		messages: ApiChatMessageData[] | (DatabaseMessage & { extra?: DatabaseMessageExtra[] })[],
 		options: SettingsChatServiceOptions = {},
-		conversationId?: string
+		conversationId?: string,
+		signal?: AbortSignal
 	): Promise<string | void> {
 		const {
 			stream,
@@ -111,15 +110,6 @@ export class ChatService {
 		} = options;
 
 		const currentConfig = config();
-
-		const requestId = conversationId || 'default';
-
-		if (this.abortControllers.has(requestId)) {
-			this.abortControllers.get(requestId)?.abort();
-		}
-
-		const abortController = new AbortController();
-		this.abortControllers.set(requestId, abortController);
 
 		const normalizedMessages: ApiChatMessageData[] = messages
 			.map((msg) => {
@@ -206,7 +196,7 @@ export class ChatService {
 				method: 'POST',
 				headers: getJsonHeaders(),
 				body: JSON.stringify(requestBody),
-				signal: abortController.signal
+				signal
 			});
 
 			if (!response.ok) {
@@ -228,7 +218,7 @@ export class ChatService {
 					onModel,
 					onTimings,
 					conversationId,
-					abortController.signal
+					signal
 				);
 				return;
 			} else {
@@ -272,8 +262,6 @@ export class ChatService {
 				onError(userFriendlyError);
 			}
 			throw userFriendlyError;
-		} finally {
-			this.abortControllers.delete(requestId);
 		}
 	}
 
@@ -736,27 +724,6 @@ export class ChatService {
 		} catch (error) {
 			console.error('Error fetching models:', error);
 			throw error;
-		}
-	}
-
-	/**
-	 * Aborts any ongoing chat completion request.
-	 * Cancels the current request and cleans up the abort controller.
-	 *
-	 * @public
-	 */
-	public abortChatCompletionRequest(conversationId?: string): void {
-		if (conversationId) {
-			const abortController = this.abortControllers.get(conversationId);
-			if (abortController) {
-				abortController.abort();
-				this.abortControllers.delete(conversationId);
-			}
-		} else {
-			for (const controller of this.abortControllers.values()) {
-				controller.abort();
-			}
-			this.abortControllers.clear();
 		}
 	}
 
