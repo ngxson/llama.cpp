@@ -103,7 +103,7 @@ public:
     std::vector<server_model_meta> get_all_meta();
 
     // if auto_load is true, load the model with previous args if any
-    void load(const std::string & name, const std::vector<std::string> & extra_args, bool auto_load);
+    void load(const std::string & name, bool auto_load);
     void unload(const std::string & name);
     void unload_all();
 

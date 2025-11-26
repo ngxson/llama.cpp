@@ -2489,13 +2489,6 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_MODELS_MAX"));
     add_opt(common_arg(
-        {"--models-allow-extra-args"},
-        string_format("for router server, allow extra arguments for models; important: some arguments can allow users to access local file system, use with caution (default: %s)", params.models_allow_extra_args ? "enabled" : "disabled"),
-        [](common_params & params) {
-            params.models_allow_extra_args = true;
-        }
-    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_MODELS_ALLOW_EXTRA_ARGS"));
-    add_opt(common_arg(
         {"--no-models-autoload"},
         "disables automatic loading of models (default: enabled)",
         [](common_params & params) {
