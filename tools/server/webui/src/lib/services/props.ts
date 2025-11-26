@@ -1,4 +1,4 @@
-import { config } from '$lib/stores/settings.svelte';
+import { getAuthHeaders } from '$lib/utils/api-headers';
 
 /**
  * PropsService - Server properties management
@@ -22,13 +22,8 @@ export class PropsService {
 	 * @throws {Error} If the request fails or returns invalid data
 	 */
 	static async fetch(): Promise<ApiLlamaCppServerProps> {
-		const currentConfig = config();
-		const apiKey = currentConfig.apiKey?.toString().trim();
-
 		const response = await fetch('./props', {
-			headers: {
-				...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-			}
+			headers: getAuthHeaders()
 		});
 
 		if (!response.ok) {
@@ -49,16 +44,11 @@ export class PropsService {
 	 * @throws {Error} If the request fails or returns invalid data
 	 */
 	static async fetchForModel(modelId: string): Promise<ApiLlamaCppServerProps> {
-		const currentConfig = config();
-		const apiKey = currentConfig.apiKey?.toString().trim();
-
 		const url = new URL('./props', window.location.href);
 		url.searchParams.set('model', modelId);
 
 		const response = await fetch(url.toString(), {
-			headers: {
-				...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-			}
+			headers: getAuthHeaders()
 		});
 
 		if (!response.ok) {

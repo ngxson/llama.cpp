@@ -1,6 +1,6 @@
 import { base } from '$app/paths';
-import { config } from '$lib/stores/settings.svelte';
 import { ServerModelStatus } from '$lib/enums';
+import { getJsonHeaders } from '$lib/utils/api-headers';
 import type {
 	ApiModelListResponse,
 	ApiModelDataEntry,
@@ -26,16 +26,6 @@ import type {
  * - ModelsStore: Primary consumer for model state management
  */
 export class ModelsService {
-	private static getHeaders(): Record<string, string> {
-		const currentConfig = config();
-		const apiKey = currentConfig.apiKey?.toString().trim();
-
-		return {
-			'Content-Type': 'application/json',
-			...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-		};
-	}
-
 	// ─────────────────────────────────────────────────────────────────────────────
 	// MODEL + ROUTER mode - OpenAI-compatible API
 	// ─────────────────────────────────────────────────────────────────────────────
@@ -46,7 +36,7 @@ export class ModelsService {
 	 */
 	static async list(): Promise<ApiModelListResponse> {
 		const response = await fetch(`${base}/v1/models`, {
-			headers: this.getHeaders()
+			headers: getJsonHeaders()
 		});
 
 		if (!response.ok) {
@@ -66,7 +56,7 @@ export class ModelsService {
 	 */
 	static async listRouter(): Promise<ApiRouterModelsListResponse> {
 		const response = await fetch(`${base}/models`, {
-			headers: this.getHeaders()
+			headers: getJsonHeaders()
 		});
 
 		if (!response.ok) {
@@ -90,7 +80,7 @@ export class ModelsService {
 
 		const response = await fetch(`${base}/models/load`, {
 			method: 'POST',
-			headers: this.getHeaders(),
+			headers: getJsonHeaders(),
 			body: JSON.stringify(payload)
 		});
 
@@ -110,7 +100,7 @@ export class ModelsService {
 	static async unload(modelId: string): Promise<ApiRouterModelsUnloadResponse> {
 		const response = await fetch(`${base}/models/unload`, {
 			method: 'POST',
-			headers: this.getHeaders(),
+			headers: getJsonHeaders(),
 			body: JSON.stringify({ model: modelId })
 		});
 
@@ -128,7 +118,7 @@ export class ModelsService {
 	 */
 	static async getStatus(modelId: string): Promise<ApiRouterModelsStatusResponse> {
 		const response = await fetch(`${base}/models/status?model=${encodeURIComponent(modelId)}`, {
-			headers: this.getHeaders()
+			headers: getJsonHeaders()
 		});
 
 		if (!response.ok) {

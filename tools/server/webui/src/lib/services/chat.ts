@@ -1,4 +1,5 @@
 import { config } from '$lib/stores/settings.svelte';
+import { getJsonHeaders } from '$lib/utils/api-headers';
 import { selectedModelName } from '$lib/stores/models.svelte';
 import { isRouterMode, propsStore } from '$lib/stores/props.svelte';
 import type {
@@ -201,14 +202,9 @@ export class ChatService {
 		}
 
 		try {
-			const apiKey = currentConfig.apiKey?.toString().trim();
-
 			const response = await fetch(`./v1/chat/completions`, {
 				method: 'POST',
-				headers: {
-					'Content-Type': 'application/json',
-					...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-				},
+				headers: getJsonHeaders(),
 				body: JSON.stringify(requestBody),
 				signal: abortController.signal
 			});
@@ -706,14 +702,8 @@ export class ChatService {
 	 */
 	static async getServerProps(): Promise<ApiLlamaCppServerProps> {
 		try {
-			const currentConfig = config();
-			const apiKey = currentConfig.apiKey?.toString().trim();
-
 			const response = await fetch(`./props`, {
-				headers: {
-					'Content-Type': 'application/json',
-					...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-				}
+				headers: getJsonHeaders()
 			});
 
 			if (!response.ok) {
@@ -733,14 +723,8 @@ export class ChatService {
 	 */
 	static async getModels(): Promise<ApiModelListResponse> {
 		try {
-			const currentConfig = config();
-			const apiKey = currentConfig.apiKey?.toString().trim();
-
 			const response = await fetch(`./models`, {
-				headers: {
-					'Content-Type': 'application/json',
-					...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
-				}
+				headers: getJsonHeaders()
 			});
 
 			if (!response.ok) {
