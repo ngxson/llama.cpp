@@ -3,11 +3,11 @@ import { config } from '$lib/stores/settings.svelte';
 import { ServerModelStatus } from '$lib/enums';
 import type {
 	ApiModelListResponse,
+	ApiModelDataEntry,
 	ApiRouterModelsListResponse,
 	ApiRouterModelsLoadResponse,
 	ApiRouterModelsUnloadResponse,
-	ApiRouterModelsStatusResponse,
-	ApiRouterModelMeta
+	ApiRouterModelsStatusResponse
 } from '$lib/types/api';
 
 /**
@@ -78,13 +78,20 @@ export class ModelsService {
 
 	/**
 	 * Load a model (ROUTER mode)
+	 * POST /models/load
 	 * @param modelId - Model identifier to load
+	 * @param extraArgs - Optional additional arguments to pass to the model instance
 	 */
-	static async load(modelId: string): Promise<ApiRouterModelsLoadResponse> {
-		const response = await fetch(`${base}/models`, {
+	static async load(modelId: string, extraArgs?: string[]): Promise<ApiRouterModelsLoadResponse> {
+		const payload: { model: string; extra_args?: string[] } = { model: modelId };
+		if (extraArgs && extraArgs.length > 0) {
+			payload.extra_args = extraArgs;
+		}
+
+		const response = await fetch(`${base}/models/load`, {
 			method: 'POST',
 			headers: this.getHeaders(),
-			body: JSON.stringify({ model: modelId })
+			body: JSON.stringify(payload)
 		});
 
 		if (!response.ok) {
@@ -97,11 +104,12 @@ export class ModelsService {
 
 	/**
 	 * Unload a model (ROUTER mode)
+	 * POST /models/unload
 	 * @param modelId - Model identifier to unload
 	 */
 	static async unload(modelId: string): Promise<ApiRouterModelsUnloadResponse> {
-		const response = await fetch(`${base}/models`, {
-			method: 'DELETE',
+		const response = await fetch(`${base}/models/unload`, {
+			method: 'POST',
 			headers: this.getHeaders(),
 			body: JSON.stringify({ model: modelId })
 		});
@@ -133,14 +141,14 @@ export class ModelsService {
 	/**
 	 * Check if a model is loaded based on its metadata
 	 */
-	static isModelLoaded(model: ApiRouterModelMeta): boolean {
-		return model.status === ServerModelStatus.LOADED && model.port > 0;
+	static isModelLoaded(model: ApiModelDataEntry): boolean {
+		return model.status.value === ServerModelStatus.LOADED;
 	}
 
 	/**
 	 * Check if a model is currently loading
 	 */
-	static isModelLoading(model: ApiRouterModelMeta): boolean {
-		return model.status === ServerModelStatus.LOADING;
+	static isModelLoading(model: ApiModelDataEntry): boolean {
+		return model.status.value === ServerModelStatus.LOADING;
 	}
 }

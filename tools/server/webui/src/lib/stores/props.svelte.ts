@@ -1,7 +1,7 @@
 import { browser } from '$app/environment';
 import { SERVER_PROPS_LOCALSTORAGE_KEY } from '$lib/constants/localstorage-keys';
 import { PropsService } from '$lib/services/props';
-import { ServerMode, ModelModality } from '$lib/enums';
+import { ServerRole, ModelModality } from '$lib/enums';
 
 /**
  * PropsStore - Server properties management and mode detection
@@ -28,7 +28,7 @@ class PropsStore {
 		const cachedProps = this.readCachedServerProps();
 		if (cachedProps) {
 			this._serverProps = cachedProps;
-			this.detectServerMode(cachedProps);
+			this.detectServerRole(cachedProps);
 		}
 	}
 
@@ -36,7 +36,7 @@ class PropsStore {
 	private _loading = $state(false);
 	private _error = $state<string | null>(null);
 	private _serverWarning = $state<string | null>(null);
-	private _serverMode = $state<ServerMode | null>(null);
+	private _serverRole = $state<ServerRole | null>(null);
 	private fetchPromise: Promise<void> | null = null;
 
 	// Model-specific props cache (ROUTER mode)
@@ -44,9 +44,13 @@ class PropsStore {
 	private _modelPropsFetching = $state<Set<string>>(new Set());
 
 	// ─────────────────────────────────────────────────────────────────────────────
-	// LocalStorage persistence
+	// LocalStorage persistence with fingerprint validation
 	// ─────────────────────────────────────────────────────────────────────────────
 
+	/**
+	 * Read cached server props from localStorage
+	 * Note: Cache should be validated against fresh data using build_info fingerprint
+	 */
 	private readCachedServerProps(): ApiLlamaCppServerProps | null {
 		if (!browser) return null;
 
@@ -61,6 +65,9 @@ class PropsStore {
 		}
 	}
 
+	/**
+	 * Persist server props to localStorage
+	 */
 	private persistServerProps(props: ApiLlamaCppServerProps | null): void {
 		if (!browser) return;
 
@@ -73,6 +80,32 @@ class PropsStore {
 		} catch (error) {
 			console.warn('Failed to persist server props to localStorage:', error);
 		}
+	}
+
+	/**
+	 * Validate cached props against fresh data using build_info fingerprint
+	 * Returns true if cache is valid (same server instance)
+	 */
+	private isCacheValid(freshProps: ApiLlamaCppServerProps): boolean {
+		const cachedProps = this._serverProps;
+		if (!cachedProps) return true; // No cache to validate
+
+		// Compare build_info - different build means server was restarted or updated
+		if (cachedProps.build_info !== freshProps.build_info) {
+			console.info(
+				'Server build_info changed, invalidating cache',
+				`(${cachedProps.build_info} → ${freshProps.build_info})`
+			);
+			return false;
+		}
+
+		// Compare model_path - different model loaded means different configuration
+		if (cachedProps.model_path !== freshProps.model_path) {
+			console.info('Server model changed, invalidating cache');
+			return false;
+		}
+
+		return true;
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────
@@ -101,7 +134,7 @@ class PropsStore {
 	 * In ROUTER mode: returns null (model is per-conversation)
 	 */
 	get modelName(): string | null {
-		if (this._serverMode === ServerMode.ROUTER) {
+		if (this._serverRole === ServerRole.ROUTER) {
 			return null;
 		}
 
@@ -157,35 +190,38 @@ class PropsStore {
 	/**
 	 * Get current server mode
 	 */
-	get serverMode(): ServerMode | null {
-		return this._serverMode;
+	get serverRole(): ServerRole | null {
+		return this._serverRole;
 	}
 
 	/**
 	 * Detect if server is running in router mode (multi-model management)
 	 */
 	get isRouterMode(): boolean {
-		return this._serverMode === ServerMode.ROUTER;
+		return this._serverRole === ServerRole.ROUTER;
 	}
 
 	/**
 	 * Detect if server is running in model mode (single model loaded)
 	 */
 	get isModelMode(): boolean {
-		return this._serverMode === ServerMode.MODEL;
+		return this._serverRole === ServerRole.MODEL;
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────
 	// Server Mode Detection
 	// ─────────────────────────────────────────────────────────────────────────────
 
-	private detectServerMode(props: ApiLlamaCppServerProps): void {
-		const newMode = props.model_path === 'none' ? ServerMode.ROUTER : ServerMode.MODEL;
+	private detectServerRole(props: ApiLlamaCppServerProps): void {
+		console.log('Server props role:', props?.role);
+		const newMode =
+			// todo - `role` attribute should always be available on the `/props` endpoint
+			props?.role === ServerRole.ROUTER ? ServerRole.ROUTER : ServerRole.MODEL;
 
 		// Only log when mode changes
-		if (this._serverMode !== newMode) {
-			this._serverMode = newMode;
-			console.info(`Server running in ${newMode === ServerMode.ROUTER ? 'ROUTER' : 'MODEL'} mode`);
+		if (this._serverRole !== newMode) {
+			this._serverRole = newMode;
+			console.info(`Server running in ${newMode === ServerRole.ROUTER ? 'ROUTER' : 'MODEL'} mode`);
 		}
 	}
 
@@ -215,12 +251,19 @@ class PropsStore {
 		const fetchPromise = (async () => {
 			try {
 				const props = await PropsService.fetch();
+
+				// Validate cache - if server was restarted, clear model-specific props cache
+				if (!this.isCacheValid(props)) {
+					this._modelPropsCache.clear();
+					console.info('Cleared model props cache due to server change');
+				}
+
 				this._serverProps = props;
 				this.persistServerProps(props);
 				this._error = null;
 				this._serverWarning = null;
 
-				this.detectServerMode(props);
+				this.detectServerRole(props);
 			} catch (error) {
 				if (isSilent && hadProps) {
 					console.warn('Silent server props refresh failed, keeping cached data:', error);
@@ -302,7 +345,7 @@ class PropsStore {
 
 			if (cachedProps) {
 				this._serverProps = cachedProps;
-				this.detectServerMode(cachedProps);
+				this.detectServerRole(cachedProps);
 				this._error = null;
 
 				if (isOfflineLikeError || isServerSideError) {
@@ -384,7 +427,7 @@ class PropsStore {
 		this._error = null;
 		this._serverWarning = null;
 		this._loading = false;
-		this._serverMode = null;
+		this._serverRole = null;
 		this.fetchPromise = null;
 		this.persistServerProps(null);
 	}
@@ -409,7 +452,7 @@ export const defaultParams = () => propsStore.defaultParams;
 export const contextSize = () => propsStore.contextSize;
 
 // Server mode exports
-export const serverMode = () => propsStore.serverMode;
+export const serverRole = () => propsStore.serverRole;
 export const isRouterMode = () => propsStore.isRouterMode;
 export const isModelMode = () => propsStore.isModelMode;
 

@@ -9,11 +9,12 @@
 		setTitleUpdateConfirmationCallback
 	} from '$lib/stores/conversations.svelte';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
-	import { propsStore } from '$lib/stores/props.svelte';
+	import { isRouterMode, propsStore } from '$lib/stores/props.svelte';
 	import { config, settingsStore } from '$lib/stores/settings.svelte';
 	import { ModeWatcher } from 'mode-watcher';
 	import { Toaster } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
+	import { modelsStore } from '$lib/stores/models.svelte';
 
 	let { children } = $props();
 
@@ -107,6 +108,22 @@
 
 		if (serverProps?.default_generation_settings?.params) {
 			settingsStore.syncWithServerDefaults();
+		}
+	});
+
+	// Fetch router models when in router mode (for status and modalities)
+	// Wait for models to be loaded first, run only once
+	let routerModelsFetched = false;
+	$effect(() => {
+		const isRouter = isRouterMode();
+		const modelsCount = modelsStore.models.length;
+
+		// Only fetch router models once when we have models loaded and in router mode
+		if (isRouter && modelsCount > 0 && !routerModelsFetched) {
+			routerModelsFetched = true;
+			untrack(() => {
+				modelsStore.fetchRouterModels();
+			});
 		}
 	});
 

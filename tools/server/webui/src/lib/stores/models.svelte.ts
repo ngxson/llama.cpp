@@ -1,8 +1,9 @@
 import { SvelteSet } from 'svelte/reactivity';
 import { ModelsService } from '$lib/services/models';
 import { ServerModelStatus } from '$lib/enums';
-import type { ModelOption } from '$lib/types/models';
-import type { ApiRouterModelMeta } from '$lib/types/api';
+import { propsStore } from '$lib/stores/props.svelte';
+import type { ModelOption, ModelModalities } from '$lib/types/models';
+import type { ApiModelDataEntry } from '$lib/types/api';
 
 /**
  * ModelsStore - Reactive store for model management in both MODEL and ROUTER modes
@@ -32,7 +33,7 @@ class ModelsStore {
 	// ─────────────────────────────────────────────────────────────────────────────
 
 	private _models = $state<ModelOption[]>([]);
-	private _routerModels = $state<ApiRouterModelMeta[]>([]);
+	private _routerModels = $state<ApiModelDataEntry[]>([]);
 	private _loading = $state(false);
 	private _updating = $state(false);
 	private _error = $state<string | null>(null);
@@ -53,7 +54,7 @@ class ModelsStore {
 		return this._models;
 	}
 
-	get routerModels(): ApiRouterModelMeta[] {
+	get routerModels(): ApiModelDataEntry[] {
 		return this._routerModels;
 	}
 
@@ -94,7 +95,7 @@ class ModelsStore {
 	 */
 	get loadedModelIds(): string[] {
 		return this._routerModels
-			.filter((m) => m.status === ServerModelStatus.LOADED)
+			.filter((m) => m.status.value === ServerModelStatus.LOADED)
 			.map((m) => m.name);
 	}
 
@@ -112,7 +113,7 @@ class ModelsStore {
 	 */
 	isModelLoaded(modelId: string): boolean {
 		const model = this._routerModels.find((m) => m.name === modelId);
-		return model?.status === ServerModelStatus.LOADED || false;
+		return model?.status.value === ServerModelStatus.LOADED || false;
 	}
 
 	/**
@@ -127,7 +128,7 @@ class ModelsStore {
 	 */
 	getModelStatus(modelId: string): ServerModelStatus | null {
 		const model = this._routerModels.find((m) => m.name === modelId);
-		return model?.status ?? null;
+		return model?.status.value ?? null;
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────
@@ -201,14 +202,74 @@ class ModelsStore {
 
 	/**
 	 * Fetch router models with full metadata (ROUTER mode only)
+	 * This fetches the /models endpoint which returns status info for each model
 	 */
 	async fetchRouterModels(): Promise<void> {
 		try {
 			const response = await ModelsService.listRouter();
-			this._routerModels = response.models;
+			this._routerModels = response.data;
+
+			// Fetch modalities for loaded models
+			await this.fetchModalitiesForLoadedModels();
 		} catch (error) {
 			console.warn('Failed to fetch router models:', error);
 			this._routerModels = [];
+		}
+	}
+
+	/**
+	 * Fetch modalities for all loaded models from /props endpoint
+	 * This updates the modalities field in _models array
+	 */
+	async fetchModalitiesForLoadedModels(): Promise<void> {
+		const loadedModelIds = this.loadedModelIds;
+		if (loadedModelIds.length === 0) return;
+
+		// Fetch props for each loaded model in parallel
+		const propsPromises = loadedModelIds.map((modelId) => propsStore.fetchModelProps(modelId));
+
+		try {
+			const results = await Promise.all(propsPromises);
+
+			// Update models with modalities
+			this._models = this._models.map((model) => {
+				const modelIndex = loadedModelIds.indexOf(model.model);
+				if (modelIndex === -1) return model;
+
+				const props = results[modelIndex];
+				if (!props?.modalities) return model;
+
+				const modalities: ModelModalities = {
+					vision: props.modalities.vision ?? false,
+					audio: props.modalities.audio ?? false
+				};
+
+				return { ...model, modalities };
+			});
+		} catch (error) {
+			console.warn('Failed to fetch modalities for loaded models:', error);
+		}
+	}
+
+	/**
+	 * Update modalities for a specific model
+	 * Called when a model is loaded or when we need fresh modality data
+	 */
+	async updateModelModalities(modelId: string): Promise<void> {
+		try {
+			const props = await propsStore.fetchModelProps(modelId);
+			if (!props?.modalities) return;
+
+			const modalities: ModelModalities = {
+				vision: props.modalities.vision ?? false,
+				audio: props.modalities.audio ?? false
+			};
+
+			this._models = this._models.map((model) =>
+				model.model === modelId ? { ...model, modalities } : model
+			);
+		} catch (error) {
+			console.warn(`Failed to update modalities for model ${modelId}:`, error);
 		}
 	}
 
@@ -265,6 +326,33 @@ class ModelsStore {
 		this._selectedModelName = null;
 	}
 
+	/**
+	 * Find a model by its model name
+	 * @param modelName - Model name to search for (e.g., "unsloth/gemma-3-12b-it-GGUF:latest")
+	 * @returns ModelOption if found, null otherwise
+	 */
+	findModelByName(modelName: string): ModelOption | null {
+		return this._models.find((model) => model.model === modelName) ?? null;
+	}
+
+	/**
+	 * Find a model by its display ID
+	 * @param modelId - Model ID to search for
+	 * @returns ModelOption if found, null otherwise
+	 */
+	findModelById(modelId: string): ModelOption | null {
+		return this._models.find((model) => model.id === modelId) ?? null;
+	}
+
+	/**
+	 * Check if a model exists by name
+	 * @param modelName - Model name to check
+	 * @returns true if model exists
+	 */
+	hasModel(modelName: string): boolean {
+		return this._models.some((model) => model.model === modelName);
+	}
+
 	// ─────────────────────────────────────────────────────────────────────────────
 	// Load/Unload Models (ROUTER mode)
 	// ─────────────────────────────────────────────────────────────────────────────
@@ -287,7 +375,10 @@ class ModelsStore {
 
 		try {
 			await ModelsService.load(modelId);
-			await this.fetchRouterModels(); // Refresh status
+			await this.fetchRouterModels(); // Refresh status and modalities
+
+			// Also update modalities for this specific model
+			await this.updateModelModalities(modelId);
 		} catch (error) {
 			this._error = error instanceof Error ? error.message : 'Failed to load model';
 			throw error;
@@ -436,6 +527,9 @@ export const loadingModelIds = () => modelsStore.loadingModelIds;
 
 export const fetchModels = modelsStore.fetch.bind(modelsStore);
 export const fetchRouterModels = modelsStore.fetchRouterModels.bind(modelsStore);
+export const fetchModalitiesForLoadedModels =
+	modelsStore.fetchModalitiesForLoadedModels.bind(modelsStore);
+export const updateModelModalities = modelsStore.updateModelModalities.bind(modelsStore);
 export const selectModel = modelsStore.select.bind(modelsStore);
 export const loadModel = modelsStore.loadModel.bind(modelsStore);
 export const unloadModel = modelsStore.unloadModel.bind(modelsStore);
@@ -445,3 +539,6 @@ export const unregisterModelUsage = modelsStore.unregisterModelUsage.bind(models
 export const clearConversationUsage = modelsStore.clearConversationUsage.bind(modelsStore);
 export const selectModelByName = modelsStore.selectModelByName.bind(modelsStore);
 export const clearModelSelection = modelsStore.clearSelection.bind(modelsStore);
+export const findModelByName = modelsStore.findModelByName.bind(modelsStore);
+export const findModelById = modelsStore.findModelById.bind(modelsStore);
+export const hasModel = modelsStore.hasModel.bind(modelsStore);

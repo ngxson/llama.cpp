@@ -1,4 +1,4 @@
-import type { ServerModelStatus } from '$lib/enums';
+import type { ServerModelStatus, ServerRole } from '$lib/enums';
 import type { ChatMessagePromptProgress } from './chat';
 
 export interface ApiChatMessageContentPart {
@@ -37,11 +37,38 @@ export interface ApiChatMessageData {
 	timestamp?: number;
 }
 
+/**
+ * Model status object from /models endpoint
+ */
+export interface ApiModelStatus {
+	/** Status value: loaded, unloaded, loading, failed */
+	value: ServerModelStatus;
+	/** Command line arguments used when loading (only for loaded models) */
+	args?: string[];
+}
+
+/**
+ * Model entry from /models endpoint (ROUTER mode)
+ * Based on actual API response structure
+ */
 export interface ApiModelDataEntry {
+	/** Model identifier (e.g., "ggml-org/Qwen2.5-Omni-7B-GGUF:latest") */
 	id: string;
+	/** Model name (usually same as id) */
+	name: string;
+	/** Object type, always "model" */
 	object: string;
-	created: number;
+	/** Owner, usually "llamacpp" */
 	owned_by: string;
+	/** Creation timestamp */
+	created: number;
+	/** Whether model files are in HuggingFace cache */
+	in_cache: boolean;
+	/** Path to model manifest file */
+	path: string;
+	/** Current status of the model */
+	status: ApiModelStatus;
+	/** Legacy meta field (may be present in older responses) */
 	meta?: Record<string, unknown> | null;
 }
 
@@ -140,6 +167,7 @@ export interface ApiLlamaCppServerProps {
 	};
 	total_slots: number;
 	model_path: string;
+	role: ServerRole;
 	modalities: {
 		vision: boolean;
 		audio: boolean;
@@ -316,8 +344,12 @@ export interface ApiProcessingState {
 	cacheTokens?: number;
 }
 
+/**
+ * Router model metadata - extended from ApiModelDataEntry with additional router-specific fields
+ * @deprecated Use ApiModelDataEntry instead - the /models endpoint returns this structure directly
+ */
 export interface ApiRouterModelMeta {
-	/** Model identifier (e.g., "unsloth/phi-4-GGUF:q4_k_m") */
+	/** Model identifier (e.g., "ggml-org/Qwen2.5-Omni-7B-GGUF:latest") */
 	name: string;
 	/** Path to model file or manifest */
 	path: string;
@@ -326,9 +358,9 @@ export interface ApiRouterModelMeta {
 	/** Whether model is in HuggingFace cache */
 	in_cache: boolean;
 	/** Port where model instance is running (0 if not loaded) */
-	port: number;
+	port?: number;
 	/** Current status of the model */
-	status: ServerModelStatus;
+	status: ApiModelStatus;
 	/** Error message if status is FAILED */
 	error?: string;
 }
@@ -366,10 +398,13 @@ export interface ApiRouterModelsStatusResponse {
 }
 
 /**
- * Response with list of all models
+ * Response with list of all models from /models endpoint
+ * Note: This is the same as ApiModelListResponse - the endpoint returns the same structure
+ * regardless of server mode (MODEL or ROUTER)
  */
 export interface ApiRouterModelsListResponse {
-	models: ApiRouterModelMeta[];
+	object: string;
+	data: ApiModelDataEntry[];
 }
 
 /**

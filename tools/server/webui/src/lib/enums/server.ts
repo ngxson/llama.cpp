@@ -1,19 +1,20 @@
 /**
- * Server mode enum - used for single/multi-model mode
+ * Server role enum - used for single/multi-model mode
  */
-export enum ServerMode {
+export enum ServerRole {
 	/** Single model mode - server running with a specific model loaded */
-	MODEL = 'MODEL',
+	MODEL = 'model',
 	/** Router mode - server managing multiple model instances */
-	ROUTER = 'ROUTER'
+	ROUTER = 'router'
 }
 
 /**
  * Model status enum - matches tools/server/server-models.h from C++ server
+ * Used as the `value` field in the status object from /models endpoint
  */
 export enum ServerModelStatus {
-	UNLOADED = 'UNLOADED',
-	LOADING = 'LOADING',
-	LOADED = 'LOADED',
-	FAILED = 'FAILED'
+	UNLOADED = 'unloaded',
+	LOADING = 'loading',
+	LOADED = 'loaded',
+	FAILED = 'failed'
 }

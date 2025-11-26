@@ -37,6 +37,10 @@ import { normalizeFloatingPoint } from '$lib/utils/precision';
 import { ParameterSyncService } from '$lib/services/parameter-sync';
 import { propsStore } from '$lib/stores/props.svelte';
 import { setConfigValue, getConfigValue, configToParameterRecord } from '$lib/utils/config-helpers';
+import {
+	CONFIG_LOCALSTORAGE_KEY,
+	USER_OVERRIDES_LOCALSTORAGE_KEY
+} from '$lib/constants/localstorage-keys';
 
 class SettingsStore {
 	config = $state<SettingsConfigType>({ ...SETTING_CONFIG_DEFAULT });
@@ -80,7 +84,7 @@ class SettingsStore {
 		if (!browser) return;
 
 		try {
-			const storedConfigRaw = localStorage.getItem('config');
+			const storedConfigRaw = localStorage.getItem(CONFIG_LOCALSTORAGE_KEY);
 			const savedVal = JSON.parse(storedConfigRaw || '{}');
 
 			// Merge with defaults to prevent breaking changes
@@ -90,7 +94,9 @@ class SettingsStore {
 			};
 
 			// Load user overrides
-			const savedOverrides = JSON.parse(localStorage.getItem('userOverrides') || '[]');
+			const savedOverrides = JSON.parse(
+				localStorage.getItem(USER_OVERRIDES_LOCALSTORAGE_KEY) || '[]'
+			);
 			this.userOverrides = new Set(savedOverrides);
 		} catch (error) {
 			console.warn('Failed to parse config from localStorage, using defaults:', error);
@@ -170,9 +176,12 @@ class SettingsStore {
 		if (!browser) return;
 
 		try {
-			localStorage.setItem('config', JSON.stringify(this.config));
+			localStorage.setItem(CONFIG_LOCALSTORAGE_KEY, JSON.stringify(this.config));
 
-			localStorage.setItem('userOverrides', JSON.stringify(Array.from(this.userOverrides)));
+			localStorage.setItem(
+				USER_OVERRIDES_LOCALSTORAGE_KEY,
+				JSON.stringify(Array.from(this.userOverrides))
+			);
 		} catch (error) {
 			console.error('Failed to save config to localStorage:', error);
 		}

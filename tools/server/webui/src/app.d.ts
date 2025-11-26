@@ -23,7 +23,7 @@ import type {
 	ApiRouterModelsUnloadResponse
 } from '$lib/types/api';
 
-import { ServerMode, ServerModelStatus, ModelModality } from '$lib/enums';
+import { ServerRole, ServerModelStatus, ModelModality } from '$lib/enums';
 
 import type {
 	ChatMessageType,
@@ -94,7 +94,7 @@ declare global {
 		DatabaseMessageExtraPdfFile,
 		DatabaseMessageExtraLegacyContext,
 		ModelModality,
-		ServerMode,
+		ServerRole,
 		ServerModelStatus,
 		SettingsConfigValue,
 		SettingsFieldConfig,

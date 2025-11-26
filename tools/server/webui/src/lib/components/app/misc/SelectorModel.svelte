@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { ChevronDown, Loader2, Package } from '@lucide/svelte';
+	import { ChevronDown, Loader2, Package, Power } from '@lucide/svelte';
 	import { cn } from '$lib/components/ui/utils';
 	import { portalToBody } from '$lib/utils/portal-to-body';
 	import {
@@ -10,7 +10,8 @@
 		modelsUpdating,
 		selectModel,
 		selectedModelId,
-		modelsStore
+		modelsStore,
+		unloadModel
 	} from '$lib/stores/models.svelte';
 	import { isRouterMode, propsStore } from '$lib/stores/props.svelte';
 	import { DialogModelInformation } from '$lib/components/app';
@@ -382,13 +383,13 @@
 						{/if}
 						{#each options as option (option.id)}
 							{@const isLoaded = modelsStore.isModelLoaded(option.model)}
-							{@const hasVision = option.capabilities.includes('vision')}
-							{@const hasAudio = option.capabilities.includes('audio')}
+							{@const isUnloading = modelsStore.isModelOperationInProgress(option.model)}
+							{@const hasVision = option.modalities?.vision ?? false}
+							{@const hasAudio = option.modalities?.audio ?? false}
 							{@const isSelected = currentModel === option.model || activeId === option.id}
-							<button
-								type="button"
+							<div
 								class={cn(
-									'flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm transition hover:bg-muted focus:bg-muted focus:outline-none',
+									'group flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm transition hover:bg-muted focus:bg-muted focus:outline-none',
 									isSelected
 										? 'bg-accent text-accent-foreground'
 										: 'hover:bg-accent hover:text-accent-foreground',
@@ -396,35 +397,56 @@
 								)}
 								role="option"
 								aria-selected={isSelected}
+								tabindex="0"
 								onclick={() => handleSelect(option.id)}
+								onkeydown={(e) => {
+									if (e.key === 'Enter' || e.key === ' ') {
+										e.preventDefault();
+										handleSelect(option.id);
+									}
+								}}
 							>
-								<!-- Status dot -->
-								<span
-									class={cn(
-										'h-2 w-2 shrink-0 rounded-full',
-										isLoaded ? 'bg-green-500' : 'bg-muted-foreground/50'
-									)}
-								></span>
-
-								<!-- Model name -->
 								<span class="min-w-0 flex-1 truncate">{option.model}</span>
 
-								<!-- Modality icons -->
-								<div class="flex shrink-0 items-center gap-1">
-									<MODALITY_ICONS.vision
-										class={cn(
-											'h-3.5 w-3.5',
-											hasVision ? 'text-foreground' : 'text-muted-foreground/40'
-										)}
-									/>
-									<MODALITY_ICONS.audio
-										class={cn(
-											'h-3.5 w-3.5',
-											hasAudio ? 'text-foreground' : 'text-muted-foreground/40'
-										)}
-									/>
-								</div>
-							</button>
+								<!-- <div class="flex shrink-0 items-center gap-2"> -->
+								<MODALITY_ICONS.vision
+									class={cn(
+										'h-3.5 w-3.5',
+										hasVision ? 'text-foreground' : 'text-muted-foreground/40'
+									)}
+								/>
+								<MODALITY_ICONS.audio
+									class={cn(
+										'h-3.5 w-3.5',
+										hasAudio ? 'text-foreground' : 'text-muted-foreground/40'
+									)}
+								/>
+								<!-- </div> -->
+
+								{#if isUnloading}
+									<Loader2 class="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+								{:else if isLoaded}
+									<!-- Green dot, on hover show red unload button -->
+									<button
+										type="button"
+										class="relative flex h-4 w-4 shrink-0 items-center justify-center"
+										onclick={(e) => {
+											e.stopPropagation();
+											unloadModel(option.model);
+										}}
+										title="Unload model"
+									>
+										<span
+											class="h-2 w-2 rounded-full bg-green-500 transition-opacity group-hover:opacity-0"
+										></span>
+										<Power
+											class="absolute h-4 w-4 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-600"
+										/>
+									</button>
+								{:else}
+									<span class="mr-1 h-2 w-2 shrink-0 rounded-full bg-muted-foreground/50"></span>
+								{/if}
+							</div>
 						{/each}
 					</div>
 				</div>
