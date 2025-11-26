@@ -3,12 +3,10 @@
 	import {
 		ChatForm,
 		ChatScreenHeader,
-		ChatScreenWarning,
 		ChatMessages,
 		ChatScreenProcessingInfo,
 		DialogEmptyFileAlert,
 		DialogChatError,
-		ServerErrorSplash,
 		ServerLoadingSplash,
 		DialogConfirmation
 	} from '$lib/components/app';
@@ -35,7 +33,7 @@
 		supportsVision,
 		supportsAudio,
 		propsLoading,
-		serverWarning,
+		propsError,
 		propsStore,
 		isRouterMode,
 		fetchModelProps,
@@ -49,9 +47,8 @@
 	import { processFilesToChatUploaded } from '$lib/utils/process-uploaded-files';
 	import { onMount } from 'svelte';
 	import { fade, fly, slide } from 'svelte/transition';
-	import { Trash2 } from '@lucide/svelte';
+	import { Trash2, AlertTriangle, RefreshCw } from '@lucide/svelte';
 	import ChatScreenDragOverlay from './ChatScreenDragOverlay.svelte';
-	import { ModelModality } from '$lib/enums';
 
 	let { showCenteredEmpty = false } = $props();
 
@@ -91,6 +88,7 @@
 
 	let activeErrorDialog = $derived(errorDialog());
 	let isServerLoading = $derived(propsLoading());
+	let hasPropsError = $derived(!!propsError());
 
 	let isCurrentConversationLoading = $derived(isLoading());
 
@@ -399,12 +397,34 @@
 		>
 			<ChatScreenProcessingInfo />
 
-			{#if serverWarning()}
-				<ChatScreenWarning class="pointer-events-auto mx-auto max-w-[48rem] px-4" />
+			{#if hasPropsError}
+				<div
+					class="pointer-events-auto mx-auto mb-3 max-w-[48rem] px-4"
+					in:fly={{ y: 10, duration: 250 }}
+				>
+					<div class="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3">
+						<div class="flex items-center justify-between">
+							<div class="flex items-center gap-2">
+								<AlertTriangle class="h-4 w-4 text-destructive" />
+								<span class="text-sm font-medium text-destructive">Server unavailable</span>
+								<span class="text-sm text-muted-foreground">— {propsError()}</span>
+							</div>
+							<button
+								onclick={() => propsStore.fetch()}
+								disabled={isServerLoading}
+								class="flex items-center gap-1.5 rounded-lg bg-destructive/20 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/30 disabled:opacity-50"
+							>
+								<RefreshCw class="h-3 w-3 {isServerLoading ? 'animate-spin' : ''}" />
+								{isServerLoading ? 'Retrying...' : 'Retry'}
+							</button>
+						</div>
+					</div>
+				</div>
 			{/if}
 
 			<div class="conversation-chat-form pointer-events-auto rounded-t-3xl pb-4">
 				<ChatForm
+					disabled={hasPropsError}
 					isLoading={isCurrentConversationLoading}
 					onFileRemove={handleFileRemove}
 					onFileUpload={handleFileUpload}
@@ -416,11 +436,8 @@
 			</div>
 		</div>
 	</div>
-{:else if propsStore.error && !propsStore.serverProps}
-	<!-- Server Error State (when error and no cached props) -->
-	<ServerErrorSplash error={propsStore.error} />
-{:else if isServerLoading || !propsStore.serverProps}
-	<!-- Server Loading State (also shown when props haven't loaded yet) -->
+{:else if isServerLoading}
+	<!-- Server Loading State -->
 	<ServerLoadingSplash />
 {:else}
 	<div
@@ -437,18 +454,37 @@
 				<h1 class="mb-4 text-3xl font-semibold tracking-tight">llama.cpp</h1>
 
 				<p class="text-lg text-muted-foreground">
-					{propsStore.supportedModalities.includes(ModelModality.AUDIO)
+					{propsStore.serverProps?.modalities?.audio
 						? 'Record audio, type a message '
 						: 'Type a message'} or upload files to get started
 				</p>
 			</div>
 
-			{#if serverWarning()}
-				<ChatScreenWarning />
+			{#if hasPropsError}
+				<div class="mb-4" in:fly={{ y: 10, duration: 250 }}>
+					<div class="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3">
+						<div class="flex items-center justify-between">
+							<div class="flex items-center gap-2">
+								<AlertTriangle class="h-4 w-4 text-destructive" />
+								<span class="text-sm font-medium text-destructive">Server unavailable</span>
+								<span class="text-sm text-muted-foreground">— {propsError()}</span>
+							</div>
+							<button
+								onclick={() => propsStore.fetch()}
+								disabled={isServerLoading}
+								class="flex items-center gap-1.5 rounded-lg bg-destructive/20 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/30 disabled:opacity-50"
+							>
+								<RefreshCw class="h-3 w-3 {isServerLoading ? 'animate-spin' : ''}" />
+								{isServerLoading ? 'Retrying...' : 'Retry'}
+							</button>
+						</div>
+					</div>
+				</div>
 			{/if}
 
-			<div in:fly={{ y: 10, duration: 250, delay: 300 }}>
+			<div in:fly={{ y: 10, duration: 250, delay: hasPropsError ? 0 : 300 }}>
 				<ChatForm
+					disabled={hasPropsError}
 					isLoading={isCurrentConversationLoading}
 					onFileRemove={handleFileRemove}
 					onFileUpload={handleFileUpload}

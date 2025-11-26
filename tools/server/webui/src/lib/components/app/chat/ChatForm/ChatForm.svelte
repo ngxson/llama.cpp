@@ -326,7 +326,9 @@
 
 <form
 	onsubmit={handleSubmit}
-	class="{INPUT_CLASSES} border-radius-bottom-none mx-auto max-w-[48rem] overflow-hidden rounded-3xl backdrop-blur-md {className}"
+	class="{INPUT_CLASSES} border-radius-bottom-none mx-auto max-w-[48rem] overflow-hidden rounded-3xl backdrop-blur-md {disabled
+		? 'cursor-not-allowed opacity-60'
+		: ''} {className}"
 >
 	<ChatAttachmentsList
 		bind:uploadedFiles

@@ -25,7 +25,6 @@ export { default as ChatMessages } from './chat/ChatMessages/ChatMessages.svelte
 export { default as ChatScreen } from './chat/ChatScreen/ChatScreen.svelte';
 export { default as ChatScreenHeader } from './chat/ChatScreen/ChatScreenHeader.svelte';
 export { default as ChatScreenProcessingInfo } from './chat/ChatScreen/ChatScreenProcessingInfo.svelte';
-export { default as ChatScreenWarning } from './chat/ChatScreen/ChatScreenWarning.svelte';
 
 export { default as ChatSettings } from './chat/ChatSettings/ChatSettings.svelte';
 export { default as ChatSettingsFooter } from './chat/ChatSettings/ChatSettingsFooter.svelte';
