@@ -447,7 +447,7 @@
 										></span>
 
 										<Power
-											class="absolute h-4 w-4 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-600"
+											class="absolute mr-2 h-4 w-4 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-600"
 										/>
 									</button>
 								{:else}
