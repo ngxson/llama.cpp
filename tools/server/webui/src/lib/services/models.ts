@@ -27,7 +27,7 @@ import type {
  */
 export class ModelsService {
 	// ─────────────────────────────────────────────────────────────────────────────
-	// MODEL + ROUTER mode - OpenAI-compatible API
+	// Listing
 	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
@@ -46,10 +46,6 @@ export class ModelsService {
 		return response.json() as Promise<ApiModelListResponse>;
 	}
 
-	// ─────────────────────────────────────────────────────────────────────────────
-	// ROUTER mode only - Model management API
-	// ─────────────────────────────────────────────────────────────────────────────
-
 	/**
 	 * Fetch list of all models with detailed metadata (ROUTER mode)
 	 * Returns models with load status, paths, and other metadata
@@ -65,6 +61,10 @@ export class ModelsService {
 
 		return response.json() as Promise<ApiRouterModelsListResponse>;
 	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Load/Unload
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
 	 * Load a model (ROUTER mode)
@@ -111,6 +111,10 @@ export class ModelsService {
 
 		return response.json() as Promise<ApiRouterModelsUnloadResponse>;
 	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Status
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
 	 * Get status of a specific model (ROUTER mode)

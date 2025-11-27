@@ -43,10 +43,18 @@ import {
 } from '$lib/constants/localstorage-keys';
 
 class SettingsStore {
+	// ─────────────────────────────────────────────────────────────────────────────
+	// State
+	// ─────────────────────────────────────────────────────────────────────────────
+
 	config = $state<SettingsConfigType>({ ...SETTING_CONFIG_DEFAULT });
 	theme = $state<string>('auto');
 	isInitialized = $state(false);
 	userOverrides = $state<Set<string>>(new Set());
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Utilities (private helpers)
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
 	 * Helper method to get server defaults with null safety
@@ -62,6 +70,10 @@ class SettingsStore {
 			this.initialize();
 		}
 	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Lifecycle
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
 	 * Initialize the settings store by loading from localStorage
@@ -113,6 +125,10 @@ class SettingsStore {
 
 		this.theme = localStorage.getItem('theme') || 'auto';
 	}
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Config Updates
+	// ─────────────────────────────────────────────────────────────────────────────
+
 	/**
 	 * Update a specific configuration setting
 	 * @param key - The configuration key to update
@@ -213,6 +229,10 @@ class SettingsStore {
 		}
 	}
 
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Reset
+	// ─────────────────────────────────────────────────────────────────────────────
+
 	/**
 	 * Reset configuration to defaults
 	 */
@@ -238,21 +258,31 @@ class SettingsStore {
 	}
 
 	/**
-	 * Get a specific configuration value
-	 * @param key - The configuration key to get
-	 * @returns The configuration value
+	 * Reset a parameter to server default (or webui default if no server default)
 	 */
-	getConfig<K extends keyof SettingsConfigType>(key: K): SettingsConfigType[K] {
-		return this.config[key];
+	resetParameterToServerDefault(key: string): void {
+		const serverDefaults = this.getServerDefaults();
+
+		if (serverDefaults[key] !== undefined) {
+			const value = normalizeFloatingPoint(serverDefaults[key]);
+
+			this.config[key as keyof SettingsConfigType] =
+				value as SettingsConfigType[keyof SettingsConfigType];
+		} else {
+			if (key in SETTING_CONFIG_DEFAULT) {
+				const defaultValue = getConfigValue(SETTING_CONFIG_DEFAULT, key);
+
+				setConfigValue(this.config, key, defaultValue);
+			}
+		}
+
+		this.userOverrides.delete(key);
+		this.saveConfig();
 	}
 
-	/**
-	 * Get the entire configuration object
-	 * @returns The complete configuration object
-	 */
-	getAllConfig(): SettingsConfigType {
-		return { ...this.config };
-	}
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Server Sync
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
 	 * Initialize settings with props defaults when server properties are first loaded
@@ -288,15 +318,6 @@ class SettingsStore {
 	}
 
 	/**
-	 * Clear all user overrides (for debugging)
-	 */
-	clearAllUserOverrides(): void {
-		this.userOverrides.clear();
-		this.saveConfig();
-		console.log('Cleared all user overrides');
-	}
-
-	/**
 	 * Reset all parameters to their default values (from props)
 	 * This is used by the "Reset to Default" functionality
 	 * Prioritizes server defaults from /props, falls back to webui defaults
@@ -324,6 +345,27 @@ class SettingsStore {
 		this.saveConfig();
 	}
 
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Utilities
+	// ─────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Get a specific configuration value
+	 * @param key - The configuration key to get
+	 * @returns The configuration value
+	 */
+	getConfig<K extends keyof SettingsConfigType>(key: K): SettingsConfigType[K] {
+		return this.config[key];
+	}
+
+	/**
+	 * Get the entire configuration object
+	 * @returns The complete configuration object
+	 */
+	getAllConfig(): SettingsConfigType {
+		return { ...this.config };
+	}
+
 	/**
 	 * Get parameter information including source for a specific parameter
 	 */
@@ -340,29 +382,6 @@ class SettingsStore {
 	}
 
 	/**
-	 * Reset a parameter to server default (or webui default if no server default)
-	 */
-	resetParameterToServerDefault(key: string): void {
-		const serverDefaults = this.getServerDefaults();
-
-		if (serverDefaults[key] !== undefined) {
-			const value = normalizeFloatingPoint(serverDefaults[key]);
-
-			this.config[key as keyof SettingsConfigType] =
-				value as SettingsConfigType[keyof SettingsConfigType];
-		} else {
-			if (key in SETTING_CONFIG_DEFAULT) {
-				const defaultValue = getConfigValue(SETTING_CONFIG_DEFAULT, key);
-
-				setConfigValue(this.config, key, defaultValue);
-			}
-		}
-
-		this.userOverrides.delete(key);
-		this.saveConfig();
-	}
-
-	/**
 	 * Get diff between current settings and server defaults
 	 */
 	getParameterDiff() {
@@ -375,6 +394,15 @@ class SettingsStore {
 		);
 
 		return ParameterSyncService.createParameterDiff(configAsRecord, serverDefaults);
+	}
+
+	/**
+	 * Clear all user overrides (for debugging)
+	 */
+	clearAllUserOverrides(): void {
+		this.userOverrides.clear();
+		this.saveConfig();
+		console.log('Cleared all user overrides');
 	}
 }
 

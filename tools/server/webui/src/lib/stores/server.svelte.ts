@@ -24,11 +24,19 @@ import { ServerRole, ModelModality } from '$lib/enums';
  * apply to MODEL mode (single model).
  */
 class ServerStore {
+	// ─────────────────────────────────────────────────────────────────────────────
+	// State
+	// ─────────────────────────────────────────────────────────────────────────────
+
 	props = $state<ApiLlamaCppServerProps | null>(null);
 	loading = $state(false);
 	error = $state<string | null>(null);
 	role = $state<ServerRole | null>(null);
 	private fetchPromise: Promise<void> | null = null;
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Getters
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
 	 * Get model name from server props.
@@ -89,13 +97,9 @@ class ServerStore {
 		return this.role === ServerRole.MODEL;
 	}
 
-	private detectRole(props: ApiLlamaCppServerProps): void {
-		const newRole = props?.role === ServerRole.ROUTER ? ServerRole.ROUTER : ServerRole.MODEL;
-		if (this.role !== newRole) {
-			this.role = newRole;
-			console.info(`Server running in ${newRole === ServerRole.ROUTER ? 'ROUTER' : 'MODEL'} mode`);
-		}
-	}
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Data Handling
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	async fetch(): Promise<void> {
 		if (this.fetchPromise) return this.fetchPromise;
@@ -147,12 +151,25 @@ class ServerStore {
 
 		return 'Failed to connect to server';
 	}
+
 	clear(): void {
 		this.props = null;
 		this.error = null;
 		this.loading = false;
 		this.role = null;
 		this.fetchPromise = null;
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Utilities
+	// ─────────────────────────────────────────────────────────────────────────────
+
+	private detectRole(props: ApiLlamaCppServerProps): void {
+		const newRole = props?.role === ServerRole.ROUTER ? ServerRole.ROUTER : ServerRole.MODEL;
+		if (this.role !== newRole) {
+			this.role = newRole;
+			console.info(`Server running in ${newRole === ServerRole.ROUTER ? 'ROUTER' : 'MODEL'} mode`);
+		}
 	}
 }
 

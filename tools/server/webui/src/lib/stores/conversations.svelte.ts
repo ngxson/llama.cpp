@@ -52,6 +52,10 @@ import type { ModelModalities } from '$lib/types/models';
  * - `isInitialized`: Store initialization status
  */
 class ConversationsStore {
+	// ─────────────────────────────────────────────────────────────────────────────
+	// State
+	// ─────────────────────────────────────────────────────────────────────────────
+
 	/** List of all conversations */
 	conversations = $state<DatabaseConversation[]>([]);
 
@@ -63,6 +67,13 @@ class ConversationsStore {
 
 	/** Whether the store has been initialized */
 	isInitialized = $state(false);
+
+	/** Callback for title update confirmation dialog */
+	titleUpdateConfirmationCallback?: (currentTitle: string, newTitle: string) => Promise<boolean>;
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Modalities
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
 	 * Modalities used in the active conversation.
@@ -113,14 +124,15 @@ class ConversationsStore {
 		return this.calculateModalitiesFromMessages(messagesBefore);
 	}
 
-	/** Callback for title update confirmation dialog */
-	titleUpdateConfirmationCallback?: (currentTitle: string, newTitle: string) => Promise<boolean>;
-
 	constructor() {
 		if (browser) {
 			this.initialize();
 		}
 	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Lifecycle
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
 	 * Initializes the conversations store by loading conversations from the database
@@ -140,6 +152,10 @@ class ConversationsStore {
 	async loadConversations(): Promise<void> {
 		this.conversations = await DatabaseService.getAllConversations();
 	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Conversation CRUD
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
 	 * Creates a new conversation and navigates to it
@@ -202,6 +218,10 @@ class ConversationsStore {
 		// Active processing conversation is now managed by chatStore
 	}
 
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Message Management
+	// ─────────────────────────────────────────────────────────────────────────────
+
 	/**
 	 * Refreshes active messages based on currNode after branch navigation
 	 */
@@ -249,16 +269,6 @@ class ConversationsStore {
 	}
 
 	/**
-	 * Sets the callback function for title update confirmations
-	 * @param callback - Function to call when confirmation is needed
-	 */
-	setTitleUpdateConfirmationCallback(
-		callback: (currentTitle: string, newTitle: string) => Promise<boolean>
-	): void {
-		this.titleUpdateConfirmationCallback = callback;
-	}
-
-	/**
 	 * Updates conversation title with optional confirmation dialog based on settings
 	 * @param convId - The conversation ID to update
 	 * @param newTitle - The new title content
@@ -288,6 +298,10 @@ class ConversationsStore {
 			return false;
 		}
 	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Navigation
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
 	 * Updates the current node of the active conversation
@@ -375,6 +389,10 @@ class ConversationsStore {
 			console.error('Failed to delete conversation:', error);
 		}
 	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Import/Export
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
 	 * Downloads a conversation as JSON file
@@ -579,6 +597,20 @@ class ConversationsStore {
 		a.click();
 		document.body.removeChild(a);
 		URL.revokeObjectURL(url);
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Utilities
+	// ─────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Sets the callback function for title update confirmations
+	 * @param callback - Function to call when confirmation is needed
+	 */
+	setTitleUpdateConfirmationCallback(
+		callback: (currentTitle: string, newTitle: string) => Promise<boolean>
+	): void {
+		this.titleUpdateConfirmationCallback = callback;
 	}
 }
 

@@ -55,78 +55,24 @@ import type { DatabaseMessage, DatabaseMessageExtra } from '$lib/types/database'
  * - Automatic state sync when switching between conversations
  */
 class ChatStore {
+	// ─────────────────────────────────────────────────────────────────────────────
+	// State
+	// ─────────────────────────────────────────────────────────────────────────────
+
 	activeProcessingState = $state<ApiProcessingState | null>(null);
 	currentResponse = $state('');
 	errorDialogState = $state<{ type: 'timeout' | 'server'; message: string } | null>(null);
 	isLoading = $state(false);
 	chatLoadingStates = new SvelteMap<string, boolean>();
 	chatStreamingStates = new SvelteMap<string, { response: string; messageId: string }>();
-
-	// Abort controllers for per-conversation request cancellation
 	private abortControllers = new SvelteMap<string, AbortController>();
-
-	// Processing state tracking - per-conversation timing/context info
 	private processingStates = new SvelteMap<string, ApiProcessingState | null>();
 	private activeConversationId = $state<string | null>(null);
 	private isStreamingActive = $state(false);
 
-	// ============ API Options ============
-
-	private getApiOptions(): Record<string, unknown> {
-		const currentConfig = config();
-		const hasValue = (value: unknown): boolean =>
-			value !== undefined && value !== null && value !== '';
-
-		const apiOptions: Record<string, unknown> = { stream: true, timings_per_token: true };
-
-		// Model selection (required in ROUTER mode)
-		if (isRouterMode()) {
-			const modelName = selectedModelName();
-			if (modelName) apiOptions.model = modelName;
-		}
-
-		// Config options needed by ChatService
-		if (currentConfig.systemMessage) apiOptions.systemMessage = currentConfig.systemMessage;
-		if (currentConfig.disableReasoningFormat) apiOptions.disableReasoningFormat = true;
-
-		if (hasValue(currentConfig.temperature))
-			apiOptions.temperature = Number(currentConfig.temperature);
-		if (hasValue(currentConfig.max_tokens))
-			apiOptions.max_tokens = Number(currentConfig.max_tokens);
-		if (hasValue(currentConfig.dynatemp_range))
-			apiOptions.dynatemp_range = Number(currentConfig.dynatemp_range);
-		if (hasValue(currentConfig.dynatemp_exponent))
-			apiOptions.dynatemp_exponent = Number(currentConfig.dynatemp_exponent);
-		if (hasValue(currentConfig.top_k)) apiOptions.top_k = Number(currentConfig.top_k);
-		if (hasValue(currentConfig.top_p)) apiOptions.top_p = Number(currentConfig.top_p);
-		if (hasValue(currentConfig.min_p)) apiOptions.min_p = Number(currentConfig.min_p);
-		if (hasValue(currentConfig.xtc_probability))
-			apiOptions.xtc_probability = Number(currentConfig.xtc_probability);
-		if (hasValue(currentConfig.xtc_threshold))
-			apiOptions.xtc_threshold = Number(currentConfig.xtc_threshold);
-		if (hasValue(currentConfig.typ_p)) apiOptions.typ_p = Number(currentConfig.typ_p);
-		if (hasValue(currentConfig.repeat_last_n))
-			apiOptions.repeat_last_n = Number(currentConfig.repeat_last_n);
-		if (hasValue(currentConfig.repeat_penalty))
-			apiOptions.repeat_penalty = Number(currentConfig.repeat_penalty);
-		if (hasValue(currentConfig.presence_penalty))
-			apiOptions.presence_penalty = Number(currentConfig.presence_penalty);
-		if (hasValue(currentConfig.frequency_penalty))
-			apiOptions.frequency_penalty = Number(currentConfig.frequency_penalty);
-		if (hasValue(currentConfig.dry_multiplier))
-			apiOptions.dry_multiplier = Number(currentConfig.dry_multiplier);
-		if (hasValue(currentConfig.dry_base)) apiOptions.dry_base = Number(currentConfig.dry_base);
-		if (hasValue(currentConfig.dry_allowed_length))
-			apiOptions.dry_allowed_length = Number(currentConfig.dry_allowed_length);
-		if (hasValue(currentConfig.dry_penalty_last_n))
-			apiOptions.dry_penalty_last_n = Number(currentConfig.dry_penalty_last_n);
-		if (currentConfig.samplers) apiOptions.samplers = currentConfig.samplers;
-		if (currentConfig.custom) apiOptions.custom = currentConfig.custom;
-
-		return apiOptions;
-	}
-
-	// ============ Loading State Management ============
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Loading State
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	private setChatLoading(convId: string, loading: boolean): void {
 		if (loading) {
@@ -171,28 +117,9 @@ class ChatStore {
 		this.currentResponse = '';
 	}
 
-	// ============ Processing State Management ============
-
-	/**
-	 * Start streaming session tracking
-	 */
-	startStreaming(): void {
-		this.isStreamingActive = true;
-	}
-
-	/**
-	 * Stop streaming session tracking
-	 */
-	stopStreaming(): void {
-		this.isStreamingActive = false;
-	}
-
-	/**
-	 * Check if currently in a streaming session
-	 */
-	isStreaming(): boolean {
-		return this.isStreamingActive;
-	}
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Processing State
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
 	 * Set the active conversation for statistics display
@@ -301,6 +228,31 @@ class ChatStore {
 		}
 	}
 
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Streaming
+	// ─────────────────────────────────────────────────────────────────────────────
+
+	/**
+	 * Start streaming session tracking
+	 */
+	startStreaming(): void {
+		this.isStreamingActive = true;
+	}
+
+	/**
+	 * Stop streaming session tracking
+	 */
+	stopStreaming(): void {
+		this.isStreamingActive = false;
+	}
+
+	/**
+	 * Check if currently in a streaming session
+	 */
+	isStreaming(): boolean {
+		return this.isStreamingActive;
+	}
+
 	private getContextTotal(): number {
 		const activeState = this.getActiveProcessingState();
 
@@ -360,8 +312,6 @@ class ChatStore {
 		};
 	}
 
-	// ============ Model Detection ============
-
 	/**
 	 * Gets the model used in a conversation based on the latest assistant message.
 	 * Returns the model from the most recent assistant message that has a model field set.
@@ -380,7 +330,9 @@ class ChatStore {
 		return null;
 	}
 
-	// ============ Error Handling ============
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Error Handling
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	private isAbortError(error: unknown): boolean {
 		return error instanceof Error && (error.name === 'AbortError' || error instanceof DOMException);
@@ -394,7 +346,9 @@ class ChatStore {
 		this.errorDialogState = null;
 	}
 
-	// ============ Message Creation ============
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Message Operations
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	async addMessage(
 		role: ChatRole,
@@ -474,8 +428,6 @@ class ChatStore {
 			parentId || null
 		);
 	}
-
-	// ============ Streaming ============
 
 	private async streamChatCompletion(
 		allMessages: DatabaseMessage[],
@@ -614,8 +566,6 @@ class ChatStore {
 		);
 	}
 
-	// ============ Send Message ============
-
 	async sendMessage(content: string, extras?: DatabaseMessageExtra[]): Promise<void> {
 		if (!content.trim() && (!extras || extras.length === 0)) return;
 		const activeConv = conversationsStore.activeConversation;
@@ -660,8 +610,6 @@ class ChatStore {
 			}
 		}
 	}
-
-	// ============ Graceful Stop ============
 
 	async stopGeneration(): Promise<void> {
 		const activeConv = conversationsStore.activeConversation;
@@ -746,8 +694,6 @@ class ChatStore {
 		}
 	}
 
-	// ============ Message Updates ============
-
 	async updateMessage(messageId: string, newContent: string): Promise<void> {
 		const activeConv = conversationsStore.activeConversation;
 		if (!activeConv) return;
@@ -802,6 +748,10 @@ class ChatStore {
 			if (!this.isAbortError(error)) console.error('Failed to update message:', error);
 		}
 	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Regeneration
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	async regenerateMessage(messageId: string): Promise<void> {
 		const activeConv = conversationsStore.activeConversation;
@@ -900,7 +850,9 @@ class ChatStore {
 		}
 	}
 
-	// ============ Branching Operations ============
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Editing
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	async editAssistantMessage(
 		messageId: string,
@@ -1267,6 +1219,64 @@ class ChatStore {
 	}
 	public getAllStreamingChats(): string[] {
 		return Array.from(this.chatStreamingStates.keys());
+	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Utilities
+	// ─────────────────────────────────────────────────────────────────────────────
+
+	private getApiOptions(): Record<string, unknown> {
+		const currentConfig = config();
+		const hasValue = (value: unknown): boolean =>
+			value !== undefined && value !== null && value !== '';
+
+		const apiOptions: Record<string, unknown> = { stream: true, timings_per_token: true };
+
+		// Model selection (required in ROUTER mode)
+		if (isRouterMode()) {
+			const modelName = selectedModelName();
+			if (modelName) apiOptions.model = modelName;
+		}
+
+		// Config options needed by ChatService
+		if (currentConfig.systemMessage) apiOptions.systemMessage = currentConfig.systemMessage;
+		if (currentConfig.disableReasoningFormat) apiOptions.disableReasoningFormat = true;
+
+		if (hasValue(currentConfig.temperature))
+			apiOptions.temperature = Number(currentConfig.temperature);
+		if (hasValue(currentConfig.max_tokens))
+			apiOptions.max_tokens = Number(currentConfig.max_tokens);
+		if (hasValue(currentConfig.dynatemp_range))
+			apiOptions.dynatemp_range = Number(currentConfig.dynatemp_range);
+		if (hasValue(currentConfig.dynatemp_exponent))
+			apiOptions.dynatemp_exponent = Number(currentConfig.dynatemp_exponent);
+		if (hasValue(currentConfig.top_k)) apiOptions.top_k = Number(currentConfig.top_k);
+		if (hasValue(currentConfig.top_p)) apiOptions.top_p = Number(currentConfig.top_p);
+		if (hasValue(currentConfig.min_p)) apiOptions.min_p = Number(currentConfig.min_p);
+		if (hasValue(currentConfig.xtc_probability))
+			apiOptions.xtc_probability = Number(currentConfig.xtc_probability);
+		if (hasValue(currentConfig.xtc_threshold))
+			apiOptions.xtc_threshold = Number(currentConfig.xtc_threshold);
+		if (hasValue(currentConfig.typ_p)) apiOptions.typ_p = Number(currentConfig.typ_p);
+		if (hasValue(currentConfig.repeat_last_n))
+			apiOptions.repeat_last_n = Number(currentConfig.repeat_last_n);
+		if (hasValue(currentConfig.repeat_penalty))
+			apiOptions.repeat_penalty = Number(currentConfig.repeat_penalty);
+		if (hasValue(currentConfig.presence_penalty))
+			apiOptions.presence_penalty = Number(currentConfig.presence_penalty);
+		if (hasValue(currentConfig.frequency_penalty))
+			apiOptions.frequency_penalty = Number(currentConfig.frequency_penalty);
+		if (hasValue(currentConfig.dry_multiplier))
+			apiOptions.dry_multiplier = Number(currentConfig.dry_multiplier);
+		if (hasValue(currentConfig.dry_base)) apiOptions.dry_base = Number(currentConfig.dry_base);
+		if (hasValue(currentConfig.dry_allowed_length))
+			apiOptions.dry_allowed_length = Number(currentConfig.dry_allowed_length);
+		if (hasValue(currentConfig.dry_penalty_last_n))
+			apiOptions.dry_penalty_last_n = Number(currentConfig.dry_penalty_last_n);
+		if (currentConfig.samplers) apiOptions.samplers = currentConfig.samplers;
+		if (currentConfig.custom) apiOptions.custom = currentConfig.custom;
+
+		return apiOptions;
 	}
 }
 

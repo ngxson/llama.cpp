@@ -15,6 +15,10 @@ import { getAuthHeaders } from '$lib/utils/api-headers';
  * - serverStore: Primary consumer for server state management
  */
 export class PropsService {
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Fetching
+	// ─────────────────────────────────────────────────────────────────────────────
+
 	/**
 	 * Fetches server properties from the /props endpoint
 	 *

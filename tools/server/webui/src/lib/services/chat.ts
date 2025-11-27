@@ -54,6 +54,10 @@ import type { SettingsChatServiceOptions } from '$lib/types/settings';
  * - Request lifecycle management (abort via AbortSignal)
  */
 export class ChatService {
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Messaging
+	// ─────────────────────────────────────────────────────────────────────────────
+
 	/**
 	 * Sends a chat completion request to the llama.cpp server.
 	 * Supports both streaming and non-streaming responses with comprehensive parameter configuration.
@@ -260,6 +264,10 @@ export class ChatService {
 			throw userFriendlyError;
 		}
 	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Streaming
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
 	 * Handles streaming response from the chat completion API
@@ -571,6 +579,10 @@ export class ChatService {
 		return result;
 	}
 
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Conversion
+	// ─────────────────────────────────────────────────────────────────────────────
+
 	/**
 	 * Converts a database message with attachments to API chat message format.
 	 * Processes various attachment types (images, text files, PDFs) and formats them
@@ -680,6 +692,10 @@ export class ChatService {
 			content: contentParts
 		};
 	}
+
+	// ─────────────────────────────────────────────────────────────────────────────
+	// Utilities
+	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
 	 * Get server properties - static method for API compatibility (to be refactored)
