@@ -3311,11 +3311,6 @@ public:
         auto res = std::make_unique<server_res_generator>(ctx_server);
         json body = json::parse(req.body);
         std::string name = json_value(body, "model", std::string());
-        std::vector<std::string> extra_args = json_value(body, "extra_args", std::vector<std::string>());
-        if (!params.models_allow_extra_args && !extra_args.empty()) {
-            res->error(format_error_response("extra_args is not allowed", ERROR_TYPE_INVALID_REQUEST));
-            return res;
-        }
         auto model = models->get_meta(name);
         if (!model.has_value()) {
             res->error(format_error_response("model is not found", ERROR_TYPE_NOT_FOUND));
@@ -3325,7 +3320,7 @@ public:
             res->error(format_error_response("model is already loaded", ERROR_TYPE_INVALID_REQUEST));
             return res;
         }
-        models->load(name, extra_args, false);
+        models->load(name, false);
         res->ok({{"success", true}});
         return res;
     };
@@ -3358,7 +3353,6 @@ public:
             }
             models_json.push_back(json {
                 {"id",       meta.name},
-                {"name",     meta.name},
                 {"object",   "model"},    // for OAI-compat
                 {"owned_by", "llamacpp"}, // for OAI-compat
                 {"created",  t},          // for OAI-compat
@@ -3827,6 +3821,11 @@ int main(int argc, char ** argv, char ** envp) {
         params.kv_unified = true;
     }
 
+    // for consistency between server router mode and single-model mode, we set the same model name as alias
+    if (params.model_alias.empty() && !params.model.name.empty()) {
+        params.model_alias = params.model.name;
+    }
+
     common_init();
 
     // struct that contains llama context and inference
@@ -4014,9 +4013,6 @@ int main(int argc, char ** argv, char ** envp) {
         LOG_INF("%s: router server is listening on %s\n", __func__, ctx_http.listening_address.c_str());
         LOG_INF("%s: NOTE: router mode is experimental\n", __func__);
         LOG_INF("%s:       it is not recommended to use this mode in untrusted environments\n", __func__);
-        if (params.models_allow_extra_args) {
-            LOG_WRN("%s: extra_args is enabled; this may lead to security issues if the server is exposed to untrusted clients\n", __func__);
-        }
         if (ctx_http.thread.joinable()) {
             ctx_http.thread.join(); // keep the main thread alive
         }

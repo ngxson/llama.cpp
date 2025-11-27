@@ -324,7 +324,7 @@ void server_models::unload_lru() {
     }
 }
 
-void server_models::load(const std::string & name, const std::vector<std::string> & extra_args, bool auto_load) {
+void server_models::load(const std::string & name, bool auto_load) {
     if (!has_model(name)) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
@@ -381,13 +381,6 @@ void server_models::load(const std::string & name, const std::vector<std::string
             child_args.push_back(inst.meta.name);
             child_args.push_back("--port");
             child_args.push_back(std::to_string(inst.meta.port));
-
-            // append extra args
-            if (base_params.models_allow_extra_args) {
-                for (const auto & arg : extra_args) {
-                    child_args.push_back(arg);
-                }
-            }
         }
 
         std::vector<std::string> child_env = base_env; // copy
@@ -536,7 +529,7 @@ bool server_models::ensure_model_loaded(const std::string & name) {
     }
     if (meta->status == SERVER_MODEL_STATUS_UNLOADED) {
         SRV_INF("model name=%s is not loaded, loading...\n", name.c_str());
-        load(name, {}, true);
+        load(name, true);
     }
 
     SRV_INF("waiting until model name=%s is fully loaded...\n", name.c_str());

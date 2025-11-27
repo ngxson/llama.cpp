@@ -1445,7 +1445,6 @@ Listing all models in cache. The model metadata will also include a field to ind
 ```json
 {
   "data": [{
-    "name": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M",
     "id": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M",
     "in_cache": true,
     "path": "/Users/REDACTED/Library/Caches/llama.cpp/ggml-org_gemma-3-4b-it-GGUF_gemma-3-4b-it-Q4_K_M.gguf",
