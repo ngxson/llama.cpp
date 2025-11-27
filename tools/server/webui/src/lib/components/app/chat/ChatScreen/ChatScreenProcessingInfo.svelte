@@ -4,9 +4,10 @@
 	import { useProcessingState } from '$lib/hooks/use-processing-state.svelte';
 	import {
 		isLoading,
+		isChatStreaming,
 		clearProcessingState,
-		updateProcessingStateFromTimings,
-		setActiveProcessingConversation
+		setActiveProcessingConversation,
+		restoreProcessingStateFromMessages
 	} from '$lib/stores/chat.svelte';
 	import { activeMessages, activeConversation } from '$lib/stores/conversations.svelte';
 	import { config } from '$lib/stores/settings.svelte';
@@ -14,34 +15,39 @@
 	const processingState = useProcessingState();
 
 	let isCurrentConversationLoading = $derived(isLoading());
+	let isStreaming = $derived(isChatStreaming());
+	let hasProcessingData = $derived(processingState.processingState !== null);
 	let processingDetails = $derived(processingState.getProcessingDetails());
-	let showSlotsInfo = $derived(isCurrentConversationLoading || config().keepStatsVisible);
 
-	// Sync active processing conversation with currently viewed conversation
+	let showProcessingInfo = $derived(
+		isCurrentConversationLoading || isStreaming || config().keepStatsVisible || hasProcessingData
+	);
+
 	$effect(() => {
 		const conversation = activeConversation();
-		// Use untrack to prevent creating reactive dependencies on state updates
+
 		untrack(() => setActiveProcessingConversation(conversation?.id ?? null));
 	});
 
-	// Track loading state reactively by checking if conversation ID is in loading conversations array
 	$effect(() => {
 		const keepStatsVisible = config().keepStatsVisible;
+		const shouldMonitor = keepStatsVisible || isCurrentConversationLoading || isStreaming;
 
-		if (keepStatsVisible || isCurrentConversationLoading) {
-			untrack(() => processingState.startMonitoring());
+		if (shouldMonitor) {
+			processingState.startMonitoring();
 		}
 
-		if (!isCurrentConversationLoading && !keepStatsVisible) {
-			setTimeout(() => {
-				if (!config().keepStatsVisible) {
+		if (!isCurrentConversationLoading && !isStreaming && !keepStatsVisible) {
+			const timeout = setTimeout(() => {
+				if (!config().keepStatsVisible && !isChatStreaming()) {
 					processingState.stopMonitoring();
 				}
 			}, PROCESSING_INFO_TIMEOUT);
+
+			return () => clearTimeout(timeout);
 		}
 	});
 
-	// Update processing state from stored timings
 	$effect(() => {
 		const conversation = activeConversation();
 		const messages = activeMessages() as DatabaseMessage[];
@@ -49,47 +55,18 @@
 
 		if (keepStatsVisible && conversation) {
 			if (messages.length === 0) {
-				// Use untrack to prevent creating reactive dependencies on state updates
 				untrack(() => clearProcessingState(conversation.id));
 				return;
 			}
 
-			// Search backwards through messages to find most recent assistant message with timing data
-			// Using reverse iteration for performance - avoids array copy and stops at first match
-			let foundTimingData = false;
-
-			for (let i = messages.length - 1; i >= 0; i--) {
-				const message = messages[i];
-				if (message.role === 'assistant' && message.timings) {
-					foundTimingData = true;
-
-					// Use untrack to prevent creating reactive dependencies on state updates
-					untrack(() =>
-						updateProcessingStateFromTimings(
-							{
-								prompt_n: message.timings!.prompt_n || 0,
-								predicted_n: message.timings!.predicted_n || 0,
-								predicted_per_second:
-									message.timings!.predicted_n && message.timings!.predicted_ms
-										? (message.timings!.predicted_n / message.timings!.predicted_ms) * 1000
-										: 0,
-								cache_n: message.timings!.cache_n || 0
-							},
-							conversation.id
-						)
-					);
-					break;
-				}
-			}
-
-			if (!foundTimingData) {
-				untrack(() => clearProcessingState(conversation.id));
+			if (!isCurrentConversationLoading && !isStreaming) {
+				untrack(() => restoreProcessingStateFromMessages(messages, conversation.id));
 			}
 		}
 	});
 </script>
 
-<div class="chat-processing-info-container pointer-events-none" class:visible={showSlotsInfo}>
+<div class="chat-processing-info-container pointer-events-none" class:visible={showProcessingInfo}>
 	<div class="chat-processing-info-content">
 		{#each processingDetails as detail (detail)}
 			<span class="chat-processing-info-detail pointer-events-auto">{detail}</span>

@@ -5,7 +5,7 @@ import { config } from '$lib/stores/settings.svelte';
 import { contextSize } from '$lib/stores/server.svelte';
 import { normalizeModelName } from '$lib/utils/model-names';
 import { filterByLeafNodeId, findDescendantMessages, findLeafNode } from '$lib/utils/branching';
-import { SvelteMap, SvelteSet } from 'svelte/reactivity';
+import { SvelteMap } from 'svelte/reactivity';
 import { DEFAULT_CONTEXT } from '$lib/constants/default-context';
 import type {
 	ChatMessageTimings,
@@ -55,6 +55,7 @@ import type { DatabaseMessage, DatabaseMessageExtra } from '$lib/types/database'
  * - Automatic state sync when switching between conversations
  */
 class ChatStore {
+	activeProcessingState = $state<ApiProcessingState | null>(null);
 	currentResponse = $state('');
 	errorDialogState = $state<{ type: 'timeout' | 'server'; message: string } | null>(null);
 	isLoading = $state(false);
@@ -66,10 +67,8 @@ class ChatStore {
 
 	// Processing state tracking - per-conversation timing/context info
 	private processingStates = new SvelteMap<string, ApiProcessingState | null>();
-	private processingCallbacks = new SvelteSet<(state: ApiProcessingState | null) => void>();
 	private activeConversationId = $state<string | null>(null);
 	private isStreamingActive = $state(false);
-	private lastKnownProcessingState = $state<ApiProcessingState | null>(null);
 
 	// ============ API Options ============
 
@@ -190,7 +189,12 @@ class ChatStore {
 	 */
 	setActiveProcessingConversation(conversationId: string | null): void {
 		this.activeConversationId = conversationId;
-		this.notifyProcessingCallbacks();
+
+		if (conversationId) {
+			this.activeProcessingState = this.processingStates.get(conversationId) || null;
+		} else {
+			this.activeProcessingState = null;
+		}
 	}
 
 	/**
@@ -207,24 +211,16 @@ class ChatStore {
 		this.processingStates.delete(conversationId);
 
 		if (conversationId === this.activeConversationId) {
-			this.lastKnownProcessingState = null;
-			this.notifyProcessingCallbacks();
+			this.activeProcessingState = null;
 		}
 	}
 
 	/**
-	 * Subscribe to processing state changes
+	 * Get the current processing state for the active conversation (reactive)
+	 * Returns the direct reactive state for UI binding
 	 */
-	subscribeToProcessingState(callback: (state: ApiProcessingState | null) => void): () => void {
-		this.processingCallbacks.add(callback);
-
-		if (this.lastKnownProcessingState) {
-			callback(this.lastKnownProcessingState);
-		}
-
-		return () => {
-			this.processingCallbacks.delete(callback);
-		};
+	getActiveProcessingState(): ApiProcessingState | null {
+		return this.activeProcessingState;
 	}
 
 	/**
@@ -247,36 +243,28 @@ class ChatStore {
 			return;
 		}
 
-		if (conversationId) {
-			this.processingStates.set(conversationId, processingState);
+		const targetId = conversationId || this.activeConversationId;
+		if (targetId) {
+			this.processingStates.set(targetId, processingState);
 
-			if (conversationId === this.activeConversationId) {
-				this.lastKnownProcessingState = processingState;
-				this.notifyProcessingCallbacks();
+			if (targetId === this.activeConversationId) {
+				this.activeProcessingState = processingState;
 			}
-		} else {
-			this.lastKnownProcessingState = processingState;
-			this.notifyProcessingCallbacks();
 		}
 	}
 
 	/**
-	 * Get current processing state
+	 * Get current processing state (sync version for reactive access)
 	 */
-	async getCurrentProcessingState(): Promise<ApiProcessingState | null> {
-		if (this.activeConversationId) {
-			const conversationState = this.processingStates.get(this.activeConversationId);
-			if (conversationState) {
-				return conversationState;
-			}
-		}
+	getCurrentProcessingStateSync(): ApiProcessingState | null {
+		return this.activeProcessingState;
+	}
 
-		if (this.lastKnownProcessingState) {
-			return this.lastKnownProcessingState;
-		}
-
-		// Try to restore from last assistant message
-		const messages = conversationsStore.activeMessages;
+	/**
+	 * Restore processing state from last assistant message timings
+	 * Call this when keepStatsVisible is enabled and we need to show last known stats
+	 */
+	restoreProcessingStateFromMessages(messages: DatabaseMessage[], conversationId: string): void {
 		for (let i = messages.length - 1; i >= 0; i--) {
 			const message = messages[i];
 			if (message.role === 'assistant' && message.timings) {
@@ -291,32 +279,23 @@ class ChatStore {
 				});
 
 				if (restoredState) {
-					this.lastKnownProcessingState = restoredState;
-					return restoredState;
+					this.processingStates.set(conversationId, restoredState);
+
+					if (conversationId === this.activeConversationId) {
+						this.activeProcessingState = restoredState;
+					}
+
+					return;
 				}
-			}
-		}
-
-		return null;
-	}
-
-	private notifyProcessingCallbacks(): void {
-		const currentState = this.activeConversationId
-			? this.processingStates.get(this.activeConversationId) || null
-			: this.lastKnownProcessingState;
-
-		for (const callback of this.processingCallbacks) {
-			try {
-				callback(currentState);
-			} catch (error) {
-				console.error('Error in processing state callback:', error);
 			}
 		}
 	}
 
 	private getContextTotal(): number {
-		if (this.lastKnownProcessingState && this.lastKnownProcessingState.contextTotal > 0) {
-			return this.lastKnownProcessingState.contextTotal;
+		const activeState = this.getActiveProcessingState();
+
+		if (activeState && activeState.contextTotal > 0) {
+			return activeState.contextTotal;
 		}
 
 		const propsContextSize = contextSize();
@@ -734,7 +713,7 @@ class ChatStore {
 					content: streamingState.response
 				};
 				if (lastMessage.thinking?.trim()) updateData.thinking = lastMessage.thinking;
-				const lastKnownState = await this.getCurrentProcessingState();
+				const lastKnownState = this.getCurrentProcessingStateSync();
 				if (lastKnownState) {
 					updateData.timings = {
 						prompt_n: lastKnownState.promptTokens || 0,
@@ -1323,9 +1302,13 @@ export const syncLoadingStateForChat = chatStore.syncLoadingStateForChat.bind(ch
 export const clearUIState = chatStore.clearUIState.bind(chatStore);
 
 // Processing state (timing/context info)
-export const subscribeToProcessingState = chatStore.subscribeToProcessingState.bind(chatStore);
 export const getProcessingState = chatStore.getProcessingState.bind(chatStore);
-export const getCurrentProcessingState = chatStore.getCurrentProcessingState.bind(chatStore);
+export const getActiveProcessingState = chatStore.getActiveProcessingState.bind(chatStore);
+export const activeProcessingState = () => chatStore.activeProcessingState;
+export const getCurrentProcessingStateSync =
+	chatStore.getCurrentProcessingStateSync.bind(chatStore);
+export const restoreProcessingStateFromMessages =
+	chatStore.restoreProcessingStateFromMessages.bind(chatStore);
 export const clearProcessingState = chatStore.clearProcessingState.bind(chatStore);
 export const updateProcessingStateFromTimings =
 	chatStore.updateProcessingStateFromTimings.bind(chatStore);
