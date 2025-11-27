@@ -1,7 +1,8 @@
 import { DatabaseService, ChatService } from '$lib/services';
 import { conversationsStore } from '$lib/stores/conversations.svelte';
 import { config } from '$lib/stores/settings.svelte';
-import { contextSize } from '$lib/stores/server.svelte';
+import { contextSize, isRouterMode } from '$lib/stores/server.svelte';
+import { selectedModelName } from '$lib/stores/models.svelte';
 import { normalizeModelName } from '$lib/utils/model-names';
 import { filterByLeafNodeId, findDescendantMessages, findLeafNode } from '$lib/utils/branching';
 import { SvelteMap } from 'svelte/reactivity';
@@ -77,6 +78,16 @@ class ChatStore {
 			value !== undefined && value !== null && value !== '';
 
 		const apiOptions: Record<string, unknown> = { stream: true, timings_per_token: true };
+
+		// Model selection (required in ROUTER mode)
+		if (isRouterMode()) {
+			const modelName = selectedModelName();
+			if (modelName) apiOptions.model = modelName;
+		}
+
+		// Config options needed by ChatService
+		if (currentConfig.systemMessage) apiOptions.systemMessage = currentConfig.systemMessage;
+		if (currentConfig.disableReasoningFormat) apiOptions.disableReasoningFormat = true;
 
 		if (hasValue(currentConfig.temperature))
 			apiOptions.temperature = Number(currentConfig.temperature);

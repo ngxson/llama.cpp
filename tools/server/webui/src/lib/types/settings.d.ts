@@ -14,8 +14,12 @@ export interface SettingsFieldConfig {
 
 export interface SettingsChatServiceOptions {
 	stream?: boolean;
-	// Model override (for regenerate with specific model)
+	// Model (required in ROUTER mode, optional in MODEL mode)
 	model?: string;
+	// System message to inject
+	systemMessage?: string;
+	// Disable reasoning format (use 'none' instead of 'auto')
+	disableReasoningFormat?: boolean;
 	// Generation parameters
 	temperature?: number;
 	max_tokens?: number;

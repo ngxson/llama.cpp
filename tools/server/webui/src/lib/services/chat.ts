@@ -1,7 +1,4 @@
-import { config } from '$lib/stores/settings.svelte';
 import { getJsonHeaders } from '$lib/utils/api-headers';
-import { selectedModelName } from '$lib/stores/models.svelte';
-import { isRouterMode, serverStore } from '$lib/stores/server.svelte';
 import type {
 	ApiChatCompletionRequest,
 	ApiChatCompletionResponse,
@@ -106,10 +103,11 @@ export class ChatService {
 			// Other parameters
 			samplers,
 			custom,
-			timings_per_token
+			timings_per_token,
+			// Config options
+			systemMessage,
+			disableReasoningFormat
 		} = options;
-
-		const currentConfig = config();
 
 		const normalizedMessages: ApiChatMessageData[] = messages
 			.map((msg) => {
@@ -130,7 +128,7 @@ export class ChatService {
 				return true;
 			});
 
-		const processedMessages = ChatService.injectSystemMessage(normalizedMessages);
+		const processedMessages = ChatService.injectSystemMessage(normalizedMessages, systemMessage);
 
 		const requestBody: ApiChatCompletionRequest = {
 			messages: processedMessages.map((msg: ApiChatMessageData) => ({
@@ -140,14 +138,12 @@ export class ChatService {
 			stream
 		};
 
-		const isRouter = isRouterMode();
-		const activeModel = isRouter ? options.model || selectedModelName() : null;
-
-		if (isRouter && activeModel) {
-			requestBody.model = activeModel;
+		// Include model in request if provided (required in ROUTER mode)
+		if (options.model) {
+			requestBody.model = options.model;
 		}
 
-		requestBody.reasoning_format = currentConfig.disableReasoningFormat ? 'none' : 'auto';
+		requestBody.reasoning_format = disableReasoningFormat ? 'none' : 'auto';
 
 		if (temperature !== undefined) requestBody.temperature = temperature;
 		if (max_tokens !== undefined) {
@@ -728,28 +724,30 @@ export class ChatService {
 	}
 
 	/**
-	 * Injects a system message at the beginning of the conversation if configured in settings.
-	 * Checks for existing system messages to avoid duplication and retrieves the system message
-	 * from the current configuration settings.
+	 * Injects a system message at the beginning of the conversation if provided.
+	 * Checks for existing system messages to avoid duplication.
 	 *
 	 * @param messages - Array of chat messages to process
-	 * @returns Array of messages with system message injected at the beginning if configured
+	 * @param systemMessage - Optional system message to inject
+	 * @returns Array of messages with system message injected at the beginning if provided
 	 * @private
 	 */
-	private static injectSystemMessage(messages: ApiChatMessageData[]): ApiChatMessageData[] {
-		const currentConfig = config();
-		const systemMessage = currentConfig.systemMessage?.toString().trim();
+	private static injectSystemMessage(
+		messages: ApiChatMessageData[],
+		systemMessage?: string
+	): ApiChatMessageData[] {
+		const trimmedSystemMessage = systemMessage?.trim();
 
-		if (!systemMessage) {
+		if (!trimmedSystemMessage) {
 			return messages;
 		}
 
 		if (messages.length > 0 && messages[0].role === 'system') {
-			if (messages[0].content !== systemMessage) {
+			if (messages[0].content !== trimmedSystemMessage) {
 				const updatedMessages = [...messages];
 				updatedMessages[0] = {
 					role: 'system',
-					content: systemMessage
+					content: trimmedSystemMessage
 				};
 				return updatedMessages;
 			}
@@ -759,7 +757,7 @@ export class ChatService {
 
 		const systemMsg: ApiChatMessageData = {
 			role: 'system',
-			content: systemMessage
+			content: trimmedSystemMessage
 		};
 
 		return [systemMsg, ...messages];
@@ -799,16 +797,6 @@ export class ChatService {
 	 * @private
 	 */
 	private static extractModelName(data: unknown): string | undefined {
-		// WORKAROUND: In single model mode, use model name from props instead of API response
-		// because llama-server returns `gpt-3.5-turbo` value in the `model` field
-		const isRouter = isRouterMode();
-		if (!isRouter) {
-			const propsModelName = serverStore.modelName;
-			if (propsModelName) {
-				return propsModelName;
-			}
-		}
-
 		const asRecord = (value: unknown): Record<string, unknown> | undefined => {
 			return typeof value === 'object' && value !== null
 				? (value as Record<string, unknown>)
