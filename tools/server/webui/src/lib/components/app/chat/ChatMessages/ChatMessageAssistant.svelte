@@ -260,11 +260,7 @@
 						disabled={isLoading()}
 					/>
 				{:else}
-					<BadgeModelName
-						model={displayedModel() || undefined}
-						onclick={handleCopyModel}
-						showCopyIcon={true}
-					/>
+					<BadgeModelName model={displayedModel() || undefined} onclick={handleCopyModel} />
 				{/if}
 
 				{#if currentConfig.showMessageStats && message.timings && message.timings.predicted_n && message.timings.predicted_ms}
