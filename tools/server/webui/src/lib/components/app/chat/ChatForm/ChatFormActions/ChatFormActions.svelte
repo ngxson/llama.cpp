@@ -13,7 +13,8 @@
 	import { modelsStore, modelOptions, selectedModelId } from '$lib/stores/models.svelte';
 	import { isRouterMode } from '$lib/stores/server.svelte';
 	import { chatStore } from '$lib/stores/chat.svelte';
-	import { activeMessages } from '$lib/stores/conversations.svelte';
+	import { activeMessages, usedModalities } from '$lib/stores/conversations.svelte';
+	import { useModelChangeValidation } from '$lib/hooks/use-model-change-validation.svelte';
 	import type { ChatUploadedFile } from '$lib/types/chat';
 
 	interface Props {
@@ -157,6 +158,15 @@
 	export function openModelSelector() {
 		selectorModelRef?.open();
 	}
+
+	const { handleModelChange } = useModelChangeValidation({
+		getRequiredModalities: () => usedModalities(),
+		onValidationFailure: async (previousModelId) => {
+			if (previousModelId) {
+				await modelsStore.selectModelById(previousModelId);
+			}
+		}
+	});
 </script>
 
 <div class="flex w-full items-center gap-3 {className}" style="container-type: inline-size">
@@ -173,6 +183,7 @@
 		currentModel={conversationModel}
 		forceForegroundText={true}
 		useGlobalSelection={true}
+		onModelChange={handleModelChange}
 	/>
 
 	{#if isLoading}

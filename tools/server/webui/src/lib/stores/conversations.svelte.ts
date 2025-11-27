@@ -4,11 +4,13 @@ import { toast } from 'svelte-sonner';
 import { DatabaseService } from '$lib/services/database';
 import { config } from '$lib/stores/settings.svelte';
 import { filterByLeafNodeId, findLeafNode } from '$lib/utils/branching';
+import { AttachmentType } from '$lib/enums';
 import type {
 	DatabaseConversation,
 	DatabaseMessage,
 	ExportedConversations
 } from '$lib/types/database';
+import type { ModelModalities } from '$lib/types/models';
 
 /**
  * conversationsStore - Persistent conversation data and lifecycle management
@@ -61,6 +63,55 @@ class ConversationsStore {
 
 	/** Whether the store has been initialized */
 	isInitialized = $state(false);
+
+	/**
+	 * Modalities used in the active conversation.
+	 * Computed from attachments in activeMessages.
+	 * Used to filter available models - models must support all used modalities.
+	 */
+	usedModalities: ModelModalities = $derived.by(() => {
+		return this.calculateModalitiesFromMessages(this.activeMessages);
+	});
+
+	/**
+	 * Calculate modalities from a list of messages.
+	 * Helper method used by both usedModalities and getModalitiesUpToMessage.
+	 */
+	private calculateModalitiesFromMessages(messages: DatabaseMessage[]): ModelModalities {
+		const modalities: ModelModalities = { vision: false, audio: false };
+
+		for (const message of messages) {
+			if (!message.extra) continue;
+
+			for (const extra of message.extra) {
+				if (extra.type === AttachmentType.IMAGE || extra.type === AttachmentType.PDF) {
+					modalities.vision = true;
+				}
+				if (extra.type === AttachmentType.AUDIO) {
+					modalities.audio = true;
+				}
+			}
+
+			if (modalities.vision && modalities.audio) break;
+		}
+
+		return modalities;
+	}
+
+	/**
+	 * Get modalities used in messages BEFORE the specified message.
+	 * Used for regeneration - only consider context that was available when generating this message.
+	 */
+	getModalitiesUpToMessage(messageId: string): ModelModalities {
+		const messageIndex = this.activeMessages.findIndex((m) => m.id === messageId);
+
+		if (messageIndex === -1) {
+			return this.usedModalities;
+		}
+
+		const messagesBefore = this.activeMessages.slice(0, messageIndex);
+		return this.calculateModalitiesFromMessages(messagesBefore);
+	}
 
 	/** Callback for title update confirmation dialog */
 	titleUpdateConfirmationCallback?: (currentTitle: string, newTitle: string) => Promise<boolean>;
@@ -537,3 +588,4 @@ export const conversations = () => conversationsStore.conversations;
 export const activeConversation = () => conversationsStore.activeConversation;
 export const activeMessages = () => conversationsStore.activeMessages;
 export const isConversationsInitialized = () => conversationsStore.isInitialized;
+export const usedModalities = () => conversationsStore.usedModalities;

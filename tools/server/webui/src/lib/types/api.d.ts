@@ -54,8 +54,8 @@ export interface ApiModelStatus {
 export interface ApiModelDataEntry {
 	/** Model identifier (e.g., "ggml-org/Qwen2.5-Omni-7B-GGUF:latest") */
 	id: string;
-	/** Model name (usually same as id) */
-	name: string;
+	/** Model name (optional, usually same as id - not always returned by API) */
+	name?: string;
 	/** Object type, always "model" */
 	object: string;
 	/** Owner, usually "llamacpp" */

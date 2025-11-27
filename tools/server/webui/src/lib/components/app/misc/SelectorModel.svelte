@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { ChevronDown, Loader2, Package, Power } from '@lucide/svelte';
+	import { ChevronDown, EyeOff, Loader2, MicOff, Package, Power } from '@lucide/svelte';
+	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { cn } from '$lib/components/ui/utils';
 	import { portalToBody } from '$lib/utils/portal-to-body';
 	import {
@@ -11,6 +12,7 @@
 		selectedModelId,
 		routerModels
 	} from '$lib/stores/models.svelte';
+	import { usedModalities, conversationsStore } from '$lib/stores/conversations.svelte';
 	import { ServerModelStatus } from '$lib/enums';
 	import { isRouterMode, serverStore } from '$lib/stores/server.svelte';
 	import { DialogModelInformation } from '$lib/components/app';
@@ -19,11 +21,18 @@
 	interface Props {
 		class?: string;
 		currentModel?: string | null;
-		onModelChange?: (modelId: string, modelName: string) => void;
+		/** Callback when model changes. Return false to keep menu open (e.g., for validation failures) */
+		onModelChange?: (modelId: string, modelName: string) => Promise<boolean> | boolean | void;
 		disabled?: boolean;
 		forceForegroundText?: boolean;
 		/** When true, user's global selection takes priority over currentModel (for form selector) */
 		useGlobalSelection?: boolean;
+		/**
+		 * When provided, only consider modalities from messages BEFORE this message.
+		 * Used for regeneration - allows selecting models that don't support modalities
+		 * used in later messages.
+		 */
+		upToMessageId?: string;
 	}
 
 	let {
@@ -32,7 +41,8 @@
 		onModelChange,
 		disabled = false,
 		forceForegroundText = false,
-		useGlobalSelection = false
+		useGlobalSelection = false,
+		upToMessageId
 	}: Props = $props();
 
 	let options = $derived(modelOptions());
@@ -45,10 +55,45 @@
 	// Reactive router models state - needed for proper reactivity of status checks
 	let currentRouterModels = $derived(routerModels());
 
-	// Helper to get model status from server - establishes reactive dependency
+	let requiredModalities = $derived(
+		upToMessageId ? conversationsStore.getModalitiesUpToMessage(upToMessageId) : usedModalities()
+	);
+
 	function getModelStatus(modelId: string): ServerModelStatus | null {
-		const model = currentRouterModels.find((m) => m.name === modelId);
+		const model = currentRouterModels.find((m) => m.id === modelId);
 		return (model?.status?.value as ServerModelStatus) ?? null;
+	}
+
+	/**
+	 * Checks if a model supports all modalities used in the conversation.
+	 * Returns true if the model can be selected, false if it should be disabled.
+	 */
+	function isModelCompatible(option: ModelOption): boolean {
+		const modelModalities = option.modalities;
+
+		if (!modelModalities) return true;
+
+		if (requiredModalities.vision && !modelModalities.vision) return false;
+		if (requiredModalities.audio && !modelModalities.audio) return false;
+
+		return true;
+	}
+
+	/**
+	 * Gets missing modalities for a model.
+	 * Returns object with vision/audio booleans indicating what's missing.
+	 */
+	function getMissingModalities(option: ModelOption): { vision: boolean; audio: boolean } | null {
+		const modelModalities = option.modalities;
+		if (!modelModalities) return null;
+
+		const missing = {
+			vision: requiredModalities.vision && !modelModalities.vision,
+			audio: requiredModalities.audio && !modelModalities.audio
+		};
+
+		if (!missing.vision && !missing.audio) return null;
+		return missing;
 	}
 
 	let isHighlightedCurrentModelActive = $derived(
@@ -251,23 +296,32 @@
 		const option = options.find((opt) => opt.id === modelId);
 		if (!option) return;
 
-		closeMenu();
+		let shouldCloseMenu = true;
 
 		if (onModelChange) {
 			// If callback provided, use it (for regenerate functionality)
-			onModelChange(option.id, option.model);
+			const result = await onModelChange(option.id, option.model);
+
+			// If callback returns false, keep menu open (validation failed)
+			if (result === false) {
+				shouldCloseMenu = false;
+			}
 		} else {
 			// Update global selection
 			await modelsStore.selectModelById(option.id);
+
+			// Load the model if not already loaded (router mode)
+			if (isRouter && getModelStatus(option.model) !== ServerModelStatus.LOADED) {
+				try {
+					await modelsStore.loadModel(option.model);
+				} catch (error) {
+					console.error('Failed to load model:', error);
+				}
+			}
 		}
 
-		// Load the model if not already loaded (router mode)
-		if (isRouter && getModelStatus(option.model) !== ServerModelStatus.LOADED) {
-			try {
-				await modelsStore.loadModel(option.model);
-			} catch (error) {
-				console.error('Failed to load model:', error);
-			}
+		if (shouldCloseMenu) {
+			closeMenu();
 		}
 	}
 
@@ -405,20 +459,28 @@
 							{@const isLoaded = status === ServerModelStatus.LOADED}
 							{@const isLoading = status === ServerModelStatus.LOADING}
 							{@const isSelected = currentModel === option.model || activeId === option.id}
+							{@const isCompatible = isModelCompatible(option)}
+							{@const missingModalities = getMissingModalities(option)}
 							<div
 								class={cn(
-									'group flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left text-sm transition hover:bg-muted focus:bg-muted focus:outline-none',
+									'group flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition focus:outline-none',
+									isCompatible
+										? 'cursor-pointer hover:bg-muted focus:bg-muted'
+										: 'cursor-not-allowed opacity-50',
 									isSelected
 										? 'bg-accent text-accent-foreground'
-										: 'hover:bg-accent hover:text-accent-foreground',
+										: isCompatible
+											? 'hover:bg-accent hover:text-accent-foreground'
+											: '',
 									isLoaded ? 'text-popover-foreground' : 'text-muted-foreground'
 								)}
 								role="option"
 								aria-selected={isSelected}
-								tabindex="0"
-								onclick={() => handleSelect(option.id)}
+								aria-disabled={!isCompatible}
+								tabindex={isCompatible ? 0 : -1}
+								onclick={() => isCompatible && handleSelect(option.id)}
 								onkeydown={(e) => {
-									if (e.key === 'Enter' || e.key === ' ') {
+									if (isCompatible && (e.key === 'Enter' || e.key === ' ')) {
 										e.preventDefault();
 										handleSelect(option.id);
 									}
@@ -426,29 +488,65 @@
 							>
 								<span class="min-w-0 flex-1 truncate">{option.model}</span>
 
-								{#if isLoading}
-									<Loader2 class="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
-								{:else if isLoaded}
-									<!-- Green dot, on hover show red unload button -->
-									<button
-										type="button"
-										class="relative ml-2 flex h-4 w-4 shrink-0 items-center justify-center"
-										onclick={(e) => {
-											e.stopPropagation();
-											modelsStore.unloadModel(option.model);
-										}}
-										title="Unload model"
-									>
-										<span
-											class="mr-2 h-2 w-2 rounded-full bg-green-500 transition-opacity group-hover:opacity-0"
-										></span>
+								{#if missingModalities}
+									<span class="flex shrink-0 items-center gap-1 text-muted-foreground/70">
+										{#if missingModalities.vision}
+											<Tooltip.Root>
+												<Tooltip.Trigger>
+													<EyeOff class="h-3.5 w-3.5" />
+												</Tooltip.Trigger>
+												<Tooltip.Content class="z-[9999]">
+													<p>No vision support</p>
+												</Tooltip.Content>
+											</Tooltip.Root>
+										{/if}
+										{#if missingModalities.audio}
+											<Tooltip.Root>
+												<Tooltip.Trigger>
+													<MicOff class="h-3.5 w-3.5" />
+												</Tooltip.Trigger>
+												<Tooltip.Content class="z-[9999]">
+													<p>No audio support</p>
+												</Tooltip.Content>
+											</Tooltip.Root>
+										{/if}
+									</span>
+								{/if}
 
-										<Power
-											class="absolute mr-2 h-4 w-4 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-600"
-										/>
-									</button>
+								{#if isLoading}
+									<Tooltip.Root>
+										<Tooltip.Trigger>
+											<Loader2 class="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+										</Tooltip.Trigger>
+										<Tooltip.Content class="z-[9999]">
+											<p>Loading model...</p>
+										</Tooltip.Content>
+									</Tooltip.Root>
+								{:else if isLoaded}
+									<Tooltip.Root>
+										<Tooltip.Trigger>
+											<button
+												type="button"
+												class="relative ml-2 flex h-4 w-4 shrink-0 items-center justify-center"
+												onclick={(e) => {
+													e.stopPropagation();
+													modelsStore.unloadModel(option.model);
+												}}
+											>
+												<span
+													class="mr-2 h-2 w-2 rounded-full bg-green-500 transition-opacity group-hover:opacity-0"
+												></span>
+												<Power
+													class="absolute mr-2 h-4 w-4 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-600"
+												/>
+											</button>
+										</Tooltip.Trigger>
+										<Tooltip.Content class="z-[9999]">
+											<p>Unload model</p>
+										</Tooltip.Content>
+									</Tooltip.Root>
 								{:else}
-									<span class="mx-2 h-2 w-2 shrink-0 rounded-full bg-muted-foreground/50"></span>
+									<span class="mx-2 h-2 w-2 rounded-full bg-muted-foreground/50"></span>
 								{/if}
 							</div>
 						{/each}

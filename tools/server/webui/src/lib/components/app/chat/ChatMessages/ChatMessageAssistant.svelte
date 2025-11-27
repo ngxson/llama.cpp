@@ -9,6 +9,7 @@
 		SelectorModel
 	} from '$lib/components/app';
 	import { useProcessingState } from '$lib/hooks/use-processing-state.svelte';
+	import { useModelChangeValidation } from '$lib/hooks/use-model-change-validation.svelte';
 	import { isLoading } from '$lib/stores/chat.svelte';
 	import autoResizeTextarea from '$lib/utils/autoresize-textarea';
 	import { fade } from 'svelte/transition';
@@ -18,8 +19,8 @@
 	import { INPUT_CLASSES } from '$lib/constants/input-classes';
 	import Label from '$lib/components/ui/label/label.svelte';
 	import { config } from '$lib/stores/settings.svelte';
+	import { conversationsStore } from '$lib/stores/conversations.svelte';
 	import { isRouterMode } from '$lib/stores/server.svelte';
-	import { modelsStore } from '$lib/stores/models.svelte';
 	import { copyToClipboard } from '$lib/utils/copy';
 	import type { ApiChatCompletionToolCall } from '$lib/types/api';
 
@@ -93,7 +94,6 @@
 	let currentConfig = $derived(config());
 	let isRouter = $derived(isRouterMode());
 	let displayedModel = $derived((): string | null => {
-		// Only show model from streaming data, no fallbacks to server props
 		if (message.model) {
 			return message.model;
 		}
@@ -101,16 +101,10 @@
 		return null;
 	});
 
-	async function handleModelChange(modelId: string, modelName: string) {
-		try {
-			await modelsStore.selectModelById(modelId);
-
-			// Pass the selected model name for regeneration
-			onRegenerate(modelName);
-		} catch (error) {
-			console.error('Failed to change model:', error);
-		}
-	}
+	const { handleModelChange } = useModelChangeValidation({
+		getRequiredModalities: () => conversationsStore.getModalitiesUpToMessage(message.id),
+		onSuccess: (modelName) => onRegenerate(modelName)
+	});
 
 	function handleCopyModel() {
 		const model = displayedModel();
@@ -258,6 +252,7 @@
 						currentModel={displayedModel()}
 						onModelChange={handleModelChange}
 						disabled={isLoading()}
+						upToMessageId={message.id}
 					/>
 				{:else}
 					<BadgeModelName model={displayedModel() || undefined} onclick={handleCopyModel} />
