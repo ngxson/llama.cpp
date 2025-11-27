@@ -2,15 +2,15 @@ import { PropsService } from '$lib/services/props';
 import { ServerRole, ModelModality } from '$lib/enums';
 
 /**
- * ServerStore - Server connection state, configuration, and role detection
+ * serverStore - Server connection state, configuration, and role detection
  *
  * This store manages the server connection state and properties fetched from `/props`.
  * It provides reactive state for server configuration and role detection.
  *
  * **Architecture & Relationships:**
  * - **PropsService**: Stateless service for fetching `/props` data
- * - **ServerStore** (this class): Reactive store for server state
- * - **ModelsStore**: Independent store for model management (uses PropsService directly)
+ * - **serverStore** (this class): Reactive store for server state
+ * - **modelsStore**: Independent store for model management (uses PropsService directly)
  *
  * **Key Features:**
  * - **Server State**: Connection status, loading, error handling
@@ -18,7 +18,7 @@ import { ServerRole, ModelModality } from '$lib/enums';
  * - **Default Params**: Server-wide generation defaults
  *
  * **Note on Modalities:**
- * Model-specific modalities (vision, audio) are now managed by ModelsStore.
+ * Model-specific modalities (vision, audio) are now managed by modelsStore.
  * Use `modelsStore.getModelModalities(modelId)` for per-model modality info.
  * The `supportsVision`/`supportsAudio` getters here are deprecated and only
  * apply to MODEL mode (single model).
@@ -29,10 +29,6 @@ class ServerStore {
 	error = $state<string | null>(null);
 	role = $state<ServerRole | null>(null);
 	private fetchPromise: Promise<void> | null = null;
-
-	// ─────────────────────────────────────────────────────────────────────────────
-	// Computed Getters
-	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
 	 * Get model name from server props.
@@ -93,10 +89,6 @@ class ServerStore {
 		return this.role === ServerRole.MODEL;
 	}
 
-	// ─────────────────────────────────────────────────────────────────────────────
-	// Server Role Detection
-	// ─────────────────────────────────────────────────────────────────────────────
-
 	private detectRole(props: ApiLlamaCppServerProps): void {
 		const newRole = props?.role === ServerRole.ROUTER ? ServerRole.ROUTER : ServerRole.MODEL;
 		if (this.role !== newRole) {
@@ -104,10 +96,6 @@ class ServerStore {
 			console.info(`Server running in ${newRole === ServerRole.ROUTER ? 'ROUTER' : 'MODEL'} mode`);
 		}
 	}
-
-	// ─────────────────────────────────────────────────────────────────────────────
-	// Fetch Server Properties
-	// ─────────────────────────────────────────────────────────────────────────────
 
 	async fetch(): Promise<void> {
 		if (this.fetchPromise) return this.fetchPromise;
@@ -134,10 +122,6 @@ class ServerStore {
 		await fetchPromise;
 	}
 
-	// ─────────────────────────────────────────────────────────────────────────────
-	// Error Handling
-	// ─────────────────────────────────────────────────────────────────────────────
-
 	private getErrorMessage(error: unknown): string {
 		if (error instanceof Error) {
 			const message = error.message || '';
@@ -163,11 +147,6 @@ class ServerStore {
 
 		return 'Failed to connect to server';
 	}
-
-	// ─────────────────────────────────────────────────────────────────────────────
-	// Clear State
-	// ─────────────────────────────────────────────────────────────────────────────
-
 	clear(): void {
 		this.props = null;
 		this.error = null;
@@ -178,10 +157,6 @@ class ServerStore {
 }
 
 export const serverStore = new ServerStore();
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Reactive Getters (for use in components)
-// ─────────────────────────────────────────────────────────────────────────────
 
 export const serverProps = () => serverStore.props;
 export const serverLoading = () => serverStore.loading;
@@ -196,6 +171,3 @@ export const defaultParams = () => serverStore.defaultParams;
 export const contextSize = () => serverStore.contextSize;
 export const isRouterMode = () => serverStore.isRouterMode;
 export const isModelMode = () => serverStore.isModelMode;
-
-// Actions
-export const fetchServerProps = serverStore.fetch.bind(serverStore);

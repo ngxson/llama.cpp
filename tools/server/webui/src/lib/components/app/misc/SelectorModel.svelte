@@ -4,15 +4,12 @@
 	import { cn } from '$lib/components/ui/utils';
 	import { portalToBody } from '$lib/utils/portal-to-body';
 	import {
-		fetchModels,
+		modelsStore,
 		modelOptions,
 		modelsLoading,
 		modelsUpdating,
-		selectModel,
 		selectedModelId,
-		unloadModel,
-		routerModels,
-		loadModel
+		routerModels
 	} from '$lib/stores/models.svelte';
 	import { ServerModelStatus } from '$lib/enums';
 	import { isRouterMode, serverStore } from '$lib/stores/server.svelte';
@@ -89,7 +86,7 @@
 
 	onMount(async () => {
 		try {
-			await fetchModels();
+			await modelsStore.fetch();
 		} catch (error) {
 			console.error('Unable to load models:', error);
 		}
@@ -261,13 +258,13 @@
 			onModelChange(option.id, option.model);
 		} else {
 			// Update global selection
-			await selectModel(option.id);
+			await modelsStore.selectModelById(option.id);
 		}
 
 		// Load the model if not already loaded (router mode)
 		if (isRouter && getModelStatus(option.model) !== ServerModelStatus.LOADED) {
 			try {
-				await loadModel(option.model);
+				await modelsStore.loadModel(option.model);
 			} catch (error) {
 				console.error('Failed to load model:', error);
 			}
@@ -438,7 +435,7 @@
 										class="relative ml-2 flex h-4 w-4 shrink-0 items-center justify-center"
 										onclick={(e) => {
 											e.stopPropagation();
-											unloadModel(option.model);
+											modelsStore.unloadModel(option.model);
 										}}
 										title="Unload model"
 									>

@@ -23,7 +23,7 @@ import type {
  * - Check model status (ROUTER mode)
  *
  * **Used by:**
- * - ModelsStore: Primary consumer for model state management
+ * - modelsStore: Primary consumer for model state management
  */
 export class ModelsService {
 	// ─────────────────────────────────────────────────────────────────────────────

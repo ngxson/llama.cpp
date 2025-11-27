@@ -4,10 +4,7 @@
 	import { untrack } from 'svelte';
 	import { ChatSidebar, DialogConversationTitleUpdate } from '$lib/components/app';
 	import { isLoading } from '$lib/stores/chat.svelte';
-	import {
-		activeMessages,
-		setTitleUpdateConfirmationCallback
-	} from '$lib/stores/conversations.svelte';
+	import { conversationsStore, activeMessages } from '$lib/stores/conversations.svelte';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
 	import { isRouterMode, serverStore } from '$lib/stores/server.svelte';
 	import { config, settingsStore } from '$lib/stores/settings.svelte';
@@ -158,14 +155,16 @@
 
 	// Set up title update confirmation callback
 	$effect(() => {
-		setTitleUpdateConfirmationCallback(async (currentTitle: string, newTitle: string) => {
-			return new Promise<boolean>((resolve) => {
-				titleUpdateCurrentTitle = currentTitle;
-				titleUpdateNewTitle = newTitle;
-				titleUpdateResolve = resolve;
-				titleUpdateDialogOpen = true;
-			});
-		});
+		conversationsStore.setTitleUpdateConfirmationCallback(
+			async (currentTitle: string, newTitle: string) => {
+				return new Promise<boolean>((resolve) => {
+					titleUpdateCurrentTitle = currentTitle;
+					titleUpdateNewTitle = newTitle;
+					titleUpdateResolve = resolve;
+					titleUpdateDialogOpen = true;
+				});
+			}
+		);
 	});
 </script>
 

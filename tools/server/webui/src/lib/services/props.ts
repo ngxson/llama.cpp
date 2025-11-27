@@ -12,7 +12,7 @@ import { getAuthHeaders } from '$lib/utils/api-headers';
  * - Parse and validate server response
  *
  * **Used by:**
- * - ServerStore: Primary consumer for server state management
+ * - serverStore: Primary consumer for server state management
  */
 export class PropsService {
 	/**

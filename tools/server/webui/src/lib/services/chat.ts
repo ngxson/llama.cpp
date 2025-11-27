@@ -46,8 +46,8 @@ import type { SettingsChatServiceOptions } from '$lib/types/settings';
  *   - Converts database messages to API format
  *   - Handles error translation for server responses
  *
- * - **ChatStore**: Uses ChatService for all AI model communication
- * - **ConversationsStore**: Provides message context for API requests
+ * - **chatStore**: Uses ChatService for all AI model communication
+ * - **conversationsStore**: Provides message context for API requests
  *
  * **Key Responsibilities:**
  * - Message format conversion (DatabaseMessage → API format)
@@ -67,7 +67,7 @@ export class ChatService {
 	 * @returns {Promise<string | void>} that resolves to the complete response string (non-streaming) or void (streaming)
 	 * @throws {Error} if the request fails or is aborted
 	 */
-	async sendMessage(
+	static async sendMessage(
 		messages: ApiChatMessageData[] | (DatabaseMessage & { extra?: DatabaseMessageExtra[] })[],
 		options: SettingsChatServiceOptions = {},
 		conversationId?: string,
@@ -130,7 +130,7 @@ export class ChatService {
 				return true;
 			});
 
-		const processedMessages = this.injectSystemMessage(normalizedMessages);
+		const processedMessages = ChatService.injectSystemMessage(normalizedMessages);
 
 		const requestBody: ApiChatCompletionRequest = {
 			messages: processedMessages.map((msg: ApiChatMessageData) => ({
@@ -200,7 +200,7 @@ export class ChatService {
 			});
 
 			if (!response.ok) {
-				const error = await this.parseErrorResponse(response);
+				const error = await ChatService.parseErrorResponse(response);
 				if (onError) {
 					onError(error);
 				}
@@ -208,7 +208,7 @@ export class ChatService {
 			}
 
 			if (stream) {
-				await this.handleStreamResponse(
+				await ChatService.handleStreamResponse(
 					response,
 					onChunk,
 					onComplete,
@@ -222,7 +222,7 @@ export class ChatService {
 				);
 				return;
 			} else {
-				return this.handleNonStreamResponse(
+				return ChatService.handleNonStreamResponse(
 					response,
 					onComplete,
 					onError,
@@ -276,7 +276,7 @@ export class ChatService {
 	 * @returns {Promise<void>} Promise that resolves when streaming is complete
 	 * @throws {Error} if the stream cannot be read or parsed
 	 */
-	private async handleStreamResponse(
+	private static async handleStreamResponse(
 		response: Response,
 		onChunk?: (chunk: string) => void,
 		onComplete?: (
@@ -323,7 +323,7 @@ export class ChatService {
 				return;
 			}
 
-			aggregatedToolCalls = this.mergeToolCallDeltas(
+			aggregatedToolCalls = ChatService.mergeToolCallDeltas(
 				aggregatedToolCalls,
 				toolCalls,
 				toolCallIndexOffset
@@ -378,14 +378,14 @@ export class ChatService {
 							const timings = parsed.timings;
 							const promptProgress = parsed.prompt_progress;
 
-							const chunkModel = this.extractModelName(parsed);
+							const chunkModel = ChatService.extractModelName(parsed);
 							if (chunkModel && !modelEmitted) {
 								modelEmitted = true;
 								onModel?.(chunkModel);
 							}
 
 							if (timings || promptProgress) {
-								this.notifyTimings(timings, promptProgress, onTimings);
+								ChatService.notifyTimings(timings, promptProgress, onTimings);
 								if (timings) {
 									lastTimings = timings;
 								}
@@ -453,7 +453,7 @@ export class ChatService {
 	 * @returns {Promise<string>} Promise that resolves to the generated content string
 	 * @throws {Error} if the response cannot be parsed or is malformed
 	 */
-	private async handleNonStreamResponse(
+	private static async handleNonStreamResponse(
 		response: Response,
 		onComplete?: (
 			response: string,
@@ -475,7 +475,7 @@ export class ChatService {
 
 			const data: ApiChatCompletionResponse = JSON.parse(responseText);
 
-			const responseModel = this.extractModelName(data);
+			const responseModel = ChatService.extractModelName(data);
 			if (responseModel) {
 				onModel?.(responseModel);
 			}
@@ -491,7 +491,7 @@ export class ChatService {
 			let serializedToolCalls: string | undefined;
 
 			if (toolCalls && toolCalls.length > 0) {
-				const mergedToolCalls = this.mergeToolCallDeltas([], toolCalls);
+				const mergedToolCalls = ChatService.mergeToolCallDeltas([], toolCalls);
 
 				if (mergedToolCalls.length > 0) {
 					serializedToolCalls = JSON.stringify(mergedToolCalls);
@@ -527,7 +527,7 @@ export class ChatService {
 	 * @param indexOffset - Optional offset to apply to the index of new tool calls
 	 * @returns {ApiChatCompletionToolCall[]} The merged array of tool calls
 	 */
-	private mergeToolCallDeltas(
+	private static mergeToolCallDeltas(
 		existing: ApiChatCompletionToolCall[],
 		deltas: ApiChatCompletionToolCallDelta[],
 		indexOffset = 0
@@ -736,7 +736,7 @@ export class ChatService {
 	 * @returns Array of messages with system message injected at the beginning if configured
 	 * @private
 	 */
-	private injectSystemMessage(messages: ApiChatMessageData[]): ApiChatMessageData[] {
+	private static injectSystemMessage(messages: ApiChatMessageData[]): ApiChatMessageData[] {
 		const currentConfig = config();
 		const systemMessage = currentConfig.systemMessage?.toString().trim();
 
@@ -770,7 +770,7 @@ export class ChatService {
 	 * @param response - HTTP response object
 	 * @returns Promise<Error> - Parsed error with context info if available
 	 */
-	private async parseErrorResponse(response: Response): Promise<Error> {
+	private static async parseErrorResponse(response: Response): Promise<Error> {
 		try {
 			const errorText = await response.text();
 			const errorData: ApiErrorResponse = JSON.parse(errorText);
@@ -798,7 +798,7 @@ export class ChatService {
 	 * @returns Model name string if found, undefined otherwise
 	 * @private
 	 */
-	private extractModelName(data: unknown): string | undefined {
+	private static extractModelName(data: unknown): string | undefined {
 		// WORKAROUND: In single model mode, use model name from props instead of API response
 		// because llama-server returns `gpt-3.5-turbo` value in the `model` field
 		const isRouter = isRouterMode();
@@ -849,7 +849,7 @@ export class ChatService {
 	 * @param onTimingsCallback - Callback function to invoke with timing data
 	 * @private
 	 */
-	private notifyTimings(
+	private static notifyTimings(
 		timings: ChatMessageTimings | undefined,
 		promptProgress: ChatMessagePromptProgress | undefined,
 		onTimingsCallback:
@@ -860,5 +860,3 @@ export class ChatService {
 		onTimingsCallback(timings, promptProgress);
 	}
 }
-
-export const chatService = new ChatService();

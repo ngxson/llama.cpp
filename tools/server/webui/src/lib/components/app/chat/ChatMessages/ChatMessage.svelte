@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getDeletionInfo } from '$lib/stores/chat.svelte';
+	import { chatStore } from '$lib/stores/chat.svelte';
 	import { copyToClipboard } from '$lib/utils/copy';
 	import { isIMEComposing } from '$lib/utils/is-ime-composing';
 	import type { ApiChatCompletionToolCall } from '$lib/types/api';
@@ -98,7 +98,7 @@
 	}
 
 	async function handleDelete() {
-		deletionInfo = await getDeletionInfo(message.id);
+		deletionInfo = await chatStore.getDeletionInfo(message.id);
 		showDeleteDialog = true;
 	}
 

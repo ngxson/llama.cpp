@@ -1,15 +1,8 @@
 <script lang="ts">
 	import { ChatMessage } from '$lib/components/app';
 	import { DatabaseService } from '$lib/services/database';
-	import {
-		continueAssistantMessage,
-		deleteMessage,
-		editAssistantMessage,
-		editMessageWithBranching,
-		editUserMessagePreserveResponses,
-		regenerateMessageWithBranching
-	} from '$lib/stores/chat.svelte';
-	import { activeConversation, navigateToSibling } from '$lib/stores/conversations.svelte';
+	import { chatStore } from '$lib/stores/chat.svelte';
+	import { conversationsStore, activeConversation } from '$lib/stores/conversations.svelte';
 	import { getMessageSiblings } from '$lib/utils/branching';
 
 	interface Props {
@@ -64,13 +57,13 @@
 	});
 
 	async function handleNavigateToSibling(siblingId: string) {
-		await navigateToSibling(siblingId);
+		await conversationsStore.navigateToSibling(siblingId);
 	}
 
 	async function handleEditWithBranching(message: DatabaseMessage, newContent: string) {
 		onUserAction?.();
 
-		await editMessageWithBranching(message.id, newContent);
+		await chatStore.editMessageWithBranching(message.id, newContent);
 
 		refreshAllMessages();
 	}
@@ -82,7 +75,7 @@
 	) {
 		onUserAction?.();
 
-		await editAssistantMessage(message.id, newContent, shouldBranch);
+		await chatStore.editAssistantMessage(message.id, newContent, shouldBranch);
 
 		refreshAllMessages();
 	}
@@ -90,7 +83,7 @@
 	async function handleRegenerateWithBranching(message: DatabaseMessage, modelOverride?: string) {
 		onUserAction?.();
 
-		await regenerateMessageWithBranching(message.id, modelOverride);
+		await chatStore.regenerateMessageWithBranching(message.id, modelOverride);
 
 		refreshAllMessages();
 	}
@@ -98,7 +91,7 @@
 	async function handleContinueAssistantMessage(message: DatabaseMessage) {
 		onUserAction?.();
 
-		await continueAssistantMessage(message.id);
+		await chatStore.continueAssistantMessage(message.id);
 
 		refreshAllMessages();
 	}
@@ -109,13 +102,13 @@
 	) {
 		onUserAction?.();
 
-		await editUserMessagePreserveResponses(message.id, newContent);
+		await chatStore.editUserMessagePreserveResponses(message.id, newContent);
 
 		refreshAllMessages();
 	}
 
 	async function handleDeleteMessage(message: DatabaseMessage) {
-		await deleteMessage(message.id);
+		await chatStore.deleteMessage(message.id);
 
 		refreshAllMessages();
 	}

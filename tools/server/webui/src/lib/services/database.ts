@@ -42,12 +42,12 @@ import { v4 as uuid } from 'uuid';
  *   - Uses DatabaseService for all persistence operations
  *   - Adds import/export, navigation, and higher-level operations
  *
- * - **ConversationsStore**: Reactive state management for conversations
+ * - **conversationsStore**: Reactive state management for conversations
  *   - Uses ConversationsService for database operations
  *   - Manages conversation list, active conversation, and messages in memory
  *
- * - **ChatStore**: Active AI interaction management
- *   - Uses ConversationsStore for conversation context
+ * - **chatStore**: Active AI interaction management
+ *   - Uses conversationsStore for conversation context
  *   - Directly uses DatabaseService for message CRUD during streaming
  *
  * **Key Features:**

@@ -10,17 +10,9 @@
 	import { FileTypeCategory } from '$lib/enums';
 	import { getFileTypeCategory } from '$lib/utils/file-type';
 	import { config } from '$lib/stores/settings.svelte';
-	import {
-		modelOptions,
-		selectedModelId,
-		selectModelByName,
-		isRouterMode,
-		fetchModelProps,
-		getModelProps,
-		modelSupportsVision,
-		modelSupportsAudio
-	} from '$lib/stores/models.svelte';
-	import { getConversationModel } from '$lib/stores/chat.svelte';
+	import { modelsStore, modelOptions, selectedModelId } from '$lib/stores/models.svelte';
+	import { isRouterMode } from '$lib/stores/server.svelte';
+	import { chatStore } from '$lib/stores/chat.svelte';
 	import { activeMessages } from '$lib/stores/conversations.svelte';
 	import type { ChatUploadedFile } from '$lib/types/chat';
 
@@ -53,14 +45,16 @@
 	let currentConfig = $derived(config());
 	let isRouter = $derived(isRouterMode());
 
-	let conversationModel = $derived(getConversationModel(activeMessages() as DatabaseMessage[]));
+	let conversationModel = $derived(
+		chatStore.getConversationModel(activeMessages() as DatabaseMessage[])
+	);
 
 	let previousConversationModel: string | null = null;
 
 	$effect(() => {
 		if (conversationModel && conversationModel !== previousConversationModel) {
 			previousConversationModel = conversationModel;
-			selectModelByName(conversationModel);
+			modelsStore.selectModelByName(conversationModel);
 		}
 	});
 
@@ -92,10 +86,10 @@
 	$effect(() => {
 		if (isRouter && activeModelId) {
 			// Check if we already have cached props
-			const cached = getModelProps(activeModelId);
+			const cached = modelsStore.getModelProps(activeModelId);
 			if (!cached) {
 				// Fetch props for this model
-				fetchModelProps(activeModelId).then(() => {
+				modelsStore.fetchModelProps(activeModelId).then(() => {
 					// Trigger reactivity update
 					modelPropsVersion++;
 				});
@@ -107,7 +101,7 @@
 	let hasAudioModality = $derived.by(() => {
 		if (activeModelId) {
 			void modelPropsVersion; // Trigger reactivity on props fetch
-			return modelSupportsAudio(activeModelId);
+			return modelsStore.modelSupportsAudio(activeModelId);
 		}
 		return false;
 	});
@@ -115,7 +109,7 @@
 	let hasVisionModality = $derived.by(() => {
 		if (activeModelId) {
 			void modelPropsVersion; // Trigger reactivity on props fetch
-			return modelSupportsVision(activeModelId);
+			return modelsStore.modelSupportsVision(activeModelId);
 		}
 		return false;
 	});

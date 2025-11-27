@@ -2,13 +2,7 @@
 	import { untrack } from 'svelte';
 	import { PROCESSING_INFO_TIMEOUT } from '$lib/constants/processing-info';
 	import { useProcessingState } from '$lib/hooks/use-processing-state.svelte';
-	import {
-		isLoading,
-		isChatStreaming,
-		clearProcessingState,
-		setActiveProcessingConversation,
-		restoreProcessingStateFromMessages
-	} from '$lib/stores/chat.svelte';
+	import { chatStore, isLoading, isChatStreaming } from '$lib/stores/chat.svelte';
 	import { activeMessages, activeConversation } from '$lib/stores/conversations.svelte';
 	import { config } from '$lib/stores/settings.svelte';
 
@@ -26,7 +20,7 @@
 	$effect(() => {
 		const conversation = activeConversation();
 
-		untrack(() => setActiveProcessingConversation(conversation?.id ?? null));
+		untrack(() => chatStore.setActiveProcessingConversation(conversation?.id ?? null));
 	});
 
 	$effect(() => {
@@ -55,12 +49,12 @@
 
 		if (keepStatsVisible && conversation) {
 			if (messages.length === 0) {
-				untrack(() => clearProcessingState(conversation.id));
+				untrack(() => chatStore.clearProcessingState(conversation.id));
 				return;
 			}
 
 			if (!isCurrentConversationLoading && !isStreaming) {
-				untrack(() => restoreProcessingStateFromMessages(messages, conversation.id));
+				untrack(() => chatStore.restoreProcessingStateFromMessages(messages, conversation.id));
 			}
 		}
 	});

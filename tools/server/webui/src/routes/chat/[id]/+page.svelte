@@ -3,24 +3,13 @@
 	import { page } from '$app/state';
 	import { afterNavigate } from '$app/navigation';
 	import { ChatScreen, DialogModelNotAvailable } from '$lib/components/app';
+	import { chatStore, isLoading } from '$lib/stores/chat.svelte';
 	import {
-		isLoading,
-		stopGeneration,
-		syncLoadingStateForChat,
-		sendMessage
-	} from '$lib/stores/chat.svelte';
-	import {
+		conversationsStore,
 		activeConversation,
-		activeMessages,
-		loadConversation
+		activeMessages
 	} from '$lib/stores/conversations.svelte';
-	import {
-		selectModel,
-		modelOptions,
-		selectedModelId,
-		fetchModels,
-		findModelByName
-	} from '$lib/stores/models.svelte';
+	import { modelsStore, modelOptions, selectedModelId } from '$lib/stores/models.svelte';
 
 	let chatId = $derived(page.params.id);
 	let currentChatId: string | undefined = undefined;
@@ -49,14 +38,14 @@
 
 	async function handleUrlParams() {
 		// Ensure models are loaded first
-		await fetchModels();
+		await modelsStore.fetch();
 
 		// Handle model parameter - select model if provided
 		if (modelParam) {
-			const model = findModelByName(modelParam);
+			const model = modelsStore.findModelByName(modelParam);
 			if (model) {
 				try {
-					await selectModel(model.id);
+					await modelsStore.selectModelById(model.id);
 				} catch (error) {
 					console.error('Failed to select model:', error);
 					requestedModelName = modelParam;
@@ -73,7 +62,7 @@
 
 		// Handle ?q= parameter - send message in current conversation
 		if (qParam !== null) {
-			await sendMessage(qParam);
+			await chatStore.sendMessage(qParam);
 			// Clear URL params after message is sent
 			clearUrlParams();
 		} else if (modelParam) {
@@ -112,7 +101,7 @@
 
 		if (matchingModel) {
 			try {
-				await selectModel(matchingModel.id);
+				await modelsStore.selectModelById(matchingModel.id);
 				console.log(`Automatically loaded model: ${lastMessageWithModel.model} from last message`);
 			} catch (error) {
 				console.warn('Failed to automatically select model from last message:', error);
@@ -141,9 +130,9 @@
 			}
 
 			(async () => {
-				const success = await loadConversation(chatId);
+				const success = await conversationsStore.loadConversation(chatId);
 				if (success) {
-					syncLoadingStateForChat(chatId);
+					chatStore.syncLoadingStateForChat(chatId);
 
 					// Handle URL params after conversation is loaded
 					if ((qParam !== null || modelParam !== null) && !urlParamsProcessed) {
@@ -161,7 +150,7 @@
 			const handleBeforeUnload = () => {
 				if (isLoading()) {
 					console.log('Page unload detected while streaming - aborting stream');
-					stopGeneration();
+					chatStore.stopGeneration();
 				}
 			};
 

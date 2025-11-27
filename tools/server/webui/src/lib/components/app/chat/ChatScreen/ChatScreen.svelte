@@ -16,30 +16,15 @@
 		AUTO_SCROLL_INTERVAL,
 		INITIAL_SCROLL_DELAY
 	} from '$lib/constants/auto-scroll';
+	import { chatStore, errorDialog, isLoading } from '$lib/stores/chat.svelte';
 	import {
-		dismissErrorDialog,
-		errorDialog,
-		isLoading,
-		sendMessage,
-		stopGeneration
-	} from '$lib/stores/chat.svelte';
-	import {
+		conversationsStore,
 		activeMessages,
-		activeConversation,
-		deleteConversation
+		activeConversation
 	} from '$lib/stores/conversations.svelte';
 	import { config } from '$lib/stores/settings.svelte';
-	import { serverLoading, serverError, serverStore } from '$lib/stores/server.svelte';
-	import {
-		modelOptions,
-		selectedModelId,
-		isRouterMode,
-		fetchModelProps,
-		getModelProps,
-		modelSupportsVision,
-		modelSupportsAudio
-	} from '$lib/stores/models.svelte';
-	import { getConversationModel } from '$lib/stores/chat.svelte';
+	import { serverLoading, serverError, serverStore, isRouterMode } from '$lib/stores/server.svelte';
+	import { modelsStore, modelOptions, selectedModelId } from '$lib/stores/models.svelte';
 	import { parseFilesToMessageExtras } from '$lib/utils/convert-files-to-extra';
 	import { isFileTypeSupported } from '$lib/utils/file-type';
 	import { filterFilesByModalities } from '$lib/utils/modality-file-validation';
@@ -93,7 +78,9 @@
 
 	// Model-specific capability detection (same logic as ChatFormActions)
 	let isRouter = $derived(isRouterMode());
-	let conversationModel = $derived(getConversationModel(activeMessages() as DatabaseMessage[]));
+	let conversationModel = $derived(
+		chatStore.getConversationModel(activeMessages() as DatabaseMessage[])
+	);
 
 	// Get active model ID for fetching props
 	let activeModelId = $derived.by(() => {
@@ -123,9 +110,9 @@
 	// Fetch model props when active model changes
 	$effect(() => {
 		if (isRouter && activeModelId) {
-			const cached = getModelProps(activeModelId);
+			const cached = modelsStore.getModelProps(activeModelId);
 			if (!cached) {
-				fetchModelProps(activeModelId).then(() => {
+				modelsStore.fetchModelProps(activeModelId).then(() => {
 					modelPropsVersion++;
 				});
 			}
@@ -136,7 +123,7 @@
 	let hasAudioModality = $derived.by(() => {
 		if (activeModelId) {
 			void modelPropsVersion; // Trigger reactivity on props fetch
-			return modelSupportsAudio(activeModelId);
+			return modelsStore.modelSupportsAudio(activeModelId);
 		}
 		return false;
 	});
@@ -144,7 +131,7 @@
 	let hasVisionModality = $derived.by(() => {
 		if (activeModelId) {
 			void modelPropsVersion; // Trigger reactivity on props fetch
-			return modelSupportsVision(activeModelId);
+			return modelsStore.modelSupportsVision(activeModelId);
 		}
 		return false;
 	});
@@ -152,7 +139,7 @@
 	async function handleDeleteConfirm() {
 		const conversation = activeConversation();
 		if (conversation) {
-			await deleteConversation(conversation.id);
+			await conversationsStore.deleteConversation(conversation.id);
 		}
 		showDeleteDialog = false;
 	}
@@ -175,7 +162,7 @@
 
 	function handleErrorDialogOpenChange(open: boolean) {
 		if (!open) {
-			dismissErrorDialog();
+			chatStore.dismissErrorDialog();
 		}
 	}
 
@@ -262,7 +249,7 @@
 			userScrolledUp = false;
 			autoScrollEnabled = true;
 		}
-		await sendMessage(message, extras);
+		await chatStore.sendMessage(message, extras);
 		scrollChatToBottom();
 
 		return true;
@@ -420,7 +407,7 @@
 					onFileRemove={handleFileRemove}
 					onFileUpload={handleFileUpload}
 					onSend={handleSendMessage}
-					onStop={() => stopGeneration()}
+					onStop={() => chatStore.stopGeneration()}
 					showHelperText={false}
 					bind:uploadedFiles
 				/>
@@ -480,7 +467,7 @@
 					onFileRemove={handleFileRemove}
 					onFileUpload={handleFileUpload}
 					onSend={handleSendMessage}
-					onStop={() => stopGeneration()}
+					onStop={() => chatStore.stopGeneration()}
 					showHelperText={true}
 					bind:uploadedFiles
 				/>

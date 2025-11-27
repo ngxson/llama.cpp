@@ -19,7 +19,7 @@
 	import Label from '$lib/components/ui/label/label.svelte';
 	import { config } from '$lib/stores/settings.svelte';
 	import { isRouterMode } from '$lib/stores/server.svelte';
-	import { selectModel } from '$lib/stores/models.svelte';
+	import { modelsStore } from '$lib/stores/models.svelte';
 	import { copyToClipboard } from '$lib/utils/copy';
 	import type { ApiChatCompletionToolCall } from '$lib/types/api';
 
@@ -103,7 +103,7 @@
 
 	async function handleModelChange(modelId: string, modelName: string) {
 		try {
-			await selectModel(modelId);
+			await modelsStore.selectModelById(modelId);
 
 			// Pass the selected model name for regeneration
 			onRegenerate(modelName);

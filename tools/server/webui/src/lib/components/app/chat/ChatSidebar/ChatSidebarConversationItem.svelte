@@ -2,7 +2,7 @@
 	import { Trash2, Pencil, MoreHorizontal, Download, Loader2 } from '@lucide/svelte';
 	import { ActionDropdown } from '$lib/components/app';
 	import { getAllLoadingChats } from '$lib/stores/chat.svelte';
-	import { downloadConversation } from '$lib/stores/conversations.svelte';
+	import { conversationsStore } from '$lib/stores/conversations.svelte';
 	import { onMount } from 'svelte';
 
 	interface Props {
@@ -115,7 +115,7 @@
 						label: 'Export',
 						onclick: (e) => {
 							e.stopPropagation();
-							downloadConversation(conversation.id);
+							conversationsStore.downloadConversation(conversation.id);
 						},
 						shortcut: ['shift', 'cmd', 's']
 					},

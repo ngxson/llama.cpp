@@ -7,7 +7,7 @@
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { SETTING_CONFIG_DEFAULT, SETTING_CONFIG_INFO } from '$lib/constants/settings-config';
 	import { supportsVision } from '$lib/stores/server.svelte';
-	import { getParameterInfo, resetParameterToServerDefault } from '$lib/stores/settings.svelte';
+	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { ParameterSyncService } from '$lib/services/parameter-sync';
 	import { ChatSettingsParameterSourceIndicator } from '$lib/components/app';
 	import type { Component } from 'svelte';
@@ -27,7 +27,7 @@
 			return null;
 		}
 
-		return getParameterInfo(key);
+		return settingsStore.getParameterInfo(key);
 	}
 </script>
 
@@ -82,7 +82,7 @@
 					<button
 						type="button"
 						onclick={() => {
-							resetParameterToServerDefault(field.key);
+							settingsStore.resetParameterToServerDefault(field.key);
 							// Trigger UI update by calling onConfigChange with the default value
 							const defaultValue = propsDefault ?? SETTING_CONFIG_DEFAULT[field.key];
 							onConfigChange(field.key, String(defaultValue));
@@ -175,7 +175,7 @@
 						<button
 							type="button"
 							onclick={() => {
-								resetParameterToServerDefault(field.key);
+								settingsStore.resetParameterToServerDefault(field.key);
 								// Trigger UI update by calling onConfigChange with the default value
 								const defaultValue = propsDefault ?? SETTING_CONFIG_DEFAULT[field.key];
 								onConfigChange(field.key, String(defaultValue));

@@ -9,16 +9,9 @@
 	} from '$lib/components/app';
 	import { INPUT_CLASSES } from '$lib/constants/input-classes';
 	import { config } from '$lib/stores/settings.svelte';
-	import {
-		modelOptions,
-		selectedModelId,
-		isRouterMode,
-		fetchModelProps,
-		getModelProps,
-		modelSupportsVision,
-		modelSupportsAudio
-	} from '$lib/stores/models.svelte';
-	import { getConversationModel } from '$lib/stores/chat.svelte';
+	import { modelsStore, modelOptions, selectedModelId } from '$lib/stores/models.svelte';
+	import { isRouterMode } from '$lib/stores/server.svelte';
+	import { chatStore } from '$lib/stores/chat.svelte';
 	import { activeMessages } from '$lib/stores/conversations.svelte';
 	import {
 		FileTypeCategory,
@@ -77,7 +70,9 @@
 	let textareaRef: ChatFormTextarea | undefined = $state(undefined);
 
 	// Check if model is selected (in ROUTER mode)
-	let conversationModel = $derived(getConversationModel(activeMessages() as DatabaseMessage[]));
+	let conversationModel = $derived(
+		chatStore.getConversationModel(activeMessages() as DatabaseMessage[])
+	);
 	let isRouter = $derived(isRouterMode());
 	let hasModelSelected = $derived(!isRouter || !!conversationModel || !!selectedModelId());
 
@@ -109,9 +104,9 @@
 	// Fetch model props when active model changes
 	$effect(() => {
 		if (isRouter && activeModelId) {
-			const cached = getModelProps(activeModelId);
+			const cached = modelsStore.getModelProps(activeModelId);
 			if (!cached) {
-				fetchModelProps(activeModelId).then(() => {
+				modelsStore.fetchModelProps(activeModelId).then(() => {
 					modelPropsVersion++;
 				});
 			}
@@ -122,7 +117,7 @@
 	let hasAudioModality = $derived.by(() => {
 		if (activeModelId) {
 			void modelPropsVersion; // Trigger reactivity on props fetch
-			return modelSupportsAudio(activeModelId);
+			return modelsStore.modelSupportsAudio(activeModelId);
 		}
 		return false;
 	});
@@ -130,7 +125,7 @@
 	let hasVisionModality = $derived.by(() => {
 		if (activeModelId) {
 			void modelPropsVersion; // Trigger reactivity on props fetch
-			return modelSupportsVision(activeModelId);
+			return modelsStore.modelSupportsVision(activeModelId);
 		}
 		return false;
 	});

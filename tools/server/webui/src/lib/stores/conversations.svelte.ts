@@ -11,12 +11,12 @@ import type {
 } from '$lib/types/database';
 
 /**
- * ConversationsStore - Persistent conversation data and lifecycle management
+ * conversationsStore - Persistent conversation data and lifecycle management
  *
  * **Terminology - Chat vs Conversation:**
  * - **Chat**: The active interaction space with the Chat Completions API. Represents the
  *   real-time streaming session, loading states, and UI visualization of AI communication.
- *   Managed by ChatStore, a "chat" is ephemeral and exists during active AI interactions.
+ *   Managed by chatStore, a "chat" is ephemeral and exists during active AI interactions.
  * - **Conversation**: The persistent database entity storing all messages and metadata.
  *   A "conversation" survives across sessions, page reloads, and browser restarts.
  *   It contains the complete message history, branching structure, and conversation metadata.
@@ -26,13 +26,13 @@ import type {
  * conversation with its message history, providing reactive state for UI components.
  *
  * **Architecture & Relationships:**
- * - **ConversationsStore** (this class): Persistent conversation data management
+ * - **conversationsStore** (this class): Persistent conversation data management
  *   - Manages conversation list and active conversation state
  *   - Handles conversation CRUD operations via DatabaseService
  *   - Maintains active message array for current conversation
  *   - Coordinates branching navigation (currNode tracking)
  *
- * - **ChatStore**: Uses conversation data as context for active AI streaming
+ * - **chatStore**: Uses conversation data as context for active AI streaming
  * - **DatabaseService**: Low-level IndexedDB storage for conversations and messages
  *
  * **Key Features:**
@@ -148,7 +148,7 @@ class ConversationsStore {
 	clearActiveConversation(): void {
 		this.activeConversation = null;
 		this.activeMessages = [];
-		// Active processing conversation is now managed by ChatStore
+		// Active processing conversation is now managed by chatStore
 	}
 
 	/**
@@ -448,7 +448,7 @@ class ConversationsStore {
 
 	/**
 	 * Adds a message to the active messages array
-	 * Used by ChatStore when creating new messages
+	 * Used by chatStore when creating new messages
 	 * @param message - The message to add
 	 */
 	addMessageToActive(message: DatabaseMessage): void {
@@ -499,6 +499,8 @@ class ConversationsStore {
 
 	/**
 	 * Triggers file download in browser
+	 * @param data - The data to download
+	 * @param filename - Optional filename for the download
 	 */
 	private triggerDownload(data: ExportedConversations, filename?: string): void {
 		const conversation =
@@ -531,27 +533,7 @@ class ConversationsStore {
 
 export const conversationsStore = new ConversationsStore();
 
-// Export getter functions for reactive access
 export const conversations = () => conversationsStore.conversations;
 export const activeConversation = () => conversationsStore.activeConversation;
 export const activeMessages = () => conversationsStore.activeMessages;
 export const isConversationsInitialized = () => conversationsStore.isInitialized;
-
-// Export conversation operations
-export const createConversation = conversationsStore.createConversation.bind(conversationsStore);
-export const loadConversation = conversationsStore.loadConversation.bind(conversationsStore);
-export const deleteConversation = conversationsStore.deleteConversation.bind(conversationsStore);
-export const clearActiveConversation =
-	conversationsStore.clearActiveConversation.bind(conversationsStore);
-export const updateConversationName =
-	conversationsStore.updateConversationName.bind(conversationsStore);
-export const downloadConversation =
-	conversationsStore.downloadConversation.bind(conversationsStore);
-export const exportAllConversations =
-	conversationsStore.exportAllConversations.bind(conversationsStore);
-export const importConversations = conversationsStore.importConversations.bind(conversationsStore);
-export const navigateToSibling = conversationsStore.navigateToSibling.bind(conversationsStore);
-export const refreshActiveMessages =
-	conversationsStore.refreshActiveMessages.bind(conversationsStore);
-export const setTitleUpdateConfirmationCallback =
-	conversationsStore.setTitleUpdateConfirmationCallback.bind(conversationsStore);

@@ -1,18 +1,8 @@
 <script lang="ts">
 	import { ChatScreen, DialogModelNotAvailable } from '$lib/components/app';
-	import { sendMessage, clearUIState } from '$lib/stores/chat.svelte';
-	import {
-		conversationsStore,
-		isConversationsInitialized,
-		clearActiveConversation,
-		createConversation
-	} from '$lib/stores/conversations.svelte';
-	import {
-		fetchModels,
-		modelOptions,
-		selectModel,
-		findModelByName
-	} from '$lib/stores/models.svelte';
+	import { chatStore } from '$lib/stores/chat.svelte';
+	import { conversationsStore, isConversationsInitialized } from '$lib/stores/conversations.svelte';
+	import { modelsStore, modelOptions } from '$lib/stores/models.svelte';
 	import { onMount } from 'svelte';
 	import { page } from '$app/state';
 	import { replaceState } from '$app/navigation';
@@ -39,14 +29,14 @@
 
 	async function handleUrlParams() {
 		// Ensure models are loaded first
-		await fetchModels();
+		await modelsStore.fetch();
 
 		// Handle model parameter - select model if provided
 		if (modelParam) {
-			const model = findModelByName(modelParam);
+			const model = modelsStore.findModelByName(modelParam);
 			if (model) {
 				try {
-					await selectModel(model.id);
+					await modelsStore.selectModelById(model.id);
 				} catch (error) {
 					console.error('Failed to select model:', error);
 					requestedModelName = modelParam;
@@ -63,8 +53,8 @@
 
 		// Handle ?q= parameter - create new conversation and send message
 		if (qParam !== null) {
-			await createConversation();
-			await sendMessage(qParam);
+			await conversationsStore.createConversation();
+			await chatStore.sendMessage(qParam);
 			// Clear URL params after message is sent
 			clearUrlParams();
 		} else if (modelParam || newChatParam === 'true') {
@@ -78,8 +68,8 @@
 			await conversationsStore.initialize();
 		}
 
-		clearActiveConversation();
-		clearUIState();
+		conversationsStore.clearActiveConversation();
+		chatStore.clearUIState();
 
 		// Handle URL params only if we have ?q= or ?model= or ?new_chat=true
 		if (qParam !== null || modelParam !== null || newChatParam === 'true') {

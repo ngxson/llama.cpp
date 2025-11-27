@@ -1,12 +1,13 @@
 import { SvelteSet } from 'svelte/reactivity';
 import { ModelsService } from '$lib/services/models';
 import { PropsService } from '$lib/services/props';
-import { ServerModelStatus, ServerRole } from '$lib/enums';
+import { ServerModelStatus } from '$lib/enums';
+import { serverStore } from '$lib/stores/server.svelte';
 import type { ModelOption, ModelModalities } from '$lib/types/models';
 import type { ApiModelDataEntry } from '$lib/types/api';
 
 /**
- * ModelsStore - Reactive store for model management in both MODEL and ROUTER modes
+ * modelsStore - Reactive store for model management in both MODEL and ROUTER modes
  *
  * This store manages:
  * - Available models list
@@ -18,8 +19,8 @@ import type { ApiModelDataEntry } from '$lib/types/api';
  * **Architecture & Relationships:**
  * - **ModelsService**: Stateless service for model API communication
  * - **PropsService**: Stateless service for props/modalities fetching
- * - **ModelsStore** (this class): Reactive store for model state
- * - **ConversationsStore**: Tracks which conversations use which models
+ * - **modelsStore** (this class): Reactive store for model state
+ * - **conversationsStore**: Tracks which conversations use which models
  *
  * **API Inconsistency Workaround:**
  * In MODEL mode, `/props` returns modalities for the single model.
@@ -49,13 +50,6 @@ class ModelsStore {
 	private modelLoadingStates = $state<Map<string, boolean>>(new Map());
 
 	/**
-	 * Server role detection - determines API behavior
-	 * In ROUTER mode, modalities come from /props?model=<id>
-	 * In MODEL mode, modalities come from /props (single model)
-	 */
-	serverRole = $state<ServerRole | null>(null);
-
-	/**
 	 * Model-specific props cache
 	 * Key: modelId, Value: props data including modalities
 	 */
@@ -81,14 +75,6 @@ class ModelsStore {
 		return Array.from(this.modelLoadingStates.entries())
 			.filter(([, loading]) => loading)
 			.map(([id]) => id);
-	}
-
-	get isRouterMode(): boolean {
-		return this.serverRole === ServerRole.ROUTER;
-	}
-
-	get isModelMode(): boolean {
-		return this.serverRole === ServerRole.MODEL;
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────
@@ -189,10 +175,10 @@ class ModelsStore {
 		this.error = null;
 
 		try {
-			// Fetch server props to detect role and get modalities for MODEL mode
-			const serverProps = await PropsService.fetch();
-			this.serverRole =
-				serverProps.role === ServerRole.ROUTER ? ServerRole.ROUTER : ServerRole.MODEL;
+			// Ensure server props are loaded (for role detection and MODEL mode modalities)
+			if (!serverStore.props) {
+				await serverStore.fetch();
+			}
 
 			const response = await ModelsService.list();
 
@@ -216,10 +202,11 @@ class ModelsStore {
 
 			this.models = models;
 
-			// In MODEL mode, populate modalities from /props (single model)
+			// In MODEL mode, populate modalities from serverStore.props (single model)
 			// WORKAROUND: In MODEL mode, /props returns modalities for the single model,
 			// but /v1/models doesn't include modalities. We bridge this gap here.
-			if (this.isModelMode && this.models.length > 0 && serverProps.modalities) {
+			const serverProps = serverStore.props;
+			if (serverStore.isModelMode && this.models.length > 0 && serverProps?.modalities) {
 				const modalities: ModelModalities = {
 					vision: serverProps.modalities.vision ?? false,
 					audio: serverProps.modalities.audio ?? false
@@ -347,7 +334,7 @@ class ModelsStore {
 	/**
 	 * Select a model for new conversations
 	 */
-	async select(modelId: string): Promise<void> {
+	async selectModelById(modelId: string): Promise<void> {
 		if (!modelId || this.updating) return;
 		if (this.selectedModelId === modelId) return;
 
@@ -581,7 +568,6 @@ class ModelsStore {
 		this.error = null;
 		this.selectedModelId = null;
 		this.selectedModelName = null;
-		this.serverRole = null;
 		this.modelUsage.clear();
 		this.modelLoadingStates.clear();
 		this.modelPropsCache.clear();
@@ -590,10 +576,6 @@ class ModelsStore {
 }
 
 export const modelsStore = new ModelsStore();
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Reactive Getters
-// ─────────────────────────────────────────────────────────────────────────────
 
 export const modelOptions = () => modelsStore.models;
 export const routerModels = () => modelsStore.routerModels;
@@ -605,34 +587,3 @@ export const selectedModelName = () => modelsStore.selectedModelName;
 export const selectedModelOption = () => modelsStore.selectedModel;
 export const loadedModelIds = () => modelsStore.loadedModelIds;
 export const loadingModelIds = () => modelsStore.loadingModelIds;
-export const isRouterMode = () => modelsStore.isRouterMode;
-export const isModelMode = () => modelsStore.isModelMode;
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Actions
-// ─────────────────────────────────────────────────────────────────────────────
-
-export const fetchModels = modelsStore.fetch.bind(modelsStore);
-export const fetchRouterModels = modelsStore.fetchRouterModels.bind(modelsStore);
-export const fetchModalitiesForLoadedModels =
-	modelsStore.fetchModalitiesForLoadedModels.bind(modelsStore);
-export const updateModelModalities = modelsStore.updateModelModalities.bind(modelsStore);
-export const selectModel = modelsStore.select.bind(modelsStore);
-export const loadModel = modelsStore.loadModel.bind(modelsStore);
-export const unloadModel = modelsStore.unloadModel.bind(modelsStore);
-export const ensureModelLoaded = modelsStore.ensureModelLoaded.bind(modelsStore);
-export const registerModelUsage = modelsStore.registerModelUsage.bind(modelsStore);
-export const unregisterModelUsage = modelsStore.unregisterModelUsage.bind(modelsStore);
-export const clearConversationUsage = modelsStore.clearConversationUsage.bind(modelsStore);
-export const selectModelByName = modelsStore.selectModelByName.bind(modelsStore);
-export const clearModelSelection = modelsStore.clearSelection.bind(modelsStore);
-export const findModelByName = modelsStore.findModelByName.bind(modelsStore);
-export const findModelById = modelsStore.findModelById.bind(modelsStore);
-export const hasModel = modelsStore.hasModel.bind(modelsStore);
-
-// Model modalities
-export const getModelModalities = modelsStore.getModelModalities.bind(modelsStore);
-export const modelSupportsVision = modelsStore.modelSupportsVision.bind(modelsStore);
-export const modelSupportsAudio = modelsStore.modelSupportsAudio.bind(modelsStore);
-export const fetchModelProps = modelsStore.fetchModelProps.bind(modelsStore);
-export const getModelProps = modelsStore.getModelProps.bind(modelsStore);

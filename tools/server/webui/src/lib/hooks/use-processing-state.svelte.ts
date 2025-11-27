@@ -14,7 +14,7 @@ export interface UseProcessingStateReturn {
  * useProcessingState - Reactive processing state hook
  *
  * This hook provides reactive access to the processing state of the server.
- * It directly reads from ChatStore's reactive state and provides
+ * It directly reads from chatStore's reactive state and provides
  * formatted processing details for UI display.
  *
  * **Features:**
@@ -30,7 +30,7 @@ export function useProcessingState(): UseProcessingStateReturn {
 	let isMonitoring = $state(false);
 	let lastKnownState = $state<ApiProcessingState | null>(null);
 
-	// Derive processing state reactively from ChatStore's direct state
+	// Derive processing state reactively from chatStore's direct state
 	const processingState = $derived.by(() => {
 		if (!isMonitoring) {
 			return lastKnownState;

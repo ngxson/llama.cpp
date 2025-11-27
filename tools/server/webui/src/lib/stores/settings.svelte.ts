@@ -1,12 +1,12 @@
 /**
- * SettingsStore - Application configuration and theme management
+ * settingsStore - Application configuration and theme management
  *
  * This store manages all application settings including AI model parameters, UI preferences,
  * and theme configuration. It provides persistent storage through localStorage with reactive
  * state management using Svelte 5 runes.
  *
  * **Architecture & Relationships:**
- * - **SettingsStore** (this class): Configuration state management
+ * - **settingsStore** (this class): Configuration state management
  *   - Manages AI model parameters (temperature, max tokens, etc.)
  *   - Handles theme switching and persistence
  *   - Provides localStorage synchronization
@@ -378,28 +378,8 @@ class SettingsStore {
 	}
 }
 
-// Create and export the settings store instance
 export const settingsStore = new SettingsStore();
 
-// Export reactive getters for easy access in components
 export const config = () => settingsStore.config;
 export const theme = () => settingsStore.theme;
 export const isInitialized = () => settingsStore.isInitialized;
-
-// Export bound methods for easy access
-export const updateConfig = settingsStore.updateConfig.bind(settingsStore);
-export const updateMultipleConfig = settingsStore.updateMultipleConfig.bind(settingsStore);
-export const updateTheme = settingsStore.updateTheme.bind(settingsStore);
-export const resetConfig = settingsStore.resetConfig.bind(settingsStore);
-export const resetTheme = settingsStore.resetTheme.bind(settingsStore);
-export const resetAll = settingsStore.resetAll.bind(settingsStore);
-export const getConfig = settingsStore.getConfig.bind(settingsStore);
-export const getAllConfig = settingsStore.getAllConfig.bind(settingsStore);
-export const syncWithServerDefaults = settingsStore.syncWithServerDefaults.bind(settingsStore);
-export const forceSyncWithServerDefaults =
-	settingsStore.forceSyncWithServerDefaults.bind(settingsStore);
-export const getParameterInfo = settingsStore.getParameterInfo.bind(settingsStore);
-export const resetParameterToServerDefault =
-	settingsStore.resetParameterToServerDefault.bind(settingsStore);
-export const getParameterDiff = settingsStore.getParameterDiff.bind(settingsStore);
-export const clearAllUserOverrides = settingsStore.clearAllUserOverrides.bind(settingsStore);

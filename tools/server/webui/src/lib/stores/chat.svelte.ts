@@ -1,5 +1,4 @@
-import { DatabaseService } from '$lib/services/database';
-import { chatService } from '$lib/services';
+import { DatabaseService, ChatService } from '$lib/services';
 import { conversationsStore } from '$lib/stores/conversations.svelte';
 import { config } from '$lib/stores/settings.svelte';
 import { contextSize } from '$lib/stores/server.svelte';
@@ -16,27 +15,27 @@ import type {
 import type { DatabaseMessage, DatabaseMessageExtra } from '$lib/types/database';
 
 /**
- * ChatStore - Active AI interaction and streaming state management
+ * chatStore - Active AI interaction and streaming state management
  *
  * **Terminology - Chat vs Conversation:**
  * - **Chat**: The active interaction space with the Chat Completions API. Represents the
  *   real-time streaming session, loading states, and UI visualization of AI communication.
  *   A "chat" is ephemeral - it exists only while the user is actively interacting with the AI.
  * - **Conversation**: The persistent database entity storing all messages and metadata.
- *   Managed by ConversationsStore, conversations persist across sessions and page reloads.
+ *   Managed by conversationsStore, conversations persist across sessions and page reloads.
  *
  * This store manages all active AI interactions including real-time streaming, response
  * generation, and per-chat loading states. It handles the runtime layer between UI and
  * AI backend, supporting concurrent streaming across multiple conversations.
  *
  * **Architecture & Relationships:**
- * - **ChatStore** (this class): Active AI session and streaming management
+ * - **chatStore** (this class): Active AI session and streaming management
  *   - Manages real-time AI response streaming via ChatService
  *   - Tracks per-chat loading and streaming states for concurrent sessions
  *   - Handles message operations (send, edit, regenerate, branch)
- *   - Coordinates with ConversationsStore for persistence
+ *   - Coordinates with conversationsStore for persistence
  *
- * - **ConversationsStore**: Provides conversation data and message arrays for chat context
+ * - **conversationsStore**: Provides conversation data and message arrays for chat context
  * - **ChatService**: Low-level API communication with llama.cpp server
  * - **DatabaseService**: Message persistence and retrieval
  *
@@ -501,7 +500,7 @@ class ChatStore {
 
 		const abortController = this.getOrCreateAbortController(assistantMessage.convId);
 
-		await chatService.sendMessage(
+		await ChatService.sendMessage(
 			allMessages,
 			{
 				...this.getApiOptions(),
@@ -1140,7 +1139,7 @@ class ChatStore {
 
 			const abortController = this.getOrCreateAbortController(msg.convId);
 
-			await chatService.sendMessage(
+			await ChatService.sendMessage(
 				contextWithContinue,
 				{
 					...this.getApiOptions(),
@@ -1244,8 +1243,6 @@ class ChatStore {
 		}
 	}
 
-	// ============ Public Methods for Per-Conversation State ============
-
 	public isChatLoadingPublic(convId: string): boolean {
 		return this.isChatLoading(convId);
 	}
@@ -1264,57 +1261,13 @@ class ChatStore {
 
 export const chatStore = new ChatStore();
 
-// ChatStore state exports
 export const isLoading = () => chatStore.isLoading;
 export const currentResponse = () => chatStore.currentResponse;
 export const errorDialog = () => chatStore.errorDialogState;
+export const activeProcessingState = () => chatStore.activeProcessingState;
+export const isChatStreaming = () => chatStore.isStreaming();
 
-// ChatStore method exports
-export const sendMessage = chatStore.sendMessage.bind(chatStore);
-export const dismissErrorDialog = chatStore.dismissErrorDialog.bind(chatStore);
-export function stopGeneration() {
-	chatStore.stopGeneration();
-}
-
-// Message operations
-export const updateMessage = chatStore.updateMessage.bind(chatStore);
-export const regenerateMessage = chatStore.regenerateMessage.bind(chatStore);
-export const deleteMessage = chatStore.deleteMessage.bind(chatStore);
-export const getDeletionInfo = chatStore.getDeletionInfo.bind(chatStore);
-
-// Branching operations
-export const editAssistantMessage = chatStore.editAssistantMessage.bind(chatStore);
-export const editUserMessagePreserveResponses =
-	chatStore.editUserMessagePreserveResponses.bind(chatStore);
-export const editMessageWithBranching = chatStore.editMessageWithBranching.bind(chatStore);
-export const regenerateMessageWithBranching =
-	chatStore.regenerateMessageWithBranching.bind(chatStore);
-export const continueAssistantMessage = chatStore.continueAssistantMessage.bind(chatStore);
-
-// Per-conversation state access
 export const isChatLoading = (convId: string) => chatStore.isChatLoadingPublic(convId);
 export const getChatStreaming = (convId: string) => chatStore.getChatStreamingPublic(convId);
 export const getAllLoadingChats = () => chatStore.getAllLoadingChats();
 export const getAllStreamingChats = () => chatStore.getAllStreamingChats();
-
-// Sync/clear UI state when switching conversations
-export const syncLoadingStateForChat = chatStore.syncLoadingStateForChat.bind(chatStore);
-export const clearUIState = chatStore.clearUIState.bind(chatStore);
-
-// Processing state (timing/context info)
-export const getProcessingState = chatStore.getProcessingState.bind(chatStore);
-export const getActiveProcessingState = chatStore.getActiveProcessingState.bind(chatStore);
-export const activeProcessingState = () => chatStore.activeProcessingState;
-export const getCurrentProcessingStateSync =
-	chatStore.getCurrentProcessingStateSync.bind(chatStore);
-export const restoreProcessingStateFromMessages =
-	chatStore.restoreProcessingStateFromMessages.bind(chatStore);
-export const clearProcessingState = chatStore.clearProcessingState.bind(chatStore);
-export const updateProcessingStateFromTimings =
-	chatStore.updateProcessingStateFromTimings.bind(chatStore);
-export const setActiveProcessingConversation =
-	chatStore.setActiveProcessingConversation.bind(chatStore);
-export const isChatStreaming = () => chatStore.isStreaming();
-
-// Model detection
-export const getConversationModel = chatStore.getConversationModel.bind(chatStore);
