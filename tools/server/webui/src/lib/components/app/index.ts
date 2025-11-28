@@ -55,14 +55,14 @@ export { default as ActionButton } from './misc/ActionButton.svelte';
 export { default as ActionDropdown } from './misc/ActionDropdown.svelte';
 export { default as BadgeChatStatistic } from './misc/BadgeChatStatistic.svelte';
 export { default as BadgeInfo } from './misc/BadgeInfo.svelte';
-export { default as BadgeModelName } from './misc/BadgeModelName.svelte';
+export { default as ModelBadge } from './models/ModelBadge.svelte';
 export { default as BadgeModality } from './misc/BadgeModality.svelte';
 export { default as ConversationSelection } from './misc/ConversationSelection.svelte';
 export { default as CopyToClipboardIcon } from './misc/CopyToClipboardIcon.svelte';
 export { default as KeyboardShortcutInfo } from './misc/KeyboardShortcutInfo.svelte';
 export { default as MarkdownContent } from './misc/MarkdownContent.svelte';
 export { default as RemoveButton } from './misc/RemoveButton.svelte';
-export { default as SelectorModel } from './misc/SelectorModel.svelte';
+export { default as ModelsSelector } from './models/ModelsSelector.svelte';
 
 // Server
 

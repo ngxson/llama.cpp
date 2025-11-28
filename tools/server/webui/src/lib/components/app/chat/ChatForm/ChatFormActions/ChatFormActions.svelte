@@ -5,7 +5,7 @@
 		ChatFormActionFileAttachments,
 		ChatFormActionRecord,
 		ChatFormActionSubmit,
-		SelectorModel
+		ModelsSelector
 	} from '$lib/components/app';
 	import { FileTypeCategory } from '$lib/enums';
 	import { getFileTypeCategory } from '$lib/utils/file-type';
@@ -153,7 +153,7 @@
 		return '';
 	});
 
-	let selectorModelRef: SelectorModel | undefined = $state(undefined);
+	let selectorModelRef: ModelsSelector | undefined = $state(undefined);
 
 	export function openModelSelector() {
 		selectorModelRef?.open();
@@ -178,7 +178,7 @@
 		{onFileUpload}
 	/>
 
-	<SelectorModel
+	<ModelsSelector
 		bind:this={selectorModelRef}
 		currentModel={conversationModel}
 		forceForegroundText={true}

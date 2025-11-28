@@ -1,10 +1,9 @@
-```mermaid
 flowchart TB
-    subgraph Routes["📍 Routes"]
-        R1["/ (+page.svelte)"]
-        R2["/chat/[id]"]
-        RL["+layout.svelte"]
-    end
+subgraph Routes["📍 Routes"]
+R1["/ (+page.svelte)"]
+R2["/chat/[id]"]
+RL["+layout.svelte"]
+end
 
     subgraph Components["🧩 Components"]
         direction TB
@@ -12,13 +11,12 @@ flowchart TB
             C_Sidebar["ChatSidebar"]
             C_Screen["ChatScreen"]
         end
-        subgraph ChatComponents["Chat"]
+        subgraph ChatUIComponents["Chat UI"]
             C_Form["ChatForm"]
             C_Messages["ChatMessages"]
             C_Message["ChatMessage"]
-        end
-        subgraph ControlComponents["Controls"]
-            C_SelectorModel["SelectorModel"]
+            C_Attach["ChatAttachments"]
+            C_ModelsSelector["ModelsSelector"]
             C_Settings["ChatSettings"]
         end
     end
@@ -47,9 +45,9 @@ flowchart TB
             S2Utils["<b>Utilities:</b><br/>setTitleUpdateConfirmationCallback()"]
         end
         subgraph S3["modelsStore"]
-            S3State["<b>State:</b><br/>models, routerModels<br/>selectedModelId<br/>selectedModelName<br/>loading, updating, error<br/>modelUsage<br/>modelLoadingStates<br/>modelPropsCache<br/>modelPropsFetching"]
-            S3Getters["<b>Computed Getters:</b><br/>selectedModel<br/>loadedModelIds<br/>loadingModelIds"]
-            S3Modal["<b>Modalities:</b><br/>getModelModalities()<br/>modelSupportsVision()<br/>modelSupportsAudio()<br/>getModelProps()<br/>updateModelModalities()"]
+            S3State["<b>State:</b><br/>models, routerModels<br/>selectedModelId<br/>selectedModelName<br/>loading, updating, error<br/>modelUsage<br/>modelLoadingStates<br/>modelPropsCache<br/>modelPropsFetching<br/>propsCacheVersion"]
+            S3Getters["<b>Computed Getters:</b><br/>selectedModel<br/>loadedModelIds<br/>loadingModelIds<br/>singleModelName"]
+            S3Modal["<b>Modalities:</b><br/>getModelModalities()<br/>modelSupportsVision()<br/>modelSupportsAudio()<br/>getModelModalitiesArray()<br/>getModelProps()<br/>updateModelModalities()"]
             S3Status["<b>Status Queries:</b><br/>isModelLoaded()<br/>isModelOperationInProgress()<br/>getModelStatus()<br/>isModelPropsFetching()"]
             S3Fetch["<b>Data Fetching:</b><br/>fetch()<br/>fetchRouterModels()<br/>fetchModelProps()<br/>fetchModalitiesForLoadedModels()"]
             S3Select["<b>Model Selection:</b><br/>selectModelById()<br/>selectModelByName()<br/>clearSelection()<br/>findModelByName()<br/>findModelById()<br/>hasModel()"]
@@ -59,7 +57,7 @@ flowchart TB
         end
         subgraph S4["serverStore"]
             S4State["<b>State:</b><br/>props<br/>loading, error<br/>role<br/>fetchPromise"]
-            S4Getters["<b>Getters:</b><br/>modelName<br/>supportedModalities<br/>supportsVision<br/>supportsAudio<br/>defaultParams<br/>contextSize<br/>slotsEndpointAvailable<br/>isRouterMode<br/>isModelMode"]
+            S4Getters["<b>Getters:</b><br/>defaultParams<br/>contextSize<br/>slotsEndpointAvailable<br/>isRouterMode<br/>isModelMode"]
             S4Data["<b>Data Handling:</b><br/>fetch()<br/>getErrorMessage()<br/>clear()"]
             S4Utils["<b>Utilities:</b><br/>detectRole()"]
         end
@@ -103,26 +101,24 @@ flowchart TB
                 RE22["selectedModelOption()"]
                 RE23["loadedModelIds()"]
                 RE24["loadingModelIds()"]
+                RE25["propsCacheVersion()"]
+                RE26["singleModelName()"]
             end
             subgraph ServerExports["serverStore"]
-                RE25["serverProps()"]
-                RE26["serverLoading()"]
-                RE27["serverError()"]
-                RE28["serverRole()"]
-                RE29["modelName()"]
-                RE30["supportedModalities()"]
-                RE31["supportsVision()"]
-                RE32["supportsAudio()"]
-                RE33["slotsEndpointAvailable()"]
-                RE34["defaultParams()"]
-                RE35["contextSize()"]
-                RE36["isRouterMode()"]
-                RE37["isModelMode()"]
+                RE27["serverProps()"]
+                RE28["serverLoading()"]
+                RE29["serverError()"]
+                RE30["serverRole()"]
+                RE31["slotsEndpointAvailable()"]
+                RE32["defaultParams()"]
+                RE33["contextSize()"]
+                RE34["isRouterMode()"]
+                RE35["isModelMode()"]
             end
             subgraph SettingsExports["settingsStore"]
-                RE38["config()"]
-                RE39["theme()"]
-                RE40["isInitialized()"]
+                RE36["config()"]
+                RE37["theme()"]
+                RE38["isInitialized()"]
             end
         end
     end
@@ -181,8 +177,10 @@ flowchart TB
     %% Component hierarchy
     C_Screen --> C_Form & C_Messages & C_Settings
     C_Messages --> C_Message
-    C_Message --> C_SelectorModel
-    C_Form --> C_SelectorModel
+    C_Message --> C_ModelsSelector
+    C_Form --> C_ModelsSelector
+    C_Form --> C_Attach
+    C_Message --> C_Attach
 
     %% Components use Stores
     C_Screen --> S1 & S2
@@ -190,7 +188,7 @@ flowchart TB
     C_Message --> S1 & S2 & S3
     C_Form --> S1 & S3
     C_Sidebar --> S2
-    C_SelectorModel --> S3 & S4
+    C_ModelsSelector --> S3 & S4
     C_Settings --> S5
 
     %% Stores export Reactive State
@@ -233,8 +231,9 @@ flowchart TB
 
     class R1,R2,RL routeStyle
     class C_Sidebar,C_Screen,C_Form,C_Messages,C_Message componentStyle
-    class C_SelectorModel,C_Settings componentStyle
-    class LayoutComponents,ChatComponents,ControlComponents componentGroupStyle
+    class C_ModelsSelector,C_Settings componentStyle
+    class C_Attach componentStyle
+    class LayoutComponents,ChatUIComponents componentGroupStyle
     class S1,S2,S3,S4,S5 storeStyle
     class S1State,S2State,S3State,S4State,S5State stateStyle
     class S1Msg,S1Regen,S1Edit,S1Stream,S1LoadState,S1ProcState,S1Error,S1Utils methodStyle
@@ -251,4 +250,3 @@ flowchart TB
     class SV5Extract,SV5Merge,SV5Info,SV5Diff serviceMStyle
     class ST1,ST2,ST3,ST5,ST6,ST7 storageStyle
     class API1,API2,API3,API4 apiStyle
-```

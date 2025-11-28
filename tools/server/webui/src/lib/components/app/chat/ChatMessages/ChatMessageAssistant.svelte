@@ -1,12 +1,12 @@
 <script lang="ts">
 	import {
-		BadgeModelName,
+		ModelBadge,
 		ChatMessageActions,
 		ChatMessageStatistics,
 		ChatMessageThinkingBlock,
 		CopyToClipboardIcon,
 		MarkdownContent,
-		SelectorModel
+		ModelsSelector
 	} from '$lib/components/app';
 	import { useProcessingState } from '$lib/hooks/use-processing-state.svelte';
 	import { useModelChangeValidation } from '$lib/hooks/use-model-change-validation.svelte';
@@ -248,14 +248,14 @@
 		{#if displayedModel()}
 			<span class="inline-flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
 				{#if isRouter}
-					<SelectorModel
+					<ModelsSelector
 						currentModel={displayedModel()}
 						onModelChange={handleModelChange}
 						disabled={isLoading()}
 						upToMessageId={message.id}
 					/>
 				{:else}
-					<BadgeModelName model={displayedModel() || undefined} onclick={handleCopyModel} />
+					<ModelBadge model={displayedModel() || undefined} onclick={handleCopyModel} />
 				{/if}
 
 				{#if currentConfig.showMessageStats && message.timings && message.timings.predicted_n && message.timings.predicted_ms}
