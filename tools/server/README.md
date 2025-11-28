@@ -7,6 +7,7 @@ Set of LLM REST APIs and a simple web front end to interact with llama.cpp.
 **Features:**
  * LLM inference of F16 and quantized models on GPU and CPU
  * [OpenAI API](https://github.com/openai/openai-openapi) compatible chat completions and embeddings routes
+ * [Anthropic Messages API](https://docs.anthropic.com/en/api/messages) compatible chat completions
  * Reranking endpoint (https://github.com/ggml-org/llama.cpp/pull/9510)
  * Parallel decoding with multi-user support
  * Continuous batching
@@ -200,6 +201,8 @@ The project is under active development, and we are [looking for feedback and co
 | `--models-allow-extra-args` | for router server, allow extra arguments for models; important: some arguments can allow users to access local file system, use with caution (default: disabled)<br/>(env: LLAMA_ARG_MODELS_ALLOW_EXTRA_ARGS) |
 | `--no-models-autoload` | disables automatic loading of models (default: enabled)<br/>(env: LLAMA_ARG_NO_MODELS_AUTOLOAD) |
 | `--jinja` | use jinja template for chat (default: disabled)<br/>(env: LLAMA_ARG_JINJA) |
+| `--jinja` | use jinja template for chat (default: enabled)<br/><br/>(env: LLAMA_ARG_JINJA) |
+| `--no-jinja` | disable jinja template for chat (default: enabled)<br/><br/>(env: LLAMA_ARG_NO_JINJA) |
 | `--reasoning-format FORMAT` | controls whether thought tags are allowed and/or extracted from the response, and in which format they're returned; one of:<br/>- none: leaves thoughts unparsed in `message.content`<br/>- deepseek: puts thoughts in `message.reasoning_content`<br/>- deepseek-legacy: keeps `<think>` tags in `message.content` while also populating `message.reasoning_content`<br/>(default: auto)<br/>(env: LLAMA_ARG_THINK) |
 | `--reasoning-budget N` | controls the amount of thinking allowed; currently only one of: -1 for unrestricted thinking budget, or 0 to disable thinking (default: -1)<br/>(env: LLAMA_ARG_THINK_BUDGET) |
 | `--chat-template JINJA_TEMPLATE` | set custom jinja chat template (default: template taken from model's metadata)<br/>if suffix/prefix are specified, template will be disabled<br/>only commonly used templates are accepted (unless --jinja is set before this flag):<br/>list of built-in templates:<br/>bailing, bailing-think, bailing2, chatglm3, chatglm4, chatml, command-r, deepseek, deepseek2, deepseek3, exaone3, exaone4, falcon3, gemma, gigachat, glmedge, gpt-oss, granite, grok-2, hunyuan-dense, hunyuan-moe, kimi-k2, llama2, llama2-sys, llama2-sys-bos, llama2-sys-strip, llama3, llama4, megrez, minicpm, mistral-v1, mistral-v3, mistral-v3-tekken, mistral-v7, mistral-v7-tekken, monarch, openchat, orion, pangu-embedded, phi3, phi4, rwkv-world, seed_oss, smolvlm, vicuna, vicuna-orca, yandex, zephyr<br/>(env: LLAMA_ARG_CHAT_TEMPLATE) |
@@ -1355,6 +1358,76 @@ See [OpenAI Embeddings API documentation](https://platform.openai.com/docs/api-r
   }'
   ```
 
+### POST `/v1/messages`: Anthropic-compatible Messages API
+
+Given a list of `messages`, returns the assistant's response. Streaming is supported via Server-Sent Events. While no strong claims of compatibility with the Anthropic API spec are made, in our experience it suffices to support many apps.
+
+*Options:*
+
+See [Anthropic Messages API documentation](https://docs.anthropic.com/en/api/messages). Tool use requires `--jinja` flag.
+
+`model`: Model identifier (required)
+
+`messages`: Array of message objects with `role` and `content` (required)
+
+`max_tokens`: Maximum tokens to generate (default: 4096)
+
+`system`: System prompt as string or array of content blocks
+
+`temperature`: Sampling temperature 0-1 (default: 1.0)
+
+`top_p`: Nucleus sampling (default: 1.0)
+
+`top_k`: Top-k sampling
+
+`stop_sequences`: Array of stop sequences
+
+`stream`: Enable streaming (default: false)
+
+`tools`: Array of tool definitions (requires `--jinja`)
+
+`tool_choice`: Tool selection mode (`{"type": "auto"}`, `{"type": "any"}`, or `{"type": "tool", "name": "..."}`)
+
+*Examples:*
+
+```shell
+curl http://localhost:8080/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: your-api-key" \
+  -d '{
+    "model": "gpt-4",
+    "max_tokens": 1024,
+    "system": "You are a helpful assistant.",
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ]
+  }'
+```
+
+### POST `/v1/messages/count_tokens`: Token Counting
+
+Counts the number of tokens in a request without generating a response.
+
+Accepts the same parameters as `/v1/messages`. The `max_tokens` parameter is not required.
+
+*Example:*
+
+```shell
+curl http://localhost:8080/v1/messages/count_tokens \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ]
+  }'
+```
+
+*Response:*
+
+```json
+{"input_tokens": 10}
+```
 
 ## Using multiple models
 
@@ -1512,6 +1585,7 @@ Response:
   "success": true
 }
 ```
+
 
 ### POST `/models/unload`: Unload a model
 
