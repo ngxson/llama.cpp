@@ -19,6 +19,7 @@
 	let modelName = $derived(modelsStore.singleModelName);
 
 	// Get modalities from modelStore using the model ID from the first model
+	// For now it supports only for single-model mode, will be extended with further improvements for multi-model functioanlities
 	let modalities = $derived.by(() => {
 		if (!modelsData?.data?.[0]?.id) return [];
 
