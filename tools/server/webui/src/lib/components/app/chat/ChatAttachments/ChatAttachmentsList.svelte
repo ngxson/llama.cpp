@@ -2,10 +2,8 @@
 	import { ChatAttachmentThumbnailImage, ChatAttachmentThumbnailFile } from '$lib/components/app';
 	import { Button } from '$lib/components/ui/button';
 	import { ChevronLeft, ChevronRight } from '@lucide/svelte';
-	import { getFileTypeCategory } from '$lib/utils/file-type';
-	import { FileTypeCategory } from '$lib/enums';
-	import { isImageFile } from '$lib/utils/attachment-type';
 	import { DialogChatAttachmentPreview, DialogChatAttachmentsViewAll } from '$lib/components/app';
+	import { getAttachmentDisplayItems } from '$lib/utils/attachment-display';
 	import type { ChatAttachmentDisplayItem, ChatAttachmentPreviewItem } from '$lib/types/chat';
 	import type { DatabaseMessageExtra } from '$lib/types/database';
 
@@ -40,7 +38,7 @@
 		limitToSingleRow = false
 	}: Props = $props();
 
-	let displayItems = $derived(getDisplayItems());
+	let displayItems = $derived(getAttachmentDisplayItems({ uploadedFiles, attachments }));
 
 	let canScrollLeft = $state(false);
 	let canScrollRight = $state(false);
@@ -50,40 +48,6 @@
 	let scrollContainer: HTMLDivElement | undefined = $state();
 	let showViewAll = $derived(limitToSingleRow && displayItems.length > 0 && isScrollable);
 	let viewAllDialogOpen = $state(false);
-
-	function getDisplayItems(): ChatAttachmentDisplayItem[] {
-		const items: ChatAttachmentDisplayItem[] = [];
-
-		// Add uploaded files (ChatForm)
-		for (const file of uploadedFiles) {
-			items.push({
-				id: file.id,
-				name: file.name,
-				size: file.size,
-				preview: file.preview,
-				isImage: getFileTypeCategory(file.type) === FileTypeCategory.IMAGE,
-				uploadedFile: file,
-				textContent: file.textContent
-			});
-		}
-
-		// Add stored attachments (ChatMessage)
-		for (const [index, attachment] of attachments.entries()) {
-			const isImage = isImageFile(attachment);
-
-			items.push({
-				id: `attachment-${index}`,
-				name: attachment.name,
-				preview: isImage && 'base64Url' in attachment ? attachment.base64Url : undefined,
-				isImage,
-				attachment,
-				attachmentIndex: index,
-				textContent: 'content' in attachment ? attachment.content : undefined
-			});
-		}
-
-		return items.reverse();
-	}
 
 	function openPreview(item: ChatAttachmentDisplayItem, event?: MouseEvent) {
 		event?.stopPropagation();
@@ -218,7 +182,7 @@
 				</div>
 			{/if}
 		{:else}
-			<div class="flex flex-wrap justify-end gap-3">
+			<div class="flex flex-wrap items-start justify-end gap-3">
 				{#each displayItems as item (item.id)}
 					{#if item.isImage && item.preview}
 						<ChatAttachmentThumbnailImage

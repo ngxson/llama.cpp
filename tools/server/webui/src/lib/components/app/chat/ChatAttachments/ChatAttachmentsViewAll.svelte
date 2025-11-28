@@ -4,10 +4,8 @@
 		ChatAttachmentThumbnailFile,
 		DialogChatAttachmentPreview
 	} from '$lib/components/app';
-	import { FileTypeCategory } from '$lib/enums';
-	import { getFileTypeCategory } from '$lib/utils/file-type';
-	import { isImageFile } from '$lib/utils/attachment-type';
-	import type { ChatAttachmentDisplayItem, ChatAttachmentPreviewItem } from '$lib/types/chat';
+	import { getAttachmentDisplayItems } from '$lib/utils/attachment-display';
+	import type { ChatAttachmentPreviewItem } from '$lib/types/chat';
 	import type { DatabaseMessageExtra } from '$lib/types/database';
 
 	interface Props {
@@ -33,41 +31,9 @@
 	let previewDialogOpen = $state(false);
 	let previewItem = $state<ChatAttachmentPreviewItem | null>(null);
 
-	let displayItems = $derived(getDisplayItems());
+	let displayItems = $derived(getAttachmentDisplayItems({ uploadedFiles, attachments }));
 	let imageItems = $derived(displayItems.filter((item) => item.isImage));
 	let fileItems = $derived(displayItems.filter((item) => !item.isImage));
-
-	function getDisplayItems(): ChatAttachmentDisplayItem[] {
-		const items: ChatAttachmentDisplayItem[] = [];
-
-		for (const file of uploadedFiles) {
-			items.push({
-				id: file.id,
-				name: file.name,
-				size: file.size,
-				preview: file.preview,
-				isImage: getFileTypeCategory(file.type) === FileTypeCategory.IMAGE,
-				uploadedFile: file,
-				textContent: file.textContent
-			});
-		}
-
-		for (const [index, attachment] of attachments.entries()) {
-			const isImage = isImageFile(attachment);
-
-			items.push({
-				id: `attachment-${index}`,
-				name: attachment.name,
-				preview: isImage && 'base64Url' in attachment ? attachment.base64Url : undefined,
-				isImage,
-				attachment,
-				attachmentIndex: index,
-				textContent: 'content' in attachment ? attachment.content : undefined
-			});
-		}
-
-		return items.reverse();
-	}
 
 	function openPreview(item: (typeof displayItems)[0], event?: Event) {
 		if (event) {

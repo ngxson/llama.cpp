@@ -145,7 +145,9 @@
 
 		<div class="flex flex-col gap-0.5">
 			<span
-				class="max-w-24 truncate text-sm font-medium text-foreground group-hover:pr-6 md:max-w-32"
+				class="max-w-24 truncate text-sm font-medium text-foreground {readonly
+					? ''
+					: 'group-hover:pr-6'} md:max-w-32"
 			>
 				{name}
 			</span>
