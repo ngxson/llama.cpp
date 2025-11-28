@@ -55,10 +55,8 @@
 		if (qParam !== null) {
 			await conversationsStore.createConversation();
 			await chatStore.sendMessage(qParam);
-			// Clear URL params after message is sent
 			clearUrlParams();
 		} else if (modelParam || newChatParam === 'true') {
-			// Clear params even if no message was sent (just model selection or new_chat)
 			clearUrlParams();
 		}
 	}
