@@ -6,7 +6,6 @@
 	import * as Select from '$lib/components/ui/select';
 	import { Textarea } from '$lib/components/ui/textarea';
 	import { SETTING_CONFIG_DEFAULT, SETTING_CONFIG_INFO } from '$lib/constants/settings-config';
-	import { supportsVision } from '$lib/stores/server.svelte';
 	import { settingsStore } from '$lib/stores/settings.svelte';
 	import { ParameterSyncService } from '$lib/services/parameter-sync';
 	import { ChatSettingsParameterSourceIndicator } from '$lib/components/app';
@@ -210,13 +209,10 @@
 				</p>
 			{/if}
 		{:else if field.type === 'checkbox'}
-			{@const isDisabled = field.key === 'pdfAsImage' && !supportsVision()}
-
 			<div class="flex items-start space-x-3">
 				<Checkbox
 					id={field.key}
 					checked={Boolean(localConfig[field.key])}
-					disabled={isDisabled}
 					onCheckedChange={(checked) => onConfigChange(field.key, checked)}
 					class="mt-1"
 				/>
@@ -224,9 +220,7 @@
 				<div class="space-y-1">
 					<label
 						for={field.key}
-						class="cursor-pointer pt-1 pb-0.5 text-sm leading-none font-medium {isDisabled
-							? 'text-muted-foreground'
-							: ''} flex items-center gap-1.5"
+						class="flex cursor-pointer items-center gap-1.5 pt-1 pb-0.5 text-sm leading-none font-medium"
 					>
 						{field.label}
 
@@ -238,11 +232,6 @@
 					{#if field.help || SETTING_CONFIG_INFO[field.key]}
 						<p class="text-xs text-muted-foreground">
 							{field.help || SETTING_CONFIG_INFO[field.key]}
-						</p>
-					{:else if field.key === 'pdfAsImage' && !supportsVision()}
-						<p class="text-xs text-muted-foreground">
-							PDF-to-image processing requires a vision-capable model. PDFs will be processed as
-							text.
 						</p>
 					{/if}
 				</div>

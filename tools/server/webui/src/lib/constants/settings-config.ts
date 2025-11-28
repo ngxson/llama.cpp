@@ -89,7 +89,8 @@ export const SETTING_CONFIG_INFO: Record<string, string> = {
 		'Display generation statistics (tokens/second, token count, duration) below each assistant message.',
 	askForTitleConfirmation:
 		'Ask for confirmation before automatically changing conversation title when editing the first message.',
-	pdfAsImage: 'Parse PDF as image instead of text (requires vision-capable model).',
+	pdfAsImage:
+		'Parse PDF as image instead of text. Automatically falls back to text processing for non-vision models.',
 	disableAutoScroll:
 		'Disable automatic scrolling while messages stream so you can control the viewport position manually.',
 	renderUserContentAsMarkdown: 'Render user messages using markdown formatting in the chat.',
