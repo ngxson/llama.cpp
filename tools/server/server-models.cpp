@@ -570,6 +570,7 @@ server_http_res_ptr server_models::proxy_request(const server_http_req & req, co
 
 void server_models::setup_child_server(const common_params & base_params, int router_port, const std::string & name, std::function<void(int)> & shutdown_handler) {
     // send a notification to the router server that a model instance is ready
+    // TODO @ngxson : use HTTP client from libcommon
     httplib::Client cli(base_params.hostname, router_port);
     cli.set_connection_timeout(0, 200000); // 200 milliseconds
 
