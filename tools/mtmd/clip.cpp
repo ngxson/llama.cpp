@@ -2663,6 +2663,11 @@ struct clip_model_loader {
 
             if (is_vision) {
                 get_u32(KEY_IMAGE_SIZE, hparams.image_size);
+                get_u32(KEY_IMAGE_MIN_PIXELS, hparams.image_min_pixels, false);
+                get_u32(KEY_IMAGE_MAX_PIXELS, hparams.image_max_pixels, false);
+                if (hparams.image_size == 0 && hparams.image_min_pixels == -1 && hparams.image_max_pixels == -1) {
+                    throw std::runtime_error("one of: image_size, image_min_pixels, and image_max_pixels must be defined\n");
+                }
                 get_u32(KEY_PATCH_SIZE, hparams.patch_size);
                 get_u32(KEY_IMAGE_CROP_RESOLUTION, hparams.image_crop_resolution, false);
                 get_i32(KEY_MINICPMV_VERSION, hparams.minicpmv_version, false); // legacy
