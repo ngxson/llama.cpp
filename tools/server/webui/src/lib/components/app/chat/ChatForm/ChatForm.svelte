@@ -119,6 +119,7 @@
 			void modelPropsVersion; // Trigger reactivity on props fetch
 			return modelsStore.modelSupportsAudio(activeModelId);
 		}
+
 		return false;
 	});
 
@@ -127,6 +128,7 @@
 			void modelPropsVersion; // Trigger reactivity on props fetch
 			return modelsStore.modelSupportsVision(activeModelId);
 		}
+
 		return false;
 	});
 
@@ -136,6 +138,7 @@
 			chatFormActionsRef?.openModelSelector();
 			return false;
 		}
+
 		return true;
 	}
 
@@ -143,14 +146,18 @@
 		switch (fileType) {
 			case FileTypeCategory.IMAGE:
 				return [...Object.values(FileExtensionImage), ...Object.values(MimeTypeImage)].join(',');
+
 			case FileTypeCategory.AUDIO:
 				return [...Object.values(FileExtensionAudio), ...Object.values(MimeTypeAudio)].join(',');
+
 			case FileTypeCategory.PDF:
 				return [...Object.values(FileExtensionPdf), ...Object.values(MimeTypeApplication)].join(
 					','
 				);
+
 			case FileTypeCategory.TEXT:
 				return [...Object.values(FileExtensionText), MimeTypeText.PLAIN].join(',');
+
 			default:
 				return '';
 		}
@@ -210,6 +217,7 @@
 		if (files.length > 0) {
 			event.preventDefault();
 			onFileUpload?.(files);
+
 			return;
 		}
 
@@ -233,6 +241,7 @@
 	async function handleMicClick() {
 		if (!audioRecorder || !recordingSupported) {
 			console.warn('Audio recording not supported');
+
 			return;
 		}
 

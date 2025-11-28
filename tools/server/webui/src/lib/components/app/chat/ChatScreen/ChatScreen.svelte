@@ -76,26 +76,23 @@
 
 	let isCurrentConversationLoading = $derived(isLoading());
 
-	// Model-specific capability detection (same logic as ChatFormActions)
 	let isRouter = $derived(isRouterMode());
+
 	let conversationModel = $derived(
 		chatStore.getConversationModel(activeMessages() as DatabaseMessage[])
 	);
 
-	// Get active model ID for fetching props
 	let activeModelId = $derived.by(() => {
 		if (!isRouter) return null;
 
 		const options = modelOptions();
 
-		// First try user-selected model
 		const selectedId = selectedModelId();
 		if (selectedId) {
 			const model = options.find((m) => m.id === selectedId);
 			if (model) return model.model;
 		}
 
-		// Fallback to conversation model
 		if (conversationModel) {
 			const model = options.find((m) => m.model === conversationModel);
 			if (model) return model.model;
@@ -104,10 +101,8 @@
 		return null;
 	});
 
-	// State for model props reactivity
 	let modelPropsVersion = $state(0);
 
-	// Fetch model props when active model changes
 	$effect(() => {
 		if (isRouter && activeModelId) {
 			const cached = modelsStore.getModelProps(activeModelId);
@@ -119,34 +114,40 @@
 		}
 	});
 
-	// Derive modalities from active model (works for both MODEL and ROUTER mode)
 	let hasAudioModality = $derived.by(() => {
 		if (activeModelId) {
-			void modelPropsVersion; // Trigger reactivity on props fetch
+			void modelPropsVersion;
 			return modelsStore.modelSupportsAudio(activeModelId);
 		}
+
 		return false;
 	});
 
 	let hasVisionModality = $derived.by(() => {
 		if (activeModelId) {
-			void modelPropsVersion; // Trigger reactivity on props fetch
+			void modelPropsVersion;
+
 			return modelsStore.modelSupportsVision(activeModelId);
 		}
+
 		return false;
 	});
 
 	async function handleDeleteConfirm() {
 		const conversation = activeConversation();
+
 		if (conversation) {
 			await conversationsStore.deleteConversation(conversation.id);
 		}
+
 		showDeleteDialog = false;
 	}
 
 	function handleDragEnter(event: DragEvent) {
 		event.preventDefault();
+
 		dragCounter++;
+
 		if (event.dataTransfer?.types.includes('Files')) {
 			isDragOver = true;
 		}
@@ -154,7 +155,9 @@
 
 	function handleDragLeave(event: DragEvent) {
 		event.preventDefault();
+
 		dragCounter--;
+
 		if (dragCounter === 0) {
 			isDragOver = false;
 		}
@@ -172,6 +175,7 @@
 
 	function handleDrop(event: DragEvent) {
 		event.preventDefault();
+
 		isDragOver = false;
 		dragCounter = 0;
 
