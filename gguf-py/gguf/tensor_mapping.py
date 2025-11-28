@@ -1351,7 +1351,7 @@ class TensorNameMap:
             "visual.blocks.{bid}.mlp.linear_fc1", # qwen3vl
             "vision_tower.encoder.blocks.{bid}.mlp.fc0", # kimi-vl (fc0/fc1)
             "model.vision.transformer.layers.{bid}.mlp.fc1", # cogvlm
-            "vision_tower.blocks.{bid}.mlp.fc2", # dots.ocr
+            "vision_tower.blocks.{bid}.mlp.fc3", # dots.ocr
         ),
 
         MODEL_TENSOR.V_ENC_FFN_GATE: (
@@ -1374,7 +1374,7 @@ class TensorNameMap:
             "visual.blocks.{bid}.mlp.linear_fc2", # qwen3vl
             "vision_tower.encoder.blocks.{bid}.mlp.fc1", # kimi-vl (fc0/fc1)
             "model.vision.transformer.layers.{bid}.mlp.fc2", # cogvlm
-            "vision_tower.blocks.{bid}.mlp.fc3", # dots.ocr
+            "vision_tower.blocks.{bid}.mlp.fc2", # dots.ocr
         ),
 
         MODEL_TENSOR.V_LAYER_SCALE_1: (

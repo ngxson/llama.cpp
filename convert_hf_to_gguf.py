@@ -10095,7 +10095,6 @@ class DotsOCRVisionModel(MmprojModel):
         del bid  # unused
 
         if name.startswith("vision_tower."):
-            print(name)
             return [(self.map_tensor_name(name), data_torch)]
 
         return [] # skip other tensors
