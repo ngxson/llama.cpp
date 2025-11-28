@@ -28,12 +28,11 @@
 	}
 
 	async function handleUrlParams() {
-		// Ensure models are loaded first
 		await modelsStore.fetch();
 
-		// Handle model parameter - select model if provided
 		if (modelParam) {
 			const model = modelsStore.findModelByName(modelParam);
+
 			if (model) {
 				try {
 					await modelsStore.selectModelById(model.id);
@@ -41,12 +40,13 @@
 					console.error('Failed to select model:', error);
 					requestedModelName = modelParam;
 					showModelNotAvailable = true;
+
 					return;
 				}
 			} else {
-				// Model not found - show error dialog
 				requestedModelName = modelParam;
 				showModelNotAvailable = true;
+
 				return;
 			}
 		}
