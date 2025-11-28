@@ -59,8 +59,6 @@
 		}
 	});
 
-	// Get active model ID for fetching props
-	// Priority: user-selected model > conversation model (allows changing model mid-chat)
 	let activeModelId = $derived.by(() => {
 		if (!isRouter) return null;
 
@@ -80,38 +78,37 @@
 		return null;
 	});
 
-	// State for model props (fetched from /props?model=<id>)
 	let modelPropsVersion = $state(0); // Used to trigger reactivity after fetch
 
-	// Fetch model props when active model changes
 	$effect(() => {
 		if (isRouter && activeModelId) {
-			// Check if we already have cached props
 			const cached = modelsStore.getModelProps(activeModelId);
+
 			if (!cached) {
-				// Fetch props for this model
 				modelsStore.fetchModelProps(activeModelId).then(() => {
-					// Trigger reactivity update
 					modelPropsVersion++;
 				});
 			}
 		}
 	});
 
-	// Derive modalities from active model (works for both MODEL and ROUTER mode)
 	let hasAudioModality = $derived.by(() => {
 		if (activeModelId) {
-			void modelPropsVersion; // Trigger reactivity on props fetch
+			void modelPropsVersion;
+
 			return modelsStore.modelSupportsAudio(activeModelId);
 		}
+
 		return false;
 	});
 
 	let hasVisionModality = $derived.by(() => {
 		if (activeModelId) {
-			void modelPropsVersion; // Trigger reactivity on props fetch
+			void modelPropsVersion;
+
 			return modelsStore.modelSupportsVision(activeModelId);
 		}
+
 		return false;
 	});
 
@@ -125,22 +122,18 @@
 	let hasModelSelected = $derived(!isRouter || !!conversationModel || !!selectedModelId());
 
 	let isSelectedModelInCache = $derived.by(() => {
-		// In single MODEL mode, model is always available
 		if (!isRouter) return true;
 
-		// Check if conversation model is available
 		if (conversationModel) {
 			return modelOptions().some((option) => option.model === conversationModel);
 		}
 
-		// Check if user-selected model is available
 		const currentModelId = selectedModelId();
-		if (!currentModelId) return false; // No model selected
+		if (!currentModelId) return false;
 
 		return modelOptions().some((option) => option.id === currentModelId);
 	});
 
-	// Determine tooltip message for submit button
 	let submitTooltip = $derived.by(() => {
 		if (!hasModelSelected) {
 			return 'Please select a model first';
