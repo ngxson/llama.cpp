@@ -171,18 +171,18 @@ def test_apply_chat_template():
     assert res.body["prompt"] == "<|START_OF_TURN_TOKEN|><|SYSTEM_TOKEN|>You are a test.<|END_OF_TURN_TOKEN|><|START_OF_TURN_TOKEN|><|USER_TOKEN|>Hi there<|END_OF_TURN_TOKEN|><|START_OF_TURN_TOKEN|><|CHATBOT_TOKEN|>"
 
 
-@pytest.mark.parametrize("response_format,n_predicted,re_content", [
-    ({"type": "json_object", "schema": {"const": "42"}}, 6, "\"42\""),
-    ({"type": "json_object", "schema": {"items": [{"type": "integer"}]}}, 10, "[ -3000 ]"),
-    ({"type": "json_schema", "json_schema": {"schema": {"const": "foooooo"}}}, 10, "\"foooooo\""),
-    ({"type": "json_object"}, 10, "(\\{|John)+"),
-    ({"type": "sound"}, 0, None),
+@pytest.mark.parametrize("response_format,n_predicted,re_content,expected_status_code", [
+    ({"type": "json_object", "schema": {"const": "42"}}, 6, "\"42\"", 200),
+    ({"type": "json_object", "schema": {"items": [{"type": "integer"}]}}, 10, "[ -3000 ]", 200),
+    ({"type": "json_schema", "json_schema": {"schema": {"const": "foooooo"}}}, 10, "\"foooooo\"", 200),
+    ({"type": "json_object"}, 10, "(\\{|John)+", 200),
+    ({"type": "sound"}, 0, None, 500),
     # invalid response format (expected to fail)
-    ({"type": "json_object", "schema": 123}, 0, None),
-    ({"type": "json_object", "schema": {"type": 123}}, 0, None),
-    ({"type": "json_object", "schema": {"type": "hiccup"}}, 0, None),
+    ({"type": "json_object", "schema": 123}, 0, None, 400),
+    ({"type": "json_object", "schema": {"type": 123}}, 0, None, 400),
+    ({"type": "json_object", "schema": {"type": "hiccup"}}, 0, None, 400),
 ])
-def test_completion_with_response_format(response_format: dict, n_predicted: int, re_content: str | None):
+def test_completion_with_response_format(response_format: dict, n_predicted: int, re_content: str | None, expected_status_code: int):
     global server
     server.start()
     res = server.make_request("POST", "/chat/completions", data={
@@ -193,12 +193,11 @@ def test_completion_with_response_format(response_format: dict, n_predicted: int
         ],
         "response_format": response_format,
     })
+    assert res.status_code == expected_status_code
     if re_content is not None:
-        assert res.status_code == 200
         choice = res.body["choices"][0]
         assert match_regex(re_content, choice["message"]["content"])
     else:
-        assert res.status_code != 200
         assert "error" in res.body
 
 
