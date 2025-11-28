@@ -229,7 +229,9 @@
 	}
 
 	async function handleSendMessage(message: string, files?: ChatUploadedFile[]): Promise<boolean> {
-		const result = files ? await parseFilesToMessageExtras(files) : undefined;
+		const result = files
+			? await parseFilesToMessageExtras(files, activeModelId ?? undefined)
+			: undefined;
 
 		if (result?.emptyFiles && result.emptyFiles.length > 0) {
 			emptyFileNames = result.emptyFiles;
@@ -292,7 +294,10 @@
 		}
 
 		if (supportedFiles.length > 0) {
-			const processed = await processFilesToChatUploaded(supportedFiles);
+			const processed = await processFilesToChatUploaded(
+				supportedFiles,
+				activeModelId ?? undefined
+			);
 			uploadedFiles = [...uploadedFiles, ...processed];
 		}
 	}

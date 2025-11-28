@@ -3,6 +3,7 @@
 	import * as Table from '$lib/components/ui/table';
 	import { BadgeModality, CopyToClipboardIcon } from '$lib/components/app';
 	import { serverStore } from '$lib/stores/server.svelte';
+	import { modelsStore } from '$lib/stores/models.svelte';
 	import { ChatService } from '$lib/services/chat';
 	import type { ApiModelListResponse } from '$lib/types/api';
 	import { formatFileSize, formatParameters, formatNumber } from '$lib/utils/formatters';
@@ -15,7 +16,14 @@
 	let { open = $bindable(), onOpenChange }: Props = $props();
 
 	let serverProps = $derived(serverStore.props);
-	let modalities = $derived(serverStore.supportedModalities);
+	let modelName = $derived(modelsStore.singleModelName);
+
+	// Get modalities from modelStore using the model ID from the first model
+	let modalities = $derived.by(() => {
+		if (!modelsData?.data?.[0]?.id) return [];
+
+		return modelsStore.getModelModalitiesArray(modelsData.data[0].id);
+	});
 
 	let modelsData = $state<ApiModelListResponse | null>(null);
 	let isLoadingModels = $state(false);
@@ -77,12 +85,12 @@
 											class="resizable-text-container min-w-0 flex-1 truncate"
 											style:--threshold="12rem"
 										>
-											{serverStore.modelName}
+											{modelName}
 										</span>
 
 										<CopyToClipboardIcon
-											text={serverStore.modelName || ''}
-											canCopy={!!serverStore.modelName}
+											text={modelName || ''}
+											canCopy={!!modelName}
 											ariaLabel="Copy model name to clipboard"
 										/>
 									</div>

@@ -1,7 +1,7 @@
 import { SvelteSet } from 'svelte/reactivity';
 import { ModelsService } from '$lib/services/models';
 import { PropsService } from '$lib/services/props';
-import { ServerModelStatus } from '$lib/enums';
+import { ServerModelStatus, ModelModality } from '$lib/enums';
 import { serverStore } from '$lib/stores/server.svelte';
 import type { ModelOption, ModelModalities } from '$lib/types/models';
 import type { ApiModelDataEntry } from '$lib/types/api';
@@ -56,6 +56,11 @@ class ModelsStore {
 	private modelPropsCache = $state<Map<string, ApiLlamaCppServerProps>>(new Map());
 	private modelPropsFetching = $state<Set<string>>(new Set());
 
+	/**
+	 * Version counter for props cache - used to trigger reactivity when props are updated
+	 */
+	propsCacheVersion = $state(0);
+
 	// ─────────────────────────────────────────────────────────────────────────────
 	// Computed Getters
 	// ─────────────────────────────────────────────────────────────────────────────
@@ -75,6 +80,21 @@ class ModelsStore {
 		return Array.from(this.modelLoadingStates.entries())
 			.filter(([, loading]) => loading)
 			.map(([id]) => id);
+	}
+
+	/**
+	 * Get model name in MODEL mode (single model).
+	 * Extracts from model_path or model_alias from server props.
+	 * In ROUTER mode, returns null (model is per-conversation).
+	 */
+	get singleModelName(): string | null {
+		if (serverStore.isRouterMode) return null;
+
+		const props = serverStore.props;
+		if (props?.model_alias) return props.model_alias;
+		if (!props?.model_path) return null;
+
+		return props.model_path.split(/(\\|\/)/).pop() || null;
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────
@@ -116,6 +136,21 @@ class ModelsStore {
 	 */
 	modelSupportsAudio(modelId: string): boolean {
 		return this.getModelModalities(modelId)?.audio ?? false;
+	}
+
+	/**
+	 * Get model modalities as an array of ModelModality enum values
+	 */
+	getModelModalitiesArray(modelId: string): ModelModality[] {
+		const modalities = this.getModelModalities(modelId);
+		if (!modalities) return [];
+
+		const result: ModelModality[] = [];
+
+		if (modalities.vision) result.push(ModelModality.VISION);
+		if (modalities.audio) result.push(ModelModality.AUDIO);
+
+		return result;
 	}
 
 	/**
@@ -300,6 +335,9 @@ class ModelsStore {
 
 				return { ...model, modalities };
 			});
+
+			// Increment version to trigger reactivity
+			this.propsCacheVersion++;
 		} catch (error) {
 			console.warn('Failed to fetch modalities for loaded models:', error);
 		}
@@ -322,6 +360,9 @@ class ModelsStore {
 			this.models = this.models.map((model) =>
 				model.model === modelId ? { ...model, modalities } : model
 			);
+
+			// Increment version to trigger reactivity
+			this.propsCacheVersion++;
 		} catch (error) {
 			console.warn(`Failed to update modalities for model ${modelId}:`, error);
 		}
@@ -583,3 +624,5 @@ export const selectedModelName = () => modelsStore.selectedModelName;
 export const selectedModelOption = () => modelsStore.selectedModel;
 export const loadedModelIds = () => modelsStore.loadedModelIds;
 export const loadingModelIds = () => modelsStore.loadingModelIds;
+export const propsCacheVersion = () => modelsStore.propsCacheVersion;
+export const singleModelName = () => modelsStore.singleModelName;

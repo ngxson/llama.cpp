@@ -10,11 +10,13 @@
 		modelsLoading,
 		modelsUpdating,
 		selectedModelId,
-		routerModels
+		routerModels,
+		propsCacheVersion,
+		singleModelName
 	} from '$lib/stores/models.svelte';
 	import { usedModalities, conversationsStore } from '$lib/stores/conversations.svelte';
 	import { ServerModelStatus } from '$lib/enums';
-	import { isRouterMode, serverStore } from '$lib/stores/server.svelte';
+	import { isRouterMode } from '$lib/stores/server.svelte';
 	import { DialogModelInformation } from '$lib/components/app';
 	import type { ModelOption } from '$lib/types/models';
 
@@ -50,7 +52,7 @@
 	let updating = $derived(modelsUpdating());
 	let activeId = $derived(selectedModelId());
 	let isRouter = $derived(isRouterMode());
-	let serverModel = $derived(serverStore.modelName);
+	let serverModel = $derived(singleModelName());
 
 	// Reactive router models state - needed for proper reactivity of status checks
 	let currentRouterModels = $derived(routerModels());
@@ -69,9 +71,19 @@
 	 * Returns true if the model can be selected, false if it should be disabled.
 	 */
 	function isModelCompatible(option: ModelOption): boolean {
-		const modelModalities = option.modalities;
+		void propsCacheVersion();
 
-		if (!modelModalities) return true;
+		const modelModalities = modelsStore.getModelModalities(option.model);
+
+		if (!modelModalities) {
+			const status = getModelStatus(option.model);
+
+			if (status === ServerModelStatus.LOADED) {
+				if (requiredModalities.vision || requiredModalities.audio) return false;
+			}
+
+			return true;
+		}
 
 		if (requiredModalities.vision && !modelModalities.vision) return false;
 		if (requiredModalities.audio && !modelModalities.audio) return false;
@@ -84,8 +96,24 @@
 	 * Returns object with vision/audio booleans indicating what's missing.
 	 */
 	function getMissingModalities(option: ModelOption): { vision: boolean; audio: boolean } | null {
-		const modelModalities = option.modalities;
-		if (!modelModalities) return null;
+		void propsCacheVersion();
+
+		const modelModalities = modelsStore.getModelModalities(option.model);
+
+		if (!modelModalities) {
+			const status = getModelStatus(option.model);
+
+			if (status === ServerModelStatus.LOADED) {
+				const missing = {
+					vision: requiredModalities.vision,
+					audio: requiredModalities.audio
+				};
+
+				if (missing.vision || missing.audio) return missing;
+			}
+
+			return null;
+		}
 
 		const missing = {
 			vision: requiredModalities.vision && !modelModalities.vision,
@@ -93,6 +121,7 @@
 		};
 
 		if (!missing.vision && !missing.audio) return null;
+
 		return missing;
 	}
 
@@ -160,9 +189,10 @@
 		await tick();
 		updateMenuPosition();
 		requestAnimationFrame(() => updateMenuPosition());
+
+		modelsStore.fetchModalitiesForLoadedModels();
 	}
 
-	// Export open function for programmatic access
 	export function open() {
 		if (isRouter) {
 			openMenu();

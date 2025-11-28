@@ -1,5 +1,5 @@
 import { PropsService } from '$lib/services/props';
-import { ServerRole, ModelModality } from '$lib/enums';
+import { ServerRole } from '$lib/enums';
 
 /**
  * serverStore - Server connection state, configuration, and role detection
@@ -16,12 +16,6 @@ import { ServerRole, ModelModality } from '$lib/enums';
  * - **Server State**: Connection status, loading, error handling
  * - **Role Detection**: MODEL (single model) vs ROUTER (multi-model)
  * - **Default Params**: Server-wide generation defaults
- *
- * **Note on Modalities:**
- * Model-specific modalities (vision, audio) are now managed by modelsStore.
- * Use `modelsStore.getModelModalities(modelId)` for per-model modality info.
- * The `supportsVision`/`supportsAudio` getters here are deprecated and only
- * apply to MODEL mode (single model).
  */
 class ServerStore {
 	// ─────────────────────────────────────────────────────────────────────────────
@@ -37,45 +31,6 @@ class ServerStore {
 	// ─────────────────────────────────────────────────────────────────────────────
 	// Getters
 	// ─────────────────────────────────────────────────────────────────────────────
-
-	/**
-	 * Get model name from server props.
-	 * In MODEL mode: extracts from model_path or model_alias
-	 * In ROUTER mode: returns null (model is per-conversation)
-	 */
-	get modelName(): string | null {
-		if (this.role === ServerRole.ROUTER) return null;
-		if (this.props?.model_alias) return this.props.model_alias;
-		if (!this.props?.model_path) return null;
-		return this.props.model_path.split(/(\\|\/)/).pop() || null;
-	}
-
-	/**
-	 * @deprecated Use modelsStore.getModelModalities(modelId) for per-model modalities.
-	 * This only works in MODEL mode (single model).
-	 */
-	get supportedModalities(): ModelModality[] {
-		const modalities: ModelModality[] = [];
-		if (this.props?.modalities?.audio) modalities.push(ModelModality.AUDIO);
-		if (this.props?.modalities?.vision) modalities.push(ModelModality.VISION);
-		return modalities;
-	}
-
-	/**
-	 * @deprecated Use modelsStore.modelSupportsVision(modelId) for per-model check.
-	 * This only works in MODEL mode (single model).
-	 */
-	get supportsVision(): boolean {
-		return this.props?.modalities?.vision ?? false;
-	}
-
-	/**
-	 * @deprecated Use modelsStore.modelSupportsAudio(modelId) for per-model check.
-	 * This only works in MODEL mode (single model).
-	 */
-	get supportsAudio(): boolean {
-		return this.props?.modalities?.audio ?? false;
-	}
 
 	get defaultParams(): ApiLlamaCppServerProps['default_generation_settings']['params'] | null {
 		return this.props?.default_generation_settings?.params || null;
@@ -179,10 +134,6 @@ export const serverProps = () => serverStore.props;
 export const serverLoading = () => serverStore.loading;
 export const serverError = () => serverStore.error;
 export const serverRole = () => serverStore.role;
-export const modelName = () => serverStore.modelName;
-export const supportedModalities = () => serverStore.supportedModalities;
-export const supportsVision = () => serverStore.supportsVision;
-export const supportsAudio = () => serverStore.supportsAudio;
 export const slotsEndpointAvailable = () => serverStore.slotsEndpointAvailable;
 export const defaultParams = () => serverStore.defaultParams;
 export const contextSize = () => serverStore.contextSize;

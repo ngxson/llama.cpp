@@ -3,7 +3,7 @@
 	import { getFileTypeLabel, getPreviewText } from '$lib/utils/file-preview';
 	import { formatFileSize } from '$lib/utils/formatters';
 	import { isTextFile } from '$lib/utils/attachment-type';
-	import type { DatabaseMessageExtra } from '$lib/types/database';
+	import type { DatabaseMessageExtra, DatabaseMessageExtraPdfFile } from '$lib/types/database';
 	import { AttachmentType } from '$lib/enums';
 
 	interface Props {
@@ -35,14 +35,31 @@
 
 	let isText = $derived(isTextFile(attachment, uploadedFile));
 
-	// Get file type for display - check uploadedFile first, then attachment mimeType
-	let fileType = $derived.by(() => {
-		if (uploadedFile?.type) return uploadedFile.type;
-		// For audio attachments stored in DB, get mimeType from the attachment
-		if (attachment?.type === AttachmentType.AUDIO && 'mimeType' in attachment) {
-			return attachment.mimeType;
+	let fileTypeLabel = $derived.by(() => {
+		if (uploadedFile?.type) {
+			return getFileTypeLabel(uploadedFile.type);
 		}
-		return 'unknown';
+
+		if (attachment) {
+			if ('mimeType' in attachment && attachment.mimeType) {
+				return getFileTypeLabel(attachment.mimeType);
+			}
+
+			if (attachment.type) {
+				return getFileTypeLabel(attachment.type);
+			}
+		}
+
+		return getFileTypeLabel(name);
+	});
+
+	let pdfProcessingMode = $derived.by(() => {
+		if (attachment?.type === AttachmentType.PDF) {
+			const pdfAttachment = attachment as DatabaseMessageExtraPdfFile;
+
+			return pdfAttachment.processedAsImages ? 'Sent as Image' : 'Sent as Text';
+		}
+		return null;
 	});
 </script>
 
@@ -123,17 +140,19 @@
 		<div
 			class="flex h-8 w-8 items-center justify-center rounded bg-primary/10 text-xs font-medium text-primary"
 		>
-			{getFileTypeLabel(fileType)}
+			{fileTypeLabel}
 		</div>
 
-		<div class="flex flex-col gap-1">
+		<div class="flex flex-col gap-0.5">
 			<span
 				class="max-w-24 truncate text-sm font-medium text-foreground group-hover:pr-6 md:max-w-32"
 			>
 				{name}
 			</span>
 
-			{#if size}
+			{#if pdfProcessingMode}
+				<span class="text-left text-xs text-muted-foreground">{pdfProcessingMode}</span>
+			{:else if size}
 				<span class="text-left text-xs text-muted-foreground">{formatFileSize(size)}</span>
 			{/if}
 		</div>

@@ -3,7 +3,7 @@ import { isTextFileByName } from './text-files';
 import { isWebpMimeType, webpBase64UrlToPngDataURL } from './webp-to-png';
 import { FileTypeCategory } from '$lib/enums';
 import { getFileTypeCategory } from '$lib/utils/file-type';
-import { supportsVision } from '$lib/stores/server.svelte';
+import { modelsStore } from '$lib/stores/models.svelte';
 import { settingsStore } from '$lib/stores/settings.svelte';
 import { toast } from 'svelte-sonner';
 
@@ -47,7 +47,10 @@ function readFileAsUTF8(file: File): Promise<string> {
  * @param files - Array of File objects to process
  * @returns Promise resolving to array of ChatUploadedFile objects
  */
-export async function processFilesToChatUploaded(files: File[]): Promise<ChatUploadedFile[]> {
+export async function processFilesToChatUploaded(
+	files: File[],
+	activeModelId?: string
+): Promise<ChatUploadedFile[]> {
 	const results: ChatUploadedFile[] = [];
 
 	for (const file of files) {
@@ -96,7 +99,9 @@ export async function processFilesToChatUploaded(files: File[]): Promise<ChatUpl
 				results.push(base);
 
 				// Show suggestion toast if vision model is available but PDF as image is disabled
-				const hasVisionSupport = supportsVision();
+				const hasVisionSupport = activeModelId
+					? modelsStore.modelSupportsVision(activeModelId)
+					: false;
 				const currentConfig = settingsStore.config;
 				if (hasVisionSupport && !currentConfig.pdfAsImage) {
 					toast.info(`You can enable parsing PDF as images with vision models.`, {
