@@ -8,6 +8,7 @@ import { AttachmentType } from '$lib/enums';
 import type {
 	DatabaseConversation,
 	DatabaseMessage,
+	DatabaseMessageExtraPdfFile,
 	ExportedConversations
 } from '$lib/types/database';
 import type { ModelModalities } from '$lib/types/models';
@@ -95,9 +96,19 @@ class ConversationsStore {
 			if (!message.extra) continue;
 
 			for (const extra of message.extra) {
-				if (extra.type === AttachmentType.IMAGE || extra.type === AttachmentType.PDF) {
+				if (extra.type === AttachmentType.IMAGE) {
 					modalities.vision = true;
 				}
+
+				// PDF only requires vision if processed as images
+				if (extra.type === AttachmentType.PDF) {
+					const pdfExtra = extra as DatabaseMessageExtraPdfFile;
+
+					if (pdfExtra.processedAsImages) {
+						modalities.vision = true;
+					}
+				}
+
 				if (extra.type === AttachmentType.AUDIO) {
 					modalities.audio = true;
 				}
