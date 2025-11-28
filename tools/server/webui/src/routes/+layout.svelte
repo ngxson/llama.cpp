@@ -111,6 +111,7 @@
 	// Fetch router models when in router mode (for status and modalities)
 	// Wait for models to be loaded first, run only once
 	let routerModelsFetched = false;
+
 	$effect(() => {
 		const isRouter = isRouterMode();
 		const modelsCount = modelsStore.models.length;
