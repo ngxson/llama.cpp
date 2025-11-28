@@ -21,9 +21,11 @@
 	 */
 	function clearUrlParams() {
 		const url = new URL(page.url);
+
 		url.searchParams.delete('q');
 		url.searchParams.delete('model');
 		url.searchParams.delete('new_chat');
+
 		replaceState(url.toString(), {});
 	}
 
