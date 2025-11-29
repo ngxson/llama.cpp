@@ -13,12 +13,9 @@
 #include "mtmd.h"
 #include "mtmd-helper.h"
 
-#include <atomic>
 #include <cstddef>
 #include <cinttypes>
 #include <memory>
-#include <signal.h>
-#include <thread>
 #include <unordered_set>
 
 // fix problem with std::min and std::max
@@ -31,6 +28,22 @@
 #endif
 
 using json = nlohmann::ordered_json;
+
+constexpr int HTTP_POLLING_SECONDS = 1;
+
+// state diagram: https://github.com/ggml-org/llama.cpp/pull/9283
+enum slot_state {
+    SLOT_STATE_IDLE,
+    SLOT_STATE_STARTED, // TODO: this state is only used for setting up the initial prompt processing; maybe merge it with launch_slot_with_task in the future
+    SLOT_STATE_PROCESSING_PROMPT,
+    SLOT_STATE_DONE_PROMPT,
+    SLOT_STATE_GENERATING,
+};
+
+enum server_state {
+    SERVER_STATE_LOADING_MODEL,  // Server is starting up, model not fully loaded yet
+    SERVER_STATE_READY,          // Server is ready and model is loaded
+};
 
 static bool server_task_type_need_embd(server_task_type task_type) {
     switch (task_type) {
@@ -2649,6 +2662,178 @@ struct server_res_generator : server_http_res {
 // server_routes
 //
 
+static std::unique_ptr<server_res_generator> handle_completions_impl(
+            server_context_impl & ctx_server,
+            server_task_type type,
+            const json & data,
+            const std::vector<raw_buffer> & files,
+            const std::function<bool()> & should_stop,
+            task_response_type res_type) {
+    GGML_ASSERT(type == SERVER_TASK_TYPE_COMPLETION || type == SERVER_TASK_TYPE_INFILL);
+
+    auto res = std::make_unique<server_res_generator>(ctx_server);
+    auto completion_id = gen_chatcmplid();
+    auto & rd = res->rd;
+
+    try {
+        std::vector<server_task> tasks;
+
+        const auto & prompt = data.at("prompt");
+        // TODO: this log can become very long, put it behind a flag or think about a more compact format
+        //SRV_DBG("Prompt: %s\n", prompt.is_string() ? prompt.get<std::string>().c_str() : prompt.dump(2).c_str());
+
+        // process prompt
+        std::vector<server_tokens> inputs;
+
+        if (res_type != TASK_RESPONSE_TYPE_NONE && ctx_server.mctx != nullptr) {
+            // This is the case used by OAI compatible chat path with MTMD. TODO It can be moved to the path below.
+            inputs.push_back(process_mtmd_prompt(ctx_server.mctx, prompt.get<std::string>(), files));
+        } else {
+            // Everything else, including multimodal completions.
+            inputs = tokenize_input_prompts(ctx_server.vocab, ctx_server.mctx, prompt, true, true);
+        }
+        tasks.reserve(inputs.size());
+        for (size_t i = 0; i < inputs.size(); i++) {
+            server_task task = server_task(type);
+
+            task.id    = ctx_server.queue_tasks.get_new_id();
+            task.index = i;
+
+            task.tokens = std::move(inputs[i]);
+            task.params = server_task::params_from_json_cmpl(
+                    ctx_server.ctx,
+                    ctx_server.params_base,
+                    data);
+            task.id_slot = json_value(data, "id_slot", -1);
+
+            // OAI-compat
+            task.params.res_type          = res_type;
+            task.params.oaicompat_cmpl_id = completion_id;
+            // oaicompat_model is already populated by params_from_json_cmpl
+
+            tasks.push_back(std::move(task));
+        }
+
+        rd.post_tasks(std::move(tasks));
+    } catch (const std::exception & e) {
+        res->error(format_error_response(e.what(), ERROR_TYPE_INVALID_REQUEST));
+        return res;
+    }
+
+    bool stream = json_value(data, "stream", false);
+
+    if (!stream) {
+        // non-stream, wait for the results
+        auto all_results = rd.wait_for_all(should_stop);
+        if (all_results.is_terminated) {
+            return res; // connection is closed
+        } else if (all_results.error) {
+            res->error(all_results.error->to_json());
+            return res;
+        } else {
+            json arr = json::array();
+            for (auto & res : all_results.results) {
+                GGML_ASSERT(dynamic_cast<server_task_result_cmpl_final*>(res.get()) != nullptr);
+                arr.push_back(res->to_json());
+            }
+            // if single request, return single object instead of array
+            res->ok(arr.size() == 1 ? arr[0] : arr);
+        }
+
+    } else {
+        // in streaming mode, the first error must be treated as non-stream response
+        // this is to match the OAI API behavior
+        // ref: https://github.com/ggml-org/llama.cpp/pull/16486#discussion_r2419657309
+        server_task_result_ptr first_result = rd.next(should_stop);
+        if (first_result == nullptr) {
+            return res; // connection is closed
+        } else if (first_result->is_error()) {
+            res->error(first_result->to_json());
+            return res;
+        } else {
+            GGML_ASSERT(
+                dynamic_cast<server_task_result_cmpl_partial*>(first_result.get()) != nullptr
+                || dynamic_cast<server_task_result_cmpl_final*>(first_result.get()) != nullptr
+            );
+        }
+
+        // next responses are streamed
+        if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
+            res->data = format_anthropic_sse(first_result->to_json());
+        } else {
+            res->data = format_oai_sse(first_result->to_json()); // to be sent immediately
+        }
+        res->status = 200;
+        res->content_type = "text/event-stream";
+        res->next = [res_this = res.get(), res_type, &should_stop](std::string & output) -> bool {
+            if (should_stop()) {
+                SRV_DBG("%s", "stopping streaming due to should_stop condition\n");
+                return false; // should_stop condition met
+            }
+
+            if (!res_this->data.empty()) {
+                // flush the first chunk
+                output = std::move(res_this->data);
+                res_this->data.clear();
+                return true;
+            }
+
+            server_response_reader & rd = res_this->rd;
+
+            // check if there is more data
+            if (!rd.has_next()) {
+                if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
+                    // Anthropic doesn't send [DONE], message_stop was already sent
+                    output = "";
+                } else if (res_type != TASK_RESPONSE_TYPE_NONE) {
+                    output = "data: [DONE]\n\n";
+                } else {
+                    output = "";
+                }
+                SRV_DBG("%s", "all results received, terminating stream\n");
+                return false; // no more data, terminate
+            }
+
+            // receive subsequent results
+            auto result = rd.next(should_stop);
+            if (result == nullptr) {
+                SRV_DBG("%s", "stopping streaming due to should_stop condition\n");
+                return false; // should_stop condition met
+            }
+
+            // send the results
+            json res_json = result->to_json();
+            if (result->is_error()) {
+                if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
+                    output = format_anthropic_sse({
+                        {"event", "error"},
+                        {"data", res_json},
+                    });
+                } else {
+                    output = format_oai_sse(json {{ "error", res_json }});
+                }
+                SRV_DBG("%s", "error received during streaming, terminating stream\n");
+                return false; // terminate on error
+            } else {
+                GGML_ASSERT(
+                    dynamic_cast<server_task_result_cmpl_partial*>(result.get()) != nullptr
+                    || dynamic_cast<server_task_result_cmpl_final*>(result.get()) != nullptr
+                );
+                if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
+                    output = format_anthropic_sse(res_json);
+                } else {
+                    output = format_oai_sse(res_json);
+                }
+            }
+
+            // has next data, continue
+            return true;
+        };
+    }
+
+    return res;
+}
+
 void server_routes::init_routes() {
     this->get_health = [this](const server_http_req &) {
         // error and loading states are handled by middleware
@@ -2991,6 +3176,7 @@ void server_routes::init_routes() {
 
         std::vector<raw_buffer> files; // dummy
         return handle_completions_impl(
+            ctx_server,
             SERVER_TASK_TYPE_INFILL,
             data,
             files,
@@ -3002,6 +3188,7 @@ void server_routes::init_routes() {
         std::vector<raw_buffer> files; // dummy
         const json body = json::parse(req.body);
         return handle_completions_impl(
+            ctx_server,
             SERVER_TASK_TYPE_COMPLETION,
             body,
             files,
@@ -3013,6 +3200,7 @@ void server_routes::init_routes() {
         std::vector<raw_buffer> files; // dummy
         const json body = json::parse(req.body);
         return handle_completions_impl(
+            ctx_server,
             SERVER_TASK_TYPE_COMPLETION,
             body,
             files,
@@ -3028,6 +3216,7 @@ void server_routes::init_routes() {
             ctx_server.oai_parser_opt,
             files);
         return handle_completions_impl(
+            ctx_server,
             SERVER_TASK_TYPE_COMPLETION,
             body_parsed,
             files,
@@ -3043,6 +3232,7 @@ void server_routes::init_routes() {
             ctx_server.oai_parser_opt,
             files);
         return handle_completions_impl(
+            ctx_server,
             SERVER_TASK_TYPE_COMPLETION,
             body_parsed,
             files,
@@ -3330,177 +3520,6 @@ void server_routes::init_routes() {
         res->ok(result->to_json());
         return res;
     };
-}
-
-std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
-            server_task_type type,
-            const json & data,
-            const std::vector<raw_buffer> & files,
-            const std::function<bool()> & should_stop,
-            task_response_type res_type) {
-    GGML_ASSERT(type == SERVER_TASK_TYPE_COMPLETION || type == SERVER_TASK_TYPE_INFILL);
-
-    auto res = std::make_unique<server_res_generator>(ctx_server);
-    auto completion_id = gen_chatcmplid();
-    auto & rd = res->rd;
-
-    try {
-        std::vector<server_task> tasks;
-
-        const auto & prompt = data.at("prompt");
-        // TODO: this log can become very long, put it behind a flag or think about a more compact format
-        //SRV_DBG("Prompt: %s\n", prompt.is_string() ? prompt.get<std::string>().c_str() : prompt.dump(2).c_str());
-
-        // process prompt
-        std::vector<server_tokens> inputs;
-
-        if (res_type != TASK_RESPONSE_TYPE_NONE && ctx_server.mctx != nullptr) {
-            // This is the case used by OAI compatible chat path with MTMD. TODO It can be moved to the path below.
-            inputs.push_back(process_mtmd_prompt(ctx_server.mctx, prompt.get<std::string>(), files));
-        } else {
-            // Everything else, including multimodal completions.
-            inputs = tokenize_input_prompts(ctx_server.vocab, ctx_server.mctx, prompt, true, true);
-        }
-        tasks.reserve(inputs.size());
-        for (size_t i = 0; i < inputs.size(); i++) {
-            server_task task = server_task(type);
-
-            task.id    = ctx_server.queue_tasks.get_new_id();
-            task.index = i;
-
-            task.tokens = std::move(inputs[i]);
-            task.params = server_task::params_from_json_cmpl(
-                    ctx_server.ctx,
-                    ctx_server.params_base,
-                    data);
-            task.id_slot = json_value(data, "id_slot", -1);
-
-            // OAI-compat
-            task.params.res_type          = res_type;
-            task.params.oaicompat_cmpl_id = completion_id;
-            // oaicompat_model is already populated by params_from_json_cmpl
-
-            tasks.push_back(std::move(task));
-        }
-
-        rd.post_tasks(std::move(tasks));
-    } catch (const std::exception & e) {
-        res->error(format_error_response(e.what(), ERROR_TYPE_INVALID_REQUEST));
-        return res;
-    }
-
-    bool stream = json_value(data, "stream", false);
-
-    if (!stream) {
-        // non-stream, wait for the results
-        auto all_results = rd.wait_for_all(should_stop);
-        if (all_results.is_terminated) {
-            return res; // connection is closed
-        } else if (all_results.error) {
-            res->error(all_results.error->to_json());
-            return res;
-        } else {
-            json arr = json::array();
-            for (auto & res : all_results.results) {
-                GGML_ASSERT(dynamic_cast<server_task_result_cmpl_final*>(res.get()) != nullptr);
-                arr.push_back(res->to_json());
-            }
-            // if single request, return single object instead of array
-            res->ok(arr.size() == 1 ? arr[0] : arr);
-        }
-
-    } else {
-        // in streaming mode, the first error must be treated as non-stream response
-        // this is to match the OAI API behavior
-        // ref: https://github.com/ggml-org/llama.cpp/pull/16486#discussion_r2419657309
-        server_task_result_ptr first_result = rd.next(should_stop);
-        if (first_result == nullptr) {
-            return res; // connection is closed
-        } else if (first_result->is_error()) {
-            res->error(first_result->to_json());
-            return res;
-        } else {
-            GGML_ASSERT(
-                dynamic_cast<server_task_result_cmpl_partial*>(first_result.get()) != nullptr
-                || dynamic_cast<server_task_result_cmpl_final*>(first_result.get()) != nullptr
-            );
-        }
-
-        // next responses are streamed
-        if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
-            res->data = format_anthropic_sse(first_result->to_json());
-        } else {
-            res->data = format_oai_sse(first_result->to_json()); // to be sent immediately
-        }
-        res->status = 200;
-        res->content_type = "text/event-stream";
-        res->next = [res_this = res.get(), res_type, &should_stop](std::string & output) -> bool {
-            if (should_stop()) {
-                SRV_DBG("%s", "stopping streaming due to should_stop condition\n");
-                return false; // should_stop condition met
-            }
-
-            if (!res_this->data.empty()) {
-                // flush the first chunk
-                output = std::move(res_this->data);
-                res_this->data.clear();
-                return true;
-            }
-
-            server_response_reader & rd = res_this->rd;
-
-            // check if there is more data
-            if (!rd.has_next()) {
-                if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
-                    // Anthropic doesn't send [DONE], message_stop was already sent
-                    output = "";
-                } else if (res_type != TASK_RESPONSE_TYPE_NONE) {
-                    output = "data: [DONE]\n\n";
-                } else {
-                    output = "";
-                }
-                SRV_DBG("%s", "all results received, terminating stream\n");
-                return false; // no more data, terminate
-            }
-
-            // receive subsequent results
-            auto result = rd.next(should_stop);
-            if (result == nullptr) {
-                SRV_DBG("%s", "stopping streaming due to should_stop condition\n");
-                return false; // should_stop condition met
-            }
-
-            // send the results
-            json res_json = result->to_json();
-            if (result->is_error()) {
-                if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
-                    output = format_anthropic_sse({
-                        {"event", "error"},
-                        {"data", res_json},
-                    });
-                } else {
-                    output = format_oai_sse(json {{ "error", res_json }});
-                }
-                SRV_DBG("%s", "error received during streaming, terminating stream\n");
-                return false; // terminate on error
-            } else {
-                GGML_ASSERT(
-                    dynamic_cast<server_task_result_cmpl_partial*>(result.get()) != nullptr
-                    || dynamic_cast<server_task_result_cmpl_final*>(result.get()) != nullptr
-                );
-                if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
-                    output = format_anthropic_sse(res_json);
-                } else {
-                    output = format_oai_sse(res_json);
-                }
-            }
-
-            // has next data, continue
-            return true;
-        };
-    }
-
-    return res;
 }
 
 std::unique_ptr<server_res_generator> server_routes::handle_slots_save(const server_http_req & req, int id_slot) {

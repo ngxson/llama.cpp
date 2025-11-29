@@ -5,27 +5,10 @@
 #include "common.h"
 #include "llama.h"
 #include "log.h"
-#include "sampling.h"
-#include "speculative.h"
-#include "mtmd.h"
-#include "mtmd-helper.h"
 
 #include <atomic>
-#include <cstddef>
-#include <cinttypes>
-#include <memory>
 #include <signal.h>
-#include <thread>
-#include <unordered_set>
-
-// fix problem with std::min and std::max
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#ifndef NOMINMAX
-#   define NOMINMAX
-#endif
-#include <windows.h>
-#endif
+#include <thread> // for std::thread::hardware_concurrency
 
 
 static std::function<void(int)> shutdown_handler;

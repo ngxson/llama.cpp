@@ -1,51 +1,13 @@
 #include "server-common.h"
 #include "server-http.h"
 #include "server-task.h"
-#include "server-queue.h"
 
-#include "arg.h"
 #include "common.h"
 #include "llama.h"
-#include "log.h"
-#include "sampling.h"
-#include "speculative.h"
-#include "mtmd.h"
-#include "mtmd-helper.h"
 
-#include <atomic>
 #include <cstddef>
 #include <cinttypes>
 #include <memory>
-#include <signal.h>
-#include <thread>
-#include <unordered_set>
-
-// fix problem with std::min and std::max
-#if defined(_WIN32)
-#define WIN32_LEAN_AND_MEAN
-#ifndef NOMINMAX
-#   define NOMINMAX
-#endif
-#include <windows.h>
-#endif
-
-using json = nlohmann::ordered_json;
-
-constexpr int HTTP_POLLING_SECONDS = 1;
-
-// state diagram: https://github.com/ggml-org/llama.cpp/pull/9283
-enum slot_state {
-    SLOT_STATE_IDLE,
-    SLOT_STATE_STARTED, // TODO: this state is only used for setting up the initial prompt processing; maybe merge it with launch_slot_with_task in the future
-    SLOT_STATE_PROCESSING_PROMPT,
-    SLOT_STATE_DONE_PROMPT,
-    SLOT_STATE_GENERATING,
-};
-
-enum server_state {
-    SERVER_STATE_LOADING_MODEL,  // Server is starting up, model not fully loaded yet
-    SERVER_STATE_READY,          // Server is ready and model is loaded
-};
 
 struct server_context_impl; // private implementation
 struct server_context_impl_deleter {
@@ -76,6 +38,7 @@ struct server_context {
 };
 
 
+// forward declarations
 struct server_res_generator;
 
 struct server_routes {
@@ -113,12 +76,7 @@ public:
     server_http_context::handler_t get_lora_adapters;
     server_http_context::handler_t post_lora_adapters;
 private:
-    std::unique_ptr<server_res_generator> handle_completions_impl(
-                server_task_type type,
-                const json & data,
-                const std::vector<raw_buffer> & files,
-                const std::function<bool()> & should_stop,
-                task_response_type res_type);
+    // TODO: move these outside of server_routes?
     std::unique_ptr<server_res_generator> handle_slots_save(const server_http_req & req, int id_slot);
     std::unique_ptr<server_res_generator> handle_slots_restore(const server_http_req & req, int id_slot);
     std::unique_ptr<server_res_generator> handle_slots_erase(const server_http_req &, int id_slot);
