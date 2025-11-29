@@ -372,9 +372,9 @@ extern "C" {
     GGML_API void        ggml_fp32_to_bf16_row_ref(const float *, ggml_bf16_t *, int64_t);
     GGML_API void        ggml_fp32_to_bf16_row(const float *, ggml_bf16_t *, int64_t);
 
-    // Q3_HIFI: 3-bit + 4 FP16 outliers per 256 weights
+    // Q3_HIFI: 3-bit + 6 FP16 outliers per 256 weights (improved accuracy)
     #define Q3_HIFI_BLOCK_SIZE           256
-    #define Q3_HIFI_OUTFIERS_PER_BLOCK   4
+    #define Q3_HIFI_OUTFIERS_PER_BLOCK   6
 
     typedef struct {
         float    d;                                        // scale for 3-bit bulk
