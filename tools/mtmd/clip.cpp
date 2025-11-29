@@ -1555,8 +1555,8 @@ struct clip_graph {
         ggml_tensor * inp = ggml_cpy(ctx0, patch_embeds, ggml_dup_tensor(ctx0, patch_embeds));
 
 
-        inp = ggml_cont(ctx0,ggml_permute(ctx0, inp,2,1,0,3));
-        inp = ggml_reshape_2d(ctx0, inp, n_embd, inp->ne[1]*inp->ne[2]*inp->ne[3]);
+        inp = ggml_reshape_2d(ctx0, inp, inp->ne[0]*inp->ne[1], inp->ne[2]);
+        inp = ggml_cont(ctx0, ggml_permute(ctx0, inp, 1, 0, 2, 3));
 
         ggml_tensor * new_pos_embd = ggml_cpy(ctx0, model.position_embeddings, ggml_dup_tensor(ctx0, model.position_embeddings));
 
@@ -1587,7 +1587,7 @@ struct clip_graph {
 
 
         // add CLS token
-        inp = ggml_concat(ctx0, inp, model.class_embedding, 1);
+        inp = ggml_concat(ctx0, model.class_embedding, inp, 1);
 
         //TODO : check norm type for dp-ocr-clip
         norm_type norm_t  = NORM_TYPE_NORMAL;
@@ -1595,7 +1595,6 @@ struct clip_graph {
         // for selecting learned pos embd, used by ViT
         ggml_tensor * positions =  ggml_cast(ctx0, ggml_arange(ctx0, 0, n_pos, 1), GGML_TYPE_I32);
         ggml_tensor * learned_pos_embd = ggml_get_rows(ctx0, new_pos_embd, positions);
-
 
         ggml_tensor * cur = build_vit(inp, n_pos, norm_t, hparams.ffn_op, learned_pos_embd,
                                       nullptr);  // shape [1024, 16, 16]
@@ -2395,7 +2394,7 @@ private:
         // pre-layernorm
         if (model.pre_ln_w) {
             inpL = build_norm(inpL, model.pre_ln_w, model.pre_ln_b, norm_t, eps, -1);
-            cb(inpL, "pre_ln", -1);
+            cb(inpL, "vit_pre_ln", -1);
         }
 
         // loop over layers
@@ -5808,7 +5807,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
             bool is_stored = false;
             std::vector<std::string> patterns = {
                 /* Add tensor names here to dump (e.g. "sam_output") */
-                "sam_output"
+                "vit_pre_ln"
             };
 
             for (auto & p : patterns) {
