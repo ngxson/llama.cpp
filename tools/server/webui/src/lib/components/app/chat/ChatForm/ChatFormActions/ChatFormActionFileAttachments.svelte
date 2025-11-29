@@ -3,7 +3,6 @@
 	import { Button } from '$lib/components/ui/button';
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import * as Tooltip from '$lib/components/ui/tooltip';
-	import { TOOLTIP_DELAY_DURATION } from '$lib/constants/tooltip-config';
 	import { FILE_TYPE_ICONS } from '$lib/constants/icons';
 	import { FileTypeCategory } from '$lib/enums';
 
@@ -37,7 +36,7 @@
 <div class="flex items-center gap-1 {className}">
 	<DropdownMenu.Root>
 		<DropdownMenu.Trigger name="Attach files">
-			<Tooltip.Root delayDuration={TOOLTIP_DELAY_DURATION}>
+			<Tooltip.Root>
 				<Tooltip.Trigger>
 					<Button
 						class="file-upload-button h-8 w-8 rounded-full bg-transparent p-0 text-muted-foreground hover:bg-foreground/10 hover:text-foreground"
@@ -57,7 +56,7 @@
 		</DropdownMenu.Trigger>
 
 		<DropdownMenu.Content align="start" class="w-48">
-			<Tooltip.Root delayDuration={TOOLTIP_DELAY_DURATION}>
+			<Tooltip.Root>
 				<Tooltip.Trigger class="w-full">
 					<DropdownMenu.Item
 						class="images-button flex cursor-pointer items-center gap-2"
@@ -77,7 +76,7 @@
 				{/if}
 			</Tooltip.Root>
 
-			<Tooltip.Root delayDuration={TOOLTIP_DELAY_DURATION}>
+			<Tooltip.Root>
 				<Tooltip.Trigger class="w-full">
 					<DropdownMenu.Item
 						class="audio-button flex cursor-pointer items-center gap-2"
@@ -106,7 +105,7 @@
 				<span>Text Files</span>
 			</DropdownMenu.Item>
 
-			<Tooltip.Root delayDuration={TOOLTIP_DELAY_DURATION}>
+			<Tooltip.Root>
 				<Tooltip.Trigger class="w-full">
 					<DropdownMenu.Item
 						class="flex cursor-pointer items-center gap-2"

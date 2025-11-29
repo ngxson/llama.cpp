@@ -6,12 +6,14 @@
 	import { isLoading } from '$lib/stores/chat.svelte';
 	import { conversationsStore, activeMessages } from '$lib/stores/conversations.svelte';
 	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
+	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { isRouterMode, serverStore } from '$lib/stores/server.svelte';
 	import { config, settingsStore } from '$lib/stores/settings.svelte';
 	import { ModeWatcher } from 'mode-watcher';
 	import { Toaster } from 'svelte-sonner';
 	import { goto } from '$app/navigation';
 	import { modelsStore } from '$lib/stores/models.svelte';
+	import { TOOLTIP_DELAY_DURATION } from '$lib/constants/tooltip-config';
 
 	let { children } = $props();
 
@@ -169,35 +171,37 @@
 	});
 </script>
 
-<ModeWatcher />
+<Tooltip.Provider delayDuration={TOOLTIP_DELAY_DURATION}>
+	<ModeWatcher />
 
-<Toaster richColors />
+	<Toaster richColors />
 
-<DialogConversationTitleUpdate
-	bind:open={titleUpdateDialogOpen}
-	currentTitle={titleUpdateCurrentTitle}
-	newTitle={titleUpdateNewTitle}
-	onConfirm={handleTitleUpdateConfirm}
-	onCancel={handleTitleUpdateCancel}
-/>
+	<DialogConversationTitleUpdate
+		bind:open={titleUpdateDialogOpen}
+		currentTitle={titleUpdateCurrentTitle}
+		newTitle={titleUpdateNewTitle}
+		onConfirm={handleTitleUpdateConfirm}
+		onCancel={handleTitleUpdateCancel}
+	/>
 
-<Sidebar.Provider bind:open={sidebarOpen}>
-	<div class="flex h-screen w-full" style:height="{innerHeight}px">
-		<Sidebar.Root class="h-full">
-			<ChatSidebar bind:this={chatSidebar} />
-		</Sidebar.Root>
+	<Sidebar.Provider bind:open={sidebarOpen}>
+		<div class="flex h-screen w-full" style:height="{innerHeight}px">
+			<Sidebar.Root class="h-full">
+				<ChatSidebar bind:this={chatSidebar} />
+			</Sidebar.Root>
 
-		<Sidebar.Trigger
-			class="transition-left absolute left-0 z-[900] h-8 w-8 duration-200 ease-linear {sidebarOpen
-				? 'md:left-[var(--sidebar-width)]'
-				: ''}"
-			style="translate: 1rem 1rem;"
-		/>
+			<Sidebar.Trigger
+				class="transition-left absolute left-0 z-[900] h-8 w-8 duration-200 ease-linear {sidebarOpen
+					? 'md:left-[var(--sidebar-width)]'
+					: ''}"
+				style="translate: 1rem 1rem;"
+			/>
 
-		<Sidebar.Inset class="flex flex-1 flex-col overflow-hidden">
-			{@render children?.()}
-		</Sidebar.Inset>
-	</div>
-</Sidebar.Provider>
+			<Sidebar.Inset class="flex flex-1 flex-col overflow-hidden">
+				{@render children?.()}
+			</Sidebar.Inset>
+		</div>
+	</Sidebar.Provider>
+</Tooltip.Provider>
 
 <svelte:window onkeydown={handleKeydown} bind:innerHeight />

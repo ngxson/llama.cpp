@@ -23,7 +23,7 @@
 </script>
 
 <div class="flex items-center gap-1 {className}">
-	<Tooltip.Root delayDuration={100}>
+	<Tooltip.Root>
 		<Tooltip.Trigger>
 			<Button
 				class="h-8 w-8 rounded-full p-0 {isRecording

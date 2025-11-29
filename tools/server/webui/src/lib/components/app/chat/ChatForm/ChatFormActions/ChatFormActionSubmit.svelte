@@ -41,17 +41,15 @@
 {/snippet}
 
 {#if tooltipLabel}
-	<Tooltip.Provider>
-		<Tooltip.Root>
-			<Tooltip.Trigger>
-				{@render submitButton()}
-			</Tooltip.Trigger>
+	<Tooltip.Root>
+		<Tooltip.Trigger>
+			{@render submitButton()}
+		</Tooltip.Trigger>
 
-			<Tooltip.Content>
-				<p>{tooltipLabel}</p>
-			</Tooltip.Content>
-		</Tooltip.Root>
-	</Tooltip.Provider>
+		<Tooltip.Content>
+			<p>{tooltipLabel}</p>
+		</Tooltip.Content>
+	</Tooltip.Root>
 {:else}
 	{@render submitButton()}
 {/if}

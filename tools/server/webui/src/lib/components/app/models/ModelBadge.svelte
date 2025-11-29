@@ -4,7 +4,6 @@
 	import { modelsStore } from '$lib/stores/models.svelte';
 	import { serverStore } from '$lib/stores/server.svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip';
-	import { TOOLTIP_DELAY_DURATION } from '$lib/constants/tooltip-config';
 
 	interface Props {
 		class?: string;
@@ -42,7 +41,7 @@
 
 {#if model && isModelMode}
 	{#if showTooltip}
-		<Tooltip.Root delayDuration={TOOLTIP_DELAY_DURATION}>
+		<Tooltip.Root>
 			<Tooltip.Trigger>
 				{@render badgeContent()}
 			</Tooltip.Trigger>
