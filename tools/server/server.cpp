@@ -94,9 +94,6 @@ int main(int argc, char ** argv) {
     // struct that contains llama context and inference
     server_context ctx_server;
 
-    // Necessary similarity of prompt for slot selection
-    ctx_server.slot_prompt_similarity = params.slot_prompt_similarity;
-
     llama_backend_init();
     llama_numa_init(params.numa);
 
@@ -161,7 +158,7 @@ int main(int argc, char ** argv) {
     auto clean_up = [&ctx_http, &ctx_server]() {
         SRV_INF("%s: cleaning up before exit...\n", __func__);
         ctx_http.stop();
-        ctx_server.queue_results.terminate();
+        ctx_server.terminate();
         llama_backend_free();
     };
 
@@ -189,17 +186,9 @@ int main(int argc, char ** argv) {
 
     LOG_INF("%s: model loaded\n", __func__);
 
-    ctx_server.queue_tasks.on_new_task([&ctx_server](server_task && task) {
-        ctx_server.process_single_task(std::move(task));
-    });
-
-    ctx_server.queue_tasks.on_update_slots([&ctx_server]() {
-        ctx_server.update_slots();
-    });
-
     shutdown_handler = [&](int) {
         // this will unblock start_loop()
-        ctx_server.queue_tasks.terminate();
+        ctx_server.terminate();
     };
 
     // TODO: refactor in common/console
@@ -219,14 +208,14 @@ int main(int argc, char ** argv) {
 
     LOG_INF("%s: server is listening on %s\n", __func__, ctx_http.listening_address.c_str());
     LOG_INF("%s: starting the main loop...\n", __func__);
-    // this call blocks the main thread until queue_tasks.terminate() is called
-    ctx_server.queue_tasks.start_loop();
+    // this call blocks the main thread until ctx_server.terminate() is called
+    ctx_server.start_loop();
 
     clean_up();
     if (ctx_http.thread.joinable()) {
         ctx_http.thread.join();
     }
-    llama_memory_breakdown_print(ctx_server.ctx);
+    llama_memory_breakdown_print(ctx_server.get_llama_context());
 
     return 0;
 }
