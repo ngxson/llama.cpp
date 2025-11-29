@@ -109,22 +109,6 @@ export class ModelsService {
 	// ─────────────────────────────────────────────────────────────────────────────
 
 	/**
-	 * Get status of a specific model (ROUTER mode)
-	 * @param modelId - Model identifier to check
-	 */
-	static async getStatus(modelId: string): Promise<ApiRouterModelsStatusResponse> {
-		const response = await fetch(`${base}/models/status?model=${encodeURIComponent(modelId)}`, {
-			headers: getJsonHeaders()
-		});
-
-		if (!response.ok) {
-			throw new Error(`Failed to get model status (status ${response.status})`);
-		}
-
-		return response.json() as Promise<ApiRouterModelsStatusResponse>;
-	}
-
-	/**
 	 * Check if a model is loaded based on its metadata
 	 */
 	static isModelLoaded(model: ApiModelDataEntry): boolean {
