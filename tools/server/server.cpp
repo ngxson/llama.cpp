@@ -108,36 +108,37 @@ int main(int argc, char ** argv, char ** envp) {
     server_routes routes(params, ctx_server, [&ctx_http]() { return ctx_http.is_ready.load(); });
 
     bool is_router_server = params.model.path.empty();
+    std::optional<server_models_routes> models_routes{};
     if (is_router_server) {
         // setup server instances manager
-        routes.models.reset(new server_models(params, argc, argv, envp));
+        models_routes.emplace(params, argc, argv, envp);
 
         // proxy handlers
         // note: routes.get_health stays the same
-        routes.get_metrics           = routes.proxy_get;
-        routes.post_props            = routes.proxy_post;
-        routes.get_api_show          = routes.proxy_get;
-        routes.post_completions      = routes.proxy_post;
-        routes.post_completions_oai  = routes.proxy_post;
-        routes.post_chat_completions = routes.proxy_post;
-        routes.post_infill           = routes.proxy_post;
-        routes.post_embeddings       = routes.proxy_post;
-        routes.post_embeddings_oai   = routes.proxy_post;
-        routes.post_rerank           = routes.proxy_post;
-        routes.post_tokenize         = routes.proxy_post;
-        routes.post_detokenize       = routes.proxy_post;
-        routes.post_apply_template   = routes.proxy_post;
-        routes.get_lora_adapters     = routes.proxy_get;
-        routes.post_lora_adapters    = routes.proxy_post;
-        routes.get_slots             = routes.proxy_get;
-        routes.post_slots            = routes.proxy_post;
+        routes.get_metrics           = models_routes->proxy_get;
+        routes.post_props            = models_routes->proxy_post;
+        routes.get_api_show          = models_routes->proxy_get;
+        routes.post_completions      = models_routes->proxy_post;
+        routes.post_completions_oai  = models_routes->proxy_post;
+        routes.post_chat_completions = models_routes->proxy_post;
+        routes.post_infill           = models_routes->proxy_post;
+        routes.post_embeddings       = models_routes->proxy_post;
+        routes.post_embeddings_oai   = models_routes->proxy_post;
+        routes.post_rerank           = models_routes->proxy_post;
+        routes.post_tokenize         = models_routes->proxy_post;
+        routes.post_detokenize       = models_routes->proxy_post;
+        routes.post_apply_template   = models_routes->proxy_post;
+        routes.get_lora_adapters     = models_routes->proxy_get;
+        routes.post_lora_adapters    = models_routes->proxy_post;
+        routes.get_slots             = models_routes->proxy_get;
+        routes.post_slots            = models_routes->proxy_post;
 
         // custom routes for router
-        routes.get_props  = routes.get_router_props;
-        routes.get_models = routes.get_router_models;
-        ctx_http.post("/models/load",   ex_wrapper(routes.post_router_models_load));
-        ctx_http.post("/models/unload", ex_wrapper(routes.post_router_models_unload));
-        ctx_http.post("/models/status", ex_wrapper(routes.post_router_models_status));
+        routes.get_props  = models_routes->get_router_props;
+        routes.get_models = models_routes->get_router_models;
+        ctx_http.post("/models/load",   ex_wrapper(models_routes->post_router_models_load));
+        ctx_http.post("/models/unload", ex_wrapper(models_routes->post_router_models_unload));
+        ctx_http.post("/models/status", ex_wrapper(models_routes->post_router_models_status));
     }
 
     ctx_http.get ("/health",              ex_wrapper(routes.get_health)); // public endpoint (no API key check)
@@ -184,9 +185,11 @@ int main(int argc, char ** argv, char ** envp) {
     if (is_router_server) {
         LOG_INF("%s: starting router server, no model will be loaded in this process\n", __func__);
 
-        clean_up = [&routes]() {
+        clean_up = [&models_routes]() {
             SRV_INF("%s: cleaning up before exit...\n", __func__);
-            routes.models->unload_all();
+            if (models_routes.has_value()) {
+                models_routes->models.unload_all();
+            }
             llama_backend_free();
         };
 

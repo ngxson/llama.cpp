@@ -125,6 +125,25 @@ public:
     static void setup_child_server(const common_params & base_params, int router_port, const std::string & name, std::function<void(int)> & shutdown_handler);
 };
 
+struct server_models_routes {
+    common_params params;
+    server_models models;
+    server_models_routes(const common_params & params, int argc, char ** argv, char ** envp)
+            : params(params), models(params, argc, argv, envp) {
+        init_routes();
+    }
+
+    void init_routes();
+    // handlers using lambda function, so that they can capture `this` without `std::bind`
+    server_http_context::handler_t get_router_props;
+    server_http_context::handler_t proxy_get;
+    server_http_context::handler_t proxy_post;
+    server_http_context::handler_t get_router_models;
+    server_http_context::handler_t post_router_models_load;
+    server_http_context::handler_t post_router_models_status;
+    server_http_context::handler_t post_router_models_unload;
+};
+
 /**
  * A simple HTTP proxy that forwards requests to another server
  * and relays the responses back.

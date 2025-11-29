@@ -621,6 +621,201 @@ void server_models::setup_child_server(const common_params & base_params, int ro
 }
 
 
+
+//
+// server_models_routes
+//
+
+static void res_ok(std::unique_ptr<server_http_res> & res, const json & response_data) {
+    res->status = 200;
+    res->data = safe_json_to_str(response_data);
+}
+
+static void res_error(std::unique_ptr<server_http_res> & res, const json & error_data) {
+    res->status = json_value(error_data, "code", 500);
+    res->data = safe_json_to_str({{ "error", error_data }});
+}
+
+static bool router_validate_model(const std::string & name, server_models & models, bool models_autoload, std::unique_ptr<server_http_res> & res) {
+    if (name.empty()) {
+        res_error(res, format_error_response("model name is missing from the request", ERROR_TYPE_INVALID_REQUEST));
+        return false;
+    }
+    auto meta = models.get_meta(name);
+    if (!meta.has_value()) {
+        res_error(res, format_error_response("model not found", ERROR_TYPE_INVALID_REQUEST));
+        return false;
+    }
+    if (models_autoload) {
+        models.ensure_model_loaded(name);
+    } else {
+        if (meta->status != SERVER_MODEL_STATUS_LOADED) {
+            res_error(res, format_error_response("model is not loaded", ERROR_TYPE_INVALID_REQUEST));
+            return false;
+        }
+    }
+    return true;
+}
+
+void server_models_routes::init_routes() {
+    this->get_router_props = [this](const server_http_req & req) {
+        std::string name = req.get_param("model");
+        if (name.empty()) {
+            // main instance
+            auto res = std::make_unique<server_http_res>();
+            res_ok(res, {
+                // TODO: add support for this on web UI
+                {"role",          "router"},
+                {"max_instances", 4}, // dummy value for testing
+                // this is a dummy response to make sure webui doesn't break
+                {"model_alias", "llama-server"},
+                {"model_path",  "none"},
+                {"default_generation_settings", {
+                    {"params", json{}},
+                    {"n_ctx",  0},
+                }},
+            });
+            return res;
+        }
+        return proxy_get(req);
+    };
+
+    this->proxy_get = [this](const server_http_req & req) {
+        std::string method = "GET";
+        std::string name = req.get_param("model");
+        auto error_res = std::make_unique<server_http_res>();
+        if (!router_validate_model(name, models, params.models_autoload, error_res)) {
+            return error_res;
+        }
+        return models.proxy_request(req, method, name, false);
+    };
+
+    this->proxy_post = [this](const server_http_req & req) {
+        std::string method = "POST";
+        json body = json::parse(req.body);
+        std::string name = json_value(body, "model", std::string());
+        auto error_res = std::make_unique<server_http_res>();
+        if (!router_validate_model(name, models, params.models_autoload, error_res)) {
+            return error_res;
+        }
+        return models.proxy_request(req, method, name, true); // update last usage for POST request only
+    };
+
+    this->get_router_models = [this](const server_http_req &) {
+        auto res = std::make_unique<server_http_res>();
+        json models_json = json::array();
+        auto all_models = models.get_all_meta();
+        std::time_t t = std::time(0);
+        for (const auto & meta : all_models) {
+            json status {
+                {"value", server_model_status_to_string(meta.status)},
+                {"args",  meta.args},
+            };
+            if (meta.is_failed()) {
+                status["exit_code"] = meta.exit_code;
+                status["failed"]    = true;
+            }
+            models_json.push_back(json {
+                {"id",       meta.name},
+                {"object",   "model"},    // for OAI-compat
+                {"owned_by", "llamacpp"}, // for OAI-compat
+                {"created",  t},          // for OAI-compat
+                {"in_cache", meta.in_cache},
+                {"path",     meta.path},
+                {"status",   status},
+                // TODO: add other fields, may require reading GGUF metadata
+            });
+        }
+        res_ok(res, {
+            {"data", models_json},
+            {"object", "list"},
+        });
+        return res;
+    };
+
+    this->post_router_models_load = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_http_res>();
+        json body = json::parse(req.body);
+        std::string name = json_value(body, "model", std::string());
+        auto model = models.get_meta(name);
+        if (!model.has_value()) {
+            res_error(res, format_error_response("model is not found", ERROR_TYPE_NOT_FOUND));
+            return res;
+        }
+        if (model->status == SERVER_MODEL_STATUS_LOADED) {
+            res_error(res, format_error_response("model is already loaded", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+        }
+        models.load(name, false);
+        res_ok(res, {{"success", true}});
+        return res;
+    };
+
+    // used by child process to notify the router about status change
+    // TODO @ngxson : maybe implement authentication for this endpoint in the future
+    this->post_router_models_status = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_http_res>();
+        json body = json::parse(req.body);
+        std::string model = json_value(body, "model", std::string());
+        std::string value = json_value(body, "value", std::string());
+        models.update_status(model, server_model_status_from_string(value));
+        res_ok(res, {{"success", true}});
+        return res;
+    };
+
+    this->get_router_models = [this](const server_http_req &) {
+        auto res = std::make_unique<server_http_res>();
+        json models_json = json::array();
+        auto all_models = models.get_all_meta();
+        std::time_t t = std::time(0);
+        for (const auto & meta : all_models) {
+            json status {
+                {"value", server_model_status_to_string(meta.status)},
+                {"args",  meta.args},
+            };
+            if (meta.is_failed()) {
+                status["exit_code"] = meta.exit_code;
+                status["failed"]    = true;
+            }
+            models_json.push_back(json {
+                {"id",       meta.name},
+                {"object",   "model"},    // for OAI-compat
+                {"owned_by", "llamacpp"}, // for OAI-compat
+                {"created",  t},          // for OAI-compat
+                {"in_cache", meta.in_cache},
+                {"path",     meta.path},
+                {"status",   status},
+                // TODO: add other fields, may require reading GGUF metadata
+            });
+        }
+        res_ok(res, {
+            {"data", models_json},
+            {"object", "list"},
+        });
+        return res;
+    };
+
+    this->post_router_models_unload = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_http_res>();
+        json body = json::parse(req.body);
+        std::string name = json_value(body, "model", std::string());
+        auto model = models.get_meta(name);
+        if (!model.has_value()) {
+            res_error(res, format_error_response("model is not found", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+        }
+        if (model->status != SERVER_MODEL_STATUS_LOADED) {
+            res_error(res, format_error_response("model is not loaded", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+        }
+        models.unload(name);
+        res_ok(res, {{"success", true}});
+        return res;
+    };
+}
+
+
+
 //
 // server_http_proxy
 //
