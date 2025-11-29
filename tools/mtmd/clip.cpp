@@ -837,34 +837,32 @@ struct clip_graph {
     ggml_cgraph * build_deepseek_ocr() {
         //patch embedding
         ggml_tensor * inp_raw = build_inp_raw();
-
-
         ggml_tensor * global_features_1 = build_sam_enc(inp_raw, std::max(img.nx, img.ny));
-
         ggml_tensor * global_features_2 = build_dp_ocr_clip(global_features_1);
-
+        
         // FIXME remove n_patches is hardcoded
-
+        
         // torch global_features = torch.cat((global_features_2[:, 1:], global_features_1.flatten(2).permute(0, 2, 1)), dim=-1)
-        global_features_1 = ggml_cont(ctx0,ggml_permute(ctx0, global_features_1,2,1,0,3));
+        global_features_1 = ggml_cont(ctx0,ggml_permute(ctx0, global_features_1, 1, 2, 0, 3));
         int clip_n_patches = global_features_1->ne[1] * global_features_1->ne[2];
-
+        
         // flatten 2nd and 3rd dims
         global_features_1 = ggml_reshape_2d(ctx0, global_features_1, global_features_1->ne[0], clip_n_patches);
-
+        
         // remove CLS token
-        global_features_2 = ggml_view_2d(ctx0, global_features_2,
-            n_embd, clip_n_patches,
-            ggml_row_size(global_features_2->type, n_embd), 0);
-
-        ggml_tensor * global_features = ggml_concat(ctx0, global_features_2, global_features_1, 1);
+        global_features_2 = ggml_view_2d(ctx0, global_features_2, n_embd, clip_n_patches,
+                                         global_features_2->nb[1], global_features_2->nb[1]);
+            
+        ggml_tensor * global_features = ggml_concat(ctx0, global_features_2, global_features_1, 0);
         global_features = ggml_reshape_2d(ctx0, global_features, 2* n_embd,clip_n_patches);
         global_features = ggml_cont(ctx0, global_features);
         global_features = ggml_mul_mat(ctx0, model.fc_w, global_features);
         global_features = ggml_add(ctx0, global_features, model.fc_b);
 
         global_features = build_global_local_features(ctx0,global_features);
-        global_features = ggml_cont(ctx0, ggml_permute(ctx0, global_features, 1, 0, 2, 3));
+
+        cb(global_features, "dsocr_output", -1);
+
         ggml_build_forward_expand(gf, global_features);
         return gf;
     }
@@ -878,30 +876,23 @@ struct clip_graph {
         GGML_ASSERT(model.image_newline != nullptr);
         GGML_ASSERT(model.view_seperator != nullptr);
 
-        // 1) global_features: [n_dim, h*w] -> [n_dim, w, h] -> [h, w, n_dim]
         const auto h = static_cast<int>(std::sqrt(static_cast<float>(global_features->ne[1])));
         const auto w = h;
         const auto n_dim = global_features->ne[0];
-        ggml_tensor * t = ggml_reshape_4d(ctx0, global_features, n_dim, h, w, 1);  // (n_dim, w, h)
-        t               = ggml_cont(ctx0, ggml_permute(ctx0, t, 2, 1, 0, 3)); // (h, w, n_dim)
-        ggml_tensor * nl = ggml_cont(ctx0,ggml_permute(ctx0, model.image_newline, 2, 1, 0, 3));
-        nl = ggml_repeat_4d(ctx0, nl, h, 1, n_dim, 1); // n_pos rows
 
+        ggml_tensor * cur;
+        ggml_tensor * imgnl;
+        ggml_tensor * vs;
 
-        // 2) image_newline: [n_dim] -> [1, 1, n_dim] -> repeat to [h, 1, n_dim]
-        t = ggml_concat(ctx0, t, nl, 1);  // (h, w+1, n_dim)
+        cur = ggml_reshape_3d(ctx0, global_features, n_dim, w, h);
+        imgnl = ggml_repeat_4d(ctx0, model.image_newline, n_dim, 1, h, 1);
+        cur = ggml_reshape_2d(ctx0, ggml_concat(ctx0, cur, imgnl, 1), n_dim, (w+1)*h);
+        cb(cur, "insert_imgnl", -1);
+        vs = ggml_reshape_2d(ctx0, model.view_seperator, n_dim, 1);  // (n_dim, 1)
+        cur = ggml_concat(ctx0, cur, vs, 1);  // (n_dim, h*(w+1) + 1)
+        cb(cur, "insert_vs", -1);
 
-        t = ggml_reshape_2d(ctx0, t, n_dim, h* (h + 1));  // (n_dim, h*(w+1))
-
-
-        // 5) append view_separator as an extra "token":
-        //    view_separator: [n_dim] -> [n_dim, 1]
-        ggml_tensor * vs = ggml_reshape_2d(ctx0, model.view_seperator, n_dim, 1);  // (n_dim, 1)
-
-        // concat along token dimension (dim=1):
-        t = ggml_concat(ctx0, t, vs, 1);  // (n_dim, h*(w+1) + 1)
-
-        return t;
+        return cur;
     }
 
 
@@ -1596,8 +1587,8 @@ struct clip_graph {
         ggml_tensor * positions =  ggml_cast(ctx0, ggml_arange(ctx0, 0, n_pos, 1), GGML_TYPE_I32);
         ggml_tensor * learned_pos_embd = ggml_get_rows(ctx0, new_pos_embd, positions);
 
-        ggml_tensor * cur = build_vit(inp, n_pos, norm_t, hparams.ffn_op, learned_pos_embd,
-                                      nullptr);  // shape [1024, 16, 16]
+        ggml_tensor * cur = build_vit(inp, n_pos, norm_t, ffn_op_type::FFN_GELU_QUICK, 
+                                      learned_pos_embd, nullptr);  // shape [1024, 16, 16]
 
         ggml_build_forward_expand(gf, cur);
 
@@ -2394,7 +2385,7 @@ private:
         // pre-layernorm
         if (model.pre_ln_w) {
             inpL = build_norm(inpL, model.pre_ln_w, model.pre_ln_b, norm_t, eps, -1);
-            cb(inpL, "vit_pre_ln", -1);
+            cb(inpL, "pre_ln", -1);
         }
 
         // loop over layers
@@ -5411,12 +5402,15 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
             } break;
         case PROJECTOR_TYPE_DEEPSEEKOCR:
         {
-            int x_patch = img->nx / (params.patch_size);
+            // SAM encoder applies two stride-2 convolutions (net_2 and net_3)
+            // which reduces spatial dimensions by 4x in each direction (16x total)
+            // E.g., 64x64 -> 16x16 patches
+            n_patches /= 16;
 
-            n_patches += x_patch + 1;
-            n_patches = 1280;
-
-
+            // build_global_local_features adds image newlines and view separator
+            // Formula: h*(w+1) + 1 where h = w = sqrt(n_patches)
+            int h = static_cast<int>(std::sqrt(static_cast<float>(n_patches)));
+            n_patches = h * (h + 1) + 1;
         } break;
         default:
             GGML_ABORT("unsupported projector type");
@@ -5807,7 +5801,6 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
             bool is_stored = false;
             std::vector<std::string> patterns = {
                 /* Add tensor names here to dump (e.g. "sam_output") */
-                "vit_pre_ln"
             };
 
             for (auto & p : patterns) {
