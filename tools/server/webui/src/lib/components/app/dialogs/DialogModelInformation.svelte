@@ -5,8 +5,7 @@
 	import { serverStore } from '$lib/stores/server.svelte';
 	import { modelsStore } from '$lib/stores/models.svelte';
 	import { ChatService } from '$lib/services/chat';
-	import type { ApiModelListResponse } from '$lib/types/api';
-	import { formatFileSize, formatParameters, formatNumber } from '$lib/utils/formatters';
+	import { formatFileSize, formatParameters, formatNumber } from '$lib/utils';
 
 	interface Props {
 		open?: boolean;

@@ -33,10 +33,14 @@
 
 import { browser } from '$app/environment';
 import { SETTING_CONFIG_DEFAULT } from '$lib/constants/settings-config';
-import { normalizeFloatingPoint } from '$lib/utils/precision';
 import { ParameterSyncService } from '$lib/services/parameter-sync';
 import { serverStore } from '$lib/stores/server.svelte';
-import { setConfigValue, getConfigValue, configToParameterRecord } from '$lib/utils/config-helpers';
+import {
+	configToParameterRecord,
+	normalizeFloatingPoint,
+	getConfigValue,
+	setConfigValue
+} from '$lib/utils';
 import {
 	CONFIG_LOCALSTORAGE_KEY,
 	USER_OVERRIDES_LOCALSTORAGE_KEY

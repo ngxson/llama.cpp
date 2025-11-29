@@ -1,8 +1,5 @@
 import { FileTypeCategory } from '$lib/enums';
-import type { ChatAttachmentDisplayItem } from '$lib/types/chat';
-import type { DatabaseMessageExtra } from '$lib/types/database';
-import { isImageFile } from '$lib/utils/attachment-type';
-import { getFileTypeCategory, getFileTypeCategoryByExtension } from '$lib/utils/file-type';
+import { getFileTypeCategory, getFileTypeCategoryByExtension, isImageFile } from '$lib/utils';
 
 export interface AttachmentDisplayItemsOptions {
 	uploadedFiles?: ChatUploadedFile[];

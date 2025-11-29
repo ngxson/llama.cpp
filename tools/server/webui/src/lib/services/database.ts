@@ -1,5 +1,5 @@
 import Dexie, { type EntityTable } from 'dexie';
-import { findDescendantMessages } from '$lib/utils/branching';
+import { findDescendantMessages } from '$lib/utils';
 
 class LlamacppDatabase extends Dexie {
 	conversations!: EntityTable<DatabaseConversation, string>;

@@ -3,10 +3,14 @@
 	import * as Alert from '$lib/components/ui/alert';
 	import { SyntaxHighlightedCode } from '$lib/components/app';
 	import { FileText, Image, Music, FileIcon, Eye, Info } from '@lucide/svelte';
-	import type { DatabaseMessageExtra } from '$lib/types/database';
-	import { convertPDFToImage } from '$lib/utils/pdf-processing';
-	import { isTextFile, isImageFile, isPdfFile, isAudioFile } from '$lib/utils/attachment-type';
-	import { getLanguageFromFilename } from '$lib/utils/syntax-highlight-language';
+	import {
+		isTextFile,
+		isImageFile,
+		isPdfFile,
+		isAudioFile,
+		getLanguageFromFilename
+	} from '$lib/utils';
+	import { convertPDFToImage } from '$lib/utils/browser-only';
 	import { modelsStore } from '$lib/stores/models.svelte';
 
 	interface Props {

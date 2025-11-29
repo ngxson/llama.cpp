@@ -3,15 +3,8 @@ import { goto } from '$app/navigation';
 import { toast } from 'svelte-sonner';
 import { DatabaseService } from '$lib/services/database';
 import { config } from '$lib/stores/settings.svelte';
-import { filterByLeafNodeId, findLeafNode } from '$lib/utils/branching';
+import { filterByLeafNodeId, findLeafNode } from '$lib/utils';
 import { AttachmentType } from '$lib/enums';
-import type {
-	DatabaseConversation,
-	DatabaseMessage,
-	DatabaseMessageExtraPdfFile,
-	ExportedConversations
-} from '$lib/types/database';
-import type { ModelModalities } from '$lib/types/models';
 
 /**
  * conversationsStore - Persistent conversation data and lifecycle management

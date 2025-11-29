@@ -3,8 +3,6 @@ import { ModelsService } from '$lib/services/models';
 import { PropsService } from '$lib/services/props';
 import { ServerModelStatus, ModelModality } from '$lib/enums';
 import { serverStore } from '$lib/stores/server.svelte';
-import type { ModelOption, ModelModalities } from '$lib/types/models';
-import type { ApiModelDataEntry } from '$lib/types/api';
 
 /**
  * modelsStore - Reactive store for model management in both MODEL and ROUTER modes
@@ -217,7 +215,7 @@ class ModelsStore {
 
 			const response = await ModelsService.list();
 
-			const models: ModelOption[] = response.data.map((item, index) => {
+			const models: ModelOption[] = response.data.map((item: ApiModelDataEntry, index: number) => {
 				const details = response.models?.[index];
 				const rawCapabilities = Array.isArray(details?.capabilities) ? details?.capabilities : [];
 				const displayNameSource =
@@ -229,7 +227,7 @@ class ModelsStore {
 					name: displayName,
 					model: details?.model || item.id,
 					description: details?.description,
-					capabilities: rawCapabilities.filter((value): value is string => Boolean(value)),
+					capabilities: rawCapabilities.filter((value: unknown): value is string => Boolean(value)),
 					details: details?.details,
 					meta: item.meta ?? null
 				} satisfies ModelOption;

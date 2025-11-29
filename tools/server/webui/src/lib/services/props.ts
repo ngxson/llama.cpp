@@ -1,4 +1,4 @@
-import { getAuthHeaders } from '$lib/utils/api-headers';
+import { getAuthHeaders } from '$lib/utils';
 
 /**
  * PropsService - Server properties management

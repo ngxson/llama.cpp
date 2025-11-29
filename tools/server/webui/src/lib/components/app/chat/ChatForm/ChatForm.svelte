@@ -24,14 +24,14 @@
 		MimeTypeImage,
 		MimeTypeText
 	} from '$lib/enums';
+	import { isIMEComposing } from '$lib/utils';
 	import {
 		AudioRecorder,
 		convertToWav,
 		createAudioFile,
 		isAudioRecordingSupported
-	} from '$lib/utils/audio-recording';
+	} from '$lib/utils/browser-only';
 	import { onMount } from 'svelte';
-	import { isIMEComposing } from '$lib/utils/is-ime-composing';
 
 	interface Props {
 		class?: string;

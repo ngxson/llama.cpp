@@ -11,7 +11,7 @@
 	import { useProcessingState } from '$lib/hooks/use-processing-state.svelte';
 	import { useModelChangeValidation } from '$lib/hooks/use-model-change-validation.svelte';
 	import { isLoading } from '$lib/stores/chat.svelte';
-	import autoResizeTextarea from '$lib/utils/autoresize-textarea';
+	import { autoResizeTextarea, copyToClipboard } from '$lib/utils';
 	import { fade } from 'svelte/transition';
 	import { Check, X, Wrench } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
@@ -21,8 +21,6 @@
 	import { config } from '$lib/stores/settings.svelte';
 	import { conversationsStore } from '$lib/stores/conversations.svelte';
 	import { isRouterMode } from '$lib/stores/server.svelte';
-	import { copyToClipboard } from '$lib/utils/copy';
-	import type { ApiChatCompletionToolCall } from '$lib/types/api';
 
 	interface Props {
 		class?: string;

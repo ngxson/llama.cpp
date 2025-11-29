@@ -1,25 +1,5 @@
-import { getJsonHeaders } from '$lib/utils/api-headers';
-import type {
-	ApiChatCompletionRequest,
-	ApiChatCompletionResponse,
-	ApiChatCompletionStreamChunk,
-	ApiChatCompletionToolCall,
-	ApiChatCompletionToolCallDelta,
-	ApiChatMessageData,
-	ApiModelListResponse
-} from '$lib/types/api';
+import { getJsonHeaders } from '$lib/utils';
 import { AttachmentType } from '$lib/enums';
-import type {
-	DatabaseMessage,
-	DatabaseMessageExtra,
-	DatabaseMessageExtraAudioFile,
-	DatabaseMessageExtraImageFile,
-	DatabaseMessageExtraLegacyContext,
-	DatabaseMessageExtraPdfFile,
-	DatabaseMessageExtraTextFile
-} from '$lib/types/database';
-import type { ChatMessagePromptProgress, ChatMessageTimings } from '$lib/types/chat';
-import type { SettingsChatServiceOptions } from '$lib/types/settings';
 
 /**
  * ChatService - Low-level API communication layer for Chat Completions

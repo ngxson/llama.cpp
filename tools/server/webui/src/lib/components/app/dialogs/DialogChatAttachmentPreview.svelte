@@ -1,8 +1,7 @@
 <script lang="ts">
 	import * as Dialog from '$lib/components/ui/dialog';
-	import type { DatabaseMessageExtra } from '$lib/types/database';
 	import { ChatAttachmentPreview } from '$lib/components/app';
-	import { formatFileSize } from '$lib/utils/formatters';
+	import { formatFileSize } from '$lib/utils';
 
 	interface Props {
 		open: boolean;

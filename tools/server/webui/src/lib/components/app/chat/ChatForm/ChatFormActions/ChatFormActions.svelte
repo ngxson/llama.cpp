@@ -8,14 +8,13 @@
 		ModelsSelector
 	} from '$lib/components/app';
 	import { FileTypeCategory } from '$lib/enums';
-	import { getFileTypeCategory } from '$lib/utils/file-type';
+	import { getFileTypeCategory } from '$lib/utils';
 	import { config } from '$lib/stores/settings.svelte';
 	import { modelsStore, modelOptions, selectedModelId } from '$lib/stores/models.svelte';
 	import { isRouterMode } from '$lib/stores/server.svelte';
 	import { chatStore } from '$lib/stores/chat.svelte';
 	import { activeMessages, usedModalities } from '$lib/stores/conversations.svelte';
 	import { useModelChangeValidation } from '$lib/hooks/use-model-change-validation.svelte';
-	import type { ChatUploadedFile } from '$lib/types/chat';
 
 	interface Props {
 		canSend?: boolean;

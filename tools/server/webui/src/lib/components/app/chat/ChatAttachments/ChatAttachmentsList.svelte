@@ -3,9 +3,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { ChevronLeft, ChevronRight } from '@lucide/svelte';
 	import { DialogChatAttachmentPreview, DialogChatAttachmentsViewAll } from '$lib/components/app';
-	import { getAttachmentDisplayItems } from '$lib/utils/attachment-display';
-	import type { ChatAttachmentDisplayItem, ChatAttachmentPreviewItem } from '$lib/types/chat';
-	import type { DatabaseMessageExtra } from '$lib/types/database';
+	import { getAttachmentDisplayItems } from '$lib/utils';
 
 	interface Props {
 		class?: string;

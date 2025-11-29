@@ -3,7 +3,7 @@
  * Ensures only compatible file types are processed based on model capabilities
  */
 
-import { getFileTypeCategory } from '$lib/utils/file-type';
+import { getFileTypeCategory } from '$lib/utils';
 import {
 	FileExtensionAudio,
 	FileExtensionImage,

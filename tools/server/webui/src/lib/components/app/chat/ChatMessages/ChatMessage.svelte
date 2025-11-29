@@ -1,8 +1,6 @@
 <script lang="ts">
 	import { chatStore } from '$lib/stores/chat.svelte';
-	import { copyToClipboard } from '$lib/utils/copy';
-	import { isIMEComposing } from '$lib/utils/is-ime-composing';
-	import type { ApiChatCompletionToolCall } from '$lib/types/api';
+	import { copyToClipboard, isIMEComposing } from '$lib/utils';
 	import ChatMessageAssistant from './ChatMessageAssistant.svelte';
 	import ChatMessageUser from './ChatMessageUser.svelte';
 

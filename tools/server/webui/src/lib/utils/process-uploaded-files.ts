@@ -2,11 +2,11 @@ import { isSvgMimeType, svgBase64UrlToPngDataURL } from './svg-to-png';
 import { isTextFileByName } from './text-files';
 import { isWebpMimeType, webpBase64UrlToPngDataURL } from './webp-to-png';
 import { FileTypeCategory } from '$lib/enums';
-import { getFileTypeCategory } from '$lib/utils/file-type';
 import { modelsStore } from '$lib/stores/models.svelte';
 import { settingsStore } from '$lib/stores/settings.svelte';
 import { toast } from 'svelte-sonner';
-import { convertPDFToText } from '$lib/utils/pdf-processing';
+import { getFileTypeCategory } from '$lib/utils';
+import { convertPDFToText } from './pdf-processing';
 
 /**
  * Read a file as a data URL (base64 encoded)

@@ -1,14 +1,6 @@
 import { base } from '$app/paths';
 import { ServerModelStatus } from '$lib/enums';
-import { getJsonHeaders } from '$lib/utils/api-headers';
-import type {
-	ApiModelListResponse,
-	ApiModelDataEntry,
-	ApiRouterModelsListResponse,
-	ApiRouterModelsLoadResponse,
-	ApiRouterModelsUnloadResponse,
-	ApiRouterModelsStatusResponse
-} from '$lib/types/api';
+import { getJsonHeaders } from '$lib/utils';
 
 /**
  * ModelsService - Stateless service for model management API communication

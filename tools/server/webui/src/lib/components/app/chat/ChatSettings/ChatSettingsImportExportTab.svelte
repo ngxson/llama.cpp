@@ -3,8 +3,7 @@
 	import { Button } from '$lib/components/ui/button';
 	import { DialogConversationSelection } from '$lib/components/app';
 	import { DatabaseService } from '$lib/services/database';
-	import type { ExportedConversations } from '$lib/types/database';
-	import { createMessageCountMap } from '$lib/utils/conversation-utils';
+	import { createMessageCountMap } from '$lib/utils';
 	import { conversationsStore } from '$lib/stores/conversations.svelte';
 
 	let exportedConversations = $state<DatabaseConversation[]>([]);

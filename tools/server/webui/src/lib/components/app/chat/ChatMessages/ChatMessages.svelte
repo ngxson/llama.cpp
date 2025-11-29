@@ -3,7 +3,7 @@
 	import { DatabaseService } from '$lib/services/database';
 	import { chatStore } from '$lib/stores/chat.svelte';
 	import { conversationsStore, activeConversation } from '$lib/stores/conversations.svelte';
-	import { getMessageSiblings } from '$lib/utils/branching';
+	import { getMessageSiblings } from '$lib/utils';
 
 	interface Props {
 		class?: string;

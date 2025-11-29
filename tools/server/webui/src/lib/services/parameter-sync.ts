@@ -12,8 +12,7 @@
  * - Provide sync utilities for settings store integration
  */
 
-import type { ApiLlamaCppServerProps } from '$lib/types/api';
-import { normalizeFloatingPoint } from '$lib/utils/precision';
+import { normalizeFloatingPoint } from '$lib/utils';
 
 export type ParameterSource = 'default' | 'custom';
 export type ParameterValue = string | number | boolean;

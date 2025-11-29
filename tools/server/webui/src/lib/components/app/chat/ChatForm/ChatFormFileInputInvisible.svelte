@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { generateModalityAwareAcceptString } from '$lib/utils/modality-file-validation';
+	import { generateModalityAwareAcceptString } from '$lib/utils';
 
 	interface Props {
 		accept?: string;

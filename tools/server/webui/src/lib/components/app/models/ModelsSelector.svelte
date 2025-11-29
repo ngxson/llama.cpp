@@ -3,7 +3,7 @@
 	import { ChevronDown, EyeOff, Loader2, MicOff, Package, Power } from '@lucide/svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { cn } from '$lib/components/ui/utils';
-	import { portalToBody } from '$lib/utils/portal-to-body';
+	import { portalToBody } from '$lib/utils';
 	import {
 		modelsStore,
 		modelOptions,
@@ -18,7 +18,6 @@
 	import { ServerModelStatus } from '$lib/enums';
 	import { isRouterMode } from '$lib/stores/server.svelte';
 	import { DialogModelInformation } from '$lib/components/app';
-	import type { ModelOption } from '$lib/types/models';
 	import {
 		MENU_MAX_WIDTH,
 		MENU_OFFSET,

@@ -26,10 +26,8 @@
 	import { config } from '$lib/stores/settings.svelte';
 	import { serverLoading, serverError, serverStore, isRouterMode } from '$lib/stores/server.svelte';
 	import { modelsStore, modelOptions, selectedModelId } from '$lib/stores/models.svelte';
-	import { parseFilesToMessageExtras } from '$lib/utils/convert-files-to-extra';
-	import { isFileTypeSupported } from '$lib/utils/file-type';
-	import { filterFilesByModalities } from '$lib/utils/modality-file-validation';
-	import { processFilesToChatUploaded } from '$lib/utils/process-uploaded-files';
+	import { isFileTypeSupported, filterFilesByModalities } from '$lib/utils';
+	import { parseFilesToMessageExtras, processFilesToChatUploaded } from '$lib/utils/browser-only';
 	import { onMount } from 'svelte';
 	import { fade, fly, slide } from 'svelte/transition';
 	import { Trash2, AlertTriangle, RefreshCw } from '@lucide/svelte';

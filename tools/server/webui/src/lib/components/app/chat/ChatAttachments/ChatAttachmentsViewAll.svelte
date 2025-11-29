@@ -4,9 +4,7 @@
 		ChatAttachmentThumbnailFile,
 		DialogChatAttachmentPreview
 	} from '$lib/components/app';
-	import { getAttachmentDisplayItems } from '$lib/utils/attachment-display';
-	import type { ChatAttachmentPreviewItem } from '$lib/types/chat';
-	import type { DatabaseMessageExtra } from '$lib/types/database';
+	import { getAttachmentDisplayItems } from '$lib/utils';
 
 	interface Props {
 		uploadedFiles?: ChatUploadedFile[];

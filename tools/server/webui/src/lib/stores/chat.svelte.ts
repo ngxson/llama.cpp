@@ -3,17 +3,14 @@ import { conversationsStore } from '$lib/stores/conversations.svelte';
 import { config } from '$lib/stores/settings.svelte';
 import { contextSize, isRouterMode } from '$lib/stores/server.svelte';
 import { selectedModelName } from '$lib/stores/models.svelte';
-import { normalizeModelName } from '$lib/utils/model-names';
-import { filterByLeafNodeId, findDescendantMessages, findLeafNode } from '$lib/utils/branching';
+import {
+	normalizeModelName,
+	filterByLeafNodeId,
+	findDescendantMessages,
+	findLeafNode
+} from '$lib/utils';
 import { SvelteMap } from 'svelte/reactivity';
 import { DEFAULT_CONTEXT } from '$lib/constants/default-context';
-import type {
-	ChatMessageTimings,
-	ChatRole,
-	ChatMessageType,
-	ChatMessagePromptProgress
-} from '$lib/types/chat';
-import type { DatabaseMessage, DatabaseMessageExtra } from '$lib/types/database';
 
 /**
  * chatStore - Active AI interaction and streaming state management
@@ -487,7 +484,7 @@ class ChatStore {
 					conversationsStore.updateMessageAtIndex(idx, { toolCalls: streamedToolCallContent });
 				},
 				onModel: (modelName: string) => recordModel(modelName),
-				onTimings: (timings, promptProgress) => {
+				onTimings: (timings: ChatMessageTimings, promptProgress?: ChatMessagePromptProgress) => {
 					const tokensPerSecond =
 						timings?.predicted_ms && timings?.predicted_n
 							? (timings.predicted_n / timings.predicted_ms) * 1000
@@ -1120,7 +1117,7 @@ class ChatStore {
 							thinking: originalThinking + appendedThinking
 						});
 					},
-					onTimings: (timings, promptProgress) => {
+					onTimings: (timings: ChatMessageTimings, promptProgress?: ChatMessagePromptProgress) => {
 						const tokensPerSecond =
 							timings?.predicted_ms && timings?.predicted_n
 								? (timings.predicted_n / timings.predicted_ms) * 1000

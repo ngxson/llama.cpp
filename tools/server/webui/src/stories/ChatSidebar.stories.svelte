@@ -3,7 +3,7 @@
 	import ChatSidebar from '$lib/components/app/chat/ChatSidebar/ChatSidebar.svelte';
 	import { waitFor } from 'storybook/test';
 	import { screen } from 'storybook/test';
-	import type { DatabaseConversation } from '$lib/types/database';
+	import type { DatabaseConversation } from '$lib/types';
 
 	const { Story } = defineMeta({
 		title: 'Components/ChatSidebar',

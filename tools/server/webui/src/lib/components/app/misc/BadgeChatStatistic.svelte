@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { BadgeInfo } from '$lib/components/app';
-	import { copyToClipboard } from '$lib/utils/copy';
+	import { copyToClipboard } from '$lib/utils';
 	import type { Component } from 'svelte';
 
 	interface Props {

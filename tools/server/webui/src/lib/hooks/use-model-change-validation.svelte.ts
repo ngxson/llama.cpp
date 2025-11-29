@@ -1,7 +1,6 @@
 import { modelsStore } from '$lib/stores/models.svelte';
 import { isRouterMode } from '$lib/stores/server.svelte';
 import { toast } from 'svelte-sonner';
-import type { ModelModalities } from '$lib/types/models';
 
 interface UseModelChangeValidationOptions {
 	/**
