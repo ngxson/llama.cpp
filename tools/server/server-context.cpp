@@ -2509,12 +2509,6 @@ struct server_context_impl {
     }
 };
 
-void server_context_impl_deleter::operator()(server_context_impl * ptr) const {
-    if (ptr) {
-        delete ptr;
-    }
-}
-
 //
 // server_context (public API)
 //

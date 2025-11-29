@@ -1,21 +1,15 @@
-#include "server-common.h"
 #include "server-http.h"
 #include "server-task.h"
 
-#include "common.h"
-#include "llama.h"
+#include <nlohmann/json_fwd.hpp>
 
 #include <cstddef>
-#include <cinttypes>
 #include <memory>
 
 struct server_context_impl; // private implementation
-struct server_context_impl_deleter {
-    void operator()(server_context_impl * p) const;
-};
 
 struct server_context {
-    std::unique_ptr<server_context_impl, server_context_impl_deleter> impl;
+    std::unique_ptr<server_context_impl> impl;
 
     server_context();
     ~server_context();
@@ -42,15 +36,11 @@ struct server_context {
 struct server_res_generator;
 
 struct server_routes {
-    const common_params & params;
-    server_context_impl & ctx_server;
-    server_http_context & ctx_http; // for reading is_ready
     server_routes(const common_params & params, server_context & ctx_server, server_http_context & ctx_http)
-            : params(params), ctx_server(*ctx_server.impl.get()), ctx_http(ctx_http) {
+            : params(params), ctx_server(*ctx_server.impl), ctx_http(ctx_http) {
         init_routes();
     }
 
-public:
     void init_routes();
     // handlers using lambda function, so that they can capture `this` without `std::bind`
     server_http_context::handler_t get_health;
@@ -81,4 +71,8 @@ private:
     std::unique_ptr<server_res_generator> handle_slots_restore(const server_http_req & req, int id_slot);
     std::unique_ptr<server_res_generator> handle_slots_erase(const server_http_req &, int id_slot);
     std::unique_ptr<server_res_generator> handle_embeddings_impl(const server_http_req & req, task_response_type res_type);
+
+    const common_params & params;
+    server_context_impl & ctx_server;
+    server_http_context & ctx_http; // for reading is_ready
 };
