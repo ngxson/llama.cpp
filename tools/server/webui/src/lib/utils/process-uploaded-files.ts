@@ -6,6 +6,7 @@ import { getFileTypeCategory } from '$lib/utils/file-type';
 import { modelsStore } from '$lib/stores/models.svelte';
 import { settingsStore } from '$lib/stores/settings.svelte';
 import { toast } from 'svelte-sonner';
+import { convertPDFToText } from '$lib/utils/pdf-processing';
 
 /**
  * Read a file as a data URL (base64 encoded)
@@ -95,8 +96,14 @@ export async function processFilesToChatUploaded(
 					results.push(base);
 				}
 			} else if (getFileTypeCategory(file.type) === FileTypeCategory.PDF) {
-				// PDFs handled later when building extras; keep metadata only
-				results.push(base);
+				// Extract text content from PDF for preview
+				try {
+					const textContent = await convertPDFToText(file);
+					results.push({ ...base, textContent });
+				} catch (err) {
+					console.warn('Failed to extract text from PDF, adding without content:', err);
+					results.push(base);
+				}
 
 				// Show suggestion toast if vision model is available but PDF as image is disabled
 				const hasVisionSupport = activeModelId

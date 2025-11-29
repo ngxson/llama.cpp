@@ -16,6 +16,7 @@
 		imageHeight?: string;
 		imageWidth?: string;
 		imageClass?: string;
+		activeModelId?: string;
 	}
 
 	let {
@@ -25,7 +26,8 @@
 		onFileRemove,
 		imageHeight = 'h-24',
 		imageWidth = 'w-auto',
-		imageClass = ''
+		imageClass = '',
+		activeModelId
 	}: Props = $props();
 
 	let previewDialogOpen = $state(false);
@@ -112,5 +114,6 @@
 		name={previewItem.name}
 		size={previewItem.size}
 		textContent={previewItem.textContent}
+		{activeModelId}
 	/>
 {/if}

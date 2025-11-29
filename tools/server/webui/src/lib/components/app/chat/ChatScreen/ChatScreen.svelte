@@ -10,6 +10,7 @@
 		ServerLoadingSplash,
 		DialogConfirmation
 	} from '$lib/components/app';
+	import * as Alert from '$lib/components/ui/alert';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import {
 		AUTO_SCROLL_AT_BOTTOM_THRESHOLD,
@@ -389,23 +390,21 @@
 					class="pointer-events-auto mx-auto mb-3 max-w-[48rem] px-4"
 					in:fly={{ y: 10, duration: 250 }}
 				>
-					<div class="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3">
-						<div class="flex items-center justify-between">
-							<div class="flex items-center gap-2">
-								<AlertTriangle class="h-4 w-4 text-destructive" />
-								<span class="text-sm font-medium text-destructive">Server unavailable</span>
-								<span class="text-sm text-muted-foreground">— {serverError()}</span>
-							</div>
+					<Alert.Root variant="destructive">
+						<AlertTriangle class="h-4 w-4" />
+						<Alert.Title class="flex items-center justify-between">
+							<span>Server unavailable</span>
 							<button
 								onclick={() => serverStore.fetch()}
 								disabled={isServerLoading}
-								class="flex items-center gap-1.5 rounded-lg bg-destructive/20 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/30 disabled:opacity-50"
+								class="flex items-center gap-1.5 rounded-lg bg-destructive/20 px-2 py-1 text-xs font-medium hover:bg-destructive/30 disabled:opacity-50"
 							>
 								<RefreshCw class="h-3 w-3 {isServerLoading ? 'animate-spin' : ''}" />
 								{isServerLoading ? 'Retrying...' : 'Retry'}
 							</button>
-						</div>
-					</div>
+						</Alert.Title>
+						<Alert.Description>{serverError()}</Alert.Description>
+					</Alert.Root>
 				</div>
 			{/if}
 
@@ -449,23 +448,21 @@
 
 			{#if hasPropsError}
 				<div class="mb-4" in:fly={{ y: 10, duration: 250 }}>
-					<div class="rounded-xl border border-destructive/30 bg-destructive/10 px-4 py-3">
-						<div class="flex items-center justify-between">
-							<div class="flex items-center gap-2">
-								<AlertTriangle class="h-4 w-4 text-destructive" />
-								<span class="text-sm font-medium text-destructive">Server unavailable</span>
-								<span class="text-sm text-muted-foreground">— {serverError()}</span>
-							</div>
+					<Alert.Root variant="destructive">
+						<AlertTriangle class="h-4 w-4" />
+						<Alert.Title class="flex items-center justify-between">
+							<span>Server unavailable</span>
 							<button
 								onclick={() => serverStore.fetch()}
 								disabled={isServerLoading}
-								class="flex items-center gap-1.5 rounded-lg bg-destructive/20 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/30 disabled:opacity-50"
+								class="flex items-center gap-1.5 rounded-lg bg-destructive/20 px-2 py-1 text-xs font-medium hover:bg-destructive/30 disabled:opacity-50"
 							>
 								<RefreshCw class="h-3 w-3 {isServerLoading ? 'animate-spin' : ''}" />
 								{isServerLoading ? 'Retrying...' : 'Retry'}
 							</button>
-						</div>
-					</div>
+						</Alert.Title>
+						<Alert.Description>{serverError()}</Alert.Description>
+					</Alert.Root>
 				</div>
 			{/if}
 

@@ -1,7 +1,23 @@
 import { AttachmentType, FileTypeCategory } from '$lib/enums';
-import { getFileTypeCategory } from '$lib/utils/file-type';
-import { getFileTypeLabel } from '$lib/utils/file-preview';
+import { getFileTypeCategory, getFileTypeCategoryByExtension } from '$lib/utils/file-type';
 import type { DatabaseMessageExtra } from '$lib/types/database';
+
+/**
+ * Gets the file type category from an uploaded file, checking both MIME type and extension
+ * @param uploadedFile - The uploaded file to check
+ * @returns The file type category or null if not recognized
+ */
+function getUploadedFileCategory(uploadedFile: ChatUploadedFile): FileTypeCategory | null {
+	// First try MIME type
+	const categoryByMime = getFileTypeCategory(uploadedFile.type);
+
+	if (categoryByMime) {
+		return categoryByMime;
+	}
+
+	// Fallback to extension (browsers don't always provide correct MIME types)
+	return getFileTypeCategoryByExtension(uploadedFile.name);
+}
 
 /**
  * Determines if an attachment or uploaded file is a text file
@@ -14,7 +30,7 @@ export function isTextFile(
 	uploadedFile?: ChatUploadedFile
 ): boolean {
 	if (uploadedFile) {
-		return getFileTypeCategory(uploadedFile.type) === FileTypeCategory.TEXT;
+		return getUploadedFileCategory(uploadedFile) === FileTypeCategory.TEXT;
 	}
 
 	if (attachment) {
@@ -37,7 +53,7 @@ export function isImageFile(
 	uploadedFile?: ChatUploadedFile
 ): boolean {
 	if (uploadedFile) {
-		return getFileTypeCategory(uploadedFile.type) === FileTypeCategory.IMAGE;
+		return getUploadedFileCategory(uploadedFile) === FileTypeCategory.IMAGE;
 	}
 
 	if (attachment) {
@@ -58,7 +74,7 @@ export function isPdfFile(
 	uploadedFile?: ChatUploadedFile
 ): boolean {
 	if (uploadedFile) {
-		return uploadedFile.type === 'application/pdf';
+		return getUploadedFileCategory(uploadedFile) === FileTypeCategory.PDF;
 	}
 
 	if (attachment) {
@@ -79,7 +95,7 @@ export function isAudioFile(
 	uploadedFile?: ChatUploadedFile
 ): boolean {
 	if (uploadedFile) {
-		return getFileTypeCategory(uploadedFile.type) === FileTypeCategory.AUDIO;
+		return getUploadedFileCategory(uploadedFile) === FileTypeCategory.AUDIO;
 	}
 
 	if (attachment) {
@@ -87,39 +103,4 @@ export function isAudioFile(
 	}
 
 	return false;
-}
-
-/**
- * Gets a human-readable type label for display
- * @param uploadedFile - Optional uploaded file
- * @param attachment - Optional database attachment
- * @returns A formatted type label string
- */
-export function getAttachmentTypeLabel(
-	attachment?: DatabaseMessageExtra,
-	uploadedFile?: ChatUploadedFile
-): string {
-	if (uploadedFile) {
-		// For uploaded files, use the file type label utility
-		return getFileTypeLabel(uploadedFile.type);
-	}
-
-	if (attachment) {
-		// For attachments, convert enum to readable format
-		switch (attachment.type) {
-			case AttachmentType.IMAGE:
-				return 'image';
-			case AttachmentType.AUDIO:
-				return 'audio';
-			case AttachmentType.PDF:
-				return 'pdf';
-			case AttachmentType.TEXT:
-			case AttachmentType.LEGACY_CONTEXT:
-				return 'text';
-			default:
-				return 'unknown';
-		}
-	}
-
-	return 'unknown';
 }

@@ -2,11 +2,24 @@ import { FileTypeCategory } from '$lib/enums';
 import type { ChatAttachmentDisplayItem } from '$lib/types/chat';
 import type { DatabaseMessageExtra } from '$lib/types/database';
 import { isImageFile } from '$lib/utils/attachment-type';
-import { getFileTypeCategory } from '$lib/utils/file-type';
+import { getFileTypeCategory, getFileTypeCategoryByExtension } from '$lib/utils/file-type';
 
 export interface AttachmentDisplayItemsOptions {
 	uploadedFiles?: ChatUploadedFile[];
 	attachments?: DatabaseMessageExtra[];
+}
+
+/**
+ * Gets the file type category from an uploaded file, checking both MIME type and extension
+ */
+function getUploadedFileCategory(file: ChatUploadedFile): FileTypeCategory | null {
+	const categoryByMime = getFileTypeCategory(file.type);
+
+	if (categoryByMime) {
+		return categoryByMime;
+	}
+
+	return getFileTypeCategoryByExtension(file.name);
 }
 
 /**
@@ -26,7 +39,7 @@ export function getAttachmentDisplayItems(
 			name: file.name,
 			size: file.size,
 			preview: file.preview,
-			isImage: getFileTypeCategory(file.type) === FileTypeCategory.IMAGE,
+			isImage: getUploadedFileCategory(file) === FileTypeCategory.IMAGE,
 			uploadedFile: file,
 			textContent: file.textContent
 		});

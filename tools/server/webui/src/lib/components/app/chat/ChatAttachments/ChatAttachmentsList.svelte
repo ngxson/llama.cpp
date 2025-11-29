@@ -22,6 +22,8 @@
 		imageWidth?: string;
 		// Limit display to single row with "+ X more" button
 		limitToSingleRow?: boolean;
+		// For vision modality check
+		activeModelId?: string;
 	}
 
 	let {
@@ -35,7 +37,8 @@
 		imageClass = '',
 		imageHeight = 'h-24',
 		imageWidth = 'w-auto',
-		limitToSingleRow = false
+		limitToSingleRow = false,
+		activeModelId
 	}: Props = $props();
 
 	let displayItems = $derived(getAttachmentDisplayItems({ uploadedFiles, attachments }));
@@ -226,6 +229,7 @@
 		name={previewItem.name}
 		size={previewItem.size}
 		textContent={previewItem.textContent}
+		{activeModelId}
 	/>
 {/if}
 
@@ -237,4 +241,5 @@
 	{onFileRemove}
 	imageHeight="h-64"
 	{imageClass}
+	{activeModelId}
 />

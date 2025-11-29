@@ -3,7 +3,6 @@
 	import type { DatabaseMessageExtra } from '$lib/types/database';
 	import { ChatAttachmentPreview } from '$lib/components/app';
 	import { formatFileSize } from '$lib/utils/formatters';
-	import { getAttachmentTypeLabel } from '$lib/utils/attachment-type';
 
 	interface Props {
 		open: boolean;
@@ -16,6 +15,8 @@
 		name?: string;
 		size?: number;
 		textContent?: string;
+		// For vision modality check
+		activeModelId?: string;
 	}
 
 	let {
@@ -26,7 +27,8 @@
 		preview,
 		name,
 		size,
-		textContent
+		textContent,
+		activeModelId
 	}: Props = $props();
 
 	let chatAttachmentPreviewRef: ChatAttachmentPreview | undefined = $state();
@@ -34,8 +36,6 @@
 	let displayName = $derived(uploadedFile?.name || attachment?.name || name || 'Unknown File');
 
 	let displaySize = $derived(uploadedFile?.size || size);
-
-	let typeLabel = $derived(getAttachmentTypeLabel(uploadedFile, attachment));
 
 	$effect(() => {
 		if (open && chatAttachmentPreviewRef) {
@@ -49,9 +49,8 @@
 		<Dialog.Header>
 			<Dialog.Title class="pr-8">{displayName}</Dialog.Title>
 			<Dialog.Description>
-				{typeLabel}
 				{#if displaySize}
-					• {formatFileSize(displaySize)}
+					{formatFileSize(displaySize)}
 				{/if}
 			</Dialog.Description>
 		</Dialog.Header>
@@ -63,6 +62,7 @@
 			{preview}
 			name={displayName}
 			{textContent}
+			{activeModelId}
 		/>
 	</Dialog.Content>
 </Dialog.Root>

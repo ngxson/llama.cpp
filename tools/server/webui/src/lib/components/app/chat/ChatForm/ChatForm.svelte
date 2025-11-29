@@ -333,6 +333,7 @@
 		limitToSingleRow
 		class="py-5"
 		style="scroll-padding: 1rem;"
+		activeModelId={activeModelId ?? undefined}
 	/>
 
 	<div
