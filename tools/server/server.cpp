@@ -10,6 +10,9 @@
 #include <signal.h>
 #include <thread> // for std::thread::hardware_concurrency
 
+#if defined(_WIN32)
+#include <windows.h>
+#endif
 
 static std::function<void(int)> shutdown_handler;
 static std::atomic_flag is_terminating = ATOMIC_FLAG_INIT;
