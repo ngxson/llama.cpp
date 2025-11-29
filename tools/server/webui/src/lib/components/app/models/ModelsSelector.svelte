@@ -19,6 +19,11 @@
 	import { isRouterMode } from '$lib/stores/server.svelte';
 	import { DialogModelInformation } from '$lib/components/app';
 	import type { ModelOption } from '$lib/types/models';
+	import {
+		MENU_MAX_WIDTH,
+		MENU_OFFSET,
+		VIEWPORT_GUTTER
+	} from '$lib/constants/floating-ui-constraints';
 
 	interface Props {
 		class?: string;
@@ -153,10 +158,6 @@
 		placement: 'top' | 'bottom';
 		maxHeight: number;
 	} | null>(null);
-
-	const VIEWPORT_GUTTER = 8;
-	const MENU_OFFSET = 6;
-	const MENU_MAX_WIDTH = 320;
 
 	onMount(async () => {
 		try {
