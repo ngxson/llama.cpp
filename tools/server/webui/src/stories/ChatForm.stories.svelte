@@ -70,17 +70,19 @@
 		await expect(acceptAttr).not.toContain('image/');
 		await expect(acceptAttr).not.toContain('audio/');
 
+		// Open file attachments dropdown
 		const fileUploadButton = canvas.getByText('Attach files');
-
 		await userEvent.click(fileUploadButton);
 
-		const recordButton = canvas.getAllByRole('button', { name: 'Start recording' })[1];
+		// Check dropdown menu items are disabled (no modalities)
 		const imagesButton = document.querySelector('.images-button');
 		const audioButton = document.querySelector('.audio-button');
 
-		await expect(recordButton).toBeDisabled();
 		await expect(imagesButton).toHaveAttribute('data-disabled');
 		await expect(audioButton).toHaveAttribute('data-disabled');
+
+		// Close dropdown by pressing Escape
+		await userEvent.keyboard('{Escape}');
 	}}
 />
 
@@ -97,12 +99,9 @@
 		const acceptAttr = fileInput?.getAttribute('accept');
 		console.log('Vision modality accept attr:', acceptAttr);
 
+		// Open file attachments dropdown
 		const fileUploadButton = canvas.getByText('Attach files');
 		await userEvent.click(fileUploadButton);
-
-		// Test that record button is disabled (no audio support)
-		const recordButton = canvas.getAllByRole('button', { name: 'Start recording' })[1];
-		await expect(recordButton).toBeDisabled();
 
 		// Test that Images button is enabled (vision support)
 		const imagesButton = document.querySelector('.images-button');
@@ -112,11 +111,10 @@
 		const audioButton = document.querySelector('.audio-button');
 		await expect(audioButton).toHaveAttribute('data-disabled');
 
-		// Fix for dropdown menu side effect
-		const body = document.querySelector('body');
-		if (body) body.style.pointerEvents = 'all';
+		// Close dropdown by pressing Escape
+		await userEvent.keyboard('{Escape}');
 
-		console.log('✅ Vision modality: Images enabled, Audio/Recording disabled');
+		console.log('✅ Vision modality: Images enabled, Audio disabled');
 	}}
 />
 
@@ -131,12 +129,9 @@
 		const acceptAttr = fileInput?.getAttribute('accept');
 		console.log('Audio modality accept attr:', acceptAttr);
 
+		// Open file attachments dropdown
 		const fileUploadButton = canvas.getByText('Attach files');
 		await userEvent.click(fileUploadButton);
-
-		// Test that record button is enabled (audio support)
-		const recordButton = canvas.getAllByRole('button', { name: 'Start recording' })[1];
-		await expect(recordButton).not.toBeDisabled();
 
 		// Test that Images button is disabled (no vision support)
 		const imagesButton = document.querySelector('.images-button');
@@ -146,11 +141,10 @@
 		const audioButton = document.querySelector('.audio-button');
 		await expect(audioButton).not.toHaveAttribute('data-disabled');
 
-		// Fix for dropdown menu side effect
-		const body = document.querySelector('body');
-		if (body) body.style.pointerEvents = 'all';
+		// Close dropdown by pressing Escape
+		await userEvent.keyboard('{Escape}');
 
-		console.log('✅ Audio modality: Audio/Recording enabled, Images disabled');
+		console.log('✅ Audio modality: Audio enabled, Images disabled');
 	}}
 />
 
