@@ -41,8 +41,8 @@ struct server_context {
 struct server_res_generator;
 
 struct server_routes {
-    server_routes(const common_params & params, server_context & ctx_server, server_http_context & ctx_http)
-            : params(params), ctx_server(*ctx_server.impl), ctx_http(ctx_http) {
+    server_routes(const common_params & params, server_context & ctx_server, std::function<bool()> is_ready = []() { return true; })
+            : params(params), ctx_server(*ctx_server.impl), is_ready(is_ready) {
         init_routes();
     }
 
@@ -79,5 +79,5 @@ private:
 
     const common_params & params;
     server_context_impl & ctx_server;
-    server_http_context & ctx_http; // for reading is_ready
+    std::function<bool()> is_ready;
 };

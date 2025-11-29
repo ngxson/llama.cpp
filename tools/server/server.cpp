@@ -99,7 +99,7 @@ int main(int argc, char ** argv) {
     //
 
     // register API routes
-    server_routes routes(params, ctx_server, ctx_http);
+    server_routes routes(params, ctx_server, [&ctx_http]() { return ctx_http.is_ready.load(); });
 
     ctx_http.get ("/health",              ex_wrapper(routes.get_health)); // public endpoint (no API key check)
     ctx_http.get ("/v1/health",           ex_wrapper(routes.get_health)); // public endpoint (no API key check)

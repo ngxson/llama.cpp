@@ -3172,9 +3172,8 @@ void server_routes::init_routes() {
 
     this->get_models = [this](const server_http_req &) {
         auto res = std::make_unique<server_res_generator>(ctx_server);
-        bool is_model_ready = ctx_http.is_ready.load();
         json model_meta = nullptr;
-        if (is_model_ready) {
+        if (is_ready()) {
             model_meta = ctx_server.model_meta();
         }
         bool has_mtmd = ctx_server.mctx != nullptr;
