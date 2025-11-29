@@ -2,11 +2,11 @@
 	import { Mic, Square } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
 	import * as Tooltip from '$lib/components/ui/tooltip';
-	import { supportsAudio } from '$lib/stores/server.svelte';
 
 	interface Props {
 		class?: string;
 		disabled?: boolean;
+		hasAudioModality?: boolean;
 		isLoading?: boolean;
 		isRecording?: boolean;
 		onMicClick?: () => void;
@@ -15,6 +15,7 @@
 	let {
 		class: className = '',
 		disabled = false,
+		hasAudioModality = false,
 		isLoading = false,
 		isRecording = false,
 		onMicClick
@@ -22,13 +23,13 @@
 </script>
 
 <div class="flex items-center gap-1 {className}">
-	<Tooltip.Root delayDuration={100}>
+	<Tooltip.Root>
 		<Tooltip.Trigger>
 			<Button
 				class="h-8 w-8 rounded-full p-0 {isRecording
 					? 'animate-pulse bg-red-500 text-white hover:bg-red-600'
 					: ''}"
-				disabled={disabled || isLoading || !supportsAudio()}
+				disabled={disabled || isLoading || !hasAudioModality}
 				onclick={onMicClick}
 				type="button"
 			>
@@ -42,7 +43,7 @@
 			</Button>
 		</Tooltip.Trigger>
 
-		{#if !supportsAudio()}
+		{#if !hasAudioModality}
 			<Tooltip.Content>
 				<p>Current model does not support audio</p>
 			</Tooltip.Content>

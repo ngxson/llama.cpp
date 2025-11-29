@@ -1,9 +1,17 @@
 <script lang="ts">
 	import { Button } from '$lib/components/ui/button';
-	import { FileText, Image, Music, FileIcon, Eye } from '@lucide/svelte';
-	import type { DatabaseMessageExtra } from '$lib/types/database';
-	import { convertPDFToImage } from '$lib/utils/pdf-processing';
-	import { isTextFile, isImageFile, isPdfFile, isAudioFile } from '$lib/utils/attachment-type';
+	import * as Alert from '$lib/components/ui/alert';
+	import { SyntaxHighlightedCode } from '$lib/components/app';
+	import { FileText, Image, Music, FileIcon, Eye, Info } from '@lucide/svelte';
+	import {
+		isTextFile,
+		isImageFile,
+		isPdfFile,
+		isAudioFile,
+		getLanguageFromFilename
+	} from '$lib/utils';
+	import { convertPDFToImage } from '$lib/utils/browser-only';
+	import { modelsStore } from '$lib/stores/models.svelte';
 
 	interface Props {
 		// Either an uploaded file or a stored attachment
@@ -13,9 +21,15 @@
 		preview?: string;
 		name?: string;
 		textContent?: string;
+		// For checking vision modality
+		activeModelId?: string;
 	}
 
-	let { uploadedFile, attachment, preview, name, textContent }: Props = $props();
+	let { uploadedFile, attachment, preview, name, textContent, activeModelId }: Props = $props();
+
+	let hasVisionModality = $derived(
+		activeModelId ? modelsStore.modelSupportsVision(activeModelId) : false
+	);
 
 	let displayName = $derived(uploadedFile?.name || attachment?.name || name || 'Unknown File');
 
@@ -34,6 +48,8 @@
 		uploadedFile?.textContent ||
 			(attachment && 'content' in attachment ? attachment.content : textContent)
 	);
+
+	let language = $derived(getLanguageFromFilename(displayName));
 
 	let IconComponent = $derived(() => {
 		if (isImage) return Image;
@@ -161,6 +177,24 @@
 				/>
 			</div>
 		{:else if isPdf && pdfViewMode === 'pages'}
+			{#if !hasVisionModality && activeModelId}
+				<Alert.Root class="mb-4">
+					<Info class="h-4 w-4" />
+					<Alert.Title>Preview only</Alert.Title>
+					<Alert.Description>
+						<span class="inline-flex">
+							The selected model does not support vision. Only the extracted
+							<!-- svelte-ignore a11y_click_events_have_key_events -->
+							<!-- svelte-ignore a11y_no_static_element_interactions -->
+							<span class="mx-1 cursor-pointer underline" onclick={() => (pdfViewMode = 'text')}>
+								text
+							</span>
+							will be sent to the model.
+						</span>
+					</Alert.Description>
+				</Alert.Root>
+			{/if}
+
 			{#if pdfImagesLoading}
 				<div class="flex items-center justify-center p-8">
 					<div class="text-center">
@@ -207,11 +241,7 @@
 				</div>
 			{/if}
 		{:else if (isText || (isPdf && pdfViewMode === 'text')) && displayTextContent}
-			<div
-				class="max-h-[60vh] overflow-auto rounded-lg bg-muted p-4 font-mono text-sm break-words whitespace-pre-wrap"
-			>
-				{displayTextContent}
-			</div>
+			<SyntaxHighlightedCode code={displayTextContent} {language} maxWidth="69rem" />
 		{:else if isAudio}
 			<div class="flex items-center justify-center p-8">
 				<div class="w-full max-w-md text-center">

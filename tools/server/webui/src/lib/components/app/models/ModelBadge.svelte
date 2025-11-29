@@ -1,9 +1,9 @@
 <script lang="ts">
 	import { Package } from '@lucide/svelte';
 	import { BadgeInfo, CopyToClipboardIcon } from '$lib/components/app';
+	import { modelsStore } from '$lib/stores/models.svelte';
 	import { serverStore } from '$lib/stores/server.svelte';
 	import * as Tooltip from '$lib/components/ui/tooltip';
-	import { TOOLTIP_DELAY_DURATION } from '$lib/constants/tooltip-config';
 
 	interface Props {
 		class?: string;
@@ -21,7 +21,7 @@
 		showTooltip = false
 	}: Props = $props();
 
-	let model = $derived(modelProp || serverStore.modelName);
+	let model = $derived(modelProp || modelsStore.singleModelName);
 	let isModelMode = $derived(serverStore.isModelMode);
 </script>
 
@@ -41,7 +41,7 @@
 
 {#if model && isModelMode}
 	{#if showTooltip}
-		<Tooltip.Root delayDuration={TOOLTIP_DELAY_DURATION}>
+		<Tooltip.Root>
 			<Tooltip.Trigger>
 				{@render badgeContent()}
 			</Tooltip.Trigger>

@@ -1,16 +1,17 @@
 <script lang="ts">
 	import {
-		BadgeModelName,
+		ModelBadge,
 		ChatMessageActions,
 		ChatMessageStatistics,
 		ChatMessageThinkingBlock,
 		CopyToClipboardIcon,
 		MarkdownContent,
-		SelectorModel
+		ModelsSelector
 	} from '$lib/components/app';
 	import { useProcessingState } from '$lib/hooks/use-processing-state.svelte';
+	import { useModelChangeValidation } from '$lib/hooks/use-model-change-validation.svelte';
 	import { isLoading } from '$lib/stores/chat.svelte';
-	import autoResizeTextarea from '$lib/utils/autoresize-textarea';
+	import { autoResizeTextarea, copyToClipboard } from '$lib/utils';
 	import { fade } from 'svelte/transition';
 	import { Check, X, Wrench } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button';
@@ -18,10 +19,8 @@
 	import { INPUT_CLASSES } from '$lib/constants/input-classes';
 	import Label from '$lib/components/ui/label/label.svelte';
 	import { config } from '$lib/stores/settings.svelte';
+	import { conversationsStore } from '$lib/stores/conversations.svelte';
 	import { isRouterMode } from '$lib/stores/server.svelte';
-	import { selectModel } from '$lib/stores/models.svelte';
-	import { copyToClipboard } from '$lib/utils/copy';
-	import type { ApiChatCompletionToolCall } from '$lib/types/api';
 
 	interface Props {
 		class?: string;
@@ -44,7 +43,7 @@
 		onEditKeydown?: (event: KeyboardEvent) => void;
 		onEditedContentChange?: (content: string) => void;
 		onNavigateToSibling?: (siblingId: string) => void;
-		onRegenerate: () => void;
+		onRegenerate: (modelOverride?: string) => void;
 		onSaveEdit?: () => void;
 		onShowDeleteDialogChange: (show: boolean) => void;
 		onShouldBranchAfterEditChange?: (value: boolean) => void;
@@ -93,9 +92,6 @@
 	let currentConfig = $derived(config());
 	let isRouter = $derived(isRouterMode());
 	let displayedModel = $derived((): string | null => {
-		if (!currentConfig.showModelInfo) return null;
-
-		// Only show model from streaming data, no fallbacks to server props
 		if (message.model) {
 			return message.model;
 		}
@@ -103,15 +99,10 @@
 		return null;
 	});
 
-	async function handleModelChange(modelId: string) {
-		try {
-			await selectModel(modelId);
-
-			onRegenerate();
-		} catch (error) {
-			console.error('Failed to change model:', error);
-		}
-	}
+	const { handleModelChange } = useModelChangeValidation({
+		getRequiredModalities: () => conversationsStore.getModalitiesUpToMessage(message.id),
+		onSuccess: (modelName) => onRegenerate(modelName)
+	});
 
 	function handleCopyModel() {
 		const model = displayedModel();
@@ -254,18 +245,15 @@
 	<div class="info my-6 grid gap-4">
 		{#if displayedModel()}
 			<span class="inline-flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-				{#if isRouter && currentConfig.modelSelectorEnabled}
-					<SelectorModel
+				{#if isRouter}
+					<ModelsSelector
 						currentModel={displayedModel()}
 						onModelChange={handleModelChange}
 						disabled={isLoading()}
+						upToMessageId={message.id}
 					/>
 				{:else}
-					<BadgeModelName
-						model={displayedModel() || undefined}
-						onclick={handleCopyModel}
-						showCopyIcon={true}
-					/>
+					<ModelBadge model={displayedModel() || undefined} onclick={handleCopyModel} />
 				{/if}
 
 				{#if currentConfig.showMessageStats && message.timings && message.timings.predicted_n && message.timings.predicted_ms}

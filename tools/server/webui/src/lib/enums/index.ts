@@ -18,4 +18,4 @@ export {
 
 export { ModelModality } from './model';
 
-export { ServerMode, ServerModelStatus } from './server';
+export { ServerRole, ServerModelStatus } from './server';

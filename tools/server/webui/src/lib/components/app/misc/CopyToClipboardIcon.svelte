@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { Copy } from '@lucide/svelte';
-	import { copyToClipboard } from '$lib/utils/copy';
+	import { copyToClipboard } from '$lib/utils';
 
 	interface Props {
 		ariaLabel?: string;

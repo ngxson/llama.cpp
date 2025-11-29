@@ -4,14 +4,19 @@
 // Import chat types from dedicated module
 
 import type {
+	// API types
 	ApiChatCompletionRequest,
 	ApiChatCompletionResponse,
 	ApiChatCompletionStreamChunk,
+	ApiChatCompletionToolCall,
+	ApiChatCompletionToolCallDelta,
 	ApiChatMessageData,
 	ApiChatMessageContentPart,
 	ApiContextSizeError,
 	ApiErrorResponse,
 	ApiLlamaCppServerProps,
+	ApiModelDataEntry,
+	ApiModelListResponse,
 	ApiProcessingState,
 	ApiRouterModelMeta,
 	ApiRouterModelsLoadRequest,
@@ -20,21 +25,17 @@ import type {
 	ApiRouterModelsStatusResponse,
 	ApiRouterModelsListResponse,
 	ApiRouterModelsUnloadRequest,
-	ApiRouterModelsUnloadResponse
-} from '$lib/types/api';
-
-import { ServerMode, ServerModelStatus, ModelModality } from '$lib/enums';
-
-import type {
+	ApiRouterModelsUnloadResponse,
+	// Chat types
+	ChatAttachmentDisplayItem,
+	ChatAttachmentPreviewItem,
 	ChatMessageType,
 	ChatRole,
 	ChatUploadedFile,
 	ChatMessageSiblingInfo,
 	ChatMessagePromptProgress,
-	ChatMessageTimings
-} from '$lib/types/chat';
-
-import type {
+	ChatMessageTimings,
+	// Database types
 	DatabaseConversation,
 	DatabaseMessage,
 	DatabaseMessageExtra,
@@ -42,14 +43,20 @@ import type {
 	DatabaseMessageExtraImageFile,
 	DatabaseMessageExtraTextFile,
 	DatabaseMessageExtraPdfFile,
-	DatabaseMessageExtraLegacyContext
-} from '$lib/types/database';
-
-import type {
+	DatabaseMessageExtraLegacyContext,
+	ExportedConversation,
+	ExportedConversations,
+	// Model types
+	ModelModalities,
+	ModelOption,
+	// Settings types
+	SettingsChatServiceOptions,
 	SettingsConfigValue,
 	SettingsFieldConfig,
 	SettingsConfigType
-} from '$lib/types/settings';
+} from '$lib/types';
+
+import { ServerRole, ServerModelStatus, ModelModality } from '$lib/enums';
 
 declare global {
 	// namespace App {
@@ -61,14 +68,19 @@ declare global {
 	// }
 
 	export {
+		// API types
 		ApiChatCompletionRequest,
 		ApiChatCompletionResponse,
 		ApiChatCompletionStreamChunk,
+		ApiChatCompletionToolCall,
+		ApiChatCompletionToolCallDelta,
 		ApiChatMessageData,
 		ApiChatMessageContentPart,
 		ApiContextSizeError,
 		ApiErrorResponse,
 		ApiLlamaCppServerProps,
+		ApiModelDataEntry,
+		ApiModelListResponse,
 		ApiProcessingState,
 		ApiRouterModelMeta,
 		ApiRouterModelsLoadRequest,
@@ -78,13 +90,16 @@ declare global {
 		ApiRouterModelsListResponse,
 		ApiRouterModelsUnloadRequest,
 		ApiRouterModelsUnloadResponse,
-		ChatMessageData,
+		// Chat types
+		ChatAttachmentDisplayItem,
+		ChatAttachmentPreviewItem,
 		ChatMessagePromptProgress,
 		ChatMessageSiblingInfo,
 		ChatMessageTimings,
 		ChatMessageType,
 		ChatRole,
 		ChatUploadedFile,
+		// Database types
 		DatabaseConversation,
 		DatabaseMessage,
 		DatabaseMessageExtra,
@@ -93,12 +108,19 @@ declare global {
 		DatabaseMessageExtraTextFile,
 		DatabaseMessageExtraPdfFile,
 		DatabaseMessageExtraLegacyContext,
+		ExportedConversation,
+		ExportedConversations,
+		// Enum types
 		ModelModality,
-		ServerMode,
+		ServerRole,
 		ServerModelStatus,
+		// Model types
+		ModelModalities,
+		ModelOption,
+		// Settings types
+		SettingsChatServiceOptions,
 		SettingsConfigValue,
 		SettingsFieldConfig,
-		SettingsConfigType,
-		SettingsChatServiceOptions
+		SettingsConfigType
 	};
 }

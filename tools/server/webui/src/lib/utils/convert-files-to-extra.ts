@@ -3,8 +3,8 @@ import { isSvgMimeType, svgBase64UrlToPngDataURL } from './svg-to-png';
 import { isWebpMimeType, webpBase64UrlToPngDataURL } from './webp-to-png';
 import { FileTypeCategory, AttachmentType } from '$lib/enums';
 import { config, settingsStore } from '$lib/stores/settings.svelte';
-import { supportsVision } from '$lib/stores/server.svelte';
-import { getFileTypeCategory } from '$lib/utils/file-type';
+import { modelsStore } from '$lib/stores/models.svelte';
+import { getFileTypeCategory } from '$lib/utils';
 import { readFileAsText, isLikelyTextFile } from './text-files';
 import { toast } from 'svelte-sonner';
 
@@ -31,7 +31,8 @@ export interface FileProcessingResult {
 }
 
 export async function parseFilesToMessageExtras(
-	files: ChatUploadedFile[]
+	files: ChatUploadedFile[],
+	activeModelId?: string
 ): Promise<FileProcessingResult> {
 	const extras: DatabaseMessageExtra[] = [];
 	const emptyFiles: string[] = [];
@@ -80,7 +81,10 @@ export async function parseFilesToMessageExtras(
 				// Always get base64 data for preview functionality
 				const base64Data = await readFileAsBase64(file.file);
 				const currentConfig = config();
-				const hasVisionSupport = supportsVision();
+				// Use per-model vision check for router mode
+				const hasVisionSupport = activeModelId
+					? modelsStore.modelSupportsVision(activeModelId)
+					: false;
 
 				// Force PDF-to-text for non-vision models
 				let shouldProcessAsImages = Boolean(currentConfig.pdfAsImage) && hasVisionSupport;

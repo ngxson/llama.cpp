@@ -1,26 +1,44 @@
 <script lang="ts">
 	import { onMount, tick } from 'svelte';
-	import { ChevronDown, Loader2, Package } from '@lucide/svelte';
+	import { ChevronDown, EyeOff, Loader2, MicOff, Package, Power } from '@lucide/svelte';
+	import * as Tooltip from '$lib/components/ui/tooltip';
 	import { cn } from '$lib/components/ui/utils';
-	import { portalToBody } from '$lib/utils/portal-to-body';
+	import { portalToBody } from '$lib/utils';
 	import {
-		fetchModels,
+		modelsStore,
 		modelOptions,
 		modelsLoading,
 		modelsUpdating,
-		selectModel,
-		selectedModelId
+		selectedModelId,
+		routerModels,
+		propsCacheVersion,
+		singleModelName
 	} from '$lib/stores/models.svelte';
-	import { isRouterMode, serverStore } from '$lib/stores/server.svelte';
+	import { usedModalities, conversationsStore } from '$lib/stores/conversations.svelte';
+	import { ServerModelStatus } from '$lib/enums';
+	import { isRouterMode } from '$lib/stores/server.svelte';
 	import { DialogModelInformation } from '$lib/components/app';
-	import type { ModelOption } from '$lib/types/models';
+	import {
+		MENU_MAX_WIDTH,
+		MENU_OFFSET,
+		VIEWPORT_GUTTER
+	} from '$lib/constants/floating-ui-constraints';
 
 	interface Props {
 		class?: string;
 		currentModel?: string | null;
-		onModelChange?: (modelId: string, modelName: string) => void;
+		/** Callback when model changes. Return false to keep menu open (e.g., for validation failures) */
+		onModelChange?: (modelId: string, modelName: string) => Promise<boolean> | boolean | void;
 		disabled?: boolean;
 		forceForegroundText?: boolean;
+		/** When true, user's global selection takes priority over currentModel (for form selector) */
+		useGlobalSelection?: boolean;
+		/**
+		 * When provided, only consider modalities from messages BEFORE this message.
+		 * Used for regeneration - allows selecting models that don't support modalities
+		 * used in later messages.
+		 */
+		upToMessageId?: string;
 	}
 
 	let {
@@ -28,7 +46,9 @@
 		currentModel = null,
 		onModelChange,
 		disabled = false,
-		forceForegroundText = false
+		forceForegroundText = false,
+		useGlobalSelection = false,
+		upToMessageId
 	}: Props = $props();
 
 	let options = $derived(modelOptions());
@@ -36,7 +56,78 @@
 	let updating = $derived(modelsUpdating());
 	let activeId = $derived(selectedModelId());
 	let isRouter = $derived(isRouterMode());
-	let serverModel = $derived(serverStore.modelName);
+	let serverModel = $derived(singleModelName());
+
+	// Reactive router models state - needed for proper reactivity of status checks
+	let currentRouterModels = $derived(routerModels());
+
+	let requiredModalities = $derived(
+		upToMessageId ? conversationsStore.getModalitiesUpToMessage(upToMessageId) : usedModalities()
+	);
+
+	function getModelStatus(modelId: string): ServerModelStatus | null {
+		const model = currentRouterModels.find((m) => m.id === modelId);
+		return (model?.status?.value as ServerModelStatus) ?? null;
+	}
+
+	/**
+	 * Checks if a model supports all modalities used in the conversation.
+	 * Returns true if the model can be selected, false if it should be disabled.
+	 */
+	function isModelCompatible(option: ModelOption): boolean {
+		void propsCacheVersion();
+
+		const modelModalities = modelsStore.getModelModalities(option.model);
+
+		if (!modelModalities) {
+			const status = getModelStatus(option.model);
+
+			if (status === ServerModelStatus.LOADED) {
+				if (requiredModalities.vision || requiredModalities.audio) return false;
+			}
+
+			return true;
+		}
+
+		if (requiredModalities.vision && !modelModalities.vision) return false;
+		if (requiredModalities.audio && !modelModalities.audio) return false;
+
+		return true;
+	}
+
+	/**
+	 * Gets missing modalities for a model.
+	 * Returns object with vision/audio booleans indicating what's missing.
+	 */
+	function getMissingModalities(option: ModelOption): { vision: boolean; audio: boolean } | null {
+		void propsCacheVersion();
+
+		const modelModalities = modelsStore.getModelModalities(option.model);
+
+		if (!modelModalities) {
+			const status = getModelStatus(option.model);
+
+			if (status === ServerModelStatus.LOADED) {
+				const missing = {
+					vision: requiredModalities.vision,
+					audio: requiredModalities.audio
+				};
+
+				if (missing.vision || missing.audio) return missing;
+			}
+
+			return null;
+		}
+
+		const missing = {
+			vision: requiredModalities.vision && !modelModalities.vision,
+			audio: requiredModalities.audio && !modelModalities.audio
+		};
+
+		if (!missing.vision && !missing.audio) return null;
+
+		return missing;
+	}
 
 	let isHighlightedCurrentModelActive = $derived(
 		!isRouter || !currentModel
@@ -67,13 +158,9 @@
 		maxHeight: number;
 	} | null>(null);
 
-	const VIEWPORT_GUTTER = 8;
-	const MENU_OFFSET = 6;
-	const MENU_MAX_WIDTH = 320;
-
 	onMount(async () => {
 		try {
-			await fetchModels();
+			await modelsStore.fetch();
 		} catch (error) {
 			console.error('Unable to load models:', error);
 		}
@@ -102,6 +189,16 @@
 		await tick();
 		updateMenuPosition();
 		requestAnimationFrame(() => updateMenuPosition());
+
+		modelsStore.fetchModalitiesForLoadedModels();
+	}
+
+	export function open() {
+		if (isRouter) {
+			openMenu();
+		} else {
+			showModelDialog = true;
+		}
 	}
 
 	function closeMenu() {
@@ -225,16 +322,37 @@
 		};
 	}
 
-	function handleSelect(modelId: string) {
+	async function handleSelect(modelId: string) {
 		const option = options.find((opt) => opt.id === modelId);
-		if (option && onModelChange) {
+		if (!option) return;
+
+		let shouldCloseMenu = true;
+
+		if (onModelChange) {
 			// If callback provided, use it (for regenerate functionality)
-			onModelChange(option.id, option.model);
-		} else if (option) {
-			// Otherwise, just update the global selection (for form selector)
-			selectModel(option.id).catch(console.error);
+			const result = await onModelChange(option.id, option.model);
+
+			// If callback returns false, keep menu open (validation failed)
+			if (result === false) {
+				shouldCloseMenu = false;
+			}
+		} else {
+			// Update global selection
+			await modelsStore.selectModelById(option.id);
+
+			// Load the model if not already loaded (router mode)
+			if (isRouter && getModelStatus(option.model) !== ServerModelStatus.LOADED) {
+				try {
+					await modelsStore.loadModel(option.model);
+				} catch (error) {
+					console.error('Failed to load model:', error);
+				}
+			}
 		}
-		closeMenu();
+
+		if (shouldCloseMenu) {
+			closeMenu();
+		}
 	}
 
 	function getDisplayOption(): ModelOption | undefined {
@@ -251,6 +369,14 @@
 			return undefined;
 		}
 
+		// When useGlobalSelection is true (form selector), prioritize user selection
+		// Otherwise (message display), prioritize currentModel
+		if (useGlobalSelection && activeId) {
+			const selected = options.find((option) => option.id === activeId);
+			if (selected) return selected;
+		}
+
+		// Show currentModel (from message payload or conversation)
 		if (currentModel) {
 			if (!isCurrentModelInCache()) {
 				return {
@@ -264,11 +390,13 @@
 			return options.find((option) => option.model === currentModel);
 		}
 
+		// Fallback to user selection (for new chats before first message)
 		if (activeId) {
 			return options.find((option) => option.id === activeId);
 		}
 
-		return options[0];
+		// No selection - return undefined to show "Select model"
+		return undefined;
 	}
 </script>
 
@@ -357,20 +485,100 @@
 							<div class="my-1 h-px bg-border"></div>
 						{/if}
 						{#each options as option (option.id)}
-							<button
-								type="button"
+							{@const status = getModelStatus(option.model)}
+							{@const isLoaded = status === ServerModelStatus.LOADED}
+							{@const isLoading = status === ServerModelStatus.LOADING}
+							{@const isSelected = currentModel === option.model || activeId === option.id}
+							{@const isCompatible = isModelCompatible(option)}
+							{@const missingModalities = getMissingModalities(option)}
+							<div
 								class={cn(
-									'flex w-full cursor-pointer items-center px-3 py-2 text-left text-sm transition hover:bg-muted focus:bg-muted focus:outline-none',
-									currentModel === option.model || activeId === option.id
+									'group flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition focus:outline-none',
+									isCompatible
+										? 'cursor-pointer hover:bg-muted focus:bg-muted'
+										: 'cursor-not-allowed opacity-50',
+									isSelected
 										? 'bg-accent text-accent-foreground'
-										: 'text-popover-foreground hover:bg-accent hover:text-accent-foreground'
+										: isCompatible
+											? 'hover:bg-accent hover:text-accent-foreground'
+											: '',
+									isLoaded ? 'text-popover-foreground' : 'text-muted-foreground'
 								)}
 								role="option"
-								aria-selected={currentModel === option.model || activeId === option.id}
-								onclick={() => handleSelect(option.id)}
+								aria-selected={isSelected}
+								aria-disabled={!isCompatible}
+								tabindex={isCompatible ? 0 : -1}
+								onclick={() => isCompatible && handleSelect(option.id)}
+								onkeydown={(e) => {
+									if (isCompatible && (e.key === 'Enter' || e.key === ' ')) {
+										e.preventDefault();
+										handleSelect(option.id);
+									}
+								}}
 							>
-								<span class="truncate">{option.model}</span>
-							</button>
+								<span class="min-w-0 flex-1 truncate">{option.model}</span>
+
+								{#if missingModalities}
+									<span class="flex shrink-0 items-center gap-1 text-muted-foreground/70">
+										{#if missingModalities.vision}
+											<Tooltip.Root>
+												<Tooltip.Trigger>
+													<EyeOff class="h-3.5 w-3.5" />
+												</Tooltip.Trigger>
+												<Tooltip.Content class="z-[9999]">
+													<p>No vision support</p>
+												</Tooltip.Content>
+											</Tooltip.Root>
+										{/if}
+										{#if missingModalities.audio}
+											<Tooltip.Root>
+												<Tooltip.Trigger>
+													<MicOff class="h-3.5 w-3.5" />
+												</Tooltip.Trigger>
+												<Tooltip.Content class="z-[9999]">
+													<p>No audio support</p>
+												</Tooltip.Content>
+											</Tooltip.Root>
+										{/if}
+									</span>
+								{/if}
+
+								{#if isLoading}
+									<Tooltip.Root>
+										<Tooltip.Trigger>
+											<Loader2 class="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
+										</Tooltip.Trigger>
+										<Tooltip.Content class="z-[9999]">
+											<p>Loading model...</p>
+										</Tooltip.Content>
+									</Tooltip.Root>
+								{:else if isLoaded}
+									<Tooltip.Root>
+										<Tooltip.Trigger>
+											<button
+												type="button"
+												class="relative ml-2 flex h-4 w-4 shrink-0 items-center justify-center"
+												onclick={(e) => {
+													e.stopPropagation();
+													modelsStore.unloadModel(option.model);
+												}}
+											>
+												<span
+													class="mr-2 h-2 w-2 rounded-full bg-green-500 transition-opacity group-hover:opacity-0"
+												></span>
+												<Power
+													class="absolute mr-2 h-4 w-4 text-red-500 opacity-0 transition-opacity group-hover:opacity-100 hover:text-red-600"
+												/>
+											</button>
+										</Tooltip.Trigger>
+										<Tooltip.Content class="z-[9999]">
+											<p>Unload model</p>
+										</Tooltip.Content>
+									</Tooltip.Root>
+								{:else}
+									<span class="mx-2 h-2 w-2 rounded-full bg-muted-foreground/50"></span>
+								{/if}
+							</div>
 						{/each}
 					</div>
 				</div>

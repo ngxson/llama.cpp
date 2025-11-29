@@ -7,11 +7,7 @@
 	import * as Sidebar from '$lib/components/ui/sidebar';
 	import * as AlertDialog from '$lib/components/ui/alert-dialog';
 	import Input from '$lib/components/ui/input/input.svelte';
-	import {
-		conversations,
-		deleteConversation,
-		updateConversationName
-	} from '$lib/stores/chat.svelte';
+	import { conversationsStore, conversations } from '$lib/stores/conversations.svelte';
 	import ChatSidebarActions from './ChatSidebarActions.svelte';
 
 	const sidebar = Sidebar.useSidebar();
@@ -56,7 +52,7 @@
 			showDeleteDialog = false;
 
 			setTimeout(() => {
-				deleteConversation(selectedConversation.id);
+				conversationsStore.deleteConversation(selectedConversation.id);
 				selectedConversation = null;
 			}, 100); // Wait for animation to finish
 		}
@@ -67,7 +63,7 @@
 
 		showEditDialog = false;
 
-		updateConversationName(selectedConversation.id, editedName);
+		conversationsStore.updateConversationName(selectedConversation.id, editedName);
 		selectedConversation = null;
 	}
 
