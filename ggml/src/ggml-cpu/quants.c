@@ -66,6 +66,12 @@ void quantize_row_q3_K(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, i
     quantize_row_q3_K_ref(x, vy, k);
 }
 
+void quantize_row_q3_hifi(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
+    assert(k % Q3_HIFI_BLOCK_SIZE == 0);
+    block_q3_hifi * GGML_RESTRICT y = vy;
+    quantize_row_q3_hifi_ref(x, y, k);
+}
+
 // ====================== 4-bit (de)-quantization
 
 void quantize_row_q4_K(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
