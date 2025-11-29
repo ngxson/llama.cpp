@@ -1,5 +1,6 @@
 #include "server-http.h"
 #include "server-task.h"
+#include "server-queue.h"
 
 #include <nlohmann/json_fwd.hpp>
 
@@ -29,6 +30,10 @@ struct server_context {
 
     // get the underlaying llama_context
     llama_context * get_llama_context() const;
+
+    // get the underlaying queue_tasks and queue_results
+    // used by CLI application
+    std::pair<server_queue &, server_response &> get_queues();
 };
 
 

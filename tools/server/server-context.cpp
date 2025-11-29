@@ -2536,110 +2536,17 @@ llama_context * server_context::get_llama_context() const {
     return impl->ctx;
 }
 
+std::pair<server_queue &, server_response &> server_context::get_queues() {
+    return { impl->queue_tasks, impl->queue_results };
+}
 
 
-// generator-like API for server responses, support pooling connection state and aggregating results
-struct server_response_reader {
-    std::unordered_set<int> id_tasks;
-    server_context_impl & ctx_server;
-    size_t received_count = 0;
-    bool cancelled = false;
-
-    server_response_reader(server_context_impl & ctx_server) : ctx_server(ctx_server) {}
-    ~server_response_reader() {
-        stop();
-    }
-
-    void post_tasks(std::vector<server_task> && tasks) {
-        id_tasks = server_task::get_list_id(tasks);
-        ctx_server.queue_results.add_waiting_tasks(tasks);
-        ctx_server.queue_tasks.post(std::move(tasks));
-    }
-
-    bool has_next() const {
-        return !cancelled && received_count < id_tasks.size();
-    }
-
-    // return nullptr if should_stop() is true before receiving a result
-    // note: if one error is received, it will stop further processing and return error result
-    server_task_result_ptr next(const std::function<bool()> & should_stop) {
-        while (true) {
-            server_task_result_ptr result = ctx_server.queue_results.recv_with_timeout(id_tasks, HTTP_POLLING_SECONDS);
-            if (result == nullptr) {
-                // timeout, check stop condition
-                if (should_stop()) {
-                    SRV_DBG("%s", "stopping wait for next result due to should_stop condition\n");
-                    return nullptr;
-                }
-            } else {
-                if (result->is_error()) {
-                    stop(); // cancel remaining tasks
-                    SRV_DBG("%s", "received error result, stopping further processing\n");
-                    return result;
-                }
-                if (result->is_stop()) {
-                    received_count++;
-                }
-                return result;
-            }
-        }
-
-        // should not reach here
-    }
-
-    struct batch_response {
-        bool is_terminated = false; // if true, indicates that processing was stopped before all results were received
-        std::vector<server_task_result_ptr> results;
-        server_task_result_ptr error; // nullptr if no error
-    };
-
-    batch_response wait_for_all(const std::function<bool()> & should_stop) {
-        batch_response batch_res;
-        batch_res.results.resize(id_tasks.size());
-        while (has_next()) {
-            auto res = next(should_stop);
-            if (res == nullptr) {
-                batch_res.is_terminated = true;
-                return batch_res;
-            }
-            if (res->is_error()) {
-                batch_res.error = std::move(res);
-                return batch_res;
-            }
-            const size_t idx = res->get_index();
-            GGML_ASSERT(idx < batch_res.results.size() && "index out of range");
-            GGML_ASSERT(batch_res.results[idx] == nullptr && "duplicate result received");
-            batch_res.results[idx] = std::move(res);
-        }
-        return batch_res;
-    }
-
-    void stop() {
-        ctx_server.queue_results.remove_waiting_task_ids(id_tasks);
-        if (has_next() && !cancelled) {
-            // if tasks is not finished yet, cancel them
-            cancelled = true;
-            std::vector<server_task> cancel_tasks;
-            cancel_tasks.reserve(id_tasks.size());
-            for (const auto & id_task : id_tasks) {
-                SRV_WRN("cancel task, id_task = %d\n", id_task);
-                server_task task(SERVER_TASK_TYPE_CANCEL);
-                task.id_target = id_task;
-                ctx_server.queue_results.remove_waiting_task_id(id_task);
-                cancel_tasks.push_back(std::move(task));
-            }
-            // push to beginning of the queue, so it has highest priority
-            ctx_server.queue_tasks.post(std::move(cancel_tasks), true);
-        } else {
-            SRV_DBG("%s", "all tasks already finished, no need to cancel\n");
-        }
-    }
-};
 
 // generator-like API for HTTP response generation
 struct server_res_generator : server_http_res {
     server_response_reader rd;
-    server_res_generator(server_context_impl & ctx_server_) : rd(ctx_server_) {}
+    server_res_generator(server_context_impl & ctx_server)
+        : rd({ctx_server.queue_tasks, ctx_server.queue_results}, HTTP_POLLING_SECONDS) {}
     void ok(const json & response_data) {
         status = 200;
         data = safe_json_to_str(response_data);
@@ -3410,7 +3317,7 @@ void server_routes::init_routes() {
 
         // create and queue the task
         json responses = json::array();
-        server_response_reader rd(ctx_server);
+        server_response_reader rd({ctx_server.queue_tasks, ctx_server.queue_results}, HTTP_POLLING_SECONDS);
         {
             std::vector<server_task> tasks;
             tasks.reserve(documents.size());
@@ -3669,7 +3576,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_embeddings_impl(cons
 
     // create and queue the task
     json responses = json::array();
-    server_response_reader rd(ctx_server);
+    server_response_reader rd({ctx_server.queue_tasks, ctx_server.queue_results}, HTTP_POLLING_SECONDS);
     {
         std::vector<server_task> tasks;
         for (size_t i = 0; i < tokenized_prompts.size(); i++) {
