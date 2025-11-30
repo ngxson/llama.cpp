@@ -2674,7 +2674,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
     ).set_env("LLAMA_OFFLINE"));
     add_opt(common_arg(
         {"-lv", "--verbosity", "--log-verbosity"}, "N",
-        "Set the verbosity threshold. Messages with a higher verbosity will be ignored.",
+        "Set the verbosity threshold. Messages with a higher verbosity will be ignored. Values:"
+        " - 0: generic output\n"
+        " - 1: error\n"
+        " - 2: warning\n"
+        " - 3: info\n"
+        " - 4: debug\n"
+        "(default: 3)\n",
         [](common_params & params, int value) {
             params.verbosity = value;
             common_log_set_verbosity_thold(value);
