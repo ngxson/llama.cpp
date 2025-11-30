@@ -24,7 +24,6 @@ enum server_task_type {
     SERVER_TASK_TYPE_SLOT_RESTORE,
     SERVER_TASK_TYPE_SLOT_ERASE,
     SERVER_TASK_TYPE_SET_LORA,
-    SERVER_TASK_TYPE_FORMAT_INPUT, // only used by CLI
 };
 
 // TODO: change this to more generic "response_format" to replace the "format_response_*" in server-common
@@ -94,6 +93,10 @@ struct server_task {
     task_params   params;
     server_tokens tokens;
 
+    // only used by CLI, this delegates the tokenization to the server
+    json                    cli_input = nullptr;
+    std::vector<raw_buffer> cli_files;
+
     server_task_type type;
 
     // used by SERVER_TASK_TYPE_SLOT_SAVE, SERVER_TASK_TYPE_SLOT_RESTORE, SERVER_TASK_TYPE_SLOT_ERASE
@@ -109,10 +112,6 @@ struct server_task {
 
     // used by SERVER_TASK_TYPE_SET_LORA
     std::vector<common_adapter_lora_info> set_lora;
-
-    // used by SERVER_TASK_TYPE_FORMAT_INPUT
-    json input_raw; // TODO: maybe use something more efficient than json
-    std::vector<raw_buffer> input_files;
 
     server_task() = default;
 
@@ -404,18 +403,6 @@ struct server_task_result_slot_erase : server_task_result {
 
 struct server_task_result_apply_lora : server_task_result {
     virtual json to_json() override;
-};
-
-struct server_task_result_format_input : server_task_result {
-    int index = 0;
-    error_type err_type = ERROR_TYPE_SERVER;
-    std::string err_msg;
-
-    server_tokens tokens;
-
-    virtual json to_json() override {
-        return json{}; // unused
-    }
 };
 
 struct server_prompt_checkpoint {

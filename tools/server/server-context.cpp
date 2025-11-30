@@ -1424,6 +1424,44 @@ struct server_context_impl {
     // Functions to process the task
     //
 
+    // tokenize the input if it's set by CLI, return false on error
+    bool tokenize_cli_input(server_task & task) {
+        if (task.cli_input == nullptr) {
+            return true; // nothing to do
+        }
+        try {
+            auto & opt = oai_parser_opt;
+            common_chat_templates_inputs inputs;
+            inputs.messages              = common_chat_msgs_parse_oaicompat(task.cli_input);
+            inputs.tools                 = {}; // TODO
+            inputs.tool_choice           = COMMON_CHAT_TOOL_CHOICE_NONE;
+            inputs.json_schema           = ""; // TODO
+            inputs.grammar               = ""; // TODO
+            inputs.use_jinja             = opt.use_jinja;
+            inputs.parallel_tool_calls   = false;
+            inputs.add_generation_prompt = true;
+            inputs.reasoning_format      = opt.reasoning_format;
+            inputs.enable_thinking       = opt.enable_thinking;
+
+            // Apply chat template to the list of messages
+            auto chat_params = common_chat_templates_apply(opt.tmpls, inputs);
+
+            // tokenize the resulting prompt
+            auto & prompt = chat_params.prompt;
+            if (mctx != nullptr) {
+                task.tokens = process_mtmd_prompt(mctx, prompt, task.cli_files);
+            } else {
+                task.tokens = std::move(tokenize_input_prompts(vocab, mctx, prompt, true, true)[0]);
+            }
+            task.cli_input.clear();
+            task.cli_files.clear();
+        } catch (const std::exception & e) {
+            send_error(task, std::string("Failed to format input: ") + e.what(), ERROR_TYPE_INVALID_REQUEST);
+            return false;
+        }
+        return true;
+    }
+
     void process_single_task(server_task && task) {
         switch (task.type) {
             case SERVER_TASK_TYPE_COMPLETION:
@@ -1431,6 +1469,10 @@ struct server_context_impl {
             case SERVER_TASK_TYPE_EMBEDDING:
             case SERVER_TASK_TYPE_RERANK:
                 {
+                    if (!tokenize_cli_input(task)) {
+                        break;
+                    }
+
                     const int id_slot = task.id_slot;
 
                     server_slot * slot = id_slot != -1 ? get_slot_by_id(id_slot) : get_available_slot(task);
@@ -1638,40 +1680,6 @@ struct server_context_impl {
                     params_base.lora_adapters = std::move(task.set_lora);
                     auto res = std::make_unique<server_task_result_apply_lora>();
                     res->id = task.id;
-                    queue_results.send(std::move(res));
-                } break;
-            case SERVER_TASK_TYPE_FORMAT_INPUT:
-                {
-                    auto res = std::make_unique<server_task_result_format_input>();
-                    res->id = task.id;
-                    try {
-                        auto & opt = oai_parser_opt;
-                        common_chat_templates_inputs inputs;
-                        inputs.messages              = common_chat_msgs_parse_oaicompat(task.input_raw);
-                        inputs.tools                 = {}; // TODO
-                        inputs.tool_choice           = COMMON_CHAT_TOOL_CHOICE_NONE;
-                        inputs.json_schema           = ""; // TODO
-                        inputs.grammar               = ""; // TODO
-                        inputs.use_jinja             = opt.use_jinja;
-                        inputs.parallel_tool_calls   = false;
-                        inputs.add_generation_prompt = true;
-                        inputs.reasoning_format      = opt.reasoning_format;
-                        inputs.enable_thinking       = opt.enable_thinking;
-
-                        // Apply chat template to the list of messages
-                        auto chat_params = common_chat_templates_apply(opt.tmpls, inputs);
-
-                        // tokenize the resulting prompt
-                        auto & prompt = chat_params.prompt;
-                        if (mctx != nullptr) {
-                            res->tokens = process_mtmd_prompt(mctx, prompt, task.input_files);
-                        } else {
-                            res->tokens = std::move(tokenize_input_prompts(vocab, mctx, prompt, true, true)[0]);
-                        }
-                    } catch (const std::exception & e) {
-                        send_error(task, std::string("Failed to format input: ") + e.what(), ERROR_TYPE_INVALID_REQUEST);
-                        break;
-                    }
                     queue_results.send(std::move(res));
                 } break;
         }
