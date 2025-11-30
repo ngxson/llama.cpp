@@ -9893,6 +9893,20 @@ class MistralModel(LlamaModel):
 
         return template
 
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        if "yarn" in self.hparams:
+            yarn_params = self.hparams["yarn"]
+            self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.YARN)
+            self.gguf_writer.add_rope_scaling_factor(yarn_params["factor"])
+            self.gguf_writer.add_rope_scaling_yarn_beta_fast(yarn_params["beta"])
+            self.gguf_writer.add_rope_scaling_yarn_beta_slow(yarn_params["alpha"])
+            self.gguf_writer.add_rope_scaling_yarn_log_mul(0.1)
+            self.gguf_writer.add_rope_scaling_orig_ctx_len(yarn_params["original_max_position_embeddings"])
+
+        if "llama_4_scaling" in self.hparams:
+            self.gguf_writer.add_attn_temperature_scale(self.hparams["llama_4_scaling"]["beta"])
+
 
 class PixtralModel(LlavaVisionModel):
     model_name = "Pixtral"
