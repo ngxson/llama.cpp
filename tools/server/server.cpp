@@ -276,8 +276,9 @@ int main(int argc, char ** argv, char ** envp) {
 
         // optionally, notify router server that this instance is ready
         const char * router_port = std::getenv("LLAMA_SERVER_ROUTER_PORT");
+        std::thread monitor_thread;
         if (router_port != nullptr) {
-            server_models::setup_child_server(params, std::atoi(router_port), params.model_alias, shutdown_handler);
+            monitor_thread = server_models::setup_child_server(params, std::atoi(router_port), params.model_alias, shutdown_handler);
         }
 
         // this call blocks the main thread until queue_tasks.terminate() is called
@@ -286,6 +287,9 @@ int main(int argc, char ** argv, char ** envp) {
         clean_up();
         if (ctx_http.thread.joinable()) {
             ctx_http.thread.join();
+        }
+        if (monitor_thread.joinable()) {
+            monitor_thread.join();
         }
         llama_memory_breakdown_print(ctx_server.get_llama_context());
     }

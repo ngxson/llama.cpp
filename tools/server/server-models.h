@@ -122,7 +122,8 @@ public:
     server_http_res_ptr proxy_request(const server_http_req & req, const std::string & method, const std::string & name, bool update_last_used);
 
     // notify the router server that a model instance is ready
-    static void setup_child_server(const common_params & base_params, int router_port, const std::string & name, std::function<void(int)> & shutdown_handler);
+    // return the monitoring thread (to be joined by the caller)
+    static std::thread setup_child_server(const common_params & base_params, int router_port, const std::string & name, std::function<void(int)> & shutdown_handler);
 };
 
 struct server_models_routes {
