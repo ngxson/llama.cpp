@@ -1640,7 +1640,40 @@ struct server_context_impl {
                     res->id = task.id;
                     queue_results.send(std::move(res));
                 } break;
+            case SERVER_TASK_TYPE_FORMAT_INPUT:
+                {
+                    auto res = std::make_unique<server_task_result_format_input>();
+                    res->id = task.id;
+                    try {
+                        auto & opt = oai_parser_opt;
+                        common_chat_templates_inputs inputs;
+                        inputs.messages              = common_chat_msgs_parse_oaicompat(task.input_raw);
+                        inputs.tools                 = {}; // TODO
+                        inputs.tool_choice           = COMMON_CHAT_TOOL_CHOICE_NONE;
+                        inputs.json_schema           = ""; // TODO
+                        inputs.grammar               = ""; // TODO
+                        inputs.use_jinja             = opt.use_jinja;
+                        inputs.parallel_tool_calls   = false;
+                        inputs.add_generation_prompt = true;
+                        inputs.reasoning_format      = opt.reasoning_format;
+                        inputs.enable_thinking       = opt.enable_thinking;
 
+                        // Apply chat template to the list of messages
+                        auto chat_params = common_chat_templates_apply(opt.tmpls, inputs);
+
+                        // tokenize the resulting prompt
+                        auto & prompt = chat_params.prompt;
+                        if (mctx != nullptr) {
+                            res->tokens = process_mtmd_prompt(mctx, prompt, task.input_files);
+                        } else {
+                            res->tokens = std::move(tokenize_input_prompts(vocab, mctx, prompt, true, true)[0]);
+                        }
+                    } catch (const std::exception & e) {
+                        send_error(task, std::string("Failed to format input: ") + e.what(), ERROR_TYPE_INVALID_REQUEST);
+                        break;
+                    }
+                    queue_results.send(std::move(res));
+                } break;
         }
     }
 
