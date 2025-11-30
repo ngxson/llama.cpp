@@ -176,7 +176,7 @@ def test_apply_chat_template():
     ({"type": "json_object", "schema": {"items": [{"type": "integer"}]}}, 10, "[ -3000 ]", 200),
     ({"type": "json_schema", "json_schema": {"schema": {"const": "foooooo"}}}, 10, "\"foooooo\"", 200),
     ({"type": "json_object"}, 10, "(\\{|John)+", 200),
-    ({"type": "sound"}, 0, None, 500),
+    ({"type": "sound"}, 0, None, 400),
     # invalid response format (expected to fail)
     ({"type": "json_object", "schema": 123}, 0, None, 400),
     ({"type": "json_object", "schema": {"type": 123}}, 0, None, 400),
