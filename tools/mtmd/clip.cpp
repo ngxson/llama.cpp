@@ -193,8 +193,6 @@ struct clip_hparams {
     int32_t attn_window_size = 0;
     int32_t n_wa_pattern = 0;
 
-    bool crop_mode = false;
-
     // audio
     int32_t n_mel_bins = 0; // whisper preprocessor
     int32_t proj_stack_factor = 0; // ultravox
@@ -207,6 +205,9 @@ struct clip_hparams {
     // custom value provided by user, can be undefined if not set
     int32_t custom_image_min_tokens = -1;
     int32_t custom_image_max_tokens = -1;
+
+    // DeepSeek-OCR resolution mode
+    enum clip_dsocr_mode dsocr_mode = clip_dsocr_mode::CLIP_DSOCR_MODE_AUTO;
 
     void set_limit_image_tokens(int n_tokens_min, int n_tokens_max) {
         const int cur_merge = n_merge == 0 ? 1 : n_merge;
@@ -512,6 +513,7 @@ struct clip_ctx {
         if (ctx_params.image_max_tokens > 0) {
             model.hparams.custom_image_max_tokens = ctx_params.image_max_tokens;
         }
+        model.hparams.dsocr_mode = ctx_params.dsocr_mode;
 
         backend_ptrs.push_back(backend_cpu);
         backend_buft.push_back(ggml_backend_get_default_buffer_type(backend_cpu));
@@ -3403,7 +3405,6 @@ struct clip_model_loader {
                         hparams.patch_size = 16;
                         hparams.image_size = 1024;
                         hparams.warmup_image_size = 1024;
-                        hparams.crop_mode = false;
                     } break;
                 default:
                     break;
@@ -5054,9 +5055,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 }
             } break;
         case PROJECTOR_TYPE_DEEPSEEKOCR:
-            if (!params.crop_mode) {
-                /* Native Resolution (Tiny/Small/Base/Large) */
-
+            {
                 const int native_resolutions[] = {
                     512 /* tiny */, 640 /* small */, 1024 /* base */, 1280 /* large */
                 };
@@ -5065,29 +5064,44 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 const int orig_h = original_size.height;
                 const int orig_area = orig_h * orig_w;
                 std::array<uint8_t, 3u> color;
-
+    
                 for (int i = 0; i < 3; i++) {
                     color[i] = (int)(255 * params.image_mean[i]);
                 }
-
-                // mode selection logic (find most suitable resolution)
+    
                 int mode_i = 0;
-                int min_diff = orig_area;
-
-                for (int i = 0; i < 4; i++) {
-                    int r = native_resolutions[i];
-                    if (std::abs(orig_area - r*r) < min_diff) {
-                        mode_i = i;
-                        min_diff = std::abs(orig_area - r*r);
+    
+                if (params.dsocr_mode == clip_dsocr_mode::CLIP_DSOCR_MODE_TINY) {
+                    mode_i = 0;
+                } else if (params.dsocr_mode == clip_dsocr_mode::CLIP_DSOCR_MODE_SMALL) {
+                    mode_i = 1;
+                } else if (params.dsocr_mode == clip_dsocr_mode::CLIP_DSOCR_MODE_BASE) {
+                    mode_i = 2;
+                } else if (params.dsocr_mode == clip_dsocr_mode::CLIP_DSOCR_MODE_LARGE) {
+                    mode_i = 3;
+                } else if (params.dsocr_mode == clip_dsocr_mode::CLIP_DSOCR_MODE_GUNDAM) {
+                    mode_i = 4;
+                } else if (params.dsocr_mode == clip_dsocr_mode::CLIP_DSOCR_MODE_GUNDAM_MASTER) {
+                    mode_i = 5;
+                } else {
+                    if (params.dsocr_mode != clip_dsocr_mode::CLIP_DSOCR_MODE_AUTO) {
+                        LOG_WRN("%s: unknown dsocr_mode, using auto mode\n", __func__);
+                    }
+                    int min_diff = orig_area;
+                    for (int i = 0; i < 4; i++) {
+                        int r = native_resolutions[i];
+                        if (std::abs(orig_area - r*r) < min_diff) {
+                            mode_i = i;
+                            min_diff = std::abs(orig_area - r*r);
+                        }
                     }
                 }
 
-                const int image_size = native_resolutions[mode_i];
-
                 if (mode_i < 2) {
-                    // TINY/SMALL MODE: Direct resize (no slicing)
+                    /* Native Resolution (Tiny/Small) */
+                    const int image_size = native_resolutions[mode_i];
+                    
                     // Just resize the image to image_size × image_size
-
                     clip_image_u8_ptr resized_img(clip_image_u8_init());
                     img_tool::resize(*img, *resized_img,
                                     clip_image_size{image_size, image_size},
@@ -5100,10 +5114,11 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                     res_imgs->grid_x = 1;
                     res_imgs->grid_y = 1;
                 }
-                else {
-                    // BASE/LARGE MODE: Resize with aspect ratio + padding
+                else if (mode_i < 4) {
+                    /* Native Resolution (Base/Large) */
+                    const int image_size = native_resolutions[mode_i];
+                    
                     // Resize maintaining aspect ratio, then pad to square
-
                     float scale = std::min(
                         static_cast<float>(image_size) / orig_w,
                         static_cast<float>(image_size) / orig_h
@@ -5120,7 +5135,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                     unsigned char pad_g = static_cast<unsigned char>(params.image_mean[1] * 255.0f);
                     unsigned char pad_b = static_cast<unsigned char>(params.image_mean[2] * 255.0f);
 
-                    // Step 2: Pad to image_size × image_size (center padding)
+                    // Pad to image_size × image_size (center padding)
                     clip_image_u8_ptr padded_img(clip_image_u8_init());
                     padded_img->nx = image_size;
                     padded_img->ny = image_size;
@@ -5148,7 +5163,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                         }
                     }
 
-                    // Step 3: Normalize and output
+                    // Normalize and output
                     clip_image_f32_ptr res(clip_image_f32_init());
                     normalize_image_u8_to_f32(*padded_img, *res, params.image_mean, params.image_std);
                     res_imgs->entries.push_back(std::move(res));
@@ -5156,68 +5171,69 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                     res_imgs->grid_x = 1;
                     res_imgs->grid_y = 1;
                 }
-            }
-            else {
-                /* Dynamic Resolution (Gundam/Gundam-M) */
-
-                // configurable, or read from params
-                const int  min_num       = 2;
-                const int  max_num       = 9;
-                const int  image_size    = params.image_size;  // typically 640
-                // const bool use_thumbnail = true;               // mimic python's use_thumbnail
-
-                // original image size
-                const int             orig_w        = original_size.width;
-                const int             orig_h        = original_size.height;
-
-                // 1) build candidate grids (cols, rows)
-                auto target_ratios = ds_build_target_ratios(min_num, max_num);
-
-                // 2) pick the grid that best matches the original aspect ratio
-                const float aspect_ratio = static_cast<float>(orig_w) / static_cast<float>(orig_h);
-                auto      best = ds_find_closest_aspect_ratio(aspect_ratio, target_ratios, orig_w, orig_h, image_size);
-                const int grid_cols = best.first;   // how many tiles horizontally
-                const int grid_rows = best.second;  // how many tiles vertically
-
-                // 3) compute the target (forced) size — python did:
-                //    target_width  = image_size * cols
-                //    target_height = image_size * rows
-                const clip_image_size refined_size{ image_size * grid_cols, image_size * grid_rows };
-
-                // 4) prepare slice instructions, same style as the idefics3 branch
-                llava_uhd::slice_instructions instructions;
-                instructions.overview_size = clip_image_size{ image_size, image_size };  // for thumbnail/global
-                instructions.refined_size  = refined_size;
-                instructions.grid_size     = clip_image_size{ grid_cols, grid_rows };
-
-                // in deepseek python they always produce *full* 640x640 blocks,
-                // so we can do a simple double loop over rows/cols:
-                for (int r = 0; r < grid_rows; ++r) {
-                    for (int c = 0; c < grid_cols; ++c) {
-                        const int x = c * image_size;
-                        const int y = r * image_size;
-
-                        instructions.slices.push_back(llava_uhd::slice_coordinates{
-                            /* x */ x,
-                            /* y */ y,
-                            /* size */ clip_image_size{ image_size, image_size }
-                        });
+                else {
+                    GGML_ABORT("DeepSeek-OCR: Gundam/Gundam-Master haven't been tested yet.\n");
+                    /* Dynamic Resolution (Gundam/Gundam-Master) */
+    
+                    // configurable, or read from params
+                    const int  min_num       = 2;
+                    const int  max_num       = 9;
+                    const int  image_size    = params.image_size;  // typically 640
+                    // const bool use_thumbnail = true;               // mimic python's use_thumbnail
+    
+                    // original image size
+                    const int             orig_w        = original_size.width;
+                    const int             orig_h        = original_size.height;
+    
+                    // 1) build candidate grids (cols, rows)
+                    auto target_ratios = ds_build_target_ratios(min_num, max_num);
+    
+                    // 2) pick the grid that best matches the original aspect ratio
+                    const float aspect_ratio = static_cast<float>(orig_w) / static_cast<float>(orig_h);
+                    auto      best = ds_find_closest_aspect_ratio(aspect_ratio, target_ratios, orig_w, orig_h, image_size);
+                    const int grid_cols = best.first;   // how many tiles horizontally
+                    const int grid_rows = best.second;  // how many tiles vertically
+    
+                    // 3) compute the target (forced) size — python did:
+                    //    target_width  = image_size * cols
+                    //    target_height = image_size * rows
+                    const clip_image_size refined_size{ image_size * grid_cols, image_size * grid_rows };
+    
+                    // 4) prepare slice instructions, same style as the idefics3 branch
+                    llava_uhd::slice_instructions instructions;
+                    instructions.overview_size = clip_image_size{ image_size, image_size };  // for thumbnail/global
+                    instructions.refined_size  = refined_size;
+                    instructions.grid_size     = clip_image_size{ grid_cols, grid_rows };
+    
+                    // in deepseek python they always produce *full* 640x640 blocks,
+                    // so we can do a simple double loop over rows/cols:
+                    for (int r = 0; r < grid_rows; ++r) {
+                        for (int c = 0; c < grid_cols; ++c) {
+                            const int x = c * image_size;
+                            const int y = r * image_size;
+    
+                            instructions.slices.push_back(llava_uhd::slice_coordinates{
+                                /* x */ x,
+                                /* y */ y,
+                                /* size */ clip_image_size{ image_size, image_size }
+                            });
+                        }
                     }
+    
+                    // 5) run the actual slicing (this should: resize to refined_size, then crop every slice)
+                    auto imgs = llava_uhd::slice_image(img, instructions);
+    
+                    // 7) cast & normalize like the idefics3 branch
+                    for (size_t i = 0; i < imgs.size(); ++i) {
+                        clip_image_f32_ptr res(clip_image_f32_init());
+                        normalize_image_u8_to_f32(*imgs[i], *res, params.image_mean, params.image_std);
+                        res_imgs->entries.push_back(std::move(res));
+                    }
+    
+                    // keep the grid info — the model may need to know how to reassemble / attend
+                    res_imgs->grid_x = grid_cols;
+                    res_imgs->grid_y = grid_rows;
                 }
-
-                // 5) run the actual slicing (this should: resize to refined_size, then crop every slice)
-                auto imgs = llava_uhd::slice_image(img, instructions);
-
-                // 7) cast & normalize like the idefics3 branch
-                for (size_t i = 0; i < imgs.size(); ++i) {
-                    clip_image_f32_ptr res(clip_image_f32_init());
-                    normalize_image_u8_to_f32(*imgs[i], *res, params.image_mean, params.image_std);
-                    res_imgs->entries.push_back(std::move(res));
-                }
-
-                // keep the grid info — the model may need to know how to reassemble / attend
-                res_imgs->grid_x = grid_cols;
-                res_imgs->grid_y = grid_rows;
             }
             break;
 
@@ -5807,7 +5823,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
 
             for (auto & p : patterns) {
                 if (tname_s == p) {
-                    save_tensor_to_file(t);
+                    save_tensor_to_file(t, data.data());
                     is_stored = true;
                     break;
                 }

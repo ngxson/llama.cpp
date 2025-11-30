@@ -569,7 +569,7 @@ static void print_tensor_data(ggml_tensor * t, uint8_t * data, int64_t n) {
     printf("   ]\n");
 }
 
-static void save_tensor_to_file(const struct ggml_tensor * tensor) {
+static void save_tensor_to_file(const struct ggml_tensor * tensor, const uint8_t * data_ptr) {
     char filename[512];
     snprintf(filename, sizeof(filename), "%s_cpp.txt", tensor->name);
 
@@ -589,7 +589,7 @@ static void save_tensor_to_file(const struct ggml_tensor * tensor) {
                 (long long)total_elements);
     }
 
-    uint8_t * data = (uint8_t *) tensor->data;
+    const uint8_t * data = (data_ptr) ? data_ptr : (uint8_t *) tensor->data;
     ggml_type type = tensor->type;
     const int64_t * ne = tensor->ne;
     const size_t * nb = tensor->nb;
