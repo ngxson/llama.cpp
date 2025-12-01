@@ -2620,14 +2620,13 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
             task.params = server_task::params_from_json_cmpl(
                     ctx_server.ctx,
                     ctx_server.params_base,
-                    ctx_server.model_name,
                     data);
             task.id_slot = json_value(data, "id_slot", -1);
 
             // OAI-compat
             task.params.res_type          = res_type;
             task.params.oaicompat_cmpl_id = completion_id;
-            // oaicompat_model is already populated by params_from_json_cmpl
+            task.params.oaicompat_model   = ctx_server.model_name;
 
             tasks.push_back(std::move(task));
         }

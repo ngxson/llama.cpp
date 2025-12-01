@@ -120,7 +120,6 @@ struct server_task {
     static task_params params_from_json_cmpl(
             const llama_context * ctx,
             const common_params & params_base,
-            const std::string & model_name,
             const json & data);
 
     // utility function
