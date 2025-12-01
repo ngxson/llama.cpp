@@ -365,7 +365,6 @@ void server_models::load(const std::string & name, bool auto_load) {
 
     inst.subproc = std::make_shared<subprocess_s>();
     {
-        //std::string exec_path = get_server_exec_path().string();
         SRV_INF("spawning server instance with name=%s on port %d\n", inst.meta.name.c_str(), inst.meta.port);
 
         std::vector<std::string> child_args;
@@ -382,6 +381,9 @@ void server_models::load(const std::string & name, bool auto_load) {
                 }
             }
         }
+
+        // set executable path
+        child_args[0] = get_server_exec_path().string();
 
         // set model args
         add_or_replace_arg(child_args, "--port", std::to_string(inst.meta.port));
