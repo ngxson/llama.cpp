@@ -82,9 +82,11 @@
 	);
 
 	let activeModelId = $derived.by(() => {
-		if (!isRouter) return null;
-
 		const options = modelOptions();
+
+		if (!isRouter) {
+			return options.length > 0 ? options[0].model : null;
+		}
 
 		const selectedId = selectedModelId();
 		if (selectedId) {
@@ -103,7 +105,7 @@
 	let modelPropsVersion = $state(0);
 
 	$effect(() => {
-		if (isRouter && activeModelId) {
+		if (activeModelId) {
 			const cached = modelsStore.getModelProps(activeModelId);
 			if (!cached) {
 				modelsStore.fetchModelProps(activeModelId).then(() => {

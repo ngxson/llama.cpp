@@ -78,9 +78,11 @@
 
 	// Get active model ID for capability detection
 	let activeModelId = $derived.by(() => {
-		if (!isRouter) return null;
-
 		const options = modelOptions();
+
+		if (!isRouter) {
+			return options.length > 0 ? options[0].model : null;
+		}
 
 		// First try user-selected model
 		const selectedId = selectedModelId();
@@ -101,9 +103,9 @@
 	// State for model props reactivity
 	let modelPropsVersion = $state(0);
 
-	// Fetch model props when active model changes
+	// Fetch model props when active model changes (works for both MODEL and ROUTER mode)
 	$effect(() => {
-		if (isRouter && activeModelId) {
+		if (activeModelId) {
 			const cached = modelsStore.getModelProps(activeModelId);
 			if (!cached) {
 				modelsStore.fetchModelProps(activeModelId).then(() => {
