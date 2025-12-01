@@ -13,6 +13,7 @@
 #include <cstring>
 #include <atomic>
 #include <chrono>
+#include <queue>
 
 #ifdef _WIN32
 #include <winsock2.h>
