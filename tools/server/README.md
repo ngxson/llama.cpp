@@ -291,38 +291,66 @@ For more details, please refer to [multimodal documentation](../../docs/multimod
 
 ## Web UI
 
-The project includes a web-based user interface that enables interaction with the model through the `/v1/chat/completions` endpoint.
+The project includes a web-based user interface for interacting with `llama-server`. It supports both single-model (`MODEL` mode) and multi-model (`ROUTER` mode) operation.
 
-The web UI is developed using:
-- `react` framework for frontend development
-- `tailwindcss` and `daisyui` for styling
-- `vite` for build tooling
+### Features
 
-A pre-built version is available as a single HTML file under `/public` directory.
+-   **Chat interface** with streaming responses
+-   **Multi-model support** (ROUTER mode) - switch between models, auto-load on selection
+-   **Modality validation** - ensures selected model supports conversation's attachments (images, audio)
+-   **Conversation management** - branching, regeneration, editing with history preservation
+-   **Attachment support** - images, audio, PDFs (with vision/text fallback)
+-   **Configurable parameters** - temperature, top_p, etc. synced with server defaults
+-   **Dark/light theme**
 
-To build or to run the dev server (with hot reload):
+### Tech Stack
+
+-   **SvelteKit** - frontend framework with Svelte 5 runes for reactive state
+-   **TailwindCSS** + **shadcn-svelte** - styling and UI components
+-   **Vite** - build tooling
+-   **IndexedDB** (Dexie) - local storage for conversations
+-   **LocalStorage** - user settings persistence
+
+### Architecture
+
+The WebUI follows a layered architecture:
+
+```
+Routes → Components → Hooks → Stores → Services → Storage/API
+```
+
+-   **Stores** - reactive state management (`chatStore`, `conversationsStore`, `modelsStore`, `serverStore`, `settingsStore`)
+-   **Services** - stateless API/database communication (`ChatService`, `ModelsService`, `PropsService`, `DatabaseService`)
+-   **Hooks** - reusable logic (`useModelChangeValidation`, `useProcessingState`)
+
+For detailed architecture diagrams, see [`tools/server/webui/docs/`](webui/docs/):
+
+-   `high-level-architecture.mmd` - full architecture with all modules
+-   `high-level-architecture-simplified.mmd` - simplified overview
+-   `data-flow-simplified-model-mode.mmd` - data flow for single-model mode
+-   `data-flow-simplified-router-mode.mmd` - data flow for multi-model mode
+-   `flows/*.mmd` - detailed per-domain flows (chat, conversations, models, etc.)
+
+### Development
 
 ```sh
-# make sure you have nodejs installed
+# make sure you have Node.js installed
 cd tools/server/webui
 npm i
 
-# to run the dev server
+# run dev server (with hot reload)
 npm run dev
 
-# to build the public/index.html.gz
+# run tests
+npm run test
+
+# build production bundle
 npm run build
 ```
-After `public/index.html.gz` has been generated we need to generate the c++
-headers (like build/tools/server/index.html.gz.hpp) that will be included
-by server.cpp. This is done by building `llama-server` as described in the
-[build](#build) section above.
 
-NOTE: if you are using the vite dev server, you can change the API base URL to llama.cpp. To do that, run this code snippet in browser's console:
+After `public/index.html.gz` has been generated, rebuild `llama-server` as described in the [build](#build) section to include the updated UI.
 
-```js
-localStorage.setItem('base', 'http://localhost:8080')
-```
+**Note:** The Vite dev server automatically proxies API requests to `http://localhost:8080`. Make sure `llama-server` is running on that port during development.
 
 ## Quick Start
 

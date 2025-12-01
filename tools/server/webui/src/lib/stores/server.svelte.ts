@@ -40,10 +40,6 @@ class ServerStore {
 		return this.props?.default_generation_settings?.n_ctx ?? null;
 	}
 
-	get slotsEndpointAvailable(): boolean {
-		return this.props?.endpoint_slots ?? false;
-	}
-
 	get isRouterMode(): boolean {
 		return this.role === ServerRole.ROUTER;
 	}
@@ -134,7 +130,6 @@ export const serverProps = () => serverStore.props;
 export const serverLoading = () => serverStore.loading;
 export const serverError = () => serverStore.error;
 export const serverRole = () => serverStore.role;
-export const slotsEndpointAvailable = () => serverStore.slotsEndpointAvailable;
 export const defaultParams = () => serverStore.defaultParams;
 export const contextSize = () => serverStore.contextSize;
 export const isRouterMode = () => serverStore.isRouterMode;

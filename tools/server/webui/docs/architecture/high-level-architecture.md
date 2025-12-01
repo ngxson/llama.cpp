@@ -1,3 +1,4 @@
+```mermaid
 flowchart TB
 subgraph Routes["📍 Routes"]
 R1["/ (+page.svelte)"]
@@ -19,6 +20,12 @@ end
             C_ModelsSelector["ModelsSelector"]
             C_Settings["ChatSettings"]
         end
+    end
+
+    subgraph Hooks["🪝 Hooks"]
+        H1["useModelChangeValidation"]
+        H2["useProcessingState"]
+        H3["isMobile"]
     end
 
     subgraph Stores["🗄️ Stores"]
@@ -45,19 +52,18 @@ end
             S2Utils["<b>Utilities:</b><br/>setTitleUpdateConfirmationCallback()"]
         end
         subgraph S3["modelsStore"]
-            S3State["<b>State:</b><br/>models, routerModels<br/>selectedModelId<br/>selectedModelName<br/>loading, updating, error<br/>modelUsage<br/>modelLoadingStates<br/>modelPropsCache<br/>modelPropsFetching<br/>propsCacheVersion"]
+            S3State["<b>State:</b><br/>models, routerModels<br/>selectedModelId<br/>selectedModelName<br/>loading, updating, error<br/>modelLoadingStates<br/>modelPropsCache<br/>modelPropsFetching<br/>propsCacheVersion"]
             S3Getters["<b>Computed Getters:</b><br/>selectedModel<br/>loadedModelIds<br/>loadingModelIds<br/>singleModelName"]
             S3Modal["<b>Modalities:</b><br/>getModelModalities()<br/>modelSupportsVision()<br/>modelSupportsAudio()<br/>getModelModalitiesArray()<br/>getModelProps()<br/>updateModelModalities()"]
             S3Status["<b>Status Queries:</b><br/>isModelLoaded()<br/>isModelOperationInProgress()<br/>getModelStatus()<br/>isModelPropsFetching()"]
             S3Fetch["<b>Data Fetching:</b><br/>fetch()<br/>fetchRouterModels()<br/>fetchModelProps()<br/>fetchModalitiesForLoadedModels()"]
             S3Select["<b>Model Selection:</b><br/>selectModelById()<br/>selectModelByName()<br/>clearSelection()<br/>findModelByName()<br/>findModelById()<br/>hasModel()"]
             S3LoadUnload["<b>Loading/Unloading Models:</b><br/>loadModel()<br/>unloadModel()<br/>ensureModelLoaded()<br/>waitForModelStatus()<br/>pollForModelStatus()"]
-            S3Usage["<b>Usage Tracking:</b><br/>registerModelUsage()<br/>unregisterModelUsage()<br/>clearConversationUsage()<br/>getModelUsage()<br/>isModelInUse()"]
             S3Utils["<b>Utilities:</b><br/>toDisplayName()<br/>clear()"]
         end
         subgraph S4["serverStore"]
             S4State["<b>State:</b><br/>props<br/>loading, error<br/>role<br/>fetchPromise"]
-            S4Getters["<b>Getters:</b><br/>defaultParams<br/>contextSize<br/>slotsEndpointAvailable<br/>isRouterMode<br/>isModelMode"]
+            S4Getters["<b>Getters:</b><br/>defaultParams<br/>contextSize<br/>isRouterMode<br/>isModelMode"]
             S4Data["<b>Data Handling:</b><br/>fetch()<br/>getErrorMessage()<br/>clear()"]
             S4Utils["<b>Utilities:</b><br/>detectRole()"]
         end
@@ -109,16 +115,15 @@ end
                 RE28["serverLoading()"]
                 RE29["serverError()"]
                 RE30["serverRole()"]
-                RE31["slotsEndpointAvailable()"]
-                RE32["defaultParams()"]
-                RE33["contextSize()"]
-                RE34["isRouterMode()"]
-                RE35["isModelMode()"]
+                RE31["defaultParams()"]
+                RE32["contextSize()"]
+                RE33["isRouterMode()"]
+                RE34["isModelMode()"]
             end
             subgraph SettingsExports["settingsStore"]
-                RE36["config()"]
-                RE37["theme()"]
-                RE38["isInitialized()"]
+                RE35["config()"]
+                RE36["theme()"]
+                RE37["isInitialized()"]
             end
         end
     end
@@ -134,7 +139,7 @@ end
         subgraph SV2["ModelsService"]
             SV2List["<b>Listing:</b><br/>list()<br/>listRouter()"]
             SV2LoadUnload["<b>Load/Unload:</b><br/>load()<br/>unload()"]
-            SV2Status["<b>Status:</b><br/>getStatus()<br/>isModelLoaded()<br/>isModelLoading()"]
+            SV2Status["<b>Status:</b><br/>isModelLoaded()<br/>isModelLoading()"]
         end
         subgraph SV3["PropsService"]
             SV3Fetch["<b>Fetching:</b><br/>fetch()<br/>fetchForModel()"]
@@ -165,7 +170,7 @@ end
     subgraph APIs["🌐 llama-server API"]
         API1["/v1/chat/completions"]
         API2["/props<br/>/props?model="]
-        API3["/models<br/>/models/load<br/>/models/unload<br/>/models/status"]
+        API3["/models<br/>/models/load<br/>/models/unload"]
         API4["/v1/models"]
     end
 
@@ -181,6 +186,15 @@ end
     C_Form --> C_ModelsSelector
     C_Form --> C_Attach
     C_Message --> C_Attach
+
+    %% Components use Hooks
+    C_Form --> H1
+    C_Message --> H1 & H2
+    C_Screen --> H2
+
+    %% Hooks use Stores
+    H1 --> S3 & S4
+    H2 --> S1 & S5
 
     %% Components use Stores
     C_Screen --> S1 & S2
@@ -233,12 +247,14 @@ end
     class C_Sidebar,C_Screen,C_Form,C_Messages,C_Message componentStyle
     class C_ModelsSelector,C_Settings componentStyle
     class C_Attach componentStyle
+    class H1,H2,H3 methodStyle
     class LayoutComponents,ChatUIComponents componentGroupStyle
+    class Hooks storeStyle
     class S1,S2,S3,S4,S5 storeStyle
     class S1State,S2State,S3State,S4State,S5State stateStyle
     class S1Msg,S1Regen,S1Edit,S1Stream,S1LoadState,S1ProcState,S1Error,S1Utils methodStyle
     class S2Lifecycle,S2ConvCRUD,S2MsgMgmt,S2Nav,S2Modal,S2Export,S2Utils methodStyle
-    class S3Getters,S3Modal,S3Status,S3Fetch,S3Select,S3LoadUnload,S3Usage,S3Utils methodStyle
+    class S3Getters,S3Modal,S3Status,S3Fetch,S3Select,S3LoadUnload,S3Utils methodStyle
     class S4Getters,S4Data,S4Utils methodStyle
     class S5Lifecycle,S5Update,S5Reset,S5Sync,S5Utils methodStyle
     class ChatExports,ConvExports,ModelsExports,ServerExports,SettingsExports reactiveStyle
@@ -250,3 +266,4 @@ end
     class SV5Extract,SV5Merge,SV5Info,SV5Diff serviceMStyle
     class ST1,ST2,ST3,ST5,ST6,ST7 storageStyle
     class API1,API2,API3,API4 apiStyle
+```
