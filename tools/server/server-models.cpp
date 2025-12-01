@@ -139,7 +139,7 @@ server_models::server_models(
         const common_params & params,
         int argc,
         char ** argv,
-        char ** envp) : base_params(params) {
+        char ** envp) : base_params(params), server_binary_path(get_server_exec_path().string()) {
     for (int i = 0; i < argc; i++) {
         base_args.push_back(std::string(argv[i]));
     }
@@ -383,7 +383,7 @@ void server_models::load(const std::string & name, bool auto_load) {
         }
 
         // set executable path
-        child_args[0] = get_server_exec_path().string();
+        child_args[0] = server_binary_path;
 
         // set model args
         add_or_replace_arg(child_args, "--port", std::to_string(inst.meta.port));
