@@ -540,51 +540,6 @@ class ModelsStore {
 	}
 
 	// ─────────────────────────────────────────────────────────────────────────────
-	// Usage Tracking
-	// ─────────────────────────────────────────────────────────────────────────────
-
-	/**
-	 * Register that a conversation is using a model
-	 */
-	registerModelUsage(modelId: string, conversationId: string): void {
-		const usage = this.modelUsage.get(modelId) ?? new SvelteSet<string>();
-		usage.add(conversationId);
-		this.modelUsage.set(modelId, usage);
-	}
-
-	/**
-	 * Unregister that a conversation is using a model
-	 * @param modelId - Model identifier
-	 * @param conversationId - Conversation identifier
-	 * @param autoUnload - Whether to automatically unload the model if no longer used
-	 */
-	async unregisterModelUsage(
-		modelId: string,
-		conversationId: string,
-		autoUnload = true
-	): Promise<void> {
-		const usage = this.modelUsage.get(modelId);
-		if (usage) {
-			usage.delete(conversationId);
-			if (usage.size === 0) {
-				this.modelUsage.delete(modelId);
-				if (autoUnload && this.isModelLoaded(modelId)) {
-					await this.unloadModel(modelId);
-				}
-			}
-		}
-	}
-
-	/**
-	 * Clear all usage for a conversation (when conversation is deleted)
-	 */
-	async clearConversationUsage(conversationId: string): Promise<void> {
-		for (const [modelId, usage] of this.modelUsage.entries()) {
-			if (usage.has(conversationId)) await this.unregisterModelUsage(modelId, conversationId);
-		}
-	}
-
-	// ─────────────────────────────────────────────────────────────────────────────
 	// Utilities
 	// ─────────────────────────────────────────────────────────────────────────────
 
