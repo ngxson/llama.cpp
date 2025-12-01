@@ -2,7 +2,7 @@ import { DatabaseService, ChatService } from '$lib/services';
 import { conversationsStore } from '$lib/stores/conversations.svelte';
 import { config } from '$lib/stores/settings.svelte';
 import { contextSize, isRouterMode } from '$lib/stores/server.svelte';
-import { selectedModelName } from '$lib/stores/models.svelte';
+import { selectedModelName, modelsStore } from '$lib/stores/models.svelte';
 import {
 	normalizeModelName,
 	filterByLeafNodeId,
@@ -536,6 +536,10 @@ class ChatStore {
 					this.setChatLoading(assistantMessage.convId, false);
 					this.clearChatStreaming(assistantMessage.convId);
 					this.clearProcessingState(assistantMessage.convId);
+
+					if (isRouterMode()) {
+						modelsStore.fetchRouterModels().catch(console.error);
+					}
 				},
 				onError: (error: Error) => {
 					this.stopStreaming();

@@ -190,7 +190,11 @@
 		updateMenuPosition();
 		requestAnimationFrame(() => updateMenuPosition());
 
-		modelsStore.fetchModalitiesForLoadedModels();
+		if (isRouter) {
+			modelsStore.fetchRouterModels().then(() => {
+				modelsStore.fetchModalitiesForLoadedModels();
+			});
+		}
 	}
 
 	export function open() {

@@ -385,7 +385,7 @@
 
 			{#if hasPropsError}
 				<div
-					class="pointer-events-auto mx-auto mb-3 max-w-[48rem] px-4"
+					class="pointer-events-auto mx-auto mb-4 max-w-[48rem] px-1"
 					in:fly={{ y: 10, duration: 250 }}
 				>
 					<Alert.Root variant="destructive">
