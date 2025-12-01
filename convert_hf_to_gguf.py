@@ -9914,7 +9914,7 @@ class MistralModel(LlamaModel):
             self.gguf_writer.add_rope_scaling_factor(yarn_params["factor"])
             self.gguf_writer.add_rope_scaling_yarn_beta_fast(yarn_params["beta"])
             self.gguf_writer.add_rope_scaling_yarn_beta_slow(yarn_params["alpha"])
-            self.gguf_writer.add_rope_scaling_yarn_log_mul(0.1)
+            self.gguf_writer.add_rope_scaling_yarn_log_mul(1.0) # mscale_all_dim
             self.gguf_writer.add_rope_scaling_orig_ctx_len(yarn_params["original_max_position_embeddings"])
 
         if "llama_4_scaling" in self.hparams:
