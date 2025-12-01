@@ -4,6 +4,7 @@
 #include "download.h"
 
 #include <cpp-httplib/httplib.h>
+#include <sheredom/subprocess.h>
 
 #include <functional>
 #include <thread>
@@ -12,7 +13,6 @@
 #include <cstring>
 #include <atomic>
 #include <chrono>
-#include <unordered_set>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -84,7 +84,7 @@ static std::vector<local_model> list_local_models(const std::string & dir) {
     }
 
     std::vector<local_model> models;
-    auto scan_subdir = [&models](const std::string & subdir_path, const std::string name) {
+    auto scan_subdir = [&models](const std::string & subdir_path, const std::string & name) {
         auto files = fs_list(subdir_path, false);
         common_file_info model_file;
         common_file_info first_shard_file;
@@ -292,6 +292,7 @@ static std::vector<char *> to_char_ptr_array(const std::vector<std::string> & ve
 std::vector<server_model_meta> server_models::get_all_meta() {
     std::lock_guard<std::mutex> lk(mutex);
     std::vector<server_model_meta> result;
+    result.reserve(mapping.size());
     for (const auto & [name, inst] : mapping) {
         result.push_back(inst.meta);
     }
@@ -363,7 +364,7 @@ void server_models::load(const std::string & name, bool auto_load) {
 
     inst.subproc = std::make_shared<subprocess_s>();
     {
-        std::string exec_path = get_server_exec_path().string();
+        //std::string exec_path = get_server_exec_path().string();
         SRV_INF("spawning server instance with name=%s on port %d\n", inst.meta.name.c_str(), inst.meta.port);
 
         std::vector<std::string> child_args;

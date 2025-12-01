@@ -3,9 +3,6 @@
 #include "common.h"
 #include "server-http.h"
 
-#include <sheredom/subprocess.h>
-
-#include <queue>
 #include <mutex>
 #include <condition_variable>
 #include <functional>
@@ -30,13 +27,14 @@ enum server_model_status {
 static server_model_status server_model_status_from_string(const std::string & status_str) {
     if (status_str == "unloaded") {
         return SERVER_MODEL_STATUS_UNLOADED;
-    } else if (status_str == "loading") {
-        return SERVER_MODEL_STATUS_LOADING;
-    } else if (status_str == "loaded") {
-        return SERVER_MODEL_STATUS_LOADED;
-    } else {
-        throw std::runtime_error("invalid server model status");
     }
+    if (status_str == "loading") {
+        return SERVER_MODEL_STATUS_LOADING;
+    }
+    if (status_str == "loaded") {
+        return SERVER_MODEL_STATUS_LOADED;
+    }
+    throw std::runtime_error("invalid server model status");
 }
 
 static std::string server_model_status_to_string(server_model_status status) {
@@ -67,6 +65,8 @@ struct server_model_meta {
         return status == SERVER_MODEL_STATUS_UNLOADED && exit_code != 0;
     }
 };
+
+struct subprocess_s;
 
 struct server_models {
 private:
