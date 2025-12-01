@@ -504,8 +504,8 @@ server_http_res_ptr server_models::proxy_request(const server_http_req & req, co
     if (!meta.has_value()) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
-    if (ensure_model_loaded(name)) {
-        meta = get_meta(name); // refresh meta
+    if (meta->status != SERVER_MODEL_STATUS_LOADED) {
+        throw std::invalid_argument("model name=" + name + " is not loaded");
     }
     if (update_last_used) {
         std::unique_lock<std::mutex> lk(mutex);
@@ -612,6 +612,15 @@ static bool router_validate_model(const std::string & name, server_models & mode
     return true;
 }
 
+static bool is_autoload(const common_params & params, const server_http_req & req) {
+    std::string autoload = req.get_param("autoload");
+    if (autoload.empty()) {
+        return params.models_autoload;
+    } else {
+        return autoload == "true" || autoload == "1";
+    }
+}
+
 void server_models_routes::init_routes() {
     this->get_router_props = [this](const server_http_req & req) {
         std::string name = req.get_param("model");
@@ -638,8 +647,9 @@ void server_models_routes::init_routes() {
     this->proxy_get = [this](const server_http_req & req) {
         std::string method = "GET";
         std::string name = req.get_param("model");
+        bool autoload = is_autoload(params, req);
         auto error_res = std::make_unique<server_http_res>();
-        if (!router_validate_model(name, models, params.models_autoload, error_res)) {
+        if (!router_validate_model(name, models, autoload, error_res)) {
             return error_res;
         }
         return models.proxy_request(req, method, name, false);
@@ -649,8 +659,9 @@ void server_models_routes::init_routes() {
         std::string method = "POST";
         json body = json::parse(req.body);
         std::string name = json_value(body, "model", std::string());
+        bool autoload = is_autoload(params, req);
         auto error_res = std::make_unique<server_http_res>();
-        if (!router_validate_model(name, models, params.models_autoload, error_res)) {
+        if (!router_validate_model(name, models, autoload, error_res)) {
             return error_res;
         }
         return models.proxy_request(req, method, name, true); // update last usage for POST request only
