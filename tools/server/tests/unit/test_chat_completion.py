@@ -59,7 +59,7 @@ def test_chat_completion(model, system_prompt, user_prompt, max_tokens, re_conte
 )
 def test_chat_completion_stream(system_prompt, user_prompt, max_tokens, re_content, n_prompt, n_predicted, finish_reason):
     global server
-    server.model_alias = None # try using DEFAULT_OAICOMPAT_MODEL
+    server.model_alias = "llama-test-model"
     server.start()
     res = server.make_stream_request("POST", "/chat/completions", data={
         "max_tokens": max_tokens,
@@ -81,7 +81,7 @@ def test_chat_completion_stream(system_prompt, user_prompt, max_tokens, re_conte
             else:
                 assert "role" not in choice["delta"]
             assert data["system_fingerprint"].startswith("b")
-            assert "gpt-3.5" in data["model"] # DEFAULT_OAICOMPAT_MODEL, maybe changed in the future
+            assert data["model"] == "llama-test-model"
             if last_cmpl_id is None:
                 last_cmpl_id = data["id"]
             assert last_cmpl_id == data["id"] # make sure the completion id is the same for all events in the stream

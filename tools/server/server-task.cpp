@@ -147,6 +147,7 @@ json task_params::to_json(bool only_metrics) const {
 task_params server_task::params_from_json_cmpl(
         const llama_context * ctx,
         const common_params & params_base,
+        const std::string & model_name,
         const json & data) {
     const llama_model * model = llama_get_model(ctx);
     const llama_vocab * vocab = llama_model_get_vocab(model);
@@ -450,7 +451,6 @@ task_params server_task::params_from_json_cmpl(
         }
     }
 
-    std::string model_name = params_base.model_alias.empty() ? DEFAULT_OAICOMPAT_MODEL : params_base.model_alias;
     params.oaicompat_model = json_value(data, "model", model_name);
 
     return params;
