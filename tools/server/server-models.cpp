@@ -3,7 +3,7 @@
 
 #include "download.h"
 
-#include <cpp-httplib/httplib.h>
+#include <cpp-httplib/httplib.h> // TODO: remove this once we use HTTP client from download.h
 #include <sheredom/subprocess.h>
 
 #include <functional>
