@@ -2822,7 +2822,7 @@ class Mistral3Model(LlamaModel):
         # TODO: remove this once everyone has migrated to newer version of llama.cpp
         if self.hparams.get("model_type") != "ministral3":
             self.model_arch = gguf.MODEL_ARCH.LLAMA
-            self.gguf_writer.arch = str(self.model_arch)
+            self.gguf_writer.arch = gguf.MODEL_ARCH_NAMES[self.model_arch]
             self.gguf_writer.add_architecture()
             self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
 
@@ -9863,7 +9863,7 @@ class MistralModel(LlamaModel):
         # TODO: remove this once everyone migrates to newer version of llama.cpp
         if "llama_4_scaling" not in self.hparams:
             self.model_arch = gguf.MODEL_ARCH.LLAMA
-            self.gguf_writer.arch = str(self.model_arch)
+            self.gguf_writer.arch = gguf.MODEL_ARCH_NAMES[self.model_arch]
             self.gguf_writer.add_architecture()
             self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
 
