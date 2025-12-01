@@ -2277,7 +2277,9 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 }
 
                 switch (hparams.n_layer) {
-                    // TODO
+                    case 26: type = LLM_TYPE_3B; break;
+                    case 34: type = LLM_TYPE_8B; break;
+                    case 40: type = LLM_TYPE_14B; break;
                     default: type = LLM_TYPE_UNKNOWN;
                 }
             } break;
