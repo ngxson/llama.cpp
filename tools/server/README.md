@@ -1508,7 +1508,7 @@ For **GET** endpoints (`/props`, `/metrics`, etc.) The router uses the `model` q
 GET /props?model=ggml-org%2Fgemma-3-4b-it-GGUF%3AQ4_K_M
 ```
 
-By default, the model will be loaded automatically if it's not loaded. To disable this, add `--no-models-autoload` when starting the server.
+By default, the model will be loaded automatically if it's not loaded. To disable this, add `--no-models-autoload` when starting the server. Additionally, you can include `?autoload=true|false` in the query param to control this behavior per-request.
 
 ### GET `/models`: List available models
 

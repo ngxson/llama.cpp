@@ -3,7 +3,7 @@
 
 #include "download.h"
 
-#include <cpp-httplib/httplib.h>
+#include <cpp-httplib/httplib.h> // TODO: remove this once we use HTTP client from download.h
 #include <sheredom/subprocess.h>
 
 #include <functional>
@@ -23,54 +23,7 @@
 #include <unistd.h>
 #endif
 
-#if defined(__APPLE__) && defined(__MACH__)
-// macOS: use _NSGetExecutablePath to get the executable path
-#include <mach-o/dyld.h>
-#include <limits.h>
-#endif
-
 #define CMD_EXIT "exit"
-
-static std::filesystem::path get_server_exec_path() {
-#if defined(_WIN32)
-    wchar_t buf[32768] = { 0 };  // Large buffer to handle long paths
-    DWORD len = GetModuleFileNameW(nullptr, buf, _countof(buf));
-    if (len == 0 || len >= _countof(buf)) {
-        throw std::runtime_error("GetModuleFileNameW failed or path too long");
-    }
-    return std::filesystem::path(buf);
-#elif defined(__APPLE__) && defined(__MACH__)
-    char small_path[PATH_MAX];
-    uint32_t size = sizeof(small_path);
-
-    if (_NSGetExecutablePath(small_path, &size) == 0) {
-        // resolve any symlinks to get absolute path
-        try {
-            return std::filesystem::canonical(std::filesystem::path(small_path));
-        } catch (...) {
-            return std::filesystem::path(small_path);
-        }
-    } else {
-        // buffer was too small, allocate required size and call again
-        std::vector<char> buf(size);
-        if (_NSGetExecutablePath(buf.data(), &size) == 0) {
-            try {
-                return std::filesystem::canonical(std::filesystem::path(buf.data()));
-            } catch (...) {
-                return std::filesystem::path(buf.data());
-            }
-        }
-        throw std::runtime_error("_NSGetExecutablePath failed after buffer resize");
-    }
-#else
-    char path[FILENAME_MAX];
-    ssize_t count = readlink("/proc/self/exe", path, FILENAME_MAX);
-    if (count <= 0) {
-        throw std::runtime_error("failed to resolve /proc/self/exe");
-    }
-    return std::filesystem::path(std::string(path, count));
-#endif
-}
 
 struct local_model {
     std::string name;
@@ -364,7 +317,6 @@ void server_models::load(const std::string & name, bool auto_load) {
 
     inst.subproc = std::make_shared<subprocess_s>();
     {
-        //std::string exec_path = get_server_exec_path().string();
         SRV_INF("spawning server instance with name=%s on port %d\n", inst.meta.name.c_str(), inst.meta.port);
 
         std::vector<std::string> child_args;
@@ -552,8 +504,8 @@ server_http_res_ptr server_models::proxy_request(const server_http_req & req, co
     if (!meta.has_value()) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
-    if (ensure_model_loaded(name)) {
-        meta = get_meta(name); // refresh meta
+    if (meta->status != SERVER_MODEL_STATUS_LOADED) {
+        throw std::invalid_argument("model name=" + name + " is not loaded");
     }
     if (update_last_used) {
         std::unique_lock<std::mutex> lk(mutex);
@@ -660,6 +612,15 @@ static bool router_validate_model(const std::string & name, server_models & mode
     return true;
 }
 
+static bool is_autoload(const common_params & params, const server_http_req & req) {
+    std::string autoload = req.get_param("autoload");
+    if (autoload.empty()) {
+        return params.models_autoload;
+    } else {
+        return autoload == "true" || autoload == "1";
+    }
+}
+
 void server_models_routes::init_routes() {
     this->get_router_props = [this](const server_http_req & req) {
         std::string name = req.get_param("model");
@@ -686,8 +647,9 @@ void server_models_routes::init_routes() {
     this->proxy_get = [this](const server_http_req & req) {
         std::string method = "GET";
         std::string name = req.get_param("model");
+        bool autoload = is_autoload(params, req);
         auto error_res = std::make_unique<server_http_res>();
-        if (!router_validate_model(name, models, params.models_autoload, error_res)) {
+        if (!router_validate_model(name, models, autoload, error_res)) {
             return error_res;
         }
         return models.proxy_request(req, method, name, false);
@@ -697,8 +659,9 @@ void server_models_routes::init_routes() {
         std::string method = "POST";
         json body = json::parse(req.body);
         std::string name = json_value(body, "model", std::string());
+        bool autoload = is_autoload(params, req);
         auto error_res = std::make_unique<server_http_res>();
-        if (!router_validate_model(name, models, params.models_autoload, error_res)) {
+        if (!router_validate_model(name, models, autoload, error_res)) {
             return error_res;
         }
         return models.proxy_request(req, method, name, true); // update last usage for POST request only
