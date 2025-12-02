@@ -138,6 +138,7 @@ struct mtmd_cli_context {
         mparams.flash_attn_type  = params.flash_attn_type;
         mparams.image_min_tokens = params.image_min_tokens;
         mparams.image_max_tokens = params.image_max_tokens;
+        mparams.dsocr_mode       = params.dsocr_mode.c_str();
         ctx_vision.reset(mtmd_init_from_file(clip_path, model, mparams));
         if (!ctx_vision.get()) {
             LOG_ERR("Failed to load vision model from %s\n", clip_path);

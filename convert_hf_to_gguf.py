@@ -6013,12 +6013,14 @@ class DeepseekOCRVisionModel(MmprojModel):
 
 
     def tensor_force_quant(self, name, new_name, bid, n_dims):
+        # TODO: increase numercial stability. maybe delete later. 
+        return gguf.GGMLQuantizationType.F32
         # related to https://github.com/ggml-org/llama.cpp/issues/13025
-        if "input_projection" in name:
-            return gguf.GGMLQuantizationType.F16
-        if ".embeddings." in name:
-            return gguf.GGMLQuantizationType.F32
-        return super().tensor_force_quant(name, new_name, bid, n_dims)
+        # if "input_projection" in name:
+        #     return gguf.GGMLQuantizationType.F16
+        # if ".embeddings." in name:
+        #     return gguf.GGMLQuantizationType.F32
+        # return super().tensor_force_quant(name, new_name, bid, n_dims)
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         # Only process vision-related tensors, skip language model tensors

@@ -1824,6 +1824,21 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
             params.image_max_tokens = value;
         }
     ).set_examples(mmproj_examples).set_env("LLAMA_ARG_IMAGE_MAX_TOKENS"));
+    add_opt(common_arg(
+        {"--dsocr-mode"}, "MODE",
+        "DeepSeek-OCR resolution mode, one of:\n"
+        "- auto (default): automatically select resolution\n"
+        "- tiny, small, base, large: native resolution\n"
+        "- gundam, gundam-master: dynamic resolution",
+        [](common_params & params, const std::string & value) {
+            if (value == "auto" || value == "tiny" || value == "small" || value == "base" ||
+                value == "large" || value == "gundam" || value == "gundam-master") {
+                params.dsocr_mode = value;
+            } else {
+                throw std::invalid_argument("invalid value");
+            }
+        }
+    ).set_examples(mmproj_examples).set_env("LLAMA_ARG_DSOCR_MODE"));
     if (llama_supports_rpc()) {
         add_opt(common_arg(
             {"--rpc"}, "SERVERS",
