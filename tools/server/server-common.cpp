@@ -775,21 +775,6 @@ json oaicompat_completion_params_parse(const json & body) {
     return llama_params;
 }
 
-// base directory always end with '/', see arg.cpp
-static void read_file(const std::string & base_dir, const std::string & path, raw_buffer & out_data) {
-    if (base_dir.empty()) {
-        throw std::invalid_argument("base_dir cannot be empty");
-    }
-    if (!fs_validate_filename(path, true)) {
-        throw std::invalid_argument("file path is not allowed: " + path);
-    }
-    std::ifstream file(base_dir + path, std::ios::binary);
-    if (!file) {
-        throw std::invalid_argument("File does not exist or cannot be opened: " + path);
-    }
-    out_data.assign((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-}
-
 // media_path always end with '/', see arg.cpp
 static void handle_media(
         std::vector<raw_buffer> & out_files,
