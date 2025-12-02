@@ -41,7 +41,8 @@ def test_chat_completion(model, system_prompt, user_prompt, max_tokens, re_conte
     assert res.status_code == 200
     assert "cmpl" in res.body["id"] # make sure the completion id has the expected format
     assert res.body["system_fingerprint"].startswith("b")
-    assert res.body["model"] == model if model is not None else server.model_alias
+    # we no longer reflect back the model name, see https://github.com/ggml-org/llama.cpp/pull/17668
+    # assert res.body["model"] == model if model is not None else server.model_alias
     assert res.body["usage"]["prompt_tokens"] == n_prompt
     assert res.body["usage"]["completion_tokens"] == n_predicted
     choice = res.body["choices"][0]
