@@ -84,7 +84,6 @@ private:
     common_params base_params;
     std::vector<std::string> base_args;
     std::vector<std::string> base_env;
-    std::string server_binary_path;
 
     void update_meta(const std::string & name, const server_model_meta & meta);
 

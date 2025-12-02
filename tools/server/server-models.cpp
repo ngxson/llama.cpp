@@ -139,12 +139,20 @@ server_models::server_models(
         const common_params & params,
         int argc,
         char ** argv,
-        char ** envp) : base_params(params), server_binary_path(get_server_exec_path().string()) {
+        char ** envp) : base_params(params) {
     for (int i = 0; i < argc; i++) {
         base_args.push_back(std::string(argv[i]));
     }
     for (char ** env = envp; *env != nullptr; env++) {
         base_env.push_back(std::string(*env));
+    }
+    GGML_ASSERT(!base_args.empty());
+    // set binary path
+    try {
+        base_args[0] = get_server_exec_path().string();
+    } catch (const std::exception & e) {
+        LOG_WRN("failed to get server executable path: %s\n", e.what());
+        LOG_WRN("using original argv[0] as fallback: %s\n", base_args[0].c_str());
     }
     // TODO: allow refreshing cached model list
     // add cached models
@@ -381,9 +389,6 @@ void server_models::load(const std::string & name, bool auto_load) {
                 }
             }
         }
-
-        // set executable path
-        child_args[0] = server_binary_path;
 
         // set model args
         add_or_replace_arg(child_args, "--port", std::to_string(inst.meta.port));
