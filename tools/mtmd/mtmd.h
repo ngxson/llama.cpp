@@ -87,9 +87,6 @@ struct mtmd_context_params {
     // limit number of image tokens, only for vision models with dynamic resolution
     int image_min_tokens; // minimum number of tokens for image input (default: read from metadata)
     int image_max_tokens; // maximum number of tokens for image input (default: read from metadata)
-
-    // DeepSeek-OCR resolution mode
-    const char * dsocr_mode; // one of: auto, tiny, small, base, large, gundam, gundam-master
 };
 
 MTMD_API const char * mtmd_default_marker(void);

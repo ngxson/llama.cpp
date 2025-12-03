@@ -29,23 +29,12 @@ enum clip_flash_attn_type {
     CLIP_FLASH_ATTN_TYPE_ENABLED  = 1,
 };
 
-enum clip_dsocr_mode {
-    CLIP_DSOCR_MODE_AUTO,
-    CLIP_DSOCR_MODE_TINY,
-    CLIP_DSOCR_MODE_SMALL,
-    CLIP_DSOCR_MODE_BASE,
-    CLIP_DSOCR_MODE_LARGE,
-    CLIP_DSOCR_MODE_GUNDAM,
-    CLIP_DSOCR_MODE_GUNDAM_MASTER,
-};
-
 struct clip_context_params {
     bool use_gpu;
     enum clip_flash_attn_type flash_attn_type;
     int image_min_tokens;
     int image_max_tokens;
     bool warmup;
-    enum clip_dsocr_mode dsocr_mode;
 };
 
 struct clip_init_result {

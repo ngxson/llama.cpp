@@ -206,9 +206,6 @@ struct clip_hparams {
     int32_t custom_image_min_tokens = -1;
     int32_t custom_image_max_tokens = -1;
 
-    // DeepSeek-OCR resolution mode
-    enum clip_dsocr_mode dsocr_mode = clip_dsocr_mode::CLIP_DSOCR_MODE_AUTO;
-
     void set_limit_image_tokens(int n_tokens_min, int n_tokens_max) {
         const int cur_merge = n_merge == 0 ? 1 : n_merge;
         const int patch_area = patch_size * patch_size * cur_merge * cur_merge;
@@ -513,7 +510,6 @@ struct clip_ctx {
         if (ctx_params.image_max_tokens > 0) {
             model.hparams.custom_image_max_tokens = ctx_params.image_max_tokens;
         }
-        model.hparams.dsocr_mode = ctx_params.dsocr_mode;
 
         backend_ptrs.push_back(backend_cpu);
         backend_buft.push_back(ggml_backend_get_default_buffer_type(backend_cpu));
@@ -5291,30 +5287,13 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 }
     
                 int mode_i = 0;
-    
-                if (params.dsocr_mode == clip_dsocr_mode::CLIP_DSOCR_MODE_TINY) {
-                    mode_i = 0;
-                } else if (params.dsocr_mode == clip_dsocr_mode::CLIP_DSOCR_MODE_SMALL) {
-                    mode_i = 1;
-                } else if (params.dsocr_mode == clip_dsocr_mode::CLIP_DSOCR_MODE_BASE) {
-                    mode_i = 2;
-                } else if (params.dsocr_mode == clip_dsocr_mode::CLIP_DSOCR_MODE_LARGE) {
-                    mode_i = 3;
-                } else if (params.dsocr_mode == clip_dsocr_mode::CLIP_DSOCR_MODE_GUNDAM) {
-                    mode_i = 4;
-                } else if (params.dsocr_mode == clip_dsocr_mode::CLIP_DSOCR_MODE_GUNDAM_MASTER) {
-                    mode_i = 5;
-                } else {
-                    if (params.dsocr_mode != clip_dsocr_mode::CLIP_DSOCR_MODE_AUTO) {
-                        LOG_WRN("%s: unknown dsocr_mode, using auto mode\n", __func__);
-                    }
-                    int min_diff = orig_area;
-                    for (int i = 0; i < 4; i++) {
-                        int r = native_resolutions[i];
-                        if (std::abs(orig_area - r*r) < min_diff) {
-                            mode_i = i;
-                            min_diff = std::abs(orig_area - r*r);
-                        }
+                int min_diff = orig_area;
+
+                for (int i = 0; i < 4; i++) {
+                    int r = native_resolutions[i];
+                    if (std::abs(orig_area - r*r) < min_diff) {
+                        mode_i = i;
+                        min_diff = std::abs(orig_area - r*r);
                     }
                 }
 
@@ -5393,7 +5372,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                     res_imgs->grid_y = 1;
                 }
                 else {
-                    GGML_ABORT("DeepSeek-OCR: Gundam/Gundam-Master haven't been tested yet.\n");
+                    GGML_ABORT("DeepSeek-OCR hasn't supported Gundam/Gundam-Master yet");
                     /* Dynamic Resolution (Gundam/Gundam-Master) */
     
                     // configurable, or read from params
