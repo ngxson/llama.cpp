@@ -4218,6 +4218,7 @@ struct img_tool {
     enum resize_algo {
         RESIZE_ALGO_BILINEAR,
         RESIZE_ALGO_BICUBIC,
+        RESIZE_ALGO_BICUBIC_PILLOW,
         // RESIZE_ALGO_LANCZOS, // TODO
     };
 
@@ -4247,6 +4248,9 @@ struct img_tool {
                 case RESIZE_ALGO_BICUBIC:
                     resize_bicubic(src, dst, target_resolution.width, target_resolution.height);
                     break;
+                case RESIZE_ALGO_BICUBIC_PILLOW:
+                    resize_bicubic_pillow(src, dst, target_resolution.width, target_resolution.height);
+                    break;
                 default:
                     throw std::runtime_error("Unsupported resize algorithm");
             }
@@ -4265,6 +4269,9 @@ struct img_tool {
                     break;
                 case RESIZE_ALGO_BICUBIC:
                     resize_bicubic(src, resized_image, new_width, new_height);
+                    break;
+                case RESIZE_ALGO_BICUBIC_PILLOW:
+                    resize_bicubic_pillow(src, resized_image, new_width, new_height);
                     break;
                 default:
                     throw std::runtime_error("Unsupported resize algorithm");
@@ -4470,6 +4477,209 @@ private:
                     }
                 }
             }
+        }
+
+        return true;
+    }
+
+    // Bicubic resize function using Pillow's ImagingResample algorithm
+    // Adapted from https://github.com/python-pillow/Pillow/blob/main/src/libImaging/Resample.c
+    static bool resize_bicubic_pillow(const clip_image_u8 & img, clip_image_u8 & dst, int target_width, int target_height) {
+        const int PRECISION_BITS = 32 - 8 - 2;
+
+        // Bicubic filter function
+        auto bicubic_filter = [](double x) -> double {
+            constexpr double a = -0.5;
+            if (x < 0.0) {
+                x = -x;
+            }
+            if (x < 1.0) {
+                return ((a + 2.0) * x - (a + 3.0)) * x * x + 1;
+            }
+            if (x < 2.0) {
+                return (((x - 5) * x + 8) * x - 4) * a;
+            }
+            return 0.0;
+        };
+
+        constexpr double filter_support = 2.0;
+
+        // Clipping function for 8-bit values
+        auto clip8 = [](int val) -> uint8_t {
+            if (val < 0) return 0;
+            if (val > 255) return 255;
+            return static_cast<uint8_t>(val);
+        };
+
+        // Precompute coefficients
+        auto precompute_coeffs = [&](int inSize, double in0, double in1, int outSize,
+                                     std::vector<int> & bounds, std::vector<int32_t> & kk) -> int {
+            double support, scale, filterscale;
+            double center, ww, ss;
+            int xx, x, ksize, xmin, xmax;
+
+            filterscale = scale = (in1 - in0) / outSize;
+            if (filterscale < 1.0) {
+                filterscale = 1.0;
+            }
+
+            support = filter_support * filterscale;
+            ksize = static_cast<int>(std::ceil(support)) * 2 + 1;
+
+            std::vector<double> prekk(outSize * ksize);
+            bounds.resize(outSize * 2);
+
+            for (xx = 0; xx < outSize; xx++) {
+                center = in0 + (xx + 0.5) * scale;
+                ww = 0.0;
+                ss = 1.0 / filterscale;
+
+                xmin = static_cast<int>(center - support + 0.5);
+                if (xmin < 0) {
+                    xmin = 0;
+                }
+
+                xmax = static_cast<int>(center + support + 0.5);
+                if (xmax > inSize) {
+                    xmax = inSize;
+                }
+                xmax -= xmin;
+
+                double * k = &prekk[xx * ksize];
+                for (x = 0; x < xmax; x++) {
+                    double w = bicubic_filter((x + xmin - center + 0.5) * ss);
+                    k[x] = w;
+                    ww += w;
+                }
+
+                for (x = 0; x < xmax; x++) {
+                    if (ww != 0.0) {
+                        k[x] /= ww;
+                    }
+                }
+
+                for (; x < ksize; x++) {
+                    k[x] = 0;
+                }
+
+                bounds[xx * 2 + 0] = xmin;
+                bounds[xx * 2 + 1] = xmax;
+            }
+
+            // Normalize coefficients to fixed-point
+            kk.resize(outSize * ksize);
+            for (int i = 0; i < outSize * ksize; i++) {
+                if (prekk[i] < 0) {
+                    kk[i] = static_cast<int32_t>(-0.5 + prekk[i] * (1 << PRECISION_BITS));
+                } else {
+                    kk[i] = static_cast<int32_t>(0.5 + prekk[i] * (1 << PRECISION_BITS));
+                }
+            }
+
+            return ksize;
+        };
+
+        // Horizontal resampling
+        auto resample_horizontal = [&](const clip_image_u8 & imIn, clip_image_u8 & imOut,
+                                       int ksize, const std::vector<int> & bounds, const std::vector<int32_t> & kk) {
+            imOut.ny = imIn.ny;
+            imOut.buf.resize(3 * imOut.nx * imOut.ny);
+
+            for (int yy = 0; yy < imOut.ny; yy++) {
+                for (int xx = 0; xx < imOut.nx; xx++) {
+                    int xmin = bounds[xx * 2 + 0];
+                    int xmax = bounds[xx * 2 + 1];
+                    const int32_t * k = &kk[xx * ksize];
+
+                    int32_t ss0 = 1 << (PRECISION_BITS - 1);
+                    int32_t ss1 = 1 << (PRECISION_BITS - 1);
+                    int32_t ss2 = 1 << (PRECISION_BITS - 1);
+
+                    for (int x = 0; x < xmax; x++) {
+                        int src_idx = ((yy * imIn.nx) + (x + xmin)) * 3;
+                        ss0 += static_cast<uint8_t>(imIn.buf[src_idx + 0]) * k[x];
+                        ss1 += static_cast<uint8_t>(imIn.buf[src_idx + 1]) * k[x];
+                        ss2 += static_cast<uint8_t>(imIn.buf[src_idx + 2]) * k[x];
+                    }
+
+                    int dst_idx = (yy * imOut.nx + xx) * 3;
+                    imOut.buf[dst_idx + 0] = clip8(ss0 >> PRECISION_BITS);
+                    imOut.buf[dst_idx + 1] = clip8(ss1 >> PRECISION_BITS);
+                    imOut.buf[dst_idx + 2] = clip8(ss2 >> PRECISION_BITS);
+                }
+            }
+        };
+
+        // Vertical resampling
+        auto resample_vertical = [&](const clip_image_u8 & imIn, clip_image_u8 & imOut,
+                                     int ksize, const std::vector<int> & bounds, const std::vector<int32_t> & kk) {
+            imOut.nx = imIn.nx;
+            imOut.buf.resize(3 * imOut.nx * imOut.ny);
+
+            for (int yy = 0; yy < imOut.ny; yy++) {
+                int ymin = bounds[yy * 2 + 0];
+                int ymax = bounds[yy * 2 + 1];
+                const int32_t * k = &kk[yy * ksize];
+
+                for (int xx = 0; xx < imOut.nx; xx++) {
+                    int32_t ss0 = 1 << (PRECISION_BITS - 1);
+                    int32_t ss1 = 1 << (PRECISION_BITS - 1);
+                    int32_t ss2 = 1 << (PRECISION_BITS - 1);
+
+                    for (int y = 0; y < ymax; y++) {
+                        int src_idx = ((y + ymin) * imIn.nx + xx) * 3;
+                        ss0 += static_cast<uint8_t>(imIn.buf[src_idx + 0]) * k[y];
+                        ss1 += static_cast<uint8_t>(imIn.buf[src_idx + 1]) * k[y];
+                        ss2 += static_cast<uint8_t>(imIn.buf[src_idx + 2]) * k[y];
+                    }
+
+                    int dst_idx = (yy * imOut.nx + xx) * 3;
+                    imOut.buf[dst_idx + 0] = clip8(ss0 >> PRECISION_BITS);
+                    imOut.buf[dst_idx + 1] = clip8(ss1 >> PRECISION_BITS);
+                    imOut.buf[dst_idx + 2] = clip8(ss2 >> PRECISION_BITS);
+                }
+            }
+        };
+
+        // Main resampling logic
+        const int src_width = img.nx;
+        const int src_height = img.ny;
+
+        dst.nx = target_width;
+        dst.ny = target_height;
+
+        bool need_horizontal = (target_width != src_width);
+        bool need_vertical = (target_height != src_height);
+
+        // Precompute coefficients for both passes
+        std::vector<int> bounds_horiz, bounds_vert;
+        std::vector<int32_t> kk_horiz, kk_vert;
+        int ksize_horiz = 0, ksize_vert = 0;
+
+        if (need_horizontal) {
+            ksize_horiz = precompute_coeffs(src_width, 0.0, src_width, target_width, bounds_horiz, kk_horiz);
+        }
+
+        if (need_vertical) {
+            ksize_vert = precompute_coeffs(src_height, 0.0, src_height, target_height, bounds_vert, kk_vert);
+        }
+
+        // Perform two-pass resampling
+        if (need_horizontal && need_vertical) {
+            // Both horizontal and vertical
+            clip_image_u8 temp;
+            temp.nx = target_width;
+            resample_horizontal(img, temp, ksize_horiz, bounds_horiz, kk_horiz);
+            resample_vertical(temp, dst, ksize_vert, bounds_vert, kk_vert);
+        } else if (need_horizontal) {
+            // Only horizontal
+            resample_horizontal(img, dst, ksize_horiz, bounds_horiz, kk_horiz);
+        } else if (need_vertical) {
+            // Only vertical
+            resample_vertical(img, dst, ksize_vert, bounds_vert, kk_vert);
+        } else {
+            // No resampling needed
+            dst.buf = img.buf;
         }
 
         return true;
@@ -5101,7 +5311,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                     clip_image_u8_ptr resized_img(clip_image_u8_init());
                     img_tool::resize(*img, *resized_img,
                                     clip_image_size{image_size, image_size},
-                                    img_tool::RESIZE_ALGO_BICUBIC, true, color);  // Match PIL default
+                                    img_tool::RESIZE_ALGO_BICUBIC_PILLOW, false, color);  // Match PIL default
 
                     clip_image_f32_ptr res(clip_image_f32_init());
                     normalize_image_u8_to_f32(*resized_img, *res, params.image_mean, params.image_std);
@@ -5124,7 +5334,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
 
                     clip_image_u8_ptr scaled_img(clip_image_u8_init());
                     img_tool::resize(*img, *scaled_img, clip_image_size{new_w, new_h},
-                                    img_tool::RESIZE_ALGO_BICUBIC, true, color);
+                                    img_tool::RESIZE_ALGO_BICUBIC_PILLOW, true, color);
 
                     // Use mean color for padding
                     unsigned char pad_r = static_cast<unsigned char>(params.image_mean[0] * 255.0f);
@@ -5815,7 +6025,6 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
             bool is_stored = false;
             std::vector<std::string> patterns = {
                 /* Add tensor names here to dump (e.g. "sam_output") */
-                "inpL", "inp_raw_cpy"
             };
 
             for (auto & p : patterns) {
