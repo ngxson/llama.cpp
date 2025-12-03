@@ -555,7 +555,7 @@ static void quantize_row_q3_hifi_impl(const float * GGML_RESTRICT x, block_q3_hi
     }
 }
 
-void dequantize_row_q3_hifi(const block_q3_hifi * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+GGML_API void dequantize_row_q3_hifi(const block_q3_hifi * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     assert(k % Q3_HIFI_BLOCK_SIZE == 0);
     const int64_t nb = k / Q3_HIFI_BLOCK_SIZE;
 
