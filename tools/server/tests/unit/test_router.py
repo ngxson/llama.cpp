@@ -17,7 +17,6 @@ def create_server():
     ]
 )
 def test_router_chat_completion_stream(model: str, success: bool):
-    # TODO: make sure the model is in cache (ie. ServerProcess.load_all()) before starting the router server
     global server
     server.start()
     content = ""
@@ -108,26 +107,22 @@ def test_router_models_max_evicts_lru():
         "ggml-org/test-model-stories260K-infill",
     ]
 
-    loaded_models: list[str] = []
-    for model_id in candidate_models:
-        try:
-            _load_model_and_wait(model_id, timeout=120)
-            loaded_models.append(model_id)
-        except AssertionError:
-            continue
+    # Load only the first 2 models to fill the cache
+    first, second, third = candidate_models[:3]
 
-    if len(loaded_models) < 3:
-        pytest.skip("Not enough models could be loaded to exercise eviction")
+    _load_model_and_wait(first, timeout=120)
+    _load_model_and_wait(second, timeout=120)
 
-    first, second, third = loaded_models[:3]
+    # Verify both models are loaded
+    assert _get_model_status(first) == "loaded"
+    assert _get_model_status(second) == "loaded"
 
-    _wait_for_model_status(first, {"loaded"})
-    _wait_for_model_status(second, {"loaded"})
-
+    # Load the third model - this should trigger LRU eviction of the first model
     _load_model_and_wait(third, timeout=120)
 
+    # Verify eviction: third is loaded, first was evicted
     assert _get_model_status(third) == "loaded"
-    assert _get_model_status(first) != "loaded"
+    assert _get_model_status(first) == "unloaded"
 
 
 def test_router_no_models_autoload():

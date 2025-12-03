@@ -554,6 +554,7 @@ class ServerPreset:
     @staticmethod
     def router() -> ServerProcess:
         server = ServerProcess()
+        server.offline = True # will be downloaded by load_all()
         # router server has no models
         server.model_file = None
         server.model_alias = None
