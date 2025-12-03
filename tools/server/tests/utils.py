@@ -450,6 +450,7 @@ class ServerPreset:
     @staticmethod
     def tinyllama2() -> ServerProcess:
         server = ServerProcess()
+        server.offline = True # will be downloaded by load_all()
         server.model_hf_repo = "ggml-org/test-model-stories260K"
         server.model_hf_file = None
         server.model_alias = "tinyllama-2"
