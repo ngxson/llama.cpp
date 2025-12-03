@@ -136,6 +136,7 @@ struct mtmd_cli_context {
         mparams.print_timings    = true;
         mparams.n_threads        = params.cpuparams.n_threads;
         mparams.flash_attn_type  = params.flash_attn_type;
+        mparams.warmup           = params.warmup;
         mparams.image_min_tokens = params.image_min_tokens;
         mparams.image_max_tokens = params.image_max_tokens;
         mparams.dsocr_mode       = params.dsocr_mode.c_str();
