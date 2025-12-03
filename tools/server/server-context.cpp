@@ -1290,8 +1290,13 @@ struct server_context_impl {
         res->id_slot = slot.id;
 
         res->index           = slot.task->index;
-        res->content         = slot.generated_text;
-        res->tokens          = std::move(slot.generated_tokens);
+        // in stream mode, content and tokens are already in last partial chunk
+        res->content         = slot.task->params.stream ? ""             : slot.generated_text;
+        if (slot.task->params.stream) {
+            res->tokens      = llama_tokens{};
+        } else {
+            res->tokens      = std::move(slot.generated_tokens);
+        }
         res->timings         = slot.get_timings();
         res->prompt          = slot.task->tokens.detokenize(ctx, true);
         res->response_fields = std::move(slot.task->params.response_fields);
@@ -2603,9 +2608,9 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
             task.params.res_type          = res_type;
             task.params.oaicompat_cmpl_id = completion_id;
             task.params.oaicompat_model   = ctx_server.model_name;
+            states.emplace_back(task.params.oaicompat_chat_syntax);
 
             tasks.push_back(std::move(task));
-            states.emplace_back(task.params.oaicompat_chat_syntax);
         }
 
         rd.post_tasks(std::move(tasks));
@@ -2664,70 +2669,83 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
         res->status = 200;
         res->content_type = "text/event-stream";
         res->next = [res_this = res.get(), res_type, &should_stop, states = std::move(states)](std::string & output) mutable -> bool {
-            if (should_stop()) {
-                SRV_DBG("%s", "stopping streaming due to should_stop condition\n");
-                return false; // should_stop condition met
-            }
-
-            if (!res_this->data.empty()) {
-                // flush the first chunk
-                output = std::move(res_this->data);
-                res_this->data.clear();
-                return true;
-            }
-
-            server_response_reader & rd = res_this->rd;
-
-            // check if there is more data
-            if (!rd.has_next()) {
+            static auto format_error = [](task_response_type res_type, const json & res_json) {
                 if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
-                    // Anthropic doesn't send [DONE], message_stop was already sent
-                    output = "";
-                } else if (res_type != TASK_RESPONSE_TYPE_NONE) {
-                    output = "data: [DONE]\n\n";
-                } else {
-                    output = "";
-                }
-                SRV_DBG("%s", "all results received, terminating stream\n");
-                return false; // no more data, terminate
-            }
-
-            // receive subsequent results
-            auto result = rd.next(should_stop);
-            if (result == nullptr) {
-                SRV_DBG("%s", "stopping streaming due to should_stop condition\n");
-                return false; // should_stop condition met
-            }
-
-            // send the results
-            if (result->is_error()) {
-                json res_json = result->to_json();
-                if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
-                    output = format_anthropic_sse({
+                    return format_anthropic_sse({
                         {"event", "error"},
                         {"data", res_json},
                     });
                 } else {
-                    output = format_oai_sse(json {{ "error", res_json }});
+                    return format_oai_sse(json {{ "error", res_json }});
                 }
-                SRV_DBG("%s", "error received during streaming, terminating stream\n");
-                return false; // terminate on error
-            } else {
-                GGML_ASSERT(
-                    dynamic_cast<server_task_result_cmpl_partial*>(result.get()) != nullptr
-                    || dynamic_cast<server_task_result_cmpl_final*>(result.get()) != nullptr
-                );
-                result->update(states[result->get_index()]); // update generation state
-                json res_json = result->to_json();
-                if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
-                    output = format_anthropic_sse(res_json);
-                } else {
-                    output = format_oai_sse(res_json);
-                }
-            }
+            };
 
-            // has next data, continue
-            return true;
+            try {
+                if (should_stop()) {
+                    SRV_DBG("%s", "stopping streaming due to should_stop condition\n");
+                    return false; // should_stop condition met
+                }
+
+                if (!res_this->data.empty()) {
+                    // flush the first chunk
+                    output = std::move(res_this->data);
+                    res_this->data.clear();
+                    return true;
+                }
+
+                server_response_reader & rd = res_this->rd;
+
+                // check if there is more data
+                if (!rd.has_next()) {
+                    if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
+                        // Anthropic doesn't send [DONE], message_stop was already sent
+                        output = "";
+                    } else if (res_type != TASK_RESPONSE_TYPE_NONE) {
+                        output = "data: [DONE]\n\n";
+                    } else {
+                        output = "";
+                    }
+                    SRV_DBG("%s", "all results received, terminating stream\n");
+                    return false; // no more data, terminate
+                }
+
+                // receive subsequent results
+                auto result = rd.next(should_stop);
+                if (result == nullptr) {
+                    SRV_DBG("%s", "stopping streaming due to should_stop condition\n");
+                    return false; // should_stop condition met
+                }
+
+                // send the results
+                if (result->is_error()) {
+                    json res_json = result->to_json();
+                    output = format_error(res_type, res_json);
+                    SRV_DBG("%s", "error received during streaming, terminating stream\n");
+                    return false; // terminate on error
+                } else {
+                    GGML_ASSERT(
+                        dynamic_cast<server_task_result_cmpl_partial*>(result.get()) != nullptr
+                        || dynamic_cast<server_task_result_cmpl_final*>(result.get()) != nullptr
+                    );
+                    result->update(states[result->get_index()]); // update generation state
+                    json res_json = result->to_json();
+                    if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
+                        output = format_anthropic_sse(res_json);
+                    } else {
+                        output = format_oai_sse(res_json);
+                    }
+                }
+
+                // has next data, continue
+                return true;
+
+            } catch (const std::exception & e) {
+                json error_json = format_error_response(e.what(), ERROR_TYPE_SERVER);
+                output = format_error(res_type, error_json);
+
+                // terminate on exception
+                return false;
+            }
         };
     }
 

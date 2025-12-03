@@ -582,8 +582,8 @@ json server_task_result_cmpl_final::to_json() {
 json server_task_result_cmpl_final::to_json_non_oaicompat() {
     json res = json {
         {"index",               index},
-        {"content",             stream ? "" : content}, // in stream mode, content is already in last partial chunk
-        {"tokens",              stream ? llama_tokens {} : tokens},
+        {"content",             content},
+        {"tokens",              tokens},
         {"id_slot",             id_slot},
         {"stop",                true},
         {"model",               oaicompat_model},
@@ -619,7 +619,7 @@ json server_task_result_cmpl_final::to_json_oaicompat() {
     json res = json {
         {"choices",            json::array({
             json{
-                {"text",          stream ? "" : content}, // in stream mode, content is already in last partial chunk
+                {"text",          content},
                 {"index",         index},
                 {"logprobs",      logprobs},
                 {"finish_reason", finish_reason},
