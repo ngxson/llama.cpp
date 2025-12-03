@@ -5016,7 +5016,7 @@ static std::vector<std::pair<int, int>> ds_build_target_ratios(const int min_num
     return ratios;
 }
 
-static std::pair<int, int> ds_find_closest_aspect_ratio(
+static std::pair<int, int> ds_find_closest_ratio(
     const float aspect_ratio,
     const std::vector<std::pair<int, int>> &target_ratios,
     const int width,
@@ -5382,60 +5382,53 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                     /* Dynamic Resolution (Gundam/Gundam-Master) */
     
                     // configurable, or read from params
-                    const int  min_num       = 2;
-                    const int  max_num       = 9;
-                    const int  image_size    = params.image_size;  // typically 640
-                    // const bool use_thumbnail = true;               // mimic python's use_thumbnail
-    
+                    const int min_num    = 2;
+                    const int max_num    = 9;
+                    const int image_size = (mode_i == 4) ? 640 : 1024;
+
                     // original image size
-                    const int             orig_w        = original_size.width;
-                    const int             orig_h        = original_size.height;
+                    const int orig_w = original_size.width;
+                    const int orig_h = original_size.height;
     
-                    // 1) build candidate grids (cols, rows)
+                    // create overview image (thumbnail)
+                    clip_image_u8_ptr overview_img(clip_image_u8_init());
+                    img_tool::resize(*img, *overview_img, { image_size, image_size }, 
+                                     img_tool::RESIZE_ALGO_BICUBIC_PILLOW, true, color);
+                    clip_image_f32_ptr overview_f32(clip_image_f32_init());
+                    normalize_image_u8_to_f32(*overview_img, *overview_f32, params.image_mean, params.image_std);
+                    res_imgs->entries.push_back(std::move(overview_f32));
+
+                    // build candidate grids (cols, rows)
                     auto target_ratios = ds_build_target_ratios(min_num, max_num);
     
-                    // 2) pick the grid that best matches the original aspect ratio
+                    // pick the grid that best matches the original aspect ratio
                     const float aspect_ratio = static_cast<float>(orig_w) / static_cast<float>(orig_h);
-                    auto      best = ds_find_closest_aspect_ratio(aspect_ratio, target_ratios, orig_w, orig_h, image_size);
+                    auto best = ds_find_closest_ratio(aspect_ratio, target_ratios, orig_w, orig_h, image_size);
                     const int grid_cols = best.first;   // how many tiles horizontally
                     const int grid_rows = best.second;  // how many tiles vertically
-    
-                    // 3) compute the target (forced) size — python did:
-                    //    target_width  = image_size * cols
-                    //    target_height = image_size * rows
-                    const clip_image_size refined_size{ image_size * grid_cols, image_size * grid_rows };
-    
-                    // 4) prepare slice instructions, same style as the idefics3 branch
-                    llava_uhd::slice_instructions instructions;
-                    instructions.overview_size = clip_image_size{ image_size, image_size };  // for thumbnail/global
-                    instructions.refined_size  = refined_size;
-                    instructions.grid_size     = clip_image_size{ grid_cols, grid_rows };
-    
-                    // in deepseek python they always produce *full* 640x640 blocks,
-                    // so we can do a simple double loop over rows/cols:
+
+                    // resize to refined size (no padding, direct resize)
+                    clip_image_u8_ptr refined_img(clip_image_u8_init());
+                    img_tool::resize(*img, *refined_img, { image_size * grid_cols, image_size * grid_rows }, 
+                                     img_tool::RESIZE_ALGO_BICUBIC_PILLOW, false);
+
+                    // crop slices from the refined image
                     for (int r = 0; r < grid_rows; ++r) {
                         for (int c = 0; c < grid_cols; ++c) {
                             const int x = c * image_size;
                             const int y = r * image_size;
-    
-                            instructions.slices.push_back(llava_uhd::slice_coordinates{
-                                /* x */ x,
-                                /* y */ y,
-                                /* size */ clip_image_size{ image_size, image_size }
-                            });
+
+                            // crop the slice
+                            clip_image_u8_ptr slice_img(clip_image_u8_init());
+                            img_tool::crop(*refined_img, *slice_img, x, y, image_size, image_size);
+
+                            // normalize and add to results
+                            clip_image_f32_ptr slice_f32(clip_image_f32_init());
+                            normalize_image_u8_to_f32(*slice_img, *slice_f32, params.image_mean, params.image_std);
+                            res_imgs->entries.push_back(std::move(slice_f32));
                         }
                     }
-    
-                    // 5) run the actual slicing (this should: resize to refined_size, then crop every slice)
-                    auto imgs = llava_uhd::slice_image(img, instructions);
-    
-                    // 7) cast & normalize like the idefics3 branch
-                    for (size_t i = 0; i < imgs.size(); ++i) {
-                        clip_image_f32_ptr res(clip_image_f32_init());
-                        normalize_image_u8_to_f32(*imgs[i], *res, params.image_mean, params.image_std);
-                        res_imgs->entries.push_back(std::move(res));
-                    }
-    
+
                     // keep the grid info — the model may need to know how to reassemble / attend
                     res_imgs->grid_x = grid_cols;
                     res_imgs->grid_y = grid_rows;
@@ -5971,8 +5964,8 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 // do nothing
             } break;
         case PROJECTOR_TYPE_DEEPSEEKOCR:
-        {
-        } break;
+            {
+            } break;
         case PROJECTOR_TYPE_LLAMA4:
             {
                 // set the 2D positions
