@@ -450,8 +450,8 @@ class ServerPreset:
     @staticmethod
     def tinyllama2() -> ServerProcess:
         server = ServerProcess()
-        server.model_hf_repo = "ggml-org/models"
-        server.model_hf_file = "tinyllamas/stories260K.gguf"
+        server.model_hf_repo = "ggml-org/test-model-stories260K"
+        server.model_hf_file = None
         server.model_alias = "tinyllama-2"
         server.n_ctx = 512
         server.n_batch = 32
@@ -495,8 +495,8 @@ class ServerPreset:
     def tinyllama_infill() -> ServerProcess:
         server = ServerProcess()
         server.offline = True # will be downloaded by load_all()
-        server.model_hf_repo = "ggml-org/models"
-        server.model_hf_file = "tinyllamas/stories260K-infill.gguf"
+        server.model_hf_repo = "ggml-org/test-model-stories260K-infill"
+        server.model_hf_file = None
         server.model_alias = "tinyllama-infill"
         server.n_ctx = 2048
         server.n_batch = 1024

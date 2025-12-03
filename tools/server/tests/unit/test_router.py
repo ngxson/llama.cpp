@@ -104,8 +104,8 @@ def test_router_models_max_evicts_lru():
 
     candidate_models = [
         "ggml-org/tinygemma3-GGUF:Q8_0",
-        "ggml-org/models/tinyllamas/stories260K.gguf",
-        "ggml-org/models/bert-bge-small/ggml-model-f16.gguf",
+        "ggml-org/test-model-stories260K",
+        "ggml-org/test-model-stories260K-infill",
     ]
 
     loaded_models: list[str] = []
