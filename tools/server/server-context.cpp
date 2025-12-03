@@ -2654,10 +2654,12 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
         }
 
         // next responses are streamed
+        // to be sent immediately
+        json first_result_json = first_result->to_json();
         if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
-            res->data = format_anthropic_sse(first_result->to_json());
+            res->data = format_anthropic_sse(first_result_json);
         } else {
-            res->data = format_oai_sse(first_result->to_json()); // to be sent immediately
+            res->data = format_oai_sse(first_result_json);
         }
         res->status = 200;
         res->content_type = "text/event-stream";
@@ -2698,8 +2700,8 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
             }
 
             // send the results
-            json res_json = result->to_json();
             if (result->is_error()) {
+                json res_json = result->to_json();
                 if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
                     output = format_anthropic_sse({
                         {"event", "error"},
@@ -2716,6 +2718,7 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
                     || dynamic_cast<server_task_result_cmpl_final*>(result.get()) != nullptr
                 );
                 result->update(states[result->get_index()]); // update generation state
+                json res_json = result->to_json();
                 if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
                     output = format_anthropic_sse(res_json);
                 } else {
