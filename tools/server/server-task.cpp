@@ -700,6 +700,25 @@ json server_task_result_cmpl_final::to_json_oaicompat_chat() {
     return res;
 }
 
+common_chat_msg task_result_state::update_chat_msg(
+        const std::string & text_added,
+        bool is_partial,
+        std::vector<common_chat_msg_diff> & diffs) {
+    generated_text += text_added;
+    auto msg_prv_copy = chat_msg;
+    SRV_DBG("Parsing chat message: %s\n", generated_text.c_str());
+    auto new_msg = common_chat_parse(
+        generated_text,
+        is_partial,
+        oaicompat_chat_syntax);
+    if (!new_msg.empty()) {
+        new_msg.set_tool_call_ids(generated_tool_call_ids, gen_tool_call_id);
+        chat_msg = new_msg;
+        diffs = common_chat_msg_diff::compute_diffs(msg_prv_copy, new_msg.empty() ? msg_prv_copy : new_msg);
+    }
+    return chat_msg;
+}
+
 json server_task_result_cmpl_final::to_json_oaicompat_chat_stream() {
     std::time_t t = std::time(0);
     std::string finish_reason = "length";

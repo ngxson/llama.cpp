@@ -101,8 +101,6 @@ struct server_slot {
     std::string  generated_text;
     llama_tokens generated_tokens;
 
-    common_chat_msg chat_msg;
-
     std::vector<completion_token_output> generated_token_probs;
 
     bool has_next_token = true;
@@ -153,9 +151,6 @@ struct server_slot {
 
     llama_token sampled;
 
-    common_chat_format chat_format = COMMON_CHAT_FORMAT_CONTENT_ONLY;
-    std::vector<std::string> generated_tool_call_ids;
-
     // stats
     size_t n_sent_text = 0; // number of sent text character
 
@@ -183,13 +178,10 @@ struct server_slot {
         stop           = STOP_TYPE_NONE;
         stopping_word  = "";
         n_sent_text    = 0;
-        chat_format    = COMMON_CHAT_FORMAT_CONTENT_ONLY;
 
         generated_tokens.clear();
         generated_token_probs.clear();
-        chat_msg = {};
         json_schema = json();
-        generated_tool_call_ids.clear();
 
         // clear speculative decoding stats
         n_draft_total = 0;
@@ -300,23 +292,6 @@ struct server_slot {
         }
 
         return timings;
-    }
-
-    const common_chat_msg & update_chat_msg(std::vector<common_chat_msg_diff> & diffs) {
-        GGML_ASSERT(task);
-
-        auto previous_msg = chat_msg;
-        SRV_DBG("Parsing chat message: %s\n", generated_text.c_str());
-        auto new_msg = common_chat_parse(
-            generated_text,
-            /* is_partial= */ stop != STOP_TYPE_EOS,
-            task->params.oaicompat_chat_syntax);
-        if (!new_msg.empty()) {
-            new_msg.set_tool_call_ids(generated_tool_call_ids, gen_tool_call_id);
-            chat_msg = new_msg;
-            diffs = common_chat_msg_diff::compute_diffs(previous_msg, new_msg.empty() ? previous_msg : new_msg);
-        }
-        return chat_msg;
     }
 
     size_t find_stopping_strings(const std::string & text, const size_t last_token_size, bool is_full_stop) {
@@ -1284,8 +1259,6 @@ struct server_context_impl {
         } else {
             res->content = tkn.text_to_send;
             res->tokens  = { tkn.tok };
-
-            slot.update_chat_msg(res->oaicompat_msg_diffs);
         }
 
         res->n_decoded           = slot.n_decoded;
@@ -1338,7 +1311,6 @@ struct server_context_impl {
         res->res_type          = slot.task->params.res_type;
         res->oaicompat_model   = slot.task->params.oaicompat_model;
         res->oaicompat_cmpl_id = slot.task->params.oaicompat_cmpl_id;
-        res->oaicompat_msg     = slot.update_chat_msg(res->oaicompat_msg_diffs);
 
         // populate res.probs_output
         if (slot.task->params.sampling.n_probs > 0) {
@@ -2593,6 +2565,9 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
     auto completion_id = gen_chatcmplid();
     auto & rd = res->rd;
 
+    // tracking generation state and partial tool calls
+    std::vector<task_result_state> states;
+
     try {
         std::vector<server_task> tasks;
 
@@ -2630,6 +2605,7 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
             task.params.oaicompat_model   = ctx_server.model_name;
 
             tasks.push_back(std::move(task));
+            states.emplace_back(task.params.oaicompat_chat_syntax);
         }
 
         rd.post_tasks(std::move(tasks));
@@ -2652,6 +2628,7 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
             json arr = json::array();
             for (auto & res : all_results.results) {
                 GGML_ASSERT(dynamic_cast<server_task_result_cmpl_final*>(res.get()) != nullptr);
+                res->update(states[res->get_index()]); // update generation state
                 arr.push_back(res->to_json());
             }
             // if single request, return single object instead of array
@@ -2673,6 +2650,7 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
                 dynamic_cast<server_task_result_cmpl_partial*>(first_result.get()) != nullptr
                 || dynamic_cast<server_task_result_cmpl_final*>(first_result.get()) != nullptr
             );
+            first_result->update(states[first_result->get_index()]); // update generation state
         }
 
         // next responses are streamed
@@ -2683,7 +2661,7 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
         }
         res->status = 200;
         res->content_type = "text/event-stream";
-        res->next = [res_this = res.get(), res_type, &should_stop](std::string & output) -> bool {
+        res->next = [res_this = res.get(), res_type, &should_stop, states = std::move(states)](std::string & output) mutable -> bool {
             if (should_stop()) {
                 SRV_DBG("%s", "stopping streaming due to should_stop condition\n");
                 return false; // should_stop condition met
@@ -2737,6 +2715,7 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
                     dynamic_cast<server_task_result_cmpl_partial*>(result.get()) != nullptr
                     || dynamic_cast<server_task_result_cmpl_final*>(result.get()) != nullptr
                 );
+                result->update(states[result->get_index()]); // update generation state
                 if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
                     output = format_anthropic_sse(res_json);
                 } else {
