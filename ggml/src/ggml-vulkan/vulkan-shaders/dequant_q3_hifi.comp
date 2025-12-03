@@ -1,0 +1,57 @@
+#version 450
+
+#include "dequant_head.glsl"
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout (binding = 0) readonly buffer A {A_TYPE data_a[];};
+layout (binding = 1) writeonly buffer D {D_TYPE data_b[];};
+
+void main() {
+    [[unroll]] for (uint wgy = 0; wgy < 256; wgy++) {
+        const uint i = uint(gl_WorkGroupID.x * 256 + wgy);
+        if (i >= p.nel / Q3_HIFI_BLOCK_SIZE) {
+            return;
+        }
+
+        const uint r = gl_LocalInvocationID.x / 4;
+        const uint tid = r / 2;
+        const uint is0 = r % 2;
+        const uint l0 = 16 * is0 + 4 * (gl_LocalInvocationID.x % 4);
+        const uint n = tid / 4;
+        const uint j = tid - 4*n;
+
+        const uint y_idx = i * Q3_HIFI_BLOCK_SIZE + 128 * n + 32 * j;
+        const FLOAT_TYPE d_all = FLOAT_TYPE(data_a[i].d);
+        const device uint8_t * qs = data_a[i].qs;
+
+        // Dequantize bulk values
+        for (uint l = l0; l < l0 + 4; ++l) {
+            const uint idx = y_idx + l;
+            if (idx >= Q3_HIFI_BLOCK_SIZE) {
+                continue;
+            }
+            
+            // Extract 3-bit value
+            const uint byte_idx = (idx * 3) / 8;
+            const uint bit_offset = (idx * 3) % 8;
+            uint8_t bits = (qs[byte_idx] >> bit_offset) & 7;
+            if (bit_offset > 5 && byte_idx + 1 < 96) {
+                bits |= (qs[byte_idx + 1] << (8 - bit_offset)) & 7;
+            }
+            const int quant_val = int(bits) - 4; // [0,7] → [-4,3]
+            FLOAT_TYPE val = FLOAT_TYPE(quant_val) * d_all;
+            
+            // Check if this index is an outlier
+            for (uint k = 0; k < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k) {
+                if (data_a[i].outlier_idx[k] == idx) {
+                    val = FLOAT_TYPE(half_to_float(data_a[i].outlier_vals[k]));
+                    break;
+                }
+            }
+            
+            data_b[y_idx + l] = D_TYPE(val);
+        }
+    }
+}
+
