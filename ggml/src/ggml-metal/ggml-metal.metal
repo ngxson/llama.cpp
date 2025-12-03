@@ -890,6 +890,43 @@ void dequantize_iq4_xs(device const block_iq4_xs * xb, short il, thread type4x4 
     }
 }
 
+template <typename type4x4>
+void dequantize_q3_hifi(device const block_q3_hifi * xb, short il, thread type4x4 & reg) {
+    // il is 0...127 for Q3_HIFI_BLOCK_SIZE = 256 => processes 16 values at a time
+    // Each call processes 16 values (4x4 register)
+    const float d = xb->d;
+    device const uint8_t * qs = xb->qs;
+    
+    // Process 16 values starting at il*16
+    for (int i = 0; i < 16; ++i) {
+        const int idx = il * 16 + i;
+        if (idx >= Q3_HIFI_BLOCK_SIZE) {
+            reg[i/4][i%4] = 0.0f;
+            continue;
+        }
+        
+        // Extract 3-bit value
+        const int byte_idx = (idx * 3) / 8;
+        const int bit_offset = (idx * 3) % 8;
+        uint8_t bits = (qs[byte_idx] >> bit_offset) & 7;
+        if (bit_offset > 5 && byte_idx + 1 < 96) {
+            bits |= (qs[byte_idx + 1] << (8 - bit_offset)) & 7;
+        }
+        const int quant_val = (int)bits - 4; // [0,7] → [-4,3]
+        float val = quant_val * d;
+        
+        // Check if this index is an outlier
+        for (int k = 0; k < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k) {
+            if (xb->outlier_idx[k] == idx) {
+                val = half_to_float(xb->outlier_vals[k]);
+                break;
+            }
+        }
+        
+        reg[i/4][i%4] = val;
+    }
+}
+
 enum ggml_sort_order {
     GGML_SORT_ORDER_ASC,
     GGML_SORT_ORDER_DESC,
