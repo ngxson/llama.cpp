@@ -3818,3 +3818,73 @@ void ggml_vec_dot_iq4_xs_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const v
 #endif
 }
 
+#if defined(__AVX2__)
+// AVX2-optimized dequantization for Q3_HIFI
+void dequantize_row_q3_hifi(const block_q3_hifi * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % Q3_HIFI_BLOCK_SIZE == 0);
+    const int64_t nb = k / Q3_HIFI_BLOCK_SIZE;
+
+    for (int ib = 0; ib < nb; ++ib) {
+        const block_q3_hifi * block = &x[ib];
+        const float d = block->d;
+        const uint8_t * qs = block->qs;
+        float * yb = y + ib * Q3_HIFI_BLOCK_SIZE;
+
+        // Process 8 values at a time with AVX2
+        // Q3_HIFI_BLOCK_SIZE is 256, which is a multiple of 8
+        int i = 0;
+        for (; i < Q3_HIFI_BLOCK_SIZE - 7; i += 8) {
+            // Extract 8 3-bit values (24 bits = 3 bytes)
+            // Extract all 8 values into an array first, then build the vector
+            int32_t quant_vals_arr[8];
+            
+            // Unpack 8 values from the packed 3-bit format
+            // Each value is 3 bits, so 8 values = 24 bits = 3 bytes
+            for (int j = 0; j < 8; ++j) {
+                const int byte_idx = ((i + j) * 3) / 8;
+                const int bit_offset = ((i + j) * 3) % 8;
+                uint8_t bits = (qs[byte_idx] >> bit_offset) & 7;
+                if (bit_offset > 5 && byte_idx + 1 < 96) {
+                    bits |= (qs[byte_idx + 1] << (8 - bit_offset)) & 7;
+                }
+                quant_vals_arr[j] = (int32_t)bits - 4; // [0,7] → [-4,3]
+            }
+            
+            // Build vector from array (all values known at compile time for this call)
+            __m256i quant_vals = _mm256_set_epi32(
+                quant_vals_arr[7], quant_vals_arr[6], quant_vals_arr[5], quant_vals_arr[4],
+                quant_vals_arr[3], quant_vals_arr[2], quant_vals_arr[1], quant_vals_arr[0]
+            );
+            
+            // Convert to float
+            __m256 quant_f = _mm256_cvtepi32_ps(quant_vals);
+            
+            // Multiply by scale
+            __m256 scale_vec = _mm256_set1_ps(d);
+            quant_f = _mm256_mul_ps(quant_f, scale_vec);
+            
+            // Store
+            _mm256_storeu_ps(&yb[i], quant_f);
+        }
+        
+        // Handle remaining values (scalar fallback)
+        for (; i < Q3_HIFI_BLOCK_SIZE; ++i) {
+            const int byte_idx = (i * 3) / 8;
+            const int bit_offset = (i * 3) % 8;
+            uint8_t bits = (qs[byte_idx] >> bit_offset) & 7;
+            if (bit_offset > 5 && byte_idx + 1 < 96) {
+                bits |= (qs[byte_idx + 1] << (8 - bit_offset)) & 7;
+            }
+            const int quant_val = (int)bits - 4;
+            yb[i] = quant_val * d;
+        }
+
+        // Restore outliers (still sequential, but less overhead)
+        for (int k_idx = 0; k_idx < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
+            const int idx = block->outlier_idx[k_idx];
+            yb[idx] = GGML_FP16_TO_FP32(block->outlier_vals[k_idx]);
+        }
+    }
+}
+#endif
+
