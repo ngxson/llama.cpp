@@ -1,31 +1,32 @@
-# llama-server development documentation
+# llama-server Development Documentation
 
-this doc provides an in-depth overview of the llama-server tool, helping maintainers and contributors.
+This document provides an in-depth technical overview of `llama-server`, intended for maintainers and contributors.
 
-if you are an user using llama-server as a product, please refer to the [main documentation](./README.md) instead
+If you are an end user consuming `llama-server` as a product, please refer to the main [README](./README.md) instead.
 
 ## Backend
 
 ### Overview
 
-Server has 2 modes of operation:
-- Inference mode: used for main inference with a model. This requires loading a GGUF model
-- Router mode: used for managing multiple instances of the server, each instance is in inference mode. This allow user to use multiple models from the same API endpoint, since they are routed via a router server.
+The server supports two primary operating modes:
 
-The project consists of these main components:
+- **Inference mode**: The default mode for performing inference with a single loaded GGUF model.
+- **Router mode**: Enables management of multiple inference server instances behind a single API endpoint. Requests are automatically routed to the appropriate backend instance based on the requested model.
 
-- `server_context`: hold the main inference context, including the main `llama_context` and slots
-- `server_slot`: An abstraction layer of "sequence" in libllama, used for managing parallel sequences
-- `server_routes`: the intermediate layer between `server_context` and HTTP layer. it contains logic to parse and format JSON for HTTP requests and responses
-- `server_http_context`: hold the implementation of the HTTP server layer. currently, we use `cpp-httplib` as the implementation of the HTTP layer
-- `server_queue`: A concurrent queue that allow HTTP threads to post new tasks to `server_context`
-- `server_response`: A concurrent queue that allow `server_context` to send back response to HTTP threads
-- `server_response_reader`: A high-level abstraction of `server_queue` and `server_response`, making the code easier to read and to maintain
-- `server_task`: An unit of task, that can be pushed into `server_queue`
-- `server_task_result`: An unit of response, that can be pushed into `server_response`
-- `server_tokens`: An abstraction of token list, supporting both text and multimodal tokens; it is used by `server_task` and `server_slot`
-- `server_prompt_checkpoint`: For recurrence and SWA models, we use this class to store a "snapshot" of the state of the model's memory. This allow re-using them when the following requests has the same prompt prefix, saving some computations.
-- `server_models`: Component that allows managing multiple instances of llama-server, allow using multiple models. Please note that this is a standalone component, it independent from `server_context`
+The core architecture consists of the following components:
+
+- `server_context`: Holds the primary inference state, including the main `llama_context` and all active slots.
+- `server_slot`: An abstraction over a single “sequence” in llama.cpp, responsible for managing individual parallel inference requests.
+- `server_routes`: Middleware layer between `server_context` and the HTTP interface; handles JSON parsing/formatting and request routing logic.
+- `server_http_context`: Implements the HTTP server using `cpp-httplib`.
+- `server_queue`: Thread-safe queue used by HTTP workers to submit new tasks to `server_context`.
+- `server_response`: Thread-safe queue used by `server_context` to return results to HTTP workers.
+- `server_response_reader`: Higher-level wrapper around the two queues above for cleaner code.
+- `server_task`: Unit of work pushed into `server_queue`.
+- `server_task_result`: Unit of result pushed into `server_response`.
+- `server_tokens`: Unified representation of token sequences (supports both text and multimodal tokens); used by `server_task` and `server_slot`.
+- `server_prompt_checkpoint`: For recurrent (e.g., RWKV) and SWA models, stores snapshots of KV cache state. Enables reuse when subsequent requests share the same prompt prefix, saving redundant computation.
+- `server_models`: Standalone component for managing multiple backend instances (used in router mode). It is completely independent of `server_context`.
 
 ```mermaid
 graph TD
@@ -33,57 +34,58 @@ graph TD
     server_http_context <-- router mode --> server_models
     server_http_context <-- inference mode --> server_routes
     server_routes -- server_task --> server_queue
-
     subgraph server_context
         server_queue --> server_slot
         server_slot -- server_task_result --> server_response
         server_slot[multiple server_slot]
     end
-
     server_response --> server_routes
 ```
 
-TODO: metion about how batching is handled by `server_slot`
+TODO: mention about how batching is handled by `server_slot`
 
-### Thread management
+### Thread Management
 
-`server_context` run on its own thread. Because is single-threaded, you should not add too many processing (especially post-token generation logic) to avoid negatively impact multi-sequence performance.
+`server_context` runs on a dedicated single thread. Because it is single-threaded, heavy post-processing (especially after token generation) should be avoided, as it directly impacts multi-sequence throughput.
 
-Each request have its own thread, managed by HTTP layer. These tasks are run inside HTTP thread:
+Each incoming HTTP request is handled by its own thread managed by the HTTP library. The following operations are performed in HTTP worker threads:
+
 - JSON request parsing
-- Applying chat template
-- Tokenizing
-- Convert `server_task_result` into final JSON response
-- Error handling (formatting error into JSON response)
-- Partial response tracking (for example, tracking incremental tool calls or reasoning response)
+- Chat template application
+- Tokenization
+- Conversion of `server_task_result` into final JSON response
+- Error formatting into JSON
+- Tracking of partial/incremental responses (e.g., streaming tool calls or reasoning steps)
 
-Some rules practices to follow:
-- Any JSON formatting and chat template handling must be done at HTTP level
-- Prevent passing JSON back and forth between HTTP layer and `server_slot`. Instead, parse them at HTTP layer into native C++ data types
+**Best practices to follow:**
+
+- All JSON formatting and chat template logic must stay in the HTTP layer.
+- Avoid passing raw JSON between the HTTP layer and `server_slot`. Instead, parse everything into native C++ types as early as possible.
 
 ### Testing
 
-llama-server has a testing system based on `pytest`
+`llama-server` includes an automated test suite based on `pytest`.
 
-In a nutshell, this testing system automatically spawn an instance of `llama-server` and send test requests, then wait and check for the response.
+The framework automatically starts a `llama-server` instance, sends requests, and validates responses.
 
-For more info, please refer to the (test documentation)[./tests/README.md]
+For detailed instructions, see the [test documentation](./tests/README.md).
 
-### Related PRs
+### Notable Related PRs
 
 - Initial server implementation: https://github.com/ggml-org/llama.cpp/pull/1443
-- Support parallel decoding: https://github.com/ggml-org/llama.cpp/pull/3228
-- Refactor, adding `server_queue` and `server_response`: https://github.com/ggml-org/llama.cpp/pull/5065
-- Reranking support: https://github.com/ggml-org/llama.cpp/pull/9510
-- Multimodel support (`libmtmd`): https://github.com/ggml-org/llama.cpp/pull/12898
-- Unified KV support: https://github.com/ggml-org/llama.cpp/pull/16736
-- Refactor, separate HTTP logic into its own cpp/h interface: https://github.com/ggml-org/llama.cpp/pull/17216
-- Refactor, break the code base into smaller cpp/h files: https://github.com/ggml-org/llama.cpp/pull/17362
-- Adding "router mode" to server: https://github.com/ggml-org/llama.cpp/pull/17470
+- Parallel decoding support: https://github.com/ggml-org/llama.cpp/pull/3228
+- Refactor introducing `server_queue` and `server_response`: https://github.com/ggml-org/llama.cpp/pull/5065
+- Reranking endpoint: https://github.com/ggml-org/llama.cpp/pull/9510
+- Multimodal model support (`libmtmd`): https://github.com/ggml-org/llama.cpp/pull/12898
+- Unified KV cache handling: https://github.com/ggml-org/llama.cpp/pull/16736
+- Separation of HTTP logic into dedicated files: https://github.com/ggml-org/llama.cpp/pull/17216
+- Large-scale code base split into smaller files: https://github.com/ggml-org/llama.cpp/pull/17362
+- Introduction of router mode: https://github.com/ggml-org/llama.cpp/pull/17470
+
+
 
 
 ## Web UI
-
 
 The project includes a web-based user interface for interacting with `llama-server`. It supports both single-model (`MODEL` mode) and multi-model (`ROUTER` mode) operation.
 
