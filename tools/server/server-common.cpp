@@ -494,6 +494,18 @@ int32_t server_tokens::process_chunk(
     return 0;
 }
 
+server_tokens server_tokens::clone() const {
+    server_tokens res;
+    res.has_mtmd = has_mtmd;
+    res.tokens   = tokens;
+    for (auto it = map_idx_to_media.begin(); it != map_idx_to_media.end(); ++it) {
+        size_t idx = it->first;
+        const mtmd::input_chunk_ptr & chunk = it->second;
+        res.map_idx_to_media[idx] = mtmd::input_chunk_ptr(mtmd_input_chunk_copy(chunk.get()));
+    }
+    return res;
+}
+
 //
 // tokenizer and input processing utils
 //
@@ -745,11 +757,7 @@ json oaicompat_completion_params_parse(const json & body) {
         llama_params["stop"] = json_value(body, "stop", json::array());
     }
 
-    // Handle "n" field
-    int n_choices = json_value(body, "n", 1);
-    if (n_choices != 1) {
-        throw std::runtime_error("Only one completion choice is allowed");
-    }
+    llama_params["n"] = json_value(body, "n", 1);
 
     // Handle "echo" field
     if (json_value(body, "echo", false)) {
@@ -1049,11 +1057,7 @@ json oaicompat_chat_params_parse(
         llama_params["chat_parser"] = chat_params.parser;
     }
 
-    // Handle "n" field
-    int n_choices = json_value(body, "n", 1);
-    if (n_choices != 1) {
-        throw std::invalid_argument("Only one completion choice is allowed");
-    }
+    llama_params["n"] = json_value(body, "n", 1);
 
     // Handle "logprobs" field
     // TODO: The response format of this option is not yet OAI-compatible, but seems like no one really using it; We may need to fix it in the future

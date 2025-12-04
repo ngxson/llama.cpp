@@ -35,9 +35,10 @@ constexpr int HTTP_POLLING_SECONDS = 1;
 // state diagram: https://github.com/ggml-org/llama.cpp/pull/9283
 enum slot_state {
     SLOT_STATE_IDLE,
-    SLOT_STATE_STARTED, // TODO: this state is only used for setting up the initial prompt processing; maybe merge it with launch_slot_with_task in the future
+    SLOT_STATE_STARTED, // after assigning a task
     SLOT_STATE_PROCESSING_PROMPT,
     SLOT_STATE_DONE_PROMPT,
+    SLOT_STATE_WAIT_OTHER, // prompt processed, but waiting for other slots to copy the state
     SLOT_STATE_GENERATING,
 };
 
@@ -382,6 +383,15 @@ struct server_slot {
         }
 
         return res;
+    }
+
+    void copy_state_to(server_slot & other) {
+        llama_memory_seq_cp(llama_get_memory(ctx), id, other.id, 0, -1);
+        other.n_decoded   = n_decoded;
+        other.n_remaining = n_remaining;
+        other.n_prompt_tokens_cache     = n_prompt_tokens_cache;
+        other.n_prompt_tokens_processed = n_prompt_tokens_processed;
+        other.prompt = prompt.clone();
     }
 };
 
@@ -2143,7 +2153,9 @@ struct server_context_impl {
 
                     // entire prompt has been processed
                     if (slot.prompt.n_tokens() == slot.task->n_tokens()) {
-                        slot.state = SLOT_STATE_DONE_PROMPT;
+                        slot.state = slot.task->n_children == 0
+                            ? SLOT_STATE_DONE_PROMPT // state not being reused by any other slots
+                            : SLOT_STATE_WAIT_OTHER;
 
                         GGML_ASSERT(batch.n_tokens > 0);
 
@@ -2208,6 +2220,36 @@ struct server_context_impl {
                 if (batch.n_tokens >= n_batch) {
                     break;
                 }
+            }
+        }
+
+        // may need to copy state to other slots
+        for (auto & slot : slots) {
+            if (slot.state == SLOT_STATE_WAIT_OTHER) {
+                GGML_ASSERT(slot.task->n_children > 0);
+
+                size_t n_waiting = 0;
+                std::vector<server_slot *> child_slots;
+                for (auto & slot : slots) {
+                    if (slot.task->id == slot.task->id_parent) {
+                        n_waiting++;
+                        child_slots.push_back(&slot);
+                    }
+                }
+
+                // we can only proceed if all "child" slots are having the correct tasks
+                if (n_waiting < slot.task->n_children) {
+                    continue;
+                }
+
+                // copy state to the child slots
+                for (auto & child : child_slots) {
+                    SLT_INF(*child, "copying state from slot %d to child %d\n", slot.id, child->id);
+                    slot.copy_state_to(*child);
+                    child->state = SLOT_STATE_DONE_PROMPT;
+                }
+
+                slot.state = SLOT_STATE_DONE_PROMPT;
             }
         }
 

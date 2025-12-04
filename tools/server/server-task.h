@@ -89,6 +89,10 @@ struct server_task {
     int id_target = -1;
     int id_slot   = -1;
 
+    // used by parallel sampling (multiple completions from same prompt)
+    size_t n_children =  0; // number of tasks reusing this prompt
+    int    id_parent  = -1;
+
     // used by SERVER_TASK_TYPE_INFERENCE
     task_params   params;
     server_tokens tokens;
@@ -465,6 +469,14 @@ struct server_prompt {
 
     int n_tokens() const {
         return tokens.size();
+    }
+
+    server_prompt clone() const {
+        return server_prompt {
+            tokens.clone(),
+            data,
+            checkpoints
+        };
     }
 };
 
