@@ -1579,15 +1579,7 @@ class MmprojModel(ModelBase):
 
         # TODO @ngxson : this is a hack to support both vision and audio encoders
         have_multiple_encoders = self.has_audio_encoder and self.has_vision_encoder
-        self.block_count = 128 if have_multiple_encoders else self.find_hparam(self.n_block_keys, True)
-        # FIXME: DeepseekOCRVisionModel specific hack
-        if self.block_count is None:
-            if isinstance(self, DeepseekOCRVisionModel):
-                clip_block_count = self.hparams['layers']
-                if clip_block_count is not None:
-                    self.block_count = clip_block_count
-            if self.block_count is None:
-                raise KeyError(f"could not find block count using any of: {self.n_block_keys}")
+        self.block_count = 128 if have_multiple_encoders else self.find_hparam(self.n_block_keys)
         self.tensor_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.MMPROJ, self.block_count)
 
         # load preprocessor config
@@ -6003,16 +5995,6 @@ class Gemma3VisionModel(MmprojModel):
 
 @ModelBase.register("DeepseekOCRForCausalLM")
 class DeepseekOCRVisionModel(MmprojModel):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        proc_fname = self.dir_model / "processor_config.json"
-
-        if proc_fname.is_file():
-            with open(proc_fname, "r") as f:
-                self.preprocessor_config = json.load(f)
-
-
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
         hparams = self.hparams
@@ -6070,27 +6052,6 @@ class DeepseekOCRVisionModel(MmprojModel):
 
         if ".attn.rel_pos_h" in name or ".attn.rel_pos_w" in name:
             return [(self.map_tensor_name(name, try_suffixes=("",)), data_torch)]
-
-        if name.startswith("model.vision_model.transformer.layers."):
-            # process visual tensors
-            # split QKV tensors if needed
-            if ".qkv_proj." in name:
-                if data_torch.ndim == 2: # weight
-                    c3, _ = data_torch.shape
-                else: # bias
-                    c3 = data_torch.shape[0]
-                assert c3 % 3 == 0
-                c = c3 // 3
-                wq = data_torch[:c]
-                wk = data_torch[c: c * 2]
-                wv = data_torch[c * 2:]
-                return [
-                    (self.map_tensor_name(name.replace("qkv", "q")), wq),
-                    (self.map_tensor_name(name.replace("qkv", "k")), wk),
-                    (self.map_tensor_name(name.replace("qkv", "v")), wv),
-                ]
-            else:
-                return [(self.map_tensor_name(name), data_torch)]
 
         return [(self.map_tensor_name(name), data_torch)]
 
@@ -7263,11 +7224,19 @@ class DeepseekModel(TextModel):
 @ModelBase.register(
     "DeepseekV2ForCausalLM",
     "DeepseekV3ForCausalLM",
-    "DeepseekOCRForCausalLM",
     "KimiVLForConditionalGeneration",
 )
 class DeepseekV2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.DEEPSEEK2
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        vision_config = self.hparams.get('vision_config', {}).get('width', {})
+        
+        if 'clip-l-14-224' in vision_config and 'sam_vit_b' in vision_config:
+            self.model_arch = gguf.MODEL_ARCH.DEEPSEEK2OCR
+            self.gguf_writer.arch = gguf.MODEL_ARCH_NAMES[self.model_arch]
+            self.gguf_writer.add_architecture()
 
     def set_vocab(self):
         try:
@@ -7324,7 +7293,7 @@ class DeepseekV2Model(TextModel):
             raise NotImplementedError(f"Deepseek pre-tokenizer {tokpre!r} is not supported yet!")
 
     def set_gguf_parameters(self):
-        is_ocr = (self.hparams["num_hidden_layers"] == 12)
+        is_ocr = (self.model_arch == gguf.MODEL_ARCH.DEEPSEEK2OCR)
 
         if is_ocr:
             self.hparams['rope_theta'] = self.hparams.get('rope_theta', 10000.0)
@@ -7335,11 +7304,9 @@ class DeepseekV2Model(TextModel):
 
         super().set_gguf_parameters()
         hparams = self.hparams
-        kv_lora_rank = hparams["q_lora_rank"] if hparams["q_lora_rank"] is not None else 512
+        kv_lora_rank = hparams["kv_lora_rank"] if hparams.get("kv_lora_rank") is not None else 512
         routed_scaling_factor = hparams.get("routed_scaling_factor", 1.0)
         norm_topk_prob = hparams.get("norm_topk_prob", False)
-        scoring_func = hparams.get("scoring_func", "softmax")
-
         self.gguf_writer.add_leading_dense_block_count(hparams["first_k_dense_replace"])
         self.gguf_writer.add_vocab_size(hparams["vocab_size"])
         if "q_lora_rank" in hparams and hparams["q_lora_rank"] is not None:
@@ -7361,12 +7328,6 @@ class DeepseekV2Model(TextModel):
         self.gguf_writer.add_expert_weights_scale(routed_scaling_factor)
         self.gguf_writer.add_expert_weights_norm(norm_topk_prob)
 
-        if scoring_func == "sigmoid":
-            self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SIGMOID)
-        elif scoring_func == "softmax":
-            self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SOFTMAX)
-        else:
-            raise ValueError(f"Unsupported scoring_func value: {scoring_func}")
         self.gguf_writer.add_rope_dimension_count(hparams["qk_rope_head_dim"])
 
         rope_scaling = self.hparams.get("rope_scaling") or {}
@@ -7461,7 +7422,6 @@ class DeepseekV2Model(TextModel):
             experts = [k for d in self._experts for k in d.keys()]
             if len(experts) > 0:
                 raise ValueError(f"Unprocessed experts: {experts}")
-
 
 @ModelBase.register("MiniMaxM2ForCausalLM")
 class MiniMaxM2Model(TextModel):
