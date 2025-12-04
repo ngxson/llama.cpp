@@ -289,69 +289,6 @@ For more details, please refer to [multimodal documentation](../../docs/multimod
   cmake --build build --config Release -t llama-server
   ```
 
-## Web UI
-
-The project includes a web-based user interface for interacting with `llama-server`. It supports both single-model (`MODEL` mode) and multi-model (`ROUTER` mode) operation.
-
-### Features
-
--   **Chat interface** with streaming responses
--   **Multi-model support** (ROUTER mode) - switch between models, auto-load on selection
--   **Modality validation** - ensures selected model supports conversation's attachments (images, audio)
--   **Conversation management** - branching, regeneration, editing with history preservation
--   **Attachment support** - images, audio, PDFs (with vision/text fallback)
--   **Configurable parameters** - temperature, top_p, etc. synced with server defaults
--   **Dark/light theme**
-
-### Tech Stack
-
--   **SvelteKit** - frontend framework with Svelte 5 runes for reactive state
--   **TailwindCSS** + **shadcn-svelte** - styling and UI components
--   **Vite** - build tooling
--   **IndexedDB** (Dexie) - local storage for conversations
--   **LocalStorage** - user settings persistence
-
-### Architecture
-
-The WebUI follows a layered architecture:
-
-```
-Routes → Components → Hooks → Stores → Services → Storage/API
-```
-
--   **Stores** - reactive state management (`chatStore`, `conversationsStore`, `modelsStore`, `serverStore`, `settingsStore`)
--   **Services** - stateless API/database communication (`ChatService`, `ModelsService`, `PropsService`, `DatabaseService`)
--   **Hooks** - reusable logic (`useModelChangeValidation`, `useProcessingState`)
-
-For detailed architecture diagrams, see [`tools/server/webui/docs/`](webui/docs/):
-
--   `high-level-architecture.mmd` - full architecture with all modules
--   `high-level-architecture-simplified.mmd` - simplified overview
--   `data-flow-simplified-model-mode.mmd` - data flow for single-model mode
--   `data-flow-simplified-router-mode.mmd` - data flow for multi-model mode
--   `flows/*.mmd` - detailed per-domain flows (chat, conversations, models, etc.)
-
-### Development
-
-```sh
-# make sure you have Node.js installed
-cd tools/server/webui
-npm i
-
-# run dev server (with hot reload)
-npm run dev
-
-# run tests
-npm run test
-
-# build production bundle
-npm run build
-```
-
-After `public/index.html.gz` has been generated, rebuild `llama-server` as described in the [build](#build) section to include the updated UI.
-
-**Note:** The Vite dev server automatically proxies API requests to `http://localhost:8080`. Make sure `llama-server` is running on that port during development.
-
 ## Quick Start
 
 To get started right away, run the following command, making sure to use the correct path for the model you have:
@@ -390,12 +327,6 @@ curl --request POST \
     --header "Content-Type: application/json" \
     --data '{"prompt": "Building a website can be done in 10 simple steps:","n_predict": 128}'
 ```
-
-## Advanced testing
-
-We implemented a [server test framework](./tests/README.md) using human-readable scenario.
-
-*Before submitting an issue, please try to reproduce it with this format.*
 
 ## Node JS Test
 
