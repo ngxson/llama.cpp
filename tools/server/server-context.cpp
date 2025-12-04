@@ -2668,7 +2668,7 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
         }
         res->status = 200;
         res->content_type = "text/event-stream";
-        res->next = [res_this = res.get(), res_type, &should_stop](std::string & output) mutable -> bool {
+        res->next = [res_this = res.get(), res_type, &should_stop](std::string & output) -> bool {
             static auto format_error = [](task_response_type res_type, const json & res_json) {
                 if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
                     return format_anthropic_sse({
