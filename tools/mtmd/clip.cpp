@@ -2590,10 +2590,7 @@ private:
         } else {
             ggml_tensor * v = ggml_permute(ctx0, v_cur, 1, 2, 0, 3);
             v = ggml_cont(ctx0, v);
-
-            const auto n_tokens = q->ne[1];
-            const auto n_head   = q->ne[2];
-
+            
             ggml_tensor * kq = ggml_mul_mat(ctx0, k, q);
             // F32 may not needed for vision encoders?
             // ggml_mul_mat_set_prec(kq, GGML_PREC_F32);
@@ -2601,8 +2598,9 @@ private:
             kq = ggml_soft_max_ext(ctx0, kq, kq_mask, kq_scale, 0.0f);
 
             ggml_tensor * kqv = ggml_mul_mat(ctx0, v, kq);
-            cur = ggml_permute(ctx0, kqv, 0, 2, 1, 3);
-            cur = ggml_cont_2d(ctx0, cur, cur->ne[0]*n_head, n_tokens);
+            cur = ggml_cont(ctx0, ggml_permute(ctx0, kqv, 0, 2, 1, 3));
+            cur = ggml_reshape_2d(ctx0, cur, cur->ne[0]*cur->ne[1], cur->ne[2]*cur->ne[3]);
+
         }
 
         cb(cur, "kqv_out", il);
