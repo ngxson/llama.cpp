@@ -2260,7 +2260,6 @@ private:
         const int64_t C = rel_pos->ne[0];   // channels
         const int64_t L = rel_pos->ne[1];   // length
 
-        //GGML_ASSERT(2*std::max(q_size, k_size) - 1 == L);
 
         const auto max_rel_dist = 2*std::max(q_size, k_size) - 1;
         ggml_tensor * rel_pos_resized = rel_pos;

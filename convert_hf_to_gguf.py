@@ -1579,15 +1579,7 @@ class MmprojModel(ModelBase):
 
         # TODO @ngxson : this is a hack to support both vision and audio encoders
         have_multiple_encoders = self.has_audio_encoder and self.has_vision_encoder
-        self.block_count = 128 if have_multiple_encoders else self.find_hparam(self.n_block_keys, True)
-        # FIXME: DeepseekOCRVisionModel specific hack
-        if self.block_count is None:
-            if isinstance(self, DeepseekOCRVisionModel):
-                clip_block_count = self.hparams['layers']
-                if clip_block_count is not None:
-                    self.block_count = clip_block_count
-            if self.block_count is None:
-                raise KeyError(f"could not find block count using any of: {self.n_block_keys}")
+        self.block_count = 128 if have_multiple_encoders else self.find_hparam(self.n_block_keys)
         self.tensor_map = gguf.get_tensor_name_map(gguf.MODEL_ARCH.MMPROJ, self.block_count)
 
         # load preprocessor config
@@ -6003,7 +5995,6 @@ class Gemma3VisionModel(MmprojModel):
 
 @ModelBase.register("DeepseekOCRForCausalLM")
 class DeepseekOCRVisionModel(MmprojModel):
-
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
         hparams = self.hparams
@@ -6061,27 +6052,6 @@ class DeepseekOCRVisionModel(MmprojModel):
 
         if ".attn.rel_pos_h" in name or ".attn.rel_pos_w" in name:
             return [(self.map_tensor_name(name, try_suffixes=("",)), data_torch)]
-
-        if name.startswith("model.vision_model.transformer.layers."):
-            # process visual tensors
-            # split QKV tensors if needed
-            if ".qkv_proj." in name:
-                if data_torch.ndim == 2: # weight
-                    c3, _ = data_torch.shape
-                else: # bias
-                    c3 = data_torch.shape[0]
-                assert c3 % 3 == 0
-                c = c3 // 3
-                wq = data_torch[:c]
-                wk = data_torch[c: c * 2]
-                wv = data_torch[c * 2:]
-                return [
-                    (self.map_tensor_name(name.replace("qkv", "q")), wq),
-                    (self.map_tensor_name(name.replace("qkv", "k")), wk),
-                    (self.map_tensor_name(name.replace("qkv", "v")), wv),
-                ]
-            else:
-                return [(self.map_tensor_name(name), data_torch)]
 
         return [(self.map_tensor_name(name), data_torch)]
 
