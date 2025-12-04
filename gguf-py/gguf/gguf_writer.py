@@ -1129,7 +1129,7 @@ class GGUFWriter:
 
     def add_vision_sam_layers_count(self, value: int) -> None:
         self.add_uint32(Keys.ClipVision.SAM.BLOCK_COUNT, value)
-
+    
     def add_vision_sam_embedding_length(self, value: int) -> None:
         self.add_uint32(Keys.ClipVision.SAM.EMBEDDING_LENGTH, value)
 

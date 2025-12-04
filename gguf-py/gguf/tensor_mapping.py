@@ -1240,11 +1240,11 @@ class TensorNameMap:
             "visual.pos_embed", # qwen3vl
             "model.vision.patch_embedding.position_embedding", # cogvlm
         ),
-
+        
         MODEL_TENSOR.V_ENC_EMBD_IMGNL: (
             "model.image_newline", # Deepseek-OCR
         ),
-
+        
         MODEL_TENSOR.V_ENC_EMBD_VSEP: (
             "model.view_seperator", # Deepseek-OCR
         ),
