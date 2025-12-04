@@ -2571,11 +2571,11 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
     auto completion_id = gen_chatcmplid();
     auto & rd = res->rd;
 
-    // tracking generation state and partial tool calls
-    std::vector<task_result_state> states;
-
     try {
         std::vector<server_task> tasks;
+
+        // tracking generation state and partial tool calls
+        std::vector<task_result_state> states;
 
         const auto & prompt = data.at("prompt");
         // TODO: this log can become very long, put it behind a flag or think about a more compact format
@@ -2615,6 +2615,7 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
             tasks.push_back(std::move(task));
         }
 
+        rd.set_states(std::move(states));
         rd.post_tasks(std::move(tasks));
     } catch (const std::exception & e) {
         res->error(format_error_response(e.what(), ERROR_TYPE_INVALID_REQUEST));
@@ -2635,7 +2636,6 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
             json arr = json::array();
             for (auto & res : all_results.results) {
                 GGML_ASSERT(dynamic_cast<server_task_result_cmpl_final*>(res.get()) != nullptr);
-                res->update(states[res->get_index()]); // update generation state
                 arr.push_back(res->to_json());
             }
             // if single request, return single object instead of array
@@ -2656,7 +2656,6 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
                 dynamic_cast<server_task_result_cmpl_partial*>(first_result.get()) != nullptr
                 || dynamic_cast<server_task_result_cmpl_final*>(first_result.get()) != nullptr
             );
-            first_result->update(states[first_result->get_index()]); // update generation state
         }
 
         // next responses are streamed
@@ -2669,7 +2668,7 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
         }
         res->status = 200;
         res->content_type = "text/event-stream";
-        res->next = [res_this = res.get(), res_type, &should_stop, states = std::move(states)](std::string & output) mutable -> bool {
+        res->next = [res_this = res.get(), res_type, &should_stop](std::string & output) mutable -> bool {
             static auto format_error = [](task_response_type res_type, const json & res_json) {
                 if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
                     return format_anthropic_sse({
@@ -2728,7 +2727,6 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
                         dynamic_cast<server_task_result_cmpl_partial*>(result.get()) != nullptr
                         || dynamic_cast<server_task_result_cmpl_final*>(result.get()) != nullptr
                     );
-                    result->update(states[result->get_index()]); // update generation state
                     json res_json = result->to_json();
                     if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
                         output = format_anthropic_sse(res_json);
