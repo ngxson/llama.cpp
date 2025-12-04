@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from numpy.f2py.auxfuncs import throw_error
-
 from .constants import MODEL_ARCH, MODEL_TENSOR, MODEL_TENSORS, TENSOR_NAMES
 
 

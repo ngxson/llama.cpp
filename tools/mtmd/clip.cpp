@@ -561,9 +561,9 @@ struct clip_graph {
             hparams(model.hparams),
             img(img),
             patch_size(hparams.patch_size),
-            n_patches_x(img.nx / patch_size), // sam 1024 / 16 = 64
-            n_patches_y(img.ny / patch_size), // sam 1024 / 16 = 64
-            n_patches(n_patches_x * n_patches_y), // sam 64 * 64 = 4096
+            n_patches_x(img.nx / patch_size),
+            n_patches_y(img.ny / patch_size),
+            n_patches(n_patches_x * n_patches_y),
             n_embd(hparams.n_embd),
             n_head(hparams.n_head),
             d_head(n_embd / n_head),
@@ -1302,7 +1302,7 @@ struct clip_graph {
                                 norm_t,
                                 hparams.ffn_op,
                                 model.position_embeddings,
-                                nullptr); // shape [1024, 16, 16]
+                                nullptr);
 
         // remove CLS token
         cur = ggml_view_2d(ctx0, cur,
@@ -2399,18 +2399,15 @@ private:
     // build the input after conv2d (inp_raw --> patches)
     // returns tensor with shape [n_embd, n_patches]
     ggml_tensor * build_inp() {
-        // Image to Patch Embedding.
-        ggml_tensor * inp_raw = build_inp_raw(); // sam shape = [1024, 1024, 3]
-        // sam patch_embeddings_0 shape = [768, 3, 16, 16]
-        ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1); // sam shape = [64, 64, 768]
-        inp = ggml_reshape_2d(ctx0, inp, n_patches, n_embd); // sam shape = [4096, 768]
-        inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp)); // sam shape = [768, 4096]
+        ggml_tensor * inp_raw = build_inp_raw();
+        ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
+        inp = ggml_reshape_2d(ctx0, inp, n_patches, n_embd);
+        inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp));
         if (model.patch_bias) {
-            // sam patch_bias shape = [768]
             inp = ggml_add(ctx0, inp, model.patch_bias);
             cb(inp, "patch_bias", -1);
         }
-        return inp; // shape = [n_embd, n_patches] same as [768, 4096]
+        return inp;
     }
 
     ggml_tensor * build_inp_raw(int channels = 3) {
@@ -3710,22 +3707,19 @@ struct clip_model_loader {
                         layer.ff_down_w = get_tensor(string_format(TN_SAM_FFN_DOWN, il, "weight"));
                         layer.ff_down_b = get_tensor(string_format(TN_SAM_FFN_DOWN, il, "bias"));
                     }
-                    model.neck_0_w = get_tensor(string_format(TN_SAM_NECK, 0, "weight"));
-                    model.neck_1_b = get_tensor(string_format(TN_SAM_NECK, 1, "bias"));
-                    model.neck_1_w = get_tensor(string_format(TN_SAM_NECK, 1, "weight"));
-                    model.neck_2_w = get_tensor(string_format(TN_SAM_NECK, 2, "weight"));
-                    model.neck_3_b = get_tensor(string_format(TN_SAM_NECK, 3, "bias"));
-                    model.neck_3_w = get_tensor(string_format(TN_SAM_NECK, 3, "weight"));
-                    model.net_2    = get_tensor(string_format(TN_SAM_NET, 2, "weight"));
-                    model.net_3    = get_tensor(string_format(TN_SAM_NET, 3, "weight"));
-                }
-                model.image_newline = get_tensor(TN_IMAGE_NEWLINE, false);
-                model.view_seperator = get_tensor(TN_IMAGE_SEPERATOR, false);
-                model.fc_w = get_tensor(string_format(TN_MM_PROJECTOR, "weight"));
-                model.fc_b = get_tensor(string_format(TN_MM_PROJECTOR, "bias"));
-
-
-                break;
+                    model.neck_0_w       = get_tensor(string_format(TN_SAM_NECK, 0, "weight"));
+                    model.neck_1_b       = get_tensor(string_format(TN_SAM_NECK, 1, "bias"));
+                    model.neck_1_w       = get_tensor(string_format(TN_SAM_NECK, 1, "weight"));
+                    model.neck_2_w       = get_tensor(string_format(TN_SAM_NECK, 2, "weight"));
+                    model.neck_3_b       = get_tensor(string_format(TN_SAM_NECK, 3, "bias"));
+                    model.neck_3_w       = get_tensor(string_format(TN_SAM_NECK, 3, "weight"));
+                    model.net_2          = get_tensor(string_format(TN_SAM_NET, 2, "weight"));
+                    model.net_3          = get_tensor(string_format(TN_SAM_NET, 3, "weight"));
+                    model.image_newline  = get_tensor(TN_IMAGE_NEWLINE);
+                    model.view_seperator = get_tensor(TN_IMAGE_SEPERATOR);
+                    model.fc_w           = get_tensor(string_format(TN_MM_PROJECTOR, "weight"));
+                    model.fc_b           = get_tensor(string_format(TN_MM_PROJECTOR, "bias"));
+                } break;
             default:
                 GGML_ASSERT(false && "unknown projector type");
         }
@@ -5847,11 +5841,9 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_VOXTRAL:
         case PROJECTOR_TYPE_JANUS_PRO:
         case PROJECTOR_TYPE_COGVLM:
-            {
-                // do nothing
-            } break;
         case PROJECTOR_TYPE_DEEPSEEKOCR:
             {
+                // do nothing
             } break;
         case PROJECTOR_TYPE_LLAMA4:
             {

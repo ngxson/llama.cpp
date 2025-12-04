@@ -1077,7 +1077,7 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.V_MM_GATE:                 "mm.gate",
     MODEL_TENSOR.V_TOK_BOI:                 "v.boi",
     MODEL_TENSOR.V_TOK_EOI:                 "v.eoi",
-    # DeepSeek-OCR sam_model
+    # DeepSeek-OCR SAM
     MODEL_TENSOR.V_SAM_POS_EMBD:            "v.sam.pos_embd",
     MODEL_TENSOR.V_SAM_PATCH_EMBD:          "v.sam.patch_embd",
     MODEL_TENSOR.V_SAM_PRE_NORM:            "v.sam.blk.{bid}.pre_ln",
@@ -1091,8 +1091,8 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.V_SAM_NECK:                "v.sam.neck.{bid}",
     MODEL_TENSOR.V_SAM_NET_2:               "v.sam.net_2",
     MODEL_TENSOR.V_SAM_NET_3:               "v.sam.net_3",
-    MODEL_TENSOR.V_ENC_EMBD_IMGNL:          "model.image_newline", # Deepseek-OCR
-    MODEL_TENSOR.V_ENC_EMBD_VSEP:           "model.view_seperator", # Deepseek-OCR
+    MODEL_TENSOR.V_ENC_EMBD_IMGNL:          "v.image_newline", # Deepseek-OCR
+    MODEL_TENSOR.V_ENC_EMBD_VSEP:           "v.view_seperator", # Deepseek-OCR
     # audio (mtmd)
     MODEL_TENSOR.A_ENC_EMBD_POS:            "a.position_embd",
     MODEL_TENSOR.A_ENC_CONV1D:              "a.conv1d.{bid}",
