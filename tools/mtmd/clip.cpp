@@ -3706,22 +3706,19 @@ struct clip_model_loader {
                         layer.ff_down_w = get_tensor(string_format(TN_SAM_FFN_DOWN, il, "weight"));
                         layer.ff_down_b = get_tensor(string_format(TN_SAM_FFN_DOWN, il, "bias"));
                     }
-                    model.neck_0_w = get_tensor(string_format(TN_SAM_NECK, 0, "weight"));
-                    model.neck_1_b = get_tensor(string_format(TN_SAM_NECK, 1, "bias"));
-                    model.neck_1_w = get_tensor(string_format(TN_SAM_NECK, 1, "weight"));
-                    model.neck_2_w = get_tensor(string_format(TN_SAM_NECK, 2, "weight"));
-                    model.neck_3_b = get_tensor(string_format(TN_SAM_NECK, 3, "bias"));
-                    model.neck_3_w = get_tensor(string_format(TN_SAM_NECK, 3, "weight"));
-                    model.net_2    = get_tensor(string_format(TN_SAM_NET, 2, "weight"));
-                    model.net_3    = get_tensor(string_format(TN_SAM_NET, 3, "weight"));
-                }
-                model.image_newline = get_tensor(TN_IMAGE_NEWLINE, false);
-                model.view_seperator = get_tensor(TN_IMAGE_SEPERATOR, false);
-                model.fc_w = get_tensor(string_format(TN_MM_PROJECTOR, "weight"));
-                model.fc_b = get_tensor(string_format(TN_MM_PROJECTOR, "bias"));
-
-
-                break;
+                    model.neck_0_w       = get_tensor(string_format(TN_SAM_NECK, 0, "weight"));
+                    model.neck_1_b       = get_tensor(string_format(TN_SAM_NECK, 1, "bias"));
+                    model.neck_1_w       = get_tensor(string_format(TN_SAM_NECK, 1, "weight"));
+                    model.neck_2_w       = get_tensor(string_format(TN_SAM_NECK, 2, "weight"));
+                    model.neck_3_b       = get_tensor(string_format(TN_SAM_NECK, 3, "bias"));
+                    model.neck_3_w       = get_tensor(string_format(TN_SAM_NECK, 3, "weight"));
+                    model.net_2          = get_tensor(string_format(TN_SAM_NET, 2, "weight"));
+                    model.net_3          = get_tensor(string_format(TN_SAM_NET, 3, "weight"));
+                    model.image_newline  = get_tensor(TN_IMAGE_NEWLINE);
+                    model.view_seperator = get_tensor(TN_IMAGE_SEPERATOR);
+                    model.fc_w           = get_tensor(string_format(TN_MM_PROJECTOR, "weight"));
+                    model.fc_b           = get_tensor(string_format(TN_MM_PROJECTOR, "bias"));
+                } break;
             default:
                 GGML_ASSERT(false && "unknown projector type");
         }
@@ -5843,11 +5840,9 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_VOXTRAL:
         case PROJECTOR_TYPE_JANUS_PRO:
         case PROJECTOR_TYPE_COGVLM:
-            {
-                // do nothing
-            } break;
         case PROJECTOR_TYPE_DEEPSEEKOCR:
             {
+                // do nothing
             } break;
         case PROJECTOR_TYPE_LLAMA4:
             {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Sequence
+
 from .constants import MODEL_ARCH, MODEL_TENSOR, MODEL_TENSORS, TENSOR_NAMES
 
 
