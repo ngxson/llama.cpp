@@ -1,9 +1,6 @@
 from __future__ import annotations
 
 from typing import Sequence
-
-from numpy.f2py.auxfuncs import throw_error
-
 from .constants import MODEL_ARCH, MODEL_TENSOR, MODEL_TENSORS, TENSOR_NAMES
 
 
@@ -1242,11 +1239,11 @@ class TensorNameMap:
             "visual.pos_embed", # qwen3vl
             "model.vision.patch_embedding.position_embedding", # cogvlm
         ),
-        
+
         MODEL_TENSOR.V_ENC_EMBD_IMGNL: (
             "model.image_newline", # Deepseek-OCR
         ),
-        
+
         MODEL_TENSOR.V_ENC_EMBD_VSEP: (
             "model.view_seperator", # Deepseek-OCR
         ),

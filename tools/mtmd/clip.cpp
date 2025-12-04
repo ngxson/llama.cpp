@@ -561,9 +561,9 @@ struct clip_graph {
             hparams(model.hparams),
             img(img),
             patch_size(hparams.patch_size),
-            n_patches_x(img.nx / patch_size), // sam 1024 / 16 = 64
-            n_patches_y(img.ny / patch_size), // sam 1024 / 16 = 64
-            n_patches(n_patches_x * n_patches_y), // sam 64 * 64 = 4096
+            n_patches_x(img.nx / patch_size),
+            n_patches_y(img.ny / patch_size),
+            n_patches(n_patches_x * n_patches_y),
             n_embd(hparams.n_embd),
             n_head(hparams.n_head),
             d_head(n_embd / n_head),
@@ -664,13 +664,13 @@ struct clip_graph {
         ggml_tensor * inp_raw = build_inp_raw();
         ggml_tensor * sam_out = build_sam(inp_raw);
         ggml_tensor * clip_out = build_dsocr_clip(sam_out);
-        
+
         int clip_n_patches = sam_out->ne[0] * sam_out->ne[1];
-        
+
         sam_out = ggml_cont(ctx0, ggml_permute(ctx0, sam_out, 1, 2, 0, 3));
         sam_out = ggml_reshape_2d(ctx0, sam_out, sam_out->ne[0], clip_n_patches);
         clip_out = ggml_view_2d(ctx0, clip_out, n_embd, clip_n_patches, clip_out->nb[1], clip_out->nb[1]);
-            
+
         ggml_tensor * cur;
         cur = ggml_concat(ctx0, clip_out, sam_out, 0);
         cur = ggml_reshape_2d(ctx0, cur, 2*n_embd,clip_n_patches);
@@ -1302,7 +1302,7 @@ struct clip_graph {
                                 norm_t,
                                 hparams.ffn_op,
                                 model.position_embeddings,
-                                nullptr); // shape [1024, 16, 16]
+                                nullptr);
 
         // remove CLS token
         cur = ggml_view_2d(ctx0, cur,
@@ -2260,7 +2260,6 @@ private:
         const int64_t C = rel_pos->ne[0];   // channels
         const int64_t L = rel_pos->ne[1];   // length
 
-        //GGML_ASSERT(2*std::max(q_size, k_size) - 1 == L);
 
         const auto max_rel_dist = 2*std::max(q_size, k_size) - 1;
         ggml_tensor * rel_pos_resized = rel_pos;
@@ -2399,18 +2398,15 @@ private:
     // build the input after conv2d (inp_raw --> patches)
     // returns tensor with shape [n_embd, n_patches]
     ggml_tensor * build_inp() {
-        // Image to Patch Embedding.
-        ggml_tensor * inp_raw = build_inp_raw(); // sam shape = [1024, 1024, 3]
-        // sam patch_embeddings_0 shape = [768, 3, 16, 16]
-        ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1); // sam shape = [64, 64, 768]
-        inp = ggml_reshape_2d(ctx0, inp, n_patches, n_embd); // sam shape = [4096, 768]
-        inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp)); // sam shape = [768, 4096]
+        ggml_tensor * inp_raw = build_inp_raw();
+        ggml_tensor * inp = ggml_conv_2d(ctx0, model.patch_embeddings_0, inp_raw, patch_size, patch_size, 0, 0, 1, 1);
+        inp = ggml_reshape_2d(ctx0, inp, n_patches, n_embd);
+        inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp));
         if (model.patch_bias) {
-            // sam patch_bias shape = [768]
             inp = ggml_add(ctx0, inp, model.patch_bias);
             cb(inp, "patch_bias", -1);
         }
-        return inp; // shape = [n_embd, n_patches] same as [768, 4096]
+        return inp;
     }
 
     ggml_tensor * build_inp_raw(int channels = 3) {
@@ -2707,11 +2703,11 @@ private:
         const int d_heads = n_embd / n_heads;
 
         ggml_tensor * inpL;
-        
+
         inpL = ggml_conv_2d_sk_p0(ctx0, model.patch_embed_proj_w, inp_raw);
         inpL = ggml_add(ctx0, inpL, ggml_reshape_3d(ctx0, model.patch_embed_proj_b, 1, 1, n_embd));
         inpL = ggml_cont(ctx0, ggml_permute(ctx0, inpL, 1, 2, 0, 3));
-        
+
         ggml_tensor * cur;
         const auto tgt_size = inpL->ne[1];
         const auto str_size = model.pos_embed->ne[1];
@@ -2756,7 +2752,7 @@ private:
             // self-attention
             {
                 const int B = cur->ne[3];
-                
+
                 cur = ggml_mul_mat(ctx0, layer.qkv_w, cur);
                 cur = ggml_add(ctx0, cur, layer.qkv_b);
                 cur = ggml_cont(ctx0, cur);  // Ensure tensor is contiguous before reshape
@@ -2836,7 +2832,7 @@ private:
         cur = ggml_cont(ctx0, ggml_permute(ctx0, cur, 1, 2, 0, 3));
         cur = build_norm(cur, model.neck_1_w, model.neck_1_b, NORM_TYPE_NORMAL, hparams.eps, -1);
         cur = ggml_cont(ctx0, ggml_permute(ctx0, cur, 2, 0, 1, 3));
-        
+
         cur = ggml_conv_2d(ctx0, model.neck_2_w, cur, 1, 1, 1, 1, 1, 1);
         cur = ggml_cont(ctx0, ggml_permute(ctx0, cur, 1, 2, 0, 3));
         cur = build_norm(cur, model.neck_3_w, model.neck_3_b, NORM_TYPE_NORMAL, hparams.eps, -1);
@@ -2866,7 +2862,7 @@ private:
         if (tgt_size != src_size) {
             ggml_tensor * old_pos_embd;
             ggml_tensor * cls_tok;
-            
+
             old_pos_embd = ggml_view_2d(
                 ctx0, new_pos_embd,
                 new_pos_embd->ne[0], src_size * src_size,
@@ -2895,7 +2891,7 @@ private:
         ggml_tensor * positions =  ggml_cast(ctx0, ggml_arange(ctx0, 0, n_pos, 1), GGML_TYPE_I32);
         ggml_tensor * learned_pos_embd = ggml_get_rows(ctx0, new_pos_embd, positions);
 
-        ggml_tensor * cur = build_vit(inp, n_pos, NORM_TYPE_NORMAL, ffn_op_type::FFN_GELU_QUICK, 
+        ggml_tensor * cur = build_vit(inp, n_pos, NORM_TYPE_NORMAL, ffn_op_type::FFN_GELU_QUICK,
                                       learned_pos_embd, nullptr);  // shape [1024, 16, 16]
 
         ggml_build_forward_expand(gf, cur);
@@ -5174,11 +5170,11 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 const int orig_h = original_size.height;
                 const int orig_area = orig_h * orig_w;
                 std::array<uint8_t, 3u> color;
-    
+
                 for (int i = 0; i < 3; i++) {
                     color[i] = (int)(255 * params.image_mean[i]);
                 }
-    
+
                 int mode_i = 0;
                 int min_diff = orig_area;
 
@@ -5193,7 +5189,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 if (mode_i < 2) {
                     /* Native Resolution (Tiny/Small) */
                     const int image_size = native_resolutions[mode_i];
-                    
+
                     // Just resize the image to image_size × image_size
                     clip_image_u8_ptr resized_img(clip_image_u8_init());
                     img_tool::resize(*img, *resized_img,
@@ -5210,7 +5206,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 else if (mode_i < 4) {
                     /* Native Resolution (Base/Large) */
                     const int image_size = native_resolutions[mode_i];
-                    
+
                     // Resize maintaining aspect ratio, then pad to square
                     float scale = std::min(
                         static_cast<float>(image_size) / orig_w,
@@ -5267,7 +5263,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 else {
                     GGML_ABORT("DeepSeek-OCR hasn't supported Gundam/Gundam-Master yet");
                     /* Dynamic Resolution (Gundam/Gundam-Master) */
-    
+
                     // configurable, or read from params
                     const int min_num    = 2;
                     const int max_num    = 9;
@@ -5276,10 +5272,10 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                     // original image size
                     const int orig_w = original_size.width;
                     const int orig_h = original_size.height;
-    
+
                     // create overview image (thumbnail)
                     clip_image_u8_ptr overview_img(clip_image_u8_init());
-                    img_tool::resize(*img, *overview_img, { image_size, image_size }, 
+                    img_tool::resize(*img, *overview_img, { image_size, image_size },
                                      img_tool::RESIZE_ALGO_BICUBIC_PILLOW, true, color);
                     clip_image_f32_ptr overview_f32(clip_image_f32_init());
                     normalize_image_u8_to_f32(*overview_img, *overview_f32, params.image_mean, params.image_std);
@@ -5287,7 +5283,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
 
                     // build candidate grids (cols, rows)
                     auto target_ratios = ds_build_target_ratios(min_num, max_num);
-    
+
                     // pick the grid that best matches the original aspect ratio
                     const float aspect_ratio = static_cast<float>(orig_w) / static_cast<float>(orig_h);
                     auto best = ds_find_closest_ratio(aspect_ratio, target_ratios, orig_w, orig_h, image_size);
@@ -5296,7 +5292,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
 
                     // resize to refined size (no padding, direct resize)
                     clip_image_u8_ptr refined_img(clip_image_u8_init());
-                    img_tool::resize(*img, *refined_img, { image_size * grid_cols, image_size * grid_rows }, 
+                    img_tool::resize(*img, *refined_img, { image_size * grid_cols, image_size * grid_rows },
                                      img_tool::RESIZE_ALGO_BICUBIC_PILLOW, false);
 
                     // crop slices from the refined image
