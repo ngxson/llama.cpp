@@ -2,7 +2,7 @@
 
 Fast, lightweight, pure C/C++ HTTP server based on [httplib](https://github.com/yhirose/cpp-httplib), [nlohmann::json](https://github.com/nlohmann/json) and **llama.cpp**.
 
-Set of LLM REST APIs and a simple web front end to interact with llama.cpp.
+Set of LLM REST APIs and a web UI to interact with llama.cpp.
 
 **Features:**
  * LLM inference of F16 and quantized models on GPU and CPU
@@ -19,7 +19,7 @@ Set of LLM REST APIs and a simple web front end to interact with llama.cpp.
  * Speculative decoding
  * Easy-to-use web UI
 
-The project is under active development, and we are [looking for feedback and contributors](https://github.com/ggml-org/llama.cpp/issues/4216).
+For the ful list of features, please refer to [server's changelog](https://github.com/ggml-org/llama.cpp/issues/9291)
 
 ## Usage
 
@@ -317,7 +317,7 @@ docker run -p 8080:8080 -v /path/to/models:/models ghcr.io/ggml-org/llama.cpp:se
 docker run -p 8080:8080 -v /path/to/models:/models --gpus all ghcr.io/ggml-org/llama.cpp:server-cuda -m models/7B/ggml-model.gguf -c 512 --host 0.0.0.0 --port 8080 --n-gpu-layers 99
 ```
 
-## Testing with CURL
+## Using with CURL
 
 Using [curl](https://curl.se/). On Windows, `curl.exe` should be available in the base OS.
 
@@ -326,40 +326,6 @@ curl --request POST \
     --url http://localhost:8080/completion \
     --header "Content-Type: application/json" \
     --data '{"prompt": "Building a website can be done in 10 simple steps:","n_predict": 128}'
-```
-
-## Node JS Test
-
-You need to have [Node.js](https://nodejs.org/en) installed.
-
-```bash
-mkdir llama-client
-cd llama-client
-```
-
-Create an index.js file and put this inside:
-
-```javascript
-const prompt = "Building a website can be done in 10 simple steps:"
-
-async function test() {
-    let response = await fetch("http://127.0.0.1:8080/completion", {
-        method: "POST",
-        body: JSON.stringify({
-            prompt,
-            n_predict: 64,
-        })
-    })
-    console.log((await response.json()).content)
-}
-
-test()
-```
-
-And run it:
-
-```bash
-node index.js
 ```
 
 ## API Endpoints
@@ -1565,6 +1531,22 @@ Response:
 }
 ```
 
+## API errors
+
+`llama-server` returns errors in the same format as OAI: https://github.com/openai/openai-openapi
+
+Example of an error:
+
+```json
+{
+    "error": {
+        "code": 401,
+        "message": "Invalid API Key",
+        "type": "authentication_error"
+    }
+}
+```
+
 ## More examples
 
 ### Interactive mode
@@ -1582,26 +1564,6 @@ Run with bash:
 
 ```sh
 bash chat.sh
-```
-
-### OAI-like API
-
-The HTTP `llama-server` supports an OAI-like API: https://github.com/openai/openai-openapi
-
-### API errors
-
-`llama-server` returns errors in the same format as OAI: https://github.com/openai/openai-openapi
-
-Example of an error:
-
-```json
-{
-    "error": {
-        "code": 401,
-        "message": "Invalid API Key",
-        "type": "authentication_error"
-    }
-}
 ```
 
 Apart from error types supported by OAI, we also have custom types that are specific to functionalities of llama.cpp:
