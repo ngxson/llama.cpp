@@ -305,7 +305,7 @@ server_task_result_ptr server_response_reader::next(const std::function<bool()> 
             if (!states.empty()) {
                 // update the generation state if needed
                 size_t idx = result->get_index();
-                GGML_ASSERT(idx >= 0 && idx < states.size());
+                GGML_ASSERT(idx < states.size());
                 result->update(states[idx]);
             }
             if (result->is_stop()) {
