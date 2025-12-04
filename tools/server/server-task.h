@@ -258,6 +258,7 @@ struct server_task_result_cmpl_final : server_task_result {
     common_chat_msg    oaicompat_msg; // to be populated by update()
 
     std::vector<common_chat_msg_diff> oaicompat_msg_diffs; // to be populated by update()
+    bool is_updated = false;
 
     virtual int get_index() override {
         return index;
@@ -270,6 +271,7 @@ struct server_task_result_cmpl_final : server_task_result {
     virtual json to_json() override;
 
     virtual void update(task_result_state & state) override {
+        is_updated = true;
         oaicompat_msg = state.update_chat_msg(content, false, oaicompat_msg_diffs);
     }
 
@@ -307,6 +309,7 @@ struct server_task_result_cmpl_partial : server_task_result {
     std::string        oaicompat_model;
     std::string        oaicompat_cmpl_id;
     std::vector<common_chat_msg_diff> oaicompat_msg_diffs; // to be populated by update()
+    bool is_updated = false;
 
     virtual int get_index() override {
         return index;
@@ -319,6 +322,7 @@ struct server_task_result_cmpl_partial : server_task_result {
     virtual json to_json() override;
 
     virtual void update(task_result_state & state) override {
+        is_updated = true;
         state.update_chat_msg(content, true, oaicompat_msg_diffs);
     }
 
