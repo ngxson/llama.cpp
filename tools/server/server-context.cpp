@@ -1291,10 +1291,11 @@ struct server_context_impl {
 
         res->index           = slot.task->index;
         // in stream mode, content and tokens are already in last partial chunk
-        res->content         = slot.task->params.stream ? ""             : slot.generated_text;
         if (slot.task->params.stream) {
+            res->content     = "";
             res->tokens      = llama_tokens{};
         } else {
+            res->content     = std::move(slot.generated_text);
             res->tokens      = std::move(slot.generated_tokens);
         }
         res->timings         = slot.get_timings();
@@ -2591,6 +2592,7 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
             inputs = tokenize_input_prompts(ctx_server.vocab, ctx_server.mctx, prompt, true, true);
         }
         tasks.reserve(inputs.size());
+        states.reserve(inputs.size());
         for (size_t i = 0; i < inputs.size(); i++) {
             server_task task = server_task(type);
 
@@ -2608,9 +2610,9 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
             task.params.res_type          = res_type;
             task.params.oaicompat_cmpl_id = completion_id;
             task.params.oaicompat_model   = ctx_server.model_name;
-            states.emplace_back(task.params.oaicompat_chat_syntax);
 
             tasks.push_back(std::move(task));
+            states.push_back(task.params.oaicompat_chat_syntax);
         }
 
         rd.post_tasks(std::move(tasks));
@@ -2639,7 +2641,6 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
             // if single request, return single object instead of array
             res->ok(arr.size() == 1 ? arr[0] : arr);
         }
-
     } else {
         // in streaming mode, the first error must be treated as non-stream response
         // this is to match the OAI API behavior
