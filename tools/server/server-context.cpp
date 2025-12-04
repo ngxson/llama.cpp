@@ -2610,9 +2610,9 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
             task.params.res_type          = res_type;
             task.params.oaicompat_cmpl_id = completion_id;
             task.params.oaicompat_model   = ctx_server.model_name;
+            states.push_back(task.params.oaicompat_chat_syntax);
 
             tasks.push_back(std::move(task));
-            states.push_back(task.params.oaicompat_chat_syntax);
         }
 
         rd.post_tasks(std::move(tasks));
