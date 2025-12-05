@@ -215,7 +215,7 @@ public:
                 llama_pos pos,
                 int32_t seq_id,
                 size_t & n_tokens_out) const;
-    
+
     server_tokens clone() const;
 };
 
