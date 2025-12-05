@@ -35,10 +35,10 @@ constexpr int HTTP_POLLING_SECONDS = 1;
 // state diagram: https://github.com/ggml-org/llama.cpp/pull/9283
 enum slot_state {
     SLOT_STATE_IDLE,
-    SLOT_STATE_STARTED, // after assigning a task
+    SLOT_STATE_WAIT_OTHER, // after assigning a task, but waiting for parent slot to process prompt
+    SLOT_STATE_STARTED,    // after assigning a task and about to process prompt
     SLOT_STATE_PROCESSING_PROMPT,
     SLOT_STATE_DONE_PROMPT,
-    SLOT_STATE_WAIT_OTHER, // prompt processed, but waiting for other slots to copy the state
     SLOT_STATE_GENERATING,
 };
 
