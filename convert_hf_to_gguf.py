@@ -6005,6 +6005,7 @@ class Gemma3VisionModel(MmprojModel):
 
         return [] # skip other tensors
 
+
 @ModelBase.register("DeepseekOCRForCausalLM")
 class DeepseekOCRVisionModel(MmprojModel):
     def set_gguf_parameters(self):
@@ -6043,7 +6044,6 @@ class DeepseekOCRVisionModel(MmprojModel):
         vision_config['intermediate_size'] = vision_config['heads'] * 4
 
         return vision_config
-
 
     def tensor_force_quant(self, name, new_name, bid, n_dims):
         # TODO: increase numercial stability. maybe delete later.
@@ -7244,7 +7244,7 @@ class DeepseekV2Model(TextModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         vision_config = self.hparams.get('vision_config', {}).get('width', {})
-        
+
         if 'clip-l-14-224' in vision_config and 'sam_vit_b' in vision_config:
             self.model_arch = gguf.MODEL_ARCH.DEEPSEEK2OCR
             self.gguf_writer.arch = gguf.MODEL_ARCH_NAMES[self.model_arch]
@@ -7354,8 +7354,12 @@ class DeepseekV2Model(TextModel):
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         # skip vision tensors and remove "language_model." for Kimi-VL
-        if "vision_" in name or "multi_modal_projector" in name \
-            or "image_newline" in name or "model.projector" in name or "sam_model" in name or "view_seperator" in name:
+        if ("vision_" in name
+                or "multi_modal_projector" in name
+                or "image_newline" in name
+                or "model.projector" in name
+                or "sam_model" in name
+                or "view_seperator" in name):
             return []
 
         if name.startswith("language_model."):
@@ -7434,6 +7438,7 @@ class DeepseekV2Model(TextModel):
             experts = [k for d in self._experts for k in d.keys()]
             if len(experts) > 0:
                 raise ValueError(f"Unprocessed experts: {experts}")
+
 
 @ModelBase.register("MiniMaxM2ForCausalLM")
 class MiniMaxM2Model(TextModel):

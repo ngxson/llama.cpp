@@ -1238,15 +1238,15 @@ class TensorNameMap:
             "vision_model.positional_embedding_vlm", # llama 4
             "vision_tower.patch_embed.pos_emb", # kimi-vl
             "visual.pos_embed", # qwen3vl
-            "model.vision.patch_embedding.position_embedding", # cogvlm
+            "model.vision.patch_embedding.position_embedding",  # cogvlm
         ),
-        
+
         MODEL_TENSOR.V_ENC_EMBD_IMGNL: (
-            "model.image_newline", # Deepseek-OCR
+            "model.image_newline",  # Deepseek-OCR
         ),
-        
+
         MODEL_TENSOR.V_ENC_EMBD_VSEP: (
-            "model.view_seperator", # Deepseek-OCR
+            "model.view_seperator",  # Deepseek-OCR
         ),
 
         MODEL_TENSOR.V_ENC_ATTN_QKV: (
