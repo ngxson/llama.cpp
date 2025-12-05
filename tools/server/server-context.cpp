@@ -255,6 +255,14 @@ struct server_slot {
         generated_token_probs.push_back(token);
     }
 
+    bool is_parent() const {
+        return is_processing() && task->n_children > 0;
+    }
+
+    bool is_child() const {
+        return is_processing() && task->id_parent >= 0;
+    }
+
     void release() {
         if (is_processing()) {
             GGML_ASSERT(task);
@@ -1034,7 +1042,9 @@ struct server_context_impl {
 
         slot.task = std::make_unique<const server_task>(std::move(task));
 
-        slot.state = SLOT_STATE_STARTED;
+        slot.state = slot.is_child()
+            ? SLOT_STATE_WAIT_OTHER // wait for the parent to process prompt
+            : SLOT_STATE_STARTED;
 
         SLT_INF(slot, "%s", "processing task\n");
 
@@ -1790,12 +1800,6 @@ struct server_context_impl {
                 if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_STARTED) {
                     const auto & input_tokens = slot.task->tokens;
 
-                    if (slot.task->id_parent >= 0) {
-                        slot.state = SLOT_STATE_PROCESSING_PROMPT;
-                        // do nothing, parent slot will handle prompt processing
-                        continue;
-                    }
-
                     // TODO: maybe move branch to outside of this loop in the future
                     if (slot.state == SLOT_STATE_STARTED) {
                         slot.t_start_process_prompt = ggml_time_us();
@@ -2161,9 +2165,7 @@ struct server_context_impl {
 
                     // entire prompt has been processed
                     if (slot.prompt.n_tokens() == slot.task->n_tokens()) {
-                        slot.state = slot.task->n_children == 0
-                            ? SLOT_STATE_DONE_PROMPT // state not being reused by any other slots
-                            : SLOT_STATE_WAIT_OTHER;
+                        slot.state = SLOT_STATE_DONE_PROMPT;
 
                         GGML_ASSERT(batch.n_tokens > 0);
 
@@ -2327,36 +2329,26 @@ struct server_context_impl {
             // on successful decode, restore the original batch size
             n_batch = llama_n_batch(ctx);
 
-            // may need to copy state to other slots
             for (auto & slot : slots) {
-                if (slot.state == SLOT_STATE_WAIT_OTHER) {
-                    GGML_ASSERT(slot.task->n_children > 0);
-
-                    size_t n_waiting = 0;
+                // may need to copy state to other slots
+                if (slot.state == SLOT_STATE_DONE_PROMPT && slot.is_parent()) {
                     std::vector<server_slot *> child_slots;
                     for (auto & other : slots) {
-                        if (!other.is_processing()) {
-                            continue;
-                        }
-                        if (slot.task->id == other.task->id_parent) {
-                            n_waiting++;
+                        if (other.state == SLOT_STATE_WAIT_OTHER && slot.task->id == other.task->id_parent) {
                             child_slots.push_back(&other);
                         }
                     }
 
-                    // we can only proceed if all "child" slots are having the correct tasks
-                    if (n_waiting < slot.task->n_children) {
-                        continue;
+                    // we can only proceed if all child slots are having the correct tasks
+                    if (child_slots.size() == slot.task->n_children) {
+                        // copy state to the child slots
+                        for (auto & child : child_slots) {
+                            SLT_INF(slot, "copying state to child %d\n", child->id);
+                            slot.copy_state_to(*child);
+                            child->state = SLOT_STATE_DONE_PROMPT;
+                        }
+                        slot.state = SLOT_STATE_DONE_PROMPT;
                     }
-
-                    // copy state to the child slots
-                    for (auto & child : child_slots) {
-                        SLT_INF(*child, "copying state from slot %d to child %d\n", slot.id, child->id);
-                        slot.copy_state_to(*child);
-                        child->state = SLOT_STATE_DONE_PROMPT;
-                    }
-
-                    slot.state = SLOT_STATE_DONE_PROMPT;
                 }
 
                 // optionally send prompt processing progress

@@ -669,7 +669,7 @@ json server_task_result_cmpl_final::to_json_oaicompat_chat() {
 
     json choice {
         {"finish_reason", finish_reason},
-        {"index", 0},
+        {"index", index},
         {"message", msg.to_json_oaicompat<json>()},
     };
 
