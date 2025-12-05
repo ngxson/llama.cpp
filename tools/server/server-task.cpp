@@ -175,6 +175,7 @@ task_params server_task::params_from_json_cmpl(
     params.n_indent         = json_value(data,       "n_indent",           defaults.n_indent);
     params.n_keep           = json_value(data,       "n_keep",             defaults.n_keep);
     params.n_discard        = json_value(data,       "n_discard",          defaults.n_discard);
+    params.n_cmpl           = json_value(data,       "n_cmpl",             defaults.n_cmpl);
     //params.t_max_prompt_ms  = json_value(data,       "t_max_prompt_ms",    defaults.t_max_prompt_ms); // TODO: implement
     params.t_max_predict_ms = json_value(data,       "t_max_predict_ms",   defaults.t_max_predict_ms);
     params.response_fields  = json_value(data,       "response_fields",    std::vector<std::string>());
@@ -451,6 +452,10 @@ task_params server_task::params_from_json_cmpl(
         } else {
             params.sampling.samplers = defaults.sampling.samplers;
         }
+    }
+
+    if (params.n_cmpl > params_base.n_parallel) {
+        throw std::runtime_error("n_cmpl cannot be greater than the number of slots, please increase -np");
     }
 
     return params;

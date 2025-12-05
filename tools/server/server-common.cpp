@@ -757,7 +757,7 @@ json oaicompat_completion_params_parse(const json & body) {
         llama_params["stop"] = json_value(body, "stop", json::array());
     }
 
-    llama_params["n"] = json_value(body, "n", 1);
+    llama_params["n_cmpl"] = json_value(body, "n", 1);
 
     // Handle "echo" field
     if (json_value(body, "echo", false)) {
@@ -1057,7 +1057,7 @@ json oaicompat_chat_params_parse(
         llama_params["chat_parser"] = chat_params.parser;
     }
 
-    llama_params["n"] = json_value(body, "n", 1);
+    llama_params["n_cmpl"] = json_value(body, "n", 1);
 
     // Handle "logprobs" field
     // TODO: The response format of this option is not yet OAI-compatible, but seems like no one really using it; We may need to fix it in the future
