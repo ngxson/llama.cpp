@@ -457,7 +457,7 @@ static std::string to_ne_string(const ggml_tensor * t) {
 static void print_tensor_info(ggml_tensor * t) {
     const struct ggml_tensor * src0 = t->src[0];
     const struct ggml_tensor * src1 = t->src[1];
-    
+
     char src1_str[128] = {0};
     if (src1) {
         snprintf(src1_str, sizeof(src1_str), "%s{%s}", src1->name, to_ne_string(src1).c_str());
@@ -643,7 +643,7 @@ static void save_tensor_to_file(const struct ggml_tensor * tensor, const uint8_t
                 append_str("      [");
                 for (int64_t i0 = 0; i0 < ne[0]; i0++) {
                     size_t i = i3 * nb[3] + i2 * nb[2] + i1 * nb[1] + i0 * nb[0];
-                    float v;
+                    float  v;
                     if (type == GGML_TYPE_F16) {
                         v = ggml_fp16_to_fp32(*(ggml_fp16_t *) &data[i]);
                     } else if (type == GGML_TYPE_F32) {
@@ -659,13 +659,15 @@ static void save_tensor_to_file(const struct ggml_tensor * tensor, const uint8_t
                     }
                     int len = snprintf(num_buf, sizeof(num_buf), "%8.4f", v);
                     append(num_buf, len);
-                    if (i0 < ne[0] - 1) append_str(", ");
+                    if (i0 < ne[0] - 1) {
+                        append_str(", ");
+                    }
                 }
                 append_str("],\n");
             }
             append_str("     ],\n");
         }
-        append_str("    ]");  // End of batch
+        append_str("    ]");    // End of batch
         if (i3 < ne[3] - 1) {
             append_str(",\n");  // Comma between batches
         } else {
