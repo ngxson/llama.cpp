@@ -386,6 +386,7 @@ struct server_slot {
     }
 
     void copy_state_to(server_slot & other) const {
+        llama_memory_seq_rm(llama_get_memory(ctx), other.id, 0, -1);
         llama_memory_seq_cp(llama_get_memory(ctx), id, other.id, 0, -1);
         other.n_decoded   = n_decoded;
         other.n_remaining = n_remaining;
