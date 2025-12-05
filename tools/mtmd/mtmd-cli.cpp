@@ -353,7 +353,7 @@ int main(int argc, char ** argv) {
             LOG_ERR("\n DeepSeek-OCR doesn't support chat mode.");
             return 1;
         }
-        
+
         LOG("\n Running in chat mode, available commands:");
         if (mtmd_support_vision(ctx.ctx_vision.get())) {
             LOG("\n   /image <path>    load an image");
