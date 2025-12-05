@@ -255,6 +255,7 @@ struct server_slot {
         generated_token_probs.push_back(token);
     }
 
+    // note: a slot can also be either a parent or a child
     bool is_parent() const {
         return is_processing() && task->n_children > 0;
     }
@@ -1704,6 +1705,12 @@ struct server_context_impl {
                     // we should never reach this because params_base.ctx_shift is automatically disabled if mmproj is loaded
                     // we don't support ctx_shift because an image chunk may contains multiple tokens
                     GGML_ABORT("not supported by multimodal");
+                }
+
+                if (slot.is_parent() || slot.is_child()) {
+                    send_error(slot, "context shift cannot be used for shared prompt", ERROR_TYPE_SERVER);
+                    slot.release();
+                    continue;
                 }
 
                 // Shift context
