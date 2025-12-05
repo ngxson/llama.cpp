@@ -2702,8 +2702,21 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
                 GGML_ASSERT(dynamic_cast<server_task_result_cmpl_final*>(res.get()) != nullptr);
                 arr.push_back(res->to_json());
             }
-            // if single request, return single object instead of array
-            res->ok(arr.size() == 1 ? arr[0] : arr);
+            GGML_ASSERT(!arr.empty() && "empty results");
+            if (arr.size() == 1) {
+                // if single request, return single object instead of array
+                res->ok(arr[0]);
+            } else if (res_type == TASK_RESPONSE_TYPE_OAI_CHAT || res_type == TASK_RESPONSE_TYPE_OAI_CMPL) {
+                // if multiple results in OAI format, we need to re-format them
+                json & choices = arr[0]["choices"];
+                for (size_t i = 1; i < arr.size(); i++) {
+                    choices.push_back(std::move(arr[i]["choices"][0]));
+                }
+                res->ok(arr[0]);
+            } else {
+                // multi-results, non-OAI compat
+                res->ok(arr);
+            }
         }
     } else {
         // in streaming mode, the first error must be treated as non-stream response

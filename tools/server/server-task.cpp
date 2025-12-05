@@ -1069,7 +1069,7 @@ json server_task_result_cmpl_partial::to_json_oaicompat_chat() {
             {"choices", json::array({
                 json {
                     {"finish_reason", nullptr},
-                    {"index", 0},
+                    {"index", index},
                     {"delta", delta},
                 },
             })},
