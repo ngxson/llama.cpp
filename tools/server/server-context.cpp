@@ -2354,7 +2354,6 @@ struct server_context_impl {
                             slot.copy_state_to(*child);
                             child->state = SLOT_STATE_DONE_PROMPT;
                         }
-                        slot.state = SLOT_STATE_DONE_PROMPT;
                     }
                 }
 
