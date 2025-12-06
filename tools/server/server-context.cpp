@@ -93,8 +93,6 @@ struct server_slot {
     int32_t n_remaining = -1;
     int32_t i_batch     = -1;
 
-    std::vector<int32_t> i_batch_dft; // idx of draft tokens in the main batch
-
     int32_t n_prompt_tokens_cache     = 0;
     int32_t n_prompt_tokens_processed = 0;
 
@@ -102,6 +100,11 @@ struct server_slot {
 
     std::string  generated_text;
     llama_tokens generated_tokens;
+
+    // idx of draft tokens in the main batch
+    // non-empty if we went to evaluate draft tokens
+    // ref: https://github.com/ggml-org/llama.cpp/pull/17808
+    std::vector<int32_t> i_batch_dft;
 
     std::vector<completion_token_output> generated_token_probs;
 
