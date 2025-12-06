@@ -7,6 +7,7 @@
 namespace console {
     enum display_t {
         reset = 0,
+        info,
         prompt,
         user_input,
         error

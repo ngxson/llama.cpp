@@ -151,6 +151,9 @@ namespace console {
                 case reset:
                     fprintf(out, ANSI_COLOR_RESET);
                     break;
+                case info:
+                    fprintf(out, ANSI_COLOR_MAGENTA);
+                    break;
                 case prompt:
                     fprintf(out, ANSI_COLOR_YELLOW);
                     break;

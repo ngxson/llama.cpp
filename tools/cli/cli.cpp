@@ -11,6 +11,12 @@
 #include <thread>
 #include <signal.h>
 
+// TODO: without doing this, the colors get messed up
+#ifdef LOG
+#undef LOG
+#endif
+#define LOG(...)  fprintf(stdout, __VA_ARGS__)
+
 constexpr int POLLING_SECONDS = 1;
 
 const char * LLAMA_ASCII_LOGO = R"(
@@ -54,7 +60,9 @@ struct cli_context {
         defaults.n_keep      = params.n_keep;
         defaults.n_predict   = params.n_predict;
         defaults.antiprompt  = params.antiprompt;
+
         defaults.stream = true; // make sure we always use streaming mode
+        defaults.timings_per_token = true; // in order to get timings even when we cancel mid-way
 
         // TODO: improve this mechanism later
         loading_display_thread = std::thread([this]() {
@@ -70,6 +78,7 @@ struct cli_context {
     }
 
     void show_loading() {
+        fflush(stdout);
         loading_show.store(true);
     }
 
@@ -79,7 +88,7 @@ struct cli_context {
         console::set_loading(false);
     }
 
-    std::string generate_completion() {
+    std::string generate_completion(result_timings & out_timings) {
         auto queues = ctx_server.get_queues();
         server_response_reader rd(queues, POLLING_SECONDS);
         {
@@ -114,11 +123,14 @@ struct cli_context {
             }
             auto res_partial = dynamic_cast<server_task_result_cmpl_partial *>(result.get());
             if (res_partial) {
+                out_timings = std::move(res_partial->timings);
                 curr_content += res_partial->content;
                 LOG("%s", res_partial->content.c_str());
+                fflush(stdout);
             }
             auto res_final = dynamic_cast<server_task_result_cmpl_final *>(result.get());
             if (res_final) {
+                out_timings = std::move(res_final->timings);
                 break;
             }
             result = rd.next(should_stop);
@@ -168,6 +180,8 @@ int main(int argc, char ** argv) {
     // (note for later: this is a slightly awkward choice)
     console::init(params.simple_io, params.use_color);
     atexit([]() { console::cleanup(); });
+
+    console::set_display(console::reset);
 
 #if defined (__unix__) || (defined (__APPLE__) && defined (__MACH__))
     struct sigaction sigint_action;
@@ -226,14 +240,15 @@ int main(int argc, char ** argv) {
     }
     LOG("\n");
     LOG("available commands:\n");
-    LOG("  /exit or Ctrl+C   stop or exit\n");
-    LOG("  /regen            regenerate the last response\n");
-    LOG("  /clear            clear the chat history\n");
+    LOG("  /exit or Ctrl+C     stop or exit\n");
+    LOG("  /regen              regenerate the last response\n");
+    LOG("  /clear              clear the chat history\n");
+    LOG("  /timings <on|off>   show timings for next responses\n");
     if (inf.has_inp_image) {
-        LOG("  /image <file>     add an image file\n");
+        LOG("  /image <file>       add an image file\n");
     }
     if (inf.has_inp_audio) {
-        LOG("  /audio <file>     add an audio file\n");
+        LOG("  /audio <file>       add an audio file\n");
     }
     LOG("\n");
 
@@ -264,13 +279,14 @@ int main(int argc, char ** argv) {
             break;
         }
 
-        if (buffer.empty()) {
-            continue;
+        // remove trailing newline
+        if (!buffer.empty() &&buffer.back() == '\n') {
+            buffer.pop_back();
         }
 
-        // remove trailing newline
-        if (buffer.back() == '\n') {
-            buffer.pop_back();
+        // skip empty messages
+        if (buffer.empty()) {
+            continue;
         }
 
         bool add_user_msg = true;
@@ -304,6 +320,18 @@ int main(int argc, char ** argv) {
             cur_msg += marker;
             LOG("Loaded image from '%s'\n", fname.c_str());
             continue;
+        } else if (string_starts_with(buffer, "/timings ")) {
+            std::string arg = string_strip(buffer.substr(9));
+            if (arg == "on") {
+                params.show_timings = true;
+                LOG("Timings enabled.\n");
+            } else if (arg == "off") {
+                params.show_timings = false;
+                LOG("Timings disabled.\n");
+            } else {
+                LOG_ERR("Invalid argument for /timings: '%s'\n", arg.c_str());
+            }
+            continue;
         } else {
             // not a command
             cur_msg += buffer;
@@ -317,17 +345,30 @@ int main(int argc, char ** argv) {
             });
             cur_msg.clear();
         }
-        std::string assistant_content = ctx_cli.generate_completion();
+        result_timings timings;
+        std::string assistant_content = ctx_cli.generate_completion(timings);
         ctx_cli.messages.push_back({
             {"role",    "assistant"},
             {"content", assistant_content}
         });
         LOG("\n");
 
+        if (params.show_timings) {
+            console::set_display(console::info);
+            LOG("\n");
+            LOG("Prompt: %.1f t/s | Generation: %.1f t/s\n", timings.prompt_per_second, timings.predicted_per_second);
+            console::set_display(console::reset);
+        }
+
         if (params.single_turn) {
             break;
         }
     }
+
+    console::set_display(console::reset);
+
+    // bump the log level to display timings
+    common_log_set_verbosity_thold(LOG_LEVEL_INFO);
 
     LOG("\nExiting...\n");
     ctx_cli.ctx_server.terminate();

@@ -1051,6 +1051,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_env("LLAMA_ARG_NO_PERF"));
     add_opt(common_arg(
+        {"--show-timings"},
+        string_format("show timing information after each response (default: %s)", params.show_timings ? "true" : "false"),
+        [](common_params & params) {
+            params.show_timings = true;
+        }
+    ).set_examples({LLAMA_EXAMPLE_CLI}).set_env("LLAMA_ARG_SHOW_TIMINGS"));
+    add_opt(common_arg(
         {"-f", "--file"}, "FNAME",
         "a file containing the prompt (default: none)",
         [](common_params & params, const std::string & value) {
