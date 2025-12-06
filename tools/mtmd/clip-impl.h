@@ -49,7 +49,9 @@
 #define KEY_ATTN_WINDOW_SIZE      "clip.vision.window_size"
 #define KEY_MINICPMV_VERSION      "clip.minicpmv_version"
 #define KEY_MINICPMV_QUERY_NUM    "clip.minicpmv_query_num"
-
+#define KEY_SAM_N_HEAD            "clip.vision.sam.head_count"
+#define KEY_SAM_N_BLOCK           "clip.vision.sam.block_count"
+#define KEY_SAM_N_EMBD            "clip.vision.sam.embedding_length"  
 // audio-specific
 #define KEY_AUDIO_PROJ_TYPE     "clip.audio.projector_type" // for models with mixed modalities
 #define KEY_A_NUM_MEL_BINS      "clip.audio.num_mel_bins"

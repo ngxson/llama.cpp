@@ -306,6 +306,7 @@ class Keys:
         class SAM:
             BLOCK_COUNT         = "clip.vision.sam.block_count"
             EMBEDDING_LENGTH    = "clip.vision.sam.embedding_length"
+            HEAD_COUNT          = "clip.vision.sam.head_count"
 
     class ClipAudio:
         NUM_MEL_BINS        = "clip.audio.num_mel_bins"

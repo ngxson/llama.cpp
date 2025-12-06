@@ -6032,6 +6032,7 @@ class DeepseekOCRVisionModel(MmprojModel):
         sam_hparams = hparams['sam']
         self.gguf_writer.add_vision_sam_layers_count(sam_hparams['layers'])
         self.gguf_writer.add_vision_sam_embedding_length(sam_hparams['width'])
+        self.gguf_writer.add_vision_sam_head_count(sam_hparams['heads'])
 
     def get_vision_config(self) -> dict[str, Any]:
         vision_config: dict[str, Any] | None = self.global_config.get("vision_config")

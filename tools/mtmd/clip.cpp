@@ -193,6 +193,11 @@ struct clip_hparams {
     int32_t attn_window_size = 0;
     int32_t n_wa_pattern = 0;
 
+    // deepseek-ocr (sam)
+    int32_t sam_n_layer = 0;
+    int32_t sam_n_head = 0;
+    int32_t sam_n_embd = 0;
+
     // audio
     int32_t n_mel_bins = 0; // whisper preprocessor
     int32_t proj_stack_factor = 0; // ultravox
@@ -2676,9 +2681,9 @@ private:
     }
 
     ggml_tensor * build_sam(ggml_tensor * inp_raw) {
-        const int n_embd  = 768;
-        const int _depth  = 12;
-        const int n_heads = 12;
+        const int n_embd  = hparams.sam_n_embd;
+        const int n_layer = hparams.sam_n_layer;
+        const int n_heads = hparams.sam_n_head;
         const int d_heads = n_embd / n_heads;
         const int window = hparams.attn_window_size;
 
@@ -2721,7 +2726,7 @@ private:
         }
 
         // loop over layers
-        for (int il = 0; il < _depth; il++) {
+        for (int il = 0; il < n_layer; il++) {
             auto & layer = model.sam_layers[il];
             ggml_tensor * shortcut = cur;
 
@@ -3286,6 +3291,10 @@ struct clip_model_loader {
                         hparams.patch_size = 16;
                         hparams.image_size = 1024;
                         hparams.warmup_image_size = 1024;
+                        
+                        get_u32(KEY_SAM_N_BLOCK, hparams.sam_n_layer, true);
+                        get_u32(KEY_SAM_N_HEAD, hparams.sam_n_head, true);
+                        get_u32(KEY_SAM_N_EMBD, hparams.sam_n_embd, true);
                         get_u32(KEY_ATTN_WINDOW_SIZE, hparams.attn_window_size, true);
                     } break;
                 default:
