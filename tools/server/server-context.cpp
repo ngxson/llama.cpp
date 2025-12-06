@@ -2551,6 +2551,10 @@ struct server_context_impl {
     int get_slot_n_ctx() {
         return slots.back().n_ctx;
     }
+
+    server_response_reader get_response_reader() {
+        return server_response_reader(queue_tasks, queue_results, HTTP_POLLING_SECONDS);
+    }
 };
 
 //
@@ -2580,8 +2584,8 @@ llama_context * server_context::get_llama_context() const {
     return impl->ctx;
 }
 
-std::pair<server_queue &, server_response &> server_context::get_queues() {
-    return { impl->queue_tasks, impl->queue_results };
+server_response_reader server_context::get_response_reader() {
+    return impl->get_response_reader();
 }
 
 
@@ -2590,7 +2594,7 @@ std::pair<server_queue &, server_response &> server_context::get_queues() {
 struct server_res_generator : server_http_res {
     server_response_reader rd;
     server_res_generator(server_context_impl & ctx_server)
-        : rd({ctx_server.queue_tasks, ctx_server.queue_results}, HTTP_POLLING_SECONDS) {}
+        : rd(ctx_server.queue_tasks, ctx_server.queue_results, HTTP_POLLING_SECONDS) {}
     void ok(const json & response_data) {
         status = 200;
         data = safe_json_to_str(response_data);
@@ -2677,7 +2681,6 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
             tasks.push_back(std::move(task));
         }
 
-        rd.set_states(std::move(states));
         rd.post_tasks(std::move(tasks));
     } catch (const std::exception & e) {
         res->error(format_error_response(e.what(), ERROR_TYPE_INVALID_REQUEST));
@@ -3407,7 +3410,7 @@ void server_routes::init_routes() {
 
         // create and queue the task
         json responses = json::array();
-        server_response_reader rd({ctx_server.queue_tasks, ctx_server.queue_results}, HTTP_POLLING_SECONDS);
+        server_response_reader rd = ctx_server.get_response_reader();
         {
             std::vector<server_task> tasks;
             tasks.reserve(documents.size());
@@ -3667,7 +3670,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_embeddings_impl(cons
 
     // create and queue the task
     json responses = json::array();
-    server_response_reader rd({ctx_server.queue_tasks, ctx_server.queue_results}, HTTP_POLLING_SECONDS);
+    server_response_reader rd = ctx_server.get_response_reader();
     {
         std::vector<server_task> tasks;
         for (size_t i = 0; i < tokenized_prompts.size(); i++) {
