@@ -1,7 +1,7 @@
 #include "common.h"
 #include "arg.h"
 #include "console.h"
-#include "log.h"
+// #include "log.h"
 
 #include "server-context.h"
 #include "server-task.h"
@@ -12,10 +12,21 @@
 #include <signal.h>
 
 // TODO: without doing this, the colors get messed up
+// the log.cpp doesn't play well with console.cpp, this should be fixed later
 #ifdef LOG
 #undef LOG
 #endif
 #define LOG(...)  fprintf(stdout, __VA_ARGS__)
+
+// redirect error logs to stdout in order to color them properly
+#ifdef LOG_ERR
+#undef LOG_ERR
+#endif
+#define LOG_ERR(...)    do { \
+                            console::set_display(console::error); \
+                            LOG(__VA_ARGS__); \
+                            console::set_display(console::reset); \
+                        } while (0)
 
 constexpr int POLLING_SECONDS = 1;
 
@@ -63,6 +74,7 @@ struct cli_context {
 
         defaults.stream = true; // make sure we always use streaming mode
         defaults.timings_per_token = true; // in order to get timings even when we cancel mid-way
+        // defaults.return_progress = true; // TODO: show progress
 
         // TODO: improve this mechanism later
         loading_display_thread = std::thread([this]() {
@@ -141,16 +153,20 @@ struct cli_context {
     }
 
     // TODO: support remote files in the future (http, https, etc)
-    std::string load_input_files(const std::string & fname) {
-        input_files.clear();
+    std::string load_input_file(const std::string & fname, bool is_media) {
         std::ifstream file(fname, std::ios::binary);
         if (!file) {
             return "";
         }
-        raw_buffer buf;
-        buf.assign((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-        input_files.push_back(std::move(buf));
-        return mtmd_default_marker();
+        if (is_media) {
+            raw_buffer buf;
+            buf.assign((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            input_files.push_back(std::move(buf));
+            return mtmd_default_marker();
+        } else {
+            std::string content((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            return content;
+        }
     }
 };
 
@@ -197,7 +213,7 @@ int main(int argc, char ** argv) {
     SetConsoleCtrlHandler(reinterpret_cast<PHANDLER_ROUTINE>(console_ctrl_handler), true);
 #endif
 
-    LOG("Loading model... "); // followed by loading animation
+    LOG("\nLoading model... "); // followed by loading animation
     ctx_cli.show_loading();
     if (!ctx_cli.ctx_server.load_model(params)) {
         ctx_cli.hide_loading();
@@ -244,6 +260,7 @@ int main(int argc, char ** argv) {
     LOG("  /regen              regenerate the last response\n");
     LOG("  /clear              clear the chat history\n");
     LOG("  /timings <on|off>   show timings for next responses\n");
+    LOG("  /read               add a text file\n");
     if (inf.has_inp_image) {
         LOG("  /image <file>       add an image file\n");
     }
@@ -312,13 +329,23 @@ int main(int argc, char ** argv) {
                 (string_starts_with(buffer, "/audio ") && inf.has_inp_audio)) {
             // just in case (bad copy-paste for example), we strip all trailing/leading spaces
             std::string fname = string_strip(buffer.substr(7));
-            std::string marker = ctx_cli.load_input_files(fname);
+            std::string marker = ctx_cli.load_input_file(fname, true);
             if (marker.empty()) {
                 LOG_ERR("file does not exist or cannot be opened: '%s'\n", fname.c_str());
                 continue;
             }
             cur_msg += marker;
-            LOG("Loaded image from '%s'\n", fname.c_str());
+            LOG("Loaded media from '%s'\n", fname.c_str());
+            continue;
+        } else if (string_starts_with(buffer, "/read ")) {
+            std::string fname = string_strip(buffer.substr(6));
+            std::string marker = ctx_cli.load_input_file(fname, false);
+            if (marker.empty()) {
+                LOG_ERR("file does not exist or cannot be opened: '%s'\n", fname.c_str());
+                continue;
+            }
+            cur_msg += marker;
+            LOG("Loaded text from '%s'\n", fname.c_str());
             continue;
         } else if (string_starts_with(buffer, "/timings ")) {
             std::string arg = string_strip(buffer.substr(9));
@@ -329,7 +356,7 @@ int main(int argc, char ** argv) {
                 params.show_timings = false;
                 LOG("Timings disabled.\n");
             } else {
-                LOG_ERR("Invalid argument for /timings: '%s'\n", arg.c_str());
+                LOG_ERR("Invalid argument for /timings <on|off>: '%s'\n", arg.c_str());
             }
             continue;
         } else {
