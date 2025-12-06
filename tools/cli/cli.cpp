@@ -146,6 +146,7 @@ int main(int argc, char ** argv) {
     SetConsoleCtrlHandler(reinterpret_cast<PHANDLER_ROUTINE>(console_ctrl_handler), true);
 #endif
 
+    LOG("Loading model...\n");
     if (!ctx_cli.ctx_server.load_model(params)) {
         LOG_ERR("Failed to load the model\n");
         return 1;
