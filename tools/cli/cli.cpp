@@ -179,7 +179,8 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    if (params.conversation_mode == COMMON_CONVERSATION_MODE_ENABLED) {
+    // TODO: maybe support it later?
+    if (params.conversation_mode == COMMON_CONVERSATION_MODE_DISABLED) {
         LOG_ERR("--no-conversation is not supported by llama-cli\n");
         LOG_ERR("please use llama-completion instead\n");
     }
@@ -259,7 +260,6 @@ int main(int argc, char ** argv) {
     LOG("  /exit or Ctrl+C     stop or exit\n");
     LOG("  /regen              regenerate the last response\n");
     LOG("  /clear              clear the chat history\n");
-    LOG("  /timings <on|off>   show timings for next responses\n");
     LOG("  /read               add a text file\n");
     if (inf.has_inp_image) {
         LOG("  /image <file>       add an image file\n");
@@ -347,18 +347,6 @@ int main(int argc, char ** argv) {
             cur_msg += marker;
             LOG("Loaded text from '%s'\n", fname.c_str());
             continue;
-        } else if (string_starts_with(buffer, "/timings ")) {
-            std::string arg = string_strip(buffer.substr(9));
-            if (arg == "on") {
-                params.show_timings = true;
-                LOG("Timings enabled.\n");
-            } else if (arg == "off") {
-                params.show_timings = false;
-                LOG("Timings disabled.\n");
-            } else {
-                LOG_ERR("Invalid argument for /timings <on|off>: '%s'\n", arg.c_str());
-            }
-            continue;
         } else {
             // not a command
             cur_msg += buffer;
@@ -383,7 +371,7 @@ int main(int argc, char ** argv) {
         if (params.show_timings) {
             console::set_display(console::info);
             LOG("\n");
-            LOG("Prompt: %.1f t/s | Generation: %.1f t/s\n", timings.prompt_per_second, timings.predicted_per_second);
+            LOG("[ Prompt: %.1f t/s | Generation: %.1f t/s ]\n", timings.prompt_per_second, timings.predicted_per_second);
             console::set_display(console::reset);
         }
 
