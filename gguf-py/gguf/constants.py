@@ -290,6 +290,7 @@ class Keys:
         IMAGE_MEAN          = "clip.vision.image_mean"
         IMAGE_STD           = "clip.vision.image_std"
         SPATIAL_MERGE_SIZE  = "clip.vision.spatial_merge_size"
+        WINDOW_SIZE         = "clip.vision.window_size"
         USE_GELU            = "clip.use_gelu"
         USE_SILU            = "clip.use_silu"
         N_WA_PATTERN        = "clip.vision.n_wa_pattern" # used by qwen2.5vl

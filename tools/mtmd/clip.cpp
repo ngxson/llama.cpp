@@ -2280,101 +2280,56 @@ private:
     static ggml_tensor * get_rel_pos(
         ggml_context * ctx,
         ggml_tensor * rel_pos,     // [L, C]
+        ggml_tensor * indices,     // [q_size, k_size]
         int q_size,
         int k_size
     ) {
         const int64_t C = rel_pos->ne[0];   // channels
         const int64_t L = rel_pos->ne[1];   // length
 
+        GGML_ASSERT(indices != nullptr);
+        GGML_ASSERT(indices->type == GGML_TYPE_I32);
+        GGML_ASSERT(indices->ne[0] == k_size);
+        GGML_ASSERT(indices->ne[1] == q_size);
 
         const auto max_rel_dist = 2*std::max(q_size, k_size) - 1;
-        ggml_tensor * rel_pos_resized = rel_pos;
+        ggml_tensor * cur = rel_pos;
 
         if (max_rel_dist != L) {
             // Linear interpolation
-            int64_t ne0 = rel_pos_resized->ne[0];
-            int64_t ne1 = rel_pos_resized->ne[1];
-            int64_t ne2 = rel_pos_resized->ne[2];
-            int64_t ne3 = rel_pos_resized->ne[3];
+            int64_t ne0 = cur->ne[0];
+            int64_t ne1 = cur->ne[1];
+            int64_t ne2 = cur->ne[2];
+            int64_t ne3 = cur->ne[3];
 
-            rel_pos_resized = ggml_reshape_3d(
+            cur = ggml_reshape_3d(
                 ctx,
-                ggml_cont(ctx, ggml_permute(ctx, rel_pos_resized, 1, 0, 2, 3)),
+                ggml_cont(ctx, ggml_permute(ctx, cur, 1, 0, 2, 3)),
                 ne1, 1, ne0*ne2*ne3
             );
-            rel_pos_resized = ggml_reshape_4d(
+            cur = ggml_reshape_4d(
                 ctx,
                 ggml_interpolate(
                     ctx,
-                    rel_pos_resized,
+                    cur,
                     max_rel_dist, 1, ne0*ne2*ne3, 1,
                     ggml_scale_mode::GGML_SCALE_MODE_BILINEAR
                 ),
                 max_rel_dist, ne0, ne2, ne3
             );
-            rel_pos_resized = ggml_cont(ctx, ggml_permute(ctx, rel_pos_resized, 1, 0, 2, 3));
+            cur = ggml_cont(ctx, ggml_permute(ctx, cur, 1, 0, 2, 3));
         }
 
-        // -------------------------------------------------
-        // 1) q_idx  ← arange(0..q_size-1)   [q_size]
-        // 2) k_idx  ← arange(0..k_size-1)   [k_size]
-        // -------------------------------------------------
-
-        // ggml_arange always returns FP32 tensor
-        ggml_tensor * q_coord = ggml_arange(ctx, 0.0f, static_cast<float>(q_size), 1.0f); // [q_size]
-        ggml_tensor * k_coord = ggml_arange(ctx, 0.0f, static_cast<float>(k_size), 1.0f); // [k_size]
-        ggml_tensor * rel = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, k_size, q_size);
-
-        // broadcast reshape:
-        q_coord = ggml_cont(ctx,
-            ggml_repeat(ctx,
-                ggml_reshape_2d(ctx, q_coord, 1, q_size), // [q_size, 1]
-                rel
-            )
-        );  // [q_size, k_size]
-        k_coord = ggml_cont(ctx, ggml_repeat(ctx, k_coord, rel)); // [q_size, k_size]
-
-        float q_scale = std::max((float)k_size/q_size, 1.0f);
-        float k_scale = std::max((float)q_size/k_size, 1.0f);
-
-        // This wouldn't be triggered in DeepSeek-OCR. Just for compatibility with
-        // the original implementation.
-        if (q_size != k_size) {
-            q_coord = ggml_scale_inplace(ctx, q_coord, q_scale);
-            k_coord = ggml_scale_inplace(ctx, k_coord, k_scale);
-        }
-
-        // -------------------------------------------------
-        // relative_coords = q - k + (k_size - 1)    // SAME as PyTorch when no scaling
-        // -------------------------------------------------
-
-        rel = ggml_sub(ctx, q_coord, k_coord); // [q_size, k_size]
-        rel = ggml_scale_bias(ctx, rel, 1.0f, (k_size - 1.0f)*k_scale); // [q_size, k_size]
-        // Clamp to [0, L-1] range for valid indexing
-        rel = ggml_clamp(ctx, rel, 0.0f, static_cast<float>(rel_pos_resized->ne[1] - 1));
-
-        // -------------------------------------------------
-        // clamp to [0, L-1] and cast to int32  (for ggml_get_rows)
-        // -------------------------------------------------
-
-        ggml_tensor * idx_2d = ggml_cast(ctx, rel, GGML_TYPE_I32); // [q_size, k_size]
-
-        // Gather from rel_pos  → [qk, C]
-        // -------------------------------------------------
-
-        // flatten to 1D for ggml_get_rows
+        // Flatten indices to 1D for ggml_get_rows
         int qk = q_size * k_size;
-        ggml_tensor * idx_flat = ggml_reshape_1d(ctx, idx_2d, qk);          // [qk]
-        ggml_tensor * gathered = ggml_get_rows(ctx, rel_pos_resized, idx_flat);  // [qk, C]
 
-        // -------------------------------------------------
-        // Gather from rel_pos  → [qk, C]
-        // -------------------------------------------------
-
-        ggml_tensor * out = ggml_reshape_3d(ctx, gathered, C, k_size, q_size); // [qk, C]
-
-
-        return out;   // [q_size, k_size, C]
+        cur = ggml_reshape_3d(
+            ctx, 
+            ggml_get_rows(ctx, cur, ggml_reshape_1d(ctx, indices, qk)), 
+            C, k_size, q_size
+        );
+                
+        return cur;   // [C, k_size, q_size]
     }
 
     // Implementation based on approach suggested by Acly
@@ -2725,12 +2680,23 @@ private:
         const int _depth  = 12;
         const int n_heads = 12;
         const int d_heads = n_embd / n_heads;
+        const int window = hparams.attn_window_size;
 
         ggml_tensor * inpL;
 
         inpL = ggml_conv_2d_sk_p0(ctx0, model.patch_embed_proj_w, inp_raw);
         inpL = ggml_add(ctx0, inpL, ggml_reshape_3d(ctx0, model.patch_embed_proj_b, 1, 1, n_embd));
         inpL = ggml_cont(ctx0, ggml_permute(ctx0, inpL, 1, 2, 0, 3));
+
+        ggml_tensor * rel_pos_indices_local;
+        ggml_tensor * rel_pos_indices_global;
+        
+        rel_pos_indices_local = ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, window, window);
+        rel_pos_indices_global = ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, inpL->ne[1], inpL->ne[2]);
+        ggml_set_name(rel_pos_indices_local, "rel_pos_indices_local");
+        ggml_set_name(rel_pos_indices_global, "rel_pos_indices_global");
+        ggml_set_input(rel_pos_indices_local);
+        ggml_set_input(rel_pos_indices_global);
 
         ggml_tensor * cur;
         const auto tgt_size = inpL->ne[1];
@@ -2765,14 +2731,18 @@ private:
             const int64_t w0 = cur->ne[1];
             const int64_t h0 = cur->ne[2];
 
-            if (hparams.is_global_attn(il) == false) {
+            ggml_tensor * indices;
+            
+            if (hparams.is_global_attn(il)) {
+                indices = rel_pos_indices_global;
+            } else {
                 // local attention layer - apply window partition
-                cur = window_partition(ctx0, cur, 14); // TODO: make this configurable
+                cur = window_partition(ctx0, cur, window);
+                indices = rel_pos_indices_local;
             }
 
             const int64_t W = cur->ne[1];
             const int64_t H = cur->ne[2];
-
             // self-attention
             {
                 const int B = cur->ne[3];
@@ -2800,8 +2770,8 @@ private:
                 ggml_tensor * rh;
                 ggml_tensor * qr;
 
-                rw = get_rel_pos(ctx0, layer.rel_pos_w, W, W); // [W, W, C]
-                rh = get_rel_pos(ctx0, layer.rel_pos_h, H, H); // [H, H, C]
+                rw = get_rel_pos(ctx0, layer.rel_pos_w, indices, W, W); // [W, W, C]
+                rh = get_rel_pos(ctx0, layer.rel_pos_h, indices, H, H); // [H, H, C]
                 qr = ggml_permute(ctx0, Q, 0, 2, 1, 3);
                 qr = ggml_reshape_4d(ctx0, ggml_cont(ctx0, qr), d_heads, W, H, B * n_heads);
 
@@ -2827,7 +2797,7 @@ private:
 
             if (hparams.is_global_attn(il) == false) {
                 // local attention layer - reverse window partition
-                cur = window_unpartition(ctx0, cur, w0, h0, 14); // TODO: make window size configurable
+                cur = window_unpartition(ctx0, cur, w0, h0, window);
             }
 
             // re-add the layer input, e.g., residual
@@ -3316,6 +3286,7 @@ struct clip_model_loader {
                         hparams.patch_size = 16;
                         hparams.image_size = 1024;
                         hparams.warmup_image_size = 1024;
+                        get_u32(KEY_ATTN_WINDOW_SIZE, hparams.attn_window_size, true);
                     } break;
                 default:
                     break;
@@ -5873,7 +5844,27 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_COGVLM:
         case PROJECTOR_TYPE_DEEPSEEKOCR:
             {
-                // do nothing
+                GGML_ASSERT(pos_w == pos_h);
+
+                const int window = hparams.attn_window_size;
+                const int pos = pos_w;
+                std::vector<int32_t> rel_pos_indices_local(window * window);
+                std::vector<int32_t> rel_pos_indices_global(pos * pos);
+
+                for (int q = 0; q < window; q++) {
+                    for (int k = 0; k < window; k++) {
+                        rel_pos_indices_local[q * window + k] = q - k + window - 1;
+                    }
+                }
+
+                for (int q = 0; q < pos; q++) {
+                    for (int k = 0; k < pos; k++) {
+                        rel_pos_indices_global[q * pos + k] = q - k + pos - 1;
+                    }
+                }
+
+                set_input_i32("rel_pos_indices_local", rel_pos_indices_local);
+                set_input_i32("rel_pos_indices_global", rel_pos_indices_global);
             } break;
         case PROJECTOR_TYPE_LLAMA4:
             {

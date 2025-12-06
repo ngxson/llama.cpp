@@ -6025,6 +6025,8 @@ class DeepseekOCRVisionModel(MmprojModel):
             # we only need to write this if it's not the default value
             # in this case, we are converting a test model
             self.gguf_writer.add_vision_projector_scale_factor(proj_scale_factor)
+        # @bluebread: there's no window_size in config but just add it here anyway
+        self.gguf_writer.add_vision_window_size(self.hparams.get("window_size", 14))
 
         # SAM configuration
         sam_hparams = hparams['sam']
