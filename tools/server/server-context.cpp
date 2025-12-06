@@ -2576,6 +2576,15 @@ std::pair<server_queue &, server_response &> server_context::get_queues() {
     return { impl->queue_tasks, impl->queue_results };
 }
 
+server_context_info server_context::get_info() const {
+    return server_context_info {
+        /* build_info    */ build_info,
+        /* model_name    */ impl->model_name,
+        /* has_inp_image */ impl->oai_parser_opt.allow_image,
+        /* has_inp_audio */ impl->oai_parser_opt.allow_audio,
+    };
+}
+
 
 
 // generator-like API for HTTP response generation
