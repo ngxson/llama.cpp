@@ -26,7 +26,8 @@ extern "C" {
 MTMD_API void mtmd_helper_log_set(ggml_log_callback log_callback, void * user_data);
 
 // helper function to construct a mtmd_bitmap from a file
-// it calls mtmd_helper_bitmap_init_from_buf() internally
+// for image and audio, it calls mtmd_helper_bitmap_init_from_buf() internally
+// for video, it reads and decodes and streams individual image frames to a bitmap
 // returns nullptr on failure
 // this function is thread-safe
 MTMD_API mtmd_bitmap * mtmd_helper_bitmap_init_from_file(mtmd_context * ctx, const char * fname);
@@ -36,6 +37,7 @@ MTMD_API mtmd_bitmap * mtmd_helper_bitmap_init_from_file(mtmd_context * ctx, con
 //     image: formats supported by stb_image: jpg, png, bmp, gif, etc.
 //     audio: formats supported by miniaudio: wav, mp3, flac
 // note: audio files will be auto-detected based on magic bytes
+// note (2): this function does NOT support video input yet
 // returns nullptr on failure
 // this function is thread-safe
 MTMD_API mtmd_bitmap * mtmd_helper_bitmap_init_from_buf(mtmd_context * ctx, const unsigned char * buf, size_t len);
