@@ -1034,7 +1034,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         [](common_params & params, const std::string & value) {
             params.prompt = value;
         }
-    ).set_excludes({LLAMA_EXAMPLE_COMPLETION, LLAMA_EXAMPLE_CLI}));
+    ).set_excludes({LLAMA_EXAMPLE_SERVER}));
     add_opt(common_arg(
         {"-sys", "--system-prompt"}, "PROMPT",
         "system prompt to use with model (if applicable, depending on chat template)",
@@ -1068,7 +1068,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
                 params.prompt.pop_back();
             }
         }
-    ).set_excludes({LLAMA_EXAMPLE_COMPLETION, LLAMA_EXAMPLE_CLI}));
+    ).set_excludes({LLAMA_EXAMPLE_SERVER}));
     add_opt(common_arg(
         {"-sysf", "--system-prompt-file"}, "FNAME",
         "a file containing the system prompt (default: none)",
@@ -1105,7 +1105,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
             params.prompt = ss.str();
             fprintf(stderr, "Read %zu bytes from binary file %s\n", params.prompt.size(), value.c_str());
         }
-    ).set_excludes({LLAMA_EXAMPLE_COMPLETION}));
+    ).set_excludes({LLAMA_EXAMPLE_SERVER}));
     add_opt(common_arg(
         {"-e", "--escape"},
         string_format("process escapes sequences (\\n, \\r, \\t, \\', \\\", \\\\) (default: %s)", params.escape ? "true" : "false"),
@@ -1827,7 +1827,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         [](common_params & params, const std::string & value) {
             params.image.emplace_back(value);
         }
-    ).set_examples({LLAMA_EXAMPLE_MTMD}));
+    ).set_examples({LLAMA_EXAMPLE_MTMD, LLAMA_EXAMPLE_CLI}));
     add_opt(common_arg(
         {"--image-min-tokens"}, "N",
         "minimum number of tokens each image can take, only used by vision models with dynamic resolution (default: read from model)",

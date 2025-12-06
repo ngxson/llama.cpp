@@ -284,8 +284,17 @@ int main(int argc, char ** argv) {
             } while (another_line);
         } else {
             // process input prompt from args
+            for (auto & fname : params.image) {
+                std::string marker = ctx_cli.load_input_file(fname, true);
+                if (marker.empty()) {
+                    LOG_ERR("file does not exist or cannot be opened: '%s'\n", fname.c_str());
+                    break;
+                }
+                LOG("Loaded media from '%s'\n", fname.c_str());
+                cur_msg += marker;
+            }
             buffer = params.prompt;
-            LOG("\n> %s\n", buffer.c_str());
+            LOG("\n> %s\n", buffer.c_str()); // TODO: maybe truncate if too long to display
             params.prompt.clear(); // only use it once
         }
         console::set_display(console::reset);
