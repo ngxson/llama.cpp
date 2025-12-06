@@ -6,6 +6,8 @@
 #include "server-context.h"
 #include "server-task.h"
 
+#include <atomic>
+#include <fstream>
 #include <signal.h>
 
 constexpr int POLLING_SECONDS = 1;
@@ -20,34 +22,44 @@ const char * LLAMA_ASCII_LOGO = R"(
                                     ▀▀    ▀▀
 )";
 
-static bool g_is_interrupted = false;
+static std::atomic<bool> g_is_interrupted = false;
 static bool should_stop() {
-    return g_is_interrupted;
+    return g_is_interrupted.load();
 }
 
 #if defined (__unix__) || (defined (__APPLE__) && defined (__MACH__)) || defined (_WIN32)
 static void signal_handler(int) {
-    if (g_is_interrupted) {
+    if (g_is_interrupted.load()) {
         // second Ctrl+C - exit immediately
         std::exit(130);
     }
-    g_is_interrupted = true;
+    g_is_interrupted.store(true);
 }
 #endif
 
 struct cli_context {
     server_context ctx_server;
     json messages = json::array();
+    std::vector<raw_buffer> input_files;
+    task_params defaults;
 
-    std::string generate_completion(task_params & params, const json & messages, const std::vector<raw_buffer> & input_files) {
-        params.stream = true; // make sure we always use streaming mode
+    cli_context(const common_params & params) {
+        defaults.sampling    = params.sampling;
+        defaults.speculative = params.speculative;
+        defaults.n_keep      = params.n_keep;
+        defaults.n_predict   = params.n_predict;
+        defaults.antiprompt  = params.antiprompt;
+        defaults.stream = true; // make sure we always use streaming mode
+    }
+
+    std::string generate_completion() {
         auto queues = ctx_server.get_queues();
         server_response_reader rd(queues, POLLING_SECONDS);
         {
             // TODO: reduce some copies here in the future
             server_task task = server_task(SERVER_TASK_TYPE_COMPLETION);
             task.id        = queues.first.get_new_id();
-            task.params    = params;      // copy
+            task.params    = defaults;    // copy
             task.cli_input = messages;    // copy
             task.cli_files = input_files; // copy
             rd.post_task({std::move(task)});
@@ -57,7 +69,12 @@ struct cli_context {
         std::string curr_content;
         while (result) {
             if (result->is_error()) {
-                LOG("Error: %s\n", result->to_json().dump().c_str());
+                json err_data = result->to_json();
+                if (err_data.contains("message")) {
+                    LOG_ERR("Error: %s\n", err_data["message"].get<std::string>().c_str());
+                } else {
+                    LOG_ERR("Error: %s\n", err_data.dump().c_str());
+                }
                 return curr_content;
             }
             auto res_partial = dynamic_cast<server_task_result_cmpl_partial *>(result.get());
@@ -72,6 +89,19 @@ struct cli_context {
             result = rd.next(should_stop);
         }
         return curr_content;
+    }
+
+    // TODO: support remote files in the future (http, https, etc)
+    std::string load_input_files(const std::string & fname) {
+        input_files.clear();
+        std::ifstream file(fname, std::ios::binary);
+        if (!file) {
+            return "";
+        }
+        raw_buffer buf;
+        buf.assign((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        input_files.push_back(std::move(buf));
+        return mtmd_default_marker();
     }
 };
 
@@ -88,7 +118,7 @@ int main(int argc, char ** argv) {
     common_init();
 
     // struct that contains llama context and inference
-    cli_context ctx_cli;
+    cli_context ctx_cli(params);
 
     llama_backend_init();
     llama_numa_init(params.numa);
@@ -138,21 +168,23 @@ int main(int argc, char ** argv) {
     LOG("modalities : %s\n", modalities.c_str());
     LOG("\n");
     LOG("available commands:\n");
-    LOG("  Ctrl+C to stop or exit\n");
-    LOG("  /regen          re-generate the last response\n");
-    LOG("  /clear          clear the chat history\n");
+    LOG("  /exit or Ctrl+C   stop or exit\n");
+    LOG("  /regen            re-generate the last response\n");
+    LOG("  /clear            clear the chat history\n");
     if (inf.has_inp_image) {
-        LOG("  /image <file>   add an image file\n");
+        LOG("  /image <file>     add an image file\n");
     }
     if (inf.has_inp_audio) {
-        LOG("  /audio <file>   add an audio file\n");
+        LOG("  /audio <file>     add an audio file\n");
     }
     LOG("\n");
 
-    while (!should_stop()) {
+    // interactive loop
+    std::string cur_msg;
+    while (true) {
         std::string buffer;
         console::set_display(console::user_input);
-        {
+        if (params.prompt.empty()) {
             LOG("\n> ");
             std::string line;
             bool another_line = true;
@@ -160,28 +192,67 @@ int main(int argc, char ** argv) {
                 another_line = console::readline(line, params.multiline_input);
                 buffer += line;
             } while (another_line);
+        } else {
+            // process input prompt from args
+            buffer = params.prompt;
+            params.prompt.clear(); // only use it once
         }
         console::set_display(console::reset);
         LOG("\n");
+
+        if (should_stop()) {
+            g_is_interrupted.store(false);
+            break;
+        }
 
         if (buffer.empty()) {
             continue;
         }
 
-        ctx_cli.messages.push_back({
-            {"role",    "user"},
-            {"content", buffer}
-        });
-        std::vector<raw_buffer> input_files; // empty for now
+        bool add_user_msg = true;
 
-        task_params defaults;
-        defaults.sampling    = params.sampling;
-        defaults.speculative = params.speculative;
-        defaults.n_keep      = params.n_keep;
-        defaults.n_predict   = params.n_predict;
-        defaults.antiprompt  = params.antiprompt;
+        // process commands
+        if (string_starts_with(buffer, "/exit")) {
+            break;
+        } else if (string_starts_with(buffer, "/regen")) {
+            if (ctx_cli.messages.size() >= 2) {
+                size_t last_idx = ctx_cli.messages.size() - 1;
+                ctx_cli.messages.erase(last_idx);
+                add_user_msg = false;
+            } else {
+                LOG_ERR("No message to regenerate.\n");
+                continue;
+            }
+        } else if (string_starts_with(buffer, "/clear")) {
+            ctx_cli.messages.clear();
+            LOG("Chat history cleared.\n");
+            continue;
+        } else if (
+                (string_starts_with(buffer, "/image ") && inf.has_inp_image) ||
+                (string_starts_with(buffer, "/audio ") && inf.has_inp_audio)) {
+            std::string fname = string_strip(buffer.substr(7));
+            std::string marker = ctx_cli.load_input_files(fname);
+            if (marker.empty()) {
+                LOG_ERR("file does not exist or cannot be opened: '%s'\n", fname.c_str());
+                continue;
+            }
+            cur_msg += marker;
+            LOG("Loaded image from '%s'\n", fname.c_str());
+            continue;
+        } else {
+            // not a command
+            cur_msg += buffer;
+        }
 
-        std::string assistant_content = ctx_cli.generate_completion(defaults, ctx_cli.messages, input_files);
+        // generate response
+        if (add_user_msg) {
+            ctx_cli.messages.push_back({
+                {"role",    "user"},
+                {"content", cur_msg}
+            });
+            cur_msg.clear();
+        }
+        std::string assistant_content = ctx_cli.generate_completion();
         ctx_cli.messages.push_back({
             {"role",    "assistant"},
             {"content", assistant_content}
@@ -189,8 +260,10 @@ int main(int argc, char ** argv) {
         LOG("\n");
     }
 
-    llama_backend_init();
-    llama_numa_init(params.numa);
+    LOG("\nExiting...\n");
+    ctx_cli.ctx_server.terminate();
+    inference_thread.join();
+    llama_memory_breakdown_print(ctx_cli.ctx_server.get_llama_context());
 
     return 0;
 }
