@@ -165,15 +165,25 @@ int main(int argc, char ** argv) {
         modalities += ", audio";
     }
 
+    if (!params.system_prompt.empty()) {
+        ctx_cli.messages.push_back({
+            {"role",    "system"},
+            {"content", params.system_prompt}
+        });
+    }
+
     LOG("\n");
     LOG("%s\n", LLAMA_ASCII_LOGO);
     LOG("build      : %s\n", inf.build_info.c_str());
     LOG("model      : %s\n", inf.model_name.c_str());
     LOG("modalities : %s\n", modalities.c_str());
+    if (!params.system_prompt.empty()) {
+        LOG("using custom system prompt\n");
+    }
     LOG("\n");
     LOG("available commands:\n");
     LOG("  /exit or Ctrl+C   stop or exit\n");
-    LOG("  /regen            re-generate the last response\n");
+    LOG("  /regen            regenerate the last response\n");
     LOG("  /clear            clear the chat history\n");
     if (inf.has_inp_image) {
         LOG("  /image <file>     add an image file\n");
@@ -182,13 +192,6 @@ int main(int argc, char ** argv) {
         LOG("  /audio <file>     add an audio file\n");
     }
     LOG("\n");
-
-    if (!params.system_prompt.empty()) {
-        ctx_cli.messages.push_back({
-            {"role",    "system"},
-            {"content", params.system_prompt}
-        });
-    }
 
     // interactive loop
     std::string cur_msg;
