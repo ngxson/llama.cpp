@@ -8,6 +8,7 @@
 
 #include <atomic>
 #include <fstream>
+#include <thread>
 #include <signal.h>
 
 constexpr int POLLING_SECONDS = 1;
@@ -43,6 +44,10 @@ struct cli_context {
     std::vector<raw_buffer> input_files;
     task_params defaults;
 
+    // thread for showing "loading" animation
+    std::atomic<bool> loading_show;
+    std::thread loading_display_thread;
+
     cli_context(const common_params & params) {
         defaults.sampling    = params.sampling;
         defaults.speculative = params.speculative;
@@ -50,6 +55,28 @@ struct cli_context {
         defaults.n_predict   = params.n_predict;
         defaults.antiprompt  = params.antiprompt;
         defaults.stream = true; // make sure we always use streaming mode
+
+        // TODO: improve this mechanism later
+        loading_display_thread = std::thread([this]() {
+            while (true) {
+                if (loading_show.load()) {
+                    // update loading frame
+                    console::set_loading(true);
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(150));
+            }
+        });
+        loading_display_thread.detach();
+    }
+
+    void show_loading() {
+        loading_show.store(true);
+    }
+
+    void hide_loading() {
+        loading_show.store(false);
+        // clear loading here in case the thread is sleeping
+        console::set_loading(false);
     }
 
     std::string generate_completion() {
@@ -65,8 +92,13 @@ struct cli_context {
             rd.post_task({std::move(task)});
         }
 
+        // wait for first result
+        show_loading();
         server_task_result_ptr result = rd.next(should_stop);
+
+        hide_loading();
         std::string curr_content;
+
         while (result) {
             if (should_stop()) {
                 break;
@@ -119,6 +151,11 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
+    if (params.conversation_mode == COMMON_CONVERSATION_MODE_ENABLED) {
+        LOG_ERR("--no-conversation is not supported by llama-cli\n");
+        LOG_ERR("please use llama-completion instead\n");
+    }
+
     common_init();
 
     // struct that contains llama context and inference
@@ -146,12 +183,18 @@ int main(int argc, char ** argv) {
     SetConsoleCtrlHandler(reinterpret_cast<PHANDLER_ROUTINE>(console_ctrl_handler), true);
 #endif
 
-    LOG("Loading model...\n");
+    LOG("Loading model... "); // followed by loading animation
+    ctx_cli.show_loading();
     if (!ctx_cli.ctx_server.load_model(params)) {
-        LOG_ERR("Failed to load the model\n");
+        ctx_cli.hide_loading();
+        LOG_ERR("\nFailed to load the model\n");
         return 1;
     }
+
     ctx_cli.ctx_server.init();
+
+    ctx_cli.hide_loading();
+    LOG("\n");
 
     std::thread inference_thread([&ctx_cli]() {
         ctx_cli.ctx_server.start_loop();
@@ -280,6 +323,10 @@ int main(int argc, char ** argv) {
             {"content", assistant_content}
         });
         LOG("\n");
+
+        if (params.single_turn) {
+            break;
+        }
     }
 
     LOG("\nExiting...\n");

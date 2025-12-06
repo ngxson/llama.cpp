@@ -33,6 +33,8 @@
 #define ANSI_COLOR_RESET   "\x1b[0m"
 #define ANSI_BOLD          "\x1b[1m"
 
+static const char LOADING_CHARS[] = {'|', '/', '-', '\\'};
+
 namespace console {
 
     //
@@ -41,6 +43,8 @@ namespace console {
 
     static bool      advanced_display = false;
     static bool      simple_io        = true;
+    static bool      loading_show     = false;
+    static int       loading_idx      = 0;
     static display_t current_display  = reset;
 
     static FILE*     out              = stdout;
@@ -490,6 +494,31 @@ namespace console {
 
         // By default, continue input if multiline_input is set
         return multiline_input;
+    }
+
+    void set_loading(bool enabled) {
+        if (!simple_io) {
+            if (!loading_show && enabled) {
+                // turn on loading
+                fputc(' ', out);
+                fflush(out);
+            }
+
+            if (loading_show && !enabled) {
+                // turn off loading
+                replace_last(' ');
+                pop_cursor();
+                fflush(out);
+            }
+
+            loading_show = enabled;
+
+            if (loading_show) {
+                loading_idx = (loading_idx + 1) % sizeof(LOADING_CHARS);
+                replace_last(LOADING_CHARS[loading_idx]);
+                fflush(out);
+            }
+        }
     }
 
     bool readline(std::string & line, bool multiline_input) {

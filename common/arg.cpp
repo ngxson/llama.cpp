@@ -1171,7 +1171,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         [](common_params & params) {
             params.conversation_mode = COMMON_CONVERSATION_MODE_DISABLED;
         }
-    ).set_examples({LLAMA_EXAMPLE_COMPLETION}));
+    ).set_examples({LLAMA_EXAMPLE_COMPLETION, LLAMA_EXAMPLE_CLI}));
     add_opt(common_arg(
         {"-st", "--single-turn"},
         "run conversation for a single turn only, then exit when done\n"
@@ -1180,7 +1180,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         [](common_params & params) {
             params.single_turn = true;
         }
-    ).set_examples({LLAMA_EXAMPLE_COMPLETION}));
+    ).set_examples({LLAMA_EXAMPLE_COMPLETION, LLAMA_EXAMPLE_CLI}));
     add_opt(common_arg(
         {"-i", "--interactive"},
         string_format("run in interactive mode (default: %s)", params.interactive ? "true" : "false"),
@@ -1201,7 +1201,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         [](common_params & params) {
             params.multiline_input = true;
         }
-    ).set_examples({LLAMA_EXAMPLE_COMPLETION}));
+    ).set_examples({LLAMA_EXAMPLE_COMPLETION, LLAMA_EXAMPLE_CLI}));
     add_opt(common_arg(
         {"--in-prefix-bos"},
         "prefix BOS to user inputs, preceding the `--in-prefix` string",
