@@ -68,6 +68,9 @@ struct cli_context {
         server_task_result_ptr result = rd.next(should_stop);
         std::string curr_content;
         while (result) {
+            if (should_stop()) {
+                break;
+            }
             if (result->is_error()) {
                 json err_data = result->to_json();
                 if (err_data.contains("message")) {
@@ -88,6 +91,8 @@ struct cli_context {
             }
             result = rd.next(should_stop);
         }
+        g_is_interrupted.store(false);
+        // server_response_reader automatically cancels pending tasks upon destruction
         return curr_content;
     }
 
@@ -110,7 +115,6 @@ int main(int argc, char ** argv) {
 
     params.verbosity = LOG_LEVEL_ERROR; // by default, less verbose logs
 
-    auto LLAMA_EXAMPLE_CLI = LLAMA_EXAMPLE_SERVER; // TODO: remove this
     if (!common_params_parse(argc, argv, params, LLAMA_EXAMPLE_CLI)) {
         return 1;
     }
@@ -179,6 +183,13 @@ int main(int argc, char ** argv) {
     }
     LOG("\n");
 
+    if (!params.system_prompt.empty()) {
+        ctx_cli.messages.push_back({
+            {"role",    "system"},
+            {"content", params.system_prompt}
+        });
+    }
+
     // interactive loop
     std::string cur_msg;
     while (true) {
@@ -195,6 +206,7 @@ int main(int argc, char ** argv) {
         } else {
             // process input prompt from args
             buffer = params.prompt;
+            LOG("\n> %s\n", buffer.c_str());
             params.prompt.clear(); // only use it once
         }
         console::set_display(console::reset);
@@ -207,6 +219,11 @@ int main(int argc, char ** argv) {
 
         if (buffer.empty()) {
             continue;
+        }
+
+        // remove trailing newline
+        if (buffer.back() == '\n') {
+            buffer.pop_back();
         }
 
         bool add_user_msg = true;
@@ -230,6 +247,7 @@ int main(int argc, char ** argv) {
         } else if (
                 (string_starts_with(buffer, "/image ") && inf.has_inp_image) ||
                 (string_starts_with(buffer, "/audio ") && inf.has_inp_audio)) {
+            // just in case (bad copy-paste for example), we strip all trailing/leading spaces
             std::string fname = string_strip(buffer.substr(7));
             std::string marker = ctx_cli.load_input_files(fname);
             if (marker.empty()) {
