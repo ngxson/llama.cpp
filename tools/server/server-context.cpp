@@ -1792,14 +1792,19 @@ struct server_context_impl {
                 const llama_tokens & cached_text_tokens = slot.prompt.tokens.get_text_tokens();
                 llama_tokens draft = common_speculative_gen_draft(slot.spec, params_spec, cached_text_tokens, slot.sampled);
 
+                // add the sampled token to the batch
+                slot.i_batch_dft.push_back(batch.n_tokens);
+                common_batch_add(batch, slot.sampled, slot.prompt.tokens.pos_next(), { slot.id }, true);
+                slot.prompt.tokens.push_back(slot.sampled);
+
                 if (slot.task->params.speculative.n_min > (int) draft.size()) {
-                    // ignore small drafts
                     SLT_DBG(slot, "ignoring small draft: %d < %d\n", (int) draft.size(), slot.task->params.speculative.n_min);
+                    // fallback to normal decoding
+                    slot.i_batch = slot.i_batch_dft[0];
+                    slot.drafted.clear();
+                    slot.i_batch_dft.clear();
 
                 } else {
-                    slot.i_batch_dft.push_back(batch.n_tokens);
-                    common_batch_add(batch, slot.sampled, slot.prompt.tokens.pos_next(), { slot.id }, true);
-                    slot.prompt.tokens.push_back(slot.sampled);
 
                     // keep track of total number of drafted tokens tested
                     slot.n_draft_total += draft.size();
