@@ -44,6 +44,8 @@ namespace console {
         static constexpr char32_t KEY_ARROW_RIGHT = 0xE001;
         static constexpr char32_t KEY_ARROW_UP    = 0xE002;
         static constexpr char32_t KEY_ARROW_DOWN  = 0xE003;
+        static constexpr char32_t KEY_HOME        = 0xE004;
+        static constexpr char32_t KEY_END         = 0xE005;
     }
 
     //
@@ -192,6 +194,8 @@ namespace console {
                         case VK_RIGHT: return KEY_ARROW_RIGHT;
                         case VK_UP:    return KEY_ARROW_UP;
                         case VK_DOWN:  return KEY_ARROW_DOWN;
+                        case VK_HOME:  return KEY_HOME;
+                        case VK_END:   return KEY_END;
                         default:       continue;
                     }
                 }
@@ -374,6 +378,28 @@ namespace console {
         return pos;
     }
 
+    static void move_cursor(int delta);
+
+    static void move_to_line_start(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths) {
+        int back_width = 0;
+        for (size_t i = 0; i < char_pos; ++i) {
+            back_width += widths[i];
+        }
+        move_cursor(-back_width);
+        char_pos = 0;
+        byte_pos = 0;
+    }
+
+    static void move_to_line_end(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths, const std::string & line) {
+        int forward_width = 0;
+        for (size_t i = char_pos; i < widths.size(); ++i) {
+            forward_width += widths[i];
+        }
+        move_cursor(forward_width);
+        char_pos = widths.size();
+        byte_pos = line.length();
+    }
+
     static void move_cursor(int delta) {
         if (delta == 0) return;
 #if defined(_WIN32)
@@ -461,9 +487,32 @@ namespace console {
                             char_pos++;
                             byte_pos = next_utf8_char_pos(line, byte_pos);
                         }
+                    } else if (code == 'H') { // home
+                        move_to_line_start(char_pos, byte_pos, widths);
+                    } else if (code == 'F') { // end
+                        move_to_line_end(char_pos, byte_pos, widths, line);
                     } else if (code == 'A' || code == 'B') {
                         // up/down
                         // TODO: Implement history navigation
+                    } else if (code >= '0' && code <= '9') {
+                        std::string digits;
+                        digits.push_back(static_cast<char>(code));
+                        while (true) {
+                            code = getchar32();
+                            if (code >= '0' && code <= '9') {
+                                digits.push_back(static_cast<char>(code));
+                                continue;
+                            }
+                            break;
+                        }
+
+                        if (code == '~') {
+                            if (digits == "1" || digits == "7") {
+                                move_to_line_start(char_pos, byte_pos, widths);
+                            } else if (digits == "4" || digits == "8") {
+                                move_to_line_end(char_pos, byte_pos, widths, line);
+                            }
+                        }
                     } else {
                         // Discard the rest of the escape sequence
                         while ((code = getchar32()) != (char32_t) WEOF) {
@@ -496,6 +545,10 @@ namespace console {
                     char_pos++;
                     byte_pos = next_utf8_char_pos(line, byte_pos);
                 }
+            } else if (input_char == KEY_HOME) {
+                move_to_line_start(char_pos, byte_pos, widths);
+            } else if (input_char == KEY_END) {
+                move_to_line_end(char_pos, byte_pos, widths, line);
             } else if (input_char == KEY_ARROW_UP || input_char == KEY_ARROW_DOWN) {
                 // TODO: Implement history navigation
 #endif
