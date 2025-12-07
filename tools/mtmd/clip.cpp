@@ -5888,15 +5888,6 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 }
                 set_input_i32("patches", patches);
             } break;
-        case PROJECTOR_TYPE_GEMMA3:
-        case PROJECTOR_TYPE_IDEFICS3:
-        case PROJECTOR_TYPE_INTERNVL:
-        case PROJECTOR_TYPE_QWEN2A:
-        case PROJECTOR_TYPE_ULTRAVOX:
-        case PROJECTOR_TYPE_LFM2:
-        case PROJECTOR_TYPE_VOXTRAL:
-        case PROJECTOR_TYPE_JANUS_PRO:
-        case PROJECTOR_TYPE_COGVLM:
         case PROJECTOR_TYPE_DEEPSEEKOCR:
             {
                 GGML_ASSERT(pos_w == pos_h);
@@ -5920,6 +5911,18 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
 
                 set_input_i32("rel_pos_indices_local", rel_pos_indices_local);
                 set_input_i32("rel_pos_indices_global", rel_pos_indices_global);
+            } break;
+        case PROJECTOR_TYPE_GEMMA3:
+        case PROJECTOR_TYPE_IDEFICS3:
+        case PROJECTOR_TYPE_INTERNVL:
+        case PROJECTOR_TYPE_QWEN2A:
+        case PROJECTOR_TYPE_ULTRAVOX:
+        case PROJECTOR_TYPE_LFM2:
+        case PROJECTOR_TYPE_VOXTRAL:
+        case PROJECTOR_TYPE_JANUS_PRO:
+        case PROJECTOR_TYPE_COGVLM:
+            {
+                // do nothing
             } break;
         case PROJECTOR_TYPE_LLAMA4:
             {
