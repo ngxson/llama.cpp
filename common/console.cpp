@@ -202,9 +202,6 @@ namespace console {
                         default:       continue;
                     }
                 }
-                if (wc == 0) {
-                    continue;
-                }
 
                 if ((wc >= 0xD800) && (wc <= 0xDBFF)) { // Check if wc is a high surrogate
                     high_surrogate = wc;
