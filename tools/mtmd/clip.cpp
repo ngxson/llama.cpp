@@ -4386,10 +4386,19 @@ private:
 
     // Bicubic resize function using Pillow's ImagingResample algorithm
     // Adapted from https://github.com/python-pillow/Pillow/blob/main/src/libImaging/Resample.c
+    //
+    // Key Difference with resize_bicubic:
+    // 1. Uses separable filtering: horizontal pass followed by vertical pass
+    // 2. Pre-computes normalized filter coefficients for each output pixel
+    // 3. Applies convolution using fixed-point integer arithmetic for performance
     static bool resize_bicubic_pillow(const clip_image_u8 & img, clip_image_u8 & dst, int target_width, int target_height) {
+        // Fixed-point precision: 22 bits = 32 (int32_t) - 8 (uint8_t pixels) - 2 (headroom for accumulation)
+        // This allows encoding fractional weights as integers: weight * 2^22
         const int PRECISION_BITS = 32 - 8 - 2;
 
-        // Bicubic filter function
+        // Bicubic filter function with a = -0.5 (Note that GGML/PyTorch takes a = -0.75)
+        // Returns filter weight for distance x from pixel center
+        // Support: [-2, 2], meaning the filter influences pixels within 2 units of distance
         auto bicubic_filter = [](double x) -> double {
             constexpr double a = -0.5;
             if (x < 0.0) {
@@ -4401,9 +4410,10 @@ private:
             if (x < 2.0) {
                 return (((x - 5) * x + 8) * x - 4) * a;
             }
-            return 0.0;
+            return 0.0;  // Zero outside [-2, 2]
         };
 
+        // Filter support radius: bicubic extends 2 pixels in each direction
         constexpr double filter_support = 2.0;
 
         // Clipping function for 8-bit values
@@ -4413,29 +4423,47 @@ private:
             return static_cast<uint8_t>(val);
         };
 
-        // Precompute coefficients
-        auto precompute_coeffs = [&](int inSize, double in0, double in1, int outSize,
-                                     std::vector<int> & bounds, std::vector<int32_t> & kk) -> int {
+        // Precompute filter coefficients for ONE dimension (horizontal or vertical)
+        //
+        // Parameters:
+        //   inSize  - Number of pixels in input dimension (e.g., src_width or src_height)
+        //   outSize - Number of pixels in output dimension (e.g., target_width or target_height)
+        //   bounds  - [OUTPUT] Array of size outSize*2 storing input pixel ranges:
+        //             bounds[xx*2+0] = first input pixel index for output pixel xx (xmin)
+        //             bounds[xx*2+1] = number of input pixels for output pixel xx (xcnt)
+        //   weights - [OUTPUT] Array of size outSize*ksize storing fixed-point filter weights:
+        //             kk[xx*ksize + x] = weight for input pixel x contributing to output pixel xx
+        //
+        // Returns: kernel size (ksize) - number of input pixels that contribute to each output pixel
+        auto precompute_weights = [&](int inSize, int outSize,
+                                     std::vector<int> & bounds, std::vector<int32_t> & weights) -> int {
             double support, scale, filterscale;
             double center, ww, ss;
-            int xx, x, ksize, xmin, xmax;
+            int xx, x, ksize, xmin, xmax, xcnt;
 
-            filterscale = scale = (in1 - in0) / outSize;
+            // Calculate scaling factor: ratio of input range to output size
+            filterscale = scale = (double)inSize / outSize;
+            // For upsampling (scale < 1), keep filterscale = 1 to maintain filter sharpness
+            // For downsampling (scale > 1), widen filter to prevent aliasing
             if (filterscale < 1.0) {
                 filterscale = 1.0;
             }
 
-            support = filter_support * filterscale;
-            ksize = static_cast<int>(std::ceil(support)) * 2 + 1;
+            // Determine filter support radius and kernel size
+            support = filter_support * filterscale;  // Widen filter when downsampling
+            ksize = static_cast<int>(std::ceil(support)) * 2 + 1;  // Total pixels in kernel
 
-            std::vector<double> prekk(outSize * ksize);
+            std::vector<double> pre_weights(outSize * ksize);  // Temporary weights
             bounds.resize(outSize * 2);
 
+            // For each output pixel, compute its filter coefficients
             for (xx = 0; xx < outSize; xx++) {
-                center = in0 + (xx + 0.5) * scale;
-                ww = 0.0;
-                ss = 1.0 / filterscale;
+                // Calculate the center position in input space (pixel-center convention: +0.5)
+                center = (xx + 0.5) * scale;
+                ww = 0.0;  // Sum of weights for normalization
+                ss = 1.0 / filterscale;  // Scale factor for filter function
 
+                // Determine the range of input pixels that contribute to this output pixel
                 xmin = static_cast<int>(center - support + 0.5);
                 if (xmin < 0) {
                     xmin = 0;
@@ -4445,65 +4473,77 @@ private:
                 if (xmax > inSize) {
                     xmax = inSize;
                 }
-                xmax -= xmin;
+                
+                xcnt = xmax - xmin;
 
-                double * k = &prekk[xx * ksize];
-                for (x = 0; x < xmax; x++) {
+                // Compute filter weights for each contributing input pixel
+                for (x = 0; x < xcnt; x++) {
+                    // Distance from input pixel center to output pixel center in input space
                     double w = bicubic_filter((x + xmin - center + 0.5) * ss);
-                    k[x] = w;
-                    ww += w;
+                    pre_weights[xx * ksize + x] = w;
+                    ww += w;  // Accumulate for normalization
                 }
 
-                for (x = 0; x < xmax; x++) {
+                // Normalize weights to sum to 1.0 (preserves brightness)
+                for (x = 0; x < xcnt; x++) {
                     if (ww != 0.0) {
-                        k[x] /= ww;
+                        pre_weights[xx * ksize + x] /= ww;
                     }
                 }
 
+                // Zero-pad remaining kernel positions
                 for (; x < ksize; x++) {
-                    k[x] = 0;
+                    pre_weights[xx * ksize + x] = 0;
                 }
 
+                // Store input pixel range for this output pixel
                 bounds[xx * 2 + 0] = xmin;
-                bounds[xx * 2 + 1] = xmax;
+                bounds[xx * 2 + 1] = xcnt;
             }
 
-            // Normalize coefficients to fixed-point
-            kk.resize(outSize * ksize);
+            // Convert floating-point coefficients to fixed-point integers
+            // Formula: int32 = round(float * 2^PRECISION_BITS)
+            weights.resize(outSize * ksize);
             for (int i = 0; i < outSize * ksize; i++) {
-                if (prekk[i] < 0) {
-                    kk[i] = static_cast<int32_t>(-0.5 + prekk[i] * (1 << PRECISION_BITS));
+                if (pre_weights[i] < 0) {
+                    weights[i] = static_cast<int32_t>(-0.5 + pre_weights[i] * (1 << PRECISION_BITS));
                 } else {
-                    kk[i] = static_cast<int32_t>(0.5 + prekk[i] * (1 << PRECISION_BITS));
+                    weights[i] = static_cast<int32_t>(0.5 + pre_weights[i] * (1 << PRECISION_BITS));
                 }
             }
 
             return ksize;
         };
 
-        // Horizontal resampling
+        // Horizontal resampling pass
+        // Resizes width from imIn.nx to imOut.nx, preserving height
         auto resample_horizontal = [&](const clip_image_u8 & imIn, clip_image_u8 & imOut,
-                                       int ksize, const std::vector<int> & bounds, const std::vector<int32_t> & kk) {
+                                       int ksize, const std::vector<int> & bounds, const std::vector<int32_t> & weights) {
             imOut.ny = imIn.ny;
             imOut.buf.resize(3 * imOut.nx * imOut.ny);
 
+            // Process each row independently
             for (int yy = 0; yy < imOut.ny; yy++) {
+                // For each output pixel in this row
                 for (int xx = 0; xx < imOut.nx; xx++) {
-                    int xmin = bounds[xx * 2 + 0];
-                    int xmax = bounds[xx * 2 + 1];
-                    const int32_t * k = &kk[xx * ksize];
+                    // Get the range of input pixels and filter coefficients
+                    int xmin = bounds[xx * 2 + 0];  // First input pixel index
+                    int xcnt = bounds[xx * 2 + 1];  // Number of input pixels
 
+                    // Initialize accumulators for RGB channels with rounding bias (0.5 in fixed-point)
                     int32_t ss0 = 1 << (PRECISION_BITS - 1);
                     int32_t ss1 = 1 << (PRECISION_BITS - 1);
                     int32_t ss2 = 1 << (PRECISION_BITS - 1);
 
-                    for (int x = 0; x < xmax; x++) {
+                    // Convolve: sum weighted input pixels
+                    for (int x = 0; x < xcnt; x++) {
                         int src_idx = ((yy * imIn.nx) + (x + xmin)) * 3;
-                        ss0 += static_cast<uint8_t>(imIn.buf[src_idx + 0]) * k[x];
-                        ss1 += static_cast<uint8_t>(imIn.buf[src_idx + 1]) * k[x];
-                        ss2 += static_cast<uint8_t>(imIn.buf[src_idx + 2]) * k[x];
+                        ss0 += static_cast<uint8_t>(imIn.buf[src_idx + 0]) * weights[xx * ksize + x];  // R channel
+                        ss1 += static_cast<uint8_t>(imIn.buf[src_idx + 1]) * weights[xx * ksize + x];  // G channel
+                        ss2 += static_cast<uint8_t>(imIn.buf[src_idx + 2]) * weights[xx * ksize + x];  // B channel
                     }
 
+                    // Convert back from fixed-point (divide by 2^PRECISION_BITS) and clamp to [0,255]
                     int dst_idx = (yy * imOut.nx + xx) * 3;
                     imOut.buf[dst_idx + 0] = clip8(ss0 >> PRECISION_BITS);
                     imOut.buf[dst_idx + 1] = clip8(ss1 >> PRECISION_BITS);
@@ -4512,29 +4552,35 @@ private:
             }
         };
 
-        // Vertical resampling
+        // Vertical resampling pass
+        // Resizes height from imIn.ny to imOut.ny, preserving width
         auto resample_vertical = [&](const clip_image_u8 & imIn, clip_image_u8 & imOut,
-                                     int ksize, const std::vector<int> & bounds, const std::vector<int32_t> & kk) {
+                                     int ksize, const std::vector<int> & bounds, const std::vector<int32_t> & weight) {
             imOut.nx = imIn.nx;
             imOut.buf.resize(3 * imOut.nx * imOut.ny);
 
+            // For each output row
             for (int yy = 0; yy < imOut.ny; yy++) {
-                int ymin = bounds[yy * 2 + 0];
-                int ymax = bounds[yy * 2 + 1];
-                const int32_t * k = &kk[yy * ksize];
+                // Get the range of input rows and filter coefficients
+                int ymin = bounds[yy * 2 + 0];  // First input row index
+                int ycnt = bounds[yy * 2 + 1];  // Number of input rows
 
+                // Process each column in this output row
                 for (int xx = 0; xx < imOut.nx; xx++) {
+                    // Initialize accumulators for RGB channels with rounding bias
                     int32_t ss0 = 1 << (PRECISION_BITS - 1);
                     int32_t ss1 = 1 << (PRECISION_BITS - 1);
                     int32_t ss2 = 1 << (PRECISION_BITS - 1);
 
-                    for (int y = 0; y < ymax; y++) {
+                    // Convolve: sum weighted input pixels vertically
+                    for (int y = 0; y < ycnt; y++) {
                         int src_idx = ((y + ymin) * imIn.nx + xx) * 3;
-                        ss0 += static_cast<uint8_t>(imIn.buf[src_idx + 0]) * k[y];
-                        ss1 += static_cast<uint8_t>(imIn.buf[src_idx + 1]) * k[y];
-                        ss2 += static_cast<uint8_t>(imIn.buf[src_idx + 2]) * k[y];
+                        ss0 += static_cast<uint8_t>(imIn.buf[src_idx + 0]) * weight[yy * ksize + y];  // R channel
+                        ss1 += static_cast<uint8_t>(imIn.buf[src_idx + 1]) * weight[yy * ksize + y];  // G channel
+                        ss2 += static_cast<uint8_t>(imIn.buf[src_idx + 2]) * weight[yy * ksize + y];  // B channel
                     }
 
+                    // Convert back from fixed-point and clamp to [0,255]
                     int dst_idx = (yy * imOut.nx + xx) * 3;
                     imOut.buf[dst_idx + 0] = clip8(ss0 >> PRECISION_BITS);
                     imOut.buf[dst_idx + 1] = clip8(ss1 >> PRECISION_BITS);
@@ -4543,7 +4589,7 @@ private:
             }
         };
 
-        // Main resampling logic
+        // Main resampling logic using separable two-pass approach
         const int src_width = img.nx;
         const int src_height = img.ny;
 
@@ -4553,17 +4599,17 @@ private:
         bool need_horizontal = (target_width != src_width);
         bool need_vertical = (target_height != src_height);
 
-        // Precompute coefficients for both passes
+        // Precompute filter coefficients for both dimensions
         std::vector<int> bounds_horiz, bounds_vert;
-        std::vector<int32_t> kk_horiz, kk_vert;
+        std::vector<int32_t> weights_horiz, weights_vert;
         int ksize_horiz = 0, ksize_vert = 0;
 
         if (need_horizontal) {
-            ksize_horiz = precompute_coeffs(src_width, 0.0, src_width, target_width, bounds_horiz, kk_horiz);
+            ksize_horiz = precompute_weights(src_width, target_width, bounds_horiz, weights_horiz);
         }
 
         if (need_vertical) {
-            ksize_vert = precompute_coeffs(src_height, 0.0, src_height, target_height, bounds_vert, kk_vert);
+            ksize_vert = precompute_weights(src_height, target_height, bounds_vert, weights_vert);
         }
 
         // Perform two-pass resampling
@@ -4571,16 +4617,16 @@ private:
             // Both horizontal and vertical
             clip_image_u8 temp;
             temp.nx = target_width;
-            resample_horizontal(img, temp, ksize_horiz, bounds_horiz, kk_horiz);
-            resample_vertical(temp, dst, ksize_vert, bounds_vert, kk_vert);
+            resample_horizontal(img, temp, ksize_horiz, bounds_horiz, weights_horiz);
+            resample_vertical(temp, dst, ksize_vert, bounds_vert, weights_vert);
         } else if (need_horizontal) {
             // Only horizontal
-            resample_horizontal(img, dst, ksize_horiz, bounds_horiz, kk_horiz);
+            resample_horizontal(img, dst, ksize_horiz, bounds_horiz, weights_horiz);
         } else if (need_vertical) {
             // Only vertical
-            resample_vertical(img, dst, ksize_vert, bounds_vert, kk_vert);
+            resample_vertical(img, dst, ksize_vert, bounds_vert, weights_vert);
         } else {
-            // No resampling needed
+            // No resizing needed - direct copy
             dst.buf = img.buf;
         }
 
