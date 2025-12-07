@@ -11,6 +11,14 @@
 #include <thread>
 #include <signal.h>
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#   define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 // TODO: without doing this, the colors get messed up
 // the log.cpp doesn't play well with console.cpp, this should be fixed later
 #ifdef LOG
