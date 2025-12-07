@@ -3,6 +3,8 @@
 #include <iostream>
 #include <cassert>
 #include <cstddef>
+#include <cctype>
+#include <cwctype>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -41,12 +43,14 @@ namespace console {
         // Use private-use unicode values to represent special keys that are not reported
         // as characters (e.g. arrows on Windows). These values should never clash with
         // real input and let the rest of the code handle navigation uniformly.
-        static constexpr char32_t KEY_ARROW_LEFT  = 0xE000;
-        static constexpr char32_t KEY_ARROW_RIGHT = 0xE001;
-        static constexpr char32_t KEY_ARROW_UP    = 0xE002;
-        static constexpr char32_t KEY_ARROW_DOWN  = 0xE003;
-        static constexpr char32_t KEY_HOME        = 0xE004;
-        static constexpr char32_t KEY_END         = 0xE005;
+        static constexpr char32_t KEY_ARROW_LEFT       = 0xE000;
+        static constexpr char32_t KEY_ARROW_RIGHT      = 0xE001;
+        static constexpr char32_t KEY_ARROW_UP         = 0xE002;
+        static constexpr char32_t KEY_ARROW_DOWN       = 0xE003;
+        static constexpr char32_t KEY_HOME             = 0xE004;
+        static constexpr char32_t KEY_END              = 0xE005;
+        static constexpr char32_t KEY_CTRL_ARROW_LEFT  = 0xE006;
+        static constexpr char32_t KEY_CTRL_ARROW_RIGHT = 0xE007;
     }
 
     //
@@ -192,9 +196,11 @@ namespace console {
             if (record.EventType == KEY_EVENT && record.Event.KeyEvent.bKeyDown) {
                 wchar_t wc = record.Event.KeyEvent.uChar.UnicodeChar;
                 if (wc == 0) {
+                    const DWORD ctrl_mask = LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED;
+                    const bool ctrl_pressed = (record.Event.KeyEvent.dwControlKeyState & ctrl_mask) != 0;
                     switch (record.Event.KeyEvent.wVirtualKeyCode) {
-                        case VK_LEFT:  return KEY_ARROW_LEFT;
-                        case VK_RIGHT: return KEY_ARROW_RIGHT;
+                        case VK_LEFT:  return ctrl_pressed ? KEY_CTRL_ARROW_LEFT  : KEY_ARROW_LEFT;
+                        case VK_RIGHT: return ctrl_pressed ? KEY_CTRL_ARROW_RIGHT : KEY_ARROW_RIGHT;
                         case VK_UP:    return KEY_ARROW_UP;
                         case VK_DOWN:  return KEY_ARROW_DOWN;
                         case VK_HOME:  return KEY_HOME;
@@ -407,6 +413,8 @@ namespace console {
     }
 
     static void move_cursor(int delta);
+    static void move_word_left(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths, const std::string & line);
+    static void move_word_right(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths, const std::string & line);
     static void move_to_line_start(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths);
     static void move_to_line_end(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths, const std::string & line);
 
@@ -465,6 +473,123 @@ namespace console {
         move_cursor(forward_width);
         char_pos = widths.size();
         byte_pos = line.length();
+    }
+
+    static bool has_ctrl_modifier(const std::string & params) {
+        size_t start = 0;
+        while (start < params.size()) {
+            size_t end = params.find(';', start);
+            size_t len = (end == std::string::npos) ? params.size() - start : end - start;
+            if (len > 0) {
+                int value = 0;
+                for (size_t i = 0; i < len; ++i) {
+                    char ch = params[start + i];
+                    if (!std::isdigit(static_cast<unsigned char>(ch))) {
+                        value = -1;
+                        break;
+                    }
+                    value = value * 10 + (ch - '0');
+                }
+                if (value == 5) {
+                    return true;
+                }
+            }
+
+            if (end == std::string::npos) {
+                break;
+            }
+            start = end + 1;
+        }
+        return false;
+    }
+
+    static bool is_space_codepoint(char32_t cp) {
+        return std::iswspace(static_cast<wint_t>(cp)) != 0;
+    }
+
+    static void move_word_left(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths, const std::string & line) {
+        if (char_pos == 0) {
+            return;
+        }
+
+        size_t new_char_pos = char_pos;
+        size_t new_byte_pos = byte_pos;
+        int move_width = 0;
+
+        while (new_char_pos > 0) {
+            size_t prev_byte = prev_utf8_char_pos(line, new_byte_pos);
+            size_t advance = 0;
+            char32_t cp = decode_utf8(line, prev_byte, advance);
+            if (!is_space_codepoint(cp)) {
+                break;
+            }
+            move_width += widths[new_char_pos - 1];
+            new_char_pos--;
+            new_byte_pos = prev_byte;
+        }
+
+        while (new_char_pos > 0) {
+            size_t prev_byte = prev_utf8_char_pos(line, new_byte_pos);
+            size_t advance = 0;
+            char32_t cp = decode_utf8(line, prev_byte, advance);
+            if (is_space_codepoint(cp)) {
+                break;
+            }
+            move_width += widths[new_char_pos - 1];
+            new_char_pos--;
+            new_byte_pos = prev_byte;
+        }
+
+        move_cursor(-move_width);
+        char_pos = new_char_pos;
+        byte_pos = new_byte_pos;
+    }
+
+    static void move_word_right(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths, const std::string & line) {
+        if (char_pos >= widths.size()) {
+            return;
+        }
+
+        size_t new_char_pos = char_pos;
+        size_t new_byte_pos = byte_pos;
+        int move_width = 0;
+
+        while (new_char_pos < widths.size()) {
+            size_t advance = 0;
+            char32_t cp = decode_utf8(line, new_byte_pos, advance);
+            if (!is_space_codepoint(cp)) {
+                break;
+            }
+            move_width += widths[new_char_pos];
+            new_char_pos++;
+            new_byte_pos += advance;
+        }
+
+        while (new_char_pos < widths.size()) {
+            size_t advance = 0;
+            char32_t cp = decode_utf8(line, new_byte_pos, advance);
+            if (is_space_codepoint(cp)) {
+                break;
+            }
+            move_width += widths[new_char_pos];
+            new_char_pos++;
+            new_byte_pos += advance;
+        }
+
+        while (new_char_pos < widths.size()) {
+            size_t advance = 0;
+            char32_t cp = decode_utf8(line, new_byte_pos, advance);
+            if (!is_space_codepoint(cp)) {
+                break;
+            }
+            move_width += widths[new_char_pos];
+            new_char_pos++;
+            new_byte_pos += advance;
+        }
+
+        move_cursor(move_width);
+        char_pos = new_char_pos;
+        byte_pos = new_byte_pos;
     }
 
     static void move_cursor(int delta) {
@@ -540,16 +665,30 @@ namespace console {
             if (input_char == '\033') { // Escape sequence
                 char32_t code = getchar32();
                 if (code == '[') {
-                    code = getchar32();
+                    std::string params;
+                    while (true) {
+                        code = getchar32();
+                        if ((code >= 'A' && code <= 'Z') || (code >= 'a' && code <= 'z') || code == '~' || code == (char32_t) WEOF) {
+                            break;
+                        }
+                        params.push_back(static_cast<char>(code));
+                    }
+
+                    const bool ctrl_modifier = has_ctrl_modifier(params);
+
                     if (code == 'D') { // left
-                        if (char_pos > 0) {
+                        if (ctrl_modifier) {
+                            move_word_left(char_pos, byte_pos, widths, line);
+                        } else if (char_pos > 0) {
                             int w = widths[char_pos - 1];
                             move_cursor(-w);
                             char_pos--;
                             byte_pos = prev_utf8_char_pos(line, byte_pos);
                         }
                     } else if (code == 'C') { // right
-                        if (char_pos < widths.size()) {
+                        if (ctrl_modifier) {
+                            move_word_right(char_pos, byte_pos, widths, line);
+                        } else if (char_pos < widths.size()) {
                             int w = widths[char_pos];
                             move_cursor(w);
                             char_pos++;
@@ -578,16 +717,15 @@ namespace console {
                                 }
                             }
                         }
-                    } else if (code >= '0' && code <= '9') {
+                    } else if ((code == '~' || (code >= 'A' && code <= 'Z') || (code >= 'a' && code <= 'z')) && !params.empty()) {
                         std::string digits;
-                        digits.push_back(static_cast<char>(code));
-                        while (true) {
-                            code = getchar32();
-                            if (code >= '0' && code <= '9') {
-                                digits.push_back(static_cast<char>(code));
-                                continue;
+                        for (char ch : params) {
+                            if (ch == ';') {
+                                break;
                             }
-                            break;
+                            if (std::isdigit(static_cast<unsigned char>(ch))) {
+                                digits.push_back(ch);
+                            }
                         }
 
                         if (code == '~') {
@@ -597,15 +735,7 @@ namespace console {
                                 move_to_line_end(char_pos, byte_pos, widths, line);
                             }
                         }
-                    } else {
-                        // Discard the rest of the escape sequence
-                        while ((code = getchar32()) != (char32_t) WEOF) {
-                            if ((code >= 'A' && code <= 'Z') || (code >= 'a' && code <= 'z') || code == '~') {
-                                break;
-                            }
-                        }
                     }
-                    // TODO: Handle Ctrl+Arrow
                 } else if (code == 0x1B) {
                     // Discard the rest of the escape sequence
                     while ((code = getchar32()) != (char32_t) WEOF) {
@@ -629,6 +759,10 @@ namespace console {
                     char_pos++;
                     byte_pos = next_utf8_char_pos(line, byte_pos);
                 }
+            } else if (input_char == KEY_CTRL_ARROW_LEFT) {
+                move_word_left(char_pos, byte_pos, widths, line);
+            } else if (input_char == KEY_CTRL_ARROW_RIGHT) {
+                move_word_right(char_pos, byte_pos, widths, line);
             } else if (input_char == KEY_HOME) {
                 move_to_line_start(char_pos, byte_pos, widths);
             } else if (input_char == KEY_END) {
