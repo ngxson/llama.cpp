@@ -37,6 +37,7 @@
 
 namespace console {
 
+#if defined(_WIN32)
     namespace {
         // Use private-use unicode values to represent special keys that are not reported
         // as characters (e.g. arrows on Windows). These values should never clash with
@@ -48,6 +49,7 @@ namespace console {
         static constexpr char32_t KEY_HOME        = 0xE004;
         static constexpr char32_t KEY_END         = 0xE005;
     }
+#endif
 
     //
     // Console state
@@ -201,9 +203,6 @@ namespace console {
                         case VK_END:   return KEY_END;
                         default:       continue;
                     }
-                }
-                if (wc == 0) {
-                    continue;
                 }
 
                 if ((wc >= 0xD800) && (wc <= 0xDBFF)) { // Check if wc is a high surrogate
