@@ -1,6 +1,7 @@
 #include "console.h"
 #include <vector>
 #include <iostream>
+#include <cassert>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -336,20 +337,55 @@ namespace console {
     }
 
     // Helper function to remove the last UTF-8 character from a string
-    static void pop_back_utf8_char(std::string & line) {
-        if (line.empty()) {
-            return;
+    static size_t prev_utf8_char_pos(const std::string & line, size_t pos) {
+        if (pos == 0) return 0;
+        pos--;
+        while (pos > 0 && (line[pos] & 0xC0) == 0x80) {
+            pos--;
         }
+        return pos;
+    }
 
-        size_t pos = line.length() - 1;
+    static size_t next_utf8_char_pos(const std::string & line, size_t pos) {
+        if (pos >= line.length()) return line.length();
+        pos++;
+        while (pos < line.length() && (line[pos] & 0xC0) == 0x80) {
+            pos++;
+        }
+        return pos;
+    }
 
-        // Find the start of the last UTF-8 character (checking up to 4 bytes back)
-        for (size_t i = 0; i < 3 && pos > 0; ++i, --pos) {
-            if ((line[pos] & 0xC0) != 0x80) {
-                break; // Found the start of the character
+    static void move_cursor(int delta) {
+        if (delta == 0) return;
+#if defined(_WIN32)
+        if (hConsole != NULL) {
+            CONSOLE_SCREEN_BUFFER_INFO bufferInfo;
+            GetConsoleScreenBufferInfo(hConsole, &bufferInfo);
+            COORD newCursorPosition = bufferInfo.dwCursorPosition;
+            int width = bufferInfo.dwSize.X;
+            int newX = newCursorPosition.X + delta;
+            int newY = newCursorPosition.Y;
+
+            while (newX >= width) {
+                newX -= width;
+                newY++;
             }
+            while (newX < 0) {
+                newX += width;
+                newY--;
+            }
+
+            newCursorPosition.X = newX;
+            newCursorPosition.Y = newY;
+            SetConsoleCursorPosition(hConsole, newCursorPosition);
         }
-        line.erase(pos);
+#else
+        if (delta < 0) {
+            for (int i = 0; i < -delta; i++) fprintf(out, "\b");
+        } else {
+            for (int i = 0; i < delta; i++) fprintf(out, "\033[C");
+        }
+#endif
     }
 
     static bool readline_advanced(std::string & line, bool multiline_input) {
@@ -362,8 +398,14 @@ namespace console {
         bool is_special_char = false;
         bool end_of_stream = false;
 
+        size_t byte_pos = 0; // current byte index
+        size_t char_pos = 0; // current character index (one char can be multiple bytes)
+
         char32_t input_char;
         while (true) {
+            assert(char_pos <= byte_pos);
+            assert(char_pos <= widths.size());
+
             fflush(out); // Ensure all output is displayed before waiting for input
             input_char = getchar32();
 
@@ -384,7 +426,35 @@ namespace console {
 
             if (input_char == '\033') { // Escape sequence
                 char32_t code = getchar32();
-                if (code == '[' || code == 0x1B) {
+                if (code == '[') {
+                    code = getchar32();
+                    if (code == 'D') { // left
+                        if (char_pos > 0) {
+                            int w = widths[char_pos - 1];
+                            move_cursor(-w);
+                            char_pos--;
+                            byte_pos = prev_utf8_char_pos(line, byte_pos);
+                        }
+                    } else if (code == 'C') { // right
+                        if (char_pos < widths.size()) {
+                            int w = widths[char_pos];
+                            move_cursor(w);
+                            char_pos++;
+                            byte_pos = next_utf8_char_pos(line, byte_pos);
+                        }
+                    } else if (code == 'A' || code == 'B') {
+                        // up/down
+                        // TODO: Implement history navigation
+                    } else {
+                        // Discard the rest of the escape sequence
+                        while ((code = getchar32()) != (char32_t) WEOF) {
+                            if ((code >= 'A' && code <= 'Z') || (code >= 'a' && code <= 'z') || code == '~') {
+                                break;
+                            }
+                        }
+                    }
+                    // TODO: Handle Ctrl+Arrow
+                } else if (code == 0x1B) {
                     // Discard the rest of the escape sequence
                     while ((code = getchar32()) != (char32_t) WEOF) {
                         if ((code >= 'A' && code <= 'Z') || (code >= 'a' && code <= 'z') || code == '~') {
@@ -393,27 +463,72 @@ namespace console {
                     }
                 }
             } else if (input_char == 0x08 || input_char == 0x7F) { // Backspace
-                if (!widths.empty()) {
-                    int count;
-                    do {
-                        count = widths.back();
-                        widths.pop_back();
-                        // Move cursor back, print space, and move cursor back again
-                        for (int i = 0; i < count; i++) {
-                            replace_last(' ');
-                            pop_cursor();
-                        }
-                        pop_back_utf8_char(line);
-                    } while (count == 0 && !widths.empty());
+                if (char_pos > 0) {
+                    int w = widths[char_pos - 1];
+                    move_cursor(-w);
+                    char_pos--;
+                    size_t prev_pos = prev_utf8_char_pos(line, byte_pos);
+                    size_t char_len = byte_pos - prev_pos;
+                    byte_pos = prev_pos;
+
+                    // remove the character
+                    line.erase(byte_pos, char_len);
+                    widths.erase(widths.begin() + char_pos);
+
+                    // redraw tail
+                    size_t p = byte_pos;
+                    int tail_width = 0;
+                    for (size_t i = char_pos; i < widths.size(); ++i) {
+                        size_t next_p = next_utf8_char_pos(line, p);
+                        put_codepoint(line.c_str() + p, next_p - p, widths[i]);
+                        tail_width += widths[i];
+                        p = next_p;
+                    }
+
+                    // clear display
+                    for (int i = 0; i < w; ++i) {
+                        fputc(' ', out);
+                    }
+                    move_cursor(-(tail_width + w));
                 }
             } else {
-                int offset = line.length();
-                append_utf8(input_char, line);
-                int width = put_codepoint(line.c_str() + offset, line.length() - offset, estimateWidth(input_char));
-                if (width < 0) {
-                    width = 0;
+                // insert character
+                std::string new_char_str;
+                append_utf8(input_char, new_char_str);
+                int w = estimateWidth(input_char);
+
+                if (char_pos == widths.size()) {
+                    // insert at the end
+                    line += new_char_str;
+                    int real_w = put_codepoint(new_char_str.c_str(), new_char_str.length(), w);
+                    if (real_w < 0) real_w = 0;
+                    widths.push_back(real_w);
+                    byte_pos += new_char_str.length();
+                    char_pos++;
+                } else {
+                    // insert in middle
+                    line.insert(byte_pos, new_char_str);
+
+                    int real_w = put_codepoint(new_char_str.c_str(), new_char_str.length(), w);
+                    if (real_w < 0) real_w = 0;
+
+                    widths.insert(widths.begin() + char_pos, real_w);
+
+                    // print the tail
+                    size_t p = byte_pos + new_char_str.length();
+                    int tail_width = 0;
+                    for (size_t i = char_pos + 1; i < widths.size(); ++i) {
+                        size_t next_p = next_utf8_char_pos(line, p);
+                        put_codepoint(line.c_str() + p, next_p - p, widths[i]);
+                        tail_width += widths[i];
+                        p = next_p;
+                    }
+
+                    move_cursor(-tail_width);
+
+                    byte_pos += new_char_str.length();
+                    char_pos++;
                 }
-                widths.push_back(width);
             }
 
             if (!line.empty() && (line.back() == '\\' || line.back() == '/')) {
