@@ -9,6 +9,7 @@ namespace console {
         reset = 0,
         info,
         prompt,
+        reasoning,
         user_input,
         error
     };

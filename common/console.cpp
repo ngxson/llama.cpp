@@ -30,6 +30,7 @@
 #define ANSI_COLOR_BLUE    "\x1b[34m"
 #define ANSI_COLOR_MAGENTA "\x1b[35m"
 #define ANSI_COLOR_CYAN    "\x1b[36m"
+#define ANSI_COLOR_GRAY    "\x1b[90m"
 #define ANSI_COLOR_RESET   "\x1b[0m"
 #define ANSI_BOLD          "\x1b[1m"
 
@@ -156,6 +157,9 @@ namespace console {
                     break;
                 case prompt:
                     fprintf(out, ANSI_COLOR_YELLOW);
+                    break;
+                case reasoning:
+                    fprintf(out, ANSI_COLOR_GRAY);
                     break;
                 case user_input:
                     fprintf(out, ANSI_BOLD ANSI_COLOR_GREEN);

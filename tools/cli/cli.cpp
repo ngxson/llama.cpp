@@ -83,6 +83,7 @@ struct cli_context {
         defaults.stream = true; // make sure we always use streaming mode
         defaults.timings_per_token = true; // in order to get timings even when we cancel mid-way
         // defaults.return_progress = true; // TODO: show progress
+        defaults.oaicompat_chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
 
         // TODO: improve this mechanism later
         loading_display_thread = std::thread([this]() {
@@ -115,9 +116,11 @@ struct cli_context {
             // TODO: reduce some copies here in the future
             server_task task = server_task(SERVER_TASK_TYPE_COMPLETION);
             task.id        = queues.first.get_new_id();
+            task.index     = 0;
             task.params    = defaults;    // copy
             task.cli_input = messages;    // copy
             task.cli_files = input_files; // copy
+            rd.set_states({task_result_state(defaults.oaicompat_chat_syntax)});
             rd.post_task({std::move(task)});
         }
 
@@ -127,6 +130,7 @@ struct cli_context {
 
         hide_loading();
         std::string curr_content;
+        bool is_thinking = false;
 
         while (result) {
             if (should_stop()) {
@@ -144,9 +148,26 @@ struct cli_context {
             auto res_partial = dynamic_cast<server_task_result_cmpl_partial *>(result.get());
             if (res_partial) {
                 out_timings = std::move(res_partial->timings);
-                curr_content += res_partial->content;
-                LOG("%s", res_partial->content.c_str());
-                fflush(stdout);
+                for (const auto & diff : res_partial->oaicompat_msg_diffs) {
+                    if (!diff.content_delta.empty()) {
+                        if (is_thinking) {
+                            LOG("\n[End thinking]\n\n");
+                            console::set_display(console::reset);
+                            is_thinking = false;
+                        }
+                        curr_content += diff.content_delta;
+                        LOG("%s", diff.content_delta.c_str());
+                    }
+                    if (!diff.reasoning_content_delta.empty()) {
+                        console::set_display(console::reasoning);
+                        if (!is_thinking) {
+                            LOG("[Start thinking]\n");
+                        }
+                        is_thinking = true;
+                        LOG("%s", diff.reasoning_content_delta.c_str());
+                    }
+                    fflush(stdout);
+                }
             }
             auto res_final = dynamic_cast<server_task_result_cmpl_final *>(result.get());
             if (res_final) {
