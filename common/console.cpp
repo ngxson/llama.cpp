@@ -36,6 +36,16 @@
 
 namespace console {
 
+    namespace {
+        // Use private-use unicode values to represent special keys that are not reported
+        // as characters (e.g. arrows on Windows). These values should never clash with
+        // real input and let the rest of the code handle navigation uniformly.
+        static constexpr char32_t KEY_ARROW_LEFT  = 0xE000;
+        static constexpr char32_t KEY_ARROW_RIGHT = 0xE001;
+        static constexpr char32_t KEY_ARROW_UP    = 0xE002;
+        static constexpr char32_t KEY_ARROW_DOWN  = 0xE003;
+    }
+
     //
     // Console state
     //
@@ -176,6 +186,15 @@ namespace console {
 
             if (record.EventType == KEY_EVENT && record.Event.KeyEvent.bKeyDown) {
                 wchar_t wc = record.Event.KeyEvent.uChar.UnicodeChar;
+                if (wc == 0) {
+                    switch (record.Event.KeyEvent.wVirtualKeyCode) {
+                        case VK_LEFT:  return KEY_ARROW_LEFT;
+                        case VK_RIGHT: return KEY_ARROW_RIGHT;
+                        case VK_UP:    return KEY_ARROW_UP;
+                        case VK_DOWN:  return KEY_ARROW_DOWN;
+                        default:       continue;
+                    }
+                }
                 if (wc == 0) {
                     continue;
                 }
@@ -462,6 +481,24 @@ namespace console {
                         }
                     }
                 }
+#if defined(_WIN32)
+            } else if (input_char == KEY_ARROW_LEFT) {
+                if (char_pos > 0) {
+                    int w = widths[char_pos - 1];
+                    move_cursor(-w);
+                    char_pos--;
+                    byte_pos = prev_utf8_char_pos(line, byte_pos);
+                }
+            } else if (input_char == KEY_ARROW_RIGHT) {
+                if (char_pos < widths.size()) {
+                    int w = widths[char_pos];
+                    move_cursor(w);
+                    char_pos++;
+                    byte_pos = next_utf8_char_pos(line, byte_pos);
+                }
+            } else if (input_char == KEY_ARROW_UP || input_char == KEY_ARROW_DOWN) {
+                // TODO: Implement history navigation
+#endif
             } else if (input_char == 0x08 || input_char == 0x7F) { // Backspace
                 if (char_pos > 0) {
                     int w = widths[char_pos - 1];
