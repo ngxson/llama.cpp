@@ -51,6 +51,7 @@ namespace console {
         static constexpr char32_t KEY_END              = 0xE005;
         static constexpr char32_t KEY_CTRL_ARROW_LEFT  = 0xE006;
         static constexpr char32_t KEY_CTRL_ARROW_RIGHT = 0xE007;
+        static constexpr char32_t KEY_DELETE           = 0xE008;
     }
 
     //
@@ -199,13 +200,14 @@ namespace console {
                     const DWORD ctrl_mask = LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED;
                     const bool ctrl_pressed = (record.Event.KeyEvent.dwControlKeyState & ctrl_mask) != 0;
                     switch (record.Event.KeyEvent.wVirtualKeyCode) {
-                        case VK_LEFT:  return ctrl_pressed ? KEY_CTRL_ARROW_LEFT  : KEY_ARROW_LEFT;
-                        case VK_RIGHT: return ctrl_pressed ? KEY_CTRL_ARROW_RIGHT : KEY_ARROW_RIGHT;
-                        case VK_UP:    return KEY_ARROW_UP;
-                        case VK_DOWN:  return KEY_ARROW_DOWN;
-                        case VK_HOME:  return KEY_HOME;
-                        case VK_END:   return KEY_END;
-                        default:       continue;
+                        case VK_LEFT:   return ctrl_pressed ? KEY_CTRL_ARROW_LEFT  : KEY_ARROW_LEFT;
+                        case VK_RIGHT:  return ctrl_pressed ? KEY_CTRL_ARROW_RIGHT : KEY_ARROW_RIGHT;
+                        case VK_UP:     return KEY_ARROW_UP;
+                        case VK_DOWN:   return KEY_ARROW_DOWN;
+                        case VK_HOME:   return KEY_HOME;
+                        case VK_END:    return KEY_END;
+                        case VK_DELETE: return KEY_DELETE;
+                        default:        continue;
                     }
                 }
 
@@ -417,6 +419,34 @@ namespace console {
     static void move_word_right(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths, const std::string & line);
     static void move_to_line_start(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths);
     static void move_to_line_end(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths, const std::string & line);
+
+    static void delete_at_cursor(std::string & line, std::vector<int> & widths, size_t & char_pos, size_t & byte_pos) {
+        if (char_pos >= widths.size()) {
+            return;
+        }
+
+        size_t next_pos = next_utf8_char_pos(line, byte_pos);
+        int w = widths[char_pos];
+        size_t char_len = next_pos - byte_pos;
+
+        line.erase(byte_pos, char_len);
+        widths.erase(widths.begin() + char_pos);
+
+        size_t p = byte_pos;
+        int tail_width = 0;
+        for (size_t i = char_pos; i < widths.size(); ++i) {
+            size_t following = next_utf8_char_pos(line, p);
+            put_codepoint(line.c_str() + p, following - p, widths[i]);
+            tail_width += widths[i];
+            p = following;
+        }
+
+        for (int i = 0; i < w; ++i) {
+            fputc(' ', out);
+        }
+
+        move_cursor(-(tail_width + w));
+    }
 
     static void clear_current_line(const std::vector<int> & widths) {
         int total_width = 0;
@@ -733,6 +763,8 @@ namespace console {
                                 move_to_line_start(char_pos, byte_pos, widths);
                             } else if (digits == "4" || digits == "8") {
                                 move_to_line_end(char_pos, byte_pos, widths, line);
+                            } else if (digits == "3") {
+                                delete_at_cursor(line, widths, char_pos, byte_pos);
                             }
                         }
                     }
@@ -767,6 +799,8 @@ namespace console {
                 move_to_line_start(char_pos, byte_pos, widths);
             } else if (input_char == KEY_END) {
                 move_to_line_end(char_pos, byte_pos, widths, line);
+            } else if (input_char == KEY_DELETE) {
+                delete_at_cursor(line, widths, char_pos, byte_pos);
             } else if (input_char == KEY_ARROW_UP || input_char == KEY_ARROW_DOWN) {
                 if (!history.empty()) {
                     if (input_char == KEY_ARROW_UP && history_index > 0) {
