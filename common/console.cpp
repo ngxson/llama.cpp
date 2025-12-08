@@ -3,6 +3,8 @@
 #include <iostream>
 #include <cassert>
 #include <cstddef>
+#include <cctype>
+#include <cwctype>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -37,23 +39,26 @@
 
 namespace console {
 
-#if defined(_WIN32)
+#if defined (_WIN32)
     namespace {
         // Use private-use unicode values to represent special keys that are not reported
         // as characters (e.g. arrows on Windows). These values should never clash with
         // real input and let the rest of the code handle navigation uniformly.
-        static constexpr char32_t KEY_ARROW_LEFT  = 0xE000;
-        static constexpr char32_t KEY_ARROW_RIGHT = 0xE001;
-        static constexpr char32_t KEY_ARROW_UP    = 0xE002;
-        static constexpr char32_t KEY_ARROW_DOWN  = 0xE003;
-        static constexpr char32_t KEY_HOME        = 0xE004;
-        static constexpr char32_t KEY_END         = 0xE005;
+        static constexpr char32_t KEY_ARROW_LEFT       = 0xE000;
+        static constexpr char32_t KEY_ARROW_RIGHT      = 0xE001;
+        static constexpr char32_t KEY_ARROW_UP         = 0xE002;
+        static constexpr char32_t KEY_ARROW_DOWN       = 0xE003;
+        static constexpr char32_t KEY_HOME             = 0xE004;
+        static constexpr char32_t KEY_END              = 0xE005;
+        static constexpr char32_t KEY_CTRL_ARROW_LEFT  = 0xE006;
+        static constexpr char32_t KEY_CTRL_ARROW_RIGHT = 0xE007;
+        static constexpr char32_t KEY_DELETE           = 0xE008;
     }
-#endif
 
     //
     // Console state
     //
+#endif
 
     static bool      advanced_display = false;
     static bool      simple_io        = true;
@@ -194,14 +199,17 @@ namespace console {
             if (record.EventType == KEY_EVENT && record.Event.KeyEvent.bKeyDown) {
                 wchar_t wc = record.Event.KeyEvent.uChar.UnicodeChar;
                 if (wc == 0) {
+                    const DWORD ctrl_mask = LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED;
+                    const bool ctrl_pressed = (record.Event.KeyEvent.dwControlKeyState & ctrl_mask) != 0;
                     switch (record.Event.KeyEvent.wVirtualKeyCode) {
-                        case VK_LEFT:  return KEY_ARROW_LEFT;
-                        case VK_RIGHT: return KEY_ARROW_RIGHT;
-                        case VK_UP:    return KEY_ARROW_UP;
-                        case VK_DOWN:  return KEY_ARROW_DOWN;
-                        case VK_HOME:  return KEY_HOME;
-                        case VK_END:   return KEY_END;
-                        default:       continue;
+                        case VK_LEFT:   return ctrl_pressed ? KEY_CTRL_ARROW_LEFT  : KEY_ARROW_LEFT;
+                        case VK_RIGHT:  return ctrl_pressed ? KEY_CTRL_ARROW_RIGHT : KEY_ARROW_RIGHT;
+                        case VK_UP:     return KEY_ARROW_UP;
+                        case VK_DOWN:   return KEY_ARROW_DOWN;
+                        case VK_HOME:   return KEY_HOME;
+                        case VK_END:    return KEY_END;
+                        case VK_DELETE: return KEY_DELETE;
+                        default:        continue;
                     }
                 }
 
@@ -409,8 +417,38 @@ namespace console {
     }
 
     static void move_cursor(int delta);
+    static void move_word_left(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths, const std::string & line);
+    static void move_word_right(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths, const std::string & line);
     static void move_to_line_start(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths);
     static void move_to_line_end(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths, const std::string & line);
+
+    static void delete_at_cursor(std::string & line, std::vector<int> & widths, size_t & char_pos, size_t & byte_pos) {
+        if (char_pos >= widths.size()) {
+            return;
+        }
+
+        size_t next_pos = next_utf8_char_pos(line, byte_pos);
+        int w = widths[char_pos];
+        size_t char_len = next_pos - byte_pos;
+
+        line.erase(byte_pos, char_len);
+        widths.erase(widths.begin() + char_pos);
+
+        size_t p = byte_pos;
+        int tail_width = 0;
+        for (size_t i = char_pos; i < widths.size(); ++i) {
+            size_t following = next_utf8_char_pos(line, p);
+            put_codepoint(line.c_str() + p, following - p, widths[i]);
+            tail_width += widths[i];
+            p = following;
+        }
+
+        for (int i = 0; i < w; ++i) {
+            fputc(' ', out);
+        }
+
+        move_cursor(-(tail_width + w));
+    }
 
     static void clear_current_line(const std::vector<int> & widths) {
         int total_width = 0;
@@ -469,6 +507,123 @@ namespace console {
         byte_pos = line.length();
     }
 
+    static bool has_ctrl_modifier(const std::string & params) {
+        size_t start = 0;
+        while (start < params.size()) {
+            size_t end = params.find(';', start);
+            size_t len = (end == std::string::npos) ? params.size() - start : end - start;
+            if (len > 0) {
+                int value = 0;
+                for (size_t i = 0; i < len; ++i) {
+                    char ch = params[start + i];
+                    if (!std::isdigit(static_cast<unsigned char>(ch))) {
+                        value = -1;
+                        break;
+                    }
+                    value = value * 10 + (ch - '0');
+                }
+                if (value == 5) {
+                    return true;
+                }
+            }
+
+            if (end == std::string::npos) {
+                break;
+            }
+            start = end + 1;
+        }
+        return false;
+    }
+
+    static bool is_space_codepoint(char32_t cp) {
+        return std::iswspace(static_cast<wint_t>(cp)) != 0;
+    }
+
+    static void move_word_left(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths, const std::string & line) {
+        if (char_pos == 0) {
+            return;
+        }
+
+        size_t new_char_pos = char_pos;
+        size_t new_byte_pos = byte_pos;
+        int move_width = 0;
+
+        while (new_char_pos > 0) {
+            size_t prev_byte = prev_utf8_char_pos(line, new_byte_pos);
+            size_t advance = 0;
+            char32_t cp = decode_utf8(line, prev_byte, advance);
+            if (!is_space_codepoint(cp)) {
+                break;
+            }
+            move_width += widths[new_char_pos - 1];
+            new_char_pos--;
+            new_byte_pos = prev_byte;
+        }
+
+        while (new_char_pos > 0) {
+            size_t prev_byte = prev_utf8_char_pos(line, new_byte_pos);
+            size_t advance = 0;
+            char32_t cp = decode_utf8(line, prev_byte, advance);
+            if (is_space_codepoint(cp)) {
+                break;
+            }
+            move_width += widths[new_char_pos - 1];
+            new_char_pos--;
+            new_byte_pos = prev_byte;
+        }
+
+        move_cursor(-move_width);
+        char_pos = new_char_pos;
+        byte_pos = new_byte_pos;
+    }
+
+    static void move_word_right(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths, const std::string & line) {
+        if (char_pos >= widths.size()) {
+            return;
+        }
+
+        size_t new_char_pos = char_pos;
+        size_t new_byte_pos = byte_pos;
+        int move_width = 0;
+
+        while (new_char_pos < widths.size()) {
+            size_t advance = 0;
+            char32_t cp = decode_utf8(line, new_byte_pos, advance);
+            if (!is_space_codepoint(cp)) {
+                break;
+            }
+            move_width += widths[new_char_pos];
+            new_char_pos++;
+            new_byte_pos += advance;
+        }
+
+        while (new_char_pos < widths.size()) {
+            size_t advance = 0;
+            char32_t cp = decode_utf8(line, new_byte_pos, advance);
+            if (is_space_codepoint(cp)) {
+                break;
+            }
+            move_width += widths[new_char_pos];
+            new_char_pos++;
+            new_byte_pos += advance;
+        }
+
+        while (new_char_pos < widths.size()) {
+            size_t advance = 0;
+            char32_t cp = decode_utf8(line, new_byte_pos, advance);
+            if (!is_space_codepoint(cp)) {
+                break;
+            }
+            move_width += widths[new_char_pos];
+            new_char_pos++;
+            new_byte_pos += advance;
+        }
+
+        move_cursor(move_width);
+        char_pos = new_char_pos;
+        byte_pos = new_byte_pos;
+    }
+
     static void move_cursor(int delta) {
         if (delta == 0) return;
 #if defined(_WIN32)
@@ -512,6 +667,9 @@ namespace console {
         bool is_special_char = false;
         bool end_of_stream = false;
         size_t history_index = history.size();
+        std::string original_backup;
+        std::string prompt_backup;
+        size_t backup_index = SIZE_MAX;
 
         size_t byte_pos = 0; // current byte index
         size_t char_pos = 0; // current character index (one char can be multiple bytes)
@@ -520,6 +678,11 @@ namespace console {
         while (true) {
             assert(char_pos <= byte_pos);
             assert(char_pos <= widths.size());
+            auto sync_history_line = [&]() {
+                if (history_index < history.size()) {
+                    history[history_index] = line;
+                }
+            };
 
             fflush(out); // Ensure all output is displayed before waiting for input
             input_char = getchar32();
@@ -542,16 +705,30 @@ namespace console {
             if (input_char == '\033') { // Escape sequence
                 char32_t code = getchar32();
                 if (code == '[') {
-                    code = getchar32();
+                    std::string params;
+                    while (true) {
+                        code = getchar32();
+                        if ((code >= 'A' && code <= 'Z') || (code >= 'a' && code <= 'z') || code == '~' || code == (char32_t) WEOF) {
+                            break;
+                        }
+                        params.push_back(static_cast<char>(code));
+                    }
+
+                    const bool ctrl_modifier = has_ctrl_modifier(params);
+
                     if (code == 'D') { // left
-                        if (char_pos > 0) {
+                        if (ctrl_modifier) {
+                            move_word_left(char_pos, byte_pos, widths, line);
+                        } else if (char_pos > 0) {
                             int w = widths[char_pos - 1];
                             move_cursor(-w);
                             char_pos--;
                             byte_pos = prev_utf8_char_pos(line, byte_pos);
                         }
                     } else if (code == 'C') { // right
-                        if (char_pos < widths.size()) {
+                        if (ctrl_modifier) {
+                            move_word_right(char_pos, byte_pos, widths, line);
+                        } else if (char_pos < widths.size()) {
                             int w = widths[char_pos];
                             move_cursor(w);
                             char_pos++;
@@ -565,31 +742,40 @@ namespace console {
                         // up/down
                         if (!history.empty()) {
                             if (code == 'A' && history_index > 0) {
+                                sync_history_line();
+                                const bool from_end = history_index == history.size();
+                                if (from_end) {
+                                    prompt_backup = line;
+                                }
                                 history_index--;
+                                original_backup = history[history_index];
+                                backup_index = history_index;
                                 set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
                                 is_special_char = false;
                             } else if (code == 'B') {
+                                sync_history_line();
                                 if (history_index + 1 < history.size()) {
                                     history_index++;
+                                    original_backup = history[history_index];
+                                    backup_index = history_index;
                                     set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
                                     is_special_char = false;
                                 } else if (history_index < history.size()) {
                                     history_index = history.size();
-                                    set_line_contents("", line, widths, char_pos, byte_pos);
+                                    set_line_contents(prompt_backup, line, widths, char_pos, byte_pos);
                                     is_special_char = false;
                                 }
                             }
                         }
-                    } else if (code >= '0' && code <= '9') {
+                    } else if ((code == '~' || (code >= 'A' && code <= 'Z') || (code >= 'a' && code <= 'z')) && !params.empty()) {
                         std::string digits;
-                        digits.push_back(static_cast<char>(code));
-                        while (true) {
-                            code = getchar32();
-                            if (code >= '0' && code <= '9') {
-                                digits.push_back(static_cast<char>(code));
-                                continue;
+                        for (char ch : params) {
+                            if (ch == ';') {
+                                break;
                             }
-                            break;
+                            if (std::isdigit(static_cast<unsigned char>(ch))) {
+                                digits.push_back(ch);
+                            }
                         }
 
                         if (code == '~') {
@@ -597,17 +783,11 @@ namespace console {
                                 move_to_line_start(char_pos, byte_pos, widths);
                             } else if (digits == "4" || digits == "8") {
                                 move_to_line_end(char_pos, byte_pos, widths, line);
-                            }
-                        }
-                    } else {
-                        // Discard the rest of the escape sequence
-                        while ((code = getchar32()) != (char32_t) WEOF) {
-                            if ((code >= 'A' && code <= 'Z') || (code >= 'a' && code <= 'z') || code == '~') {
-                                break;
+                            } else if (digits == "3") {
+                                delete_at_cursor(line, widths, char_pos, byte_pos);
                             }
                         }
                     }
-                    // TODO: Handle Ctrl+Arrow
                 } else if (code == 0x1B) {
                     // Discard the rest of the escape sequence
                     while ((code = getchar32()) != (char32_t) WEOF) {
@@ -631,24 +811,41 @@ namespace console {
                     char_pos++;
                     byte_pos = next_utf8_char_pos(line, byte_pos);
                 }
+            } else if (input_char == KEY_CTRL_ARROW_LEFT) {
+                move_word_left(char_pos, byte_pos, widths, line);
+            } else if (input_char == KEY_CTRL_ARROW_RIGHT) {
+                move_word_right(char_pos, byte_pos, widths, line);
             } else if (input_char == KEY_HOME) {
                 move_to_line_start(char_pos, byte_pos, widths);
             } else if (input_char == KEY_END) {
                 move_to_line_end(char_pos, byte_pos, widths, line);
-            } else if (input_char == KEY_ARROW_UP || input_char == KEY_ARROW_DOWN) {
-                if (!history.empty()) {
-                    if (input_char == KEY_ARROW_UP && history_index > 0) {
-                        history_index--;
-                        set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
-                        is_special_char = false;
-                    } else if (input_char == KEY_ARROW_DOWN) {
-                        if (history_index + 1 < history.size()) {
-                            history_index++;
-                            set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
-                            is_special_char = false;
-                        } else if (history_index < history.size()) {
-                            history_index = history.size();
-                            set_line_contents("", line, widths, char_pos, byte_pos);
+            } else if (input_char == KEY_DELETE) {
+                delete_at_cursor(line, widths, char_pos, byte_pos);
+                sync_history_line();
+                    } else if (input_char == KEY_ARROW_UP || input_char == KEY_ARROW_DOWN) {
+                        if (!history.empty()) {
+                            if (input_char == KEY_ARROW_UP && history_index > 0) {
+                                sync_history_line();
+                                const bool from_end = history_index == history.size();
+                                if (from_end) {
+                                    prompt_backup = line;
+                                }
+                                history_index--;
+                                original_backup = history[history_index];
+                                backup_index = history_index;
+                                set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
+                                is_special_char = false;
+                            } else if (input_char == KEY_ARROW_DOWN) {
+                                sync_history_line();
+                                if (history_index + 1 < history.size()) {
+                                    history_index++;
+                                    original_backup = history[history_index];
+                                    backup_index = history_index;
+                                    set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
+                                    is_special_char = false;
+                                } else if (history_index < history.size()) {
+                                    history_index = history.size();
+                                    set_line_contents(prompt_backup, line, widths, char_pos, byte_pos);
                             is_special_char = false;
                         }
                     }
@@ -682,6 +879,7 @@ namespace console {
                         fputc(' ', out);
                     }
                     move_cursor(-(tail_width + w));
+                    sync_history_line();
                 }
             } else {
                 // insert character
@@ -759,6 +957,9 @@ namespace console {
         }
 
         if (!end_of_stream && !line.empty()) {
+            if (backup_index < history.size()) {
+                history[backup_index] = original_backup;
+            }
             std::string history_entry = line;
             if (!history_entry.empty() && history_entry.back() == '\n') {
                 history_entry.pop_back();
