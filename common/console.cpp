@@ -355,16 +355,34 @@ namespace console {
             return c;
         }
         if ((c & 0xE0u) == 0xC0u && pos + 1 < input.size()) {
+            unsigned char c1 = static_cast<unsigned char>(input[pos + 1]);
+            if ((c1 & 0xC0u) != 0x80u) {
+                advance = 1;
+                return 0xFFFD;
+            }
             advance = 2;
             return ((c & 0x1Fu) << 6) | (static_cast<unsigned char>(input[pos + 1]) & 0x3Fu);
         }
         if ((c & 0xF0u) == 0xE0u && pos + 2 < input.size()) {
+            unsigned char c1 = static_cast<unsigned char>(input[pos + 1]);
+            unsigned char c2 = static_cast<unsigned char>(input[pos + 2]);
+            if ((c1 & 0xC0u) != 0x80u || (c2 & 0xC0u) != 0x80u) {
+                advance = 1;
+                return 0xFFFD;
+            }
             advance = 3;
             return ((c & 0x0Fu) << 12) |
                    ((static_cast<unsigned char>(input[pos + 1]) & 0x3Fu) << 6) |
                    (static_cast<unsigned char>(input[pos + 2]) & 0x3Fu);
         }
         if ((c & 0xF8u) == 0xF0u && pos + 3 < input.size()) {
+            unsigned char c1 = static_cast<unsigned char>(input[pos + 1]);
+            unsigned char c2 = static_cast<unsigned char>(input[pos + 2]);
+            unsigned char c3 = static_cast<unsigned char>(input[pos + 3]);
+            if ((c1 & 0xC0u) != 0x80u || (c2 & 0xC0u) != 0x80u || (c3 & 0xC0u) != 0x80u) {
+                advance = 1;
+                return 0xFFFD;
+            }
             advance = 4;
             return ((c & 0x07u) << 18) |
                    ((static_cast<unsigned char>(input[pos + 1]) & 0x3Fu) << 12) |
@@ -864,7 +882,6 @@ namespace console {
                 move_to_line_end(char_pos, byte_pos, widths, line);
             } else if (input_char == KEY_DELETE) {
                 delete_at_cursor(line, widths, char_pos, byte_pos);
-                sync_history_line();
             } else if (input_char == KEY_ARROW_UP || input_char == KEY_ARROW_DOWN) {
                 if (input_char == KEY_ARROW_UP) {
                     history_prev();
