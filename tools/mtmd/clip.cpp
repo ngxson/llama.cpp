@@ -2888,7 +2888,7 @@ private:
         ggml_tensor * learned_pos_embd = ggml_get_rows(ctx0, new_pos_embd, positions);
 
         ggml_tensor * cur = build_vit(inp, n_pos, NORM_TYPE_NORMAL, ffn_op_type::FFN_GELU_QUICK,
-                                      learned_pos_embd, nullptr);  // shape [1024, 16, 16]
+                                      learned_pos_embd, nullptr);
 
         ggml_build_forward_expand(gf, cur);
 

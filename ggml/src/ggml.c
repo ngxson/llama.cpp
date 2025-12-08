@@ -4893,6 +4893,7 @@ static struct ggml_tensor * ggml_interpolate_impl(
     GGML_ASSERT((mode & 0xFF) < GGML_SCALE_MODE_COUNT);
     // TODO: implement antialias for modes other than bilinear
     GGML_ASSERT(!(mode & GGML_SCALE_FLAG_ANTIALIAS) || (mode & 0xFF) == GGML_SCALE_MODE_BILINEAR);
+    GGML_ASSERT(a->type == GGML_TYPE_F32);
 
     struct ggml_tensor * result = ggml_new_tensor_4d(ctx, a->type, ne0, ne1, ne2, ne3);
 
