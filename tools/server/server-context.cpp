@@ -2385,6 +2385,8 @@ struct server_context_impl {
             // on successful decode, restore the original batch size
             n_batch = llama_n_batch(ctx);
 
+            const int64_t t_current = ggml_time_us();
+
             for (auto & slot : slots) {
                 // optionally send prompt processing progress
                 if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_DONE_PROMPT) {
@@ -2433,8 +2435,6 @@ struct server_context_impl {
 
                 slot.n_decoded += 1;
 
-                const int64_t t_current = ggml_time_us();
-
                 if (slot.n_decoded == 1) {
                     slot.t_start_generation = t_current;
                     slot.t_prompt_processing = (slot.t_start_generation - slot.t_start_process_prompt) / 1e3;
@@ -2477,6 +2477,8 @@ struct server_context_impl {
                 slot.drafted.clear();
 
                 slot.n_decoded += ids.size();
+
+                slot.t_token_generation = std::max<int64_t>(1, t_current - slot.t_start_generation) / 1e3;
 
                 // update how many tokens out of those tested were accepted
                 slot.n_draft_accepted += ids.size() - 1;
