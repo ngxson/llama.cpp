@@ -65,8 +65,6 @@ namespace console {
     static bool      simple_io        = true;
     static display_t current_display  = reset;
 
-    static std::vector<std::string> history;
-
     static FILE*     out              = stdout;
 
 #if defined (_WIN32)
@@ -658,6 +656,60 @@ namespace console {
 #endif
     }
 
+    struct history_t {
+        std::vector<std::string> entries;
+        size_t viewing_idx = SIZE_MAX;
+        std::string backup_line; // current line before viewing history
+        void add(const std::string & line) {
+            if (line.empty()) {
+                return;
+            }
+            // avoid duplicates with the last entry
+            if (entries.empty() || entries.back() != line) {
+                entries.push_back(line);
+            }
+            // also clear viewing state
+            end_viewing();
+        }
+        bool prev(std::string & cur_line) {
+            if (entries.empty()) {
+                return false;
+            }
+            if (viewing_idx == SIZE_MAX) {
+                return false;
+            }
+            if (viewing_idx > 0) {
+                viewing_idx--;
+            }
+            cur_line = entries[viewing_idx];
+            return true;
+        }
+        bool next(std::string & cur_line) {
+            if (entries.empty() || viewing_idx == SIZE_MAX) {
+                return false;
+            }
+            viewing_idx++;
+            if (viewing_idx >= entries.size()) {
+                cur_line = backup_line;
+                end_viewing();
+            } else {
+                cur_line = entries[viewing_idx];
+            }
+            return true;
+        }
+        void begin_viewing(const std::string & line) {
+            backup_line = line;
+            viewing_idx = entries.size();
+        }
+        void end_viewing() {
+            viewing_idx = SIZE_MAX;
+            backup_line.clear();
+        }
+        bool is_viewing() const {
+            return viewing_idx != SIZE_MAX;
+        }
+    } history;
+
     static bool readline_advanced(std::string & line, bool multiline_input) {
         if (out != stdout) {
             fflush(stdout);
@@ -667,10 +719,6 @@ namespace console {
         std::vector<int> widths;
         bool is_special_char = false;
         bool end_of_stream = false;
-        size_t history_index = history.size();
-        std::string original_backup;
-        std::string prompt_backup;
-        size_t backup_index = SIZE_MAX;
 
         size_t byte_pos = 0; // current byte index
         size_t char_pos = 0; // current character index (one char can be multiple bytes)
@@ -679,39 +727,23 @@ namespace console {
         while (true) {
             assert(char_pos <= byte_pos);
             assert(char_pos <= widths.size());
-            auto sync_history_line = [&]() {
-                if (history_index < history.size()) {
-                    history[history_index] = line;
-                }
-            };
             auto history_prev = [&]() {
-                if (history.empty()) {
+                if (!history.is_viewing()) {
+                    history.begin_viewing(line);
+                }
+                std::string new_line;
+                if (!history.prev(new_line)) {
                     return;
                 }
-                if (history_index > 0) {
-                    sync_history_line();
-                    history_index--;
-                    original_backup = history[history_index];
-                    backup_index = history_index;
-                    set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
-                    is_special_char = false;
-                }
+                set_line_contents(new_line, line, widths, char_pos, byte_pos);
             };
             auto history_next = [&]() {
-                if (history.empty()) {
-                    return;
-                }
-                sync_history_line();
-                if (history_index + 1 < history.size()) {
-                    history_index++;
-                    original_backup = history[history_index];
-                    backup_index = history_index;
-                    set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
-                    is_special_char = false;
-                } else if (history_index < history.size()) {
-                    history_index = history.size();
-                    set_line_contents(prompt_backup, line, widths, char_pos, byte_pos);
-                    is_special_char = false;
+                if (history.is_viewing()) {
+                    std::string new_line;
+                    if (!history.next(new_line)) {
+                        return;
+                    }
+                    set_line_contents(new_line, line, widths, char_pos, byte_pos);
                 }
             };
 
@@ -773,8 +805,10 @@ namespace console {
                         // up/down
                         if (code == 'A') {
                             history_prev();
+                            is_special_char = false;
                         } else if (code == 'B') {
                             history_next();
+                            is_special_char = false;
                         }
                     } else if ((code == '~' || (code >= 'A' && code <= 'Z') || (code >= 'a' && code <= 'z')) && !params.empty()) {
                         std::string digits;
@@ -834,8 +868,10 @@ namespace console {
             } else if (input_char == KEY_ARROW_UP || input_char == KEY_ARROW_DOWN) {
                 if (input_char == KEY_ARROW_UP) {
                     history_prev();
+                    is_special_char = false;
                 } else if (input_char == KEY_ARROW_DOWN) {
                     history_next();
+                    is_special_char = false;
                 }
 #endif
             } else if (input_char == 0x08 || input_char == 0x7F) { // Backspace
@@ -866,7 +902,6 @@ namespace console {
                         fputc(' ', out);
                     }
                     move_cursor(-(tail_width + w));
-                    sync_history_line();
                 }
             } else {
                 // insert character
@@ -944,14 +979,12 @@ namespace console {
         }
 
         if (!end_of_stream && !line.empty()) {
-            if (backup_index < history.size()) {
-                history[backup_index] = original_backup;
+            // remove the trailing newline for history storage
+            if (!line.empty() && line.back() == '\n') {
+                line.pop_back();
             }
-            std::string history_entry = line;
-            if (!history_entry.empty() && history_entry.back() == '\n') {
-                history_entry.pop_back();
-            }
-            history.push_back(std::move(history_entry));
+            // TODO: maybe support multiline history entries?
+            history.add(line);
         }
 
         fflush(out);
