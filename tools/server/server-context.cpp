@@ -1805,9 +1805,7 @@ struct server_context_impl {
                     slot.i_batch = slot.i_batch_dft[0];
                     slot.drafted.clear();
                     slot.i_batch_dft.clear();
-
                 } else {
-
                     // keep track of total number of drafted tokens tested
                     slot.n_draft_total += draft.size();
 
@@ -2384,6 +2382,8 @@ struct server_context_impl {
             // on successful decode, restore the original batch size
             n_batch = llama_n_batch(ctx);
 
+            // technically, measuring the time here excludes the sampling time for the last batch
+            // but on the other hand, we don't want to do too many system calls to measure the time, so it's ok
             const int64_t t_current = ggml_time_us();
 
             for (auto & slot : slots) {
