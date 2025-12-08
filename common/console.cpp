@@ -665,6 +665,9 @@ namespace console {
         bool is_special_char = false;
         bool end_of_stream = false;
         size_t history_index = history.size();
+        std::string original_backup;
+        std::string prompt_backup;
+        size_t backup_index = SIZE_MAX;
 
         size_t byte_pos = 0; // current byte index
         size_t char_pos = 0; // current character index (one char can be multiple bytes)
@@ -673,6 +676,11 @@ namespace console {
         while (true) {
             assert(char_pos <= byte_pos);
             assert(char_pos <= widths.size());
+            auto sync_history_line = [&]() {
+                if (history_index < history.size()) {
+                    history[history_index] = line;
+                }
+            };
 
             fflush(out); // Ensure all output is displayed before waiting for input
             input_char = getchar32();
@@ -732,17 +740,27 @@ namespace console {
                         // up/down
                         if (!history.empty()) {
                             if (code == 'A' && history_index > 0) {
+                                sync_history_line();
+                                const bool from_end = history_index == history.size();
+                                if (from_end) {
+                                    prompt_backup = line;
+                                }
                                 history_index--;
+                                original_backup = history[history_index];
+                                backup_index = history_index;
                                 set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
                                 is_special_char = false;
                             } else if (code == 'B') {
+                                sync_history_line();
                                 if (history_index + 1 < history.size()) {
                                     history_index++;
+                                    original_backup = history[history_index];
+                                    backup_index = history_index;
                                     set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
                                     is_special_char = false;
                                 } else if (history_index < history.size()) {
                                     history_index = history.size();
-                                    set_line_contents("", line, widths, char_pos, byte_pos);
+                                    set_line_contents(prompt_backup, line, widths, char_pos, byte_pos);
                                     is_special_char = false;
                                 }
                             }
@@ -801,20 +819,31 @@ namespace console {
                 move_to_line_end(char_pos, byte_pos, widths, line);
             } else if (input_char == KEY_DELETE) {
                 delete_at_cursor(line, widths, char_pos, byte_pos);
-            } else if (input_char == KEY_ARROW_UP || input_char == KEY_ARROW_DOWN) {
-                if (!history.empty()) {
-                    if (input_char == KEY_ARROW_UP && history_index > 0) {
-                        history_index--;
-                        set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
-                        is_special_char = false;
-                    } else if (input_char == KEY_ARROW_DOWN) {
-                        if (history_index + 1 < history.size()) {
-                            history_index++;
-                            set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
-                            is_special_char = false;
-                        } else if (history_index < history.size()) {
-                            history_index = history.size();
-                            set_line_contents("", line, widths, char_pos, byte_pos);
+                sync_history_line();
+                    } else if (input_char == KEY_ARROW_UP || input_char == KEY_ARROW_DOWN) {
+                        if (!history.empty()) {
+                            if (input_char == KEY_ARROW_UP && history_index > 0) {
+                                sync_history_line();
+                                const bool from_end = history_index == history.size();
+                                if (from_end) {
+                                    prompt_backup = line;
+                                }
+                                history_index--;
+                                original_backup = history[history_index];
+                                backup_index = history_index;
+                                set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
+                                is_special_char = false;
+                            } else if (input_char == KEY_ARROW_DOWN) {
+                                sync_history_line();
+                                if (history_index + 1 < history.size()) {
+                                    history_index++;
+                                    original_backup = history[history_index];
+                                    backup_index = history_index;
+                                    set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
+                                    is_special_char = false;
+                                } else if (history_index < history.size()) {
+                                    history_index = history.size();
+                                    set_line_contents(prompt_backup, line, widths, char_pos, byte_pos);
                             is_special_char = false;
                         }
                     }
@@ -848,6 +877,7 @@ namespace console {
                         fputc(' ', out);
                     }
                     move_cursor(-(tail_width + w));
+                    sync_history_line();
                 }
             } else {
                 // insert character
@@ -925,6 +955,9 @@ namespace console {
         }
 
         if (!end_of_stream && !line.empty()) {
+            if (backup_index < history.size()) {
+                history[backup_index] = original_backup;
+            }
             std::string history_entry = line;
             if (!history_entry.empty() && history_entry.back() == '\n') {
                 history_entry.pop_back();
