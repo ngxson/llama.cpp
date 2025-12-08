@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cctype>
 #include <cwctype>
+#include <cstdint>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -683,6 +684,36 @@ namespace console {
                     history[history_index] = line;
                 }
             };
+            auto history_prev = [&]() {
+                if (history.empty()) {
+                    return;
+                }
+                if (history_index > 0) {
+                    sync_history_line();
+                    history_index--;
+                    original_backup = history[history_index];
+                    backup_index = history_index;
+                    set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
+                    is_special_char = false;
+                }
+            };
+            auto history_next = [&]() {
+                if (history.empty()) {
+                    return;
+                }
+                sync_history_line();
+                if (history_index + 1 < history.size()) {
+                    history_index++;
+                    original_backup = history[history_index];
+                    backup_index = history_index;
+                    set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
+                    is_special_char = false;
+                } else if (history_index < history.size()) {
+                    history_index = history.size();
+                    set_line_contents(prompt_backup, line, widths, char_pos, byte_pos);
+                    is_special_char = false;
+                }
+            };
 
             fflush(out); // Ensure all output is displayed before waiting for input
             input_char = getchar32();
@@ -691,7 +722,7 @@ namespace console {
                 break;
             }
 
-            if (input_char == (char32_t) WEOF || input_char == 0x04 /* Ctrl+D*/) {
+            if (input_char == (char32_t) WEOF || input_char == 0x04 /* Ctrl+D */) {
                 end_of_stream = true;
                 break;
             }
@@ -740,32 +771,10 @@ namespace console {
                         move_to_line_end(char_pos, byte_pos, widths, line);
                     } else if (code == 'A' || code == 'B') {
                         // up/down
-                        if (!history.empty()) {
-                            if (code == 'A' && history_index > 0) {
-                                sync_history_line();
-                                const bool from_end = history_index == history.size();
-                                if (from_end) {
-                                    prompt_backup = line;
-                                }
-                                history_index--;
-                                original_backup = history[history_index];
-                                backup_index = history_index;
-                                set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
-                                is_special_char = false;
-                            } else if (code == 'B') {
-                                sync_history_line();
-                                if (history_index + 1 < history.size()) {
-                                    history_index++;
-                                    original_backup = history[history_index];
-                                    backup_index = history_index;
-                                    set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
-                                    is_special_char = false;
-                                } else if (history_index < history.size()) {
-                                    history_index = history.size();
-                                    set_line_contents(prompt_backup, line, widths, char_pos, byte_pos);
-                                    is_special_char = false;
-                                }
-                            }
+                        if (code == 'A') {
+                            history_prev();
+                        } else if (code == 'B') {
+                            history_next();
                         }
                     } else if ((code == '~' || (code >= 'A' && code <= 'Z') || (code >= 'a' && code <= 'z')) && !params.empty()) {
                         std::string digits;
@@ -779,11 +788,11 @@ namespace console {
                         }
 
                         if (code == '~') {
-                            if (digits == "1" || digits == "7") {
+                            if (digits == "1" || digits == "7") { // home
                                 move_to_line_start(char_pos, byte_pos, widths);
-                            } else if (digits == "4" || digits == "8") {
+                            } else if (digits == "4" || digits == "8") { // end
                                 move_to_line_end(char_pos, byte_pos, widths, line);
-                            } else if (digits == "3") {
+                            } else if (digits == "3") { // delete
                                 delete_at_cursor(line, widths, char_pos, byte_pos);
                             }
                         }
@@ -822,33 +831,11 @@ namespace console {
             } else if (input_char == KEY_DELETE) {
                 delete_at_cursor(line, widths, char_pos, byte_pos);
                 sync_history_line();
-                    } else if (input_char == KEY_ARROW_UP || input_char == KEY_ARROW_DOWN) {
-                        if (!history.empty()) {
-                            if (input_char == KEY_ARROW_UP && history_index > 0) {
-                                sync_history_line();
-                                const bool from_end = history_index == history.size();
-                                if (from_end) {
-                                    prompt_backup = line;
-                                }
-                                history_index--;
-                                original_backup = history[history_index];
-                                backup_index = history_index;
-                                set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
-                                is_special_char = false;
-                            } else if (input_char == KEY_ARROW_DOWN) {
-                                sync_history_line();
-                                if (history_index + 1 < history.size()) {
-                                    history_index++;
-                                    original_backup = history[history_index];
-                                    backup_index = history_index;
-                                    set_line_contents(history[history_index], line, widths, char_pos, byte_pos);
-                                    is_special_char = false;
-                                } else if (history_index < history.size()) {
-                                    history_index = history.size();
-                                    set_line_contents(prompt_backup, line, widths, char_pos, byte_pos);
-                            is_special_char = false;
-                        }
-                    }
+            } else if (input_char == KEY_ARROW_UP || input_char == KEY_ARROW_DOWN) {
+                if (input_char == KEY_ARROW_UP) {
+                    history_prev();
+                } else if (input_char == KEY_ARROW_DOWN) {
+                    history_next();
                 }
 #endif
             } else if (input_char == 0x08 || input_char == 0x7F) { // Backspace
