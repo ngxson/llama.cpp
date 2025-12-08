@@ -2627,9 +2627,6 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
     try {
         std::vector<server_task> tasks;
 
-        // tracking generation state and partial tool calls
-        std::vector<task_result_state> states;
-
         const auto & prompt = data.at("prompt");
         // TODO: this log can become very long, put it behind a flag or think about a more compact format
         //SRV_DBG("Prompt: %s\n", prompt.is_string() ? prompt.get<std::string>().c_str() : prompt.dump(2).c_str());
@@ -2645,7 +2642,6 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
             inputs = tokenize_input_prompts(ctx_server.vocab, ctx_server.mctx, prompt, true, true);
         }
         tasks.reserve(inputs.size());
-        states.reserve(inputs.size());
         int idx = 0;
         for (size_t i = 0; i < inputs.size(); i++) {
             server_task task = server_task(type);
@@ -2664,7 +2660,6 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
             task.params.res_type          = res_type;
             task.params.oaicompat_cmpl_id = completion_id;
             task.params.oaicompat_model   = ctx_server.model_name;
-            states.push_back(task.params.oaicompat_chat_syntax);
 
             if (task.params.n_cmpl > 1) {
                 task.n_children = task.params.n_cmpl - 1;
@@ -2673,7 +2668,6 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
                         task.id,
                         ctx_server.queue_tasks.get_new_id(),
                         idx++);
-                    states.push_back(child.params.oaicompat_chat_syntax);
                     tasks.push_back(std::move(child));
                 }
             }
