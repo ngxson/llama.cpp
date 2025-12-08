@@ -23,6 +23,7 @@
 #include <limits>
 #include <array>
 #include <functional>
+#include <algorithm>
 
 struct clip_logger_state g_logger_state = {clip_log_callback_default, NULL};
 
