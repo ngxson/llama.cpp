@@ -1,4 +1,5 @@
 #include "console.h"
+#include "log.h"
 #include <vector>
 #include <iostream>
 #include <cassert>
@@ -169,7 +170,8 @@ namespace console {
     // Keep track of current display and only emit ANSI code if it changes
     void set_display(display_t display) {
         if (advanced_display && current_display != display) {
-            fflush(stdout);
+            common_log_flush(common_log_main());
+            fflush(out);
             switch(display) {
                 case reset:
                     fprintf(out, ANSI_COLOR_RESET);

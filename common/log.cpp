@@ -151,6 +151,7 @@ private:
     std::mutex mtx;
     std::thread thrd;
     std::condition_variable cv;
+    std::condition_variable cv_flushed;
 
     FILE * file;
 
@@ -265,6 +266,10 @@ public:
                     cur = entries[head];
 
                     head = (head + 1) % entries.size();
+
+                    if (head == tail) {
+                        cv_flushed.notify_all();
+                    }
                 }
 
                 if (cur.is_end) {
@@ -353,6 +358,14 @@ public:
 
         this->timestamps = timestamps;
     }
+
+    void flush() {
+        if (!running) {
+            return;
+        }
+        std::unique_lock<std::mutex> lock(mtx);
+        cv_flushed.wait(lock, [this]() { return head == tail; });
+    }
 };
 
 //
@@ -418,6 +431,10 @@ void common_log_set_prefix(struct common_log * log, bool prefix) {
 
 void common_log_set_timestamps(struct common_log * log, bool timestamps) {
     log->set_timestamps(timestamps);
+}
+
+void common_log_flush(struct common_log * log) {
+    log->flush();
 }
 
 static int common_get_verbosity(enum ggml_log_level level) {

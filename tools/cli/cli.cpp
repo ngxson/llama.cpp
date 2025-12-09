@@ -19,23 +19,6 @@
 #include <windows.h>
 #endif
 
-// TODO: without doing this, the colors get messed up
-// the log.cpp doesn't play well with console.cpp, this should be fixed later
-#ifdef LOG
-#undef LOG
-#endif
-#define LOG(...)  fprintf(stdout, __VA_ARGS__)
-
-// redirect error logs to stdout in order to color them properly
-#ifdef LOG_ERR
-#undef LOG_ERR
-#endif
-#define LOG_ERR(...)    do { \
-                            console::set_display(console::error); \
-                            LOG(__VA_ARGS__); \
-                            console::set_display(console::reset); \
-                        } while (0)
-
 const char * LLAMA_ASCII_LOGO = R"(
 ▄▄ ▄▄
 ██ ██
