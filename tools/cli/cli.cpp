@@ -322,6 +322,7 @@ int main(int argc, char ** argv) {
             }
         } else if (string_starts_with(buffer, "/clear")) {
             ctx_cli.messages.clear();
+            ctx_cli.input_files.clear();
             LOG("Chat history cleared.\n");
             continue;
         } else if (
