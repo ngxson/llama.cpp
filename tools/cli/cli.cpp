@@ -36,8 +36,6 @@
                             console::set_display(console::reset); \
                         } while (0)
 
-constexpr int POLLING_SECONDS = 1;
-
 const char * LLAMA_ASCII_LOGO = R"(
 ▄▄ ▄▄
 ██ ██
@@ -110,17 +108,15 @@ struct cli_context {
     }
 
     std::string generate_completion(result_timings & out_timings) {
-        auto queues = ctx_server.get_queues();
-        server_response_reader rd(queues, POLLING_SECONDS);
+        server_response_reader rd = ctx_server.get_response_reader();
         {
             // TODO: reduce some copies here in the future
             server_task task = server_task(SERVER_TASK_TYPE_COMPLETION);
-            task.id        = queues.first.get_new_id();
+            task.id        = rd.get_new_id();
             task.index     = 0;
             task.params    = defaults;    // copy
             task.cli_input = messages;    // copy
             task.cli_files = input_files; // copy
-            rd.set_states({task_result_state(defaults.oaicompat_chat_syntax)});
             rd.post_task({std::move(task)});
         }
 
