@@ -38,6 +38,9 @@ static bool should_stop() {
 static void signal_handler(int) {
     if (g_is_interrupted.load()) {
         // second Ctrl+C - exit immediately
+        // make sure to clear colors before exiting (not using LOG or console.cpp here to avoid deadlock)
+        fprintf(stdout, "\033[0m\n");
+        fflush(stdout);
         std::exit(130);
     }
     g_is_interrupted.store(true);
@@ -278,7 +281,11 @@ int main(int argc, char ** argv) {
                 cur_msg += marker;
             }
             buffer = params.prompt;
-            LOG("\n> %s\n", buffer.c_str()); // TODO: maybe truncate if too long to display
+            if (buffer.size() > 500) {
+                LOG("\n> %s ... (truncated)\n", buffer.substr(0, 500).c_str());
+            } else {
+                LOG("\n> %s\n", buffer.c_str());
+            }
             params.prompt.clear(); // only use it once
         }
         console::set_display(console::reset);
