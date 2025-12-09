@@ -52,7 +52,6 @@ struct cli_context {
 
     // thread for showing "loading" animation
     std::atomic<bool> loading_show;
-    std::thread loading_display_thread;
 
     cli_context(const common_params & params) {
         defaults.sampling    = params.sampling;
@@ -65,29 +64,6 @@ struct cli_context {
         defaults.timings_per_token = true; // in order to get timings even when we cancel mid-way
         // defaults.return_progress = true; // TODO: show progress
         defaults.oaicompat_chat_syntax.reasoning_format = COMMON_REASONING_FORMAT_DEEPSEEK;
-
-        // TODO: improve this mechanism later
-        loading_display_thread = std::thread([this]() {
-            while (true) {
-                if (loading_show.load()) {
-                    // update loading frame
-                    console::set_loading(true);
-                }
-                std::this_thread::sleep_for(std::chrono::milliseconds(150));
-            }
-        });
-        loading_display_thread.detach();
-    }
-
-    void show_loading() {
-        fflush(stdout);
-        loading_show.store(true);
-    }
-
-    void hide_loading() {
-        loading_show.store(false);
-        // clear loading here in case the thread is sleeping
-        console::set_loading(false);
     }
 
     std::string generate_completion(result_timings & out_timings) {
@@ -104,10 +80,10 @@ struct cli_context {
         }
 
         // wait for first result
-        show_loading();
+        console::spinner::start();
         server_task_result_ptr result = rd.next(should_stop);
 
-        hide_loading();
+        console::spinner::stop();
         std::string curr_content;
         bool is_thinking = false;
 
@@ -223,16 +199,16 @@ int main(int argc, char ** argv) {
 #endif
 
     LOG("\nLoading model... "); // followed by loading animation
-    ctx_cli.show_loading();
+    console::spinner::start();
     if (!ctx_cli.ctx_server.load_model(params)) {
-        ctx_cli.hide_loading();
+        console::spinner::stop();
         LOG_ERR("\nFailed to load the model\n");
         return 1;
     }
 
     ctx_cli.ctx_server.init();
 
-    ctx_cli.hide_loading();
+    console::spinner::stop();
     LOG("\n");
 
     std::thread inference_thread([&ctx_cli]() {

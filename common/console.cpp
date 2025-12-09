@@ -7,6 +7,9 @@
 #include <cctype>
 #include <cwctype>
 #include <cstdint>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -40,8 +43,6 @@
 #define ANSI_COLOR_RESET   "\x1b[0m"
 #define ANSI_BOLD          "\x1b[1m"
 
-static const char LOADING_CHARS[] = {'|', '/', '-', '\\'};
-
 namespace console {
 
 #if defined (_WIN32)
@@ -67,8 +68,6 @@ namespace console {
 
     static bool      advanced_display = false;
     static bool      simple_io        = true;
-    static bool      loading_show     = false;
-    static int       loading_idx      = 0;
     static display_t current_display  = reset;
 
     static FILE*     out              = stdout;
@@ -171,7 +170,6 @@ namespace console {
     void set_display(display_t display) {
         if (advanced_display && current_display != display) {
             common_log_flush(common_log_main());
-            fflush(out);
             switch(display) {
                 case reset:
                     fprintf(out, ANSI_COLOR_RESET);
@@ -1058,31 +1056,6 @@ namespace console {
         return multiline_input;
     }
 
-    void set_loading(bool enabled) {
-        if (!simple_io) {
-            if (!loading_show && enabled) {
-                // turn on loading
-                fputc(' ', out);
-                fflush(out);
-            }
-
-            if (loading_show && !enabled) {
-                // turn off loading
-                replace_last(' ');
-                pop_cursor();
-                fflush(out);
-            }
-
-            loading_show = enabled;
-
-            if (loading_show) {
-                loading_idx = (loading_idx + 1) % sizeof(LOADING_CHARS);
-                replace_last(LOADING_CHARS[loading_idx]);
-                fflush(out);
-            }
-        }
-    }
-
     bool readline(std::string & line, bool multiline_input) {
         set_display(user_input);
 
@@ -1090,6 +1063,58 @@ namespace console {
             return readline_simple(line, multiline_input);
         }
         return readline_advanced(line, multiline_input);
+    }
+
+    namespace spinner {
+        static const char LOADING_CHARS[] = {'|', '/', '-', '\\'};
+        static std::condition_variable cv_stop;
+        static std::thread th;
+        static size_t frame = 0; // only modified by one thread
+        static bool running = false;
+        static std::mutex mtx;
+        static auto wait_time = std::chrono::milliseconds(100);
+        static void draw_next_frame() {
+            // don't need lock because only one thread modifies running
+            frame = (frame + 1) % sizeof(LOADING_CHARS);
+            replace_last(LOADING_CHARS[frame]);
+            fflush(out);
+        }
+        void start() {
+            std::unique_lock<std::mutex> lock(mtx);
+            if (simple_io || running) {
+                return;
+            }
+            common_log_flush(common_log_main());
+            fprintf(out, "%c", LOADING_CHARS[0]);
+            fflush(out);
+            frame = 1;
+            running = true;
+            th = std::thread([]() {
+                std::unique_lock<std::mutex> lock(mtx);
+                while (true) {
+                    if (cv_stop.wait_for(lock, wait_time, []{ return !running; })) {
+                        break;
+                    }
+                    draw_next_frame();
+                }
+            });
+        }
+        void stop() {
+            {
+                std::unique_lock<std::mutex> lock(mtx);
+                if (simple_io || !running) {
+                    return;
+                }
+                running = false;
+                cv_stop.notify_all();
+            }
+            if (th.joinable()) {
+                th.join();
+            }
+            replace_last(' ');
+            pop_cursor();
+            fflush(out);
+        }
     }
 
 }

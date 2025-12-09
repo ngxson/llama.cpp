@@ -365,6 +365,7 @@ public:
         }
         std::unique_lock<std::mutex> lock(mtx);
         cv_flushed.wait(lock, [this]() { return head == tail; });
+        fflush(stdout);
     }
 };
 
