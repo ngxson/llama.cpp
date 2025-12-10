@@ -2560,7 +2560,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
     ).set_examples({LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_COMPLETION, LLAMA_EXAMPLE_CLI, LLAMA_EXAMPLE_MTMD}).set_env("LLAMA_ARG_JINJA"));
     add_opt(common_arg(
         {"--no-jinja"},
-        string_format("disable jinja template for chat (default: %s)", params.use_jinja ? "enabled" : "disabled"),
+        string_format("disable jinja template for chat (default: %s)", params.use_jinja ? "disabled" : "enabled"),
         [](common_params & params) {
             params.use_jinja = false;
         }
