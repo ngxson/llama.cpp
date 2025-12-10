@@ -595,11 +595,12 @@ struct clip_graph {
             cur = ggml_mul(ctx0, cur, model.mm_input_norm_w);
             cur = ggml_add(ctx0, cur, model.mm_input_norm_b);
 
-            cur = ggml_mul_mat(ctx0, model.mm_1_w, cur);
-            cur = ggml_add(ctx0, cur, model.mm_1_b);
-            cur = ggml_gelu(ctx0, cur);
-            cur = ggml_mul_mat(ctx0, model.mm_2_w, cur);
-            cur = ggml_add(ctx0, cur, model.mm_2_b);
+            cur = build_ffn(cur,
+                model.mm_1_w, model.mm_1_b,
+                nullptr, nullptr,
+                model.mm_2_w, model.mm_2_b,
+                FFN_GELU,
+                -1);
 
         } else if (ctx->proj_type() == PROJECTOR_TYPE_JANUS_PRO) {
             cur = build_ffn(cur,
@@ -667,16 +668,12 @@ struct clip_graph {
 
         // LlavaMultiModalProjector (always using GELU activation)
         {
-            cur = ggml_mul_mat(ctx0, model.mm_1_w, cur);
-            if (model.mm_1_b) {
-                cur = ggml_add(ctx0, cur, model.mm_1_b);
-            }
-
-            cur = ggml_gelu(ctx0, cur);
-            cur = ggml_mul_mat(ctx0, model.mm_2_w, cur);
-            if (model.mm_2_b) {
-                cur = ggml_add(ctx0, cur, model.mm_2_b);
-            }
+            cur = build_ffn(cur,
+                model.mm_1_w, model.mm_1_b,
+                nullptr, nullptr,
+                model.mm_2_w, model.mm_2_b,
+                FFN_GELU,
+                -1);
         }
 
         // arrangement of the [IMG_BREAK] token
@@ -870,16 +867,12 @@ struct clip_graph {
         // multimodal projection
         ggml_tensor * embeddings = inpL;
         embeddings = ggml_reshape_3d(ctx0, embeddings, n_embd * 4, n_pos / 4, batch_size);
-
-        embeddings = ggml_mul_mat(ctx0, model.mm_0_w, embeddings);
-        embeddings = ggml_add(ctx0, embeddings, model.mm_0_b);
-
-        // GELU activation
-        embeddings = ggml_gelu(ctx0, embeddings);
-
-        // Second linear layer
-        embeddings = ggml_mul_mat(ctx0, model.mm_1_w, embeddings);
-        embeddings = ggml_add(ctx0, embeddings, model.mm_1_b);
+        embeddings = build_ffn(embeddings,
+                            model.mm_0_w, model.mm_0_b,
+                            nullptr, nullptr,
+                            model.mm_1_w, model.mm_1_b,
+                            FFN_GELU,
+                            -1);
 
         if (use_window_attn) {
             window_idx = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos / 4);
@@ -1257,11 +1250,12 @@ struct clip_graph {
             // projector LayerNorm uses pytorch's default eps = 1e-5
             // ref: https://huggingface.co/OpenGVLab/InternVL3-8B-Instruct/blob/a34d3e4e129a5856abfd6aa6de79776484caa14e/modeling_internvl_chat.py#L79
             cur = build_norm(cur, model.mm_0_w, model.mm_0_b, NORM_TYPE_NORMAL, 1e-5, -1);
-            cur = ggml_mul_mat(ctx0, model.mm_1_w, cur);
-            cur = ggml_add(ctx0, cur, model.mm_1_b);
-            cur = ggml_gelu(ctx0, cur);
-            cur = ggml_mul_mat(ctx0, model.mm_3_w, cur);
-            cur = ggml_add(ctx0, cur, model.mm_3_b);
+            cur = build_ffn(cur,
+                model.mm_1_w, model.mm_1_b,
+                nullptr, nullptr,
+                model.mm_2_w, model.mm_2_b,
+                FFN_GELU,
+                -1);
         }
 
         // build the graph
@@ -1412,11 +1406,12 @@ struct clip_graph {
             cb(cur, "proj_inp_normed", -1);
 
             // projection mlp
-            cur = ggml_mul_mat(ctx0, model.mm_1_w, cur);
-            cur = ggml_add(ctx0, cur, model.mm_1_b);
-            cur = ggml_gelu(ctx0, cur);
-            cur = ggml_mul_mat(ctx0, model.mm_2_w, cur);
-            cur = ggml_add(ctx0, cur, model.mm_2_b);
+            cur = build_ffn(cur,
+                model.mm_1_w, model.mm_1_b,
+                nullptr, nullptr,
+                model.mm_2_w, model.mm_2_b,
+                FFN_GELU,
+                -1);
             cb(cur, "proj_out", -1);
         }
 
@@ -1887,9 +1882,12 @@ struct clip_graph {
 
         } else if (ctx->proj_type() == PROJECTOR_TYPE_VOXTRAL) {
             // projector
-            cur = ggml_mul_mat(ctx0, model.mm_1_w, cur);
-            cur = ggml_gelu_erf(ctx0, cur);
-            cur = ggml_mul_mat(ctx0, model.mm_2_w, cur);
+            cur = build_ffn(cur,
+                model.mm_1_w, model.mm_1_b,
+                nullptr, nullptr,
+                model.mm_2_w, model.mm_2_b,
+                FFN_GELU_ERF,
+                -1);
 
         } else {
             GGML_ABORT("%s: unknown projector type", __func__);
