@@ -678,6 +678,31 @@ namespace console {
             SetConsoleCursorPosition(hConsole, newCursorPosition);
         }
 #else
+        if (tty != nullptr) {
+            // Query current cursor position
+            int x, y;
+            fputs("\033[6n", tty);
+            fflush(tty);
+            if (fscanf(tty, "\033[%d;%dR", &y, &x) == 2) {
+                struct winsize w;
+                if (ioctl(fileno(tty), TIOCGWINSZ, &w) == 0 && w.ws_col > 0) {
+                    int width = w.ws_col;
+                    int newX = (x - 1) + delta;
+                    int newY = (y - 1);
+                    while (newX >= width) {
+                        newX -= width;
+                        newY++;
+                    }
+                    while (newX < 0) {
+                        newX += width;
+                        newY--;
+                    }
+                    fprintf(out, "\033[%d;%dH", newY + 1, newX + 1);
+                    return;
+                }
+            }
+        }
+
         if (delta < 0) {
             for (int i = 0; i < -delta; i++) fprintf(out, "\b");
         } else {
