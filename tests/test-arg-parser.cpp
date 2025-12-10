@@ -20,18 +20,18 @@ int main(void) {
             std::unordered_set<std::string> seen_env_vars;
             for (const auto & opt : ctx_arg.options) {
                 // check for args duplications
-                for (const auto & arg : opt.args) {
+                for (const auto & arg : opt.get_args()) {
                     if (seen_args.find(arg) == seen_args.end()) {
                         seen_args.insert(arg);
                     } else {
-                        fprintf(stderr, "test-arg-parser: found different handlers for the same argument: %s", arg);
+                        fprintf(stderr, "test-arg-parser: found different handlers for the same argument: %s", arg.c_str());
                         exit(1);
                     }
                 }
                 // check for env var duplications
-                if (opt.env) {
-                    if (seen_env_vars.find(opt.env) == seen_env_vars.end()) {
-                        seen_env_vars.insert(opt.env);
+                for (const auto & arg : opt.get_env()) {
+                    if (seen_env_vars.find(arg) == seen_env_vars.end()) {
+                        seen_env_vars.insert(arg);
                     } else {
                         fprintf(stderr, "test-arg-parser: found different handlers for the same env var: %s", opt.env);
                         exit(1);
