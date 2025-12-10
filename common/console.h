@@ -26,6 +26,11 @@ namespace console {
         void stop();
     }
 
+    // note: the logging API below output directly to stdout
+    // it can negatively impact performance if used on inference thread
+    // only use in in a dedicated CLI thread
+    // for logging in inference thread, use log.h instead
+
     LLAMA_COMMON_ATTRIBUTE_FORMAT(1, 2)
     void log(const char * fmt, ...);
 
