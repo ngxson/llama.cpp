@@ -126,7 +126,6 @@ struct cli_context {
                         console::log("%s", diff.reasoning_content_delta.c_str());
                         console::flush();
                     }
-                    fflush(stdout);
                 }
             }
             auto res_final = dynamic_cast<server_task_result_cmpl_final *>(result.get());
@@ -182,8 +181,7 @@ int main(int argc, char ** argv) {
     llama_backend_init();
     llama_numa_init(params.numa);
 
-    // save choice to use color for later
-    // (note for later: this is a slightly awkward choice)
+    // TODO: avoid using atexit() here by making `console` a singleton
     console::init(params.simple_io, params.use_color);
     atexit([]() { console::cleanup(); });
 
@@ -385,12 +383,12 @@ int main(int argc, char ** argv) {
 
     console::set_display(DISPLAY_TYPE_RESET);
 
-    // bump the log level to display timings
-    common_log_set_verbosity_thold(LOG_LEVEL_INFO);
-
     console::log("\nExiting...\n");
     ctx_cli.ctx_server.terminate();
     inference_thread.join();
+
+    // bump the log level to display timings
+    common_log_set_verbosity_thold(LOG_LEVEL_INFO);
     llama_memory_breakdown_print(ctx_cli.ctx_server.get_llama_context());
 
     return 0;
