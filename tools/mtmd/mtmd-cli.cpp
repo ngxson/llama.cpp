@@ -315,7 +315,6 @@ int main(int argc, char ** argv) {
         if (params.prompt.find(mtmd_default_marker()) == std::string::npos) {
             for (size_t i = 0; i < params.image.size(); i++) {
                 // most models require the marker before each image
-                // TODO: check if it's actually true for all models
                 // ref: https://github.com/ggml-org/llama.cpp/pull/17616
                 params.prompt = mtmd_default_marker() + params.prompt;
             }
