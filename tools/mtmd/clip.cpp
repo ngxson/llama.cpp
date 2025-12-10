@@ -1253,7 +1253,7 @@ struct clip_graph {
             cur = build_ffn(cur,
                 model.mm_1_w, model.mm_1_b,
                 nullptr, nullptr,
-                model.mm_2_w, model.mm_2_b,
+                model.mm_3_w, model.mm_3_b,
                 FFN_GELU,
                 -1);
         }
