@@ -314,7 +314,10 @@ int main(int argc, char ** argv) {
         g_is_generating = true;
         if (params.prompt.find(mtmd_default_marker()) == std::string::npos) {
             for (size_t i = 0; i < params.image.size(); i++) {
-                params.prompt += mtmd_default_marker();
+                // most models require the marker before each image
+                // TODO: check if it's actually true for all models
+                // ref: https://github.com/ggml-org/llama.cpp/pull/17616
+                params.prompt = mtmd_default_marker() + params.prompt;
             }
         }
         common_chat_msg msg;
