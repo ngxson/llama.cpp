@@ -10,6 +10,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <thread>
+#include <stdarg.h>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
