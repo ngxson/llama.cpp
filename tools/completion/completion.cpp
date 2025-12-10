@@ -537,7 +537,7 @@ int main(int argc, char ** argv) {
     std::ostringstream assistant_ss; // for storing current assistant message, used in conversation mode
 
     // the first thing we will do is to output the prompt, so set color accordingly
-    console::set_display(console::prompt);
+    console::set_display(DISPLAY_TYPE_PROMPT);
     display = params.display_prompt;
 
     std::vector<llama_token> embd;
@@ -582,9 +582,9 @@ int main(int argc, char ** argv) {
                 const int skipped_tokens = (int) embd.size() - max_embd_size;
                 embd.resize(max_embd_size);
 
-                console::set_display(console::error);
+                console::set_display(DISPLAY_TYPE_ERROR);
                 LOG_WRN("<<input too long: skipped %d token%s>>", skipped_tokens, skipped_tokens != 1 ? "s" : "");
-                console::set_display(console::reset);
+                console::set_display(DISPLAY_TYPE_RESET);
             }
 
             if (ga_n == 1) {
@@ -766,7 +766,7 @@ int main(int argc, char ** argv) {
 
         // reset color to default if there is no pending user input
         if (input_echo && (int) embd_inp.size() == n_consumed) {
-            console::set_display(console::reset);
+            console::set_display(DISPLAY_TYPE_RESET);
             display = true;
         }
 
@@ -862,7 +862,7 @@ int main(int argc, char ** argv) {
                 }
 
                 // color user input only
-                console::set_display(console::user_input);
+                console::set_display(DISPLAY_TYPE_USER_INPUT);
                 display = params.display_prompt;
 
                 std::string line;
@@ -873,7 +873,7 @@ int main(int argc, char ** argv) {
                 } while (another_line);
 
                 // done taking input, reset color
-                console::set_display(console::reset);
+                console::set_display(DISPLAY_TYPE_RESET);
                 display = true;
 
                 if (buffer.empty()) { // Ctrl+D on empty line exits
