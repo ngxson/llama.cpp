@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include "common.h"
+
 #include <string>
 
 enum display_type {
@@ -24,7 +26,11 @@ namespace console {
         void stop();
     }
 
+    LLAMA_COMMON_ATTRIBUTE_FORMAT(1, 2)
     void log(const char * fmt, ...);
+
+    LLAMA_COMMON_ATTRIBUTE_FORMAT(1, 2)
     void error(const char * fmt, ...);
+
     void flush();
 }
