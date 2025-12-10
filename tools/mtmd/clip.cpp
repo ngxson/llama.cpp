@@ -2074,34 +2074,66 @@ private:
 
             // self-attention
             {
-                ggml_tensor * Qcur = ggml_mul_mat(ctx0, layer.q_w, cur);
-                if (layer.q_b) {
-                    Qcur = ggml_add(ctx0, Qcur, layer.q_b);
-                }
+                ggml_tensor * Qcur = nullptr;
+                ggml_tensor * Kcur = nullptr;
+                ggml_tensor * Vcur = nullptr;
+                if (layer.qkv_w != nullptr) {
+                    // fused qkv
+                    cur = ggml_mul_mat(ctx0, layer.qkv_w, cur);
+                    if (layer.qkv_b != nullptr) {
+                        cur = ggml_add(ctx0, cur, layer.qkv_b);
+                    }
 
-                ggml_tensor * Kcur = ggml_mul_mat(ctx0, layer.k_w, cur);
-                if (layer.k_b) {
-                    Kcur = ggml_add(ctx0, Kcur, layer.k_b);
-                }
+                    Qcur = ggml_view_3d(ctx0, cur, d_head, n_head, n_pos,
+                        /* nb1    */ ggml_row_size(cur->type, d_head),
+                        /* nb2    */ cur->nb[1],
+                        /* offset */ 0);
 
-                ggml_tensor * Vcur = ggml_mul_mat(ctx0, layer.v_w, cur);
-                if (layer.v_b) {
-                    Vcur = ggml_add(ctx0, Vcur, layer.v_b);
-                }
+                    Kcur = ggml_view_3d(ctx0, cur, d_head, n_head, n_pos,
+                        /* nb1    */ ggml_row_size(cur->type, d_head),
+                        /* nb2    */ cur->nb[1],
+                        /* offset */ ggml_row_size(cur->type, n_embd));
 
-                if (layer.q_norm) {
-                    Qcur = build_norm(Qcur, layer.q_norm, NULL, norm_t, eps, il);
-                    cb(Qcur, "Qcur_norm", il);
-                }
+                    Vcur = ggml_view_3d(ctx0, cur, d_head, n_head, n_pos,
+                        /* nb1    */ ggml_row_size(cur->type, d_head),
+                        /* nb2    */ cur->nb[1],
+                        /* offset */ ggml_row_size(cur->type, 2 * n_embd));
 
-                if (layer.k_norm) {
-                    Kcur = build_norm(Kcur, layer.k_norm, NULL, norm_t, eps, il);
-                    cb(Kcur, "Kcur_norm", il);
-                }
+                    // TODO: q/k norm requires row size == n_embd, while here it's d_head
+                    // we can add support in the future if needed
+                    GGML_ASSERT(layer.q_norm == nullptr && layer.k_norm == nullptr);
 
-                Qcur = ggml_reshape_3d(ctx0, Qcur, d_head, n_head, n_pos);
-                Kcur = ggml_reshape_3d(ctx0, Kcur, d_head, n_head, n_pos);
-                Vcur = ggml_reshape_3d(ctx0, Vcur, d_head, n_head, n_pos);
+                } else {
+                    // separate q, k, v
+                    Qcur = ggml_mul_mat(ctx0, layer.q_w, cur);
+                    if (layer.q_b) {
+                        Qcur = ggml_add(ctx0, Qcur, layer.q_b);
+                    }
+
+                    Kcur = ggml_mul_mat(ctx0, layer.k_w, cur);
+                    if (layer.k_b) {
+                        Kcur = ggml_add(ctx0, Kcur, layer.k_b);
+                    }
+
+                    Vcur = ggml_mul_mat(ctx0, layer.v_w, cur);
+                    if (layer.v_b) {
+                        Vcur = ggml_add(ctx0, Vcur, layer.v_b);
+                    }
+
+                    if (layer.q_norm) {
+                        Qcur = build_norm(Qcur, layer.q_norm, NULL, norm_t, eps, il);
+                        cb(Qcur, "Qcur_norm", il);
+                    }
+
+                    if (layer.k_norm) {
+                        Kcur = build_norm(Kcur, layer.k_norm, NULL, norm_t, eps, il);
+                        cb(Kcur, "Kcur_norm", il);
+                    }
+
+                    Qcur = ggml_reshape_3d(ctx0, Qcur, d_head, n_head, n_pos);
+                    Kcur = ggml_reshape_3d(ctx0, Kcur, d_head, n_head, n_pos);
+                    Vcur = ggml_reshape_3d(ctx0, Vcur, d_head, n_head, n_pos);
+                }
 
                 cb(Qcur, "Qcur", il);
                 cb(Kcur, "Kcur", il);
