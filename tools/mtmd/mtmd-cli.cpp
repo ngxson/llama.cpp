@@ -310,6 +310,9 @@ int main(int argc, char ** argv) {
 
     if (g_is_interrupted) return 130;
 
+    LOG_WRN("WARN: This is an experimental CLI for testing multimodal capability.\n");
+    LOG_WRN("      For normal use cases, please use the standard llama-cli\n");
+
     if (is_single_turn) {
         g_is_generating = true;
         if (params.prompt.find(mtmd_default_marker()) == std::string::npos) {
