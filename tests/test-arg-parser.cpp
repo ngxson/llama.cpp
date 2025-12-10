@@ -29,11 +29,11 @@ int main(void) {
                     }
                 }
                 // check for env var duplications
-                for (const auto & arg : opt.get_env()) {
-                    if (seen_env_vars.find(arg) == seen_env_vars.end()) {
-                        seen_env_vars.insert(arg);
+                for (const auto & env : opt.get_env()) {
+                    if (seen_env_vars.find(env) == seen_env_vars.end()) {
+                        seen_env_vars.insert(env);
                     } else {
-                        fprintf(stderr, "test-arg-parser: found different handlers for the same env var: %s", opt.env);
+                        fprintf(stderr, "test-arg-parser: found different handlers for the same env var: %s", env.c_str());
                         exit(1);
                     }
                 }
