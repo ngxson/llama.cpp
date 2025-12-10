@@ -66,17 +66,17 @@ namespace console {
     //
 #endif
 
-    static bool      advanced_display = false;
-    static bool      simple_io        = true;
-    static display_t current_display  = reset;
+    static bool         advanced_display = false;
+    static bool         simple_io        = true;
+    static display_type current_display  = DISPLAY_TYPE_RESET;
 
-    static FILE*     out              = stdout;
+    static FILE*        out              = stdout;
 
 #if defined (_WIN32)
-    static void*     hConsole;
+    static void*        hConsole;
 #else
-    static FILE*     tty              = nullptr;
-    static termios   initial_state;
+    static FILE*        tty              = nullptr;
+    static termios      initial_state;
 #endif
 
     //
@@ -147,7 +147,7 @@ namespace console {
 
     void cleanup() {
         // Reset console display
-        set_display(reset);
+        set_display(DISPLAY_TYPE_RESET);
 
 #if !defined(_WIN32)
         // Restore settings on POSIX systems
@@ -167,26 +167,26 @@ namespace console {
     //
 
     // Keep track of current display and only emit ANSI code if it changes
-    void set_display(display_t display) {
+    void set_display(display_type display) {
         if (advanced_display && current_display != display) {
             common_log_flush(common_log_main());
             switch(display) {
-                case reset:
+                case DISPLAY_TYPE_RESET:
                     fprintf(out, ANSI_COLOR_RESET);
                     break;
-                case info:
+                case DISPLAY_TYPE_INFO:
                     fprintf(out, ANSI_COLOR_MAGENTA);
                     break;
-                case prompt:
+                case DISPLAY_TYPE_PROMPT:
                     fprintf(out, ANSI_COLOR_YELLOW);
                     break;
-                case reasoning:
+                case DISPLAY_TYPE_REASONING:
                     fprintf(out, ANSI_COLOR_GRAY);
                     break;
-                case user_input:
+                case DISPLAY_TYPE_USER_INPUT:
                     fprintf(out, ANSI_BOLD ANSI_COLOR_GREEN);
                     break;
-                case error:
+                case DISPLAY_TYPE_ERROR:
                     fprintf(out, ANSI_BOLD ANSI_COLOR_RED);
             }
             current_display = display;
@@ -789,7 +789,6 @@ namespace console {
             }
 
             if (is_special_char) {
-                set_display(user_input);
                 replace_last(line.back());
                 is_special_char = false;
             }
@@ -972,7 +971,6 @@ namespace console {
             }
 
             if (!line.empty() && (line.back() == '\\' || line.back() == '/')) {
-                set_display(prompt);
                 replace_last(line.back());
                 is_special_char = true;
             }
@@ -1057,8 +1055,6 @@ namespace console {
     }
 
     bool readline(std::string & line, bool multiline_input) {
-        set_display(user_input);
-
         if (simple_io) {
             return readline_simple(line, multiline_input);
         }
@@ -1117,4 +1113,24 @@ namespace console {
         }
     }
 
+    void log(const char * fmt, ...) {
+        va_list args;
+        va_start(args, fmt);
+        vfprintf(out, fmt, args);
+        va_end(args);
+    }
+
+    void error(const char * fmt, ...) {
+        va_list args;
+        va_start(args, fmt);
+        display_type cur = current_display;
+        set_display(DISPLAY_TYPE_ERROR);
+        vfprintf(out, fmt, args);
+        set_display(cur); // restore previous color
+        va_end(args);
+    }
+
+    void flush() {
+        fflush(out);
+    }
 }
