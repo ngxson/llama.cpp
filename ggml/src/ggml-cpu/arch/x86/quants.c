@@ -2570,7 +2570,7 @@ void ggml_vec_dot_q3_hifi_fast_q8_K(int n, float * GGML_RESTRICT s, size_t bs, c
     float sumf = hsum_float_8(acc);
 
     // Q3_HIFI_FAST extension: Add outlier corrections
-    // This is the key difference from Q3_K - we restore high-precision outliers
+    // Simple scalar loop is faster than LUT approach for 6 outliers
     for (int i = 0; i < nb; ++i) {
         const float d_y = y[i].d;
         for (int k = 0; k < Q3_HIFI_FAST_OUTLIERS; ++k) {

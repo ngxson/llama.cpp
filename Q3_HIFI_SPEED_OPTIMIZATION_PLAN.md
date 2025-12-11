@@ -141,55 +141,69 @@ sum += outlier_val * q8[idx] * d;   // Just add correct
 
 ---
 
-### Option 3: Outlier LUT (Sparse Array) 🧪 **EXPERIMENTAL**
+### Option 3: Outlier LUT (Sparse Array) ❌ **TESTED - NOT BENEFICIAL**
 
-**Concept:** Store a 256-byte lookup table where `lut[i] = outlier_val` if outlier, else 0.
+**Concept:** Expand outliers to a runtime LUT for branchless SIMD correction.
 
+**Implementation tested (2025-12-11):**
 ```c
-typedef struct {
-    // ... Q3_K fields ...
-    float outlier_lut[256];  // Sparse: only 6 non-zero entries
-} block_q3_hifi_lut;
-```
-
-**Outlier correction becomes branchless:**
-```c
-// No conditionals, no indexing loops
-for (int i = 0; i < 256; i += 8) {
-    __m256 lut = _mm256_loadu_ps(&block->outlier_lut[i]);
-    __m256 q8 = ...; // Load Q8 values
-    correction = _mm256_fmadd_ps(lut, q8, correction);
+// Zero 256-float LUT using SIMD
+for (j = 0; j < 256; j += 8) {
+    _mm256_storeu_ps(&outlier_lut[j], zeros);
+}
+// Fill 6 outlier values
+for (k = 0; k < 6; ++k) {
+    outlier_lut[outlier_idx[k]] = outlier_val[k];
+}
+// SIMD dot product (branchless)
+for (j = 0; j < 256; j += 8) {
+    lut_vec = _mm256_loadu_ps(&outlier_lut[j]);
+    q8_f = convert_int8_to_float(q8[j:j+8]);
+    corr = _mm256_fmadd_ps(lut_vec, q8_f, corr);
 }
 ```
 
-**Trade-off:**
-| Metric | Impact |
-|--------|--------|
-| Speed | +20-30% (branchless SIMD) |
-| Size | **+1 KiB/block** (~+30 MiB total) |
-| Complexity | Medium |
+**Actual Results:**
+| Approach | Q3_K_M | Q3_HIFI_FAST | Change |
+|----------|--------|--------------|--------|
+| **Scalar (6-iteration loop)** | 10.5 tok/s | 6.3 tok/s | Baseline |
+| **LUT (Option 3)** | 3.4 tok/s | 2.8 tok/s | **2.4x SLOWER** |
+| PPL | 20.2 | 16.7 | Same quality |
 
-**Verdict:** Only worthwhile for GPU or if Option 1+2 don't reach target speed.
+**Why LUT Failed:**
+1. **Zeroing 256 floats** (32 SIMD stores) is expensive
+2. **32 SIMD FMAs mostly multiply by 0** - wasted work  
+3. **L1 cache hits** make random access fast for 6 elements
+4. **Would need ~50+ outliers** to amortize LUT setup cost
+
+**Verdict:** ❌ Not beneficial for 6 outliers. Simple scalar loop is faster.
 
 ---
 
-### Option 4: Hybrid Tensor Selection 🎯 **ALREADY PROVEN**
+### Option 4: Hybrid Tensor Selection ✅ **TESTED - BEST RESULTS!**
 
-**Concept:** Apply Q3_HIFI only to quality-critical tensors, use Q3_K_M elsewhere.
+**Concept:** Apply Q3_HIFI_FAST only to quality-critical tensors, use Q3_K_M elsewhere.
 
-**From previous experiments:**
-| Configuration | Size | Speed | PPL |
-|---------------|------|-------|-----|
-| All Q3_K_M | 1023 MiB | 56 tok/s | 22.78 |
-| All Q3_HIFI | 987 MiB | 9 tok/s | 21.91 |
-| **Hybrid (attn_v + ffn_down)** | ~1000 MiB | ~45 tok/s | **~21.5** |
+**Actual Results (2025-12-11):**
+| Configuration | Size | Speed (4 threads) | PPL | Notes |
+|---------------|------|-------------------|-----|-------|
+| All Q3_K_M | 1018 MiB | 10.5 tok/s | 20.2 | Baseline |
+| All Q3_HIFI_FAST | 1040 MiB | 7.3 tok/s (69%) | 16.7 | 17% better PPL |
+| **Hybrid** | **991 MiB** | **9.5 tok/s (91%)** | **16.2** | **🏆 Best overall!** |
 
-**Best Hybrid Configuration:**
+**Hybrid Configuration Used:**
+```bash
+llama-quantize --imatrix imatrix.gguf \
+  --tensor-type attn_v=q3_hifi_fast \
+  --tensor-type ffn_down=q3_hifi_fast \
+  input.gguf output.gguf Q3_K_M
 ```
-attn_v.weight    → Q3_HIFI_FAST  (quality-critical)
-ffn_down.weight  → Q3_HIFI_FAST  (quality-critical)
-Everything else  → Q3_K_M        (speed-optimized)
-```
+
+**Why Hybrid Wins:**
+- **attn_v** and **ffn_down** are quality-critical (benefit most from FP16 outliers)
+- **attn_q/k**, **ffn_gate/up** can tolerate Q3_K_M without significant quality loss
+- Only 56 tensors use Q3_HIFI_FAST (18% of weights), rest uses fast Q3_K_M
+- Result: **91% speed, 20% better quality, smallest file size!**
 
 ---
 
@@ -746,20 +760,25 @@ The original approach of casting `block_q3_hifi_fast*` to `block_q3_K*` and call
 
 **Solution:** Copy the Q3_K kernel and use `block_q3_hifi_fast` directly to get correct 128-byte stride.
 
-### Performance Summary
+### Performance Summary (Final Results)
 
-| Configuration | Q3_K_M | Q3_HIFI_FAST | Ratio |
-|--------------|--------|--------------|-------|
-| PPL | 20.2 | **16.66** | **17.5% better** |
-| Speed (4 threads) | 8.1 tok/s | 6.8 tok/s | 84% |
-| Speed (6 threads) | 7.5 tok/s | 5.2 tok/s | 69% |
-| Size | 1018 MiB | 1040 MiB | +2% |
+| Configuration | Size | Speed | PPL | Speed % | Quality % |
+|--------------|------|-------|-----|---------|-----------|
+| Q3_K_M (baseline) | 1018 MiB | 10.5 tok/s | 20.2 | 100% | 100% |
+| Q3_HIFI_FAST (all) | 1040 MiB | 7.3 tok/s | 16.7 | 69% | **+17%** |
+| **🏆 HYBRID** | **991 MiB** | **9.5 tok/s** | **16.2** | **91%** | **+20%** |
 
 ### Usage
 
 ```bash
-# Quantize a model to Q3_HIFI_FAST
-llama-quantize model.gguf output.gguf Q3_HIFI_FAST
+# Option 1: Full Q3_HIFI_FAST (best quality, slower)
+llama-quantize --imatrix imatrix.gguf model.gguf output.gguf Q3_HIFI_FAST
+
+# Option 2: Hybrid (recommended - best overall)
+llama-quantize --imatrix imatrix.gguf \
+  --tensor-type attn_v=q3_hifi_fast \
+  --tensor-type ffn_down=q3_hifi_fast \
+  model.gguf output.gguf Q3_K_M
 
 # Run inference
 llama-cli -m output.gguf -p "Hello" -n 100
@@ -767,4 +786,12 @@ llama-cli -m output.gguf -p "Hello" -n 100
 # Benchmark
 llama-bench -m output.gguf -t 4 -p 0 -n 20
 ```
+
+### Recommendations
+
+1. **For best quality**: Use Q3_HIFI_FAST on all tensors (PPL 16.7, 69% speed)
+2. **For best balance**: Use **Hybrid** (PPL 16.2, 91% speed, smallest size) ✅
+3. **For maximum speed**: Use Q3_K_M (PPL 20.2, 100% speed)
+
+The **Hybrid approach** is recommended for most users - it delivers 20% better quality than Q3_K_M while maintaining 91% of its speed and being smaller.
 
