@@ -23,9 +23,10 @@
 - scales: 12 bytes (per-16 subscales)
 - d: 2 bytes (FP16 scale)
 
-**Q3_HIFI v4 block (current: 116 bytes = 3.625 BPW):** ✅ ACHIEVED
+**Q3_HIFI v7 block (current: 116 bytes = 3.625 BPW):** ✅ ACHIEVED
 - d: 2 bytes ✅ (FP16 scale)
-- qs: 96 bytes (3 bits per weight, continuous packing)
+- ql: 64 bytes ✅ (2 bits per weight, SIMD-friendly)
+- qh: 32 bytes ✅ (1 bit per weight, SIMD-friendly)
 - outlier_idx: 6 bytes ✅ (uint8)
 - outlier_vals: 12 bytes (FP16)
 
@@ -70,18 +71,21 @@ cmake --build build --config Release
 ```
 
 **Baseline Results (Updated 2025-12-11):**
-| Metric | Q3_K_M | Q3_HIFI v4 | Notes |
+| Metric | Q3_K_M | Q3_HIFI v7 | Notes |
 |--------|--------|------------|-------|
 | File Size | 1023.52 MiB | **987.37 MiB** | ✅ 36 MiB smaller! |
 | Block Size | 110 bytes | 116 bytes | +6 bytes (was 124) |
+| Block Layout | ql[64]+qh[32]+scales | ql[64]+qh[32]+outliers | Split layout |
 | BPW | 3.44 | 3.62 | |
 | Perplexity | 22.78 | **21.91** | ✅ Better quality! |
-| Speed | ~56 tok/s | 10 tok/s | ⚠️ 5.6x slower |
+| Speed | ~56 tok/s | 9 tok/s | ⚠️ 6x slower |
+| Quant Time | - | 11s | ✅ 2x faster than v4 |
 
 **Key Optimizations Applied:**
 - ✅ FP16 scale (saved 2 bytes)
 - ✅ uint8 outlier indices (saved 6 bytes)
-- ✅ AVX2 vec_dot (38% faster than generic)
+- ✅ Split ql/qh layout (SIMD-friendly, 2x faster quant)
+- ✅ AVX2 vec_dot (correct, but extraction still scalar)
 
 ---
 
@@ -298,75 +302,102 @@ for (k = 0; k < 6; k++) {
 
 ---
 
-### Step 3.2: Optimize 3-bit Extraction
-**Goal:** Fast extraction of 3-bit values from ql/qh split layout
+### Step 3.2: Format Change to Split ql/qh Layout ⚡ CRITICAL FOR SPEED
+**Goal:** Enable efficient SIMD bit extraction like Q3_K
 
-**Current approach (split layout):**
+**Current Problem:**
+Our `qs[96]` continuous 3-bit packing is **fundamentally SIMD-unfriendly**:
 ```c
-int low = (ql[i/4] >> ((i%4)*2)) & 0x03;
-int high = (qh[i/8] >> (i%8)) & 0x01;
+// Current: bits cross byte boundaries - requires complex extraction
+const int byte_idx = (i * 3) / 8;
+const int bit_offset = (i * 3) % 8;
+uint8_t bits = (qs[byte_idx] >> bit_offset) & 7;
+if (bit_offset > 5) bits |= (qs[byte_idx + 1] << (8 - bit_offset)) & 7;
+```
+
+**Q3_K's Approach (split layout):**
+```c
+// Q3_K: simple masks, SIMD-friendly
+int low = (ql[i/4] >> ((i%4)*2)) & 0x03;   // 2 bits from ql[64]
+int high = (qh[i/8] >> (i%8)) & 0x01;       // 1 bit from qh[32]
 int value = (low | (high << 2)) - 4;
 ```
 
-**Options:**
+**Why Split Layout is ~5x Faster:**
+| Operation | Continuous 3-bit | Split ql/qh |
+|-----------|------------------|-------------|
+| Byte alignment | Crosses boundaries | Always aligned |
+| SIMD extraction | Requires scalar loop | Pure vector ops |
+| Bits per vector | Complex packing | Simple masks |
 
-**A) LUT-based extraction (current):**
-- Uses 256-entry lookup tables
-- Already implemented in dequantize_row_q3_hifi
-
-**B) Interleaved layout (like Q3_K):**
-- Requires format change (breaks existing models)
-- Enables efficient SIMD extraction with shuffles
-- Would need to re-quantize all models
-
-**C) Pure SIMD extraction:**
+**Proposed New Block Structure (116 bytes, same size):**
 ```c
-// Process 32 values using AVX2
-__m256i ql_vec = _mm256_loadu_si256(ql);
-__m256i qh_vec = _mm256_loadu_si256(qh);
-// Use shuffle operations to distribute bits
+typedef struct {
+    ggml_fp16_t d;                    // 2 bytes
+    uint8_t  ql[64];                  // 64 bytes (2 bits per weight)
+    uint8_t  qh[32];                  // 32 bytes (1 bit per weight)
+    uint8_t  outlier_idx[6];          // 6 bytes
+    ggml_fp16_t outlier_vals[6];      // 12 bytes
+} block_q3_hifi_v2;                   // Total: 116 bytes (same as current!)
 ```
 
-**Recommendation:** 
-- First optimize within current layout (LUT + loop unrolling)
-- Consider format change only if > 3x speedup is achievable
+**Expected Speed Improvement:**
+| Metric | Current (qs[96]) | After (ql/qh) |
+|--------|------------------|---------------|
+| Speed | 10 tok/s | **40-50 tok/s** |
+| vs Q3_K_M | 5.6x slower | **1.1-1.4x slower** |
+
+**Implementation Steps:**
+1. Change block structure to split layout
+2. Update quantize/dequantize functions
+3. Rewrite AVX2 vec_dot with simple bit extraction
+4. Re-quantize all models
+
+**Risk:** Breaking change - all existing Q3_HIFI models need re-quantization
 
 ---
 
-### Step 3.3: Optimize Outlier Handling ⚡ REVOLUTIONARY
-**Goal:** Eliminate outlier overhead in hot path
+### Step 3.3: Pre-Zero Outliers During Quantization ⚡ KEY OPTIMIZATION
+**Goal:** Eliminate runtime outlier handling in vec_dot
 
-**Idea: Precomputed outlier correction vector**
-
-During quantization, store precomputed corrections:
+**Current Problem:**
 ```c
-// For each outlier position i:
-correction[i] = outlier_fp16_value - (q3_value_at_i * scale)
+// Current vec_dot: compute full sum, then correct for outliers
+int32_t sum_bulk = simd_dot_product(q3, q8);
+for (int k = 0; k < 6; ++k) {
+    sum_bulk -= q3[outlier_idx[k]] * q8[outlier_idx[k]];  // SUBTRACT
+    outlier_correction += outlier_val[k] * q8[outlier_idx[k]];  // ADD
+}
+```
+This requires **subtracting the bulk contribution at outlier positions** - extra work!
 
-// During vec_dot:
-dot_product = sum(q3[i] * q8[i]) * scale_combined;
-dot_product += outlier_corrections;  // Single addition!
+**Solution: Store 0 at outlier positions during quantization**
+```c
+// During quantization:
+for (int i = 0; i < 256; ++i) {
+    if (is_outlier[i]) {
+        set_q3_value(block, i, 4);  // Store 4 → maps to 0 after -4 bias
+    } else {
+        set_q3_value(block, i, quantize(x[i]));
+    }
+}
 ```
 
-**Implementation:**
-1. Store `float outlier_corrections[6]` instead of raw FP16 values
-2. During vec_dot: just sum the corrections (no per-element work!)
-3. Trade-off: corrections depend on q8 values... 
-
-Wait, this doesn't work because corrections depend on the OTHER tensor.
-
-**Alternative: Blend-during-multiply**
+**Optimized vec_dot (no subtraction needed!):**
 ```c
-// SIMD approach: create mask and blend
-__m256 bulk = dequantize_8_values(q3);
-__m256 outliers = gather_outlier_values(outlier_vals, outlier_idx);
-__m256 mask = create_outlier_mask(outlier_idx);
-__m256 result = _mm256_blendv_ps(bulk, outliers, mask);
+int32_t sum_bulk = simd_dot_product(q3, q8);  // Outliers contribute 0!
+// Just add outlier corrections:
+for (int k = 0; k < 6; ++k) {
+    outlier_correction += outlier_val[k] * q8[outlier_idx[k]];
+}
 ```
 
-This requires:
-1. Efficient gather from outlier_vals based on outlier_idx
-2. Fast mask creation (can be precomputed as bitmask)
+**Benefits:**
+- Eliminates 6 subtract operations per block
+- Cleaner SIMD code path
+- No need to track outlier positions during dot product
+
+**Status:** ⚠️ Requires quantization code change - low priority until format change (3.2) is done
 
 ---
 
@@ -648,28 +679,39 @@ sum += q8_block->correction;  // Single addition
 
 ---
 
-## Revised Priority Order
+## Revised Priority Order (Updated 2025-12-11)
 
-Based on risk/reward analysis:
+Based on analysis of actual bottlenecks:
 
-### Tier 1: Immediate (Do Now)
+### Tier 1: Completed ✅
+| Step | Description | Size Impact | Speed Impact | Status |
+|------|-------------|-------------|--------------|--------|
+| ✅ 1.1 | FP16 scale | -2 bytes | None | Done |
+| ✅ 1.1b | uint8 outlier_idx | -6 bytes | None | Done |
+| ✅ 3.1 | AVX2 vec_dot (basic) | None | +38% (7→10 tok/s) | Done |
+| ✅ 3.2 | Split ql/qh format | None | +2x quant speed | Done |
+
+### Tier 2: Next Steps (Speed)
 | Step | Description | Size Impact | Speed Impact |
 |------|-------------|-------------|--------------|
-| ✅ 1.1 | FP16 scale | -2 bytes | None |
-| ✅ 1.1b | uint8 outlier_idx | -6 bytes | None |
-| **4B.1** | **Learned Outlier Codes** | **-9 bytes** | **+15%** |
+| 3.4 | Pure SIMD extraction | None | +5x (target 50 tok/s) |
+| 3.3 | Pre-zero outliers | None | +10-20% |
 
-### Tier 2: Short-term
+### Tier 3: Size Optimization  
 | Step | Description | Size Impact | Speed Impact |
 |------|-------------|-------------|--------------|
-| 3.2 | Optimize vec_dot (SIMD) | None | +50-100% |
+| **4B.1** | **Learned Outlier Codes** | **-9 bytes** | +5% |
+
+### Tier 4: Research (High Complexity)
+| Step | Description | Size Impact | Speed Impact |
+|------|-------------|-------------|--------------|
+| 4B.3 | Fuse into Q8_K | -12 bytes | +50%+ |
 | 4B.2 | Predictive Skipping | +1 byte | +10-20% |
 
-### Tier 3: Medium-term (Research)
-| Step | Description | Size Impact | Speed Impact |
-|------|-------------|-------------|--------------|
-| 4B.3 | Fuse into Q8_K | -12 bytes | +100%+ |
-| 1.2 | Implicit indices | -6 bytes | -5% |
+### Key Insight (Updated):
+**Step 3.2 (split ql/qh format) is complete but didn't provide speed gains** because extraction is still scalar. For Q3_K-level speed, we need:
+- **Pure SIMD extraction** using shuffle/blend operations (complex)
+- **Or: Accept 6x slower speed** in exchange for better quality (PPL 21.9 vs 22.8)
 
 ---
 
@@ -738,8 +780,15 @@ Based on risk/reward analysis:
 | 2025-12-11 | 0.1 | Baseline Q3_HIFI (original) | 1044.31 MiB | - | ~0.85 tok/s | ✅ Done |
 | 2025-12-11 | 1.1 | FP16 scale (float d → ggml_fp16_t d) | -2 bytes/block | - | - | ✅ Done |
 | 2025-12-11 | 1.1b | uint8 outlier indices (uint16 → uint8) | -6 bytes/block | - | - | ✅ Done |
-| 2025-12-11 | 3.1 | AVX2 vec_dot implementation | - | 21.91 | 10 tok/s | ✅ Done |
-| 2025-12-11 | - | **Final Q3_HIFI v4** | **987.37 MiB** | **21.91** | **10 tok/s** | ✅ Current |
+| 2025-12-11 | 3.1 | AVX2 vec_dot (continuous 3-bit) | - | 21.91 | 10 tok/s | ✅ Done |
+| 2025-12-11 | 3.2 | Split ql/qh format (qs[96] → ql[64]+qh[32]) | same | 21.91 | 9 tok/s | ✅ Done |
+| 2025-12-11 | - | **Final Q3_HIFI v7** | **987.37 MiB** | **21.91** | **9 tok/s** | ✅ Current |
+
+### Key Insights from Format Change (3.2):
+- **Quantization 2x faster**: 26s → 11s (simpler bit packing)
+- **Speed unchanged**: Still ~9-10 tok/s (extraction still scalar)
+- **Foundation for SIMD**: Split layout enables future pure-SIMD extraction
+- **Quality preserved**: PPL unchanged at 21.91
 
 ---
 
@@ -752,24 +801,72 @@ Based on risk/reward analysis:
 
 ---
 
+## Analysis: Why Q3_HIFI is 6x Slower than Q3_K (Updated 2025-12-11)
+
+### ❌ NOT the cause (contrary to some analysis):
+- ~~vec_dot kernel not registered~~ → **Actually IS registered** in `ggml-cpu.c`
+- ~~Falling back to generic dequant+matmul~~ → **Actually uses AVX2 vec_dot**
+- ~~Wrong function optimized~~ → **Correct function is being called**
+- ~~Continuous 3-bit packing~~ → **Now using split ql/qh layout**
+
+### ✅ ACTUAL root cause (current):
+**Extraction is still scalar before SIMD dot product**
+
+| Aspect | Q3_K (fast) | Q3_HIFI v7 (slow) |
+|--------|-------------|-------------------|
+| Layout | Split `ql[64]` + `qh[32]` | Split `ql[64]` + `qh[32]` ✅ |
+| Bit extraction | **Pure SIMD shuffles** | Scalar loop, then SIMD ❌ |
+| SIMD friendliness | Full pipeline | Broken by extraction |
+| Outlier handling | N/A | 6 FP16 corrections per block |
+
+### What we've achieved:
+1. ✅ **Split ql/qh layout** - Foundation for SIMD (Step 3.2)
+2. ✅ **Quantization 2x faster** - Simpler bit packing
+3. ✅ **Quality preserved** - PPL 21.91 (better than Q3_K's 22.78)
+4. ⚠️ **Speed still 6x slower** - Extraction not yet SIMD
+
+### Remaining bottleneck:
+```c
+// Current: Extract 256 values one at a time, then SIMD dot product
+for (int i = 0; i < 256; i += 8) {
+    uint8_t ql0 = ql[ql_idx];
+    uint8_t qh_byte = qh[qh_idx];
+    q3[i+0] = ((ql0 >> 0) & 0x03) | (((qh_byte >> 0) & 1) << 2) - 4;
+    // ... still scalar extraction
+}
+```
+
+### Path to Q3_K-level speed:
+1. **Pure SIMD extraction** - Use shuffle/blend like Q3_K (complex)
+2. **Or: Pre-extract to LUT** - Trade memory for speed
+3. **Pre-zero outliers** (Step 3.3) - Eliminates subtract ops
+
+---
+
 ## Quick Reference: Current vs Target
 
 ```
-Original Q3_HIFI (124 bytes/256 weights = 3.875 BPW):
+Original Q3_HIFI v1 (124 bytes/256 weights = 3.875 BPW):
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
 │ float d (4B) │ qs[96] (96B) │ idx[6] (12B uint16) │ vals[6] (12B FP16) │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 
-Current Q3_HIFI v4 (116 bytes/256 weights = 3.625 BPW): ✅ ACHIEVED
+Previous Q3_HIFI v4 (116 bytes, continuous 3-bit packing):
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
 │ fp16 d (2B) │ qs[96] (96B) │ idx[6] (6B uint8) │ vals[6] (12B FP16) │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 
-Target Q3_HIFI v5 (107 bytes/256 weights = 3.34 BPW): 🎯 NEXT
+Current Q3_HIFI v7 (116 bytes/256 weights = 3.625 BPW): ✅ ACHIEVED
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│ fp16 d (2B) │ qs[96] (96B) │ idx[6] (6B uint8) │ codes[3] (3B 4-bit) │
+│ fp16 d (2B) │ ql[64] (64B) │ qh[32] (32B) │ idx[6] (6B) │ vals[6] (12B) │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
-(outlier vals replaced with 4-bit codebook indices)
+(split ql/qh layout for SIMD-friendly extraction)
+
+Target Q3_HIFI v8 (107 bytes/256 weights = 3.34 BPW): 🎯 NEXT
+┌─────────────────────────────────────────────────────────────────────────────────────────┐
+│ fp16 d (2B) │ ql[64] (64B) │ qh[32] (32B) │ idx[6] (6B) │ codes[3] (3B) │
+└─────────────────────────────────────────────────────────────────────────────────────────┘
+(outlier vals replaced with 4-bit codebook indices - saves 9 bytes!)
 
 Q3_K reference (110 bytes/256 weights = 3.44 BPW):
 ┌────────────────────────────────────────────────────────────────────────────────┐

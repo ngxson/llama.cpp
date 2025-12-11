@@ -80,30 +80,22 @@ static __device__ __forceinline__ void dequantize_q3_hifi(const void * vx, const
     const block_q3_hifi * x = (const block_q3_hifi *) vx;
 
     const float d = __half2float(x[ib].d);
-    const uint8_t * qs = x[ib].qs;
+    const uint8_t * ql = x[ib].ql;
+    const uint8_t * qh = x[ib].qh;
 
-    // Extract two 3-bit values starting at iqs
-    // Each value is 3 bits, so we need to unpack from the packed format
+    // Extract two 3-bit values using split ql/qh layout
     int idx0 = iqs;
     int idx1 = iqs + 1;
 
-    // Extract first value
-    const int byte_idx0 = (idx0 * 3) / 8;
-    const int bit_offset0 = (idx0 * 3) % 8;
-    uint8_t bits0 = (qs[byte_idx0] >> bit_offset0) & 7;
-    if (bit_offset0 > 5 && byte_idx0 + 1 < 96) {
-        bits0 |= (qs[byte_idx0 + 1] << (8 - bit_offset0)) & 7;
-    }
-    const int quant_val0 = (int)bits0 - 4; // [0,7] → [-4,3]
+    // Extract first value: low 2 bits from ql, high 1 bit from qh
+    const uint8_t lo0 = (ql[idx0 / 4] >> ((idx0 % 4) * 2)) & 0x03;
+    const uint8_t hi0 = (qh[idx0 / 8] >> (idx0 % 8)) & 0x01;
+    const int quant_val0 = (int)(lo0 | (hi0 << 2)) - 4;
 
     // Extract second value
-    const int byte_idx1 = (idx1 * 3) / 8;
-    const int bit_offset1 = (idx1 * 3) % 8;
-    uint8_t bits1 = (qs[byte_idx1] >> bit_offset1) & 7;
-    if (bit_offset1 > 5 && byte_idx1 + 1 < 96) {
-        bits1 |= (qs[byte_idx1 + 1] << (8 - bit_offset1)) & 7;
-    }
-    const int quant_val1 = (int)bits1 - 4; // [0,7] → [-4,3]
+    const uint8_t lo1 = (ql[idx1 / 4] >> ((idx1 % 4) * 2)) & 0x03;
+    const uint8_t hi1 = (qh[idx1 / 8] >> (idx1 % 8)) & 0x01;
+    const int quant_val1 = (int)(lo1 | (hi1 << 2)) - 4;
 
     v.x = quant_val0 * d;
     v.y = quant_val1 * d;

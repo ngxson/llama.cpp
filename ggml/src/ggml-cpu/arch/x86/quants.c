@@ -2331,7 +2331,8 @@ void ggml_vec_dot_q6_K_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const voi
 #endif
 }
 
-// Q3_HIFI vec_dot with AVX2 optimization
+// Q3_HIFI vec_dot with AVX2 optimization - SPLIT ql/qh layout
+// Simpler approach: extract to array once, then use SIMD for dot product
 void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % Q3_HIFI_BLOCK_SIZE == 0);
     assert(nrc == 1);
@@ -2345,6 +2346,9 @@ void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const 
     const block_q8_K * GGML_RESTRICT y = vy;
     const int nb = n / Q3_HIFI_BLOCK_SIZE;
 
+    const __m256i offset_4 = _mm256_set1_epi8(4);
+    const __m256i ones_16 = _mm256_set1_epi16(1);
+
     float sumf = 0.0f;
 
     for (int ib = 0; ib < nb; ++ib) {
@@ -2352,51 +2356,59 @@ void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const 
         const block_q8_K * GGML_RESTRICT yb = &y[ib];
 
         const float d = GGML_FP16_TO_FP32(xb->d);
-        const uint8_t * GGML_RESTRICT qs = xb->qs;
+        const uint8_t * GGML_RESTRICT ql = xb->ql;
+        const uint8_t * GGML_RESTRICT qh = xb->qh;
         const int8_t * GGML_RESTRICT q8 = yb->qs;
 
-        // Extract all 256 3-bit values into int8 array
+        // Extract all 256 3-bit values using split layout
+        // Process 8 values at a time for efficiency (2 ql bytes + 1 qh byte)
         int8_t q3[256];
         for (int i = 0; i < 256; i += 8) {
-            const int byte_base = (i * 3) / 8;
-            const uint8_t b0 = qs[byte_base];
-            const uint8_t b1 = qs[byte_base + 1];
-            const uint8_t b2 = qs[byte_base + 2];
+            // 8 values use 2 ql bytes and 1 qh byte
+            const int ql_idx = i / 4;
+            const int qh_idx = i / 8;
+            const uint8_t ql0 = ql[ql_idx];
+            const uint8_t ql1 = ql[ql_idx + 1];
+            const uint8_t qh_byte = qh[qh_idx];
             
-            q3[i + 0] = (int8_t)((b0 >> 0) & 7) - 4;
-            q3[i + 1] = (int8_t)((b0 >> 3) & 7) - 4;
-            q3[i + 2] = (int8_t)(((b0 >> 6) | (b1 << 2)) & 7) - 4;
-            q3[i + 3] = (int8_t)((b1 >> 1) & 7) - 4;
-            q3[i + 4] = (int8_t)((b1 >> 4) & 7) - 4;
-            q3[i + 5] = (int8_t)(((b1 >> 7) | (b2 << 1)) & 7) - 4;
-            q3[i + 6] = (int8_t)((b2 >> 2) & 7) - 4;
-            q3[i + 7] = (int8_t)((b2 >> 5) & 7) - 4;
+            // Extract low 2 bits from ql (4 values per byte)
+            q3[i + 0] = ((ql0 >> 0) & 0x03) | (((qh_byte >> 0) & 1) << 2);
+            q3[i + 1] = ((ql0 >> 2) & 0x03) | (((qh_byte >> 1) & 1) << 2);
+            q3[i + 2] = ((ql0 >> 4) & 0x03) | (((qh_byte >> 2) & 1) << 2);
+            q3[i + 3] = ((ql0 >> 6) & 0x03) | (((qh_byte >> 3) & 1) << 2);
+            q3[i + 4] = ((ql1 >> 0) & 0x03) | (((qh_byte >> 4) & 1) << 2);
+            q3[i + 5] = ((ql1 >> 2) & 0x03) | (((qh_byte >> 5) & 1) << 2);
+            q3[i + 6] = ((ql1 >> 4) & 0x03) | (((qh_byte >> 6) & 1) << 2);
+            q3[i + 7] = ((ql1 >> 6) & 0x03) | (((qh_byte >> 7) & 1) << 2);
+            
+            // Subtract 4 to get signed range [-4, 3]
+            q3[i + 0] -= 4; q3[i + 1] -= 4; q3[i + 2] -= 4; q3[i + 3] -= 4;
+            q3[i + 4] -= 4; q3[i + 5] -= 4; q3[i + 6] -= 4; q3[i + 7] -= 4;
         }
 
-        // AVX2 dot product: process 32 int8 at a time using maddubs trick
-        // Compute both dot product and q8 sum in one pass
+        // AVX2 dot product with maddubs trick
         __m256i acc = _mm256_setzero_si256();
-        __m256i q8_acc = _mm256_setzero_si256();
-        const __m256i ones = _mm256_set1_epi16(1);
-        const __m256i offset4 = _mm256_set1_epi8(4);
-        
+        __m256i q8_sum_acc = _mm256_setzero_si256();
+
         for (int i = 0; i < 256; i += 32) {
             __m256i vq3 = _mm256_loadu_si256((const __m256i*)(q3 + i));
             __m256i vq8 = _mm256_loadu_si256((const __m256i*)(q8 + i));
             
-            // Dot product: (q3+4) * q8 using maddubs
-            __m256i q3_offset = _mm256_add_epi8(vq3, offset4);
+            // (q3+4) * q8 using maddubs
+            __m256i q3_offset = _mm256_add_epi8(vq3, offset_4);
             __m256i prod = _mm256_maddubs_epi16(q3_offset, vq8);
+            
+            // Accumulate in 32-bit
             __m256i prod_lo = _mm256_cvtepi16_epi32(_mm256_extracti128_si256(prod, 0));
             __m256i prod_hi = _mm256_cvtepi16_epi32(_mm256_extracti128_si256(prod, 1));
             acc = _mm256_add_epi32(acc, prod_lo);
             acc = _mm256_add_epi32(acc, prod_hi);
             
-            // Sum q8 values (for bias correction)
-            __m256i lo16 = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(vq8, 0));
-            __m256i hi16 = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(vq8, 1));
-            q8_acc = _mm256_add_epi32(q8_acc, _mm256_madd_epi16(lo16, ones));
-            q8_acc = _mm256_add_epi32(q8_acc, _mm256_madd_epi16(hi16, ones));
+            // Sum q8 for bias correction
+            __m256i q8_lo = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(vq8, 0));
+            __m256i q8_hi = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(vq8, 1));
+            q8_sum_acc = _mm256_add_epi32(q8_sum_acc, _mm256_madd_epi16(q8_lo, ones_16));
+            q8_sum_acc = _mm256_add_epi32(q8_sum_acc, _mm256_madd_epi16(q8_hi, ones_16));
         }
         
         // Horizontal sums
@@ -2406,20 +2418,19 @@ void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const 
         sum128 = _mm_hadd_epi32(sum128, sum128);
         int32_t sum_with_bias = _mm_cvtsi128_si32(sum128);
         
-        __m128i q8_128 = _mm_add_epi32(_mm256_extracti128_si256(q8_acc, 0),
-                                        _mm256_extracti128_si256(q8_acc, 1));
+        __m128i q8_128 = _mm_add_epi32(_mm256_extracti128_si256(q8_sum_acc, 0),
+                                        _mm256_extracti128_si256(q8_sum_acc, 1));
         q8_128 = _mm_hadd_epi32(q8_128, q8_128);
         q8_128 = _mm_hadd_epi32(q8_128, q8_128);
         int32_t q8_sum = _mm_cvtsi128_si32(q8_128);
         
         int32_t sum_bulk = sum_with_bias - 4 * q8_sum;
 
-        // Apply outlier corrections (scalar)
+        // Apply outlier corrections
         float outlier_correction = 0.0f;
         for (int k = 0; k < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k) {
             const int idx = xb->outlier_idx[k];
             const float outlier_val = GGML_FP16_TO_FP32(xb->outlier_vals[k]);
-            sum_bulk -= q3[idx] * q8[idx];
             outlier_correction += outlier_val * (float)q8[idx];
         }
 
@@ -3923,67 +3934,41 @@ void ggml_vec_dot_iq4_xs_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const v
 }
 
 #if defined(__AVX2__)
-// AVX2-optimized dequantization for Q3_HIFI
+// AVX2-optimized dequantization for Q3_HIFI - split ql/qh layout
 void dequantize_row_q3_hifi(const block_q3_hifi * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     assert(k % Q3_HIFI_BLOCK_SIZE == 0);
     const int64_t nb = k / Q3_HIFI_BLOCK_SIZE;
 
     for (int ib = 0; ib < nb; ++ib) {
         const block_q3_hifi * block = &x[ib];
-        const float d = block->d;
-        const uint8_t * qs = block->qs;
+        const float d = GGML_FP16_TO_FP32(block->d);
+        const uint8_t * ql = block->ql;
+        const uint8_t * qh = block->qh;
         float * yb = y + ib * Q3_HIFI_BLOCK_SIZE;
 
-        // Process 8 values at a time with AVX2
-        // Q3_HIFI_BLOCK_SIZE is 256, which is a multiple of 8
-        int i = 0;
-        for (; i < Q3_HIFI_BLOCK_SIZE - 7; i += 8) {
-            // Extract 8 3-bit values (24 bits = 3 bytes)
-            // Extract all 8 values into an array first, then build the vector
+        // Process 8 values at a time with simple extraction
+        for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; i += 8) {
             int32_t quant_vals_arr[8];
             
-            // Unpack 8 values from the packed 3-bit format
-            // Each value is 3 bits, so 8 values = 24 bits = 3 bytes
+            // Extract 8 3-bit values using split ql/qh layout
             for (int j = 0; j < 8; ++j) {
-                const int byte_idx = ((i + j) * 3) / 8;
-                const int bit_offset = ((i + j) * 3) % 8;
-                uint8_t bits = (qs[byte_idx] >> bit_offset) & 7;
-                if (bit_offset > 5 && byte_idx + 1 < 96) {
-                    bits |= (qs[byte_idx + 1] << (8 - bit_offset)) & 7;
-                }
-                quant_vals_arr[j] = (int32_t)bits - 4; // [0,7] → [-4,3]
+                int idx = i + j;
+                uint8_t lo2 = (ql[idx / 4] >> ((idx % 4) * 2)) & 0x03;
+                uint8_t hi1 = (qh[idx / 8] >> (idx % 8)) & 0x01;
+                quant_vals_arr[j] = (int32_t)(lo2 | (hi1 << 2)) - 4;
             }
             
-            // Build vector from array (all values known at compile time for this call)
             __m256i quant_vals = _mm256_set_epi32(
                 quant_vals_arr[7], quant_vals_arr[6], quant_vals_arr[5], quant_vals_arr[4],
                 quant_vals_arr[3], quant_vals_arr[2], quant_vals_arr[1], quant_vals_arr[0]
             );
-            
-            // Convert to float
             __m256 quant_f = _mm256_cvtepi32_ps(quant_vals);
-            
-            // Multiply by scale
             __m256 scale_vec = _mm256_set1_ps(d);
             quant_f = _mm256_mul_ps(quant_f, scale_vec);
-            
-            // Store
             _mm256_storeu_ps(&yb[i], quant_f);
         }
-        
-        // Handle remaining values (scalar fallback)
-        for (; i < Q3_HIFI_BLOCK_SIZE; ++i) {
-            const int byte_idx = (i * 3) / 8;
-            const int bit_offset = (i * 3) % 8;
-            uint8_t bits = (qs[byte_idx] >> bit_offset) & 7;
-            if (bit_offset > 5 && byte_idx + 1 < 96) {
-                bits |= (qs[byte_idx + 1] << (8 - bit_offset)) & 7;
-            }
-            const int quant_val = (int)bits - 4;
-            yb[i] = quant_val * d;
-        }
 
-        // Restore outliers (still sequential, but less overhead)
+        // Restore outliers
         for (int k_idx = 0; k_idx < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
             const int idx = block->outlier_idx[k_idx];
             yb[idx] = GGML_FP16_TO_FP32(block->outlier_vals[k_idx]);

@@ -451,7 +451,7 @@ void quantize_row_q3_hifi_ref(const float * GGML_RESTRICT x, block_q3_hifi * GGM
         float tmp[Q3_HIFI_BLOCK_SIZE];
         memcpy(tmp, xb, sizeof(tmp));
         for (int k_idx = 0; k_idx < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
-            tmp[outlier_idx[k_idx]] = 0.0f;  // exclude outlier from bulk
+            tmp[outlier_idx[k_idx]] = 0.0f;  // exclude outlier from bulk (pre-zero for speed)
         }
 
         float amax = 0.0f;
@@ -463,24 +463,31 @@ void quantize_row_q3_hifi_ref(const float * GGML_RESTRICT x, block_q3_hifi * GGM
         const float id = d ? 1.0f / d : 0.0f;
         block->d = GGML_FP32_TO_FP16(d);
 
-        // Pack 3-bit values (shifted to [0,7])
-        memset(block->qs, 0, sizeof(block->qs));
+        // Pack 3-bit values using SPLIT ql/qh layout (like Q3_K)
+        // ql[64]: low 2 bits per weight (4 weights per byte)
+        // qh[32]: high 1 bit per weight (8 weights per byte)
+        memset(block->ql, 0, sizeof(block->ql));
+        memset(block->qh, 0, sizeof(block->qh));
+        
         for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; ++i) {
             int quant_val = (int)roundf(tmp[i] * id);
             quant_val = MAX(-4, MIN(3, quant_val)) + 4; // [-4,3] → [0,7]
 
-            const int byte_idx = (i * 3) / 8;
-            const int bit_offset = (i * 3) % 8;
-            block->qs[byte_idx] |= (quant_val << bit_offset);
-            if (bit_offset > 5 && byte_idx + 1 < 96) {
-                block->qs[byte_idx + 1] |= (quant_val >> (8 - bit_offset));
-            }
+            // Split into low 2 bits and high 1 bit
+            const uint8_t lo2 = quant_val & 0x03;       // bits 0-1
+            const uint8_t hi1 = (quant_val >> 2) & 0x01; // bit 2
+            
+            // Store low 2 bits in ql (4 values per byte)
+            block->ql[i / 4] |= (lo2 << ((i % 4) * 2));
+            
+            // Store high 1 bit in qh (8 values per byte)
+            block->qh[i / 8] |= (hi1 << (i % 8));
         }
 
         // --- Store outliers in FP16 ---
         for (int k_idx = 0; k_idx < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
             const int idx = outlier_idx[k_idx];
-            block->outlier_idx[k_idx] = (uint16_t)idx;
+            block->outlier_idx[k_idx] = (uint8_t)idx;
             block->outlier_vals[k_idx] = GGML_FP32_TO_FP16(xb[idx]);
         }
     }
@@ -520,7 +527,7 @@ static void quantize_row_q3_hifi_impl(const float * GGML_RESTRICT x, block_q3_hi
         float tmp[Q3_HIFI_BLOCK_SIZE];
         memcpy(tmp, xb, sizeof(tmp));
         for (int k_idx = 0; k_idx < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
-            tmp[outlier_idx[k_idx]] = 0.0f;  // exclude outlier from bulk
+            tmp[outlier_idx[k_idx]] = 0.0f;  // exclude outlier from bulk (pre-zero for speed)
         }
 
         float amax = 0.0f;
@@ -532,24 +539,26 @@ static void quantize_row_q3_hifi_impl(const float * GGML_RESTRICT x, block_q3_hi
         const float id = d ? 1.0f / d : 0.0f;
         block->d = GGML_FP32_TO_FP16(d);
 
-        // Pack 3-bit values (shifted to [0,7])
-        memset(block->qs, 0, sizeof(block->qs));
+        // Pack 3-bit values using SPLIT ql/qh layout (like Q3_K)
+        memset(block->ql, 0, sizeof(block->ql));
+        memset(block->qh, 0, sizeof(block->qh));
+        
         for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; ++i) {
             int quant_val = (int)roundf(tmp[i] * id);
             quant_val = MAX(-4, MIN(3, quant_val)) + 4; // [-4,3] → [0,7]
 
-            const int byte_idx = (i * 3) / 8;
-            const int bit_offset = (i * 3) % 8;
-            block->qs[byte_idx] |= (quant_val << bit_offset);
-            if (bit_offset > 5 && byte_idx + 1 < 96) {
-                block->qs[byte_idx + 1] |= (quant_val >> (8 - bit_offset));
-            }
+            // Split into low 2 bits and high 1 bit
+            const uint8_t lo2 = quant_val & 0x03;
+            const uint8_t hi1 = (quant_val >> 2) & 0x01;
+            
+            block->ql[i / 4] |= (lo2 << ((i % 4) * 2));
+            block->qh[i / 8] |= (hi1 << (i % 8));
         }
 
         // --- Store outliers in FP16 ---
         for (int k_idx = 0; k_idx < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
             const int idx = outlier_idx[k_idx];
-            block->outlier_idx[k_idx] = (uint16_t)idx;
+            block->outlier_idx[k_idx] = (uint8_t)idx;
             block->outlier_vals[k_idx] = GGML_FP32_TO_FP16(xb[idx]);
         }
     }
@@ -562,22 +571,22 @@ GGML_API void dequantize_row_q3_hifi(const block_q3_hifi * GGML_RESTRICT x, floa
     for (int ib = 0; ib < nb; ++ib) {
         const block_q3_hifi * block = &x[ib];
         const float d = GGML_FP16_TO_FP32(block->d);
-        const uint8_t * qs = block->qs;
+        const uint8_t * ql = block->ql;
+        const uint8_t * qh = block->qh;
         float * yb = y + ib * Q3_HIFI_BLOCK_SIZE;
 
-        // Dequantize bulk
+        // Dequantize bulk using split ql/qh layout
         for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; ++i) {
-            const int byte_idx = (i * 3) / 8;
-            const int bit_offset = (i * 3) % 8;
-            uint8_t bits = (qs[byte_idx] >> bit_offset) & 7;
-            if (bit_offset > 5) {
-                bits |= (qs[byte_idx + 1] << (8 - bit_offset)) & 7;
-            }
-            const int quant_val = (int)bits - 4; // [0,7] → [-4,3]
+            // Extract low 2 bits from ql (4 values per byte)
+            const uint8_t lo2 = (ql[i / 4] >> ((i % 4) * 2)) & 0x03;
+            // Extract high 1 bit from qh (8 values per byte)
+            const uint8_t hi1 = (qh[i / 8] >> (i % 8)) & 0x01;
+            // Combine: 3-bit value in [0,7]
+            const int quant_val = (int)(lo2 | (hi1 << 2)) - 4; // [0,7] → [-4,3]
             yb[i] = quant_val * d;
         }
 
-        // Restore outliers
+        // Restore outliers (overwrites the pre-zeroed positions)
         for (int k_idx = 0; k_idx < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
             const int idx = block->outlier_idx[k_idx];
             yb[idx] = GGML_FP16_TO_FP32(block->outlier_vals[k_idx]);

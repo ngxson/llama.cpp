@@ -892,10 +892,11 @@ void dequantize_iq4_xs(device const block_iq4_xs * xb, short il, thread type4x4 
 
 template <typename type4x4>
 void dequantize_q3_hifi(device const block_q3_hifi * xb, short il, thread type4x4 & reg) {
-    // il is 0...127 for Q3_HIFI_BLOCK_SIZE = 256 => processes 16 values at a time
+    // il is 0...15 for Q3_HIFI_BLOCK_SIZE = 256 => processes 16 values at a time
     // Each call processes 16 values (4x4 register)
     const float d = half_to_float(xb->d);
-    device const uint8_t * qs = xb->qs;
+    device const uint8_t * ql = xb->ql;
+    device const uint8_t * qh = xb->qh;
     
     // Process 16 values starting at il*16
     for (int i = 0; i < 16; ++i) {
@@ -905,14 +906,10 @@ void dequantize_q3_hifi(device const block_q3_hifi * xb, short il, thread type4x
             continue;
         }
         
-        // Extract 3-bit value
-        const int byte_idx = (idx * 3) / 8;
-        const int bit_offset = (idx * 3) % 8;
-        uint8_t bits = (qs[byte_idx] >> bit_offset) & 7;
-        if (bit_offset > 5 && byte_idx + 1 < 96) {
-            bits |= (qs[byte_idx + 1] << (8 - bit_offset)) & 7;
-        }
-        const int quant_val = (int)bits - 4; // [0,7] → [-4,3]
+        // Extract 3-bit value using split ql/qh layout
+        const uint8_t lo2 = (ql[idx / 4] >> ((idx % 4) * 2)) & 0x03;
+        const uint8_t hi1 = (qh[idx / 8] >> (idx % 8)) & 0x01;
+        const int quant_val = (int)(lo2 | (hi1 << 2)) - 4; // [0,7] → [-4,3]
         float val = quant_val * d;
         
         // Check if this index is an outlier

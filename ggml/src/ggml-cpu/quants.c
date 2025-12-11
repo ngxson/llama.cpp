@@ -567,11 +567,6 @@ void ggml_vec_dot_q3_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs
 
     const int nb = n / Q3_HIFI_BLOCK_SIZE;
 
-    // Precomputed LUT for bit extraction: for each starting bit position (0-7),
-    // gives the mask and shift needed
-    static const uint8_t extract_mask[8] = {0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x03, 0x01};
-    static const uint8_t extract_shift[8] = {0, 0, 0, 0, 0, 0, 1, 2};
-
     float sumf = 0.0f;
 
     for (int ib = 0; ib < nb; ++ib) {
@@ -579,52 +574,41 @@ void ggml_vec_dot_q3_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs
         const block_q8_K * GGML_RESTRICT yb = &y[ib];
 
         const float d = GGML_FP16_TO_FP32(xb->d);
-        const uint8_t * GGML_RESTRICT qs = xb->qs;
+        const uint8_t * GGML_RESTRICT ql = xb->ql;
+        const uint8_t * GGML_RESTRICT qh = xb->qh;
         const int8_t * GGML_RESTRICT q8 = yb->qs;
 
-        // Step 1: Extract all 256 3-bit values into an int8 array (batch extract)
-        // This is the hot path - optimize bit extraction
-        int8_t q3[Q3_HIFI_BLOCK_SIZE];
-        
-        // Process 8 values at a time (24 bits = 3 bytes, clean boundary)
-        for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; i += 8) {
-            const int byte_base = (i * 3) / 8;
-            const uint8_t b0 = qs[byte_base];
-            const uint8_t b1 = qs[byte_base + 1];
-            const uint8_t b2 = qs[byte_base + 2];
-            
-            // Extract 8 x 3-bit values from 3 bytes
-            q3[i + 0] = (int8_t)((b0 >> 0) & 7) - 4;
-            q3[i + 1] = (int8_t)((b0 >> 3) & 7) - 4;
-            q3[i + 2] = (int8_t)(((b0 >> 6) | (b1 << 2)) & 7) - 4;
-            q3[i + 3] = (int8_t)((b1 >> 1) & 7) - 4;
-            q3[i + 4] = (int8_t)((b1 >> 4) & 7) - 4;
-            q3[i + 5] = (int8_t)(((b1 >> 7) | (b2 << 1)) & 7) - 4;
-            q3[i + 6] = (int8_t)((b2 >> 2) & 7) - 4;
-            q3[i + 7] = (int8_t)((b2 >> 5) & 7) - 4;
-        }
-
-        // Step 2: Compute full dot product (no branching)
+        // Extract and compute dot product using split ql/qh layout
+        // Process 8 values at a time for efficiency
         int32_t sum = 0;
+        
         for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; i += 8) {
-            sum += q3[i+0] * q8[i+0];
-            sum += q3[i+1] * q8[i+1];
-            sum += q3[i+2] * q8[i+2];
-            sum += q3[i+3] * q8[i+3];
-            sum += q3[i+4] * q8[i+4];
-            sum += q3[i+5] * q8[i+5];
-            sum += q3[i+6] * q8[i+6];
-            sum += q3[i+7] * q8[i+7];
+            const int ql_idx = i / 4;
+            const int qh_idx = i / 8;
+            const uint8_t ql0 = ql[ql_idx];
+            const uint8_t ql1 = ql[ql_idx + 1];
+            const uint8_t qh_byte = qh[qh_idx];
+            
+            // Extract 8 values at once
+            int8_t q3_0 = (int8_t)(((ql0 >> 0) & 0x03) | (((qh_byte >> 0) & 1) << 2)) - 4;
+            int8_t q3_1 = (int8_t)(((ql0 >> 2) & 0x03) | (((qh_byte >> 1) & 1) << 2)) - 4;
+            int8_t q3_2 = (int8_t)(((ql0 >> 4) & 0x03) | (((qh_byte >> 2) & 1) << 2)) - 4;
+            int8_t q3_3 = (int8_t)(((ql0 >> 6) & 0x03) | (((qh_byte >> 3) & 1) << 2)) - 4;
+            int8_t q3_4 = (int8_t)(((ql1 >> 0) & 0x03) | (((qh_byte >> 4) & 1) << 2)) - 4;
+            int8_t q3_5 = (int8_t)(((ql1 >> 2) & 0x03) | (((qh_byte >> 5) & 1) << 2)) - 4;
+            int8_t q3_6 = (int8_t)(((ql1 >> 4) & 0x03) | (((qh_byte >> 6) & 1) << 2)) - 4;
+            int8_t q3_7 = (int8_t)(((ql1 >> 6) & 0x03) | (((qh_byte >> 7) & 1) << 2)) - 4;
+            
+            sum += q3_0 * q8[i+0] + q3_1 * q8[i+1] + q3_2 * q8[i+2] + q3_3 * q8[i+3];
+            sum += q3_4 * q8[i+4] + q3_5 * q8[i+5] + q3_6 * q8[i+6] + q3_7 * q8[i+7];
         }
 
-        // Step 3: Apply outlier corrections
-        // Subtract the q3 contribution at outlier positions, add FP16 contribution
+        // Apply outlier corrections (outliers were pre-zeroed during quantization)
+        // So we just need to add the FP16 outlier contributions
         float outlier_correction = 0.0f;
         for (int k = 0; k < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k) {
             const int idx = xb->outlier_idx[k];
             const float outlier_val = GGML_FP16_TO_FP32(xb->outlier_vals[k]);
-            // Remove bulk contribution at this position
-            sum -= q3[idx] * q8[idx];
             // Add precise outlier contribution
             outlier_correction += outlier_val * (float)q8[idx];
         }
