@@ -372,22 +372,8 @@ extern "C" {
     GGML_API void        ggml_fp32_to_bf16_row_ref(const float *, ggml_bf16_t *, int64_t);
     GGML_API void        ggml_fp32_to_bf16_row(const float *, ggml_bf16_t *, int64_t);
 
-    // Q3_HIFI: Q3_K-compatible layout with 6 FP16 outliers for improved accuracy
-    // Uses EXACT Q3_K memory layout (first 110 bytes) to reuse optimized AVX2 kernels
-    // Outliers appended as tail section - achieves ~98% of Q3_K speed with better quality
-    #define Q3_HIFI_BLOCK_SIZE      256
-    #define Q3_HIFI_OUTLIERS        6
-
-    typedef struct {
-        // === Q3_K-COMPATIBLE REGION (110 bytes) - DO NOT REORDER ===
-        uint8_t  hmask[32];                                // 32 bytes: high bit mask (QK_K/8)
-        uint8_t  qs[64];                                   // 64 bytes: low 2 bits (QK_K/4)
-        uint8_t  scales[12];                               // 12 bytes: 16 sub-group scales (6-bit each)
-        ggml_fp16_t d;                                     // 2 bytes: super-block scale
-        // === OUTLIER EXTENSION (18 bytes) ===
-        uint8_t  outlier_idx[Q3_HIFI_OUTLIERS];            // 6 bytes: outlier positions (0-255)
-        ggml_fp16_t outlier_vals[Q3_HIFI_OUTLIERS];        // 12 bytes: FP16 outlier values
-    } block_q3_hifi;  // Total: 128 bytes
+    // Q3_HIFI block structure is defined in ggml-common.h for GPU backend compatibility
+    // Uses Q3_K-compatible layout with 6 FP16 outliers for improved accuracy
 
     struct ggml_object;
     struct ggml_context;
