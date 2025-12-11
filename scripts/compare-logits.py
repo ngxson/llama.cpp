@@ -2,6 +2,10 @@ import argparse
 import requests
 import json
 from pathlib import Path
+import logging
+
+logger = logging.getLogger("compare-logits")
+logging.basicConfig(level=logging.INFO)
 
 
 DESCRIPTION = """
@@ -29,9 +33,8 @@ You can make multiple calls in one go by placing them one after another.
 """.strip()
 
 
-
 def dump_logits(endpoint: str, output_path: Path, api_key = None):
-    print(f"Dumping logits to {output_path} from endpoint {endpoint}...")
+    logger.info(f"Dumping logits to {output_path} from endpoint {endpoint}...")
     words = INPUT_PROMPT.split(' ')
     curr_text = ""
     with output_path.open("w") as f:
@@ -51,8 +54,8 @@ def dump_logits(endpoint: str, output_path: Path, api_key = None):
             response.raise_for_status()
             data = response.text
             f.write(f"{data}\n")
-            print(f"\n\n{data}\n\n[{i+1}/{len(words)}]")
-    print(f"Logits dumped to {output_path}")
+            logger.info(f"\n\n{data}\n\n[{i + 1}/{len(words)}]")
+    logger.info(f"Logits dumped to {output_path}")
 
 
 def get_token_logprobs(data: dict):
@@ -68,7 +71,7 @@ def compare_logits(input1: Path, input2: Path, output_path: Path):
     with input1.open("r") as f1, input2.open("r") as f2, output_path.open("w") as fout:
         lines1 = f1.readlines()
         lines2 = f2.readlines()
-        
+
         tab_header = [input1.name, "logprob_1",  input2.name, "logprob_2", "diff"]
         tab_entries = []
         tab_max_widths = [len(h) for h in tab_header]
@@ -104,9 +107,9 @@ def compare_logits(input1: Path, input2: Path, output_path: Path):
                 output += f"| {entry[j]:<{tab_max_widths[j]}} "
             output += "|\n"
 
-        print(output)
+        logger.info(output)
         fout.write(output)
-        print(f"Report written to {output_path}")
+        logger.info(f"Report written to {output_path}")
 
 
 def parse_args() -> argparse.Namespace:
@@ -136,12 +139,11 @@ def parse_args() -> argparse.Namespace:
 def main():
     args = parse_args()
 
-    if args.file is not None:
-        with args.file.open("r") as f:
-            global INPUT_PROMPT
-            INPUT_PROMPT = f.read().strip()
-
     if args.verb == "dump":
+        if args.file is not None:
+            with args.file.open("r") as f:
+                global INPUT_PROMPT
+                INPUT_PROMPT = f.read().strip()
         dump_logits(args.endpoint, args.output, args.api_key)
     elif args.verb == "compare":
         compare_logits(args.input1, args.input2, args.output)
