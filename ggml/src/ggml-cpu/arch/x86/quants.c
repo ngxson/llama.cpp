@@ -2331,6 +2331,110 @@ void ggml_vec_dot_q6_K_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const voi
 #endif
 }
 
+// Q3_HIFI vec_dot with AVX2 optimization
+void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % Q3_HIFI_BLOCK_SIZE == 0);
+    assert(nrc == 1);
+    UNUSED(nrc);
+    UNUSED(bx);
+    UNUSED(by);
+    UNUSED(bs);
+
+#if defined(__AVX2__)
+    const block_q3_hifi * GGML_RESTRICT x = vx;
+    const block_q8_K * GGML_RESTRICT y = vy;
+    const int nb = n / Q3_HIFI_BLOCK_SIZE;
+
+    float sumf = 0.0f;
+
+    for (int ib = 0; ib < nb; ++ib) {
+        const block_q3_hifi * GGML_RESTRICT xb = &x[ib];
+        const block_q8_K * GGML_RESTRICT yb = &y[ib];
+
+        const float d = GGML_FP16_TO_FP32(xb->d);
+        const uint8_t * GGML_RESTRICT qs = xb->qs;
+        const int8_t * GGML_RESTRICT q8 = yb->qs;
+
+        // Extract all 256 3-bit values into int8 array
+        int8_t q3[256];
+        for (int i = 0; i < 256; i += 8) {
+            const int byte_base = (i * 3) / 8;
+            const uint8_t b0 = qs[byte_base];
+            const uint8_t b1 = qs[byte_base + 1];
+            const uint8_t b2 = qs[byte_base + 2];
+            
+            q3[i + 0] = (int8_t)((b0 >> 0) & 7) - 4;
+            q3[i + 1] = (int8_t)((b0 >> 3) & 7) - 4;
+            q3[i + 2] = (int8_t)(((b0 >> 6) | (b1 << 2)) & 7) - 4;
+            q3[i + 3] = (int8_t)((b1 >> 1) & 7) - 4;
+            q3[i + 4] = (int8_t)((b1 >> 4) & 7) - 4;
+            q3[i + 5] = (int8_t)(((b1 >> 7) | (b2 << 1)) & 7) - 4;
+            q3[i + 6] = (int8_t)((b2 >> 2) & 7) - 4;
+            q3[i + 7] = (int8_t)((b2 >> 5) & 7) - 4;
+        }
+
+        // AVX2 dot product: process 32 int8 at a time using maddubs trick
+        // Compute both dot product and q8 sum in one pass
+        __m256i acc = _mm256_setzero_si256();
+        __m256i q8_acc = _mm256_setzero_si256();
+        const __m256i ones = _mm256_set1_epi16(1);
+        const __m256i offset4 = _mm256_set1_epi8(4);
+        
+        for (int i = 0; i < 256; i += 32) {
+            __m256i vq3 = _mm256_loadu_si256((const __m256i*)(q3 + i));
+            __m256i vq8 = _mm256_loadu_si256((const __m256i*)(q8 + i));
+            
+            // Dot product: (q3+4) * q8 using maddubs
+            __m256i q3_offset = _mm256_add_epi8(vq3, offset4);
+            __m256i prod = _mm256_maddubs_epi16(q3_offset, vq8);
+            __m256i prod_lo = _mm256_cvtepi16_epi32(_mm256_extracti128_si256(prod, 0));
+            __m256i prod_hi = _mm256_cvtepi16_epi32(_mm256_extracti128_si256(prod, 1));
+            acc = _mm256_add_epi32(acc, prod_lo);
+            acc = _mm256_add_epi32(acc, prod_hi);
+            
+            // Sum q8 values (for bias correction)
+            __m256i lo16 = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(vq8, 0));
+            __m256i hi16 = _mm256_cvtepi8_epi16(_mm256_extracti128_si256(vq8, 1));
+            q8_acc = _mm256_add_epi32(q8_acc, _mm256_madd_epi16(lo16, ones));
+            q8_acc = _mm256_add_epi32(q8_acc, _mm256_madd_epi16(hi16, ones));
+        }
+        
+        // Horizontal sums
+        __m128i sum128 = _mm_add_epi32(_mm256_extracti128_si256(acc, 0), 
+                                        _mm256_extracti128_si256(acc, 1));
+        sum128 = _mm_hadd_epi32(sum128, sum128);
+        sum128 = _mm_hadd_epi32(sum128, sum128);
+        int32_t sum_with_bias = _mm_cvtsi128_si32(sum128);
+        
+        __m128i q8_128 = _mm_add_epi32(_mm256_extracti128_si256(q8_acc, 0),
+                                        _mm256_extracti128_si256(q8_acc, 1));
+        q8_128 = _mm_hadd_epi32(q8_128, q8_128);
+        q8_128 = _mm_hadd_epi32(q8_128, q8_128);
+        int32_t q8_sum = _mm_cvtsi128_si32(q8_128);
+        
+        int32_t sum_bulk = sum_with_bias - 4 * q8_sum;
+
+        // Apply outlier corrections (scalar)
+        float outlier_correction = 0.0f;
+        for (int k = 0; k < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k) {
+            const int idx = xb->outlier_idx[k];
+            const float outlier_val = GGML_FP16_TO_FP32(xb->outlier_vals[k]);
+            sum_bulk -= q3[idx] * q8[idx];
+            outlier_correction += outlier_val * (float)q8[idx];
+        }
+
+        // Accumulate
+        sumf += d * yb->d * (float)sum_bulk + yb->d * outlier_correction;
+    }
+
+    *s = sumf;
+
+#else
+    // Fallback to generic implementation
+    ggml_vec_dot_q3_hifi_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+#endif
+}
+
 #if defined (__AVX__) || defined (__AVX2__)
 static const int8_t keven_signs_q2xs[1024] = {
      1,  1,  1,  1,  1,  1,  1,  1, -1,  1,  1,  1,  1,  1,  1, -1,  1, -1,  1,  1,  1,  1,  1, -1, -1, -1,  1,  1,  1,  1,  1,  1,

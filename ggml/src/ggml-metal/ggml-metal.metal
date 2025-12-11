@@ -894,7 +894,7 @@ template <typename type4x4>
 void dequantize_q3_hifi(device const block_q3_hifi * xb, short il, thread type4x4 & reg) {
     // il is 0...127 for Q3_HIFI_BLOCK_SIZE = 256 => processes 16 values at a time
     // Each call processes 16 values (4x4 register)
-    const float d = xb->d;
+    const float d = half_to_float(xb->d);
     device const uint8_t * qs = xb->qs;
     
     // Process 16 values starting at il*16

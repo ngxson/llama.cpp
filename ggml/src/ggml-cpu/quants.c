@@ -553,6 +553,92 @@ void ggml_vec_dot_q3_K_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, c
     *s = sumf;
 }
 
+// Q3_HIFI vec_dot implementation - optimized scalar version
+void ggml_vec_dot_q3_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % Q3_HIFI_BLOCK_SIZE == 0);
+    assert(nrc == 1);
+    UNUSED(nrc);
+    UNUSED(bx);
+    UNUSED(by);
+    UNUSED(bs);
+
+    const block_q3_hifi * GGML_RESTRICT x = vx;
+    const block_q8_K * GGML_RESTRICT y = vy;
+
+    const int nb = n / Q3_HIFI_BLOCK_SIZE;
+
+    // Precomputed LUT for bit extraction: for each starting bit position (0-7),
+    // gives the mask and shift needed
+    static const uint8_t extract_mask[8] = {0x07, 0x07, 0x07, 0x07, 0x07, 0x07, 0x03, 0x01};
+    static const uint8_t extract_shift[8] = {0, 0, 0, 0, 0, 0, 1, 2};
+
+    float sumf = 0.0f;
+
+    for (int ib = 0; ib < nb; ++ib) {
+        const block_q3_hifi * GGML_RESTRICT xb = &x[ib];
+        const block_q8_K * GGML_RESTRICT yb = &y[ib];
+
+        const float d = GGML_FP16_TO_FP32(xb->d);
+        const uint8_t * GGML_RESTRICT qs = xb->qs;
+        const int8_t * GGML_RESTRICT q8 = yb->qs;
+
+        // Step 1: Extract all 256 3-bit values into an int8 array (batch extract)
+        // This is the hot path - optimize bit extraction
+        int8_t q3[Q3_HIFI_BLOCK_SIZE];
+        
+        // Process 8 values at a time (24 bits = 3 bytes, clean boundary)
+        for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; i += 8) {
+            const int byte_base = (i * 3) / 8;
+            const uint8_t b0 = qs[byte_base];
+            const uint8_t b1 = qs[byte_base + 1];
+            const uint8_t b2 = qs[byte_base + 2];
+            
+            // Extract 8 x 3-bit values from 3 bytes
+            q3[i + 0] = (int8_t)((b0 >> 0) & 7) - 4;
+            q3[i + 1] = (int8_t)((b0 >> 3) & 7) - 4;
+            q3[i + 2] = (int8_t)(((b0 >> 6) | (b1 << 2)) & 7) - 4;
+            q3[i + 3] = (int8_t)((b1 >> 1) & 7) - 4;
+            q3[i + 4] = (int8_t)((b1 >> 4) & 7) - 4;
+            q3[i + 5] = (int8_t)(((b1 >> 7) | (b2 << 1)) & 7) - 4;
+            q3[i + 6] = (int8_t)((b2 >> 2) & 7) - 4;
+            q3[i + 7] = (int8_t)((b2 >> 5) & 7) - 4;
+        }
+
+        // Step 2: Compute full dot product (no branching)
+        int32_t sum = 0;
+        for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; i += 8) {
+            sum += q3[i+0] * q8[i+0];
+            sum += q3[i+1] * q8[i+1];
+            sum += q3[i+2] * q8[i+2];
+            sum += q3[i+3] * q8[i+3];
+            sum += q3[i+4] * q8[i+4];
+            sum += q3[i+5] * q8[i+5];
+            sum += q3[i+6] * q8[i+6];
+            sum += q3[i+7] * q8[i+7];
+        }
+
+        // Step 3: Apply outlier corrections
+        // Subtract the q3 contribution at outlier positions, add FP16 contribution
+        float outlier_correction = 0.0f;
+        for (int k = 0; k < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k) {
+            const int idx = xb->outlier_idx[k];
+            const float outlier_val = GGML_FP16_TO_FP32(xb->outlier_vals[k]);
+            // Remove bulk contribution at this position
+            sum -= q3[idx] * q8[idx];
+            // Add precise outlier contribution
+            outlier_correction += outlier_val * (float)q8[idx];
+        }
+
+        // Combine: bulk (scaled) + outliers (already in float)
+        sumf += d * yb->d * (float)sum + yb->d * outlier_correction;
+    }
+
+    *s = sumf;
+}
+
+// Note: ggml_vec_dot_q3_hifi_q8_K is defined in arch-specific files (x86/quants.c etc.)
+// which fall back to ggml_vec_dot_q3_hifi_q8_K_generic when SIMD is not available
+
 void ggml_vec_dot_q4_K_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);
     assert(nrc == 1);

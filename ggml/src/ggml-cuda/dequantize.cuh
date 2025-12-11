@@ -79,7 +79,7 @@ static __device__ __forceinline__ void dequantize_q8_0(const void * vx, const in
 static __device__ __forceinline__ void dequantize_q3_hifi(const void * vx, const int64_t ib, const int iqs, float2 & v){
     const block_q3_hifi * x = (const block_q3_hifi *) vx;
 
-    const float d = x[ib].d;
+    const float d = __half2float(x[ib].d);
     const uint8_t * qs = x[ib].qs;
 
     // Extract two 3-bit values starting at iqs

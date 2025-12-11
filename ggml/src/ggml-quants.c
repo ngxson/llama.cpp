@@ -461,7 +461,7 @@ void quantize_row_q3_hifi_ref(const float * GGML_RESTRICT x, block_q3_hifi * GGM
 
         const float d = amax / 4.0f; // map to [-4, +3] -> 3-bit signed
         const float id = d ? 1.0f / d : 0.0f;
-        block->d = d;
+        block->d = GGML_FP32_TO_FP16(d);
 
         // Pack 3-bit values (shifted to [0,7])
         memset(block->qs, 0, sizeof(block->qs));
@@ -530,7 +530,7 @@ static void quantize_row_q3_hifi_impl(const float * GGML_RESTRICT x, block_q3_hi
 
         const float d = amax / 4.0f; // map to [-4, +3] -> 3-bit signed
         const float id = d ? 1.0f / d : 0.0f;
-        block->d = d;
+        block->d = GGML_FP32_TO_FP16(d);
 
         // Pack 3-bit values (shifted to [0,7])
         memset(block->qs, 0, sizeof(block->qs));
@@ -561,7 +561,7 @@ GGML_API void dequantize_row_q3_hifi(const block_q3_hifi * GGML_RESTRICT x, floa
 
     for (int ib = 0; ib < nb; ++ib) {
         const block_q3_hifi * block = &x[ib];
-        const float d = block->d;
+        const float d = GGML_FP16_TO_FP32(block->d);
         const uint8_t * qs = block->qs;
         float * yb = y + ib * Q3_HIFI_BLOCK_SIZE;
 

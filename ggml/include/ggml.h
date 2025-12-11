@@ -377,10 +377,10 @@ extern "C" {
     #define Q3_HIFI_OUTFIERS_PER_BLOCK   6
 
     typedef struct {
-        float    d;                                        // scale for 3-bit bulk
+        ggml_fp16_t d;                                     // scale for 3-bit bulk (FP16)
         uint8_t  qs[96];                                   // 256 x 3-bit packed
-        uint16_t outlier_idx[Q3_HIFI_OUTFIERS_PER_BLOCK];  // indices of outliers
-        uint16_t outlier_vals[Q3_HIFI_OUTFIERS_PER_BLOCK]; // FP16 outlier values
+        uint8_t  outlier_idx[Q3_HIFI_OUTFIERS_PER_BLOCK];  // indices of outliers (0-255)
+        ggml_fp16_t outlier_vals[Q3_HIFI_OUTFIERS_PER_BLOCK]; // FP16 outlier values
     } block_q3_hifi;
 
     struct ggml_object;
