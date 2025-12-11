@@ -263,10 +263,14 @@ namespace console {
     static void pop_cursor() {
 #if defined(_WIN32)
         if (hConsole != NULL) {
-            CONSOLE_SCREEN_BUFFER_INFO bufferInfo;
-            GetConsoleScreenBufferInfo(hConsole, &bufferInfo);
+            terminal_info info;
+            if (!get_terminal_info(info)) {
+                return;
+            }
 
-            COORD newCursorPosition = bufferInfo.dwCursorPosition;
+            COORD newCursorPosition;
+            newCursorPosition.X = info.cursor_x;
+            newCursorPosition.Y = info.cursor_y;
             if (newCursorPosition.X == 0) {
                 newCursorPosition.X = bufferInfo.dwSize.X - 1;
                 newCursorPosition.Y -= 1;
@@ -291,6 +295,7 @@ namespace console {
     }
 
     static int put_codepoint(const char* utf8_codepoint, size_t length, int expectedWidth) {
+        // TODO: use terminal_info
 #if defined(_WIN32)
         CONSOLE_SCREEN_BUFFER_INFO bufferInfo;
         if (!GetConsoleScreenBufferInfo(hConsole, &bufferInfo)) {
@@ -606,6 +611,47 @@ namespace console {
         byte_pos = new_byte_pos;
     }
 
+    struct terminal_info {
+        int screen_x;
+        int screen_y;
+        int cursor_x; // 0-based coordinates
+        int cursor_y; // 0-based coordinates
+    };
+    static bool get_terminal_info(terminal_info & info) {
+#if defined(_WIN32)
+        if (hConsole != NULL) {
+            CONSOLE_SCREEN_BUFFER_INFO bufferInfo;
+            if (GetConsoleScreenBufferInfo(hConsole, &bufferInfo)) {
+                info.screen_x = bufferInfo.dwSize.X;
+                info.screen_y = bufferInfo.dwSize.Y;
+                info.cursor_x = bufferInfo.dwCursorPosition.X;
+                info.cursor_y = bufferInfo.dwCursorPosition.Y;
+                return true;
+            }
+        }
+#else
+        if (tty != nullptr) {
+            struct winsize w;
+            if (ioctl(fileno(tty), TIOCGWINSZ, &w) == 0) {
+                info.screen_x = w.ws_col;
+                info.screen_y = w.ws_row;
+            } else {
+                return false;
+            }
+
+            int x, y;
+            fputs("\033[6n", tty);
+            fflush(tty);
+            if (fscanf(tty, "\033[%d;%dR", &y, &x) == 2) {
+                info.cursor_x = x - 1;
+                info.cursor_y = y - 1;
+                return true;
+            }
+        }
+#endif
+        return false;
+    }
+
     static void move_word_right(size_t & char_pos, size_t & byte_pos, const std::vector<int> & widths, const std::string & line) {
         if (char_pos >= widths.size()) {
             return;
@@ -655,14 +701,15 @@ namespace console {
 
     static void move_cursor(int delta) {
         if (delta == 0) return;
+        terminal_info info;
+        if (!get_terminal_info(info)) {
+            return; // TODO: handle unknown terminal size
+        }
 #if defined(_WIN32)
         if (hConsole != NULL) {
-            CONSOLE_SCREEN_BUFFER_INFO bufferInfo;
-            GetConsoleScreenBufferInfo(hConsole, &bufferInfo);
-            COORD newCursorPosition = bufferInfo.dwCursorPosition;
-            int width = bufferInfo.dwSize.X;
-            int newX = newCursorPosition.X + delta;
-            int newY = newCursorPosition.Y;
+            int width = info.screen_x;
+            int newX = info.cursor_x + delta;
+            int newY = info.cursor_y;
 
             while (newX >= width) {
                 newX -= width;
@@ -673,34 +720,27 @@ namespace console {
                 newY--;
             }
 
+            COORD newCursorPosition;
             newCursorPosition.X = newX;
             newCursorPosition.Y = newY;
             SetConsoleCursorPosition(hConsole, newCursorPosition);
         }
 #else
         if (tty != nullptr) {
-            // Query current cursor position
-            int x, y;
-            fputs("\033[6n", tty);
-            fflush(tty);
-            if (fscanf(tty, "\033[%d;%dR", &y, &x) == 2) {
-                struct winsize w;
-                if (ioctl(fileno(tty), TIOCGWINSZ, &w) == 0 && w.ws_col > 0) {
-                    int width = w.ws_col;
-                    int newX = (x - 1) + delta;
-                    int newY = (y - 1);
-                    while (newX >= width) {
-                        newX -= width;
-                        newY++;
-                    }
-                    while (newX < 0) {
-                        newX += width;
-                        newY--;
-                    }
-                    fprintf(out, "\033[%d;%dH", newY + 1, newX + 1);
-                    return;
-                }
+            int width = info.screen_x;
+            int newX = info.cursor_x + delta;
+            int newY = info.cursor_y;
+            while (newX >= width) {
+                newX -= width;
+                newY++;
             }
+            while (newX < 0) {
+                newX += width;
+                newY--;
+            }
+            // must +1 to convert to 1-based coordinates
+            fprintf(out, "\033[%d;%dH", newY + 1, newX + 1);
+            return;
         }
 
         if (delta < 0) {
