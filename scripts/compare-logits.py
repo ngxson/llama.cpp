@@ -13,8 +13,8 @@ Compare logits between llama.cpp and another inference engine.
 
 Example usage:
     Step 1: Dump logits from two different endpoints
-        python scripts/compare-logits.py dump logits_llama.log http://localhost:8080/completions
-        python scripts/compare-logits.py dump logits_other.log http://other-engine:8000/completions
+        python scripts/compare-logits.py dump logits_llama.log http://localhost:8080/v1/completions
+        python scripts/compare-logits.py dump logits_other.log http://other-engine:8000/v1/completions
 
         (optionally, you can add --api-key <key> if the endpoint requires authentication)
 
