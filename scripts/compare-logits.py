@@ -72,7 +72,7 @@ def compare_logits(input1: Path, input2: Path, output_path: Path):
         lines1 = f1.readlines()
         lines2 = f2.readlines()
 
-        tab_header = [input1.name, "logprob_1",  input2.name, "logprob_2", "diff"]
+        tab_header = [input1.name, "logprob_1",  input2.name, "logprob_2", "diff (abs)"]
         tab_entries = []
         tab_max_widths = [len(h) for h in tab_header]
 
@@ -91,8 +91,9 @@ def compare_logits(input1: Path, input2: Path, output_path: Path):
 
             token1 = clean_text(token1)
             token2 = clean_text(token2)
+            abs_diff = abs(logprob1 - logprob2)
 
-            tab_entries.append((token1, f"{logprob1:.4f}", token2, f"{logprob2:.4f}", f"{(logprob1 - logprob2):.4f}"))
+            tab_entries.append((token1, f"{logprob1:.4f}", token2, f"{logprob2:.4f}", f"{(abs_diff):.4f}"))
 
         for i in range(len(tab_entries)):
             for j in range(len(tab_header)):
