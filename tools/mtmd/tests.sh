@@ -151,7 +151,7 @@ for i in "${!arr_hf[@]}"; do
         --image $(printf %q "$SCRIPT_DIR/$inp_file") \
         --temp 0 -n 128 \
         --flash-attn $(printf %q "$FLASH_ATTN") \
-        ${extra_args}" 
+        ${extra_args}"
 
     # if extra_args does not contain -p, we add a default prompt
     if ! [[ "$extra_args" =~ "-p" ]]; then
