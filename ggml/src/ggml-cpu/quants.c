@@ -72,6 +72,12 @@ void quantize_row_q3_hifi(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy
     quantize_row_q3_hifi_ref(x, y, k);
 }
 
+void quantize_row_q3_hifi_fast(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
+    assert(k % Q3_HIFI_FAST_BLOCK_SIZE == 0);
+    block_q3_hifi_fast * GGML_RESTRICT y = vy;
+    quantize_row_q3_hifi_fast_ref(x, y, k);
+}
+
 // ====================== 4-bit (de)-quantization
 
 void quantize_row_q4_K(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
@@ -622,6 +628,90 @@ void ggml_vec_dot_q3_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs
 
 // Note: ggml_vec_dot_q3_hifi_q8_K is defined in arch-specific files (x86/quants.c etc.)
 // which fall back to ggml_vec_dot_q3_hifi_q8_K_generic when SIMD is not available
+
+// Q3_HIFI_FAST vec_dot: Standalone implementation for debugging
+// Uses Q3_K format for bulk, adds outlier corrections
+void ggml_vec_dot_q3_hifi_fast_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % Q3_HIFI_FAST_BLOCK_SIZE == 0);
+    assert(nrc == 1);
+    UNUSED(nrc);
+    UNUSED(bx);
+    UNUSED(by);
+    UNUSED(bs);
+
+    const block_q3_hifi_fast * GGML_RESTRICT x = vx;
+    const block_q8_K * GGML_RESTRICT y = vy;
+    const int nb = n / Q3_HIFI_FAST_BLOCK_SIZE;
+
+    static const uint32_t kmask1 = 0x03030303;
+    static const uint32_t kmask2 = 0x0f0f0f0f;
+    
+    uint32_t aux[4];
+    const int8_t * scales = (const int8_t*)aux;
+
+    float total_sum = 0.0f;
+
+    for (int i = 0; i < nb; ++i) {
+        const block_q3_hifi_fast * xb = &x[i];
+        const block_q8_K * yb = &y[i];
+
+        const float d = GGML_FP16_TO_FP32(xb->d) * yb->d;
+        
+        const uint8_t * GGML_RESTRICT q = xb->qs;
+        const uint8_t * GGML_RESTRICT hm = xb->hmask;
+        const int8_t  * GGML_RESTRICT q8 = yb->qs;
+        uint8_t m = 1;
+
+        // Decode scales (same as Q3_K)
+        memcpy(aux, xb->scales, 12);
+        uint32_t tmp = aux[2];
+        aux[2] = ((aux[0] >> 4) & kmask2) | (((tmp >> 4) & kmask1) << 4);
+        aux[3] = ((aux[1] >> 4) & kmask2) | (((tmp >> 6) & kmask1) << 4);
+        aux[0] = (aux[0] & kmask2) | (((tmp >> 0) & kmask1) << 4);
+        aux[1] = (aux[1] & kmask2) | (((tmp >> 2) & kmask1) << 4);
+
+        int32_t sumi = 0;
+        int is = 0;
+        
+        for (int l = 0; l < QK_K; l += 128) {
+            int shift = 0;
+            for (int j = 0; j < 4; ++j) {
+                int32_t sum1 = 0, sum2 = 0;
+                const int8_t scale1 = scales[is++] - 32;
+                const int8_t scale2 = scales[is++] - 32;
+                
+                for (int k = 0; k < 16; ++k) {
+                    int8_t q3val = (int8_t)((q[k] >> shift) & 3) - ((hm[k] & m) ? 0 : 4);
+                    sum1 += q3val * q8[k];
+                }
+                for (int k = 0; k < 16; ++k) {
+                    int8_t q3val = (int8_t)((q[k+16] >> shift) & 3) - ((hm[k+16] & m) ? 0 : 4);
+                    sum2 += q3val * q8[k+16];
+                }
+                
+                sumi += scale1 * sum1 + scale2 * sum2;
+                q8 += 32;
+                shift += 2;
+                m <<= 1;
+            }
+            q += 32;
+        }
+
+        total_sum += d * (float)sumi;
+
+        // Add outlier corrections
+        const float yd = yb->d;
+        for (int k = 0; k < Q3_HIFI_FAST_OUTLIERS; ++k) {
+            const int idx = xb->outlier_idx[k];
+            const float outlier_val = GGML_FP16_TO_FP32(xb->outlier_vals[k]);
+            total_sum += outlier_val * (float)yb->qs[idx] * yd;
+        }
+    }
+
+    *s = total_sum;
+}
+
+// Note: ggml_vec_dot_q3_hifi_fast_q8_K is defined in arch-specific files (x86/quants.c etc.)
 
 void ggml_vec_dot_q4_K_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);
