@@ -64,7 +64,7 @@ def get_token_logprobs(data: dict):
 
 
 def clean_text(text: str) -> str:
-    return text.replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r").replace("|", "\\|")
+    return "'" + text.replace("\n", "\\n").replace("\t", "\\t").replace("\r", "\\r").replace("|", "\\|") + "'"
 
 
 def compare_logits(input1: Path, input2: Path, output_path: Path):
@@ -89,6 +89,9 @@ def compare_logits(input1: Path, input2: Path, output_path: Path):
             token1, logprob1 = get_token_logprobs(data1)
             token2, logprob2 = get_token_logprobs(data2)
 
+            token1 = clean_text(token1)
+            token2 = clean_text(token2)
+
             tab_entries.append((token1, f"{logprob1:.4f}", token2, f"{logprob2:.4f}", f"{(logprob1 - logprob2):.4f}"))
 
         for i in range(len(tab_entries)):
@@ -107,7 +110,7 @@ def compare_logits(input1: Path, input2: Path, output_path: Path):
                 output += f"| {entry[j]:<{tab_max_widths[j]}} "
             output += "|\n"
 
-        logger.info(output)
+        logger.info("\n" + output)
         fout.write(output)
         logger.info(f"Report written to {output_path}")
 
