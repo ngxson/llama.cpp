@@ -32,6 +32,9 @@
 #define N_R0_Q3_K 2
 #define N_SG_Q3_K 2
 
+#define N_R0_Q3_HIFI 2
+#define N_SG_Q3_HIFI 2
+
 #define N_R0_Q4_K 2
 #define N_SG_Q4_K 2
 

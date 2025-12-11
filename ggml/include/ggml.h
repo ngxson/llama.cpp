@@ -372,16 +372,8 @@ extern "C" {
     GGML_API void        ggml_fp32_to_bf16_row_ref(const float *, ggml_bf16_t *, int64_t);
     GGML_API void        ggml_fp32_to_bf16_row(const float *, ggml_bf16_t *, int64_t);
 
-    // Q3_HIFI: 3-bit + 6 FP16 outliers per 256 weights (improved accuracy)
-    #define Q3_HIFI_BLOCK_SIZE           256
-    #define Q3_HIFI_OUTFIERS_PER_BLOCK   6
-
-    typedef struct {
-        float    d;                                        // scale for 3-bit bulk
-        uint8_t  qs[96];                                   // 256 x 3-bit packed
-        uint16_t outlier_idx[Q3_HIFI_OUTFIERS_PER_BLOCK];  // indices of outliers
-        uint16_t outlier_vals[Q3_HIFI_OUTFIERS_PER_BLOCK]; // FP16 outlier values
-    } block_q3_hifi;
+    // Q3_HIFI block structure is defined in ggml-common.h for GPU backend compatibility
+    // Uses Q3_K-compatible layout with 6 FP16 outliers for improved accuracy
 
     struct ggml_object;
     struct ggml_context;
@@ -401,7 +393,7 @@ extern "C" {
         GGML_TYPE_Q8_1    = 9,
         GGML_TYPE_Q2_K    = 10,
         GGML_TYPE_Q3_K    = 11,
-        GGML_TYPE_Q3_HIFI = 12, // Q3 HIFI (1 block)
+        // GGML_TYPE_Q3_HIFI_OLD = 12, // removed - replaced by Q3_HIFI (type 41)
         GGML_TYPE_Q4_K    = 13,
         GGML_TYPE_Q5_K    = 14,
         GGML_TYPE_Q6_K    = 15,
@@ -430,7 +422,8 @@ extern "C" {
         // GGML_TYPE_IQ4_NL_4_8 = 38,
         // GGML_TYPE_IQ4_NL_8_8 = 39,
         GGML_TYPE_MXFP4   = 40, // MXFP4 (1 block)
-        GGML_TYPE_COUNT   = 41,   
+        GGML_TYPE_Q3_HIFI = 41, // Q3_HIFI: Q3_K layout + 6 FP16 outliers per block
+        GGML_TYPE_COUNT   = 42,   
     };
 
     // precision

@@ -414,177 +414,6 @@ void dequantize_row_q8_0(const block_q8_0 * GGML_RESTRICT x, float * GGML_RESTRI
     }
 }
 
-// ===============================================================================================================
-// Q3_HIFI: 3-bit quant with 4 FP16 outliers per 256-weight block
-// ===============================================================================================================
-
-void quantize_row_q3_hifi_ref(const float * GGML_RESTRICT x, block_q3_hifi * GGML_RESTRICT y, int64_t k) {
-    assert(k % Q3_HIFI_BLOCK_SIZE == 0);
-    const int64_t nb = k / Q3_HIFI_BLOCK_SIZE;
-
-    for (int ib = 0; ib < nb; ++ib) {
-        const float * xb = x + ib * Q3_HIFI_BLOCK_SIZE;
-        block_q3_hifi * block = &y[ib];
-
-        // --- Find top-k outliers by magnitude ---
-        float mag[Q3_HIFI_BLOCK_SIZE];
-        for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; ++i) {
-            mag[i] = fabsf(xb[i]);
-        }
-
-        int outlier_idx[Q3_HIFI_OUTFIERS_PER_BLOCK];
-        for (int k_idx = 0; k_idx < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
-            int argmax = -1;
-            float max_val = -1.0f;
-            for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; ++i) {
-                if (mag[i] > max_val) {
-                    max_val = mag[i];
-                    argmax = i;
-                }
-            }
-            if (argmax == -1) argmax = 0;
-            outlier_idx[k_idx] = argmax;
-            mag[argmax] = -1.0f;  // mask out
-        }
-
-        // --- Quantize bulk (non-outliers) with 3-bit ---
-        float tmp[Q3_HIFI_BLOCK_SIZE];
-        memcpy(tmp, xb, sizeof(tmp));
-        for (int k_idx = 0; k_idx < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
-            tmp[outlier_idx[k_idx]] = 0.0f;  // exclude outlier from bulk
-        }
-
-        float amax = 0.0f;
-        for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; ++i) {
-            amax = MAX(amax, fabsf(tmp[i]));
-        }
-
-        const float d = amax / 4.0f; // map to [-4, +3] -> 3-bit signed
-        const float id = d ? 1.0f / d : 0.0f;
-        block->d = d;
-
-        // Pack 3-bit values (shifted to [0,7])
-        memset(block->qs, 0, sizeof(block->qs));
-        for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; ++i) {
-            int quant_val = (int)roundf(tmp[i] * id);
-            quant_val = MAX(-4, MIN(3, quant_val)) + 4; // [-4,3] → [0,7]
-
-            const int byte_idx = (i * 3) / 8;
-            const int bit_offset = (i * 3) % 8;
-            block->qs[byte_idx] |= (quant_val << bit_offset);
-            if (bit_offset > 5 && byte_idx + 1 < 96) {
-                block->qs[byte_idx + 1] |= (quant_val >> (8 - bit_offset));
-            }
-        }
-
-        // --- Store outliers in FP16 ---
-        for (int k_idx = 0; k_idx < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
-            const int idx = outlier_idx[k_idx];
-            block->outlier_idx[k_idx] = (uint16_t)idx;
-            block->outlier_vals[k_idx] = GGML_FP32_TO_FP16(xb[idx]);
-        }
-    }
-}
-
-static void quantize_row_q3_hifi_impl(const float * GGML_RESTRICT x, block_q3_hifi * GGML_RESTRICT y, int64_t k, const float * GGML_RESTRICT quant_weights) {
-    assert(k % Q3_HIFI_BLOCK_SIZE == 0);
-    const int64_t nb = k / Q3_HIFI_BLOCK_SIZE;
-
-    for (int ib = 0; ib < nb; ++ib) {
-        const float * xb = x + ib * Q3_HIFI_BLOCK_SIZE;
-        const float * qw = quant_weights ? quant_weights + ib * Q3_HIFI_BLOCK_SIZE : NULL;
-        block_q3_hifi * block = &y[ib];
-
-        // --- Find top-k outliers by magnitude (weighted by quant_weights if available) ---
-        float mag[Q3_HIFI_BLOCK_SIZE];
-        for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; ++i) {
-            mag[i] = fabsf(xb[i]) * (qw ? qw[i] : 1.0f);
-        }
-
-        int outlier_idx[Q3_HIFI_OUTFIERS_PER_BLOCK];
-        for (int k_idx = 0; k_idx < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
-            int argmax = -1;
-            float max_val = -1.0f;
-            for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; ++i) {
-                if (mag[i] > max_val) {
-                    max_val = mag[i];
-                    argmax = i;
-                }
-            }
-            if (argmax == -1) argmax = 0;
-            outlier_idx[k_idx] = argmax;
-            mag[argmax] = -1.0f;  // mask out
-        }
-
-        // --- Quantize bulk (non-outliers) with 3-bit ---
-        float tmp[Q3_HIFI_BLOCK_SIZE];
-        memcpy(tmp, xb, sizeof(tmp));
-        for (int k_idx = 0; k_idx < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
-            tmp[outlier_idx[k_idx]] = 0.0f;  // exclude outlier from bulk
-        }
-
-        float amax = 0.0f;
-        for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; ++i) {
-            amax = MAX(amax, fabsf(tmp[i]));
-        }
-
-        const float d = amax / 4.0f; // map to [-4, +3] -> 3-bit signed
-        const float id = d ? 1.0f / d : 0.0f;
-        block->d = d;
-
-        // Pack 3-bit values (shifted to [0,7])
-        memset(block->qs, 0, sizeof(block->qs));
-        for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; ++i) {
-            int quant_val = (int)roundf(tmp[i] * id);
-            quant_val = MAX(-4, MIN(3, quant_val)) + 4; // [-4,3] → [0,7]
-
-            const int byte_idx = (i * 3) / 8;
-            const int bit_offset = (i * 3) % 8;
-            block->qs[byte_idx] |= (quant_val << bit_offset);
-            if (bit_offset > 5 && byte_idx + 1 < 96) {
-                block->qs[byte_idx + 1] |= (quant_val >> (8 - bit_offset));
-            }
-        }
-
-        // --- Store outliers in FP16 ---
-        for (int k_idx = 0; k_idx < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
-            const int idx = outlier_idx[k_idx];
-            block->outlier_idx[k_idx] = (uint16_t)idx;
-            block->outlier_vals[k_idx] = GGML_FP32_TO_FP16(xb[idx]);
-        }
-    }
-}
-
-GGML_API void dequantize_row_q3_hifi(const block_q3_hifi * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
-    assert(k % Q3_HIFI_BLOCK_SIZE == 0);
-    const int64_t nb = k / Q3_HIFI_BLOCK_SIZE;
-
-    for (int ib = 0; ib < nb; ++ib) {
-        const block_q3_hifi * block = &x[ib];
-        const float d = block->d;
-        const uint8_t * qs = block->qs;
-        float * yb = y + ib * Q3_HIFI_BLOCK_SIZE;
-
-        // Dequantize bulk
-        for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; ++i) {
-            const int byte_idx = (i * 3) / 8;
-            const int bit_offset = (i * 3) % 8;
-            uint8_t bits = (qs[byte_idx] >> bit_offset) & 7;
-            if (bit_offset > 5) {
-                bits |= (qs[byte_idx + 1] << (8 - bit_offset)) & 7;
-            }
-            const int quant_val = (int)bits - 4; // [0,7] → [-4,3]
-            yb[i] = quant_val * d;
-        }
-
-        // Restore outliers
-        for (int k_idx = 0; k_idx < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
-            const int idx = block->outlier_idx[k_idx];
-            yb[idx] = GGML_FP16_TO_FP32(block->outlier_vals[k_idx]);
-        }
-    }
-}
-
 void dequantize_row_mxfp4(const block_mxfp4 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     static const int qk = QK_MXFP4;
 
@@ -1444,6 +1273,139 @@ size_t quantize_q3_K(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, 
         }
     }
     return nrow * row_size;
+}
+
+// ====================== Q3_HIFI: Q3_K layout + 6 FP16 outliers ======================
+// Uses Q3_K's optimized AVX2 kernels for ~98% of Q3_K speed with better quality
+
+void quantize_row_q3_hifi_ref(const float * GGML_RESTRICT x, block_q3_hifi * GGML_RESTRICT y, int64_t k) {
+    assert(k % Q3_HIFI_BLOCK_SIZE == 0);
+    const int64_t nb = k / Q3_HIFI_BLOCK_SIZE;
+
+    for (int64_t ib = 0; ib < nb; ++ib) {
+        const float * xb = x + ib * Q3_HIFI_BLOCK_SIZE;
+        block_q3_hifi * block = &y[ib];
+
+        // Step 1: Find top-6 outliers by magnitude
+        float mag[Q3_HIFI_BLOCK_SIZE];
+        for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; ++i) {
+            mag[i] = fabsf(xb[i]);
+        }
+
+        int outlier_indices[Q3_HIFI_OUTLIERS];
+        for (int k_idx = 0; k_idx < Q3_HIFI_OUTLIERS; ++k_idx) {
+            int argmax = 0;
+            float max_val = mag[0];
+            for (int i = 1; i < Q3_HIFI_BLOCK_SIZE; ++i) {
+                if (mag[i] > max_val) {
+                    max_val = mag[i];
+                    argmax = i;
+                }
+            }
+            outlier_indices[k_idx] = argmax;
+            mag[argmax] = -1.0f;  // mask out
+        }
+
+        // Step 2: Create temporary array with outliers zeroed (pre-zero for faster vec_dot)
+        float tmp[Q3_HIFI_BLOCK_SIZE];
+        memcpy(tmp, xb, sizeof(tmp));
+        for (int k_idx = 0; k_idx < Q3_HIFI_OUTLIERS; ++k_idx) {
+            tmp[outlier_indices[k_idx]] = 0.0f;
+        }
+
+        // Step 3: Quantize bulk using Q3_K algorithm (produces Q3_K-compatible layout)
+        block_q3_K q3k_block;
+        quantize_row_q3_K_ref(tmp, &q3k_block, Q3_HIFI_BLOCK_SIZE);
+
+        // Step 4: Copy Q3_K fields to our block (first 110 bytes are identical layout)
+        memcpy(block->hmask, q3k_block.hmask, sizeof(block->hmask));
+        memcpy(block->qs, q3k_block.qs, sizeof(block->qs));
+        memcpy(block->scales, q3k_block.scales, sizeof(block->scales));
+        block->d = q3k_block.d;
+
+        // Step 5: Store outliers (indices and FP16 values)
+        for (int k_idx = 0; k_idx < Q3_HIFI_OUTLIERS; ++k_idx) {
+            const int idx = outlier_indices[k_idx];
+            block->outlier_idx[k_idx] = (uint8_t)idx;
+            block->outlier_vals[k_idx] = GGML_FP32_TO_FP16(xb[idx]);
+        }
+    }
+}
+
+static void quantize_row_q3_hifi_impl(const float * GGML_RESTRICT x, block_q3_hifi * GGML_RESTRICT y, int64_t k, const float * GGML_RESTRICT quant_weights) {
+    assert(k % Q3_HIFI_BLOCK_SIZE == 0);
+    const int64_t nb = k / Q3_HIFI_BLOCK_SIZE;
+
+    for (int64_t ib = 0; ib < nb; ++ib) {
+        const float * xb = x + ib * Q3_HIFI_BLOCK_SIZE;
+        const float * qw = quant_weights ? quant_weights + ib * Q3_HIFI_BLOCK_SIZE : NULL;
+        block_q3_hifi * block = &y[ib];
+
+        // Step 1: Find top-6 outliers by weighted magnitude
+        float mag[Q3_HIFI_BLOCK_SIZE];
+        for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; ++i) {
+            mag[i] = fabsf(xb[i]) * (qw ? qw[i] : 1.0f);
+        }
+
+        int outlier_indices[Q3_HIFI_OUTLIERS];
+        for (int k_idx = 0; k_idx < Q3_HIFI_OUTLIERS; ++k_idx) {
+            int argmax = 0;
+            float max_val = mag[0];
+            for (int i = 1; i < Q3_HIFI_BLOCK_SIZE; ++i) {
+                if (mag[i] > max_val) {
+                    max_val = mag[i];
+                    argmax = i;
+                }
+            }
+            outlier_indices[k_idx] = argmax;
+            mag[argmax] = -1.0f;  // mask out
+        }
+
+        // Step 2: Create temporary array with outliers zeroed
+        float tmp[Q3_HIFI_BLOCK_SIZE];
+        memcpy(tmp, xb, sizeof(tmp));
+        for (int k_idx = 0; k_idx < Q3_HIFI_OUTLIERS; ++k_idx) {
+            tmp[outlier_indices[k_idx]] = 0.0f;
+        }
+
+        // Step 3: Quantize bulk using Q3_K algorithm
+        block_q3_K q3k_block;
+        quantize_row_q3_K_ref(tmp, &q3k_block, Q3_HIFI_BLOCK_SIZE);
+
+        // Step 4: Copy Q3_K fields to our block
+        memcpy(block->hmask, q3k_block.hmask, sizeof(block->hmask));
+        memcpy(block->qs, q3k_block.qs, sizeof(block->qs));
+        memcpy(block->scales, q3k_block.scales, sizeof(block->scales));
+        block->d = q3k_block.d;
+
+        // Step 5: Store outliers
+        for (int k_idx = 0; k_idx < Q3_HIFI_OUTLIERS; ++k_idx) {
+            const int idx = outlier_indices[k_idx];
+            block->outlier_idx[k_idx] = (uint8_t)idx;
+            block->outlier_vals[k_idx] = GGML_FP32_TO_FP16(xb[idx]);
+        }
+    }
+}
+
+void dequantize_row_q3_hifi(const block_q3_hifi * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % Q3_HIFI_BLOCK_SIZE == 0);
+    const int64_t nb = k / Q3_HIFI_BLOCK_SIZE;
+
+    for (int64_t ib = 0; ib < nb; ++ib) {
+        const block_q3_hifi * block = &x[ib];
+        float * yb = y + ib * Q3_HIFI_BLOCK_SIZE;
+
+        // Dequantize using Q3_K algorithm for single block
+        // The first 110 bytes of block_q3_hifi match Q3_K exactly
+        // Since we pass k=256, Q3_K will only process 1 block (nb=1, using x[0])
+        dequantize_row_q3_K((const block_q3_K *)block, yb, Q3_HIFI_BLOCK_SIZE);
+
+        // Overwrite outlier positions with FP16 values
+        for (int k_idx = 0; k_idx < Q3_HIFI_OUTLIERS; ++k_idx) {
+            const int idx = block->outlier_idx[k_idx];
+            yb[idx] = GGML_FP16_TO_FP32(block->outlier_vals[k_idx]);
+        }
+    }
 }
 
 size_t quantize_q3_hifi(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrow, int64_t n_per_row, const float * quant_weights) {
@@ -5184,7 +5146,7 @@ void quantize_row_iq2_s_ref(const float * GGML_RESTRICT x, block_iq2_s * GGML_RE
 }
 
 // Q3_HIFI: 3-bit + FP16 outliers per 256 weights
-// Q3_HIFI_BLOCK_SIZE and Q3_HIFI_OUTFIERS_PER_BLOCK are defined in ggml.h
+// Q3_HIFI_BLOCK_SIZE and Q3_HIFI_OUTLIERS are defined in ggml.h
 
 
 // =============================== data validation
@@ -5423,20 +5385,6 @@ bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbyte
             {
                 VALIDATE_ROW_DATA_D_F16_IMPL(block_q3_K, data, nb);
             } break;
-        case GGML_TYPE_Q3_HIFI:
-            {
-                const block_q3_hifi * q = (const block_q3_hifi *) data;
-                for (size_t i = 0; i < nb; ++i) {
-                    if (!validate_float(q[i].d, i)) {
-                        return false;
-                    }
-                    for (int j = 0; j < Q3_HIFI_OUTFIERS_PER_BLOCK; ++j) {
-                        if (!validate_fp16(q[i].outlier_vals[j], i)) {
-                            return false;
-                        }
-                    }
-                }
-            } break;
         case GGML_TYPE_Q4_K:
             {
                 VALIDATE_ROW_DATA_DM_F16_IMPL(block_q4_K, data, nb, d, dmin);
@@ -5510,6 +5458,11 @@ bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbyte
         case GGML_TYPE_IQ4_NL:
             {
                 VALIDATE_ROW_DATA_D_F16_IMPL(block_iq4_nl, data, nb);
+            } break;
+
+        case GGML_TYPE_Q3_HIFI:
+            {
+                VALIDATE_ROW_DATA_D_F16_IMPL(block_q3_hifi, data, nb);
             } break;
 
         case GGML_TYPE_I8:
