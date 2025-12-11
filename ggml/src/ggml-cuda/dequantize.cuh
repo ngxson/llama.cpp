@@ -76,32 +76,50 @@ static __device__ __forceinline__ void dequantize_q8_0(const void * vx, const in
     v.y *= d;
 }
 
+// Q3_HIFI: Q3_K-compatible layout with 6 FP16 outliers
+// Uses same hmask/qs/scales layout as Q3_K for the first 110 bytes
 static __device__ __forceinline__ void dequantize_q3_hifi(const void * vx, const int64_t ib, const int iqs, float2 & v){
     const block_q3_hifi * x = (const block_q3_hifi *) vx;
 
+    // Use Q3_K-style extraction
     const float d = __half2float(x[ib].d);
-    const uint8_t * ql = x[ib].ql;
-    const uint8_t * qh = x[ib].qh;
-
-    // Extract two 3-bit values using split ql/qh layout
-    int idx0 = iqs;
-    int idx1 = iqs + 1;
-
-    // Extract first value: low 2 bits from ql, high 1 bit from qh
-    const uint8_t lo0 = (ql[idx0 / 4] >> ((idx0 % 4) * 2)) & 0x03;
-    const uint8_t hi0 = (qh[idx0 / 8] >> (idx0 % 8)) & 0x01;
-    const int quant_val0 = (int)(lo0 | (hi0 << 2)) - 4;
-
+    const uint8_t * qs = x[ib].qs;
+    const uint8_t * hmask = x[ib].hmask;
+    
+    // iqs is in range [0, QK_K/2) = [0, 128)
+    // We need to extract 2 values at positions iqs*2 and iqs*2+1
+    int idx0 = iqs * 2;
+    int idx1 = iqs * 2 + 1;
+    
+    // Q3_K bit layout:
+    // - qs[64]: lower 2 bits packed as 4 values per byte
+    // - hmask[32]: high bit packed as 8 values per byte
+    
+    // Extract first value
+    const int qs_byte0 = idx0 / 4;
+    const int qs_shift0 = (idx0 % 4) * 2;
+    const int hm_byte0 = idx0 / 8;
+    const int hm_shift0 = idx0 % 8;
+    const int lo0 = (qs[qs_byte0] >> qs_shift0) & 0x03;
+    const int hi0 = (hmask[hm_byte0] >> hm_shift0) & 0x01;
+    int quant_val0 = (lo0 | (hi0 << 2)) - 4;
+    
     // Extract second value
-    const uint8_t lo1 = (ql[idx1 / 4] >> ((idx1 % 4) * 2)) & 0x03;
-    const uint8_t hi1 = (qh[idx1 / 8] >> (idx1 % 8)) & 0x01;
-    const int quant_val1 = (int)(lo1 | (hi1 << 2)) - 4;
-
+    const int qs_byte1 = idx1 / 4;
+    const int qs_shift1 = (idx1 % 4) * 2;
+    const int hm_byte1 = idx1 / 8;
+    const int hm_shift1 = idx1 % 8;
+    const int lo1 = (qs[qs_byte1] >> qs_shift1) & 0x03;
+    const int hi1 = (hmask[hm_byte1] >> hm_shift1) & 0x01;
+    int quant_val1 = (lo1 | (hi1 << 2)) - 4;
+    
     v.x = quant_val0 * d;
     v.y = quant_val1 * d;
 
     // Check if either index is an outlier and restore if so
-    for (int k = 0; k < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k) {
+    // Outliers are sparse (only 6 per 256 weights), so this loop is cheap
+    #pragma unroll
+    for (int k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
         if (x[ib].outlier_idx[k] == idx0) {
             v.x = __half2float(x[ib].outlier_vals[k]);
         }

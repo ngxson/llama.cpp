@@ -772,6 +772,61 @@ static __device__ __forceinline__ float vec_dot_q3_K_q8_1(
     return vec_dot_q3_K_q8_1_impl_mmvq(vl, vh, u, bq3_K->scales, scale_offset, d, d8);
 }
 
+// Q3_HIFI: Q3_K layout + 6 FP16 outliers per block
+// Reuses Q3_K vec_dot logic for bulk, adds outlier corrections
+static __device__ __forceinline__ float vec_dot_q3_hifi_q8_1(
+    const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
+
+    const block_q3_hifi * bq3_hifi = (const block_q3_hifi *) vbq + kbx;
+
+    const int bq8_offset = QR3_K * (iqs / (QI3_K/2));
+    const int scale_offset = iqs - iqs % QI8_1 + (iqs % QI8_1) / (QI8_1/2);
+
+    const float d = __half2float(bq3_hifi->d);
+
+    const int vl = get_int_b2(bq3_hifi->qs, iqs);
+
+    // invert the mask with ~ so that a 0/1 results in 4/0 being subtracted
+    const int vh = ~get_int_b2(bq3_hifi->hmask, iqs % (QI3_K/2)) >> bq8_offset;
+
+    int    u[QR3_K];
+    float d8[QR3_K];
+
+#pragma unroll
+    for (int i = 0; i < QR3_K; ++i) {
+        u[i]  = get_int_b4(bq8_1[bq8_offset + i].qs, iqs % QI8_1);
+        d8[i] = __low2float(bq8_1[bq8_offset + i].ds);
+    }
+
+    // Compute Q3_K bulk dot product
+    float sum = vec_dot_q3_K_q8_1_impl_mmvq(vl, vh, u, bq3_hifi->scales, scale_offset, d, d8);
+
+    // Add outlier corrections
+    // This is done per-thread, and outliers were pre-zeroed during quantization
+    // so we just add the outlier contribution
+    const int8_t * q8_all = bq8_1[0].qs;
+    const float d8_base = __low2float(bq8_1[0].ds);
+
+#pragma unroll
+    for (int k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
+        const int idx = bq3_hifi->outlier_idx[k];
+        // Only process outliers that fall within this thread's range
+        const int start_idx = iqs * 4;
+        const int end_idx = start_idx + 4 * QR3_K;
+        if (idx >= start_idx && idx < end_idx) {
+            const int rel_idx = idx - start_idx;
+            const int bq8_idx = rel_idx / QI8_1;
+            const int qs_idx = rel_idx % QI8_1;
+            const float outlier_val = __half2float(bq3_hifi->outlier_vals[k]);
+            const int8_t q8_val = ((const int8_t*)bq8_1[bq8_offset + bq8_idx].qs)[qs_idx];
+            const float d8_val = __low2float(bq8_1[bq8_offset + bq8_idx].ds);
+            sum += outlier_val * q8_val * d8_val;
+        }
+    }
+
+    return sum;
+}
+
 static __device__ __forceinline__ float vec_dot_q4_K_q8_1(
     const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
 
