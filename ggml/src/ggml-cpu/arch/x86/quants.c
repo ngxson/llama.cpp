@@ -2570,15 +2570,20 @@ void ggml_vec_dot_q3_hifi_fast_q8_K(int n, float * GGML_RESTRICT s, size_t bs, c
     float sumf = hsum_float_8(acc);
 
     // Q3_HIFI_FAST extension: Add outlier corrections
-    // Simple scalar loop is faster than LUT approach for 6 outliers
+    // Fully unrolled loop for 6 outliers - eliminates loop overhead
     for (int i = 0; i < nb; ++i) {
         const float d_y = y[i].d;
-        for (int k = 0; k < Q3_HIFI_FAST_OUTLIERS; ++k) {
-            const uint8_t idx = x[i].outlier_idx[k];
-            const float w = GGML_FP16_TO_FP32(x[i].outlier_vals[k]);
-            const float a = y[i].qs[idx];
-            sumf += w * a * d_y;
-        }
+        const int8_t * GGML_RESTRICT q8 = y[i].qs;
+        const uint8_t * GGML_RESTRICT idx = x[i].outlier_idx;
+        const ggml_fp16_t * GGML_RESTRICT vals = x[i].outlier_vals;
+        
+        // Unrolled: process all 6 outliers without loop overhead
+        sumf += GGML_FP16_TO_FP32(vals[0]) * q8[idx[0]] * d_y;
+        sumf += GGML_FP16_TO_FP32(vals[1]) * q8[idx[1]] * d_y;
+        sumf += GGML_FP16_TO_FP32(vals[2]) * q8[idx[2]] * d_y;
+        sumf += GGML_FP16_TO_FP32(vals[3]) * q8[idx[3]] * d_y;
+        sumf += GGML_FP16_TO_FP32(vals[4]) * q8[idx[4]] * d_y;
+        sumf += GGML_FP16_TO_FP32(vals[5]) * q8[idx[5]] * d_y;
     }
 
     *s = sumf;

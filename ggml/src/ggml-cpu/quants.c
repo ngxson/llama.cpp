@@ -699,13 +699,17 @@ void ggml_vec_dot_q3_hifi_fast_q8_K_generic(int n, float * GGML_RESTRICT s, size
 
         total_sum += d * (float)sumi;
 
-        // Add outlier corrections
+        // Add outlier corrections - fully unrolled for 6 outliers
         const float yd = yb->d;
-        for (int k = 0; k < Q3_HIFI_FAST_OUTLIERS; ++k) {
-            const int idx = xb->outlier_idx[k];
-            const float outlier_val = GGML_FP16_TO_FP32(xb->outlier_vals[k]);
-            total_sum += outlier_val * (float)yb->qs[idx] * yd;
-        }
+        const uint8_t * GGML_RESTRICT o_idx = xb->outlier_idx;
+        const ggml_fp16_t * GGML_RESTRICT o_vals = xb->outlier_vals;
+        
+        total_sum += GGML_FP16_TO_FP32(o_vals[0]) * yb->qs[o_idx[0]] * yd;
+        total_sum += GGML_FP16_TO_FP32(o_vals[1]) * yb->qs[o_idx[1]] * yd;
+        total_sum += GGML_FP16_TO_FP32(o_vals[2]) * yb->qs[o_idx[2]] * yd;
+        total_sum += GGML_FP16_TO_FP32(o_vals[3]) * yb->qs[o_idx[3]] * yd;
+        total_sum += GGML_FP16_TO_FP32(o_vals[4]) * yb->qs[o_idx[4]] * yd;
+        total_sum += GGML_FP16_TO_FP32(o_vals[5]) * yb->qs[o_idx[5]] * yd;
     }
 
     *s = total_sum;
