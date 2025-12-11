@@ -2571,6 +2571,8 @@ void ggml_vec_dot_q3_hifi_fast_q8_K(int n, float * GGML_RESTRICT s, size_t bs, c
 
     // Q3_HIFI_FAST extension: Add outlier corrections
     // Fully unrolled loop for 6 outliers - eliminates loop overhead
+    // Note: We tried branchless masking but the computation cost outweighs
+    // any branch misprediction savings for only 6 outliers per block.
     for (int i = 0; i < nb; ++i) {
         const float d_y = y[i].d;
         const int8_t * GGML_RESTRICT q8 = y[i].qs;
@@ -2578,12 +2580,13 @@ void ggml_vec_dot_q3_hifi_fast_q8_K(int n, float * GGML_RESTRICT s, size_t bs, c
         const ggml_fp16_t * GGML_RESTRICT vals = x[i].outlier_vals;
         
         // Unrolled: process all 6 outliers without loop overhead
-        sumf += GGML_FP16_TO_FP32(vals[0]) * q8[idx[0]] * d_y;
-        sumf += GGML_FP16_TO_FP32(vals[1]) * q8[idx[1]] * d_y;
-        sumf += GGML_FP16_TO_FP32(vals[2]) * q8[idx[2]] * d_y;
-        sumf += GGML_FP16_TO_FP32(vals[3]) * q8[idx[3]] * d_y;
-        sumf += GGML_FP16_TO_FP32(vals[4]) * q8[idx[4]] * d_y;
-        sumf += GGML_FP16_TO_FP32(vals[5]) * q8[idx[5]] * d_y;
+        // Using FMA-friendly pattern: accumulate (w * a) * d_y
+        sumf += GGML_FP16_TO_FP32(vals[0]) * (float)q8[idx[0]] * d_y;
+        sumf += GGML_FP16_TO_FP32(vals[1]) * (float)q8[idx[1]] * d_y;
+        sumf += GGML_FP16_TO_FP32(vals[2]) * (float)q8[idx[2]] * d_y;
+        sumf += GGML_FP16_TO_FP32(vals[3]) * (float)q8[idx[3]] * d_y;
+        sumf += GGML_FP16_TO_FP32(vals[4]) * (float)q8[idx[4]] * d_y;
+        sumf += GGML_FP16_TO_FP32(vals[5]) * (float)q8[idx[5]] * d_y;
     }
 
     *s = sumf;
