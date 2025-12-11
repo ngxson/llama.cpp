@@ -372,24 +372,11 @@ extern "C" {
     GGML_API void        ggml_fp32_to_bf16_row_ref(const float *, ggml_bf16_t *, int64_t);
     GGML_API void        ggml_fp32_to_bf16_row(const float *, ggml_bf16_t *, int64_t);
 
-    // Q3_HIFI: 3-bit + 6 FP16 outliers per 256 weights (improved accuracy)
-    // Uses split ql/qh layout for SIMD-friendly bit extraction (like Q3_K)
-    #define Q3_HIFI_BLOCK_SIZE           256
-    #define Q3_HIFI_OUTFIERS_PER_BLOCK   6
-
-    typedef struct {
-        ggml_fp16_t d;                                     // 2 bytes: scale for 3-bit bulk (FP16)
-        uint8_t  ql[64];                                   // 64 bytes: low 2 bits per weight (256 x 2-bit)
-        uint8_t  qh[32];                                   // 32 bytes: high 1 bit per weight (256 x 1-bit)
-        uint8_t  outlier_idx[Q3_HIFI_OUTFIERS_PER_BLOCK];  // 6 bytes: indices of outliers (0-255)
-        ggml_fp16_t outlier_vals[Q3_HIFI_OUTFIERS_PER_BLOCK]; // 12 bytes: FP16 outlier values
-    } block_q3_hifi;  // Total: 116 bytes (unchanged)
-
-    // Q3_HIFI_FAST: Q3_K-compatible layout with FP16 outliers for maximum speed
+    // Q3_HIFI: Q3_K-compatible layout with 6 FP16 outliers for improved accuracy
     // Uses EXACT Q3_K memory layout (first 110 bytes) to reuse optimized AVX2 kernels
-    // Outliers appended as tail section for quality preservation
-    #define Q3_HIFI_FAST_BLOCK_SIZE      256
-    #define Q3_HIFI_FAST_OUTLIERS        6
+    // Outliers appended as tail section - achieves ~98% of Q3_K speed with better quality
+    #define Q3_HIFI_BLOCK_SIZE      256
+    #define Q3_HIFI_OUTLIERS        6
 
     typedef struct {
         // === Q3_K-COMPATIBLE REGION (110 bytes) - DO NOT REORDER ===
@@ -398,9 +385,9 @@ extern "C" {
         uint8_t  scales[12];                               // 12 bytes: 16 sub-group scales (6-bit each)
         ggml_fp16_t d;                                     // 2 bytes: super-block scale
         // === OUTLIER EXTENSION (18 bytes) ===
-        uint8_t  outlier_idx[Q3_HIFI_FAST_OUTLIERS];       // 6 bytes: outlier positions (0-255)
-        ggml_fp16_t outlier_vals[Q3_HIFI_FAST_OUTLIERS];   // 12 bytes: FP16 outlier values
-    } block_q3_hifi_fast;  // Total: 128 bytes
+        uint8_t  outlier_idx[Q3_HIFI_OUTLIERS];            // 6 bytes: outlier positions (0-255)
+        ggml_fp16_t outlier_vals[Q3_HIFI_OUTLIERS];        // 12 bytes: FP16 outlier values
+    } block_q3_hifi;  // Total: 128 bytes
 
     struct ggml_object;
     struct ggml_context;
@@ -420,7 +407,7 @@ extern "C" {
         GGML_TYPE_Q8_1    = 9,
         GGML_TYPE_Q2_K    = 10,
         GGML_TYPE_Q3_K    = 11,
-        GGML_TYPE_Q3_HIFI = 12, // Q3 HIFI (1 block)
+        // GGML_TYPE_Q3_HIFI_OLD = 12, // removed - replaced by Q3_HIFI (type 41)
         GGML_TYPE_Q4_K    = 13,
         GGML_TYPE_Q5_K    = 14,
         GGML_TYPE_Q6_K    = 15,
@@ -449,7 +436,7 @@ extern "C" {
         // GGML_TYPE_IQ4_NL_4_8 = 38,
         // GGML_TYPE_IQ4_NL_8_8 = 39,
         GGML_TYPE_MXFP4   = 40, // MXFP4 (1 block)
-        GGML_TYPE_Q3_HIFI_FAST = 41, // Q3_HIFI with Q3_K-compatible layout for speed
+        GGML_TYPE_Q3_HIFI = 41, // Q3_HIFI: Q3_K layout + 6 FP16 outliers per block
         GGML_TYPE_COUNT   = 42,   
     };
 

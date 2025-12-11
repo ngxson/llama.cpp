@@ -72,12 +72,6 @@ void quantize_row_q3_hifi(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy
     quantize_row_q3_hifi_ref(x, y, k);
 }
 
-void quantize_row_q3_hifi_fast(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
-    assert(k % Q3_HIFI_FAST_BLOCK_SIZE == 0);
-    block_q3_hifi_fast * GGML_RESTRICT y = vy;
-    quantize_row_q3_hifi_fast_ref(x, y, k);
-}
-
 // ====================== 4-bit (de)-quantization
 
 void quantize_row_q4_K(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
@@ -559,7 +553,8 @@ void ggml_vec_dot_q3_K_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, c
     *s = sumf;
 }
 
-// Q3_HIFI vec_dot implementation - optimized scalar version
+// Q3_HIFI vec_dot: Generic implementation
+// Uses Q3_K format for bulk, adds outlier corrections
 void ggml_vec_dot_q3_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % Q3_HIFI_BLOCK_SIZE == 0);
     assert(nrc == 1);
@@ -570,78 +565,7 @@ void ggml_vec_dot_q3_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs
 
     const block_q3_hifi * GGML_RESTRICT x = vx;
     const block_q8_K * GGML_RESTRICT y = vy;
-
     const int nb = n / Q3_HIFI_BLOCK_SIZE;
-
-    float sumf = 0.0f;
-
-    for (int ib = 0; ib < nb; ++ib) {
-        const block_q3_hifi * GGML_RESTRICT xb = &x[ib];
-        const block_q8_K * GGML_RESTRICT yb = &y[ib];
-
-        const float d = GGML_FP16_TO_FP32(xb->d);
-        const uint8_t * GGML_RESTRICT ql = xb->ql;
-        const uint8_t * GGML_RESTRICT qh = xb->qh;
-        const int8_t * GGML_RESTRICT q8 = yb->qs;
-
-        // Extract and compute dot product using split ql/qh layout
-        // Process 8 values at a time for efficiency
-        int32_t sum = 0;
-        
-        for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; i += 8) {
-            const int ql_idx = i / 4;
-            const int qh_idx = i / 8;
-            const uint8_t ql0 = ql[ql_idx];
-            const uint8_t ql1 = ql[ql_idx + 1];
-            const uint8_t qh_byte = qh[qh_idx];
-            
-            // Extract 8 values at once
-            int8_t q3_0 = (int8_t)(((ql0 >> 0) & 0x03) | (((qh_byte >> 0) & 1) << 2)) - 4;
-            int8_t q3_1 = (int8_t)(((ql0 >> 2) & 0x03) | (((qh_byte >> 1) & 1) << 2)) - 4;
-            int8_t q3_2 = (int8_t)(((ql0 >> 4) & 0x03) | (((qh_byte >> 2) & 1) << 2)) - 4;
-            int8_t q3_3 = (int8_t)(((ql0 >> 6) & 0x03) | (((qh_byte >> 3) & 1) << 2)) - 4;
-            int8_t q3_4 = (int8_t)(((ql1 >> 0) & 0x03) | (((qh_byte >> 4) & 1) << 2)) - 4;
-            int8_t q3_5 = (int8_t)(((ql1 >> 2) & 0x03) | (((qh_byte >> 5) & 1) << 2)) - 4;
-            int8_t q3_6 = (int8_t)(((ql1 >> 4) & 0x03) | (((qh_byte >> 6) & 1) << 2)) - 4;
-            int8_t q3_7 = (int8_t)(((ql1 >> 6) & 0x03) | (((qh_byte >> 7) & 1) << 2)) - 4;
-            
-            sum += q3_0 * q8[i+0] + q3_1 * q8[i+1] + q3_2 * q8[i+2] + q3_3 * q8[i+3];
-            sum += q3_4 * q8[i+4] + q3_5 * q8[i+5] + q3_6 * q8[i+6] + q3_7 * q8[i+7];
-        }
-
-        // Apply outlier corrections (outliers were pre-zeroed during quantization)
-        // So we just need to add the FP16 outlier contributions
-        float outlier_correction = 0.0f;
-        for (int k = 0; k < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k) {
-            const int idx = xb->outlier_idx[k];
-            const float outlier_val = GGML_FP16_TO_FP32(xb->outlier_vals[k]);
-            // Add precise outlier contribution
-            outlier_correction += outlier_val * (float)q8[idx];
-        }
-
-        // Combine: bulk (scaled) + outliers (already in float)
-        sumf += d * yb->d * (float)sum + yb->d * outlier_correction;
-    }
-
-    *s = sumf;
-}
-
-// Note: ggml_vec_dot_q3_hifi_q8_K is defined in arch-specific files (x86/quants.c etc.)
-// which fall back to ggml_vec_dot_q3_hifi_q8_K_generic when SIMD is not available
-
-// Q3_HIFI_FAST vec_dot: Standalone implementation for debugging
-// Uses Q3_K format for bulk, adds outlier corrections
-void ggml_vec_dot_q3_hifi_fast_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
-    assert(n % Q3_HIFI_FAST_BLOCK_SIZE == 0);
-    assert(nrc == 1);
-    UNUSED(nrc);
-    UNUSED(bx);
-    UNUSED(by);
-    UNUSED(bs);
-
-    const block_q3_hifi_fast * GGML_RESTRICT x = vx;
-    const block_q8_K * GGML_RESTRICT y = vy;
-    const int nb = n / Q3_HIFI_FAST_BLOCK_SIZE;
 
     static const uint32_t kmask1 = 0x03030303;
     static const uint32_t kmask2 = 0x0f0f0f0f;
@@ -652,7 +576,7 @@ void ggml_vec_dot_q3_hifi_fast_q8_K_generic(int n, float * GGML_RESTRICT s, size
     float total_sum = 0.0f;
 
     for (int i = 0; i < nb; ++i) {
-        const block_q3_hifi_fast * xb = &x[i];
+        const block_q3_hifi * xb = &x[i];
         const block_q8_K * yb = &y[i];
 
         const float d = GGML_FP16_TO_FP32(xb->d) * yb->d;
@@ -715,7 +639,7 @@ void ggml_vec_dot_q3_hifi_fast_q8_K_generic(int n, float * GGML_RESTRICT s, size
     *s = total_sum;
 }
 
-// Note: ggml_vec_dot_q3_hifi_fast_q8_K is defined in arch-specific files (x86/quants.c etc.)
+// Note: ggml_vec_dot_q3_hifi_q8_K is defined in arch-specific files (x86/quants.c etc.)
 
 void ggml_vec_dot_q4_K_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);

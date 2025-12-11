@@ -2044,9 +2044,9 @@ void ggml_vec_dot_q3_K_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const voi
 
 }
 
-// Q3_HIFI_FAST: ARM NEON optimized vec_dot
-// Copied from Q3_K and adapted for block_q3_hifi_fast (128-byte blocks) + outlier correction
-void ggml_vec_dot_q3_hifi_fast_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+// Q3_HIFI: ARM NEON optimized vec_dot
+// Copied from Q3_K and adapted for block_q3_hifi (128-byte blocks) + outlier correction
+void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);
     assert(nrc == 1);
     UNUSED(nrc);
@@ -2057,8 +2057,8 @@ void ggml_vec_dot_q3_hifi_fast_q8_K(int n, float * GGML_RESTRICT s, size_t bs, c
     const uint32_t kmask1 = 0x03030303;
     const uint32_t kmask2 = 0x0f0f0f0f;
 
-    // CRITICAL: Use block_q3_hifi_fast for correct 128-byte stride
-    const block_q3_hifi_fast * GGML_RESTRICT x = (const block_q3_hifi_fast *)vx;
+    // CRITICAL: Use block_q3_hifi for correct 128-byte stride
+    const block_q3_hifi * GGML_RESTRICT x = (const block_q3_hifi *)vx;
     const block_q8_K * GGML_RESTRICT y = vy;
 
     const int nb = n / QK_K;
@@ -2155,7 +2155,7 @@ void ggml_vec_dot_q3_hifi_fast_q8_K(int n, float * GGML_RESTRICT s, size_t bs, c
 
     }
 
-    // Q3_HIFI_FAST extension: Add outlier corrections - fully unrolled for 6 outliers
+    // Q3_HIFI: Add outlier corrections - fully unrolled for 6 outliers
     for (int i = 0; i < nb; ++i) {
         const float d_y = y[i].d;
         const int8_t * GGML_RESTRICT q8 = y[i].qs;
@@ -2178,7 +2178,7 @@ void ggml_vec_dot_q3_hifi_fast_q8_K(int n, float * GGML_RESTRICT s, size_t bs, c
     UNUSED(x);
     UNUSED(y);
     UNUSED(nb);
-    ggml_vec_dot_q3_hifi_fast_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+    ggml_vec_dot_q3_hifi_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
 #endif
 
 }
