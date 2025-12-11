@@ -58,12 +58,19 @@ By storing zero at outlier positions during quantization, the bulk SIMD dot prod
 
 ### Creating a Q3_HIFI Model
 
+**Using llama-quantize (recommended):**
 ```bash
 # Basic quantization
 ./llama-quantize model-f16.gguf model-q3hifi.gguf Q3_HIFI
 
-# With importance matrix (recommended)
+# With importance matrix (recommended for best quality)
 ./llama-quantize --imatrix imatrix.gguf model-f16.gguf model-q3hifi.gguf Q3_HIFI
+```
+
+**Using Python (convert_hf_to_gguf.py):**
+```bash
+# Convert and quantize in one step
+python convert_hf_to_gguf.py model_dir --outtype q3_hifi --outfile model-q3hifi.gguf
 ```
 
 ### Running Inference
