@@ -2562,8 +2562,7 @@ private:
 
             ggml_tensor * kqv = ggml_mul_mat(ctx0, v, kq);
             cur = ggml_permute(ctx0, kqv, 0, 2, 1, 3);
-            cur = ggml_reshape_2d(ctx0, ggml_cont(ctx0, cur), cur->ne[0] * cur->ne[1], cur->ne[2] * cur->ne[3]);
-
+            cur = ggml_cont_2d(ctx0, cur, cur->ne[0] * cur->ne[1], cur->ne[2] * cur->ne[3]);
         }
 
         cb(cur, "kqv_out", il);
@@ -2782,7 +2781,6 @@ private:
                 qr = ggml_permute(ctx0, Q, 0, 2, 1, 3);
                 qr = ggml_reshape_4d(ctx0, ggml_cont(ctx0, qr), d_heads, W, H, B * n_heads);
 
-                const int WH_pad = GGML_PAD(W*H, GGML_KQ_MASK_PAD) - W*H;
 
                 rw   = ggml_mul_mat   (ctx0, rw, ggml_cont(ctx0, ggml_permute(ctx0, qr, 0, 2, 1, 3)));  // [B*n_heads, W, H, W]
                 rw   = ggml_cont      (ctx0, ggml_permute(ctx0, rw, 0, 2, 1, 3)); // [B*n_heads, H, W, W]
@@ -2792,7 +2790,6 @@ private:
                 rh   = ggml_reshape_4d(ctx0, rh, 1, H, W*H, n_heads*B);
                 mask = ggml_add       (ctx0, rw, rh); // [B*n_heads, H*W, H, W]
                 mask = ggml_reshape_4d(ctx0, mask, W*H, W*H, n_heads, B);
-                mask = ggml_pad       (ctx0, mask, 0, WH_pad, 0, 0);
                 mask = ggml_cast      (ctx0, mask, GGML_TYPE_F16);
 
                 float scale = 1.0f / sqrtf((float)d_heads);
@@ -5213,8 +5210,8 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
             } break;
     case PROJECTOR_TYPE_DEEPSEEKOCR:
         {
-            const int native_resolutions[] = {
-                /* 512 tiny ,640  small ,*/ 1024 /* base */, 1280 /* large */
+            const std::vector native_resolutions = {
+                /*512 tiny , 640 small, */ 1024 /* base */, 1280 /* large */
             };
             // original image size
             const int orig_w = original_size.width;
@@ -5226,10 +5223,10 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 color[i] = (int)(255 * params.image_mean[i]);
             }
 
-            int mode_i = 0;
+            size_t mode_i = 0;
             int min_diff = orig_area;
 
-            for (int i = 0; i < 2; i++) {
+            for (size_t i = 0; i < native_resolutions.size(); i++) {
                 int r = native_resolutions[i];
                 if (std::abs(orig_area - r * r) < min_diff) {
                     mode_i = i;
