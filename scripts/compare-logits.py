@@ -52,6 +52,7 @@ def dump_logits(endpoint: str, output_path: Path, api_key = None):
             data = response.text
             f.write(f"{data}\n")
             print(f"\n\n{data}\n\n[{i+1}/{len(words)}]")
+    print(f"Logits dumped to {output_path}")
 
 
 def get_token_logprobs(data: dict):
@@ -117,7 +118,7 @@ def parse_args() -> argparse.Namespace:
     parser_dump.add_argument("output", type=Path, help="output path for dumped logits (.log)")
     parser_dump.add_argument("endpoint", type=str, help="OAI-compat /completions endpoint")
     parser_dump.add_argument("--api-key", type=str, default=None, help="API key for authentication (if required)")
-    parser_dump.add_argument("--prompt", type=str, default=None, help="Custom prompt to use instead of the default")
+    parser_dump.add_argument("--file", type=Path, default=None, help="File containing prompt to use instead of the default")
 
     # compare subcommand
     parser_compare = subparsers.add_parser("compare", help="compare two dumped logits files")
@@ -135,9 +136,10 @@ def parse_args() -> argparse.Namespace:
 def main():
     args = parse_args()
 
-    if args.prompt is not None:
-        global INPUT_PROMPT
-        INPUT_PROMPT = args.prompt
+    if args.file is not None:
+        with args.file.open("r") as f:
+            global INPUT_PROMPT
+            INPUT_PROMPT = f.read().strip()
 
     if args.verb == "dump":
         dump_logits(args.endpoint, args.output, args.api_key)
