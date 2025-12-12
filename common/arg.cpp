@@ -1904,7 +1904,15 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_CONT_BATCHING"));
     add_opt(common_arg(
-        {"--mmproj"}, "FILE",
+        {"-cb", "--cont-batching"},
+        {"-nocb", "--no-cont-batching"},
+        string_format("whether to enable continuous batching (a.k.a dynamic batching) (default: %s)", params.cont_batching ? "enabled" : "disabled"),
+        [](common_params & params, bool value) {
+            params.cont_batching = value;
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_CONT_BATCHING"));
+    add_opt(common_arg(
+        {"-mm", "--mmproj"}, "FILE",
         "path to a multimodal projector file. see tools/mtmd/README.md\n"
         "note: if -hf is used, this argument can be omitted",
         [](common_params & params, const std::string & value) {
@@ -1912,7 +1920,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples(mmproj_examples).set_env("LLAMA_ARG_MMPROJ"));
     add_opt(common_arg(
-        {"--mmproj-url"}, "URL",
+        {"-mmu", "--mmproj-url"}, "URL",
         "URL to a multimodal projector file. see tools/mtmd/README.md",
         [](common_params & params, const std::string & value) {
             params.mmproj.url = value;
