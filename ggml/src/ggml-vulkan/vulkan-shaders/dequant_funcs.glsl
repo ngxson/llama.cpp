@@ -521,6 +521,48 @@ vec2 get_dm(uint ib, uint a_offset) {
 }
 #endif
 
+#if defined(DATA_A_Q3_HIFI)
+vec2 dequantize(uint ib, uint iqs, uint a_offset) {
+    // Q3_HIFI uses same layout as Q3_K with outliers appended
+    iqs /= 2;
+    const uint n = iqs / 64;                     // 0,1
+    const uint qsi = n * 32 + (iqs % 16) * 2;    // 0,2,4..62
+    const uint hmi =          (iqs % 16) * 2;    // 0,2,4..30
+    const uint j = (iqs % 64) / 4;               // 0..3
+    const uint is = iqs / 8;                     // 0..15
+    const uint halfsplit = ((iqs % 64) / 16);    // 0,1,2,3
+    const uint qsshift = halfsplit * 2;          // 0,2,4,6
+    const uint m = 1 << (4 * n + halfsplit);     // 1,2,4,8,16,32,64,128
+
+    const int8_t us = int8_t(((data_a[a_offset + ib].scales[is % 8] >> (4 * int(is / 8))) & 0xF)
+                          | (((data_a[a_offset + ib].scales[8 + (is % 4)] >> (2 * int(is / 4))) & 3) << 4));
+    const float dl = float(data_a[a_offset + ib].d) * float(us - 32);
+
+    // Compute local indices for outlier checking
+    const uint local_idx0 = 128 * n + 32 * j + (iqs % 16) * 2;
+    const uint local_idx1 = local_idx0 + 1;
+    
+    // Base Q3_K dequantization
+    float v0 = dl * float(int8_t((data_a[a_offset + ib].qs[qsi    ] >> qsshift) & 3) - (((data_a[a_offset + ib].hmask[hmi    ] & m) != 0) ? 0 : 4));
+    float v1 = dl * float(int8_t((data_a[a_offset + ib].qs[qsi + 1] >> qsshift) & 3) - (((data_a[a_offset + ib].hmask[hmi + 1] & m) != 0) ? 0 : 4));
+    
+    // Check for outliers and replace with FP16 values
+    [[unroll]] for (uint k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
+        if (data_a[a_offset + ib].outlier_idx[k] == local_idx0) {
+            v0 = float(data_a[a_offset + ib].outlier_vals[k]);
+        }
+        if (data_a[a_offset + ib].outlier_idx[k] == local_idx1) {
+            v1 = float(data_a[a_offset + ib].outlier_vals[k]);
+        }
+    }
+    
+    return vec2(v0, v1);
+}
+vec2 get_dm(uint ib, uint a_offset) {
+    return vec2(1, 0);
+}
+#endif
+
 #if defined(DATA_A_Q4_K)
 vec2 dequantize(uint ib, uint iqs, uint a_offset) {
     iqs /= 2;
