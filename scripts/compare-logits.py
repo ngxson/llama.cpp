@@ -59,8 +59,16 @@ def dump_logits(endpoint: str, output_path: Path, api_key = None):
 
 
 def get_token_logprobs(data: dict):
-    top = data['choices'][0]['logprobs']['content'][0]['top_logprobs'][0]
-    return top['token'], top['logprob']
+    logprobs = data['choices'][0]['logprobs']
+    if 'content' in logprobs:
+        # llama.cpp case
+        top = logprobs['content'][0]['top_logprobs'][0]
+        return top['token'], top['logprob']
+    else:
+        # vllm case
+        tokens = logprobs['tokens']
+        token_logprobs = logprobs['token_logprobs']
+        return tokens[0], token_logprobs[0]
 
 
 def clean_text(text: str) -> str:
