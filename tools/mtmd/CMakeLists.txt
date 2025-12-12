@@ -24,7 +24,7 @@ add_library(mtmd
             models/qwen2vl.cpp
             models/qwen3vl.cpp
             models/siglip.cpp
-            models/whisper_enc.cpp
+            models/whisper-enc.cpp
             )
 
 set_target_properties(mtmd PROPERTIES
