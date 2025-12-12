@@ -15,6 +15,8 @@
 
 // Internal header for clip.cpp
 
+#define MTMD_INTERNAL_HEADER
+
 #define KEY_FTYPE               "general.file_type"
 #define KEY_NAME                "general.name"
 #define KEY_DESCRIPTION         "general.description"
