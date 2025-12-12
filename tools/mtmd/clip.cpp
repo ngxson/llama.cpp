@@ -807,10 +807,16 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
             {
                 builder = std::make_unique<clip_graph_cogvlm>(ctx, img);
             } break;
-        default:
+        case PROJECTOR_TYPE_MLP:
+        case PROJECTOR_TYPE_MLP_NORM:
+        case PROJECTOR_TYPE_LDP:
+        case PROJECTOR_TYPE_LDPV2:
+        case PROJECTOR_TYPE_GLM_EDGE:
             {
                 builder = std::make_unique<clip_graph_llava>(ctx, img);
             } break;
+        default:
+            GGML_ABORT("missing cgraph builder");
     }
 
     return builder->build();
