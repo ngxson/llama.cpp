@@ -1125,7 +1125,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
     add_opt(common_arg(
         {"--context-shift"},
         {"--no-context-shift"},
-        string_format("whether to use context shift on infinite text generation (default: %s)", params.ctx_shift ? "disabled" : "enabled"),
+        string_format("whether to use context shift on infinite text generation (default: %s)", params.ctx_shift ? "enabled" : "disabled"),
         [](common_params & params, bool value) {
             params.ctx_shift = value;
         }
@@ -1171,8 +1171,8 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         {"--no-perf"},
         string_format("whether to enable internal libllama performance timings (default: %s)", params.no_perf ? "true" : "false"),
         [](common_params & params, bool value) {
-            params.no_perf = value;
-            params.sampling.no_perf = value;
+            params.no_perf = !value;
+            params.sampling.no_perf = !value;
         }
     ).set_env("LLAMA_ARG_PERF"));
     add_opt(common_arg(
@@ -1758,7 +1758,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         {"-nkvo", "--no-kv-offload"},
         string_format("whether to enable KV cache offloading (default: %s)", params.no_kv_offload ? "disabled" : "enabled"),
         [](common_params & params, bool value) {
-            params.no_kv_offload = value;
+            params.no_kv_offload = !value;
         }
     ).set_env("LLAMA_ARG_KV_OFFLOAD"));
     add_opt(common_arg(
@@ -1766,7 +1766,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         {"-nr", "--no-repack"},
         string_format("whether to enable weight repacking (default: %s)", params.no_extra_bufts ? "disabled" : "enabled"),
         [](common_params & params, bool value) {
-            params.no_extra_bufts = value;
+            params.no_extra_bufts = !value;
         }
     ).set_env("LLAMA_ARG_REPACK"));
     add_opt(common_arg(
@@ -1921,9 +1921,9 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
     add_opt(common_arg(
         {"--mmproj-auto"},
         {"--no-mmproj", "--no-mmproj-auto"},
-        string_format("explicitly disable multimodal projector, useful when using -hf (default: %s)", params.no_mmproj ? "enabled" : "disabled"),
+        string_format("whether to use multimodal projector file (if available), useful when using -hf (default: %s)", params.no_mmproj ? "disabled" : "enabled"),
         [](common_params & params, bool value) {
-            params.no_mmproj = value;
+            params.no_mmproj = !value;
         }
     ).set_examples(mmproj_examples).set_env("LLAMA_ARG_MMPROJ_AUTO"));
     add_opt(common_arg(
@@ -2169,9 +2169,9 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
     add_opt(common_arg(
         {"--op-offload"},
         {"--no-op-offload"},
-        string_format("disable offloading host tensor operations to device (default: %s)", params.no_op_offload ? "true" : "false"),
+        string_format("whether to offload host tensor operations to device (default: %s)", params.no_op_offload ? "false" : "true"),
         [](common_params & params, bool value) {
-            params.no_op_offload = value;
+            params.no_op_offload = !value;
         }
     ));
     add_opt(common_arg(
