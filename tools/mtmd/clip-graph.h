@@ -6,6 +6,9 @@
 #include "clip-impl.h"
 #include "clip-model.h"
 
+#include <vector>
+#include <functional>
+
 struct clip_graph {
     const clip_model & model;
     const clip_hparams & hparams;
