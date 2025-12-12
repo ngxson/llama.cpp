@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ggml.h"
+#include "clip-model.h"
 
 #include <cstdint>
 #include <vector>
@@ -17,9 +18,14 @@
 
 #define COMMON_SAMPLE_RATE 16000
 
-namespace whisper_preprocessor {
+struct mtmd_audio_filters {
+    int32_t n_mel;
+    int32_t n_fft;
 
-struct whisper_mel {
+    std::vector<float> data;
+};
+
+struct mtmd_audio_mel {
     int n_len;
     int n_len_org;
     int n_mel;
@@ -27,23 +33,16 @@ struct whisper_mel {
     std::vector<float> data;
 };
 
-struct whisper_filters {
-    int32_t n_mel;
-    int32_t n_fft;
+struct mtmd_audio_preprocessor {
+    const clip_hparams & hparams;
 
-    std::vector<float> data;
+    mtmd_audio_preprocessor(const clip_ctx * ctx): hparams(*clip_get_hparams(ctx)) {}
+    
+    ~mtmd_audio_preprocessor() = default;
+    virtual bool preprocess(const float * samples, size_t n_samples, std::vector<mtmd_audio_mel> & output) = 0;
 };
 
-bool preprocess_audio(
-        const float * samples,
-        size_t n_samples,
-        const whisper_filters & filters,
-        std::vector<whisper_mel> & output);
-
-} // namespace whisper_preprocessor
-
-namespace whisper_precalc_filters {
-
-whisper_preprocessor::whisper_filters get_128_bins();
-
-} // namespace whisper_precalc_filters
+struct mtmd_audio_whisper_preprocessor : mtmd_audio_preprocessor {
+    mtmd_audio_whisper_preprocessor(const clip_ctx * ctx) : mtmd_audio_preprocessor(ctx) {}
+    bool preprocess(const float * samples, size_t n_samples, std::vector<mtmd_audio_mel> & output) override;
+};

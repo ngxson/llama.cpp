@@ -277,3 +277,5 @@ struct clip_model {
             || proj_type == PROJECTOR_TYPE_VOXTRAL;
     }
 };
+
+const clip_hparams * clip_get_hparams(const struct clip_ctx * ctx);

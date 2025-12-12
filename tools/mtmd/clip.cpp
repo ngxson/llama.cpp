@@ -3416,3 +3416,7 @@ void clip_image_f32_batch_add_mel(struct clip_image_f32_batch * batch, int n_mel
     batch->entries.push_back(clip_image_f32_ptr(audio));
     batch->is_audio = true;
 }
+
+const clip_hparams * clip_get_hparams(const struct clip_ctx * ctx) {
+    return &ctx->model.hparams;
+}

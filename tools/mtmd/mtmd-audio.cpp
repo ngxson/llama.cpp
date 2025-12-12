@@ -14,8 +14,6 @@
 // align x to upper multiple of n
 #define _ALIGN(x, n) ((((x) + (n) - 1) / (n)) * (n))
 
-namespace whisper_preprocessor {
-
 #define SIN_COS_N_COUNT WHISPER_N_FFT
 namespace {
 struct whisper_global_cache {
@@ -125,7 +123,7 @@ static void fft(float* in, int N, float* out) {
 
 static void log_mel_spectrogram_worker_thread(int ith, const float * hann, const std::vector<float> & samples,
                                               int n_samples, int frame_size, int frame_step, int n_threads,
-                                              const whisper_filters & filters, whisper_mel & mel) {
+                                              const mtmd_audio_filters & filters, mtmd_audio_mel & mel) {
     std::vector<float> fft_in(frame_size * 2, 0.0);
     std::vector<float> fft_out(frame_size * 2 * 2 * 2);
 
@@ -197,9 +195,9 @@ static bool log_mel_spectrogram(
         const int   frame_step,
         const int   n_mel,
         const int   n_threads,
-        const whisper_filters & filters,
+        const mtmd_audio_filters & filters,
         const bool   debug,
-        whisper_mel & mel) {
+        mtmd_audio_mel & mel) {
     //const int64_t t_start_us = ggml_time_us();
 
     // Hann window
@@ -278,21 +276,40 @@ static bool log_mel_spectrogram(
     return true;
 }
 
-bool preprocess_audio(
+static mtmd_audio_filters whisper_filters; // precalculated filters
+void whisper_set_128_bins_default(); // forward declaration
+
+bool mtmd_audio_whisper_preprocessor::preprocess(
         const float * samples,
         size_t n_samples,
-        const whisper_filters & filters,
-        std::vector<whisper_mel> & output) {
-
+        std::vector<mtmd_audio_mel> & output) {
     if (n_samples == 0) {
         // empty audio
         return false;
     }
 
-    whisper_mel out_full;
+    std::vector<float> samples_padded;
+    // if input is too short, pad with zeros
+    // this is to avoid potential issues with stage1/2 padding in log_mel_spectrogram
+    // TODO: maybe handle this better
+    if (n_samples < WHISPER_N_FFT * 2) {
+        samples_padded.resize(WHISPER_N_FFT * 2, 0.0f);
+        std::memcpy(samples_padded.data(), samples, n_samples * sizeof(float));
+        samples   = samples_padded.data();
+        n_samples = samples_padded.size();
+    }
+
+    auto & filters = whisper_filters;
+    if (filters.data.empty()) {
+        whisper_set_128_bins_default();
+    }
+    GGML_ASSERT(filters.n_mel); // make sure we have filter preloaded correctly
+
+    mtmd_audio_mel out_full;
     bool ok = log_mel_spectrogram(
                 samples,
                 n_samples,
+                // TODO: use hparams
                 COMMON_SAMPLE_RATE,
                 WHISPER_N_FFT,
                 WHISPER_HOP_LENGTH,
@@ -316,7 +333,7 @@ bool preprocess_audio(
             break; // last uncomplete chunk will always be a padded chunk, safe to ignore
         }
 
-        whisper_mel out_chunk;
+        mtmd_audio_mel out_chunk;
         out_chunk.n_len     = n_len;
         out_chunk.n_mel     = out_full.n_mel;
         out_chunk.n_len_org = out_full.n_mel; // unused
@@ -333,7 +350,6 @@ bool preprocess_audio(
     return true;
 }
 
-} // namespace whisper_preprocessor
 
 
 // precalculated mel filter banks
@@ -355,13 +371,10 @@ bool preprocess_audio(
 //       if val != 0:
 //         print(f"data[{i*n_fft + j}] = {val:.6f};")
 
-namespace whisper_precalc_filters {
-
-whisper_preprocessor::whisper_filters get_128_bins() {
-    whisper_preprocessor::whisper_filters filters;
-    filters.n_mel = 128;
-    filters.n_fft = 201;
-    std::vector data(filters.n_mel * filters.n_fft, 0.0f);
+void whisper_set_128_bins_default() {
+    whisper_filters.n_mel = 128;
+    whisper_filters.n_fft = 201;
+    std::vector data(whisper_filters.n_mel * whisper_filters.n_fft, 0.0f);
 
     data[1] = 12.37398665;
     data[202] = 30.39256483;
@@ -762,8 +775,5 @@ whisper_preprocessor::whisper_filters get_128_bins() {
         val /= 1000.0f;
     }
 
-    filters.data = std::move(data);
-    return filters;
+    whisper_filters.data = std::move(data);
 }
-
-} // namespace whisper_precalc_filters

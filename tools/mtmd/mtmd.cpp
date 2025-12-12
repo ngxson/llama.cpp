@@ -151,9 +151,6 @@ struct mtmd_context {
     // string template for slice image delimiters with row/col (idefics3)
     std::string sli_img_start_tmpl;
 
-    // for whisper, we pre-calculate the mel filter bank
-    whisper_preprocessor::whisper_filters w_filters;
-
     // TODO @ngxson : add timings
 
     mtmd_context(const char * mmproj_fname,
@@ -317,10 +314,7 @@ struct mtmd_context {
         GGML_ASSERT(ctx_a != nullptr);
         projector_type proj = clip_get_projector_type(ctx_a);
 
-        if (clip_has_whisper_encoder(ctx_a)) {
-            // TODO @ngxson : check if model n_mel is 128 or 80
-            w_filters = whisper_precalc_filters::get_128_bins();
-        }
+        // TODO @ngxson : for whisper, check if model n_mel is 128 or 80
 
         LOG_WRN("%s: audio input is in experimental stage and may have reduced quality:\n"
                 "    https://github.com/ggml-org/llama.cpp/discussions/13759\n", __func__);
@@ -653,11 +647,11 @@ struct mtmd_tokenizer {
             }
 
             // preprocess audio
-            GGML_ASSERT(ctx->w_filters.n_mel); // make sure we have filter preloaded
-            std::vector<whisper_preprocessor::whisper_mel> mel_spec_chunks;
+            std::vector<mtmd_audio_mel> mel_spec_chunks;
             const float * samples = (const float *)bitmap->data.data();
             size_t n_samples = bitmap->data.size() / sizeof(float);
-            bool ok = whisper_preprocessor::preprocess_audio(samples, n_samples, ctx->w_filters, mel_spec_chunks);
+            mtmd_audio_whisper_preprocessor preproc(ctx->ctx_a);
+            bool ok = preproc.preprocess(samples, n_samples, mel_spec_chunks);
             if (!ok) {
                 LOG_ERR("Unable to preprocess audio\n");
                 return 2;
