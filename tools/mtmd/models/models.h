@@ -2,6 +2,10 @@
 
 #include "../clip-graph.h"
 
+//
+// vision models
+//
+
 struct clip_graph_siglip : clip_graph {
     clip_graph_siglip(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     ggml_cgraph * build() override;
@@ -52,7 +56,16 @@ struct clip_graph_llava : clip_graph {
     ggml_cgraph * build() override;
 };
 
+//
+// audio models
+//
+
 struct clip_graph_whisper_enc : clip_graph {
     clip_graph_whisper_enc(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    ggml_cgraph * build() override;
+};
+
+struct clip_graph_gemma3n_audio : clip_graph {
+    clip_graph_gemma3n_audio(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     ggml_cgraph * build() override;
 };

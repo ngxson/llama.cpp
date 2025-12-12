@@ -65,6 +65,19 @@ struct clip_hparams {
     int32_t n_mel_bins = 0; // whisper preprocessor
     int32_t proj_stack_factor = 0; // ultravox
 
+    // auto (preprocessor)
+    bool    audio_use_log10 = true;
+    int32_t audio_sample_rate = 16000;
+    int32_t audio_n_fft = 400;
+    int32_t audio_hop_len = 160;
+
+    // gemma3n-audio
+    // taken from Gemma3nAudioFeatureExtractor
+    float audio_min_freq = 125.0f;
+    float audio_max_freq = 7600.0f;
+    float audio_preemphasis = 0.97f;
+    float audio_mel_floor = 1e-5f;
+
     // legacy
     bool has_llava_projector = false;
     int minicpmv_version = 0;

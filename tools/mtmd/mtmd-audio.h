@@ -46,3 +46,8 @@ struct mtmd_audio_whisper_preprocessor : mtmd_audio_preprocessor {
     mtmd_audio_whisper_preprocessor(const clip_ctx * ctx) : mtmd_audio_preprocessor(ctx) {}
     bool preprocess(const float * samples, size_t n_samples, std::vector<mtmd_audio_mel> & output) override;
 };
+
+struct mtmd_audio_whisper_gemma3n : mtmd_audio_preprocessor {
+    mtmd_audio_whisper_gemma3n(const clip_ctx * ctx) : mtmd_audio_preprocessor(ctx) {}
+    bool preprocess(const float * samples, size_t n_samples, std::vector<mtmd_audio_mel> & output) override;
+};

@@ -351,6 +351,62 @@ bool mtmd_audio_whisper_preprocessor::preprocess(
 }
 
 
+//
+// gemma3n-audio preprocess
+//
+
+namespace gemma_cache {
+    static bool is_initialized = false;
+    static std::vector<float> hann;
+    static void fill_hann(int length, bool periodic) {
+        int offset = -1;
+        if (periodic) {
+            offset = 0;
+        }
+        hann.resize(length);
+        for (int i = 0; i < length; i++) {
+            hann[i] = 0.5 * (1.0 - cosf((2.0 * M_PI * i) / (length + offset)));
+        }
+    }
+    static void ensure_ready(int frame_length) {
+        if (!is_initialized) {
+            hann.resize(frame_length);
+            fill_hann(frame_length, true);
+        }
+    }
+}
+
+bool mtmd_audio_whisper_gemma3n::preprocess(
+        const float * samples,
+        size_t n_samples,
+        std::vector<mtmd_audio_mel> & output) {
+    std::vector<float> smpl(n_samples, 0.0f);
+
+    if (n_samples == 0) {
+        // empty audio
+        return false;
+    }
+
+    gemma_cache::ensure_ready(hparams.audio_n_fft);
+
+    // if input is too short, pad with zeros
+    if (n_samples < hparams.audio_n_fft) {
+        smpl.resize(hparams.audio_n_fft, 0.0f);
+        std::memcpy(smpl.data(), samples, n_samples * sizeof(float));
+    }
+
+    // pre-emphasis filter
+    smpl[0] = samples[0];
+    for (size_t i = 1; i < n_samples; i++) {
+        smpl[i] = samples[i] - hparams.audio_preemphasis * samples[i - 1];
+    }
+
+    return true;
+}
+
+
+
+
 
 // precalculated mel filter banks
 // values are multiplied by 1000.0 to save space, and will be divided by 1000.0 in the end of the function
