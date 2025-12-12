@@ -4,22 +4,24 @@ import json
 from pathlib import Path
 import logging
 
-logger = logging.getLogger("compare-logits")
+logger = logging.getLogger("compare-logprobs")
 logging.basicConfig(level=logging.INFO)
 
 
 DESCRIPTION = """
-Compare logits between llama.cpp and another inference engine.
+Compare logits between llama.cpp and another inference engine using OpenAI-compatible server endpoints.
+
+Unlike compare-logits.py, it allows dumping logits from a hosted API endpoint. Useful when it's not possible to run both models locally.
 
 Example usage:
-    Step 1: Dump logits from two different endpoints
-        python scripts/compare-logits.py dump logits_llama.log http://localhost:8080/v1/completions
-        python scripts/compare-logits.py dump logits_other.log http://other-engine:8000/v1/completions
+    Step 1: Dump logits from two different servers
+        python scripts/compare-logprobs.py dump logits_llama.log http://localhost:8080/v1/completions
+        python scripts/compare-logprobs.py dump logits_other.log http://other-engine:8000/v1/completions
 
         (optionally, you can add --api-key <key> if the endpoint requires authentication)
 
     Step 2: Compare the dumped logits
-        python scripts/compare-logits.py compare logits_llama.log logits_other.log report.md
+        python scripts/compare-logprobs.py compare logits_llama.log logits_other.log report.md
 """
 
 
