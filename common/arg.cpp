@@ -1775,7 +1775,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         [](common_params & params) {
             params.no_host = true;
         }
-    ).set_env("LLAMA_ARG_HOST"));
+    ).set_env("LLAMA_ARG_NO_HOST"));
     add_opt(common_arg(
         {"-ctk", "--cache-type-k"}, "TYPE",
         string_format(
