@@ -905,10 +905,11 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ));
     add_opt(common_arg(
+        {"--display-prompt"},
         {"--no-display-prompt"},
-        string_format("don't print prompt at generation (default: %s)", !params.display_prompt ? "true" : "false"),
-        [](common_params & params) {
-            params.display_prompt = false;
+        string_format("whether to print prompt at generation (default: %s)", params.display_prompt ? "true" : "false"),
+        [](common_params & params, bool value) {
+            params.display_prompt = value;
         }
     ).set_examples({LLAMA_EXAMPLE_COMPLETION, LLAMA_EXAMPLE_CLI}));
     add_opt(common_arg(
@@ -1166,20 +1167,22 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples({LLAMA_EXAMPLE_COMPLETION, LLAMA_EXAMPLE_CLI, LLAMA_EXAMPLE_DIFFUSION}));
     add_opt(common_arg(
+        {"--perf"},
         {"--no-perf"},
-        string_format("disable internal libllama performance timings (default: %s)", params.no_perf ? "true" : "false"),
-        [](common_params & params) {
-            params.no_perf = true;
-            params.sampling.no_perf = true;
+        string_format("whether to enable internal libllama performance timings (default: %s)", params.no_perf ? "true" : "false"),
+        [](common_params & params, bool value) {
+            params.no_perf = value;
+            params.sampling.no_perf = value;
         }
-    ).set_env("LLAMA_ARG_NO_PERF"));
+    ).set_env("LLAMA_ARG_PERF"));
     add_opt(common_arg(
+        {"--show-timings"},
         {"--no-show-timings"},
-        string_format("disable timing information after each response (default: %s)", params.show_timings ? "true" : "false"),
-        [](common_params & params) {
-            params.show_timings = false;
+        string_format("whether to show timing information after each response (default: %s)", params.show_timings ? "true" : "false"),
+        [](common_params & params, bool value) {
+            params.show_timings = value;
         }
-    ).set_examples({LLAMA_EXAMPLE_CLI}).set_env("LLAMA_ARG_NO_SHOW_TIMINGS"));
+    ).set_examples({LLAMA_EXAMPLE_CLI}).set_env("LLAMA_ARG_SHOW_TIMINGS"));
     add_opt(common_arg(
         {"-f", "--file"}, "FNAME",
         "a file containing the prompt (default: none)",
@@ -1345,10 +1348,11 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples({LLAMA_EXAMPLE_COMPLETION}));
     add_opt(common_arg(
+        {"--warmup"},
         {"--no-warmup"},
-        "skip warming up the model with an empty run",
-        [](common_params & params) {
-            params.warmup = false;
+        string_format("whether to perform warmup with an empty run (default: %s)", params.warmup ? "enabled" : "disabled"),
+        [](common_params & params, bool value) {
+            params.warmup = value;
         }
     ).set_examples({LLAMA_EXAMPLE_COMPLETION, LLAMA_EXAMPLE_CLI, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_MTMD, LLAMA_EXAMPLE_EMBEDDING, LLAMA_EXAMPLE_RETRIEVAL, LLAMA_EXAMPLE_PERPLEXITY}));
     add_opt(common_arg(
@@ -1750,26 +1754,28 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_env("LLAMA_ARG_GRP_ATTN_W").set_examples({LLAMA_EXAMPLE_COMPLETION}));
     add_opt(common_arg(
+        {"-kvo", "--kv-offload"},
         {"-nkvo", "--no-kv-offload"},
-        "disable KV offload",
-        [](common_params & params) {
-            params.no_kv_offload = true;
+        string_format("whether to enable KV cache offloading (default: %s)", params.no_kv_offload ? "disabled" : "enabled"),
+        [](common_params & params, bool value) {
+            params.no_kv_offload = value;
         }
-    ).set_env("LLAMA_ARG_NO_KV_OFFLOAD"));
+    ).set_env("LLAMA_ARG_KV_OFFLOAD"));
     add_opt(common_arg(
+        {"--repack"},
         {"-nr", "--no-repack"},
-        "disable weight repacking",
-        [](common_params & params) {
-            params.no_extra_bufts = true;
+        string_format("whether to enable weight repacking (default: %s)", params.no_extra_bufts ? "disabled" : "enabled"),
+        [](common_params & params, bool value) {
+            params.no_extra_bufts = value;
         }
-    ).set_env("LLAMA_ARG_NO_REPACK"));
+    ).set_env("LLAMA_ARG_REPACK"));
     add_opt(common_arg(
         {"--no-host"},
         "bypass host buffer allowing extra buffers to be used",
         [](common_params & params) {
             params.no_host = true;
         }
-    ).set_env("LLAMA_ARG_NO_HOST"));
+    ).set_env("LLAMA_ARG_HOST"));
     add_opt(common_arg(
         {"-ctk", "--cache-type-k"}, "TYPE",
         string_format(
@@ -1913,19 +1919,21 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples(mmproj_examples).set_env("LLAMA_ARG_MMPROJ_URL"));
     add_opt(common_arg(
-        {"--no-mmproj"},
-        "explicitly disable multimodal projector, useful when using -hf",
-        [](common_params & params) {
-            params.no_mmproj = true;
+        {"--mmproj-auto"},
+        {"--no-mmproj", "--no-mmproj-auto"},
+        string_format("explicitly disable multimodal projector, useful when using -hf (default: %s)", params.no_mmproj ? "enabled" : "disabled"),
+        [](common_params & params, bool value) {
+            params.no_mmproj = value;
         }
-    ).set_examples(mmproj_examples).set_env("LLAMA_ARG_NO_MMPROJ"));
+    ).set_examples(mmproj_examples).set_env("LLAMA_ARG_MMPROJ_AUTO"));
     add_opt(common_arg(
+        {"--mmproj-offload"},
         {"--no-mmproj-offload"},
-        "do not offload multimodal projector to GPU",
-        [](common_params & params) {
-            params.mmproj_use_gpu = false;
+        string_format("whether to enable GPU offloading for multimodal projector (default: %s)", params.mmproj_use_gpu ? "enabled" : "disabled"),
+        [](common_params & params, bool value) {
+            params.mmproj_use_gpu = value;
         }
-    ).set_examples(mmproj_examples).set_env("LLAMA_ARG_NO_MMPROJ_OFFLOAD"));
+    ).set_examples(mmproj_examples).set_env("LLAMA_ARG_MMPROJ_OFFLOAD"));
     add_opt(common_arg(
         {"--image", "--audio"}, "FILE",
         "path to an image or audio file. use with multimodal models, can be repeated if you have multiple files\n",
@@ -1965,12 +1973,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_env("LLAMA_ARG_MLOCK"));
     add_opt(common_arg(
+        {"--mmap"},
         {"--no-mmap"},
-        "do not memory-map model (slower load but may reduce pageouts if not using mlock)",
-        [](common_params & params) {
-            params.use_mmap = false;
+        string_format("whether to memory-map model (if disabled, slower load but may reduce pageouts if not using mlock) (default: %s)", params.use_mmap ? "enabled" : "disabled"),
+        [](common_params & params, bool value) {
+            params.use_mmap = value;
         }
-    ).set_env("LLAMA_ARG_NO_MMAP"));
+    ).set_env("LLAMA_ARG_MMAP"));
     add_opt(common_arg(
         {"--numa"}, "TYPE",
         "attempt optimizations that help on some NUMA systems\n"
@@ -2158,10 +2167,11 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ));
     add_opt(common_arg(
+        {"--op-offload"},
         {"--no-op-offload"},
         string_format("disable offloading host tensor operations to device (default: %s)", params.no_op_offload ? "true" : "false"),
-        [](common_params & params) {
-            params.no_op_offload = true;
+        [](common_params & params, bool value) {
+            params.no_op_offload = value;
         }
     ));
     add_opt(common_arg(
@@ -2357,10 +2367,11 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples({LLAMA_EXAMPLE_IMATRIX}));
     add_opt(common_arg(
+        {"--ppl"},
         {"--no-ppl"},
-        string_format("do not compute perplexity (default: %s)", params.compute_ppl ? "true" : "false"),
-        [](common_params & params) {
-            params.compute_ppl = false;
+        string_format("whether to compute perplexity (default: %s)", params.compute_ppl ? "true" : "false"),
+        [](common_params & params, bool value) {
+            params.compute_ppl = value;
         }
     ).set_examples({LLAMA_EXAMPLE_IMATRIX}));
     add_opt(common_arg(
@@ -2479,12 +2490,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_API_PREFIX"));
     add_opt(common_arg(
+        {"--webui"},
         {"--no-webui"},
-        string_format("Disable the Web UI (default: %s)", params.webui ? "enabled" : "disabled"),
-        [](common_params & params) {
-            params.webui = false;
+        string_format("whether to enable the Web UI (default: %s)", params.webui ? "enabled" : "disabled"),
+        [](common_params & params, bool value) {
+            params.webui = value;
         }
-    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_NO_WEBUI"));
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_WEBUI"));
     add_opt(common_arg(
         {"--embedding", "--embeddings"},
         string_format("restrict to only support embedding use case; use only with dedicated embedding models (default: %s)", params.embedding ? "enabled" : "disabled"),
@@ -2645,12 +2657,13 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_MODELS_MAX"));
     add_opt(common_arg(
+        {"--models-autoload"},
         {"--no-models-autoload"},
-        "disables automatic loading of models (default: enabled)",
-        [](common_params & params) {
-            params.models_autoload = false;
+        string_format("for router server, whether to automatically load models (default: %s)", params.models_autoload ? "enabled" : "disabled"),
+        [](common_params & params, bool value) {
+            params.models_autoload = value;
         }
-    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_NO_MODELS_AUTOLOAD"));
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_MODELS_AUTOLOAD"));
     add_opt(common_arg(
         {"--jinja"},
         {"--no-jinja"},
@@ -2703,15 +2716,16 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples({LLAMA_EXAMPLE_COMPLETION, LLAMA_EXAMPLE_CLI, LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_CHAT_TEMPLATE_FILE"));
     add_opt(common_arg(
+        {"--prefill-assistant"},
         {"--no-prefill-assistant"},
         string_format(
             "whether to prefill the assistant's response if the last message is an assistant message (default: prefill enabled)\n"
             "when this flag is set, if the last message is an assistant message then it will be treated as a full message and not prefilled\n"
         ),
-        [](common_params & params) {
-            params.prefill_assistant = false;
+        [](common_params & params, bool value) {
+            params.prefill_assistant = value;
         }
-    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_NO_PREFILL_ASSISTANT"));
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_PREFILL_ASSISTANT"));
     add_opt(common_arg(
         {"-sps", "--slot-prompt-similarity"}, "SIMILARITY",
         string_format("how much the prompt of a request must match the prompt of a slot in order to use that slot (default: %.2f, 0.0 = disabled)\n", params.slot_prompt_similarity),
