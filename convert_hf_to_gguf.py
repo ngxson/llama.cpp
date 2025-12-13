@@ -4407,6 +4407,20 @@ class Qwen3VLVisionModel(MmprojModel):
         return super().modify_tensors(data_torch, name, bid)
 
 
+@ModelBase.register("Glm4vForConditionalGeneration")
+class Glm4VisionModel(Qwen3VLVisionModel):
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.GLM4V)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        if name.startswith("model.visual."):
+            name = name.replace("model.visual.", "visual.")
+        if name.startswith("visual.merger."):
+            return [(self.map_tensor_name(name), data_torch)]
+        return super().modify_tensors(data_torch, name, bid)
+
+
 @ModelBase.register("Qwen3VLForConditionalGeneration")
 class Qwen3VLTextModel(Qwen3Model):
     model_arch = gguf.MODEL_ARCH.QWEN3VL

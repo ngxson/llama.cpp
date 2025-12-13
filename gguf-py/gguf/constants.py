@@ -639,6 +639,10 @@ class MODEL_TENSOR(IntEnum):
     V_MMPROJ             = auto()
     V_MMPROJ_FC          = auto()
     V_MMPROJ_MLP         = auto()
+    V_MMPROJ_FFN_UP      = auto()
+    V_MMPROJ_FFN_GATE    = auto()
+    V_MMPROJ_FFN_DOWN    = auto()
+    V_MMPROJ_POST_NORM   = auto()
     V_MMPROJ_PEG         = auto()
     V_ENC_EMBD_CLS       = auto()
     V_ENC_EMBD_PATCH     = auto()
@@ -685,6 +689,7 @@ class MODEL_TENSOR(IntEnum):
     V_MM_GATE            = auto() # cogvlm
     V_TOK_BOI            = auto() # cogvlm
     V_TOK_EOI            = auto() # cogvlm
+    V_MM_CONV            = auto() # glm4v
     # audio (mtmd)
     A_ENC_EMBD_POS       = auto()
     A_ENC_CONV1D         = auto()
@@ -1011,6 +1016,10 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.V_MMPROJ:                  "mm.{bid}",
     MODEL_TENSOR.V_MMPROJ_FC:               "mm.model.fc",
     MODEL_TENSOR.V_MMPROJ_MLP:              "mm.model.mlp.{bid}",
+    MODEL_TENSOR.V_MMPROJ_FFN_UP:           "mm.model.ffn_up",
+    MODEL_TENSOR.V_MMPROJ_FFN_GATE:         "mm.model.ffn_gate",
+    MODEL_TENSOR.V_MMPROJ_FFN_DOWN:         "mm.model.ffn_down",
+    MODEL_TENSOR.V_MMPROJ_POST_NORM:        "mm.model.post_norm",
     MODEL_TENSOR.V_MMPROJ_PEG:              "mm.model.peg.{bid}",
     MODEL_TENSOR.V_ENC_EMBD_CLS:            "v.class_embd",
     MODEL_TENSOR.V_ENC_EMBD_PATCH:          "v.patch_embd",
@@ -1057,6 +1066,7 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.V_MM_GATE:                 "mm.gate",
     MODEL_TENSOR.V_TOK_BOI:                 "v.boi",
     MODEL_TENSOR.V_TOK_EOI:                 "v.eoi",
+    MODEL_TENSOR.V_MM_CONV:                 "mm.conv",
     # audio (mtmd)
     MODEL_TENSOR.A_ENC_EMBD_POS:            "a.position_embd",
     MODEL_TENSOR.A_ENC_CONV1D:              "a.conv1d.{bid}",
@@ -1089,6 +1099,10 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.V_MMPROJ,
         MODEL_TENSOR.V_MMPROJ_FC,
         MODEL_TENSOR.V_MMPROJ_MLP,
+        MODEL_TENSOR.V_MMPROJ_FFN_UP,
+        MODEL_TENSOR.V_MMPROJ_FFN_GATE,
+        MODEL_TENSOR.V_MMPROJ_FFN_DOWN,
+        MODEL_TENSOR.V_MMPROJ_POST_NORM,
         MODEL_TENSOR.V_MMPROJ_PEG,
         MODEL_TENSOR.V_ENC_EMBD_CLS,
         MODEL_TENSOR.V_ENC_EMBD_PATCH,
@@ -1135,6 +1149,7 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.V_MM_GATE,
         MODEL_TENSOR.V_TOK_BOI,
         MODEL_TENSOR.V_TOK_EOI,
+        MODEL_TENSOR.V_MM_CONV,
         # audio
         MODEL_TENSOR.A_ENC_EMBD_POS,
         MODEL_TENSOR.A_ENC_CONV1D,
@@ -3327,6 +3342,7 @@ class VisionProjectorType:
     LIGHTONOCR = "lightonocr"
     COGVLM = "cogvlm"
     JANUS_PRO = "janus_pro"
+    GLM4V = "glm4v"
 
 
 # Items here are (block size, type size)

@@ -1205,6 +1205,7 @@ class TensorNameMap:
         MODEL_TENSOR.V_MMPROJ_FC: (
             "model.connector.modality_projection.proj", # SmolVLM
             "model.vision.linear_proj.linear_proj", # cogvlm
+            "visual.merger.proj", # glm4v
         ),
 
         MODEL_TENSOR.V_MMPROJ_MLP: (
@@ -1212,6 +1213,22 @@ class TensorNameMap:
             "vision_model.vision_adapter.mlp.fc{bid}", # llama 4
             "mlp1.{bid}", # InternVL
             "model.aligner.fc1.hidden_layers.{bid}", # Janus Pro
+        ),
+
+        MODEL_TENSOR.V_MMPROJ_FFN_UP: (
+            "visual.merger.up_proj", # glm4v
+        ),
+
+        MODEL_TENSOR.V_MMPROJ_FFN_GATE: (
+            "visual.merger.gate_proj", # glm4v
+        ),
+
+        MODEL_TENSOR.V_MMPROJ_FFN_DOWN: (
+            "visual.merger.down_proj", # glm4v
+        ),
+
+        MODEL_TENSOR.V_MMPROJ_POST_NORM: (
+            "visual.merger.post_projection_norm", # glm4v
         ),
 
         MODEL_TENSOR.V_MMPROJ_PEG: (
@@ -1247,6 +1264,7 @@ class TensorNameMap:
             "vision_tower.patch_embed.pos_emb", # kimi-vl
             "visual.pos_embed", # qwen3vl
             "model.vision.patch_embedding.position_embedding", # cogvlm
+            "visual.embeddings.position_embedding", # glm4v
         ),
 
         MODEL_TENSOR.V_ENC_ATTN_QKV: (
@@ -1394,6 +1412,7 @@ class TensorNameMap:
             "vision_tower.ln_pre", # pixtral-hf
             "vision_encoder.ln_pre", # pixtral
             "vision_model.layernorm_pre", # llama4
+            "visual.post_conv_layernorm", # glm4v
         ),
 
         MODEL_TENSOR.V_POST_NORM: (
@@ -1402,6 +1421,7 @@ class TensorNameMap:
             "vision_model.layernorm_post", # llama4
             "visual.merger.ln_q", # qwen2vl
             "vision_tower.encoder.final_layernorm", # kimi-vl
+            "visual.post_layernorm", # glm4v
         ),
 
         MODEL_TENSOR.V_MM_INP_PROJ: (
@@ -1418,6 +1438,10 @@ class TensorNameMap:
 
         MODEL_TENSOR.V_MM_SOFT_EMB_NORM: (
             "multi_modal_projector.mm_soft_emb_norm",
+        ),
+
+        MODEL_TENSOR.V_MM_CONV: (
+            "visual.downsample", # glm4v
         ),
 
         MODEL_TENSOR.V_RESMPL_POS_EMBD_K: (
