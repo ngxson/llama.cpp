@@ -165,6 +165,12 @@ struct clip_model {
     ggml_tensor * projection; // TODO: rename it to fc (fully connected layer)
     ggml_tensor * mm_fc_w;
     ggml_tensor * mm_fc_b;
+    ggml_tensor * mm_ffn_up_w;
+    ggml_tensor * mm_ffn_up_b;
+    ggml_tensor * mm_ffn_gate_w;
+    ggml_tensor * mm_ffn_gate_b;
+    ggml_tensor * mm_ffn_down_w;
+    ggml_tensor * mm_ffn_down_b;
 
     // LLaVA projection
     ggml_tensor * mm_input_norm_w = nullptr;

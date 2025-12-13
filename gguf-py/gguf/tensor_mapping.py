@@ -1215,22 +1215,6 @@ class TensorNameMap:
             "model.aligner.fc1.hidden_layers.{bid}", # Janus Pro
         ),
 
-        MODEL_TENSOR.V_MMPROJ_FFN_UP: (
-            "visual.merger.up_proj", # glm4v
-        ),
-
-        MODEL_TENSOR.V_MMPROJ_FFN_GATE: (
-            "visual.merger.gate_proj", # glm4v
-        ),
-
-        MODEL_TENSOR.V_MMPROJ_FFN_DOWN: (
-            "visual.merger.down_proj", # glm4v
-        ),
-
-        MODEL_TENSOR.V_MMPROJ_POST_NORM: (
-            "visual.merger.post_projection_norm", # glm4v
-        ),
-
         MODEL_TENSOR.V_MMPROJ_PEG: (
             "model.mm_projector.peg.peg.{bid}",
         ),
@@ -1424,6 +1408,10 @@ class TensorNameMap:
             "visual.post_layernorm", # glm4v
         ),
 
+        MODEL_TENSOR.V_MM_POST_NORM: (
+            "visual.merger.post_projection_norm", # glm4v
+        ),
+
         MODEL_TENSOR.V_MM_INP_PROJ: (
             "multi_modal_projector.mm_input_projection",
         ),
@@ -1515,14 +1503,17 @@ class TensorNameMap:
 
         MODEL_TENSOR.V_MM_UP: (
             "model.vision.linear_proj.dense_h_to_4h", # cogvlm
+            "visual.merger.up_proj", # glm4v
         ),
 
         MODEL_TENSOR.V_MM_DOWN: (
             "model.vision.linear_proj.dense_4h_to_h", # cogvlm
+            "visual.merger.down_proj", # glm4v
         ),
 
         MODEL_TENSOR.V_MM_GATE: (
             "model.vision.linear_proj.gate_proj", # cogvlm
+            "visual.merger.gate_proj", # glm4v
         ),
 
         MODEL_TENSOR.V_TOK_BOI: (
