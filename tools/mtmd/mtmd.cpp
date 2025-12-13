@@ -151,6 +151,8 @@ struct mtmd_context {
     // string template for slice image delimiters with row/col (idefics3)
     std::string sli_img_start_tmpl;
 
+    std::unique_ptr<mtmd_audio_preprocessor> audio_preproc;
+
     // TODO @ngxson : add timings
 
     mtmd_context(const char * mmproj_fname,
@@ -317,6 +319,21 @@ struct mtmd_context {
         LOG_WRN("%s: audio input is in experimental stage and may have reduced quality:\n"
                 "    https://github.com/ggml-org/llama.cpp/discussions/13759\n", __func__);
 
+        // set preprocessor
+        switch (proj) {
+            case PROJECTOR_TYPE_QWEN2A:
+            case PROJECTOR_TYPE_QWEN25O:
+            case PROJECTOR_TYPE_ULTRAVOX:
+                audio_preproc = std::make_unique<mtmd_audio_whisper_preprocessor>(ctx_a);
+                break;
+            default:
+                GGML_ABORT("unsupported audio projector type");
+        }
+
+        // initialize audio preprocessor
+        audio_preproc->initialize();
+
+        // set special tokens
         if (proj == PROJECTOR_TYPE_QWEN2A) {
             // <|audio_bos|> ... (embeddings) ... <|audio_eos|>
             aud_beg = "<|audio_bos|>";
@@ -648,8 +665,7 @@ struct mtmd_tokenizer {
             std::vector<mtmd_audio_mel> mel_spec_chunks;
             const float * samples = (const float *)bitmap->data.data();
             size_t n_samples = bitmap->data.size() / sizeof(float);
-            mtmd_audio_whisper_preprocessor preproc(ctx->ctx_a);
-            bool ok = preproc.preprocess(samples, n_samples, mel_spec_chunks);
+            bool ok = ctx->audio_preproc->preprocess(samples, n_samples, mel_spec_chunks);
             if (!ok) {
                 LOG_ERR("Unable to preprocess audio\n");
                 return 2;

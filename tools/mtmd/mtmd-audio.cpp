@@ -21,15 +21,13 @@ struct mtmd_audio_mel_filters {
 };
 
 static struct mtmd_audio_global_cache {
-    bool initialized = false;
-
     // precomputed sin/cos table for FFT
     std::vector<float> sin_vals;
     std::vector<float> cos_vals;
 
     // hann window
     std::vector<float> hann_window;
-    
+
     // mel filter bank
     mtmd_audio_mel_filters filters;
 
@@ -270,17 +268,20 @@ static void log_mel_spectrogram_worker_thread(int ith, const float * hann, const
             // unroll loop (suggested by GH user @lunixbochs)
             int k = 0;
             for (k = 0; k < n_fft_bins - 3; k += 4) {
+                size_t idx = size_t(j) * size_t(n_fft_bins) + size_t(k);
                 sum +=
-                        fft_out[k + 0] * filters.data[j * n_fft_bins + k + 0] +
-                        fft_out[k + 1] * filters.data[j * n_fft_bins + k + 1] +
-                        fft_out[k + 2] * filters.data[j * n_fft_bins + k + 2] +
-                        fft_out[k + 3] * filters.data[j * n_fft_bins + k + 3];
+                        fft_out[k + 0] * filters.data[idx + 0] +
+                        fft_out[k + 1] * filters.data[idx + 1] +
+                        fft_out[k + 2] * filters.data[idx + 2] +
+                        fft_out[k + 3] * filters.data[idx + 3];
             }
             // handle n_fft remainder
             for (; k < n_fft_bins; k++) {
                 sum += fft_out[k] * filters.data[j * n_fft_bins + k];
             }
-            sum = params.use_natural_log ? log(sum + 5.960464477539063e-08) : log10(1e-10);
+            sum = params.use_natural_log
+                ? log(sum + 5.960464477539063e-08)
+                : log10(std::max(sum, 1e-10));
             out.data[j * out.n_len + i] = sum;
         }
     }
@@ -330,6 +331,10 @@ static bool log_mel_spectrogram(
         // pad 30 seconds of zeros at the end of audio (480,000 samples) + reflective pad 200 samples at the end of audio
         std::fill(samples_padded.begin() + n_samples + stage_2_pad, samples_padded.begin() + n_samples + stage_1_pad + 2 * stage_2_pad, 0);
         // reflective pad 200 samples at the beginning of audio
+        if (n_samples < stage_2_pad + 1) {
+            // TODO: Handle short audio differently or return error
+            return false;
+        }
         std::reverse_copy(samples + 1, samples + 1 + stage_2_pad, samples_padded.begin());
     }
 
@@ -346,6 +351,7 @@ static bool log_mel_spectrogram(
     }
 
     // pad hann window if it's smaller than frame_size
+    // TODO: probably unnecessary here? (or better doing it in g_cache?)
     std::vector<float> hann_window_padded;
     if (params.hann_window_size < frame_size) {
         hann_window_padded.resize(frame_size);
@@ -355,8 +361,17 @@ static bool log_mel_spectrogram(
     }
 
 
-    out.n_mel     = params.n_mel;
-    out.n_len     = (n_samples - frame_size) / frame_step + 1;
+    out.n_mel = params.n_mel;
+    out.n_len = (n_samples - frame_size) / frame_step + 1;
+    // TODO: handle these checks better
+    if (out.n_mel > 0 && (unsigned long)out.n_len > SIZE_MAX / out.n_mel) {
+        LOG_ERR("%s: size overflow\n", __func__);
+        return false;
+    }
+    if (n_samples < frame_size) {
+        LOG_ERR("%s: not enough samples after padding\n", __func__);
+        return false;
+    }
     out.data.resize(out.n_mel * out.n_len);
 
     {
@@ -435,6 +450,15 @@ static bool log_mel_spectrogram(
     return true;
 }
 
+void mtmd_audio_whisper_preprocessor::initialize() {
+    g_cache.fill_sin_cos_table(hparams.audio_n_fft);
+    g_cache.fill_hann_window(hparams.audio_window_len, true);
+    g_cache.fill_mel_filterbank_matrix(
+        hparams.n_mel_bins,
+        hparams.audio_n_fft,
+        hparams.audio_sample_rate);
+}
+
 bool mtmd_audio_whisper_preprocessor::preprocess(
         const float * samples,
         size_t n_samples,
@@ -467,16 +491,10 @@ bool mtmd_audio_whisper_preprocessor::preprocess(
     params.norm_per_feature = false;
     params.need_chunking    = true;
 
-    // make sure global cache is initialized
-    if (!g_cache.initialized) {
-        g_cache.fill_sin_cos_table(hparams.audio_n_fft);
-        g_cache.fill_hann_window(hparams.audio_window_len, true);
-        g_cache.fill_mel_filterbank_matrix(
-            hparams.n_mel_bins,
-            hparams.audio_n_fft,
-            hparams.audio_sample_rate);
-        g_cache.initialized = true;
-    }
+    // make sure the global cache is initialized
+    GGML_ASSERT(!g_cache.sin_vals.empty());
+    GGML_ASSERT(!g_cache.cos_vals.empty());
+    GGML_ASSERT(!g_cache.filters.data.empty());
 
     mtmd_audio_mel out_full;
     bool ok = log_mel_spectrogram(
