@@ -623,7 +623,7 @@ void ggml_vec_dot_q3_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs
 
         total_sum += d * (float)sumi;
 
-        // Add outlier corrections - fully unrolled for 6 outliers
+        // Add outlier corrections - fully unrolled for 8 outliers
         const float yd = yb->d;
         const uint8_t * GGML_RESTRICT o_idx = xb->outlier_idx;
         const ggml_fp16_t * GGML_RESTRICT o_vals = xb->outlier_vals;
@@ -634,6 +634,8 @@ void ggml_vec_dot_q3_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs
         total_sum += GGML_FP16_TO_FP32(o_vals[3]) * yb->qs[o_idx[3]] * yd;
         total_sum += GGML_FP16_TO_FP32(o_vals[4]) * yb->qs[o_idx[4]] * yd;
         total_sum += GGML_FP16_TO_FP32(o_vals[5]) * yb->qs[o_idx[5]] * yd;
+        total_sum += GGML_FP16_TO_FP32(o_vals[6]) * yb->qs[o_idx[6]] * yd;
+        total_sum += GGML_FP16_TO_FP32(o_vals[7]) * yb->qs[o_idx[7]] * yd;
     }
 
     *s = total_sum;

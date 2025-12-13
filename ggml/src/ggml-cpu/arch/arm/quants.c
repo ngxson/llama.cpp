@@ -2162,12 +2162,15 @@ void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const 
         const uint8_t * GGML_RESTRICT idx = x[i].outlier_idx;
         const ggml_fp16_t * GGML_RESTRICT vals = x[i].outlier_vals;
         
+        // Unrolled: process all 8 outliers
         sum += GGML_FP16_TO_FP32(vals[0]) * q8[idx[0]] * d_y;
         sum += GGML_FP16_TO_FP32(vals[1]) * q8[idx[1]] * d_y;
         sum += GGML_FP16_TO_FP32(vals[2]) * q8[idx[2]] * d_y;
         sum += GGML_FP16_TO_FP32(vals[3]) * q8[idx[3]] * d_y;
         sum += GGML_FP16_TO_FP32(vals[4]) * q8[idx[4]] * d_y;
         sum += GGML_FP16_TO_FP32(vals[5]) * q8[idx[5]] * d_y;
+        sum += GGML_FP16_TO_FP32(vals[6]) * q8[idx[6]] * d_y;
+        sum += GGML_FP16_TO_FP32(vals[7]) * q8[idx[7]] * d_y;
     }
 
     *s = sum;

@@ -284,9 +284,9 @@ struct block_q3_K_packed16
 #define DATA_A_QUANT_K
 #endif
 
-// Q3_HIFI: Q3_K-compatible layout with 6 FP16 outliers
+// Q3_HIFI: Q3_K-compatible layout with 8 FP16 outliers
 #define QUANT_K_Q3_HIFI 256
-#define Q3_HIFI_OUTLIERS 6
+#define Q3_HIFI_OUTLIERS 8
 
 struct block_q3_hifi
 {
@@ -294,8 +294,8 @@ struct block_q3_hifi
     uint8_t qs[QUANT_K_Q3_HIFI/4];        // 64 bytes
     uint8_t scales[12];                    // 12 bytes
     float16_t d;                           // 2 bytes
-    uint8_t outlier_idx[Q3_HIFI_OUTLIERS]; // 6 bytes
-    float16_t outlier_vals[Q3_HIFI_OUTLIERS]; // 12 bytes
+    uint8_t outlier_idx[Q3_HIFI_OUTLIERS]; // 8 bytes
+    float16_t outlier_vals[Q3_HIFI_OUTLIERS]; // 16 bytes
 };
 
 struct block_q3_hifi_packed16

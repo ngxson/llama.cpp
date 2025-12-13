@@ -6997,7 +6997,7 @@ kernel void kernel_mul_mv_q3_K_f32(
     kernel_mul_mv_q3_K_f32_impl<N_R0_Q3_K, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
 }
 
-// Q3_HIFI: Q3_K-compatible layout with 6 FP16 outliers for improved accuracy
+// Q3_HIFI: Q3_K-compatible layout with 8 FP16 outliers for improved accuracy
 // Reuses Q3_K kernel logic and adds outlier corrections
 template<int nr0, typename args_t>
 void kernel_mul_mv_q3_hifi_f32_impl(

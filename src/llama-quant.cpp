@@ -296,8 +296,8 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             new_type = qs.i_attention_wv < 2 ? GGML_TYPE_Q5_K : GGML_TYPE_Q4_K;
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_HIFI_A) {
-            // Adaptive Q3_HIFI: use Q3_HIFI for most sensitive attn_v layers
-            new_type = qs.i_attention_wv < 4 ? GGML_TYPE_Q3_HIFI : GGML_TYPE_Q4_K;
+            // Adaptive Q3_HIFI: use Q3_HIFI for ALL attn_v layers (consistently sensitive)
+            new_type = GGML_TYPE_Q3_HIFI;
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L) new_type = GGML_TYPE_Q5_K;
         else if ((ftype == LLAMA_FTYPE_MOSTLY_IQ4_NL || ftype == LLAMA_FTYPE_MOSTLY_IQ4_XS) && qs.model.hparams.n_gqa() >= 4) {
@@ -353,8 +353,8 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                      : GGML_TYPE_Q3_K;
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_HIFI_A) {
-            // Adaptive Q3_HIFI: use Q3_HIFI for first 1/4 of ffn_down layers (most sensitive)
-            new_type = i_layer < n_layer/4 ? GGML_TYPE_Q3_HIFI
+            // Adaptive Q3_HIFI: use Q3_HIFI for first 1/3 of ffn_down layers (most sensitive)
+            new_type = i_layer < n_layer/3 ? GGML_TYPE_Q3_HIFI
                      : use_more_bits(i_layer, n_layer) ? GGML_TYPE_Q4_K
                      : GGML_TYPE_Q3_K;
         }
