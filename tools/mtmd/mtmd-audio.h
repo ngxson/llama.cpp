@@ -9,22 +9,6 @@
 
 #define MTMD_INTERNAL_HEADER
 
-#define WHISPER_ASSERT GGML_ASSERT
-
-#define WHISPER_SAMPLE_RATE 16000
-#define WHISPER_N_FFT       400
-#define WHISPER_HOP_LENGTH  160
-#define WHISPER_CHUNK_SIZE  30
-
-#define COMMON_SAMPLE_RATE 16000
-
-struct mtmd_audio_filters {
-    int32_t n_mel;
-    int32_t n_fft;
-
-    std::vector<float> data;
-};
-
 struct mtmd_audio_mel {
     int n_len;
     int n_len_org;
