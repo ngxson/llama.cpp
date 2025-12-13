@@ -153,7 +153,8 @@ extern "C" {
         LLAMA_FTYPE_MOSTLY_TQ2_0         = 37, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_MXFP4_MOE     = 38, // except 1d tensors
         // LLAMA_FTYPE_MOSTLY_Q3_HIFI_OLD = 39, // removed - replaced by Q3_HIFI (40)
-        LLAMA_FTYPE_MOSTLY_Q3_HIFI       = 40, // Q3_K layout + 6 FP16 outliers
+        LLAMA_FTYPE_MOSTLY_Q3_HIFI       = 40, // Q3_K layout + 6 FP16 outliers (uniform)
+        LLAMA_FTYPE_MOSTLY_Q3_HIFI_A     = 41, // Adaptive: Q3_HIFI on sensitive layers, Q4_K/Q3_K elsewhere
 
         LLAMA_FTYPE_GUESSED = 1024, // not specified in the model file
     };

@@ -798,7 +798,7 @@ vec_dot_q3_K_q8_1(const void *__restrict__ vbq,
     return vec_dot_q3_K_q8_1_impl_mmvq(vl, vh, u, bq3_K->scales, scale_offset, d, d8);
 }
 
-// Q3_HIFI: Q3_K-compatible layout with 6 FP16 outliers
+// Q3_HIFI: Q3_K-compatible layout with 8 FP16 outliers
 #define VDR_Q3_HIFI_Q8_1_MMVQ VDR_Q3_K_Q8_1_MMVQ
 
 static __dpct_inline__ float

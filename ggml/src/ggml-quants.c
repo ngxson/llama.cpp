@@ -1275,7 +1275,7 @@ size_t quantize_q3_K(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, 
     return nrow * row_size;
 }
 
-// ====================== Q3_HIFI: Q3_K layout + 6 FP16 outliers ======================
+// ====================== Q3_HIFI: Q3_K layout + 8 FP16 outliers ======================
 // Uses Q3_K's optimized AVX2 kernels for ~98% of Q3_K speed with better quality
 
 void quantize_row_q3_hifi_ref(const float * GGML_RESTRICT x, block_q3_hifi * GGML_RESTRICT y, int64_t k) {
@@ -1286,7 +1286,7 @@ void quantize_row_q3_hifi_ref(const float * GGML_RESTRICT x, block_q3_hifi * GGM
         const float * xb = x + ib * Q3_HIFI_BLOCK_SIZE;
         block_q3_hifi * block = &y[ib];
 
-        // Step 1: Find top-6 outliers by magnitude
+        // Step 1: Find top-8 outliers by magnitude
         float mag[Q3_HIFI_BLOCK_SIZE];
         for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; ++i) {
             mag[i] = fabsf(xb[i]);
@@ -1341,7 +1341,7 @@ static void quantize_row_q3_hifi_impl(const float * GGML_RESTRICT x, block_q3_hi
         const float * qw = quant_weights ? quant_weights + ib * Q3_HIFI_BLOCK_SIZE : NULL;
         block_q3_hifi * block = &y[ib];
 
-        // Step 1: Find top-6 outliers by weighted magnitude
+        // Step 1: Find top-8 outliers by weighted magnitude
         float mag[Q3_HIFI_BLOCK_SIZE];
         for (int i = 0; i < Q3_HIFI_BLOCK_SIZE; ++i) {
             mag[i] = fabsf(xb[i]) * (qw ? qw[i] : 1.0f);

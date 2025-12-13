@@ -117,7 +117,7 @@ static __device__ __forceinline__ void dequantize_q3_hifi(const void * vx, const
     v.y = quant_val1 * d;
 
     // Check if either index is an outlier and restore if so
-    // Outliers are sparse (only 6 per 256 weights), so this loop is cheap
+    // Outliers are sparse (only 8 per 256 weights), so this loop is cheap
     #pragma unroll
     for (int k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
         if (x[ib].outlier_idx[k] == idx0) {

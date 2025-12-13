@@ -288,11 +288,11 @@ typedef struct {
 } block_q3_K;
 static_assert(sizeof(block_q3_K) == sizeof(ggml_half) + QK_K / 4 + QK_K / 8 + 12, "wrong q3_K block size/padding");
 
-// Q3_HIFI: Q3_K-compatible layout with 6 FP16 outliers for improved accuracy
+// Q3_HIFI: Q3_K-compatible layout with 8 FP16 outliers for improved accuracy
 // Uses EXACT Q3_K memory layout (first 110 bytes) to reuse optimized kernels
 // Outliers appended as tail section - achieves ~98% of Q3_K speed with better quality
 #define Q3_HIFI_BLOCK_SIZE 256
-#define Q3_HIFI_OUTLIERS   6
+#define Q3_HIFI_OUTLIERS   8
 typedef struct {
     // === Q3_K-COMPATIBLE REGION (110 bytes) - DO NOT REORDER ===
     uint8_t hmask[QK_K/8];         // 32 bytes: high bit mask
