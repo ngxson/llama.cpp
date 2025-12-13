@@ -1133,7 +1133,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
     ).set_env("LLAMA_ARG_CACHE_RAM").set_examples({LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}));
     add_opt(common_arg(
         {"--kv-unified", "-kvu"},
-        "use single unified KV buffer shared across all sequences (default: enabled if n_parallel is auto)",
+        "use single unified KV buffer shared across all sequences (default: enabled if number of slots is auto)",
         [](common_params & params) {
             params.kv_unified = true;
         }
@@ -1897,16 +1897,27 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
             LOG_WRN("DEPRECATED: --defrag-thold is deprecated and no longer necessary to specify\n");
         }
     ).set_env("LLAMA_ARG_DEFRAG_THOLD"));
-    add_opt(common_arg(
-        {"-np", "--parallel"}, "N",
-        string_format("number of parallel sequences to decode (default: %d, -1 = auto)", params.n_parallel),
-        [](common_params & params, int value) {
-            if (value == 0) {
-                throw std::runtime_error("error: invalid value for n_parallel\n");
+    if (ex == LLAMA_EXAMPLE_SERVER) {
+        // this is to make sure this option appears in the server-specific section of the help message
+        add_opt(common_arg(
+            {"-np", "--parallel"}, "N",
+            string_format("number of server slots (default: %d, -1 = auto)", params.n_parallel),
+            [](common_params & params, int value) {
+                if (value == 0) {
+                    throw std::runtime_error("error: invalid value for n_parallel\n");
+                }
+                params.n_parallel = value;
             }
-            params.n_parallel = value;
-        }
-    ).set_env("LLAMA_ARG_N_PARALLEL"));
+        ).set_env("LLAMA_ARG_N_PARALLEL").set_examples({LLAMA_EXAMPLE_SERVER}));
+    } else {
+        add_opt(common_arg(
+            {"-np", "--parallel"}, "N",
+            string_format("number of parallel sequences to decode (default: %d)", params.n_parallel),
+            [](common_params & params, int value) {
+                params.n_parallel = value;
+            }
+        ).set_env("LLAMA_ARG_N_PARALLEL"));
+    }
     add_opt(common_arg(
         {"-ns", "--sequences"}, "N",
         string_format("number of sequences to decode (default: %d)", params.n_sequences),
