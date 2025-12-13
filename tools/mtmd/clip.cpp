@@ -1451,8 +1451,8 @@ struct clip_model_loader {
                     model.mm_ffn_down_b  = get_tensor(string_format(TN_MM_DOWN,      "bias"), false);
                     model.mm_post_norm_w = get_tensor(string_format(TN_MM_POST_NORM, "weight"));
                     model.mm_post_norm_b = get_tensor(string_format(TN_MM_POST_NORM, "bias"), false);
-                    model.mm_conv_w      = get_tensor(string_format(TN_MM_CONV,      "weight"));
-                    model.mm_conv_b      = get_tensor(string_format(TN_MM_CONV,      "bias"), false);
+                    model.mm_patch_merger_w = get_tensor(string_format(TN_MM_PATCH_MERGER, "weight"));
+                    model.mm_patch_merger_b = get_tensor(string_format(TN_MM_PATCH_MERGER, "bias"));
                 } break;
             case PROJECTOR_TYPE_GEMMA3:
                 {
@@ -1482,8 +1482,8 @@ struct clip_model_loader {
                     // [IMG_BREAK] token embedding
                     model.token_embd_img_break = get_tensor(TN_TOK_IMG_BREAK);
                     // for mistral small 3.1
-                    model.mm_input_norm_w   = get_tensor(TN_MM_INP_NORM,     false);
-                    model.mm_patch_merger_w = get_tensor(TN_MM_PATCH_MERGER, false);
+                    model.mm_input_norm_w   = get_tensor(TN_MM_INP_NORM, false);
+                    model.mm_patch_merger_w = get_tensor(string_format(TN_MM_PATCH_MERGER, "weight"), false);
                 } break;
             case PROJECTOR_TYPE_LIGHTONOCR:
                 {
@@ -1491,8 +1491,8 @@ struct clip_model_loader {
                     model.mm_1_b = get_tensor(string_format(TN_LLAVA_PROJ, 1, "bias"), false);
                     model.mm_2_w = get_tensor(string_format(TN_LLAVA_PROJ, 2, "weight"));
                     model.mm_2_b = get_tensor(string_format(TN_LLAVA_PROJ, 2, "bias"), false);
-                    model.mm_input_norm_w   = get_tensor(TN_MM_INP_NORM,     false);
-                    model.mm_patch_merger_w = get_tensor(TN_MM_PATCH_MERGER, false);
+                    model.mm_input_norm_w   = get_tensor(TN_MM_INP_NORM, false);
+                    model.mm_patch_merger_w = get_tensor(string_format(TN_MM_PATCH_MERGER, "weight"), false);
                 } break;
             case PROJECTOR_TYPE_ULTRAVOX:
                 {

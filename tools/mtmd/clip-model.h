@@ -254,9 +254,10 @@ struct clip_model {
     ggml_tensor * mm_input_proj_w = nullptr;
     ggml_tensor * mm_soft_emb_norm_w = nullptr;
 
-    // pixtral
+    // pixtral, glm4v
     ggml_tensor * token_embd_img_break = nullptr;
     ggml_tensor * mm_patch_merger_w = nullptr;
+    ggml_tensor * mm_patch_merger_b = nullptr;
 
     // ultravox / whisper encoder
     ggml_tensor * conv1d_1_w = nullptr;
@@ -274,10 +275,6 @@ struct clip_model {
     ggml_tensor * mm_4h_to_h_w = nullptr;
     ggml_tensor * mm_boi = nullptr;
     ggml_tensor * mm_eoi = nullptr;
-
-    // glm4v
-    ggml_tensor * mm_conv_w = nullptr;
-    ggml_tensor * mm_conv_b = nullptr;
 
     bool audio_has_avgpool() const {
         return proj_type == PROJECTOR_TYPE_QWEN2A

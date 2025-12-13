@@ -194,25 +194,32 @@ ggml_cgraph * clip_graph_qwen3vl::build() {
         // GLM4V projector
         // ref: https://github.com/huggingface/transformers/blob/40dc11cd3eb4126652aa41ef8272525affd4a636/src/transformers/models/glm4v/modeling_glm4v.py#L116-L130
 
-        // patch merger
+        // patch merger (copied from pixtral)
         {
+            int n_merge = hparams.n_merge;
+            GGML_ASSERT(n_merge > 0);
+
             // reshape image tokens to 2D grid
             cur = ggml_reshape_3d(ctx0, cur, n_embd, n_patches_x, n_patches_y);
             cur = ggml_permute(ctx0, cur, 2, 0, 1, 3); // [x, y, n_embd]
             cur = ggml_cont(ctx0, cur);
 
-            // merge patches
-            cur = ggml_conv_2d(ctx0, model.mm_conv_w, cur, 2, 2, 0, 0, 1, 1);
-            cur = ggml_reshape_2d(ctx0, cur, cur->ne[0] * cur->ne[1], cur->ne[2]); // [n_tokens, n_embd]
-            if (model.mm_conv_b) {
-                cur = ggml_add(ctx0, cur, ggml_transpose(ctx0, model.mm_conv_b));
-            }
-            cb(cur, "after_mm_conv", -1);
+            // torch.nn.functional.unfold is just an im2col under the hood
+            // we just need a dummy kernel to make it work
+            ggml_tensor * kernel = ggml_view_3d(ctx0, cur, n_merge, n_merge, cur->ne[2], 0, 0, 0);
+            cur = ggml_im2col(ctx0, kernel, cur, n_merge, n_merge, 0, 0, 1, 1, true, inp->type);
+
+            // project to n_embd
+            cur = ggml_reshape_2d(ctx0, cur, cur->ne[0], cur->ne[1] * cur->ne[2]);
+            cur = ggml_mul_mat(ctx0, model.mm_patch_merger_w, cur);
+
+            // add bias
+            cur = ggml_add(ctx0, cur, model.mm_patch_merger_b);
+            cb(cur, "after_patch_merger", -1);
         }
 
         // FC projector
         {
-            cur = ggml_transpose(ctx0, cur); // [n_embd, n_tokens]
             cur = ggml_mul_mat(ctx0, model.projection, cur);
             // default LayerNorm (post_projection_norm)
             cur = build_norm(cur, model.mm_post_norm_w, model.mm_post_norm_b, NORM_TYPE_NORMAL, 1e-5, -1);

@@ -1428,10 +1428,6 @@ class TensorNameMap:
             "multi_modal_projector.mm_soft_emb_norm",
         ),
 
-        MODEL_TENSOR.V_MM_CONV: (
-            "visual.downsample", # glm4v
-        ),
-
         MODEL_TENSOR.V_RESMPL_POS_EMBD_K: (
             "resampler.pos_embed_k",
         ),
@@ -1483,6 +1479,7 @@ class TensorNameMap:
         MODEL_TENSOR.V_MM_PATCH_MERGER: (
             "multi_modal_projector.patch_merger.merging_layer", # mistral small 3.1 - hf
             "patch_merger.merging_layer", # mistral
+            "visual.downsample", # glm4v
         ),
 
         MODEL_TENSOR.V_DS_NORM: (
