@@ -314,8 +314,6 @@ struct mtmd_context {
         GGML_ASSERT(ctx_a != nullptr);
         projector_type proj = clip_get_projector_type(ctx_a);
 
-        // TODO @ngxson : for whisper, check if model n_mel is 128 or 80
-
         LOG_WRN("%s: audio input is in experimental stage and may have reduced quality:\n"
                 "    https://github.com/ggml-org/llama.cpp/discussions/13759\n", __func__);
 
@@ -857,8 +855,7 @@ int mtmd_get_audio_bitrate(mtmd_context * ctx) {
     if (!ctx->ctx_a) {
         return -1;
     }
-    // for now, we assume that all audio models have the same bitrate
-    return 16000; // 16kHz
+    return clip_get_hparams(ctx->ctx_a)->audio_sample_rate;
 }
 
 //

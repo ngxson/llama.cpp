@@ -31,7 +31,7 @@ static struct mtmd_audio_global_cache {
     // mel filter bank
     mtmd_audio_mel_filters filters;
 
-    void fill_sin_cos_table( int n) {
+    void fill_sin_cos_table(int n) {
         sin_vals.resize(n);
         cos_vals.resize(n);
         for (int i = 0; i < n; i++) {
@@ -125,6 +125,14 @@ static struct mtmd_audio_global_cache {
         filters.n_mel = n_mel;
         filters.n_fft = n_fft;
         filters.data  = std::move(out);
+
+        if (1) { // debug
+            for (size_t i = 0; i < filters.data.size(); ++i) {
+                if (filters.data[i] != 0.0f) {
+                    printf("filters[%zu] = %f\n", i, filters.data[i] * 1000.0f);
+                }
+            }
+        }
     }
 } g_cache;
 
@@ -298,7 +306,6 @@ static bool log_mel_spectrogram(
     int n_samples = n_samples_in;
 
     const auto & cache = params.cache;
-    const auto & filters = cache.filters;
 
     // Hann window
     const float * hann = cache.hann_window.data();
@@ -436,21 +443,21 @@ bool mtmd_audio_whisper_preprocessor::preprocess(
         return false;
     }
 
-    std::vector<float> samples_padded;
+    std::vector<float> smpl;
     // if input is too short, pad with zeros
     // this is to avoid potential issues with stage1/2 padding in log_mel_spectrogram
     // TODO: maybe handle this better
-    if (n_samples < hparams.audio_n_fft * 2) {
-        samples_padded.resize(hparams.audio_n_fft * 2, 0.0f);
-        std::memcpy(samples_padded.data(), samples, n_samples * sizeof(float));
-        samples   = samples_padded.data();
-        n_samples = samples_padded.size();
+    if (n_samples < (size_t)hparams.audio_n_fft * 2) {
+        smpl.resize(hparams.audio_n_fft * 2, 0.0f);
+        std::memcpy(smpl.data(), samples, n_samples * sizeof(float));
+        samples   = smpl.data();
+        n_samples = smpl.size();
     }
 
     filter_params params;
     params.n_mel            = hparams.n_mel_bins;
     params.n_fft_bins       = 1 + (hparams.audio_n_fft / 2);
-    params.hann_window_size = hparams.audio_n_fft;
+    params.hann_window_size = hparams.audio_window_len;
     params.hop_length       = hparams.audio_hop_len;
     params.sample_rate      = hparams.audio_sample_rate;
     params.center_padding   = false;
@@ -462,10 +469,11 @@ bool mtmd_audio_whisper_preprocessor::preprocess(
     // make sure global cache is initialized
     if (!g_cache.initialized) {
         g_cache.fill_sin_cos_table(hparams.audio_n_fft);
-        g_cache.fill_hann_window(hparams.audio_n_fft, true);
+        g_cache.fill_hann_window(hparams.audio_window_len, true);
         g_cache.fill_mel_filterbank_matrix(
             hparams.n_mel_bins,
             hparams.audio_n_fft,
+            hparams.audio_window_len,
             hparams.audio_sample_rate);
         g_cache.initialized = true;
     }
