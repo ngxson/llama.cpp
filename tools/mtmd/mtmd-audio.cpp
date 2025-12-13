@@ -11,6 +11,8 @@
 
 // most of the code here is copied from whisper.cpp
 
+constexpr bool DEBUG = false;
+
 struct mtmd_audio_mel_filters {
     int32_t n_mel;
     int32_t n_fft;
@@ -126,7 +128,7 @@ static struct mtmd_audio_global_cache {
         filters.n_fft = n_fft;
         filters.data  = std::move(out);
 
-        if (1) { // debug
+        if (DEBUG) { // debug
             for (size_t i = 0; i < filters.data.size(); ++i) {
                 if (filters.data[i] != 0.0f) {
                     printf("filters[%zu] = %f\n", i, filters.data[i] * 1000.0f);
@@ -297,7 +299,6 @@ static bool log_mel_spectrogram(
         const float * samples,
         const int     n_samples_in,
         const int     n_threads,
-        const bool    debug,
         const filter_params & params,
         mtmd_audio_mel & out) {
     //const int64_t t_start_us = ggml_time_us();
@@ -421,7 +422,7 @@ static bool log_mel_spectrogram(
     }
 
     // Dump log_mel_spectrogram
-    if (debug) {
+    if (DEBUG) {
         std::ofstream outFile("log_mel_spectrogram.json");
         outFile << "[";
         for (uint64_t i = 0; i < out.data.size() - 1; i++) {
@@ -473,7 +474,6 @@ bool mtmd_audio_whisper_preprocessor::preprocess(
         g_cache.fill_mel_filterbank_matrix(
             hparams.n_mel_bins,
             hparams.audio_n_fft,
-            hparams.audio_window_len,
             hparams.audio_sample_rate);
         g_cache.initialized = true;
     }
@@ -482,8 +482,7 @@ bool mtmd_audio_whisper_preprocessor::preprocess(
     bool ok = log_mel_spectrogram(
                 samples,
                 n_samples,
-                4, // n_threads,
-                false, // debug
+                4, // n_threads
                 params,
                 out_full);
     if (!ok) {
