@@ -86,7 +86,9 @@ ggml_cgraph * clip_graph_qwen3vl::build() {
         // self-attention
         {
             cur = ggml_mul_mat(ctx0, layer.qkv_w, cur);
-            cur = ggml_add(ctx0, cur, layer.qkv_b);
+            if (layer.qkv_b) {
+                cur = ggml_add(ctx0, cur, layer.qkv_b);
+            }
 
             ggml_tensor * Qcur = ggml_view_3d(ctx0, cur, d_head, n_head, n_pos,
                     /* nb1    */ ggml_row_size(cur->type, d_head),
@@ -172,20 +174,66 @@ ggml_cgraph * clip_graph_qwen3vl::build() {
         inpL = build_norm(inpL, model.post_ln_w, model.post_ln_b, norm_t, eps, n_layer);
     }
 
-    // multimodal projection
-    ggml_tensor * embeddings = inpL;
-    embeddings = ggml_reshape_3d(ctx0, embeddings, n_embd * 4, n_pos / 4, batch_size);
+    ggml_tensor * cur = inpL;
 
-    embeddings = build_ffn(embeddings,
-        model.mm_0_w, model.mm_0_b,
-        nullptr, nullptr,
-        model.mm_1_w, model.mm_1_b,
-        ffn_op_type::FFN_GELU, -1);
+    if (proj_type == PROJECTOR_TYPE_QWEN3VL) {
+        // Qwen3VL projector
+        cur = ggml_reshape_3d(ctx0, cur, n_embd * 4, n_pos / 4, batch_size);
+        cur = build_ffn(cur,
+            model.mm_0_w, model.mm_0_b,
+            nullptr, nullptr,
+            model.mm_1_w, model.mm_1_b,
+            ffn_op_type::FFN_GELU, -1);
 
-    embeddings = ggml_concat(ctx0, embeddings, deepstack_features, 0); // concat along the feature dimension
+        if (deepstack_features != nullptr) {
+            // concat along the feature dimension
+            cur = ggml_concat(ctx0, cur, deepstack_features, 0);
+        }
+
+    } else if (proj_type == PROJECTOR_TYPE_GLM4V) {
+        // GLM4V projector
+
+        // patch merger
+        {
+            // reshape image tokens to 2D grid
+            cur = ggml_reshape_3d(ctx0, cur, n_embd, n_patches_x, n_patches_y);
+            cur = ggml_permute(ctx0, cur, 2, 0, 1, 3); // [x, y, n_embd]
+            cur = ggml_cont(ctx0, cur);
+
+            // merge patches
+            cur = ggml_conv_2d(ctx0, model.mm_conv_w, cur, 2, 2, 0, 0, 1, 1);
+            cur = ggml_reshape_2d(ctx0, cur, cur->ne[0] * cur->ne[1], cur->ne[2]); // [n_tokens, n_embd]
+            if (model.mm_conv_b) {
+                cur = ggml_add(ctx0, cur, ggml_transpose(ctx0, model.mm_conv_b));
+            }
+            cb(cur, "after_mm_conv", -1);
+        }
+
+        // FC projector
+        {
+            cur = ggml_transpose(ctx0, cur); // [n_embd, n_tokens]
+            cur = ggml_mul_mat(ctx0, model.projection, cur);
+            cur = build_norm(cur, model.mm_post_norm_w, model.mm_post_norm_b, NORM_TYPE_NORMAL, 1e-5, -1);
+            cur = ggml_gelu(ctx0, cur);
+            cb(cur, "after_fc_proj", -1);
+        }
+
+        // FFN projector
+        {
+            cur = build_ffn(cur,
+                model.mm_ffn_up_w, model.mm_ffn_up_b,
+                model.mm_ffn_gate_w, model.mm_ffn_gate_b,
+                model.mm_ffn_down_w, model.mm_ffn_down_b,
+                ffn_op_type::FFN_GELU, -1);
+            cb(cur, "after_ffn_proj", -1);
+        }
+
+    } else {
+        GGML_ABORT("Unsupported projector type in Qwen3-VL graph");
+    }
 
     // build the graph
-    ggml_build_forward_expand(gf, embeddings);
+    ggml_build_forward_expand(gf, cur);
 
     return gf;
 }

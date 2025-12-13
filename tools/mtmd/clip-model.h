@@ -165,12 +165,14 @@ struct clip_model {
     ggml_tensor * projection; // TODO: rename it to fc (fully connected layer)
     ggml_tensor * mm_fc_w;
     ggml_tensor * mm_fc_b;
-    ggml_tensor * mm_ffn_up_w;
-    ggml_tensor * mm_ffn_up_b;
-    ggml_tensor * mm_ffn_gate_w;
-    ggml_tensor * mm_ffn_gate_b;
-    ggml_tensor * mm_ffn_down_w;
-    ggml_tensor * mm_ffn_down_b;
+    ggml_tensor * mm_ffn_up_w = nullptr;
+    ggml_tensor * mm_ffn_up_b = nullptr;
+    ggml_tensor * mm_ffn_gate_w = nullptr;
+    ggml_tensor * mm_ffn_gate_b = nullptr;
+    ggml_tensor * mm_ffn_down_w = nullptr;
+    ggml_tensor * mm_ffn_down_b = nullptr;
+    ggml_tensor * mm_post_norm_w = nullptr;
+    ggml_tensor * mm_post_norm_b = nullptr;
 
     // LLaVA projection
     ggml_tensor * mm_input_norm_w = nullptr;
@@ -272,6 +274,10 @@ struct clip_model {
     ggml_tensor * mm_4h_to_h_w = nullptr;
     ggml_tensor * mm_boi = nullptr;
     ggml_tensor * mm_eoi = nullptr;
+
+    // glm4v
+    ggml_tensor * mm_conv_w = nullptr;
+    ggml_tensor * mm_conv_b = nullptr;
 
     bool audio_has_avgpool() const {
         return proj_type == PROJECTOR_TYPE_QWEN2A
