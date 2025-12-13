@@ -4408,11 +4408,20 @@ class Qwen3VLVisionModel(MmprojModel):
 
 
 @ModelBase.register("Glm4vForConditionalGeneration")
-class Glm4VisionModel(Qwen3VLVisionModel):
+class Glm4VVisionModel(Qwen3VLVisionModel):
     def set_gguf_parameters(self):
-        self.is_deepstack_layers = False
-        super().set_gguf_parameters()
+        MmprojModel.set_gguf_parameters(self) # skip Qwen3VLVisionModel parameters
+        assert self.hparams_vision is not None
         self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.GLM4V)
+
+        hidden_act = str(self.hparams_vision.get("hidden_act", "")).lower()
+        if hidden_act == "gelu":
+            self.gguf_writer.add_vision_use_gelu(True)
+        elif hidden_act == "silu":
+            self.gguf_writer.add_vision_use_silu(True)
+
+        rms_norm_eps = self.hparams_vision.get("rms_norm_eps", 1e-5)
+        self.gguf_writer.add_vision_attention_layernorm_eps(rms_norm_eps)
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         if name.startswith("model.visual."):
@@ -7913,11 +7922,19 @@ class Glm4Model(TextModel):
         if (rope_dim := self.hparams.get("head_dim")) is None:
             rope_dim = self.hparams["hidden_size"] // self.hparams["num_attention_heads"]
         self.gguf_writer.add_rope_dimension_count(int(rope_dim * self.hparams.get("partial_rotary_factor", 0.5)))
-        rope_scaling = self.hparams.get("rope_scaling") or {}
+        rope_scaling = self.hparams.get("rope_scaling") or self.hparams.get("rope_parameters") or {}
         if rope_scaling.get("rope_type", rope_scaling.get("type")) == "yarn" and "factor" in rope_scaling:
             self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.YARN)
             self.gguf_writer.add_rope_scaling_factor(rope_scaling["factor"])
             self.gguf_writer.add_rope_scaling_orig_ctx_len(rope_scaling["original_max_position_embeddings"])
+        # handle M-RoPE, the same as Qwen-VL
+        if "mrope_section" in rope_scaling:
+            mrope_section = rope_scaling["mrope_section"]
+            # Pad to 4 dimensions [time, height, width, extra]
+            while len(mrope_section) < 4:
+                mrope_section.append(0)
+            self.gguf_writer.add_rope_dimension_sections(mrope_section[:4])
+            logger.info(f"MRoPE sections: {mrope_section[:4]}")
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         if name.startswith("model.visual."): # ignore visual part of Glm4v

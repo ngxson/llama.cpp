@@ -112,10 +112,10 @@ ggml_cgraph * clip_graph_qwen3vl::build() {
             // apply M-RoPE
             Qcur = ggml_rope_multi(
                 ctx0, Qcur, positions, nullptr,
-                d_head/2, mrope_sections, GGML_ROPE_TYPE_VISION, 32768, 10000, 1, 0, 1, 32, 1);
+                d_head/2, mrope_sections, GGML_ROPE_TYPE_VISION, 32768, hparams.rope_theta, 1, 0, 1, 32, 1);
             Kcur = ggml_rope_multi(
                 ctx0, Kcur, positions, nullptr,
-                d_head/2, mrope_sections, GGML_ROPE_TYPE_VISION, 32768, 10000, 1, 0, 1, 32, 1);
+                d_head/2, mrope_sections, GGML_ROPE_TYPE_VISION, 32768, hparams.rope_theta, 1, 0, 1, 32, 1);
 
             cb(Qcur, "Qcur_rope", il);
             cb(Kcur, "Kcur_rope", il);
@@ -156,7 +156,7 @@ ggml_cgraph * clip_graph_qwen3vl::build() {
                 layer.deepstack_fc1_w, layer.deepstack_fc1_b,
                 nullptr, nullptr,
                 layer.deepstack_fc2_w, layer.deepstack_fc2_b,
-                ffn_op_type::FFN_GELU, il);
+                hparams.ffn_op, il);
 
             if(!deepstack_features) {
                 deepstack_features = feat;
@@ -192,6 +192,7 @@ ggml_cgraph * clip_graph_qwen3vl::build() {
 
     } else if (proj_type == PROJECTOR_TYPE_GLM4V) {
         // GLM4V projector
+        // ref: https://github.com/huggingface/transformers/blob/40dc11cd3eb4126652aa41ef8272525affd4a636/src/transformers/models/glm4v/modeling_glm4v.py#L116-L130
 
         // patch merger
         {
@@ -213,6 +214,7 @@ ggml_cgraph * clip_graph_qwen3vl::build() {
         {
             cur = ggml_transpose(ctx0, cur); // [n_embd, n_tokens]
             cur = ggml_mul_mat(ctx0, model.projection, cur);
+            // default LayerNorm (post_projection_norm)
             cur = build_norm(cur, model.mm_post_norm_w, model.mm_post_norm_b, NORM_TYPE_NORMAL, 1e-5, -1);
             cur = ggml_gelu(ctx0, cur);
             cb(cur, "after_fc_proj", -1);
@@ -224,7 +226,7 @@ ggml_cgraph * clip_graph_qwen3vl::build() {
                 model.mm_ffn_up_w, model.mm_ffn_up_b,
                 model.mm_ffn_gate_w, model.mm_ffn_gate_b,
                 model.mm_ffn_down_w, model.mm_ffn_down_b,
-                ffn_op_type::FFN_GELU, -1);
+                hparams.ffn_op, -1);
             cb(cur, "after_ffn_proj", -1);
         }
 
