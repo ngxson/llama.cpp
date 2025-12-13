@@ -243,10 +243,11 @@
 
 // TODO: convert to enum https://github.com/ggml-org/llama.cpp/pull/16187#discussion_r2388538726
 #define GGML_ROPE_TYPE_NORMAL 0
-#define GGML_ROPE_TYPE_NEOX   2
-#define GGML_ROPE_TYPE_MROPE  8
-#define GGML_ROPE_TYPE_VISION 24
+#define GGML_ROPE_TYPE_NEOX   2  // binary: 000010
+#define GGML_ROPE_TYPE_MROPE  8  // binary: 001000
+#define GGML_ROPE_TYPE_VISION 24 // binary: 011000
 #define GGML_ROPE_TYPE_IMROPE 40 // binary: 101000
+#define GGML_ROPE_TYPE_MRNORM 40 // binary: 000001 (MROPE without NEOX - need to combine with one of the above)
 
 #define GGML_MROPE_SECTIONS   4
 
