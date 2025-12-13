@@ -1904,7 +1904,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
             string_format("number of server slots (default: %d, -1 = auto)", params.n_parallel),
             [](common_params & params, int value) {
                 if (value == 0) {
-                    throw std::runtime_error("error: invalid value for n_parallel\n");
+                    throw std::invalid_argument("error: invalid value for n_parallel\n");
                 }
                 params.n_parallel = value;
             }
