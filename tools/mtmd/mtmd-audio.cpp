@@ -287,7 +287,7 @@ static void log_mel_spectrogram_worker_thread(int ith, const float * hann, const
     }
 
     // Otherwise fft_out are all zero
-    double sum = log(1e-10);
+    double sum = params.use_natural_log ? log(1e-10) : log10(1e-10);
     for (; i < out.n_len; i += n_threads) {
         for (int j = 0; j < out.n_mel; j++) {
             out.data[j * out.n_len + i] = sum;
