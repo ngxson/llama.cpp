@@ -324,6 +324,7 @@ struct mtmd_context {
             case PROJECTOR_TYPE_QWEN2A:
             case PROJECTOR_TYPE_QWEN25O:
             case PROJECTOR_TYPE_ULTRAVOX:
+            case PROJECTOR_TYPE_VOXTRAL:
                 audio_preproc = std::make_unique<mtmd_audio_whisper_preprocessor>(ctx_a);
                 break;
             default:

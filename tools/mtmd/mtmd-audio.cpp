@@ -472,8 +472,9 @@ bool mtmd_audio_whisper_preprocessor::preprocess(
     // if input is too short, pad with zeros
     // this is to avoid potential issues with stage1/2 padding in log_mel_spectrogram
     // TODO: maybe handle this better
-    if (n_samples < (size_t)hparams.audio_n_fft * 2) {
-        smpl.resize(hparams.audio_n_fft * 2, 0.0f);
+    size_t min_samples = (size_t)hparams.audio_sample_rate * (hparams.audio_chunk_len + 1); // +1 second margin
+    if (n_samples < min_samples) {
+        smpl.resize(min_samples, 0.0f);
         std::memcpy(smpl.data(), samples, n_samples * sizeof(float));
         samples   = smpl.data();
         n_samples = smpl.size();
@@ -509,7 +510,9 @@ bool mtmd_audio_whisper_preprocessor::preprocess(
 
     // because the cgraph in clip.cpp only accepts 3000 frames each, we need to split the mel
     // we always expect the mel to have 3000 silent frames at the end
-    // printf("n_len %d\n", out_full.n_len);
+    if (DEBUG) {
+        printf("output: n_mel = %d, n_len = %d\n", out_full.n_mel, out_full.n_len);
+    }
     const size_t frames_per_chunk = 3000;
     GGML_ASSERT((size_t)out_full.n_len > frames_per_chunk);
     for (size_t off = 0; off < (size_t)out_full.n_len; off += frames_per_chunk) {
