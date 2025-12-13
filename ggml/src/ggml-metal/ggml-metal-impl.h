@@ -258,6 +258,8 @@ typedef struct {
     int32_t  sect_2;
     int32_t  sect_3;
     bool     src2;
+    uint64_t offset; // args.n_dims/2 for NEOX ordering, 1 otherwise
+    uint64_t idx_scale; // 2 for NEOX ordering, 1 otherwise
 } ggml_metal_kargs_rope;
 
 typedef struct {

@@ -4152,6 +4152,7 @@ kernel void kernel_rope_norm(
     }
 }
 
+// TODO @ngxson : merge with kernel_rope_norm using offset and idx_scale
 template<typename T>
 kernel void kernel_rope_neox(
         constant ggml_metal_kargs_rope & args,
@@ -4231,7 +4232,7 @@ kernel void kernel_rope_multi(
 
     for (int i0 = 2*tiitg; i0 < args.ne0; i0 += 2*tptg.x) {
         if (i0 < args.n_dims) {
-            const int ic = i0/2;
+            const int ic = i0 / args.idx_scale;
 
             // mrope theta calculations
             // note: the rest is the same as kernel_rope_neox
@@ -4274,10 +4275,10 @@ kernel void kernel_rope_multi(
             device       T * dst_data  = (device T *)( dst + i3*args.nb3  + i2*args.nb2  + i1*args.nb1  + ic*args.nb0);
 
             const float x0 = src[0];
-            const float x1 = src[args.n_dims/2];
+            const float x1 = src[args.offset];
 
-            dst_data[0]             = x0*cos_theta - x1*sin_theta;
-            dst_data[args.n_dims/2] = x0*sin_theta + x1*cos_theta;
+            dst_data[0]           = x0*cos_theta - x1*sin_theta;
+            dst_data[args.offset] = x0*sin_theta + x1*cos_theta;
         } else {
             device const T * const src = (device T *)(src0 + i3*args.nb03 + i2*args.nb02 + i1*args.nb01 + i0*args.nb00);
             device       T * dst_data  = (device T *)( dst + i3*args.nb3  + i2*args.nb2  + i1*args.nb1  + i0*args.nb0);
