@@ -4410,6 +4410,7 @@ class Qwen3VLVisionModel(MmprojModel):
 @ModelBase.register("Glm4vForConditionalGeneration")
 class Glm4VisionModel(Qwen3VLVisionModel):
     def set_gguf_parameters(self):
+        self.is_deepstack_layers = False
         super().set_gguf_parameters()
         self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.GLM4V)
 
