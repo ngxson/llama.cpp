@@ -60,10 +60,4 @@ struct clip_graph_whisper_enc : clip_graph {
 struct clip_graph_deepseekocr : clip_graph {
     clip_graph_deepseekocr(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     ggml_cgraph * build() override;
-
-    ggml_tensor * build_sam(ggml_tensor * inp_raw);
-    ggml_tensor * build_dsocr_clip(ggml_tensor * patch_embeds);
-    ggml_tensor * get_rel_pos(ggml_tensor * rel_pos, ggml_tensor * indices, int q_size, int k_size);
-    ggml_tensor * window_partition(ggml_tensor * x, int window);
-    ggml_tensor * window_unpartition(ggml_tensor * x, int w, int h, int window);
 };
