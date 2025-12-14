@@ -485,19 +485,14 @@ ggml_tensor * clip_graph::build_norm(
         ? ggml_rms_norm(ctx0, cur, norm_eps)
         : ggml_norm(ctx0, cur, norm_eps);
 
-    if (mw || mb) {
-        cb(cur, "norm", il);
-    }
-
     if (mw) {
         cur = ggml_mul(ctx0, cur, mw);
-        if (mb) {
-            cb(cur, "norm_w", il);
-        }
+        cb(cur, "norm_w", il);
     }
 
     if (mb) {
         cur = ggml_add(ctx0, cur, mb);
+        cb(cur, "norm_b", il);
     }
 
     return cur;
@@ -1134,6 +1129,7 @@ struct clip_model_loader {
                     } break;
                 case PROJECTOR_TYPE_GLM4V:
                     {
+                        hparams.rope_theta = 10000.0f;
                         hparams.n_merge = 2; // default value for GLM4-V
                         get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.n_merge, false);
                         hparams.set_limit_image_tokens(8, 4096);
@@ -1845,6 +1841,8 @@ struct clip_init_result clip_init(const char * fname, struct clip_context_params
             if (ctx_params.warmup) {
                 loader.warmup(*ctx_vision);
             }
+
+            // clip_debug_encode(ctx_vision, 24*14, 24*14, 0.1f);
         }
 
         if (loader.has_audio) {
@@ -3337,7 +3335,9 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
     }
 
     // copy the embeddings to the location passed by the user
-    ggml_backend_tensor_get(embeddings, vec, 0, ggml_nbytes(embeddings));
+    if (vec != nullptr) {
+        ggml_backend_tensor_get(embeddings, vec, 0, ggml_nbytes(embeddings));
+    }
 
     return true;
 }
@@ -3460,4 +3460,23 @@ void clip_image_f32_batch_add_mel(struct clip_image_f32_batch * batch, int n_mel
 
     batch->entries.push_back(clip_image_f32_ptr(audio));
     batch->is_audio = true;
+}
+
+//
+// API for debugging
+//
+
+void clip_debug_encode(clip_ctx * ctx, int h, int w, float fill_value) {
+    clip_image_f32 img;
+    img.nx = w;
+    img.ny = h;
+    img.buf.resize(h * w * 3);
+    for (int i = 0; i < h * w * 3; i++) {
+        img.buf[i] = static_cast<float>(fill_value);
+    }
+    bool cur_debug_graph = ctx->debug_graph;
+    ctx->debug_graph = true;
+    clip_image_encode(ctx, 1, &img, nullptr);
+    ctx->debug_graph = cur_debug_graph;
+    GGML_ASSERT(img.buf.empty() && "expected, always stop here");
 }
