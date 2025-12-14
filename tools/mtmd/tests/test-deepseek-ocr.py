@@ -149,7 +149,7 @@ def main():
         llama_free_ocr,
         args.embedding_model
     )
-    
+
     md_ocr_similarity = compute_embedding_similarity(
         expected_md_ocr,
         llama_md_ocr,
@@ -180,8 +180,6 @@ def main():
     print(f"Threshold: {args.threshold}")
     print(f"Result: {'PASS' if md_ocr_similarity >= args.threshold else 'FAIL'}")
     print("=" * 60)
-    
-    
 
 
 if __name__ == "__main__":
