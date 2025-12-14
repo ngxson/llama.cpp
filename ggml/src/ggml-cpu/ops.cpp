@@ -5764,20 +5764,22 @@ static void ggml_compute_forward_rope_flt(
                 T * src = (T *)((char *) src0->data + i3*nb03 + i2*nb02 + i1*nb01);
                 T * dst_data  = (T *)((char *)  dst->data + i3*nb3  + i2*nb2  + i1*nb1);
 
-                if (mode == GGML_ROPE_TYPE_NORMAL) {
-                    rotate_pairs<T>(n_dims, 1, cache, src, dst_data, 1);
-                } else if (mode == GGML_ROPE_TYPE_NEOX) {
-                    rotate_pairs<T>(n_dims, n_dims/2, cache, src, dst_data);
-                } else if (is_vision) {
-                    rotate_pairs<T>(ne0, n_dims, cache, src, dst_data);
-                } else if (mrope_used) {
-                    if (mode & GGML_ROPE_TYPE_MRNORM) {
+                switch (mode) {
+                    case GGML_ROPE_TYPE_NORMAL:
+                    case GGML_ROPE_TYPE_MROPE | GGML_ROPE_TYPE_MRNORM:
+                    case GGML_ROPE_TYPE_IMROPE | GGML_ROPE_TYPE_MRNORM:
                         rotate_pairs<T>(n_dims, 1, cache, src, dst_data, 1);
-                    } else {
+                        break;
+                    case GGML_ROPE_TYPE_NEOX:
+                    case GGML_ROPE_TYPE_MROPE:
+                    case GGML_ROPE_TYPE_IMROPE:
                         rotate_pairs<T>(n_dims, n_dims/2, cache, src, dst_data);
-                    }
-                } else {
-                    GGML_ABORT("rope type not supported");
+                        break;
+                    case GGML_ROPE_TYPE_VISION:
+                        rotate_pairs<T>(ne0, n_dims, cache, src, dst_data);
+                        break;
+                    default:
+                        GGML_ABORT("rope type not supported");
                 }
 
                 if (!is_vision) {
