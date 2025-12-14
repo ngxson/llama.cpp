@@ -67,7 +67,7 @@ llm_build_glm4::llm_build_glm4(const llama_model & model, const llm_graph_params
                                     cur->nb[1], 1 * sizeof(float) * (n_embd + n_embd_gqa));
             }
 
-            if (rope_type == LLAMA_ROPE_TYPE_MROPE) {
+            if (rope_type & LLAMA_ROPE_TYPE_MROPE) {
                 // M-RoPE without using NEOX ordering
                 auto rope_type_adj = rope_type | GGML_ROPE_TYPE_MRNORM;
                 Qcur = ggml_rope_multi(ctx0, Qcur, inp_pos, nullptr,

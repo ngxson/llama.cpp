@@ -4428,11 +4428,6 @@ class Glm4VVisionModel(Qwen3VLVisionModel):
             name = name.replace("model.visual.", "visual.")
         if name.startswith("visual.merger."):
             return [(self.map_tensor_name(name), data_torch)]
-        if "downsample.weight" in name:
-            # unfold the downsample to mistral-small format
-            c_out, c_in, kh, kw = data_torch.shape
-            data_unfold = data_torch.view(c_out, c_in * kh * kw)
-            return [(self.map_tensor_name(name), data_unfold)]
         return super().modify_tensors(data_torch, name, bid)
 
 

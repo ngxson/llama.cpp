@@ -1251,6 +1251,9 @@ struct clip_model_loader {
         model.patch_embeddings_0 = get_tensor(TN_PATCH_EMBD,   false);
         model.patch_embeddings_1 = get_tensor(TN_PATCH_EMBD_1, false);
 
+        model.norm_embd_w = get_tensor(string_format(TN_NORM_EMBD, "weight"), false);
+        model.norm_embd_b = get_tensor(string_format(TN_NORM_EMBD, "bias"),   false);
+
         model.position_embeddings = get_tensor(string_format(TN_POS_EMBD, prefix), false);
 
         // layers
@@ -1842,7 +1845,7 @@ struct clip_init_result clip_init(const char * fname, struct clip_context_params
                 loader.warmup(*ctx_vision);
             }
 
-            // clip_debug_encode(ctx_vision, 24*14, 24*14, 0.1f);
+            // clip_debug_encode(ctx_vision, 24*14, 24*14, 0.5f);
         }
 
         if (loader.has_audio) {
@@ -2548,7 +2551,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         case PROJECTOR_TYPE_QWEN2VL:
         case PROJECTOR_TYPE_QWEN25VL:
         case PROJECTOR_TYPE_QWEN3VL:
-        case PROJECTOR_TYPE_GLM4V:
+        //case PROJECTOR_TYPE_GLM4V:
             {
                 GGML_ASSERT(params.image_min_pixels > 0 && params.image_max_pixels > 0);
                 clip_image_u8 resized;
@@ -2618,6 +2621,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         case PROJECTOR_TYPE_GLM_EDGE:
         case PROJECTOR_TYPE_GEMMA3:
         case PROJECTOR_TYPE_INTERNVL: // TODO @ngxson : support dynamic resolution
+        case PROJECTOR_TYPE_GLM4V: // for debugging only
             {
                 clip_image_u8 resized_image;
                 int sz = params.image_size;
