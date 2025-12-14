@@ -60,11 +60,11 @@ struct clip_hparams {
     std::unordered_set<int32_t> vision_feature_layer;
     int32_t attn_window_size = 0;
     int32_t n_wa_pattern = 0;
-    
+
     // deepseek-ocr (sam)
     int32_t sam_n_layer = 0;
-    int32_t sam_n_head = 0;
-    int32_t sam_n_embd = 0;
+    int32_t sam_n_head  = 0;
+    int32_t sam_n_embd  = 0;
 
     // audio
     int32_t n_mel_bins = 0; // whisper preprocessor
@@ -154,7 +154,7 @@ struct clip_layer {
     ggml_tensor * deepstack_fc1_b = nullptr;
     ggml_tensor * deepstack_fc2_w = nullptr;
     ggml_tensor * deepstack_fc2_b = nullptr;
-    
+
     // sam rel_pos
     ggml_tensor * rel_pos_w = nullptr;
     ggml_tensor * rel_pos_h = nullptr;
@@ -293,11 +293,11 @@ struct clip_model {
     ggml_tensor * mm_4h_to_h_w = nullptr;
     ggml_tensor * mm_boi = nullptr;
     ggml_tensor * mm_eoi = nullptr;
-    
+
     // deepseek ocr sam
     ggml_tensor * patch_embed_proj_w = nullptr;
     ggml_tensor * patch_embed_proj_b = nullptr;
-    ggml_tensor * pos_embed = nullptr;
+    ggml_tensor * pos_embed          = nullptr;
 
     ggml_tensor * neck_0_w;
     ggml_tensor * neck_1_w;

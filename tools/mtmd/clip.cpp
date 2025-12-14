@@ -753,8 +753,6 @@ ggml_tensor * clip_graph::build_patch_merge_permute(ggml_tensor * cur, int scale
     return cur;
 }
 
-    
-
 static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32_batch & imgs) {
     GGML_ASSERT(imgs.entries.size() == 1 && "n_batch > 1 is not supported");
 
