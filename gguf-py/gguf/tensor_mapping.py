@@ -1239,6 +1239,10 @@ class TensorNameMap:
             "model.vision.patch_embedding.proj", # cogvlm
         ),
 
+        MODEL_TENSOR.V_ENC_EMBD_NORM: (
+            "visual.post_conv_layernorm", # glm4v
+        ),
+
         MODEL_TENSOR.V_ENC_EMBD_POS: (
             "vision_tower.vision_model.embeddings.position_embedding",
             "model.vision_tower.embeddings.position_embeddings", # Intern-S1
@@ -1396,7 +1400,6 @@ class TensorNameMap:
             "vision_tower.ln_pre", # pixtral-hf
             "vision_encoder.ln_pre", # pixtral
             "vision_model.layernorm_pre", # llama4
-            "visual.post_conv_layernorm", # glm4v
         ),
 
         MODEL_TENSOR.V_POST_NORM: (
