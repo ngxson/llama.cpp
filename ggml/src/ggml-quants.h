@@ -30,6 +30,8 @@ GGML_API void quantize_row_q5_K_ref(const float * GGML_RESTRICT x, block_q5_K * 
 GGML_API void quantize_row_q6_K_ref(const float * GGML_RESTRICT x, block_q6_K * GGML_RESTRICT y, int64_t k);
 GGML_API void quantize_row_q8_K_ref(const float * GGML_RESTRICT x, block_q8_K * GGML_RESTRICT y, int64_t k);
 
+GGML_API void quantize_row_q3_hifi_ref(const float * GGML_RESTRICT x, block_q3_hifi * GGML_RESTRICT y, int64_t k);
+
 GGML_API void quantize_row_tq1_0_ref(const float * GGML_RESTRICT x, block_tq1_0 * GGML_RESTRICT y, int64_t k);
 GGML_API void quantize_row_tq2_0_ref(const float * GGML_RESTRICT x, block_tq2_0 * GGML_RESTRICT y, int64_t k);
 
@@ -100,6 +102,9 @@ GGML_API void iq2xs_init_impl(enum ggml_type type);
 GGML_API void iq2xs_free_impl(enum ggml_type type);
 GGML_API void iq3xs_init_impl(int grid_size);
 GGML_API void iq3xs_free_impl(int grid_size);
+
+GGML_API void dequantize_row_q3_hifi(const block_q3_hifi * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API size_t quantize_q3_hifi(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
 
 #ifdef __cplusplus
 }

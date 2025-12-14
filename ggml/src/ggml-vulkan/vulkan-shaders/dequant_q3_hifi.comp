@@ -1,0 +1,58 @@
+#version 450
+
+// Q3_HIFI dequantization shader
+// Uses Q3_K-compatible layout (hmask + qs + scales) with 6 FP16 outliers
+
+#include "dequant_head.glsl"
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout (binding = 0) readonly buffer A {A_TYPE data_a[];};
+layout (binding = 1) writeonly buffer D {D_TYPE data_b[];};
+
+void main() {
+    [[unroll]] for (uint wgy = 0; wgy < 256; wgy++) {
+        const uint i = uint(gl_WorkGroupID.x * 256 + wgy);
+        if (i >= p.nel / QUANT_K) {
+            return;
+        }
+
+        const uint r = gl_LocalInvocationID.x / 4;
+        const uint tid = r / 2;
+        const uint is0 = r % 2;
+        const uint l0 = 16 * is0 + 4 * (gl_LocalInvocationID.x % 4);
+        const uint n = tid / 4;
+        const uint j = tid - 4*n;
+
+        const uint8_t m = uint8_t(1 << (4*n + j));
+        const uint is = 8*n + 2*j + is0;
+        const uint shift = 2*j;
+
+        const int8_t us = int8_t(is <  4 ? (data_a[i].scales[is-0] & 0xF) | (((data_a[i].scales[is+8] >> 0) & 3) << 4) :
+                                 is <  8 ? (data_a[i].scales[is-0] & 0xF) | (((data_a[i].scales[is+4] >> 2) & 3) << 4) :
+                                 is < 12 ? (data_a[i].scales[is-8] >>  4) | (((data_a[i].scales[is+0] >> 4) & 3) << 4) :
+                                           (data_a[i].scales[is-8] >>  4) | (((data_a[i].scales[is-4] >> 6) & 3) << 4));
+        const FLOAT_TYPE d_all = FLOAT_TYPE(data_a[i].d);
+        const FLOAT_TYPE dl    = d_all * FLOAT_TYPE(us - 32);
+
+        const uint y_idx = i * QUANT_K + 128 * n + 32 * j;
+        const uint qs_idx = 32*n;
+
+        for (uint l = l0; l < l0 + 4; ++l) {
+            const uint global_idx = y_idx + l;
+            const uint local_idx = 128 * n + 32 * j + l;
+            
+            // Standard Q3_K dequantization
+            FLOAT_TYPE val = dl * FLOAT_TYPE(int8_t((data_a[i].qs[qs_idx + l] >> shift) & 3) - (((data_a[i].hmask[l] & m) != 0) ? 0 : 4));
+            
+            // Q3_HIFI extension: Check if this is an outlier and replace with FP16 value
+            [[unroll]] for (uint k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
+                if (data_a[i].outlier_idx[k] == local_idx) {
+                    val = FLOAT_TYPE(data_a[i].outlier_vals[k]);
+                }
+            }
+            
+            data_b[global_idx] = D_TYPE(val);
+        }
+    }
+}

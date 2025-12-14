@@ -798,6 +798,62 @@ vec_dot_q3_K_q8_1(const void *__restrict__ vbq,
     return vec_dot_q3_K_q8_1_impl_mmvq(vl, vh, u, bq3_K->scales, scale_offset, d, d8);
 }
 
+// Q3_HIFI: Q3_K-compatible layout with 8 FP16 outliers
+#define VDR_Q3_HIFI_Q8_1_MMVQ VDR_Q3_K_Q8_1_MMVQ
+
+static __dpct_inline__ float
+vec_dot_q3_hifi_q8_1(const void *__restrict__ vbq,
+                     const block_q8_1 *__restrict__ bq8_1, const int &iqs) {
+
+    const block_q3_hifi * bq3_hifi = (const block_q3_hifi *) vbq;
+
+    // === Q3_K bulk dot product (identical logic) ===
+    const int bq8_offset = QR3_K * (iqs / (QI3_K/2));
+    const int scale_offset = iqs - iqs % QI8_1 + (iqs % QI8_1) / (QI8_1/2);
+
+    const float d = bq3_hifi->d;
+
+    const int vl = get_int_from_uint8(bq3_hifi->qs, iqs);
+
+    // invert the mask with ~ so that a 0/1 results in 4/0 being subtracted
+    const int vh = ~get_int_from_uint8(bq3_hifi->hmask, iqs % (QI3_K/2)) >> bq8_offset;
+
+    int    u[QR3_K];
+    float d8[QR3_K];
+
+#pragma unroll
+    for (int i = 0; i < QR3_K; ++i) {
+        u[i]  = get_int_from_int8_aligned(bq8_1[bq8_offset + i].qs, iqs % QI8_1);
+        d8[i] = bq8_1[bq8_offset + i].ds[0];
+    }
+
+    // Compute Q3_K bulk dot product (outliers were pre-zeroed during quantization)
+    float sum = vec_dot_q3_K_q8_1_impl_mmvq(vl, vh, u, bq3_hifi->scales, scale_offset, d, d8);
+
+    // === Q3_HIFI outlier correction ===
+    // Add outlier contributions for positions handled by this thread
+#pragma unroll
+    for (int k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
+        const int idx = bq3_hifi->outlier_idx[k];
+        const int idx_bq8 = idx / QK8_1;
+        const int idx_in_bq8 = idx % QK8_1;
+        
+        // Check if this outlier is in the range this thread processes
+        if (idx_bq8 >= bq8_offset && idx_bq8 < bq8_offset + QR3_K) {
+            const int thread_q8_offset = iqs % QI8_1;
+            const int pos_in_q8_group = idx_in_bq8 / 4;
+            if (pos_in_q8_group == thread_q8_offset) {
+                const float outlier_val = bq3_hifi->outlier_vals[k];
+                const int8_t q8_val = ((const int8_t*)bq8_1[idx_bq8].qs)[idx_in_bq8];
+                const float d8_val = bq8_1[idx_bq8].ds[0];
+                sum += outlier_val * q8_val * d8_val;
+            }
+        }
+    }
+
+    return sum;
+}
+
 static __dpct_inline__ float vec_dot_q4_K_q8_1(const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1,
                                                const int & iqs) {
 #ifndef GGML_QKK_64

@@ -137,3 +137,18 @@ poetry.toml
 /.windsurf/
 # emscripten
 a.out.*
+wikitext-2-raw/wikitext-2-raw/wiki.test.raw
+wikitext-2-raw/wikitext-2-raw/wiki.train.raw
+wikitext-2-raw/wikitext-2-raw/wiki.valid.raw
+Qwen3-1.7B/.gitattributes
+Qwen3-1.7B/config.json
+Qwen3-1.7B/generation_config.json
+Qwen3-1.7B/LICENSE
+Qwen3-1.7B/merges.txt
+Qwen3-1.7B/model-00001-of-00002.safetensors
+Qwen3-1.7B/model-00002-of-00002.safetensors
+Qwen3-1.7B/model.safetensors.index.json
+Qwen3-1.7B/README.md
+Qwen3-1.7B/tokenizer_config.json
+Qwen3-1.7B/tokenizer.json
+Qwen3-1.7B/vocab.json

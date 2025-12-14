@@ -2044,6 +2044,148 @@ void ggml_vec_dot_q3_K_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const voi
 
 }
 
+// Q3_HIFI: ARM NEON optimized vec_dot
+// Copied from Q3_K and adapted for block_q3_hifi (128-byte blocks) + outlier correction
+void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % QK_K == 0);
+    assert(nrc == 1);
+    UNUSED(nrc);
+    UNUSED(bx);
+    UNUSED(by);
+    UNUSED(bs);
+
+    const uint32_t kmask1 = 0x03030303;
+    const uint32_t kmask2 = 0x0f0f0f0f;
+
+    // CRITICAL: Use block_q3_hifi for correct 128-byte stride
+    const block_q3_hifi * GGML_RESTRICT x = (const block_q3_hifi *)vx;
+    const block_q8_K * GGML_RESTRICT y = vy;
+
+    const int nb = n / QK_K;
+
+#if defined(__ARM_NEON)
+
+    uint32_t aux[3];
+    uint32_t utmp[4];
+
+    const uint8x16_t m3b = vdupq_n_u8(0x3);
+    const int32x4_t vzero = vdupq_n_s32(0);
+
+    const uint8x16_t m0 = vdupq_n_u8(1);
+    const uint8x16_t m1 = vshlq_n_u8(m0, 1);
+    const uint8x16_t m2 = vshlq_n_u8(m0, 2);
+    const uint8x16_t m3 = vshlq_n_u8(m0, 3);
+    const int8_t m32 = 32;
+
+    ggml_int8x16x4_t q3bytes;
+
+    float sum = 0;
+
+    for (int i = 0; i < nb; ++i) {
+
+        const float d = y[i].d * GGML_CPU_FP16_TO_FP32(x[i].d);
+
+        const uint8_t * GGML_RESTRICT q3 = x[i].qs;
+        const uint8_t * GGML_RESTRICT qh = x[i].hmask;
+        const int8_t  * GGML_RESTRICT q8 = y[i].qs;
+
+        ggml_uint8x16x2_t qhbits = ggml_vld1q_u8_x2(qh);
+
+        ggml_uint8x16x4_t q3h;
+
+        int32_t isum = 0;
+
+        // Set up scales
+        memcpy(aux, x[i].scales, 12);
+        utmp[3] = ((aux[1] >> 4) & kmask2) | (((aux[2] >> 6) & kmask1) << 4);
+        utmp[2] = ((aux[0] >> 4) & kmask2) | (((aux[2] >> 4) & kmask1) << 4);
+        utmp[1] = (aux[1] & kmask2) | (((aux[2] >> 2) & kmask1) << 4);
+        utmp[0] = (aux[0] & kmask2) | (((aux[2] >> 0) & kmask1) << 4);
+
+        int8_t * scale = (int8_t *)utmp;
+        for (int j = 0; j < 16; ++j) scale[j] -= m32;
+
+        for (int j = 0; j < QK_K/128; ++j) {
+
+            const ggml_uint8x16x2_t q3bits = ggml_vld1q_u8_x2(q3); q3 += 32;
+            const ggml_int8x16x4_t q8bytes_1 = ggml_vld1q_s8_x4(q8); q8 += 64;
+            const ggml_int8x16x4_t q8bytes_2 = ggml_vld1q_s8_x4(q8); q8 += 64;
+
+            q3h.val[0] = vshlq_n_u8(vbicq_u8(m0, qhbits.val[0]), 2);
+            q3h.val[1] = vshlq_n_u8(vbicq_u8(m0, qhbits.val[1]), 2);
+            q3h.val[2] = vshlq_n_u8(vbicq_u8(m1, qhbits.val[0]), 1);
+            q3h.val[3] = vshlq_n_u8(vbicq_u8(m1, qhbits.val[1]), 1);
+
+            q3bytes.val[0] = vsubq_s8(vreinterpretq_s8_u8(vandq_u8(q3bits.val[0], m3b)), vreinterpretq_s8_u8(q3h.val[0]));
+            q3bytes.val[1] = vsubq_s8(vreinterpretq_s8_u8(vandq_u8(q3bits.val[1], m3b)), vreinterpretq_s8_u8(q3h.val[1]));
+            q3bytes.val[2] = vsubq_s8(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(q3bits.val[0], 2), m3b)), vreinterpretq_s8_u8(q3h.val[2]));
+            q3bytes.val[3] = vsubq_s8(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(q3bits.val[1], 2), m3b)), vreinterpretq_s8_u8(q3h.val[3]));
+
+            isum += vaddvq_s32(ggml_vdotq_s32(vzero, q3bytes.val[0], q8bytes_1.val[0])) * scale[0];
+            isum += vaddvq_s32(ggml_vdotq_s32(vzero, q3bytes.val[1], q8bytes_1.val[1])) * scale[1];
+            isum += vaddvq_s32(ggml_vdotq_s32(vzero, q3bytes.val[2], q8bytes_1.val[2])) * scale[2];
+            isum += vaddvq_s32(ggml_vdotq_s32(vzero, q3bytes.val[3], q8bytes_1.val[3])) * scale[3];
+
+            scale += 4;
+
+            q3h.val[0] = vbicq_u8(m2, qhbits.val[0]);
+            q3h.val[1] = vbicq_u8(m2, qhbits.val[1]);
+            q3h.val[2] = vshrq_n_u8(vbicq_u8(m3, qhbits.val[0]), 1);
+            q3h.val[3] = vshrq_n_u8(vbicq_u8(m3, qhbits.val[1]), 1);
+
+            q3bytes.val[0] = vsubq_s8(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(q3bits.val[0], 4), m3b)), vreinterpretq_s8_u8(q3h.val[0]));
+            q3bytes.val[1] = vsubq_s8(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(q3bits.val[1], 4), m3b)), vreinterpretq_s8_u8(q3h.val[1]));
+            q3bytes.val[2] = vsubq_s8(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(q3bits.val[0], 6), m3b)), vreinterpretq_s8_u8(q3h.val[2]));
+            q3bytes.val[3] = vsubq_s8(vreinterpretq_s8_u8(vandq_u8(vshrq_n_u8(q3bits.val[1], 6), m3b)), vreinterpretq_s8_u8(q3h.val[3]));
+
+            isum += vaddvq_s32(ggml_vdotq_s32(vzero, q3bytes.val[0], q8bytes_2.val[0])) * scale[0];
+            isum += vaddvq_s32(ggml_vdotq_s32(vzero, q3bytes.val[1], q8bytes_2.val[1])) * scale[1];
+            isum += vaddvq_s32(ggml_vdotq_s32(vzero, q3bytes.val[2], q8bytes_2.val[2])) * scale[2];
+            isum += vaddvq_s32(ggml_vdotq_s32(vzero, q3bytes.val[3], q8bytes_2.val[3])) * scale[3];
+
+            scale += 4;
+
+            if (j == 0) {
+                qhbits.val[0] = vshrq_n_u8(qhbits.val[0], 4);
+                qhbits.val[1] = vshrq_n_u8(qhbits.val[1], 4);
+            }
+
+        }
+        sum += d * isum;
+
+    }
+
+    // Q3_HIFI: Add outlier corrections - fully unrolled for 6 outliers
+    for (int i = 0; i < nb; ++i) {
+        const float d_y = y[i].d;
+        const int8_t * GGML_RESTRICT q8 = y[i].qs;
+        const uint8_t * GGML_RESTRICT idx = x[i].outlier_idx;
+        const ggml_fp16_t * GGML_RESTRICT vals = x[i].outlier_vals;
+        
+        // Unrolled: process all 8 outliers
+        sum += GGML_FP16_TO_FP32(vals[0]) * q8[idx[0]] * d_y;
+        sum += GGML_FP16_TO_FP32(vals[1]) * q8[idx[1]] * d_y;
+        sum += GGML_FP16_TO_FP32(vals[2]) * q8[idx[2]] * d_y;
+        sum += GGML_FP16_TO_FP32(vals[3]) * q8[idx[3]] * d_y;
+        sum += GGML_FP16_TO_FP32(vals[4]) * q8[idx[4]] * d_y;
+        sum += GGML_FP16_TO_FP32(vals[5]) * q8[idx[5]] * d_y;
+        sum += GGML_FP16_TO_FP32(vals[6]) * q8[idx[6]] * d_y;
+        sum += GGML_FP16_TO_FP32(vals[7]) * q8[idx[7]] * d_y;
+    }
+
+    *s = sum;
+
+#else
+    UNUSED(kmask1);
+    UNUSED(kmask2);
+    UNUSED(x);
+    UNUSED(y);
+    UNUSED(nb);
+    ggml_vec_dot_q3_hifi_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+#endif
+
+}
+
 #ifdef __ARM_FEATURE_SVE
 static inline svuint32_t ggml_decode_q4scales_and_mins_for_mmla(const uint32_t * vx_scales) {
     const svbool_t pg_all   = svptrue_pat_b32(SV_VL4);
@@ -4049,4 +4191,68 @@ void ggml_vec_dot_iq4_xs_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const v
     ggml_vec_dot_iq4_xs_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
 #endif
 }
+
+#if defined(__ARM_NEON)
+// NEON-optimized dequantization for Q3_HIFI
+void dequantize_row_q3_hifi(const block_q3_hifi * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % Q3_HIFI_BLOCK_SIZE == 0);
+    const int64_t nb = k / Q3_HIFI_BLOCK_SIZE;
+
+    for (int ib = 0; ib < nb; ++ib) {
+        const block_q3_hifi * block = &x[ib];
+        const float d = block->d;
+        const uint8_t * qs = block->qs;
+        float * yb = y + ib * Q3_HIFI_BLOCK_SIZE;
+
+        // Process 4 values at a time with NEON
+        // Q3_HIFI_BLOCK_SIZE is 256, which is a multiple of 4
+        int i = 0;
+        for (; i < Q3_HIFI_BLOCK_SIZE - 3; i += 4) {
+            // Extract 4 3-bit values (12 bits = 1.5 bytes)
+            int32_t quant_vals[4];
+            
+            for (int j = 0; j < 4; ++j) {
+                const int byte_idx = ((i + j) * 3) / 8;
+                const int bit_offset = ((i + j) * 3) % 8;
+                uint8_t bits = (qs[byte_idx] >> bit_offset) & 7;
+                if (bit_offset > 5 && byte_idx + 1 < 96) {
+                    bits |= (qs[byte_idx + 1] << (8 - bit_offset)) & 7;
+                }
+                quant_vals[j] = (int32_t)bits - 4; // [0,7] → [-4,3]
+            }
+            
+            // Load into NEON register
+            int32x4_t quant_vec = vld1q_s32(quant_vals);
+            
+            // Convert to float
+            float32x4_t quant_f = vcvtq_f32_s32(quant_vec);
+            
+            // Multiply by scale
+            float32x4_t scale_vec = vdupq_n_f32(d);
+            quant_f = vmulq_f32(quant_f, scale_vec);
+            
+            // Store
+            vst1q_f32(&yb[i], quant_f);
+        }
+        
+        // Handle remaining values (scalar fallback)
+        for (; i < Q3_HIFI_BLOCK_SIZE; ++i) {
+            const int byte_idx = (i * 3) / 8;
+            const int bit_offset = (i * 3) % 8;
+            uint8_t bits = (qs[byte_idx] >> bit_offset) & 7;
+            if (bit_offset > 5 && byte_idx + 1 < 96) {
+                bits |= (qs[byte_idx + 1] << (8 - bit_offset)) & 7;
+            }
+            const int quant_val = (int)bits - 4;
+            yb[i] = quant_val * d;
+        }
+
+        // Restore outliers (still sequential, but less overhead)
+        for (int k_idx = 0; k_idx < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
+            const int idx = block->outlier_idx[k_idx];
+            yb[idx] = GGML_FP16_TO_FP32(block->outlier_vals[k_idx]);
+        }
+    }
+}
+#endif
 
