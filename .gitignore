@@ -54,6 +54,7 @@
 /out/
 /tmp/
 /autogen-*.md
+/common/build-info.cpp
 
 # Deprecated
 
@@ -134,6 +135,8 @@ poetry.toml
 # IDE
 /*.code-workspace
 /.windsurf/
+# emscripten
+a.out.*
 wikitext-2-raw/wikitext-2-raw/wiki.test.raw
 wikitext-2-raw/wikitext-2-raw/wiki.train.raw
 wikitext-2-raw/wikitext-2-raw/wiki.valid.raw
