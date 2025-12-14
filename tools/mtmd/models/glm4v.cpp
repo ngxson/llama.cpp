@@ -46,7 +46,7 @@ ggml_cgraph * clip_graph_glm4v::build() {
     inp = build_norm(inp, model.norm_embd_w, model.norm_embd_b, norm_t, eps, -1);
 
     // calculate absolute position embedding and apply
-    ggml_tensor * learned_pos_embd = resize_position_embeddings();
+    ggml_tensor * learned_pos_embd = resize_position_embeddings(GGML_SCALE_MODE_BICUBIC);
     learned_pos_embd = ggml_cont_4d(
         ctx0, learned_pos_embd,
         n_embd * 2, n_patches_x / 2, n_patches_y, batch_size);

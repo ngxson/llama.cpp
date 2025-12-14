@@ -264,11 +264,11 @@ void clip_graph::cb(ggml_tensor * cur0, const char * name, int il) const {
 }
 
 // siglip2 naflex
-ggml_tensor * clip_graph::resize_position_embeddings() {
+ggml_tensor * clip_graph::resize_position_embeddings(uint32_t interpolation_mode) {
     ggml_tensor * pos_embd = model.position_embeddings;
     const int height       = img.ny / patch_size;
     const int width        = img.nx / patch_size;
-    const uint32_t mode    = GGML_SCALE_MODE_BILINEAR | GGML_SCALE_FLAG_ANTIALIAS;
+    const uint32_t mode    = interpolation_mode;
     const int n_per_side   = (int)std::sqrt(pos_embd->ne[1]);
 
     GGML_ASSERT(pos_embd);
@@ -2551,7 +2551,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         case PROJECTOR_TYPE_QWEN2VL:
         case PROJECTOR_TYPE_QWEN25VL:
         case PROJECTOR_TYPE_QWEN3VL:
-        //case PROJECTOR_TYPE_GLM4V:
+        case PROJECTOR_TYPE_GLM4V:
             {
                 GGML_ASSERT(params.image_min_pixels > 0 && params.image_max_pixels > 0);
                 clip_image_u8 resized;
@@ -2621,7 +2621,6 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
         case PROJECTOR_TYPE_GLM_EDGE:
         case PROJECTOR_TYPE_GEMMA3:
         case PROJECTOR_TYPE_INTERNVL: // TODO @ngxson : support dynamic resolution
-        case PROJECTOR_TYPE_GLM4V: // for debugging only
             {
                 clip_image_u8 resized_image;
                 int sz = params.image_size;
