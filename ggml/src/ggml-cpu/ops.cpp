@@ -5768,15 +5768,14 @@ static void ggml_compute_forward_rope_flt(
                     rotate_pairs<T>(n_dims, 1, cache, src, dst_data, 1);
                 } else if (mode == GGML_ROPE_TYPE_NEOX) {
                     rotate_pairs<T>(n_dims, n_dims/2, cache, src, dst_data);
+                } else if (mode & GGML_ROPE_TYPE_VISION) {
+                    rotate_pairs<T>(ne0, n_dims, cache, src, dst_data);
                 } else if (mode & GGML_ROPE_TYPE_MROPE || mode & GGML_ROPE_TYPE_IMROPE) {
                     if (mode & GGML_ROPE_TYPE_MRNORM) {
                         rotate_pairs<T>(n_dims, 1, cache, src, dst_data, 1);
                     } else {
                         rotate_pairs<T>(n_dims, n_dims/2, cache, src, dst_data);
                     }
-                } else if (mode & GGML_ROPE_TYPE_VISION) {
-                    GGML_ASSERT(mode & GGML_ROPE_TYPE_NEOX && "non-neox is not yet supported");
-                    rotate_pairs<T>(ne0, n_dims, cache, src, dst_data);
                 } else {
                     GGML_ABORT("rope type not supported");
                 }

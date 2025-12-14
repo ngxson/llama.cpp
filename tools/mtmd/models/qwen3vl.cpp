@@ -86,9 +86,7 @@ ggml_cgraph * clip_graph_qwen3vl::build() {
         // self-attention
         {
             cur = ggml_mul_mat(ctx0, layer.qkv_w, cur);
-            if (layer.qkv_b) {
-                cur = ggml_add(ctx0, cur, layer.qkv_b);
-            }
+            cur = ggml_add(ctx0, cur, layer.qkv_b);
 
             ggml_tensor * Qcur = ggml_view_3d(ctx0, cur, d_head, n_head, n_pos,
                     /* nb1    */ ggml_row_size(cur->type, d_head),
@@ -112,10 +110,10 @@ ggml_cgraph * clip_graph_qwen3vl::build() {
             // apply M-RoPE
             Qcur = ggml_rope_multi(
                 ctx0, Qcur, positions, nullptr,
-                d_head/2, mrope_sections, GGML_ROPE_TYPE_VISION, 32768, hparams.rope_theta, 1, 0, 1, 32, 1);
+                d_head/2, mrope_sections, GGML_ROPE_TYPE_VISION, 32768, 10000, 1, 0, 1, 32, 1);
             Kcur = ggml_rope_multi(
                 ctx0, Kcur, positions, nullptr,
-                d_head/2, mrope_sections, GGML_ROPE_TYPE_VISION, 32768, hparams.rope_theta, 1, 0, 1, 32, 1);
+                d_head/2, mrope_sections, GGML_ROPE_TYPE_VISION, 32768, 10000, 1, 0, 1, 32, 1);
 
             cb(Qcur, "Qcur_rope", il);
             cb(Kcur, "Kcur_rope", il);
@@ -156,7 +154,7 @@ ggml_cgraph * clip_graph_qwen3vl::build() {
                 layer.deepstack_fc1_w, layer.deepstack_fc1_b,
                 nullptr, nullptr,
                 layer.deepstack_fc2_w, layer.deepstack_fc2_b,
-                hparams.ffn_op, il);
+                ffn_op_type::FFN_GELU, il);
 
             if(!deepstack_features) {
                 deepstack_features = feat;
@@ -174,75 +172,20 @@ ggml_cgraph * clip_graph_qwen3vl::build() {
         inpL = build_norm(inpL, model.post_ln_w, model.post_ln_b, norm_t, eps, n_layer);
     }
 
-    ggml_tensor * cur = inpL;
+    // multimodal projection
+    ggml_tensor * embeddings = inpL;
+    embeddings = ggml_reshape_3d(ctx0, embeddings, n_embd * 4, n_pos / 4, batch_size);
 
-    if (proj_type == PROJECTOR_TYPE_QWEN3VL) {
-        // Qwen3VL projector
-        cur = ggml_reshape_3d(ctx0, cur, n_embd * 4, n_pos / 4, batch_size);
-        cur = build_ffn(cur,
-            model.mm_0_w, model.mm_0_b,
-            nullptr, nullptr,
-            model.mm_1_w, model.mm_1_b,
-            ffn_op_type::FFN_GELU, -1);
+    embeddings = build_ffn(embeddings,
+        model.mm_0_w, model.mm_0_b,
+        nullptr, nullptr,
+        model.mm_1_w, model.mm_1_b,
+        ffn_op_type::FFN_GELU, -1);
 
-        if (deepstack_features != nullptr) {
-            // concat along the feature dimension
-            cur = ggml_concat(ctx0, cur, deepstack_features, 0);
-        }
-
-    } else if (proj_type == PROJECTOR_TYPE_GLM4V) {
-        // GLM4V projector
-        // ref: https://github.com/huggingface/transformers/blob/40dc11cd3eb4126652aa41ef8272525affd4a636/src/transformers/models/glm4v/modeling_glm4v.py#L116-L130
-
-        // patch merger (copied from pixtral)
-        {
-            int n_merge = hparams.n_merge;
-            GGML_ASSERT(n_merge > 0);
-
-            // reshape image tokens to 2D grid
-            cur = ggml_reshape_3d(ctx0, cur, n_embd, n_patches_x, n_patches_y);
-            cur = ggml_permute(ctx0, cur, 2, 0, 1, 3); // [x, y, n_embd]
-            cur = ggml_cont(ctx0, cur);
-
-            // torch.nn.functional.unfold is just an im2col under the hood
-            // we just need a dummy kernel to make it work
-            ggml_tensor * kernel = ggml_view_3d(ctx0, cur, n_merge, n_merge, cur->ne[2], 0, 0, 0);
-            cur = ggml_im2col(ctx0, kernel, cur, n_merge, n_merge, 0, 0, 1, 1, true, inp->type);
-
-            // project to n_embd
-            cur = ggml_reshape_2d(ctx0, cur, cur->ne[0], cur->ne[1] * cur->ne[2]);
-            cur = ggml_mul_mat(ctx0, model.mm_patch_merger_w, cur);
-
-            // add bias
-            cur = ggml_add(ctx0, cur, model.mm_patch_merger_b);
-            cb(cur, "after_patch_merger", -1);
-        }
-
-        // FC projector
-        {
-            cur = ggml_mul_mat(ctx0, model.projection, cur);
-            // default LayerNorm (post_projection_norm)
-            cur = build_norm(cur, model.mm_post_norm_w, model.mm_post_norm_b, NORM_TYPE_NORMAL, 1e-5, -1);
-            cur = ggml_gelu(ctx0, cur);
-            cb(cur, "after_fc_proj", -1);
-        }
-
-        // FFN projector
-        {
-            cur = build_ffn(cur,
-                model.mm_ffn_up_w, model.mm_ffn_up_b,
-                model.mm_ffn_gate_w, model.mm_ffn_gate_b,
-                model.mm_ffn_down_w, model.mm_ffn_down_b,
-                hparams.ffn_op, -1);
-            cb(cur, "after_ffn_proj", -1);
-        }
-
-    } else {
-        GGML_ABORT("Unsupported projector type in Qwen3-VL graph");
-    }
+    embeddings = ggml_concat(ctx0, embeddings, deepstack_features, 0); // concat along the feature dimension
 
     // build the graph
-    ggml_build_forward_expand(gf, cur);
+    ggml_build_forward_expand(gf, embeddings);
 
     return gf;
 }
