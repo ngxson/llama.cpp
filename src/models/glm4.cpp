@@ -7,7 +7,7 @@ llm_build_glm4::llm_build_glm4(const llama_model & model, const llm_graph_params
     const int64_t n_embd_gqa  = hparams.n_embd_v_gqa();
 
     GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
-    
+
     int sections[4];
     std::copy(std::begin(hparams.rope_sections), std::begin(hparams.rope_sections) + 4, sections);
 
