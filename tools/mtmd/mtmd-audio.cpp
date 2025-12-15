@@ -20,6 +20,9 @@ struct mtmd_audio_mel_filters {
     std::vector<float> data;
 };
 
+// note: this global cache is shared among all preprocessors
+//       if we want to use multiple preprocessors at the same time,
+//       we will need to enclose it in the preprocessor class in the future
 static struct mtmd_audio_global_cache {
     // precomputed sin/cos table for FFT
     std::vector<float> sin_vals;
@@ -139,8 +142,8 @@ static struct mtmd_audio_global_cache {
 // naive Discrete Fourier Transform
 // input is real-valued
 // output is complex-valued
-static void dft(const mtmd_audio_global_cache & cache, const float * in, int N, float * out) {
-    const int n_sin_cos_vals = cache.sin_vals.size();
+static void dft(const float * in, int N, float * out) {
+    const int n_sin_cos_vals = g_cache.sin_vals.size();
     const int sin_cos_step = n_sin_cos_vals / N;
 
     for (int k = 0; k < N; k++) {
@@ -149,8 +152,8 @@ static void dft(const mtmd_audio_global_cache & cache, const float * in, int N, 
 
         for (int n = 0; n < N; n++) {
             int idx = (k * n * sin_cos_step) % (n_sin_cos_vals); // t = 2*M_PI*k*n/N
-            re += in[n] * cache.cos_vals[idx]; // cos(t)
-            im -= in[n] * cache.sin_vals[idx]; // sin(t)
+            re += in[n] * g_cache.cos_vals[idx]; // cos(t)
+            im -= in[n] * g_cache.sin_vals[idx]; // sin(t)
         }
 
         out[k*2 + 0] = re;
@@ -162,8 +165,8 @@ static void dft(const mtmd_audio_global_cache & cache, const float * in, int N, 
 // poor man's implementation - use something better
 // input is real-valued
 // output is complex-valued
-static void fft(const mtmd_audio_global_cache & cache, float * in, int N, float * out) {
-    const int n_sin_cos_vals = cache.sin_vals.size();
+static void fft(float * in, int N, float * out) {
+    const int n_sin_cos_vals = g_cache.sin_vals.size();
     if (N == 1) {
         out[0] = in[0];
         out[1] = 0;
@@ -172,7 +175,7 @@ static void fft(const mtmd_audio_global_cache & cache, float * in, int N, float 
 
     const int half_N = N / 2;
     if (N - half_N*2 == 1) {
-        dft(cache, in, N, out);
+        dft(in, N, out);
         return;
     }
 
@@ -181,20 +184,20 @@ static void fft(const mtmd_audio_global_cache & cache, float * in, int N, float 
         even[i]= in[2*i];
     }
     float* even_fft = out + 2 * N;
-    fft(cache, even, half_N, even_fft);
+    fft(even, half_N, even_fft);
 
     float* odd = even;
     for (int i = 0; i < half_N; ++i) {
         odd[i] = in[2*i + 1];
     }
     float* odd_fft = even_fft + N;
-    fft(cache, odd, half_N, odd_fft);
+    fft(odd, half_N, odd_fft);
 
     const int sin_cos_step = n_sin_cos_vals / N;
     for (int k = 0; k < half_N; k++) {
         int idx = k * sin_cos_step; // t = 2*M_PI*k/N
-        float re =  cache.cos_vals[idx]; // cos(t)
-        float im = -cache.sin_vals[idx]; // sin(t)
+        float re =  g_cache.cos_vals[idx]; // cos(t)
+        float im = -g_cache.sin_vals[idx]; // sin(t)
 
         float re_odd = odd_fft[2*k + 0];
         float im_odd = odd_fft[2*k + 1];
@@ -218,9 +221,6 @@ struct filter_params {
     bool    use_natural_log = false;
     bool    norm_per_feature = false;
     bool    need_chunking = true;
-
-    const mtmd_audio_global_cache & cache;
-    filter_params() : cache(g_cache) {}
 };
 
 static void log_mel_spectrogram_worker_thread(int ith, const float * hann, const std::vector<float> & samples,
@@ -232,13 +232,11 @@ static void log_mel_spectrogram_worker_thread(int ith, const float * hann, const
     int n_fft_bins = params.n_fft_bins;
     int i = ith;
 
-    const auto & cache = params.cache;
-    const auto & filters = params.cache.filters;
+    const auto & filters = g_cache.filters;
 
     // make sure n_fft == 1 + (WHISPER_N_FFT / 2), bin_0 to bin_nyquist
     GGML_ASSERT(n_fft_bins == 1 + (frame_size / 2));
-    GGML_ASSERT(cache.sin_vals.size() == cache.cos_vals.size());
-
+    GGML_ASSERT(g_cache.sin_vals.size() == g_cache.cos_vals.size());
     // calculate FFT only when fft_in are not all zero
     for (; i < std::min(n_samples / frame_step + 1, out.n_len); i += n_threads) {
         const int offset = i * frame_step;
@@ -254,7 +252,7 @@ static void log_mel_spectrogram_worker_thread(int ith, const float * hann, const
         }
 
         // FFT
-        fft(cache, fft_in.data(), frame_size, fft_out.data());
+        fft(fft_in.data(), frame_size, fft_out.data());
 
         // Calculate modulus^2 of complex numbers
         // Use pow(fft_out[2 * j + 0], 2) + pow(fft_out[2 * j + 1], 2) causes inference quality problem? Interesting.
@@ -307,10 +305,8 @@ static bool log_mel_spectrogram(
     out.n_len_org = n_samples_in;
     int n_samples = n_samples_in;
 
-    const auto & cache = params.cache;
-
     // Hann window
-    const float * hann = cache.hann_window.data();
+    const float * hann = g_cache.hann_window.data();
     const int frame_size = (params.n_fft_bins - 1) * 2;
     const int frame_step = params.hop_length;
 
@@ -450,7 +446,11 @@ static bool log_mel_spectrogram(
     return true;
 }
 
-void mtmd_audio_whisper_preprocessor::initialize() {
+//
+// mtmd_audio_preprocessor_whisper
+//
+
+void mtmd_audio_preprocessor_whisper::initialize() {
     g_cache.fill_sin_cos_table(hparams.audio_n_fft);
     g_cache.fill_hann_window(hparams.audio_window_len, true);
     g_cache.fill_mel_filterbank_matrix(
@@ -459,7 +459,7 @@ void mtmd_audio_whisper_preprocessor::initialize() {
         hparams.audio_sample_rate);
 }
 
-bool mtmd_audio_whisper_preprocessor::preprocess(
+bool mtmd_audio_preprocessor_whisper::preprocess(
         const float * samples,
         size_t n_samples,
         std::vector<mtmd_audio_mel> & output) {

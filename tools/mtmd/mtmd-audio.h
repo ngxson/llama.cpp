@@ -27,8 +27,8 @@ struct mtmd_audio_preprocessor {
     virtual bool preprocess(const float * samples, size_t n_samples, std::vector<mtmd_audio_mel> & output) = 0;
 };
 
-struct mtmd_audio_whisper_preprocessor : mtmd_audio_preprocessor {
-    mtmd_audio_whisper_preprocessor(const clip_ctx * ctx) : mtmd_audio_preprocessor(ctx) {}
+struct mtmd_audio_preprocessor_whisper : mtmd_audio_preprocessor {
+    mtmd_audio_preprocessor_whisper(const clip_ctx * ctx) : mtmd_audio_preprocessor(ctx) {}
     void initialize() override;
     bool preprocess(const float * samples, size_t n_samples, std::vector<mtmd_audio_mel> & output) override;
 };
