@@ -4407,7 +4407,7 @@ class Qwen3VLVisionModel(MmprojModel):
         return super().modify_tensors(data_torch, name, bid)
 
 
-@ModelBase.register("Glm4vForConditionalGeneration")
+@ModelBase.register("Glm4vForConditionalGeneration", "Glm4vMoeForConditionalGeneration")
 class Glm4VVisionModel(Qwen3VLVisionModel):
     def set_gguf_parameters(self):
         MmprojModel.set_gguf_parameters(self) # skip Qwen3VLVisionModel parameters
