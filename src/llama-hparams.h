@@ -275,6 +275,8 @@ struct llama_hparams {
     // ref: https://github.com/ggml-org/llama.cpp/discussions/7416
     //      https://github.com/ggml-org/llama.cpp/pull/17945
     static float yarn_attn_factor_adjust(float attn_factor, float freq_scale, float ext_factor);
+
+    bool use_mrope() const;
 };
 
 static_assert(std::is_trivially_copyable<llama_hparams>::value, "llama_hparams must be trivially copyable");

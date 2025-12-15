@@ -16,7 +16,7 @@ llm_build_glm4::llm_build_glm4(const llama_model & model, const llm_graph_params
 
     inpL = build_inp_embd(model.tok_embd);
 
-    bool use_mrope = rope_type & LLAMA_ROPE_TYPE_MROPE;
+    bool use_mrope = hparams.use_mrope();
     if (ubatch.embd && !use_mrope) {
         // unfortunately, we need to forcefully stop here, to avoid users complaining about wrong results
         GGML_ABORT("This GGUF does not support multimodal. Please reconvert it.");

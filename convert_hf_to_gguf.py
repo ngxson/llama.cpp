@@ -8051,6 +8051,17 @@ class Glm4MoeModel(TextModel):
         if (num_nextn_predict_layers := self.hparams.get("num_nextn_predict_layers")) is not None:
             self.gguf_writer.add_nextn_predict_layers(num_nextn_predict_layers)
 
+        # handle M-RoPE, the same as Qwen-VL
+        # note: unlike GLM4 non-MoE, we don't need to permute the weights here since GLM4_MOE uses Neox ordering already
+        rope_scaling = self.hparams.get("rope_scaling") or self.hparams.get("rope_parameters") or {}
+        if "mrope_section" in rope_scaling:
+            mrope_section = rope_scaling["mrope_section"]
+            # Pad to 4 dimensions [time, height, width, extra]
+            while len(mrope_section) < 4:
+                mrope_section.append(0)
+            self.gguf_writer.add_rope_dimension_sections(mrope_section[:4])
+            logger.info(f"MRoPE sections: {mrope_section[:4]}")
+
     _experts: list[dict[str, Tensor]] | None = None
 
     def modify_tensors(

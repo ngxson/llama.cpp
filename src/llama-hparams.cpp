@@ -241,3 +241,7 @@ float llama_hparams::yarn_attn_factor_adjust(float attn_factor, float freq_scale
 
     return attn_factor;
 }
+
+bool llama_hparams::use_mrope() const {
+    return rope_sections[0] > 0 && rope_sections[1] > 0;
+}
