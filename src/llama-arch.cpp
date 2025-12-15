@@ -305,7 +305,7 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
 static const std::map<llm_tensor, const char *> LLM_TENSOR_NAMES = {
     { LLM_TENSOR_TOKEN_EMBD,                             "token_embd" },
     { LLM_TENSOR_OUTPUT_NORM,                            "output_norm" },
-    { LLM_TENSOR_OUTPUT_NORM_LFM2,                       "token_embd_norm" }, // fix for rong tensor name
+    { LLM_TENSOR_OUTPUT_NORM_LFM2,                       "token_embd_norm" }, // fix for wrong tensor name
     { LLM_TENSOR_OUTPUT,                                 "output" },
     { LLM_TENSOR_ROPE_FREQS,                             "rope_freqs" },
     { LLM_TENSOR_ATTN_NORM,                              "blk.%d.attn_norm" },
