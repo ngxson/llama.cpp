@@ -34,6 +34,7 @@ struct llama_hparams_convnext {
 
 struct llama_hparams {
     bool vocab_only;
+    bool no_alloc;
     bool rope_finetuned;
     bool use_par_res;
     bool swin_norm;
@@ -165,6 +166,7 @@ struct llama_hparams {
     uint32_t n_no_rope_layer_step    = 4;
     uint32_t n_attn_temp_floor_scale = 0;
     float    f_attn_temp_scale       = 0.0f;
+    float    f_attn_temp_offset      = 0.0f; // offset position index
 
     // gemma3n altup
     uint32_t n_altup      = 4; // altup_num_inputs
