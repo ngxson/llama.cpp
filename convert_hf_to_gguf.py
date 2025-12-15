@@ -861,6 +861,14 @@ class TextModel(ModelBase):
                 logger.warning(f"Unknown RoPE type: {rope_type}")
             logger.info(f"gguf: rope scaling type = {rope_gguf_type.name}")
 
+        if "mrope_section" in self.rope_parameters:
+            mrope_section = self.rope_parameters["mrope_section"]
+            # Pad to 4 dimensions [time, height, width, extra]
+            while len(mrope_section) < 4:
+                mrope_section.append(0)
+            self.gguf_writer.add_rope_dimension_sections(mrope_section[:4])
+            logger.info(f"gguf: mrope sections: {mrope_section[:4]}")
+
         if (rope_theta := rope_params.get("rope_theta")) is not None:
             self.gguf_writer.add_rope_freq_base(rope_theta)
             logger.info(f"gguf: rope theta = {rope_theta}")
@@ -3738,9 +3746,6 @@ class Qwen2VLModel(TextModel):
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
-        mrope_section = self.hparams["rope_scaling"]["mrope_section"]
-        mrope_section += [0] * max(0, 4 - len(mrope_section))
-        self.gguf_writer.add_rope_dimension_sections(mrope_section)
 
     def set_vocab(self):
         try:
@@ -4408,20 +4413,6 @@ class Qwen3VLTextModel(Qwen3Model):
         super().set_gguf_parameters()
 
         # Handle MRoPE (Multi-axis Rotary Position Embedding) for Qwen3-VL
-        text_config = self.hparams.get("text_config", {})
-        # rope_scaling is deprecated in V5, use rope_parameters instead
-        rope_scaling = text_config.get("rope_scaling") or text_config.get("rope_parameters") or {}
-
-        if rope_scaling.get("mrope_section"):
-            # mrope_section contains [time, height, width] dimensions
-            mrope_section = rope_scaling["mrope_section"]
-            # Pad to 4 dimensions [time, height, width, extra]
-            while len(mrope_section) < 4:
-                mrope_section.append(0)
-            self.gguf_writer.add_rope_dimension_sections(mrope_section[:4])
-
-            logger.info(f"MRoPE sections: {mrope_section[:4]}")
-
         vision_config = self.hparams.get("vision_config", {})
         deepstack_layer_num = len(vision_config.get("deepstack_visual_indexes", []))
         self.gguf_writer.add_num_deepstack_layers(deepstack_layer_num)
@@ -4440,22 +4431,6 @@ class Qwen3VLMoeTextModel(Qwen3MoeModel):
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
-
-        # Handle MRoPE (Multi-axis Rotary Position Embedding) for Qwen3-VL
-        text_config = self.hparams.get("text_config", {})
-        # rope_scaling is deprecated in V5, use rope_parameters instead
-        rope_scaling = text_config.get("rope_scaling") or text_config.get("rope_parameters") or {}
-
-        if rope_scaling.get("mrope_section"):
-            # mrope_section contains [time, height, width] dimensions
-            mrope_section = rope_scaling["mrope_section"]
-            # Pad to 4 dimensions [time, height, width, extra]
-            while len(mrope_section) < 4:
-                mrope_section.append(0)
-            self.gguf_writer.add_rope_dimension_sections(mrope_section[:4])
-
-            logger.info(f"MRoPE sections: {mrope_section[:4]}")
-
         vision_config = self.hparams.get("vision_config", {})
         deepstack_layer_num = len(vision_config.get("deepstack_visual_indexes", []))
         self.gguf_writer.add_num_deepstack_layers(deepstack_layer_num)
@@ -7826,7 +7801,7 @@ class Glm4Model(TextModel):
         self.partial_rotary_factor = self.rope_parameters.get("partial_rotary_factor", 0.5)
         if "mrope_section" in self.rope_parameters:
             self.use_mrope = True
-            logger.info("Using M-RoPE")
+            logger.info("Q/K weight will need to be permuted for M-RoPE")
 
     def set_vocab(self):
         from transformers import AutoTokenizer
@@ -7849,14 +7824,6 @@ class Glm4Model(TextModel):
         if (rope_dim := self.hparams.get("head_dim")) is None:
             rope_dim = self.hparams["hidden_size"] // self.hparams["num_attention_heads"]
         self.gguf_writer.add_rope_dimension_count(int(rope_dim * self.partial_rotary_factor))
-        # handle M-RoPE, the same as Qwen-VL
-        if self.use_mrope:
-            mrope_section = self.rope_parameters["mrope_section"]
-            # Pad to 4 dimensions [time, height, width, extra]
-            while len(mrope_section) < 4:
-                mrope_section.append(0)
-            self.gguf_writer.add_rope_dimension_sections(mrope_section[:4])
-            logger.info(f"MRoPE sections: {mrope_section[:4]}")
 
     @staticmethod
     def normal_to_neox(weights: Tensor, n_head: int, n_head_kv: int, head_dim: int, partial_rotary_factor: float) -> Tensor:
@@ -7963,19 +7930,9 @@ class Glm4MoeModel(TextModel):
         if (num_nextn_predict_layers := self.hparams.get("num_nextn_predict_layers")) is not None:
             self.gguf_writer.add_nextn_predict_layers(num_nextn_predict_layers)
 
-        # handle M-RoPE, the same as Qwen-VL
-        # note: unlike GLM4 non-MoE, we don't need to permute the weights here since GLM4_MOE uses Neox ordering already
-        rope_scaling = self.hparams.get("rope_scaling") or self.hparams.get("rope_parameters") or {}
-        if "mrope_section" in rope_scaling:
-            mrope_section = rope_scaling["mrope_section"]
-            # Pad to 4 dimensions [time, height, width, extra]
-            while len(mrope_section) < 4:
-                mrope_section.append(0)
-            self.gguf_writer.add_rope_dimension_sections(mrope_section[:4])
-            logger.info(f"MRoPE sections: {mrope_section[:4]}")
-
     _experts: list[dict[str, Tensor]] | None = None
 
+    # note: unlike GLM4V non-MoE, we don't need to permute Q/K here since GLM4V_MOE uses Neox ordering already
     def modify_tensors(
         self, data_torch: Tensor, name: str, bid: int | None
     ) -> Iterable[tuple[str, Tensor]]:
