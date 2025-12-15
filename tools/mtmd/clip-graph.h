@@ -9,7 +9,7 @@
 #include <vector>
 #include <functional>
 
-#define DEFAULT_INTERPOLATION_MODE  GGML_SCALE_MODE_BILINEAR | GGML_SCALE_FLAG_ANTIALIAS
+#define DEFAULT_INTERPOLATION_MODE (GGML_SCALE_MODE_BILINEAR | GGML_SCALE_FLAG_ANTIALIAS)
 
 struct clip_graph {
     const clip_model & model;
