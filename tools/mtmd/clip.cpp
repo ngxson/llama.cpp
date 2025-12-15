@@ -1158,7 +1158,7 @@ struct clip_model_loader {
                 case PROJECTOR_TYPE_LFM2A:
                     {
                         // audio preprocessing params
-                        hparams.audio_chunk_len        = 30; // in seconds
+                        hparams.audio_chunk_len        = 1; // in seconds
                         hparams.audio_sample_rate      = 16000;
                         hparams.audio_n_fft            = 512;
                         hparams.audio_window_len       = 400;

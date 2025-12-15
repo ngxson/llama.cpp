@@ -506,6 +506,12 @@ bool mtmd_audio_preprocessor_whisper::preprocess(
         return false;
     }
 
+    // return early if no chunking needed
+    if (!params.need_chunking) {
+        output.push_back(std::move(out_full));
+        return true;
+    }
+
     // because the cgraph in clip.cpp only accepts 3000 frames each, we need to split the mel
     // we always expect the mel to have 3000 silent frames at the end
     if (DEBUG) {
