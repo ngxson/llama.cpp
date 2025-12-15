@@ -5766,8 +5766,6 @@ static void ggml_compute_forward_rope_flt(
 
                 switch (mode) {
                     case GGML_ROPE_TYPE_NORMAL:
-                    case GGML_ROPE_TYPE_MROPE | GGML_ROPE_TYPE_MRNORM:
-                    case GGML_ROPE_TYPE_IMROPE | GGML_ROPE_TYPE_MRNORM:
                         rotate_pairs<T>(n_dims, 1, cache, src, dst_data, 1);
                         break;
                     case GGML_ROPE_TYPE_NEOX:

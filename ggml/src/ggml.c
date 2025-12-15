@@ -4073,8 +4073,7 @@ static struct ggml_tensor * ggml_rope_impl(
 
     bool mrope_used = mode & GGML_ROPE_TYPE_MROPE;
     if (mrope_used) {
-        // mrope expecting multiple positions ids per token
-        GGML_ASSERT(a->ne[2] * GGML_MROPE_SECTIONS == b->ne[0]);
+        GGML_ASSERT(a->ne[2] * 4 == b->ne[0]); // mrope expecting 4 position ids per token
     } else {
         GGML_ASSERT(a->ne[2] == b->ne[0]);
     }

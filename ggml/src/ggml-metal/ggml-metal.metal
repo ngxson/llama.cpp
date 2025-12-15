@@ -4152,7 +4152,6 @@ kernel void kernel_rope_norm(
     }
 }
 
-// TODO @ngxson : merge with kernel_rope_norm using offset and idx_scale
 template<typename T>
 kernel void kernel_rope_neox(
         constant ggml_metal_kargs_rope & args,
@@ -4271,15 +4270,14 @@ kernel void kernel_rope_multi(
 
             rope_yarn(theta/freq_factor, args.freq_scale, corr_dims, i0, args.ext_factor, args.attn_factor, &cos_theta, &sin_theta);
 
-            const int i_base = i0 / args.idx_scale;
-            device const T * const src = (device T *)(src0 + i3*args.nb03 + i2*args.nb02 + i1*args.nb01 + i_base*args.nb00);
-            device       T * dst_data  = (device T *)( dst + i3*args.nb3  + i2*args.nb2  + i1*args.nb1  + i_base*args.nb0);
+            device const T * const src = (device T *)(src0 + i3*args.nb03 + i2*args.nb02 + i1*args.nb01 + ic*args.nb00);
+            device       T * dst_data  = (device T *)( dst + i3*args.nb3  + i2*args.nb2  + i1*args.nb1  + ic*args.nb0);
 
             const float x0 = src[0];
-            const float x1 = src[args.offset];
+            const float x1 = src[args.n_dims/2];
 
-            dst_data[0]           = x0*cos_theta - x1*sin_theta;
-            dst_data[args.offset] = x0*sin_theta + x1*cos_theta;
+            dst_data[0]             = x0*cos_theta - x1*sin_theta;
+            dst_data[args.n_dims/2] = x0*sin_theta + x1*cos_theta;
         } else {
             device const T * const src = (device T *)(src0 + i3*args.nb03 + i2*args.nb02 + i1*args.nb01 + i0*args.nb00);
             device       T * dst_data  = (device T *)( dst + i3*args.nb3  + i2*args.nb2  + i1*args.nb1  + i0*args.nb0);

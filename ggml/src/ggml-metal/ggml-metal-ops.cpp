@@ -3141,7 +3141,7 @@ int ggml_metal_op_rope(ggml_metal_op_t ctx, int idx) {
 
     const int n_past     = ((const int32_t *) op->op_params)[0];
     const int n_dims     = ((const int32_t *) op->op_params)[1];
-    const int mode       = ((const int32_t *) op->op_params)[2];
+  //const int mode       = ((const int32_t *) op->op_params)[2];
     // skip 3, n_ctx, used in GLM RoPE, unimplemented in metal
     const int n_ctx_orig = ((const int32_t *) op->op_params)[4];
 
@@ -3164,8 +3164,6 @@ int ggml_metal_op_rope(ggml_metal_op_t ctx, int idx) {
     const int sect_1 = ((const int32_t *) op->op_params)[12];
     const int sect_2 = ((const int32_t *) op->op_params)[13];
     const int sect_3 = ((const int32_t *) op->op_params)[14];
-
-    bool is_normal_ordering = mode == GGML_ROPE_TYPE_NORMAL || mode & GGML_ROPE_TYPE_MRNORM;
 
     ggml_metal_kargs_rope args = {
         /*.ne00        =*/ ne00,
@@ -3198,8 +3196,6 @@ int ggml_metal_op_rope(ggml_metal_op_t ctx, int idx) {
         /* sect_2      =*/ sect_2,
         /* sect_3      =*/ sect_3,
         /* src2        =*/ op->src[2] != nullptr,
-        /* offset      =*/ is_normal_ordering ? 1u : ((uint16_t)n_dims / 2),
-        /* idx_scale   =*/ is_normal_ordering ? 1u : 2u,
     };
 
     auto pipeline = ggml_metal_library_get_pipeline_rope(lib, op);
