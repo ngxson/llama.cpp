@@ -506,12 +506,6 @@ bool mtmd_audio_preprocessor_whisper::preprocess(
         return false;
     }
 
-    // return early if no chunking needed
-    if (!params.need_chunking) {
-        output.push_back(std::move(out_full));
-        return true;
-    }
-
     // because the cgraph in clip.cpp only accepts 3000 frames each, we need to split the mel
     // we always expect the mel to have 3000 silent frames at the end
     if (DEBUG) {
@@ -539,5 +533,57 @@ bool mtmd_audio_preprocessor_whisper::preprocess(
         output.push_back(std::move(out_chunk));
     }
 
+    return true;
+}
+
+//
+// mtmd_audio_preprocessor_lfm2
+//
+void mtmd_audio_preprocessor_lfm2::initialize() {
+    g_cache.fill_sin_cos_table(hparams.audio_n_fft);
+    g_cache.fill_hann_window(hparams.audio_window_len, true);
+    g_cache.fill_mel_filterbank_matrix(
+        hparams.n_mel_bins,
+        hparams.audio_n_fft,
+        hparams.audio_sample_rate);
+}
+
+bool mtmd_audio_preprocessor_lfm2::preprocess(
+        const float * samples,
+        size_t n_samples,
+        std::vector<mtmd_audio_mel> & output) {
+    // empty audio
+    if (n_samples == 0) {
+        return false;
+    }
+
+    filter_params params;
+    params.n_mel            = hparams.n_mel_bins;
+    params.n_fft_bins       = 1 + (hparams.audio_n_fft / 2);
+    params.hann_window_size = hparams.audio_window_len;
+    params.hop_length       = hparams.audio_hop_len;
+    params.sample_rate      = hparams.audio_sample_rate;
+    params.center_padding   = true;
+    params.preemph          = 0.97f; // disabled
+    params.use_natural_log  = true;
+    params.norm_per_feature = true;
+
+    // make sure the global cache is initialized
+    GGML_ASSERT(!g_cache.sin_vals.empty());
+    GGML_ASSERT(!g_cache.cos_vals.empty());
+    GGML_ASSERT(!g_cache.filters.data.empty());
+
+    mtmd_audio_mel out_full;
+    bool ok = log_mel_spectrogram(
+                samples,
+                n_samples,
+                4, // n_threads
+                params,
+                out_full);
+    if (!ok) {
+        return false;
+    }
+
+    output.push_back(std::move(out_full));
     return true;
 }

@@ -1163,11 +1163,6 @@ struct clip_model_loader {
                         hparams.audio_n_fft            = 512;
                         hparams.audio_window_len       = 400;
                         hparams.audio_hop_len          = 160;
-                        hparams.audio_preemph          = 0.97f;
-                        hparams.audio_use_natural_log  = true;
-                        hparams.audio_center_padding   = true;
-                        hparams.audio_norm_per_feature = true;
-                        hparams.audio_need_chunking    = false;
                     } break;
                 default:
                     break;

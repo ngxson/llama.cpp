@@ -67,16 +67,11 @@ struct clip_hparams {
     int32_t proj_stack_factor = 0; // ultravox
 
     // audio-to-mel preprocessor params
-    int32_t audio_chunk_len        = -1; // in seconds
-    int32_t audio_sample_rate      = -1;
-    int32_t audio_n_fft            = -1;
-    int32_t audio_window_len       = -1;
-    int32_t audio_hop_len          = -1;
-    float   audio_preemph          = 0.0f; // disabled
-    bool    audio_center_padding   = false;
-    bool    audio_use_natural_log  = false;
-    bool    audio_norm_per_feature = false;
-    bool    audio_need_chunking    = true;
+    int32_t audio_chunk_len   = -1; // in seconds
+    int32_t audio_sample_rate = -1;
+    int32_t audio_n_fft       = -1;
+    int32_t audio_window_len  = -1;
+    int32_t audio_hop_len     = -1;
 
     // legacy
     bool has_llava_projector = false;
