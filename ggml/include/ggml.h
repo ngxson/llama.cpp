@@ -514,6 +514,7 @@ extern "C" {
         GGML_OP_SOFT_MAX,
         GGML_OP_SOFT_MAX_BACK,
         GGML_OP_ROPE,
+        GGML_OP_ROPE_COMP,
         GGML_OP_ROPE_BACK,
         GGML_OP_CLAMP,
         GGML_OP_CONV_TRANSPOSE_1D,
@@ -1857,6 +1858,42 @@ extern "C" {
     // compute correction dims for YaRN RoPE scaling
     GGML_API void ggml_rope_yarn_corr_dims(
         int n_dims, int n_ctx_orig, float freq_base, float beta_fast, float beta_slow, float dims[2]);
+
+
+    enum ggml_rope_ordering {
+        GGML_ROPE_ORDERING_NORMAL,
+        GGML_ROPE_ORDERING_NEOX,
+    };
+
+    // demo new RoPE API (NOT yet to be merged)
+    // RoPE composable API
+    GGML_API struct ggml_tensor * ggml_rope_comp(
+            struct ggml_context   * ctx,
+            struct ggml_tensor    * a,
+            struct ggml_tensor    * b,
+            int32_t                 n_dims,
+            float                   freq_base,
+            enum ggml_rope_ordering ordering);
+
+    // TODO: ggml_rope_comp_set_rope_factors
+
+    // set YaRN parameters
+    GGML_API struct ggml_tensor * ggml_rope_comp_set_yarn(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * node,
+            int                   n_ctx_orig,
+            float                 freq_base,
+            float                 freq_scale,  // == 1.0f / scale_factor
+            float                 ramp_factor, // usually 1.0f
+            float                 attn_factor,
+            float                 beta_fast,
+            float                 beta_slow);
+
+    // set M-RoPE mode
+    GGML_API struct ggml_tensor * ggml_rope_comp_set_multi(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * node,
+            int                   sections[GGML_MROPE_SECTIONS]);
 
     // rotary position embedding backward, i.e compute dx from dy
     // a - dy

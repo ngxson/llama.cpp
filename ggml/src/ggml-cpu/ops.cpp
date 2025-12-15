@@ -5817,6 +5817,156 @@ void ggml_compute_forward_rope(
     }
 }
 
+// ggml_compute_forward_rope_comp
+
+template<typename T> //float or ggml_fp16_t
+static void ggml_compute_forward_rope_comp_flt(
+        const ggml_compute_params * params,
+        ggml_tensor * dst,
+        const bool forward) {
+
+    const ggml_tensor * src0 = dst->src[0];
+    const ggml_tensor * src1 = dst->src[1];
+    const ggml_tensor * src2 = dst->src[2];
+
+    GGML_ASSERT(src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16);
+    GGML_ASSERT(src1->type == GGML_TYPE_I32);
+
+    int32_t n_dims, idx_pair, idx_scale, idx_offset;
+    float theta_scale, yarn_high, yarn_low, freq_scale, ramp_factor, attn_factor;
+    int32_t sections[4];
+
+    memcpy(&n_dims,         (int32_t *)dst->op_params +  0, sizeof(int32_t));
+    memcpy(&idx_pair,       (int32_t *)dst->op_params +  1, sizeof(int32_t));
+    memcpy(&idx_scale,      (int32_t *)dst->op_params +  2, sizeof(int32_t));
+    memcpy(&idx_offset,     (int32_t *)dst->op_params +  3, sizeof(int32_t));
+    memcpy(&theta_scale,    (int32_t *)dst->op_params +  4, sizeof(float));
+    memcpy(&yarn_high,      (int32_t *)dst->op_params +  5, sizeof(float));
+    memcpy(&yarn_low,       (int32_t *)dst->op_params +  6, sizeof(float));
+    memcpy(&freq_scale,     (int32_t *)dst->op_params +  7, sizeof(float));
+    memcpy(&attn_factor,    (int32_t *)dst->op_params +  8, sizeof(float));
+    memcpy(&ramp_factor,    (int32_t *)dst->op_params +  9, sizeof(float));
+    memcpy(&sections[0],    (int32_t *)dst->op_params + 10, sizeof(int32_t));
+    memcpy(&sections[1],    (int32_t *)dst->op_params + 11, sizeof(int32_t));
+    memcpy(&sections[2],    (int32_t *)dst->op_params + 12, sizeof(int32_t));
+    memcpy(&sections[3],    (int32_t *)dst->op_params + 13, sizeof(int32_t));
+
+    GGML_TENSOR_UNARY_OP_LOCALS
+
+    GGML_ASSERT(nb0 == nb00);
+    GGML_ASSERT(nb0 == sizeof(T));
+
+    const int ith = params->ith;
+    const int nth = params->nth;
+
+    const int nr = ggml_nrows(dst);
+
+    GGML_ASSERT(n_dims <= ne0);
+    GGML_ASSERT(n_dims % 2 == 0);
+
+    // rows per thread
+    const int dr = (nr + nth - 1)/nth;
+
+    // row range for this thread
+    const int ir0 = dr*ith;
+    const int ir1 = MIN(ir0 + dr, nr);
+
+    // row index used to determine which thread to use
+    int ir = 0;
+
+    // TODO M-RoPE
+
+    const float * freq_factors = NULL;
+    if (src2 != NULL) {
+        GGML_ASSERT(src2->type == GGML_TYPE_F32);
+        GGML_ASSERT(src2->ne[0] >= n_dims / 2);
+        freq_factors = (const float *) src2->data;
+    }
+
+    // backward process uses inverse rotation by cos and sin.
+    // cos and sin build a rotation matrix, where the inverse is the transpose.
+    // this essentially just switches the sign of sin.
+    const float sin_sign = forward ? 1.0f : -1.0f;
+
+    const int32_t * pos = (const int32_t *) src1->data;
+
+    auto init_cache = [&](float * cache, float theta_base) -> void {
+        float theta = theta_base;
+        for (int64_t i0 = 0; i0 < ne0; i0 += 2) {
+            const float ff = freq_factors ? freq_factors[i0/2] : 1.0f;
+            // yarn
+            {
+                // Get n-d rotational scaling corrected for extrapolation
+                float theta_extrap = theta / ff;
+                float theta_interp = freq_scale * theta_extrap;
+                theta = theta_interp;
+                if (ramp_factor != 0.0f) {
+                    float ramp_mix = rope_yarn_ramp(yarn_high, yarn_low, i0) * ramp_factor;
+                    theta = theta_interp * (1 - ramp_mix) + theta_extrap * ramp_mix;
+                }
+            }
+            cache[i0 + 0] = cosf(theta) * attn_factor;
+            cache[i0 + 1] = sinf(theta) * attn_factor * sin_sign;
+
+            theta *= theta_scale;
+        }
+    };
+
+    for (int64_t i3 = 0; i3 < ne3; i3++) { // batch
+        for (int64_t i2 = 0; i2 < ne2; i2++) { // seq-len
+
+            float * cache = (float *) params->wdata + (ne0 + CACHE_LINE_SIZE_F32)*ith;
+            {
+                const int64_t p = pos[i2];
+                init_cache(cache, p);
+            }
+            // TODO M-RoPE
+
+            for (int64_t i1 = idx_offset; i1 < ne1; i1++) { // attn-heads
+                if (ir++ < ir0) continue;
+                if (ir   > ir1) break;
+
+                T * src       = (T *)((char *) src0->data + i3*nb03 + i2*nb02 + i1*nb01);
+                T * dst_data  = (T *)((char *)  dst->data + i3*nb3  + i2*nb2  + i1*nb1);
+
+                rotate_pairs<T>(n_dims, idx_pair, cache, src, dst_data, idx_scale);
+                // TODO M-RoPE
+
+                // fill the remain channels with data from src tensor
+                for (int64_t i0 = n_dims; i0 < ne0; i0 += 2) {
+                    const T * const src = (T *)((char *) src0->data + i3*nb03 + i2*nb02 + i1*nb01 + i0*nb00);
+                    T * dst_data  = (T *)((char *)  dst->data + i3*nb3  + i2*nb2  + i1*nb1  + i0*nb0);
+
+                    dst_data[0] = src[0];
+                    dst_data[1] = src[1];
+                }
+            } //attn-heads
+        }
+    }
+}
+
+void ggml_compute_forward_rope_comp(
+        const ggml_compute_params * params,
+        ggml_tensor * dst) {
+
+    const ggml_tensor * src0 = dst->src[0];
+
+    switch (src0->type) {
+        case GGML_TYPE_F16:
+            {
+                ggml_compute_forward_rope_comp_flt<ggml_fp16_t>(params, dst, false);
+            } break;
+        case GGML_TYPE_F32:
+            {
+                ggml_compute_forward_rope_comp_flt<float>(params, dst, false);
+            } break;
+        default:
+            {
+                GGML_ABORT("fatal error");
+            }
+    }
+}
+
 // ggml_compute_forward_rope_back
 
 void ggml_compute_forward_rope_back(

@@ -38,7 +38,7 @@ llm_build_mistral3::llm_build_mistral3(const llama_model & model, const llm_grap
         // self-attention
         {
             // rope freq factors for llama3; may return nullptr for llama2 and other models
-            ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
+            // ggml_tensor * rope_factors = model.get_rope_factors(cparams, il);
 
             // compute Q and K and RoPE them
             ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
@@ -63,17 +63,23 @@ llm_build_mistral3::llm_build_mistral3(const llama_model & model, const llm_grap
             Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
             Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head, n_head_kv, n_tokens);
 
-            Qcur = ggml_rope_ext(
-                    ctx0, Qcur, inp_pos, rope_factors,
-                    n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
-                    ext_factor, attn_factor, beta_fast, beta_slow
-                    );
+            // Qcur = ggml_rope_ext(
+            //         ctx0, Qcur, inp_pos, rope_factors,
+            //         n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+            //         ext_factor, attn_factor, beta_fast, beta_slow
+            //         );
 
-            Kcur = ggml_rope_ext(
-                    ctx0, Kcur, inp_pos, rope_factors,
-                    n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
-                    ext_factor, attn_factor, beta_fast, beta_slow
-                    );
+            // Kcur = ggml_rope_ext(
+            //         ctx0, Kcur, inp_pos, rope_factors,
+            //         n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
+            //         ext_factor, attn_factor, beta_fast, beta_slow
+            //         );
+
+            Qcur = ggml_rope_comp(ctx0, Qcur, inp_pos, n_rot, freq_base, GGML_ROPE_ORDERING_NORMAL);
+            ggml_rope_comp_set_yarn(ctx0, Qcur, n_ctx_orig, freq_base, freq_scale, 1.0f, 1.0f, 32.0f, 1.0f);
+
+            Kcur = ggml_rope_comp(ctx0, Kcur, inp_pos, n_rot, freq_base, GGML_ROPE_ORDERING_NORMAL);
+            ggml_rope_comp_set_yarn(ctx0, Kcur, n_ctx_orig, freq_base, freq_scale, 1.0f, 1.0f, 32.0f, 1.0f);
 
             cb(Qcur, "Qcur", il);
             cb(Kcur, "Kcur", il);

@@ -991,6 +991,7 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
     "SOFT_MAX",
     "SOFT_MAX_BACK",
     "ROPE",
+    "ROPE_COMP",
     "ROPE_BACK",
     "CLAMP",
     "CONV_TRANSPOSE_1D",
@@ -1045,7 +1046,7 @@ static const char * GGML_OP_NAME[GGML_OP_COUNT] = {
     "GLU",
 };
 
-static_assert(GGML_OP_COUNT == 95, "GGML_OP_COUNT != 95");
+static_assert(GGML_OP_COUNT == 96, "GGML_OP_COUNT != 96");
 
 static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "none",
@@ -1154,7 +1155,7 @@ static const char * GGML_OP_SYMBOL[GGML_OP_COUNT] = {
     "glu(x)",
 };
 
-static_assert(GGML_OP_COUNT == 95, "GGML_OP_COUNT != 95");
+static_assert(GGML_OP_COUNT == 96, "GGML_OP_COUNT != 96");
 
 static_assert(GGML_OP_POOL_COUNT == 2, "GGML_OP_POOL_COUNT != 2");
 
@@ -4265,6 +4266,88 @@ void ggml_rope_yarn_corr_dims(
     dims[1] = MIN(n_dims - 1, end);
 }
 
+// ggml_rope_comp
+
+GGML_API struct ggml_tensor * ggml_rope_comp(
+        struct ggml_context   * ctx,
+        struct ggml_tensor    * a,
+        struct ggml_tensor    * b,
+        int32_t                 n_dims,
+        float                   freq_base,
+        enum ggml_rope_ordering ordering) {
+    GGML_ASSERT(ggml_is_vector(b));
+    GGML_ASSERT(b->type == GGML_TYPE_I32);
+
+    GGML_ASSERT(b->ne[0] >= a->ne[2]); // also allow M-RoPE
+    GGML_ASSERT(b->ne[0] % a->ne[2] == 0);
+
+    int32_t idx_pair  = 1;
+    int32_t idx_scale = 1;
+    if (ordering == GGML_ROPE_ORDERING_NEOX) {
+        idx_pair  = n_dims / 2;
+        idx_scale = 2;
+    }
+
+    // note: theta = theta_base * theta_scale^i
+    const float theta_scale = powf(freq_base, -2.0f / (float)n_dims);
+
+    int32_t i_zero = 0;
+    float   f_zero = 0.0f;
+    float   f_one  = 1.0f;
+
+    struct ggml_tensor * result = ggml_dup_tensor(ctx, a);
+    int32_t params[15];
+    memset(params, 0, sizeof(params));
+    memcpy(params +  0, &n_dims,      sizeof(int32_t)); // n_dims
+    memcpy(params +  1, &idx_pair,    sizeof(int32_t)); // idx_pair
+    memcpy(params +  2, &idx_scale,   sizeof(int32_t)); // idx_scale
+    memcpy(params +  3, &i_zero,      sizeof(int32_t)); // idx_offset for 2D-RoPE
+    memcpy(params +  4, &theta_scale, sizeof(float));   // theta_scale
+    memcpy(params +  5, &f_zero,      sizeof(float));   // yarn_high
+    memcpy(params +  6, &f_zero,      sizeof(float));   // yarn_low
+    memcpy(params +  7, &f_zero,      sizeof(float));   // freq_scale
+    memcpy(params +  8, &f_one,       sizeof(float));   // attn_factor
+    memcpy(params +  9, &f_zero,      sizeof(float));   // ramp_factor
+    memcpy(params + 10, &i_zero,      sizeof(int32_t)); // sections[0]
+    memcpy(params + 11, &i_zero,      sizeof(int32_t)); // sections[1]
+    memcpy(params + 12, &i_zero,      sizeof(int32_t)); // sections[2]
+    memcpy(params + 13, &i_zero,      sizeof(int32_t)); // sections[3]
+    ggml_set_op_params(result, params, sizeof(params));
+
+    result->op     = GGML_OP_ROPE_COMP;
+    result->src[0] = a;
+    result->src[1] = b;
+    result->src[2] = NULL;
+
+    return result;
+}
+
+struct ggml_tensor * ggml_rope_comp_set_yarn(
+        struct ggml_context * ctx,
+        struct ggml_tensor  * node,
+        int                   n_ctx_orig,
+        float                 freq_base,
+        float                 freq_scale,
+        float                 ramp_factor,
+        float                 attn_factor,
+        float                 beta_fast,
+        float                 beta_slow) {
+    GGML_UNUSED(ctx);
+    GGML_ASSERT(node->op == GGML_OP_ROPE_COMP);
+
+    const int32_t n_dims = *((int32_t *) node->op_params + 0);
+
+    float yarn_high = floorf(ggml_rope_yarn_corr_dim(n_dims, n_ctx_orig, beta_fast, freq_base));
+    float yarn_low  =  ceilf(ggml_rope_yarn_corr_dim(n_dims, n_ctx_orig, beta_slow, freq_base));
+
+    memcpy((float *) node->op_params +  5, &yarn_high,   sizeof(float));
+    memcpy((float *) node->op_params +  6, &yarn_low,    sizeof(float));
+    memcpy((float *) node->op_params +  7, &freq_scale,  sizeof(float));
+    memcpy((float *) node->op_params +  8, &attn_factor, sizeof(float));
+    memcpy((float *) node->op_params +  9, &ramp_factor, sizeof(float));
+    return node;
+}
+
 // ggml_rope_back
 
 struct ggml_tensor * ggml_rope_ext_back(
@@ -6848,6 +6931,7 @@ void ggml_build_backward_expand(
             case GGML_OP_GET_ROWS:      // row indices not differentiable
             case GGML_OP_GET_ROWS_BACK: // same as for GET_ROWS
             case GGML_OP_ROPE:          // positions not differentiable
+            case GGML_OP_ROPE_COMP:     // same as for ROPE
                 ignore_src[1] = true;
                 break;
 
