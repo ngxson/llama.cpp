@@ -68,14 +68,12 @@ llm_build_glm4::llm_build_glm4(const llama_model & model, const llm_graph_params
             }
 
             if (rope_type & LLAMA_ROPE_TYPE_MROPE) {
-                // M-RoPE without using NEOX ordering
-                auto rope_type_adj = rope_type | GGML_ROPE_TYPE_MRNORM;
                 Qcur = ggml_rope_multi(ctx0, Qcur, inp_pos, nullptr,
-                            n_rot, sections, rope_type_adj, n_ctx_orig, freq_base, freq_scale,
+                            n_rot, sections, rope_type, n_ctx_orig, freq_base, freq_scale,
                             ext_factor, attn_factor, beta_fast, beta_slow);
 
                 Kcur = ggml_rope_multi(ctx0, Kcur, inp_pos, nullptr,
-                            n_rot, sections, rope_type_adj, n_ctx_orig, freq_base, freq_scale,
+                            n_rot, sections, rope_type, n_ctx_orig, freq_base, freq_scale,
                             ext_factor, attn_factor, beta_fast, beta_slow);
             } else {
                 // Normal RoPE

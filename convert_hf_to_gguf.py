@@ -7900,6 +7900,16 @@ class JaisModel(TextModel):
 @ModelBase.register("Glm4ForCausalLM", "Glm4vForConditionalGeneration")
 class Glm4Model(TextModel):
     model_arch = gguf.MODEL_ARCH.GLM4
+    use_mrope = False
+    partial_rotary_factor = 0.5
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        rope_scaling = self.hparams.get("rope_scaling") or self.hparams.get("rope_parameters") or {}
+        if "mrope_section" in rope_scaling:
+            self.use_mrope = True
+            self.partial_rotary_factor = rope_scaling.get("partial_rotary_factor", 0.5)
+            logger.info("Using M-RoPE")
 
     def set_vocab(self):
         from transformers import AutoTokenizer
@@ -7928,7 +7938,7 @@ class Glm4Model(TextModel):
             self.gguf_writer.add_rope_scaling_factor(rope_scaling["factor"])
             self.gguf_writer.add_rope_scaling_orig_ctx_len(rope_scaling["original_max_position_embeddings"])
         # handle M-RoPE, the same as Qwen-VL
-        if "mrope_section" in rope_scaling:
+        if self.use_mrope:
             mrope_section = rope_scaling["mrope_section"]
             # Pad to 4 dimensions [time, height, width, extra]
             while len(mrope_section) < 4:
@@ -7936,11 +7946,43 @@ class Glm4Model(TextModel):
             self.gguf_writer.add_rope_dimension_sections(mrope_section[:4])
             logger.info(f"MRoPE sections: {mrope_section[:4]}")
 
+    @staticmethod
+    def normal_to_neox(weights: Tensor, n_head: int, n_head_kv: int, head_dim: int, partial_rotary_factor: float) -> Tensor:
+        orig_shape = weights.shape
+        if len(orig_shape) == 1:
+            weights = weights.unsqueeze(1)  # [out_dim, 1]
+        if len(weights.shape) != 2:
+            raise ValueError("Only 1D and 2D tensors are supported.")
+        n_effective_heads = weights.shape[0] // head_dim
+        if n_head_kv is not None and n_effective_heads != n_head:
+            if n_effective_heads != n_head_kv:
+                raise AssertionError(f"Mismatch in effective heads: computed {n_effective_heads}, expected {n_head} or {n_head_kv}")
+        rotary_dim = int(head_dim * partial_rotary_factor)
+        if rotary_dim % 2 != 0:
+            raise ValueError("rotary_dim must be even.")
+        reshaped = weights.reshape(n_effective_heads, head_dim, -1)
+        rot_part = reshaped[:, :rotary_dim, :]
+        non_rot_part = reshaped[:, rotary_dim:, :]
+        permuted_rot = torch.cat((rot_part[:, ::2, :], rot_part[:, 1::2, :]), dim=1)
+        combined = torch.cat((permuted_rot, non_rot_part), dim=1)
+        result = combined.reshape(weights.shape)
+        return result if len(orig_shape) != 1 else result.squeeze(1)
+
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         if name.startswith("model.visual."): # ignore visual part of Glm4v
             return []
         elif name.startswith("model.language_model."):
             name = name.replace("language_model.", "") # for Glm4v
+        if self.use_mrope:
+            n_head = self.hparams["num_attention_heads"]
+            n_kv_head = self.hparams["num_key_value_heads"]
+            n_embd = self.hparams["hidden_size"]
+            head_dim = n_embd // n_head
+            # because llama.cpp M-RoPE kernel only supports Neox ordering, we have to permute the weights here
+            if name.endswith(("q_proj.weight", "q_proj.bias")):
+                data_torch = Glm4Model.normal_to_neox(data_torch, n_head, n_head, head_dim, self.partial_rotary_factor)
+            if name.endswith(("k_proj.weight", "k_proj.bias")):
+                data_torch = Glm4Model.normal_to_neox(data_torch, n_head, n_kv_head, head_dim, self.partial_rotary_factor)
         return super().modify_tensors(data_torch, name, bid)
 
 
