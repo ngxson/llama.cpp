@@ -220,7 +220,6 @@ struct filter_params {
     float   preemph = 0.f;
     bool    use_natural_log = false;
     bool    norm_per_feature = false;
-    bool    need_chunking = true;
 };
 
 static void log_mel_spectrogram_worker_thread(int ith, const float * hann, const std::vector<float> & samples,
@@ -490,7 +489,6 @@ bool mtmd_audio_preprocessor_whisper::preprocess(
     params.preemph          = 0.0f; // disabled
     params.use_natural_log  = false;
     params.norm_per_feature = false;
-    params.need_chunking    = true;
 
     // make sure the global cache is initialized
     GGML_ASSERT(!g_cache.sin_vals.empty());
