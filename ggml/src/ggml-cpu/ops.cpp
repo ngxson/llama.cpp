@@ -5954,11 +5954,11 @@ void ggml_compute_forward_rope_comp(
     switch (src0->type) {
         case GGML_TYPE_F16:
             {
-                ggml_compute_forward_rope_comp_flt<ggml_fp16_t>(params, dst, false);
+                ggml_compute_forward_rope_comp_flt<ggml_fp16_t>(params, dst, true);
             } break;
         case GGML_TYPE_F32:
             {
-                ggml_compute_forward_rope_comp_flt<float>(params, dst, false);
+                ggml_compute_forward_rope_comp_flt<float>(params, dst, true);
             } break;
         default:
             {
