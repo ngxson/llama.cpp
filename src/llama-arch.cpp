@@ -1660,6 +1660,14 @@ static std::set<llm_tensor> llm_get_tensor_names(llm_arch arch) {
                 // dense FFN
                 LLM_TENSOR_FFN_DOWN,
                 LLM_TENSOR_FFN_UP,
+                // MoE FFN (for MoE layers)
+                LLM_TENSOR_FFN_GATE_INP,
+                LLM_TENSOR_FFN_UP_EXPS,
+                LLM_TENSOR_FFN_DOWN_EXPS,
+                LLM_TENSOR_FFN_EXP_PROBS_B,
+                // MoE shared expert layer
+                LLM_TENSOR_FFN_DOWN_SHEXP,
+                LLM_TENSOR_FFN_UP_SHEXP,
             };
         case LLM_ARCH_EXAONE4:
             return {
