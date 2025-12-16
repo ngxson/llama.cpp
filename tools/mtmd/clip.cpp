@@ -1495,7 +1495,7 @@ struct clip_model_loader {
                 } break;
             case PROJECTOR_TYPE_GLM4V:
                 {
-                    model.projection     = get_tensor(TN_MM_PROJECTOR);
+                    model.fc_w           = get_tensor(string_format(TN_MM_PROJECTOR, "weight"));
                     model.mm_ffn_up_w    = get_tensor(string_format(TN_MM_UP,        "weight"));
                     model.mm_ffn_up_b    = get_tensor(string_format(TN_MM_UP,        "bias"), false);
                     model.mm_ffn_gate_w  = get_tensor(string_format(TN_MM_GATE,      "weight"));
