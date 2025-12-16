@@ -71,6 +71,7 @@
 #define TN_PATCH_EMBD      "v.patch_embd.weight"  // not rename tensor with ".0" postfix for backwrad compat
 #define TN_PATCH_EMBD_1    "v.patch_embd.weight.1"
 #define TN_PATCH_BIAS      "v.patch_embd.bias"
+#define TN_NORM_EMBD       "v.norm_embd.%s"
 #define TN_ATTN_QKV        "%s.blk.%d.attn_qkv.%s"
 #define TN_ATTN_K          "%s.blk.%d.attn_k.%s"
 #define TN_ATTN_Q          "%s.blk.%d.attn_q.%s"
@@ -89,6 +90,10 @@
 #define TN_LN_PRE          "%s.pre_ln.%s"
 #define TN_LN_POST         "%s.post_ln.%s"
 #define TN_LLAVA_PROJ      "mm.%d.%s"
+#define TN_MM_UP           "mm.up.%s"
+#define TN_MM_GATE         "mm.gate.%s"
+#define TN_MM_DOWN         "mm.down.%s"
+#define TN_MM_POST_NORM    "mm.post_norm.%s"
 #define TN_MVLM_PROJ_MLP   "mm.model.mlp.%d.%s"
 #define TN_MVLM_PROJ_BLOCK "mm.model.mb_block.%d.block.%d.%s"
 #define TN_MVLM_PROJ_PEG   "mm.model.peg.%d.%s"
@@ -99,7 +104,7 @@
 #define TN_MM_INP_PROJ     "mm.input_projection.weight" // gemma3
 #define TN_MM_SOFT_EMB_N   "mm.soft_emb_norm.weight"    // gemma3
 #define TN_MM_PROJECTOR    "mm.model.fc.%s"             // idefics3, deepseekocr
-#define TN_MM_PATCH_MERGER "mm.patch_merger.weight"     // mistral small 3.1
+#define TN_MM_PATCH_MERGER "mm.patch_merger.%s"         // mistral small 3.1, glm4v
 #define TN_TOK_IMG_BREAK   "v.token_embd.img_break"     // pixtral
 #define TN_TOK_GLM_BOI     "adapter.boi"                // glm-edge (these embeddings are not in text model)
 #define TN_TOK_GLM_EOI     "adapter.eoi"                // glm-edge (these embeddings are not in text model)
@@ -184,6 +189,7 @@ enum projector_type {
     PROJECTOR_TYPE_COGVLM,
     PROJECTOR_TYPE_JANUS_PRO,
     PROJECTOR_TYPE_DEEPSEEKOCR,
+    PROJECTOR_TYPE_GLM4V,
     PROJECTOR_TYPE_UNKNOWN,
 };
 
@@ -212,6 +218,7 @@ static std::map<projector_type, std::string> PROJECTOR_TYPE_NAMES = {
     { PROJECTOR_TYPE_COGVLM,    "cogvlm"},
     { PROJECTOR_TYPE_JANUS_PRO, "janus_pro"},
     { PROJECTOR_TYPE_DEEPSEEKOCR,"deepseekocr"},
+    { PROJECTOR_TYPE_GLM4V,     "glm4v"},
 };
 
 static projector_type clip_projector_type_from_string(const std::string & str) {
@@ -694,6 +701,8 @@ static void save_tensor_to_file(const struct ggml_tensor * tensor, const uint8_t
     fclose(f);
     fprintf(stderr, "Tensor saved successfully\n");
 }
+
+void clip_debug_encode(clip_ctx * ctx, int h, int w, float fill_value);
 
 //
 // API used internally with mtmd
