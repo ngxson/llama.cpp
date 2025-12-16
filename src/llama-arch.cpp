@@ -1638,6 +1638,29 @@ static std::set<llm_tensor> llm_get_tensor_names(llm_arch arch) {
                 LLM_TENSOR_FFN_DOWN,
                 LLM_TENSOR_FFN_UP,
             };
+        case LLM_ARCH_NEMOTRON_H_MOE:
+            return {
+                LLM_TENSOR_TOKEN_EMBD,
+                LLM_TENSOR_OUTPUT_NORM,
+                LLM_TENSOR_OUTPUT,
+                LLM_TENSOR_ATTN_NORM,
+                // mamba(2) ssm layers
+                LLM_TENSOR_SSM_IN,
+                LLM_TENSOR_SSM_CONV1D,
+                LLM_TENSOR_SSM_DT,
+                LLM_TENSOR_SSM_A,
+                LLM_TENSOR_SSM_D,
+                LLM_TENSOR_SSM_NORM,
+                LLM_TENSOR_SSM_OUT,
+                // attention layers
+                LLM_TENSOR_ATTN_Q,
+                LLM_TENSOR_ATTN_K,
+                LLM_TENSOR_ATTN_V,
+                LLM_TENSOR_ATTN_OUT,
+                // dense FFN
+                LLM_TENSOR_FFN_DOWN,
+                LLM_TENSOR_FFN_UP,
+            };
         case LLM_ARCH_EXAONE4:
             return {
                 LLM_TENSOR_TOKEN_EMBD,
