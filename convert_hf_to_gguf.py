@@ -7189,9 +7189,10 @@ class DeepseekV2Model(TextModel):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        vision_config = self.hparams.get('vision_config', {}).get('width', {})
+        hparams: dict = ModelBase.load_hparams(self.dir_model, is_mistral_format=False)
+        self.origin_hf_arch = hparams.get('architectures', [None])[0]
 
-        if 'clip-l-14-224' in vision_config and 'sam_vit_b' in vision_config:
+        if self.origin_hf_arch == "DeepseekOCRForCausalLM":
             self.model_arch = gguf.MODEL_ARCH.DEEPSEEK2OCR
             self.gguf_writer.arch = gguf.MODEL_ARCH_NAMES[self.model_arch]
             self.gguf_writer.add_architecture()
@@ -7260,6 +7261,9 @@ class DeepseekV2Model(TextModel):
             # note: deepseek2 using MLA converts into MQA (ie: GQA with 1 group)
             self.hparams["num_key_value_heads"] = 1
 
+        if (rope_mscale_all := self.rope_parameters.get("mscale_all_dim")) is not None:
+            self.hparams["num_key_value_heads"] = self.hparams.get("rms_norm_eps", 1e-6)
+
         super().set_gguf_parameters()
         hparams = self.hparams
         kv_lora_rank = hparams["kv_lora_rank"] if hparams.get("kv_lora_rank") is not None else 512
@@ -7290,10 +7294,9 @@ class DeepseekV2Model(TextModel):
 
         if (rope_mscale_all := self.rope_parameters.get("mscale_all_dim")) is not None:
             # [TAG_DEEPSEEK2_YARN_LOG_MUL_FIX]
-            # note: for legacy reasons, this is not consistent with the other usages of self.gguf_writer.add_rope_scaling_yarn_log_mul
+
             # ref https://github.com/ggml-org/llama.cpp/pull/17945
             self.gguf_writer.add_rope_scaling_yarn_log_mul(0.1 * rope_mscale_all)
-            self.gguf_writer.add_layer_norm_rms_eps(self.hparams.get("rms_norm_eps", 1e-6))
 
     _experts: list[dict[str, Tensor]] | None = None
 
