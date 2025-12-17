@@ -7259,7 +7259,7 @@ class DeepseekV2Model(TextModel):
         else:
             # note: deepseek2 using MLA converts into MQA (ie: GQA with 1 group)
             self.hparams["num_key_value_heads"] = 1
-            
+
         self.hparams['rms_norm_eps'] = self.hparams.get('rms_norm_eps', 1e-6)
 
         super().set_gguf_parameters()
