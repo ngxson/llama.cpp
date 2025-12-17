@@ -3156,90 +3156,89 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                     }
                 }
             } break;
-    case PROJECTOR_TYPE_DEEPSEEKOCR:
-        {
-            const std::vector native_resolutions = {
-                /*512 tiny , 640 small, */ 1024 /* base */, 1280 /* large */
-            };
-            // original image size
-            const int orig_w = original_size.width;
-            const int orig_h = original_size.height;
-            const int orig_area = orig_h * orig_w;
-            std::array<uint8_t, 3u> color;
-
-            for (int i = 0; i < 3; i++) {
-                color[i] = (int)(255 * params.image_mean[i]);
-            }
-
-            size_t mode_i = 0;
-            int min_diff = orig_area;
-
-            for (size_t i = 0; i < native_resolutions.size(); i++) {
-                int r = native_resolutions[i];
-                if (std::abs(orig_area - r * r) < min_diff) {
-                    mode_i = i;
-                    min_diff = std::abs(orig_area - r * r);
-                }
-            }
-
-            /* Native Resolution (Base/Large) */
-            const int image_size = native_resolutions[mode_i];
-
-            // Resize maintaining aspect ratio, then pad to square
-            float scale = std::min(
-                static_cast<float>(image_size) / orig_w,
-                static_cast<float>(image_size) / orig_h
-            );
-            int new_w = static_cast<int>(orig_w * scale);
-            int new_h = static_cast<int>(orig_h * scale);
-
-            clip_image_u8_ptr scaled_img(clip_image_u8_init());
-            img_tool::resize(*img, *scaled_img, clip_image_size{new_w, new_h},
-                             img_tool::RESIZE_ALGO_BICUBIC_PILLOW, true, color);
-
-            // Use mean color for padding
-            unsigned char pad_r = static_cast<unsigned char>(params.image_mean[0] * 255.0f);
-            unsigned char pad_g = static_cast<unsigned char>(params.image_mean[1] * 255.0f);
-            unsigned char pad_b = static_cast<unsigned char>(params.image_mean[2] * 255.0f);
-
-            // Pad to image_size × image_size (center padding)
-            clip_image_u8_ptr padded_img(clip_image_u8_init());
-            padded_img->nx = image_size;
-            padded_img->ny = image_size;
-            padded_img->buf.resize(image_size * image_size * 3); // black padding
-
-            // Fill with mean color
-            for (int i = 0; i < image_size * image_size; ++i)
+        case PROJECTOR_TYPE_DEEPSEEKOCR:
             {
-                padded_img->buf[i * 3 + 0] = pad_r;
-                padded_img->buf[i * 3 + 1] = pad_g;
-                padded_img->buf[i * 3 + 2] = pad_b;
-            }
+                const std::vector native_resolutions = {
+                    /*512 tiny , 640 small, */ 1024 /* base */, 1280 /* large */
+                };
+                // original image size
+                const int orig_w = original_size.width;
+                const int orig_h = original_size.height;
+                const int orig_area = orig_h * orig_w;
+                std::array<uint8_t, 3u> color;
 
-            // Calculate padding offsets (center the image)
-            int pad_x = (image_size - new_w) / 2;
-            int pad_y = (image_size - new_h) / 2;
-
-            // Copy scaled image into padded canvas
-            for (int y = 0; y < new_h; ++y){
-                for (int x = 0; x < new_w; ++x){
-                    int src_idx = (y * new_w + x) * 3;
-                    int dst_idx = ((y + pad_y) * image_size + (x + pad_x)) * 3;
-                    padded_img->buf[dst_idx + 0] = scaled_img->buf[src_idx + 0];
-                    padded_img->buf[dst_idx + 1] = scaled_img->buf[src_idx + 1];
-                    padded_img->buf[dst_idx + 2] = scaled_img->buf[src_idx + 2];
+                for (int i = 0; i < 3; i++) {
+                    color[i] = (int)(255 * params.image_mean[i]);
                 }
-            }
 
-            // Normalize and output
-            clip_image_f32_ptr res(clip_image_f32_init());
-            normalize_image_u8_to_f32(*padded_img, *res, params.image_mean, params.image_std);
-            res_imgs->entries.push_back(std::move(res));
+                size_t mode_i = 0;
+                int min_diff = orig_area;
 
-            res_imgs->grid_x = 1;
-            res_imgs->grid_y = 1;
-        }
-        break;
+                for (size_t i = 0; i < native_resolutions.size(); i++) {
+                    int r = native_resolutions[i];
+                    if (std::abs(orig_area - r * r) < min_diff) {
+                        mode_i = i;
+                        min_diff = std::abs(orig_area - r * r);
+                    }
+                }
+
+                /* Native Resolution (Base/Large) */
+                const int image_size = native_resolutions[mode_i];
+
+                // Resize maintaining aspect ratio, then pad to square
+                float scale = std::min(
+                    static_cast<float>(image_size) / orig_w,
+                    static_cast<float>(image_size) / orig_h
+                );
+                int new_w = static_cast<int>(orig_w * scale);
+                int new_h = static_cast<int>(orig_h * scale);
+
+                clip_image_u8_ptr scaled_img(clip_image_u8_init());
+                img_tool::resize(*img, *scaled_img, clip_image_size{new_w, new_h},
+                                img_tool::RESIZE_ALGO_BICUBIC_PILLOW, true, color);
+
+                // Use mean color for padding
+                unsigned char pad_r = static_cast<unsigned char>(params.image_mean[0] * 255.0f);
+                unsigned char pad_g = static_cast<unsigned char>(params.image_mean[1] * 255.0f);
+                unsigned char pad_b = static_cast<unsigned char>(params.image_mean[2] * 255.0f);
+
+                // Pad to image_size × image_size (center padding)
+                clip_image_u8_ptr padded_img(clip_image_u8_init());
+                padded_img->nx = image_size;
+                padded_img->ny = image_size;
+                padded_img->buf.resize(image_size * image_size * 3); // black padding
+
+                // Fill with mean color
+                for (int i = 0; i < image_size * image_size; ++i)
+                {
+                    padded_img->buf[i * 3 + 0] = pad_r;
+                    padded_img->buf[i * 3 + 1] = pad_g;
+                    padded_img->buf[i * 3 + 2] = pad_b;
+                }
+
+                // Calculate padding offsets (center the image)
+                int pad_x = (image_size - new_w) / 2;
+                int pad_y = (image_size - new_h) / 2;
+
+                // Copy scaled image into padded canvas
+                for (int y = 0; y < new_h; ++y){
+                    for (int x = 0; x < new_w; ++x){
+                        int src_idx = (y * new_w + x) * 3;
+                        int dst_idx = ((y + pad_y) * image_size + (x + pad_x)) * 3;
+                        padded_img->buf[dst_idx + 0] = scaled_img->buf[src_idx + 0];
+                        padded_img->buf[dst_idx + 1] = scaled_img->buf[src_idx + 1];
+                        padded_img->buf[dst_idx + 2] = scaled_img->buf[src_idx + 2];
+                    }
+                }
+
+                // Normalize and output
+                clip_image_f32_ptr res(clip_image_f32_init());
+                normalize_image_u8_to_f32(*padded_img, *res, params.image_mean, params.image_std);
+                res_imgs->entries.push_back(std::move(res));
+
+                res_imgs->grid_x = 1;
+                res_imgs->grid_y = 1;
+            } break;
 
         default:
             LOG_ERR("%s: unsupported projector type %d\n", __func__, ctx->proj_type());

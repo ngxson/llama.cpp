@@ -89,9 +89,8 @@ static ggml_tensor * get_rel_pos(ggml_context * ctx0,
 }
 
 ggml_cgraph * clip_graph_deepseekocr::build() {
-    //patch embedding
+    // patch embedding
     ggml_tensor * inp_raw = build_inp_raw();
-    //ggml_tensor * sam_out  = build_sam(inp_raw);
 
     ggml_tensor * sam_out;
     // Building SAM
@@ -247,7 +246,7 @@ ggml_cgraph * clip_graph_deepseekocr::build() {
         ggml_build_forward_expand(gf, cur);
         sam_out = cur;
     }
-    //ggml_tensor * clip_out = build_dsocr_clip(sam_out);
+
     ggml_tensor * clip_out;
     // Building DS-OCR CLIP
     {
