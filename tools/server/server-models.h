@@ -144,7 +144,7 @@ public:
 
     // notify the router server that a model instance is ready
     // return the monitoring thread (to be joined by the caller)
-    static std::thread setup_child_server(std::function<void(int)> & shutdown_handler);
+    static std::thread setup_child_server(const std::function<void(int)> & shutdown_handler);
 };
 
 struct server_models_routes {

@@ -17,7 +17,7 @@
 #include <chrono>
 #include <queue>
 #include <filesystem>
-#include <string.h>
+#include <cstring>
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -557,7 +557,7 @@ void server_models::load(const std::string & name) {
             char buffer[4096];
             while (fgets(buffer, sizeof(buffer), p_stdout_stderr) != nullptr) {
                 LOG("[%5d] %s", port, buffer);
-                if (!state_received && strstr(buffer, CMD_CHILD_TO_ROUTER_READY) != nullptr) {
+                if (!state_received && std::strstr(buffer, CMD_CHILD_TO_ROUTER_READY) != nullptr) {
                     // child process is ready
                     this->update_status(name, SERVER_MODEL_STATUS_LOADED);
                     state_received = true;
@@ -717,7 +717,7 @@ server_http_res_ptr server_models::proxy_request(const server_http_req & req, co
     return proxy;
 }
 
-std::thread server_models::setup_child_server(std::function<void(int)> & shutdown_handler) {
+std::thread server_models::setup_child_server(const std::function<void(int)> & shutdown_handler) {
     // send a notification to the router server that a model instance is ready
     common_log_pause(common_log_main());
     fflush(stdout);
