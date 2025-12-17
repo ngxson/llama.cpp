@@ -7256,13 +7256,11 @@ class DeepseekV2Model(TextModel):
 
         if is_ocr:
             self.hparams['rope_theta'] = self.hparams.get('rope_theta', 10000.0)
-            self.hparams['rms_norm_eps'] = self.hparams.get('rms_norm_eps', 1e-6)
         else:
             # note: deepseek2 using MLA converts into MQA (ie: GQA with 1 group)
             self.hparams["num_key_value_heads"] = 1
-
-        if (rope_mscale_all := self.rope_parameters.get("mscale_all_dim")) is not None:
-            self.hparams["rms_norm_eps"] = self.hparams.get("rms_norm_eps", 1e-6)
+            
+        self.hparams['rms_norm_eps'] = self.hparams.get('rms_norm_eps', 1e-6)
 
         super().set_gguf_parameters()
         hparams = self.hparams
