@@ -7262,7 +7262,7 @@ class DeepseekV2Model(TextModel):
             self.hparams["num_key_value_heads"] = 1
 
         if (rope_mscale_all := self.rope_parameters.get("mscale_all_dim")) is not None:
-            self.hparams["num_key_value_heads"] = self.hparams.get("rms_norm_eps", 1e-6)
+            self.hparams["rms_norm_eps"] = self.hparams.get("rms_norm_eps", 1e-6)
 
         super().set_gguf_parameters()
         hparams = self.hparams
@@ -7294,7 +7294,7 @@ class DeepseekV2Model(TextModel):
 
         if (rope_mscale_all := self.rope_parameters.get("mscale_all_dim")) is not None:
             # [TAG_DEEPSEEK2_YARN_LOG_MUL_FIX]
-
+            # note: for legacy reasons, this is not consistent with the other usages of self.gguf_writer.add_rope_scaling_yarn_log_mul
             # ref https://github.com/ggml-org/llama.cpp/pull/17945
             self.gguf_writer.add_rope_scaling_yarn_log_mul(0.1 * rope_mscale_all)
 
