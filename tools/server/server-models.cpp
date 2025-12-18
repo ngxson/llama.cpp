@@ -122,6 +122,8 @@ server_models::server_models(
     for (char ** env = envp; *env != nullptr; env++) {
         base_env.push_back(std::string(*env));
     }
+    // clean up base preset
+    unset_reserved_args(base_preset, true);
     // set binary path
     try {
         bin_path = get_server_exec_path().string();
