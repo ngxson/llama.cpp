@@ -163,13 +163,16 @@ void server_models::load_models() {
     }
     // 3. custom-path models from presets
     common_preset global = {};
-    common_presets custom_models = ctx_preset.load_from_ini(base_params.models_preset, global);
-    SRV_INF("Loaded %zu custom model presets from %s\n", custom_models.size(), base_params.models_preset.c_str());
+    common_presets custom_presets = {};
+    if (!base_params.models_preset.empty()) {
+        custom_presets = ctx_preset.load_from_ini(base_params.models_preset, global);
+        SRV_INF("Loaded %zu custom model presets from %s\n", custom_presets.size(), base_params.models_preset.c_str());
+    }
 
     // cascade, apply global preset first
-    cached_models = ctx_preset.cascade(global, cached_models);
-    local_models  = ctx_preset.cascade(global, local_models);
-    custom_models = ctx_preset.cascade(global, custom_models);
+    cached_models  = ctx_preset.cascade(global, cached_models);
+    local_models   = ctx_preset.cascade(global, local_models);
+    custom_presets = ctx_preset.cascade(global, custom_presets);
 
     // note: if a model exists in both cached and local, local takes precedence
     common_presets final_presets;
@@ -181,7 +184,7 @@ void server_models::load_models() {
     }
 
     // process custom presets from INI
-    for (const auto & [name, custom] : custom_models) {
+    for (const auto & [name, custom] : custom_presets) {
         if (final_presets.find(name) != final_presets.end()) {
             // apply custom config if exists
             common_preset & target = final_presets[name];
@@ -212,14 +215,16 @@ void server_models::load_models() {
     }
 
     // log available models
-    std::unordered_set<std::string> custom_names;
-    for (const auto & [name, preset] : custom_models) {
-        custom_names.insert(name);
-    }
-    SRV_INF("Available models (%zu) (*: custom preset)\n", mapping.size());
-    for (const auto & [name, inst] : mapping) {
-        bool has_custom = custom_names.find(name) != custom_names.end();
-        SRV_INF("  %c %s\n", has_custom ? '*' : ' ', name.c_str());
+    {
+        std::unordered_set<std::string> custom_names;
+        for (const auto & [name, preset] : custom_presets) {
+            custom_names.insert(name);
+        }
+        SRV_INF("Available models (%zu) (*: custom preset)\n", mapping.size());
+        for (const auto & [name, inst] : mapping) {
+            bool has_custom = custom_names.find(name) != custom_names.end();
+            SRV_INF("  %c %s\n", has_custom ? '*' : ' ', name.c_str());
+        }
     }
 }
 
