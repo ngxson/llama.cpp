@@ -5888,10 +5888,10 @@ static void ggml_compute_forward_rope_comp_flt(
     // this essentially just switches the sign of sin.
     const float sin_sign = forward ? 1.0f : -1.0f;
 
-    const int32_t * pos = (const int32_t *) src1->data;
+    const float * pos = (const float *) src1->data;
 
-    auto init_cache = [&](float * cache, float theta_base) -> void {
-        float theta = theta_base;
+    auto init_cache = [&](float * cache, float p) -> void {
+        float theta = p;
         for (int64_t i0 = 0; i0 < ne0; i0 += 2) {
             const float ff = freq_factors ? freq_factors[i0/2] : 1.0f;
             // yarn
@@ -5901,7 +5901,7 @@ static void ggml_compute_forward_rope_comp_flt(
                 float theta_interp = freq_scale * theta_extrap;
                 theta = theta_interp;
                 if (ramp_factor != 0.0f) {
-                    float ramp_mix = rope_yarn_ramp(yarn_high, yarn_low, i0) * ramp_factor;
+                    float ramp_mix = rope_yarn_ramp(yarn_low, yarn_high, i0) * ramp_factor;
                     theta = theta_interp * (1 - ramp_mix) + theta_extrap * ramp_mix;
                 }
             }
@@ -5917,7 +5917,7 @@ static void ggml_compute_forward_rope_comp_flt(
 
             float * cache = (float *) params->wdata + (ne0 + CACHE_LINE_SIZE_F32)*ith;
             {
-                const int64_t p = pos[i2];
+                const float p = pos[i2];
                 init_cache(cache, p);
             }
             // TODO M-RoPE
@@ -5940,7 +5940,7 @@ static void ggml_compute_forward_rope_comp_flt(
                     dst_data[0] = src[0];
                     dst_data[1] = src[1];
                 }
-            } //attn-heads
+            } // attn-heads
         }
     }
 }

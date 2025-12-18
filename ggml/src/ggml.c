@@ -4276,7 +4276,7 @@ GGML_API struct ggml_tensor * ggml_rope_comp(
         float                   freq_base,
         enum ggml_rope_ordering ordering) {
     GGML_ASSERT(ggml_is_vector(b));
-    GGML_ASSERT(b->type == GGML_TYPE_I32);
+    GGML_ASSERT(b->type == GGML_TYPE_F32);
 
     GGML_ASSERT(b->ne[0] >= a->ne[2]); // also allow M-RoPE
     GGML_ASSERT(b->ne[0] % a->ne[2] == 0);
@@ -4289,6 +4289,7 @@ GGML_API struct ggml_tensor * ggml_rope_comp(
     }
 
     // note: theta = theta_base * theta_scale^i
+    // where theta_base == the position angle (0, 1, 2, ..., n_tokens - 1)
     const float theta_scale = powf(freq_base, -2.0f / (float)n_dims);
 
     int32_t i_zero = 0;
@@ -4337,8 +4338,10 @@ struct ggml_tensor * ggml_rope_comp_set_yarn(
 
     const int32_t n_dims = *((int32_t *) node->op_params + 0);
 
-    float yarn_high = floorf(ggml_rope_yarn_corr_dim(n_dims, n_ctx_orig, beta_fast, freq_base));
-    float yarn_low  =  ceilf(ggml_rope_yarn_corr_dim(n_dims, n_ctx_orig, beta_slow, freq_base));
+    const float start     = floorf(ggml_rope_yarn_corr_dim(n_dims, n_ctx_orig, beta_fast, freq_base));
+    const float end       =  ceilf(ggml_rope_yarn_corr_dim(n_dims, n_ctx_orig, beta_slow, freq_base));
+    const float yarn_low  = MAX(0, start);
+    const float yarn_high = MIN(n_dims - 1, end);
 
     memcpy((float *) node->op_params +  5, &yarn_high,   sizeof(float));
     memcpy((float *) node->op_params +  6, &yarn_low,    sizeof(float));

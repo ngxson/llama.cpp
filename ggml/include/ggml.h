@@ -1865,12 +1865,11 @@ extern "C" {
         GGML_ROPE_ORDERING_NEOX,
     };
 
-    // demo new RoPE API (NOT yet to be merged)
     // RoPE composable API
     GGML_API struct ggml_tensor * ggml_rope_comp(
             struct ggml_context   * ctx,
             struct ggml_tensor    * a,
-            struct ggml_tensor    * b,
+            struct ggml_tensor    * b, // pos must be F32
             int32_t                 n_dims,
             float                   freq_base,
             enum ggml_rope_ordering ordering);
