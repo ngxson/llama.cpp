@@ -734,7 +734,12 @@ void server_models_routes::init_routes() {
                 {"args",   meta.args},
             };
             if (!meta.preset.name.empty()) {
-                status["preset"] = meta.preset.to_ini();
+                common_preset preset_copy = meta.preset;
+                unset_reserved_args(preset_copy, false);
+                preset_copy.unset_option("LLAMA_ARG_HOST");
+                preset_copy.unset_option("LLAMA_ARG_PORT");
+                preset_copy.unset_option("LLAMA_ARG_ALIAS");
+                status["preset"] = preset_copy.to_ini();
             }
             if (meta.is_failed()) {
                 status["exit_code"] = meta.exit_code;

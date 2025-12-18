@@ -381,6 +381,7 @@ common_presets common_preset_context::cascade(const common_preset & base, const 
     common_presets out;
     for (const auto & [name, preset] : presets) {
         common_preset tmp = base; // copy
+        tmp.name = name;
         tmp.merge(preset);
         out[name] = std::move(tmp);
     }
