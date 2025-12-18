@@ -103,6 +103,7 @@ void server_model_meta::update_args(common_preset_context & ctx_preset, std::str
     preset.set_option(ctx_preset, "LLAMA_ARG_HOST",  CHILD_ADDR);
     preset.set_option(ctx_preset, "LLAMA_ARG_PORT",  std::to_string(port));
     preset.set_option(ctx_preset, "LLAMA_ARG_ALIAS", name);
+    // TODO: maybe validate preset before rendering ?
     // render args
     args = preset.to_args(bin_path);
 }

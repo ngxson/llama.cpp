@@ -337,11 +337,8 @@ common_presets common_preset_context::load_from_models_dir(const std::string & m
 
     // convert local models to presets
     common_presets out;
-    common_preset base;
-    base.set_option(*this, "LLAMA_ARG_MODEL",  "");
-    base.set_option(*this, "LLAMA_ARG_MMPROJ", "");
     for (const auto & model : models) {
-        common_preset preset = base; // copy
+        common_preset preset;
         preset.name = model.name;
         preset.set_option(*this, "LLAMA_ARG_MODEL", model.path);
         if (!model.path_mmproj.empty()) {
