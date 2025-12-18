@@ -47,9 +47,10 @@ using common_presets = std::map<std::string, common_preset>;
 
 // context for loading and editing presets
 struct common_preset_context {
+    common_params default_params; // unused for now
     common_params_context ctx_params;
     std::map<std::string, common_arg> key_to_opt;
-    common_preset_context(common_params & default_params, llama_example ex);
+    common_preset_context(llama_example ex);
 
     // load presets from INI file
     common_presets load_from_ini(const std::string & path, common_preset & global) const;

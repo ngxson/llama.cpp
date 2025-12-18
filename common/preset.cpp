@@ -223,7 +223,7 @@ static std::string parse_bool_arg(const common_arg & arg, const std::string & ke
     return value;
 }
 
-common_preset_context::common_preset_context(common_params & default_params, llama_example ex)
+common_preset_context::common_preset_context(llama_example ex)
     : ctx_params(common_params_parser_init(default_params, ex)),
       key_to_opt(get_map_key_opt(ctx_params)) {}
 

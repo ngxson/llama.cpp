@@ -117,7 +117,7 @@ server_models::server_models(
         int argc,
         char ** argv,
         char ** envp)
-            : ctx_preset(base_params, LLAMA_EXAMPLE_SERVER),
+            : ctx_preset(LLAMA_EXAMPLE_SERVER),
               base_params(params),
               base_preset(ctx_preset.load_from_args(argc, argv)) {
     for (char ** env = envp; *env != nullptr; env++) {
