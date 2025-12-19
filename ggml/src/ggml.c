@@ -4306,7 +4306,7 @@ GGML_API struct ggml_tensor * ggml_rope_comp(
     memcpy(params +  4, &theta_scale, sizeof(float));   // theta_scale
     memcpy(params +  5, &f_zero,      sizeof(float));   // yarn_high
     memcpy(params +  6, &f_zero,      sizeof(float));   // yarn_low
-    memcpy(params +  7, &f_zero,      sizeof(float));   // freq_scale
+    memcpy(params +  7, &f_one,       sizeof(float));   // freq_scale
     memcpy(params +  8, &f_one,       sizeof(float));   // attn_factor
     memcpy(params +  9, &f_zero,      sizeof(float));   // ramp_factor
     memcpy(params + 10, &i_zero,      sizeof(int32_t)); // sections[0]

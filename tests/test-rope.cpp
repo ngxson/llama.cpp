@@ -204,11 +204,11 @@ struct test_rope {
                 ctx, a, b, n_dims,
                 freq_base, is_neox ? GGML_ROPE_ORDERING_NEOX : GGML_ROPE_ORDERING_NORMAL);
             if (ext_factor != 0.0f) {
-                attn_factor *= 1.0f / (1.0f + 0.1f * logf(1.0f / freq_scale));
-                x = ggml_rope_comp_set_yarn(ctx, x, n_ctx_orig,
-                    freq_base, freq_scale, ext_factor, attn_factor,
-                    beta_fast, beta_slow);
+                attn_factor *= 1.0f + 0.1f * logf(1.0f / freq_scale);
             }
+            x = ggml_rope_comp_set_yarn(ctx, x, n_ctx_orig,
+                freq_base, freq_scale, ext_factor, attn_factor,
+                beta_fast, beta_slow);
             if (freq) {
                 x = ggml_rope_comp_set_freq_factors(ctx, x, freq);
             }
