@@ -838,6 +838,9 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
         case PROJECTOR_TYPE_DEEPSEEKOCR:
             {
                 builder = std::make_unique<clip_graph_deepseekocr>(ctx, img);
+        case PROJECTOR_TYPE_LFM2A:
+            {
+                builder = std::make_unique<clip_graph_conformer>(ctx, img);
             } break;
         case PROJECTOR_TYPE_GLM4V:
             {
@@ -1199,6 +1202,15 @@ struct clip_model_loader {
                         get_u32(KEY_SAM_N_HEAD, hparams.sam_n_head, true);
                         get_u32(KEY_SAM_N_EMBD, hparams.sam_n_embd, true);
                         get_u32(KEY_ATTN_WINDOW_SIZE, hparams.attn_window_size, true);
+                     } break;
+                case PROJECTOR_TYPE_LFM2A:
+                    {
+                        // audio preprocessing params
+                        hparams.audio_chunk_len        = 1; // in seconds
+                        hparams.audio_sample_rate      = 16000;
+                        hparams.audio_n_fft            = 512;
+                        hparams.audio_window_len       = 400;
+                        hparams.audio_hop_len          = 160;
                     } break;
                 default:
                     break;
@@ -1659,6 +1671,52 @@ struct clip_model_loader {
                     model.view_seperator = get_tensor(TN_IMAGE_SEPERATOR);
                     model.fc_w           = get_tensor(string_format(TN_MM_PROJECTOR, "weight"));
                     model.fc_b           = get_tensor(string_format(TN_MM_PROJECTOR, "bias"));
+                 } break;
+            case PROJECTOR_TYPE_LFM2A:
+                {
+                    for (int i : {0, 2, 3, 5, 6}) {
+                        model.pre_encode_conv_X_w[i] = get_tensor(string_format(TN_CONV1D, i, "weight"));
+                        model.pre_encode_conv_X_b[i] = get_tensor(string_format(TN_CONV1D, i, "bias"));
+                    }
+                    model.pre_encode_out_w    = get_tensor(string_format(TN_PRE_ENCODE_OUT, "weight"));
+                    model.pre_encode_out_b    = get_tensor(string_format(TN_PRE_ENCODE_OUT, "bias"));
+
+                    model.mm_0_w = get_tensor(string_format(TN_MM_AUDIO_MLP, 0, "weight"));
+                    model.mm_0_b = get_tensor(string_format(TN_MM_AUDIO_MLP, 0, "bias"));
+                    model.mm_1_w = get_tensor(string_format(TN_MM_AUDIO_MLP, 1, "weight"));
+                    model.mm_1_b = get_tensor(string_format(TN_MM_AUDIO_MLP, 1, "bias"));
+                    model.mm_3_w = get_tensor(string_format(TN_MM_AUDIO_MLP, 3, "weight"));
+                    model.mm_3_b = get_tensor(string_format(TN_MM_AUDIO_MLP, 3, "bias"));
+
+                    for (int il = 0; il < hparams.n_layer; ++il) {
+                        auto & layer = model.layers[il];
+
+                        layer.ff_norm_w   = get_tensor(string_format(TN_FFN_NORM,   prefix, il, "weight"));
+                        layer.ff_norm_b   = get_tensor(string_format(TN_FFN_NORM,   prefix, il, "bias"));
+                        layer.ff_norm_1_w = get_tensor(string_format(TN_FFN_NORM_1, prefix, il, "weight"));
+                        layer.ff_norm_1_b = get_tensor(string_format(TN_FFN_NORM_1, prefix, il, "bias"));
+                        layer.ff_up_1_w   = get_tensor(string_format(TN_FFN_UP_1,   prefix, il, "weight"));
+                        layer.ff_up_1_b   = get_tensor(string_format(TN_FFN_UP_1,   prefix, il, "bias"));
+                        layer.ff_down_1_w = get_tensor(string_format(TN_FFN_DOWN_1, prefix, il, "weight"));
+                        layer.ff_down_1_b = get_tensor(string_format(TN_FFN_DOWN_1, prefix, il, "bias"));
+
+                        layer.pos_bias_u = get_tensor(string_format(TN_POS_BIAS_U, prefix, il));
+                        layer.pos_bias_v = get_tensor(string_format(TN_POS_BIAS_V, prefix, il));
+
+                        layer.norm_conv_w = get_tensor(string_format(TN_NORM_CONV, prefix, il, "weight"));
+                        layer.norm_conv_b = get_tensor(string_format(TN_NORM_CONV, prefix, il, "bias"));
+
+                        layer.linear_pos_w = get_tensor(string_format(TN_LINEAR_POS, prefix, il, "weight"));
+
+                        layer.conv_norm_w  = get_tensor(string_format(TN_CONV_NORM, prefix, il, "weight"));
+                        layer.conv_norm_b  = get_tensor(string_format(TN_CONV_NORM, prefix, il, "bias"));
+                        layer.conv_dw_w    = get_tensor(string_format(TN_CONV_DW,   prefix, il, "weight"));
+                        layer.conv_dw_b    = get_tensor(string_format(TN_CONV_DW,   prefix, il, "bias"));
+                        layer.conv_pw1_w   = get_tensor(string_format(TN_CONV_PW1,  prefix, il, "weight"));
+                        layer.conv_pw1_b   = get_tensor(string_format(TN_CONV_PW1,  prefix, il, "bias"));
+                        layer.conv_pw2_w   = get_tensor(string_format(TN_CONV_PW2,  prefix, il, "weight"));
+                        layer.conv_pw2_b   = get_tensor(string_format(TN_CONV_PW2,  prefix, il, "bias"));
+                    }
                 } break;
             default:
                 GGML_ASSERT(false && "unknown projector type");
@@ -3457,6 +3515,10 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
             int h = static_cast<int>(std::sqrt(static_cast<float>(n_patches)));
             n_patches = h * (h + 1) + 1;
         } break;
+        case PROJECTOR_TYPE_LFM2A:
+            {
+                n_patches = ((((img->nx + 1) / 2) + 1) / 2 + 1) / 2;
+            } break;
         default:
             GGML_ABORT("unsupported projector type");
     }
@@ -3839,6 +3901,27 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 }
                 set_input_i32("pos_w", pos_data);
             } break;
+        case PROJECTOR_TYPE_LFM2A:
+            {
+                GGML_ASSERT(imgs.entries.size() == 1);
+                const auto n_frames = clip_n_output_tokens(ctx, imgs.entries.front().get());
+
+                auto d_model = 512;
+                auto seq_len = n_frames * 2 - 1;
+                std::vector<float> pos_emb(d_model*seq_len);
+                std::vector<double> inv_freq(d_model / 2);
+                for (size_t i = 0; i < inv_freq.size(); ++i) {
+                    inv_freq[i] = std::exp(-(std::log(10000.0) / (float)d_model) * (2.0f * (float)(i)));
+                }
+                for (int64_t pos = 0; pos < seq_len; ++pos) {
+                    for (size_t i = 0; i < inv_freq.size(); ++i) {
+                        const float ang = (n_frames - pos - 1) * inv_freq[i];
+                        pos_emb[pos*d_model + 2*i + 0] = sinf(ang);  // even
+                        pos_emb[pos*d_model + 2*i + 1] = cosf(ang);  // odd
+                    }
+                }
+                set_input_f32("pos_emb", pos_emb);
+            } break;
         default:
             GGML_ABORT("Unknown projector type");
     }
@@ -3954,6 +4037,8 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
             return ctx->model.mm_4h_to_h_w->ne[1];
         case PROJECTOR_TYPE_DEEPSEEKOCR:
             return ctx->model.fc_w->ne[1];
+        case PROJECTOR_TYPE_LFM2A:
+            return ctx->model.position_embeddings->ne[0];
         case PROJECTOR_TYPE_GLM4V:
             return ctx->model.mm_ffn_down_w->ne[1];
         default:

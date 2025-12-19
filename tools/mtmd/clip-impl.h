@@ -155,6 +155,20 @@
 #define TN_SAM_FFN_DOWN   "v.sam.blk.%d.mlp.lin2.%s"
 #define TN_SAM_NECK       "v.sam.neck.%d.%s"
 #define TN_SAM_NET        "v.sam.net_%d.%s"
+// (conformer) lfm2
+#define TN_PRE_ENCODE_OUT  "a.pre_encode.out.%s"
+#define TN_FFN_NORM        "%s.blk.%d.ffn_norm.%s"
+#define TN_FFN_NORM_1      "%s.blk.%d.ffn_norm_1.%s"
+#define TN_FFN_UP_1        "%s.blk.%d.ffn_up_1.%s"
+#define TN_FFN_DOWN_1      "%s.blk.%d.ffn_down_1.%s"
+#define TN_POS_BIAS_U      "%s.blk.%d.pos_bias_u"
+#define TN_POS_BIAS_V      "%s.blk.%d.pos_bias_v"
+#define TN_NORM_CONV       "%s.blk.%d.norm_conv.%s"
+#define TN_LINEAR_POS      "%s.blk.%d.linear_pos.%s"
+#define TN_CONV_DW         "%s.blk.%d.conv_dw.%s"
+#define TN_CONV_NORM       "%s.blk.%d.conv_norm.%s"
+#define TN_CONV_PW1        "%s.blk.%d.conv_pw1.%s"
+#define TN_CONV_PW2        "%s.blk.%d.conv_pw2.%s"
 
 // align x to upper multiple of n
 #define CLIP_ALIGN(x, n) ((((x) + (n) - 1) / (n)) * (n))
@@ -189,6 +203,7 @@ enum projector_type {
     PROJECTOR_TYPE_COGVLM,
     PROJECTOR_TYPE_JANUS_PRO,
     PROJECTOR_TYPE_DEEPSEEKOCR,
+    PROJECTOR_TYPE_LFM2A,
     PROJECTOR_TYPE_GLM4V,
     PROJECTOR_TYPE_UNKNOWN,
 };
@@ -218,6 +233,7 @@ static std::map<projector_type, std::string> PROJECTOR_TYPE_NAMES = {
     { PROJECTOR_TYPE_COGVLM,    "cogvlm"},
     { PROJECTOR_TYPE_JANUS_PRO, "janus_pro"},
     { PROJECTOR_TYPE_DEEPSEEKOCR,"deepseekocr"},
+    { PROJECTOR_TYPE_LFM2A,     "lfm2a"},
     { PROJECTOR_TYPE_GLM4V,     "glm4v"},
 };
 
