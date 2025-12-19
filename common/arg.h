@@ -9,7 +9,7 @@
 #include <cstring>
 
 // pseudo-env variable to identify preset-only arguments
-#define COMMON_ARG_PRESET_AUTOLOAD "__PRESET_AUTOLOAD"
+#define COMMON_ARG_PRESET_LOAD_ON_STARTUP "__PRESET_LOAD_ON_STARTUP"
 
 //
 // CLI argument parsing

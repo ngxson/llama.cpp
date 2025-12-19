@@ -228,22 +228,22 @@ void server_models::load_models() {
     }
 
     // load any autoload models
-    std::vector<std::string> autoload_models;
+    std::vector<std::string> models_to_load;
     for (const auto & [name, inst] : mapping) {
         std::string val;
-        if (inst.meta.preset.get_option(COMMON_ARG_PRESET_AUTOLOAD, val)) {
-            autoload_models.push_back(name);
+        if (inst.meta.preset.get_option(COMMON_ARG_PRESET_LOAD_ON_STARTUP, val)) {
+            models_to_load.push_back(name);
         }
     }
-    if ((int)autoload_models.size() > base_params.models_max) {
+    if ((int)models_to_load.size() > base_params.models_max) {
         throw std::runtime_error(string_format(
-            "number of autoload models (%zu) exceeds models_max (%d)",
-            autoload_models.size(),
+            "number of models to load on startup (%zu) exceeds models_max (%d)",
+            models_to_load.size(),
             base_params.models_max
         ));
     }
-    for (const auto & name : autoload_models) {
-        SRV_INF("autoloading model %s\n", name.c_str());
+    for (const auto & name : models_to_load) {
+        SRV_INF("(startup) loading model %s\n", name.c_str());
         load(name);
     }
 }
