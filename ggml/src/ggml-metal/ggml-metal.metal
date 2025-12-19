@@ -4118,16 +4118,19 @@ kernel void kernel_rope_comp(
 
     for (int i0 = 2*tiitg; i0 < args.ne0; i0 += 2*tptg.x) {
         if (i0 < args.n_dims) {
-                  float theta        = p * pow(args.theta_scale, i0/2);
-            const float freq_factor  = args.src2 ? ((device const float *) src2)[i0/2] : 1.0f;
-            const float theta_extrap = theta / freq_factor;
-            const float theta_interp = args.freq_scale * theta_extrap;
+            const float freq_factor = args.src2 ? ((device const float *) src2)[i0/2] : 1.0f;
+
+            float theta = p * pow(args.theta_scale, i0/2) / freq_factor;
+            const float theta_extrap = theta;
+            const float theta_interp = args.freq_scale * theta;
+
             if (args.ramp_factor != 0.0f) {
                 const float ramp_mix = rope_yarn_ramp(args.yarn_low, args.yarn_high, i0) * args.ramp_factor;
                 theta = theta_interp * (1 - ramp_mix) + theta_extrap * ramp_mix;
             } else {
                 theta = theta_interp;
             }
+
             const float cos_theta = cos(theta) * args.attn_factor;
             const float sin_theta = sin(theta) * args.attn_factor;
             
