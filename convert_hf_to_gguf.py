@@ -520,7 +520,11 @@ class ModelBase:
         return ()
 
     def prepare_tensors(self):
-        max_name_len = max(len(s) for _, s in self.tensor_map.mapping.values()) + len(".weight,")
+        # Handle empty tensor_map for models with block_count=0 (like MobileNetV5)
+        if self.tensor_map.mapping:
+            max_name_len = max(len(s) for _, s in self.tensor_map.mapping.values()) + len(".weight,")
+        else:
+            max_name_len = len("vision_encoder.weight,")  # Default reasonable length
 
         for name, data_torch in chain(self.generate_extra_tensors(), self.get_tensors()):
             # we don't need these
@@ -5959,8 +5963,182 @@ class Gemma3VisionModel(MmprojModel):
 
         return [] # skip other tensors
 
+@ModelBase.register("Gemma3nForConditionalGeneration", "Gemma3nVisionModel")
+class Gemma3nVisionModel(MmprojModel):
+    """Vision encoder converter for Gemma3n using MobileNetV5 architecture"""
 
-@ModelBase.register("Gemma3nForConditionalGeneration")
+    # MobileNetV5 doesn't have transformer layers, so we don't need block count
+    # Set n_block_keys to empty list to skip the find_hparam check
+    n_block_keys = []
+
+    def find_hparam(self, keys: list[str], optional: bool = False) -> Any:
+        """Override to return 0 for block count since MobileNetV5 is CNN-based"""
+        if not keys:  # If n_block_keys is empty (our case)
+            return 0
+        # Otherwise use parent implementation
+        return super().find_hparam(keys, optional)
+
+    def __init__(self, *args, **kwargs):
+        # Parent init will call find_hparam which now returns 0 for empty keys
+        super().__init__(*args, **kwargs)
+
+    def find_vparam(self, keys: list[str], optional: bool = False) -> Any:
+        """Override to provide hardcoded MobileNetV5 parameters that aren't in config"""
+        # MobileNetV5 hardcodes these values in the architecture definition
+        # rather than storing them in config.json
+
+        # Handle empty keys list (n_block_keys) - return 0 for CNN architecture
+        if not keys:
+            return 0
+
+        # Check if we're looking for image_size
+        if "image_size" in keys:
+            # MobileNetV5 300m_enc uses 768x768 input
+            return 768
+
+        # Check if we're looking for patch_size
+        if "patch_size" in keys:
+            # MobileNetV5 is CNN-based, doesn't use patches
+            # Set to 1 for compatibility
+            return 1
+
+        # Check if we're looking for intermediate_size
+        if "intermediate_size" in keys:
+            # MobileNetV5 uses expansion ratios in inverted residual blocks
+            # Typical expansion is 4x the embedding dimension
+            hidden_size = self.hparams_vision.get("hidden_size", 2048)
+            return hidden_size * 4
+
+        # Check if we're looking for num_attention_heads
+        if "num_attention_heads" in keys or "num_heads" in keys:
+            # MobileNetV5 uses Multi-Query Attention with 8 heads
+            return 8
+
+        # For other parameters, use parent implementation
+        return super().find_vparam(keys, optional)
+
+    def set_gguf_parameters(self):
+        # MobileNetV5 requires ImageNet normalization values
+        # Override preprocessor_config to ensure correct values before calling super()
+        # IMAGENET_MEAN = [0.485, 0.456, 0.406]
+        # IMAGENET_STD = [0.229, 0.224, 0.225]
+        IMAGENET_MEAN = [0.5 , 0.5 , 0.5 ]
+        IMAGENET_STD = [0.5 , 0.5 , 0.5 ]
+
+        print("test")
+
+        # Check if preprocessor_config has incorrect normalization values
+        if "image_mean" in self.preprocessor_config:
+            current_mean = self.preprocessor_config["image_mean"]
+            if current_mean != IMAGENET_MEAN:
+                logger.warning(f"Overriding image_mean from {current_mean} to ImageNet standard {IMAGENET_MEAN}")
+                self.preprocessor_config["image_mean"] = IMAGENET_MEAN
+            print("test2")
+        else:
+            logger.info(f"Setting image_mean to ImageNet standard {IMAGENET_MEAN}")
+            self.preprocessor_config["image_mean"] = IMAGENET_MEAN
+
+        if "image_std" in self.preprocessor_config:
+            current_std = self.preprocessor_config["image_std"]
+            if current_std != IMAGENET_STD:
+                logger.warning(f"Overriding image_std from {current_std} to ImageNet standard {IMAGENET_STD}")
+                self.preprocessor_config["image_std"] = IMAGENET_STD
+        else:
+            logger.info(f"Setting image_std to ImageNet standard {IMAGENET_STD}")
+            self.preprocessor_config["image_std"] = IMAGENET_STD
+
+        # Now call parent which will use the corrected values
+        super().set_gguf_parameters()
+        hparams = self.hparams
+
+        # Set projector type to GEMMA3N
+        self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.GEMMA3N)
+
+        # MobileNetV5 specific parameters
+        self.gguf_writer.add_vision_attention_layernorm_eps(hparams.get("layer_norm_eps", 1e-6))
+        self.gguf_writer.add_vision_use_gelu(True)  # MobileNetV5 uses approximate GELU
+
+        # Image sequence length (256 tokens = 16x16 for Gemma3n)
+        image_seq_length = self.preprocessor_config.get("image_seq_length", 256)
+        # Note: Additional metadata can be added as needed
+
+    def tensor_force_quant(self, name, new_name, bid, n_dims):
+        # Force quantization settings for specific tensor types
+        if "input_projection" in name or "input_proj" in name:
+            return gguf.GGMLQuantizationType.F16
+        if ".embeddings." in name or "stem" in name:
+            return gguf.GGMLQuantizationType.F32
+        return super().tensor_force_quant(name, new_name, bid, n_dims)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        del bid  # unused
+
+        # Gemma3n uses different prefixes than other models:
+        # - model.embed_vision.* for projection layers
+        # - model.vision_tower.* for vision encoder
+        # Skip non-vision tensors
+        if not (name.startswith("model.embed_vision.") or
+                name.startswith("model.vision_tower.")):
+            return []
+
+        # Strip "model." prefix to match expected llama.cpp format
+        if name.startswith("model."):
+            name = name[6:]  # Remove "model." prefix
+
+        # Process MobileNetV5 and projection tensors
+        name = name.replace("_weight", ".weight")
+
+        # Rename embed_vision to match our C++ implementation expectations
+        name = name.replace("embed_vision.", "")
+
+        # Rename vision_tower.timm_model to vision_tower for cleaner naming
+        name = name.replace("vision_tower.timm_model.", "vision_tower.")
+
+        # Handle normalization layer naming
+        name = name.replace("hard_embedding_norm", "hard_emb_norm")
+        name = name.replace("soft_embedding_norm", "soft_emb_norm")
+        # name = name.replace("embedding_post_projection_norm", "post_proj_norm")
+
+        # Gemma3n uses Gemma3p5RMSNorm which has scale_shift=0, so no correction needed
+        # Unlike Gemma3 which uses Gemma3RMSNorm with scale_shift=1
+        if "soft_emb_norm.weight" in name:
+            # No correction needed for Gemma3n
+            pass
+
+        return [(self.map_tensor_name(name), data_torch)]
+
+    def map_tensor_name(self, name: str) -> str:
+        """Map Gemma3n tensor names to GGUF format"""
+        # Projector tensors (from embed_vision) - use mm. prefix like Gemma3
+        # IMPORTANT: Keep the .weight suffix to match C++ expectations
+        if name == "embedding.weight":
+            return "mm.embedding.weight"
+        if name == "embedding_projection.weight":
+            return "mm.input_projection.weight"  # Main projection used by C++
+        if name == "hard_emb_norm.weight":
+            return "mm.hard_emb_norm.weight"  # Hard embedding normalization
+        if name == "soft_emb_norm.weight":
+            return "mm.soft_emb_norm.weight"  # Soft embedding normalization (used by C++)
+        if name == "post_proj_norm.weight":
+            return "mm.post_proj_norm.weight"  # Post projection normalization (CRITICAL for Gemma3n)
+
+        # Vision tower tensors - add v.enc. prefix for MobileNetV5 encoder
+        if name.startswith("vision_tower."):
+            # Remove vision_tower prefix and add v.enc. prefix
+            tensor_suffix = name[13:]  # Remove "vision_tower."
+            return f"v.enc.{tensor_suffix}"
+
+        # If no match, try parent implementation
+        try:
+            return super().map_tensor_name(name)
+        except ValueError:
+            # If parent also can't map it, provide a sensible default
+            # This shouldn't happen, but provides a fallback
+            logger.warning(f"Using fallback mapping for tensor: {name}")
+            return f"v.{name}"
+
+
+@ModelBase.register("Gemma3nForCausalLM", "Gemma3nForConditionalGeneration")
 class Gemma3NModel(Gemma3Model):
     model_arch = gguf.MODEL_ARCH.GEMMA3N
     norm_shift = 0.0 # same value with Gemma3p5RMSNorm scale_shift on python code
@@ -5983,7 +6161,42 @@ class Gemma3NModel(Gemma3Model):
         ]
 
     def set_vocab(self):
+        # For Gemma3n multimodal models, we need the FULL vocab_size (262400)
+        # which includes special tokens from 262144-262399 for vision/audio.
+        # The vocab_size_per_layer_input (262144) is only the embedding size per layer.
+        # Temporarily override the hparams lookup order to prioritize vocab_size.
+
+        # Store original vocab_size_per_layer_input if it exists
+        vocab_size_per_layer_input = self.hparams.get("vocab_size_per_layer_input")
+
+        # Temporarily remove vocab_size_per_layer_input to force using vocab_size
+        if vocab_size_per_layer_input is not None:
+            del self.hparams["vocab_size_per_layer_input"]
+
+        # Call parent set_vocab which will now use vocab_size (262400)
         super().set_vocab()
+
+        # Restore vocab_size_per_layer_input for later use
+        if vocab_size_per_layer_input is not None:
+            self.hparams["vocab_size_per_layer_input"] = vocab_size_per_layer_input
+
+        # Fix chat template for Gemma3n multimodal: replace special token placeholders with mtmd markers
+        # The mtmd library uses <__media__> as the default marker for images/audio
+        # but Gemma3n's chat template uses <image_soft_token> and <audio_soft_token>
+        chat_template_key = "tokenizer.chat_template"
+        for kv_dict in self.gguf_writer.kv_data:
+            if chat_template_key in kv_dict:
+                template_value = kv_dict[chat_template_key].value
+
+                # Replace soft token placeholders with mtmd markers
+                if '<image_soft_token>' in template_value or '<audio_soft_token>' in template_value:
+                    logger.info("Fixing Gemma3n chat template: replacing soft token placeholders with mtmd markers")
+                    template_value = template_value.replace('<image_soft_token>', '<__media__>')
+                    template_value = template_value.replace('<audio_soft_token>', '<__media__>')
+
+                    # Update the value in place
+                    kv_dict[chat_template_key].value = template_value
+                break
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
@@ -6020,8 +6233,32 @@ class Gemma3NModel(Gemma3Model):
         if "language_model." not in name:
             return [] # skip non-language model tensors
 
+        # Pad token embeddings for vision/audio special tokens (262144-262399)
+        if "embed_tokens.weight" in name or "embed_tokens_per_layer" in name:
+            # Move to CPU to avoid meta device issues during padding
+            data_torch = data_torch.to(device="cpu")
+
+            vocab_size = self.hparams.get("vocab_size", 262400)
+            current_size = data_torch.shape[0]  # First dimension is vocab_size
+
+            if current_size < vocab_size:
+                # Pad with zeros for vision/audio tokens (they get embeddings from vision tower)
+                padding_size = vocab_size - current_size
+                tensor_type = "per-layer embeddings" if "per_layer" in name else "token embeddings"
+                logger.info(f"Padding {tensor_type} shape {list(data_torch.shape)} from {current_size} to {vocab_size} (adding {padding_size} vision/audio token slots)")
+
+                # Create padding with zeros (vision tokens won't use these embeddings)
+                padding = torch.zeros((padding_size, data_torch.shape[1]), dtype=data_torch.dtype, device=data_torch.device)
+                data_torch = torch.cat([data_torch, padding], dim=0)
+
+            # Continue with normal processing
+            name = name.replace("language_model.", "")
+            return [(self.map_tensor_name(name), data_torch)]
+
         if "altup_unembed_projections" in name:
             data_torch = data_torch.to(device="cpu")
+            # altup_unembed matrices are [hidden_size, hidden_size], NOT vocab-based
+            # They should NOT be padded
             if ".0." in name:
                 self._altup_unembd[0] = data_torch
             elif ".1." in name:
