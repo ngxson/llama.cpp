@@ -4114,42 +4114,41 @@ kernel void kernel_rope_comp(
     const int i1 = tgpig[0];
 
     device const float * pos = (device const float *) src1;
-    const float theta_base = (float) pos[i2];
-
-    float cos_theta;
-    float sin_theta;
-    float theta;
+    const float p = pos[i2];
 
     for (int i0 = 2*tiitg; i0 < args.ne0; i0 += 2*tptg.x) {
-        const int ic = i0 / args.idx_scale;
-
         if (i0 < args.n_dims) {
-            // Get n-d rotational scaling corrected for extrapolation
-            theta = theta_base * pow(args.theta_scale, i0);
-            const float freq_factor = args.src2 ? ((device const float *) src2)[ic] : 1.0f;
+            const int   i_dim        = (i0 / 2) + 1;
+                  float theta        = p * pow(args.theta_scale, i_dim);
+            const float freq_factor  = args.src2 ? ((device const float *) src2)[i0/2] : 1.0f;
             const float theta_extrap = theta / freq_factor;
             const float theta_interp = args.freq_scale * theta_extrap;
-            theta = theta_interp;
             if (args.ramp_factor != 0.0f) {
                 const float ramp_mix = rope_yarn_ramp(args.yarn_low, args.yarn_high, i0) * args.ramp_factor;
                 theta = theta_interp * (1 - ramp_mix) + theta_extrap * ramp_mix;
+            } else {
+                theta = theta_interp;
             }
-            cos_theta = cos(theta) * args.attn_factor;
-            sin_theta = sin(theta) * args.attn_factor;
+            const float cos_theta = cos(theta) * args.attn_factor;
+            const float sin_theta = sin(theta) * args.attn_factor;
+            
+            const int ic = i0 / args.idx_scale;
+
+            device const T * const src = (device T *)(src0 + i3*args.nb03 + i2*args.nb02 + i1*args.nb01 + ic*args.nb00);
+            device       T * dst_data  = (device T *)( dst + i3*args.nb3  + i2*args.nb2  + i1*args.nb1  + ic*args.nb0);
+
+            const float x0 = src[0];
+            const float x1 = src[args.idx_pair];
+
+            dst_data[0]             = x0*cos_theta - x1*sin_theta;
+            dst_data[args.idx_pair] = x0*sin_theta + x1*cos_theta;
         } else {
-            theta     = 0.0f;
-            cos_theta = 1.0f;
-            sin_theta = 0.0f;
+            device const T * const src = (device T *)(src0 + i3*args.nb03 + i2*args.nb02 + i1*args.nb01 + i0*args.nb00);
+            device       T * dst_data  = (device T *)( dst + i3*args.nb3  + i2*args.nb2  + i1*args.nb1  + i0*args.nb0);
+
+            dst_data[0] = src[0];
+            dst_data[1] = src[1];
         }
-
-        device const T * const src = (device T *)(src0 + i3*args.nb03 + i2*args.nb02 + i1*args.nb01 + ic*args.nb00);
-        device       T * dst_data  = (device T *)( dst + i3*args.nb3  + i2*args.nb2  + i1*args.nb1  + ic*args.nb0);
-
-        const float x0 = src[0];
-        const float x1 = src[args.idx_pair];
-
-        dst_data[0]             = x0*cos_theta - x1*sin_theta;
-        dst_data[args.idx_pair] = x0*sin_theta + x1*cos_theta;
     }
 }
 

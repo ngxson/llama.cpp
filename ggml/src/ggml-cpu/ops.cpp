@@ -5891,24 +5891,21 @@ static void ggml_compute_forward_rope_comp_flt(
     const float * pos = (const float *) src1->data;
 
     auto init_cache = [&](float * cache, float p) -> void {
-        float theta = p;
+        int i_dim = 1;
         for (int64_t i0 = 0; i0 < ne0; i0 += 2) {
-            const float ff = freq_factors ? freq_factors[i0/2] : 1.0f;
-            // yarn
-            {
-                // Get n-d rotational scaling corrected for extrapolation
-                float theta_extrap = theta / ff;
-                float theta_interp = freq_scale * theta_extrap;
+                  float theta        = p * powf(theta_scale, i_dim);
+            const float freq_factor  = freq_factors ? freq_factors[i0/2] : 1.0f;
+            const float theta_extrap = theta / freq_factor;
+            const float theta_interp = freq_scale * theta_extrap;
+            if (ramp_factor != 0.0f) {
+                const float ramp_mix = rope_yarn_ramp(yarn_low, yarn_high, i0) * ramp_factor;
+                theta = theta_interp * (1 - ramp_mix) + theta_extrap * ramp_mix;
+            } else {
                 theta = theta_interp;
-                if (ramp_factor != 0.0f) {
-                    float ramp_mix = rope_yarn_ramp(yarn_low, yarn_high, i0) * ramp_factor;
-                    theta = theta_interp * (1 - ramp_mix) + theta_extrap * ramp_mix;
-                }
             }
             cache[i0 + 0] = cosf(theta) * attn_factor;
             cache[i0 + 1] = sinf(theta) * attn_factor * sin_sign;
-
-            theta *= theta_scale;
+            i_dim++;
         }
     };
 
