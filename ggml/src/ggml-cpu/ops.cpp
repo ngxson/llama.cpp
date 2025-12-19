@@ -5932,7 +5932,7 @@ static void ggml_compute_forward_rope_comp_flt(
                 // fill the remain channels with data from src tensor
                 for (int64_t i0 = n_dims; i0 < ne0; i0 += 2) {
                     const T * const src = (T *)((char *) src0->data + i3*nb03 + i2*nb02 + i1*nb01 + i0*nb00);
-                    T * dst_data  = (T *)((char *)  dst->data + i3*nb3  + i2*nb2  + i1*nb1  + i0*nb0);
+                          T * dst_data  = (T *)((char *)  dst->data + i3*nb3  + i2*nb2  + i1*nb1  + i0*nb0);
 
                     dst_data[0] = src[0];
                     dst_data[1] = src[1];

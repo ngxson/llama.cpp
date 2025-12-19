@@ -199,9 +199,17 @@ struct test_rope {
                 float                 beta_slow) {
         if (use_comp) {
             b = ggml_cast(ctx, b, GGML_TYPE_F32); // pos must be F32
-            return ggml_rope_comp(
+            bool is_neox = (mode == GGML_ROPE_TYPE_NEOX);
+            ggml_tensor * x = ggml_rope_comp(
                 ctx, a, b, n_dims,
-                freq_base, GGML_ROPE_ORDERING_NORMAL);
+                freq_base, is_neox ? GGML_ROPE_ORDERING_NEOX : GGML_ROPE_ORDERING_NORMAL);
+            if (ext_factor != 0.0f) {
+                attn_factor *= 1.0f / (1.0f + 0.1f * logf(1.0f / freq_scale));
+                x = ggml_rope_comp_set_yarn(ctx, x, n_ctx_orig,
+                    freq_base, freq_scale, ext_factor, attn_factor,
+                    beta_fast, beta_slow);
+            }
+            return x;
         } else {
             return ggml_rope_ext(
                 ctx, a, b, c, n_dims, mode, n_ctx_orig,
@@ -210,14 +218,19 @@ struct test_rope {
         }
     }
 
-    ggml_tensor * build_graph(ggml_context * ctx) {
-        ggml_tensor * a;
+    ggml_tensor * a    = nullptr;
+    ggml_tensor * freq = nullptr;
+    ggml_tensor * pos  = nullptr;
+
+    void build_input(ggml_context * ctx) {
+        GGML_ASSERT(a == nullptr);
         if (v & 1) {
             auto ne = ne_a; ne[0] *= 2; ne[1] *= 4; ne[2] *= 3;
             a = ggml_new_tensor(ctx, type, 4, ne.data());
             if (forward) {
                 ggml_set_param(a);
             }
+            ggml_set_input(a);
             ggml_set_name(a, "a");
 
             a = ggml_view_4d(ctx, a, ne_a[0], ne_a[1], ne_a[2], ne_a[3], a->nb[1], a->nb[2], a->nb[3], 0);
@@ -227,26 +240,31 @@ struct test_rope {
             if (forward) {
                 ggml_set_param(a);
             }
+            ggml_set_input(a);
             ggml_set_name(a, "a");
         }
 
         const bool is_mrope = mode & GGML_ROPE_TYPE_MROPE;
         const bool is_vision = mode == GGML_ROPE_TYPE_VISION;
 
-        ggml_tensor * pos;
         if (is_mrope || is_vision) {
             pos = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, ne_a[2] * 4);
         } else {
             pos = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, ne_a[2]);
         }
+        ggml_set_input(pos);
         ggml_set_name(pos, "pos");
 
-        ggml_tensor * freq = nullptr;
         if (ff) {
             freq = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_dims/2);
+            ggml_set_input(freq);
             ggml_set_name(freq, "freq");
         }
+    }
 
+    ggml_tensor * build_graph(ggml_context * ctx) {
+        const bool is_mrope = mode & GGML_ROPE_TYPE_MROPE;
+        const bool is_vision = mode == GGML_ROPE_TYPE_VISION;
         ggml_tensor * out = nullptr;
         if (is_mrope) {
             if (is_vision) {
@@ -303,6 +321,14 @@ struct test_rope {
                         data[i] = frand()*(fmax - fmin) + fmin;
                     }
                 } break;
+            case GGML_TYPE_F16:
+                {
+                    ggml_fp16_t * data = (ggml_fp16_t *)tensor->data;
+                    for (size_t i = 0; i < n_elements; i++) {
+                        float v = frand()*(fmax - fmin) + fmin;
+                        data[i] = ggml_fp32_to_fp16(v);
+                    }
+                } break;
             default:
                 assert(false);
         }
@@ -310,6 +336,9 @@ struct test_rope {
 
     void initialize_tensors(ggml_context * ctx) {
         for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
+            if ((t->flags & GGML_TENSOR_FLAG_INPUT) == 0) {
+                continue;
+            }
             if (t->type == GGML_TYPE_I32) {
                 // pos
                 const int num_pos_ids = (mode & GGML_ROPE_TYPE_MROPE) ? ne_a[2] * 4 : ne_a[2];
@@ -317,12 +346,15 @@ struct test_rope {
                 for (int i = 0; i < num_pos_ids; i++) {
                     data[i] = rand() % n_ctx;
                 }
+                // printf("init pos tensor %s\n", ggml_get_name(t));
                 memcpy(t->data, data.data(), num_pos_ids * sizeof(int));
             } else {
                 if (t->ne[0] == n_dims/2) {
                     // frequency factors in the range [0.9f, 1.1f]
+                    // printf("init freq tensor %s\n", ggml_get_name(t));
                     init_tensor_uniform(t, 0.9f, 1.1f);
                 } else {
+                    // printf("init param tensor %s\n", ggml_get_name(t));
                     init_tensor_uniform(t);
                 }
             }
@@ -392,59 +424,52 @@ static void test_rope_comp() {
         }
     }
 
-    std::vector<test_rope *> comp_cases;
-    for (auto & tc : test_cases) {
-        auto tc_comp = new test_rope(*tc);
-        tc_comp->use_comp = true;
-        comp_cases.push_back(tc_comp);
-    }
-
     std::vector<uint8_t> work_buffer;
 
     size_t n_passed = 0;
 
     for (size_t i = 0; i < test_cases.size(); i++) {
-        test_rope * tc_rope = test_cases[i];
-        test_rope * tc_comp = comp_cases[i];
+        test_rope * tc = test_cases[i];
 
         ggml_context * ctx0 = ggml_init(params);
         ggml_cgraph * gf = ggml_new_graph(ctx0);
 
-        ggml_tensor * out0 = tc_rope->build_graph(ctx0);
-        ggml_tensor * out1 = tc_comp->build_graph(ctx0);
+        tc->build_input(ctx0);
+        tc->initialize_tensors(ctx0);
+
+        ggml_tensor * out0 = tc->build_graph(ctx0);
+        tc->use_comp = true;
+        ggml_tensor * out1 = tc->build_graph(ctx0);
 
         if (out0 == nullptr || out1 == nullptr) {
-            GGML_PRINT("test_rope_comp \x1b[33mSKIPPED\x1b[0m: %s\n", tc_rope->vars().c_str());
+            GGML_PRINT("test_rope_comp \x1b[33mSKIPPED\x1b[0m: %s\n", tc->vars().c_str());
             ggml_free(ctx0);
-            delete tc_comp;
-            delete tc_rope;
+            delete tc;
             continue;
         }
-
-        tc_rope->initialize_tensors(ctx0);
-        tc_comp->initialize_tensors(ctx0);
 
         // calculate nmse between out0 and out1
         ggml_tensor * diff    = ggml_sub(ctx0, out0, out1);
         ggml_tensor * mse_a_b = ggml_sum(ctx0, ggml_sqr(ctx0, diff));
         ggml_tensor * mse_a_0 = ggml_sum(ctx0, ggml_sqr(ctx0, out0));
         ggml_tensor * out     = ggml_div(ctx0, mse_a_b, mse_a_0);
+        out = ggml_cast(ctx0, out, GGML_TYPE_F32);
 
         ggml_build_forward_expand(gf, out);
         ggml_graph_compute_helper(work_buffer, gf, 4);
 
+        GGML_ASSERT(ggml_nelements(out) == 1);
         float nmse = ((float *)out->data)[0];
         const float nmse_threshold = 1e-6f;
         if (nmse > nmse_threshold) {
-            GGML_PRINT("test_rope_comp \x1b[31mFAILED\x1b[0m: nmse=%f > %f for %s\n",  nmse, nmse_threshold, tc_rope->vars().c_str());
+            GGML_PRINT("test_rope_comp \x1b[31mFAILED\x1b[0m: nmse=%f > %f for %s\n",  nmse, nmse_threshold, tc->vars().c_str());
         } else {
-            GGML_PRINT("test_rope_comp OK    : nmse=%f <= %f for %s\n", nmse, nmse_threshold, tc_rope->vars().c_str());
+            GGML_PRINT("test_rope_comp OK    : nmse=%f <= %f for %s\n", nmse, nmse_threshold, tc->vars().c_str());
             n_passed++;
         }
 
         ggml_free(ctx0);
-        delete tc_comp;
-        delete tc_rope;
+        delete tc;
     }
 
     GGML_ASSERT(n_passed == test_cases.size());
