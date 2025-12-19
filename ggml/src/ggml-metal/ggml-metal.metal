@@ -4100,6 +4100,60 @@ static void rope_yarn_corr_dims(
 }
 
 template<typename T>
+kernel void kernel_rope_comp(
+        constant ggml_metal_kargs_rope_comp & args,
+        device const char * src0,
+        device const char * src1,
+        device const char * src2,
+        device       char * dst,
+        ushort  tiitg[[thread_index_in_threadgroup]],
+        ushort3 tptg [[threads_per_threadgroup]],
+        uint3   tgpig[[threadgroup_position_in_grid]]) {
+    const int i3 = tgpig[2];
+    const int i2 = tgpig[1];
+    const int i1 = tgpig[0];
+
+    device const float * pos = (device const float *) src1;
+    const float theta_base = (float) pos[i2];
+
+    float cos_theta;
+    float sin_theta;
+    float theta;
+
+    for (int i0 = 2*tiitg; i0 < args.ne0; i0 += 2*tptg.x) {
+        const int ic = i0 / args.idx_scale;
+
+        if (i0 < args.n_dims) {
+            // Get n-d rotational scaling corrected for extrapolation
+            theta = theta_base * pow(args.theta_scale, i0);
+            const float freq_factor = args.src2 ? ((device const float *) src2)[ic] : 1.0f;
+            const float theta_extrap = theta / freq_factor;
+            const float theta_interp = args.freq_scale * theta_extrap;
+            theta = theta_interp;
+            if (args.ramp_factor != 0.0f) {
+                const float ramp_mix = rope_yarn_ramp(args.yarn_low, args.yarn_high, i0) * args.ramp_factor;
+                theta = theta_interp * (1 - ramp_mix) + theta_extrap * ramp_mix;
+            }
+            cos_theta = cos(theta) * args.attn_factor;
+            sin_theta = sin(theta) * args.attn_factor;
+        } else {
+            theta     = 0.0f;
+            cos_theta = 1.0f;
+            sin_theta = 0.0f;
+        }
+
+        device const T * const src = (device T *)(src0 + i3*args.nb03 + i2*args.nb02 + i1*args.nb01 + ic*args.nb00);
+        device       T * dst_data  = (device T *)( dst + i3*args.nb3  + i2*args.nb2  + i1*args.nb1  + ic*args.nb0);
+
+        const float x0 = src[0];
+        const float x1 = src[args.idx_pair];
+
+        dst_data[0]             = x0*cos_theta - x1*sin_theta;
+        dst_data[args.idx_pair] = x0*sin_theta + x1*cos_theta;
+    }
+}
+
+template<typename T>
 kernel void kernel_rope_norm(
         constant ggml_metal_kargs_rope & args,
         device const char * src0,
@@ -4359,6 +4413,7 @@ typedef decltype(kernel_rope_norm<float>) kernel_rope_norm_t;
 typedef decltype(kernel_rope_neox<float>) kernel_rope_neox_t;
 typedef decltype(kernel_rope_multi<float>) kernel_rope_multi_t;
 typedef decltype(kernel_rope_vision<float>) kernel_rope_vision_t;
+typedef decltype(kernel_rope_comp<float>) kernel_rope_comp_t;
 
 template [[host_name("kernel_rope_norm_f32")]] kernel kernel_rope_norm_t kernel_rope_norm<float>;
 template [[host_name("kernel_rope_norm_f16")]] kernel kernel_rope_norm_t kernel_rope_norm<half>;
@@ -4371,6 +4426,9 @@ template [[host_name("kernel_rope_multi_f16")]] kernel kernel_rope_multi_t kerne
 
 template [[host_name("kernel_rope_vision_f32")]] kernel kernel_rope_vision_t kernel_rope_vision<float>;
 template [[host_name("kernel_rope_vision_f16")]] kernel kernel_rope_vision_t kernel_rope_vision<half>;
+
+template [[host_name("kernel_rope_comp_f32")]] kernel kernel_rope_comp_t kernel_rope_comp<float>;
+template [[host_name("kernel_rope_comp_f16")]] kernel kernel_rope_comp_t kernel_rope_comp<half>;
 
 typedef void (im2col_t)(
         constant ggml_metal_kargs_im2col & args,

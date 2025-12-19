@@ -75,10 +75,13 @@ llm_build_mistral3::llm_build_mistral3(const llama_model & model, const llm_grap
             //         ext_factor, attn_factor, beta_fast, beta_slow
             //         );
 
-            Qcur = ggml_rope_comp(ctx0, Qcur, inp_pos, n_rot, freq_base, GGML_ROPE_ORDERING_NORMAL);
+            // for demo only
+            ggml_tensor * inp_pos_f32 = ggml_cast(ctx0, inp_pos, GGML_TYPE_F32);
+
+            Qcur = ggml_rope_comp(ctx0, Qcur, inp_pos_f32, n_rot, freq_base, GGML_ROPE_ORDERING_NORMAL);
             ggml_rope_comp_set_yarn(ctx0, Qcur, n_ctx_orig, freq_base, freq_scale, 1.0f, 1.0f, 32.0f, 1.0f);
 
-            Kcur = ggml_rope_comp(ctx0, Kcur, inp_pos, n_rot, freq_base, GGML_ROPE_ORDERING_NORMAL);
+            Kcur = ggml_rope_comp(ctx0, Kcur, inp_pos_f32, n_rot, freq_base, GGML_ROPE_ORDERING_NORMAL);
             ggml_rope_comp_set_yarn(ctx0, Kcur, n_ctx_orig, freq_base, freq_scale, 1.0f, 1.0f, 32.0f, 1.0f);
 
             cb(Qcur, "Qcur", il);

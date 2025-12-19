@@ -5830,7 +5830,7 @@ static void ggml_compute_forward_rope_comp_flt(
     const ggml_tensor * src2 = dst->src[2];
 
     GGML_ASSERT(src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16);
-    GGML_ASSERT(src1->type == GGML_TYPE_I32);
+    GGML_ASSERT(src1->type == GGML_TYPE_F32);
 
     int32_t n_dims, idx_pair, idx_scale, idx_offset;
     float theta_scale, yarn_high, yarn_low, freq_scale, ramp_factor, attn_factor;
