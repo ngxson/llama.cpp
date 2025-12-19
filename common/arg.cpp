@@ -3506,7 +3506,7 @@ void common_params_add_preset_options(std::vector<common_arg> & args) {
         {"autoload"}, "NAME",
         "in server router mode, autoload this model on startup",
         [](common_params &, const std::string &) { /* unused */ }
-    ).set_env(COMMON_ARG_PRESET_AUTOLOAD).set_preset_only());
+    ).set_env(COMMON_ARG_PRESET_LOAD_ON_STARTUP).set_preset_only());
 
     // args.push_back(common_arg(
     //     {"pin"},
