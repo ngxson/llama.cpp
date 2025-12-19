@@ -1874,7 +1874,10 @@ extern "C" {
             float                   freq_base,
             enum ggml_rope_ordering ordering);
 
-    // TODO: ggml_rope_comp_set_rope_factors
+    GGML_API struct ggml_tensor * ggml_rope_comp_set_freq_factors(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * node,
+            struct ggml_tensor  * freq_factors);
 
     // set YaRN parameters
     GGML_API struct ggml_tensor * ggml_rope_comp_set_yarn(

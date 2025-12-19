@@ -4118,8 +4118,7 @@ kernel void kernel_rope_comp(
 
     for (int i0 = 2*tiitg; i0 < args.ne0; i0 += 2*tptg.x) {
         if (i0 < args.n_dims) {
-            const int   i_dim        = (i0 / 2) + 1;
-                  float theta        = p * pow(args.theta_scale, i_dim);
+                  float theta        = p * pow(args.theta_scale, i0/2);
             const float freq_factor  = args.src2 ? ((device const float *) src2)[i0/2] : 1.0f;
             const float theta_extrap = theta / freq_factor;
             const float theta_interp = args.freq_scale * theta_extrap;

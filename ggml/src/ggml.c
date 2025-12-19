@@ -4323,6 +4323,22 @@ GGML_API struct ggml_tensor * ggml_rope_comp(
     return result;
 }
 
+struct ggml_tensor * ggml_rope_comp_set_freq_factors(
+            struct ggml_context * ctx,
+            struct ggml_tensor  * node,
+            struct ggml_tensor  * freq_factors) {
+    GGML_UNUSED(ctx);
+    GGML_ASSERT(node->op == GGML_OP_ROPE_COMP);
+    GGML_ASSERT(freq_factors->type == GGML_TYPE_F32);
+
+    const int32_t n_dims = *((int32_t *) node->op_params + 0);
+    GGML_ASSERT(freq_factors->ne[0] >= n_dims / 2);
+
+    node->src[2] = freq_factors;
+
+    return node;
+}
+
 struct ggml_tensor * ggml_rope_comp_set_yarn(
         struct ggml_context * ctx,
         struct ggml_tensor  * node,

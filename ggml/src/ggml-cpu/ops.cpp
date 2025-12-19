@@ -5891,21 +5891,17 @@ static void ggml_compute_forward_rope_comp_flt(
     const float * pos = (const float *) src1->data;
 
     auto init_cache = [&](float * cache, float p) -> void {
-        int i_dim = 1;
         for (int64_t i0 = 0; i0 < ne0; i0 += 2) {
-                  float theta        = p * powf(theta_scale, i_dim);
-            const float freq_factor  = freq_factors ? freq_factors[i0/2] : 1.0f;
-            const float theta_extrap = theta / freq_factor;
-            const float theta_interp = freq_scale * theta_extrap;
+            const float freq_factor = freq_factors ? freq_factors[i0/2] : 1.0f;
+            float theta = p * powf(theta_scale, i0/2) / freq_factor;
             if (ramp_factor != 0.0f) {
+                const float theta_extrap = theta;
+                const float theta_interp = freq_scale * theta_extrap;
                 const float ramp_mix = rope_yarn_ramp(yarn_low, yarn_high, i0) * ramp_factor;
                 theta = theta_interp * (1 - ramp_mix) + theta_extrap * ramp_mix;
-            } else {
-                theta = theta_interp;
             }
             cache[i0 + 0] = cosf(theta) * attn_factor;
             cache[i0 + 1] = sinf(theta) * attn_factor * sin_sign;
-            i_dim++;
         }
     };
 
