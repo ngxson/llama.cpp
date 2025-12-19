@@ -124,6 +124,332 @@ static void ggml_graph_compute_helper(std::vector<uint8_t> & buf, ggml_cgraph * 
     ggml_graph_compute(graph, &plan);
 }
 
+//
+// test comparing rope and rope_comp
+//
+
+struct test_rope {
+    const ggml_type type;
+    const std::array<int64_t, 4> ne_a;
+    int n_dims;
+    int mode;
+    int n_ctx; // used to generate positions
+    float fs; // freq_scale
+    float ef; // ext_factor
+    float af; // attn_factor
+    bool ff;
+    int v; // view (1 : non-contiguous a)
+    bool forward; // unused for now
+    bool inplace;
+
+    bool use_comp = false;
+
+    std::string vars() {
+        char buf[256];
+        snprintf(buf, sizeof(buf),
+            "type=%d ne=(%lld,%lld,%lld,%lld) n_dims=%d mode=%d fs=%f ef=%f af=%f ff=%d v=%d inplace=%d",
+            type, ne_a[0], ne_a[1], ne_a[2], ne_a[3], n_dims, mode, fs, ef, af, ff ? 1 : 0, v, inplace ? 1 : 0);
+        return std::string(buf);
+    }
+
+    test_rope(ggml_type type = GGML_TYPE_F32,
+            std::array<int64_t, 4> ne_a = {10, 5, 3, 1},
+            int n_dims = 10, int mode = GGML_ROPE_TYPE_NORMAL, int n_ctx = 512, float fs = 1.0f,
+            float ef = 0.0f, float af = 0.0f, bool ff = false, int v = 0, bool forward = true, bool inplace = false)
+        : type(type), ne_a(ne_a), n_dims(n_dims), mode(mode), n_ctx(n_ctx), fs(fs), ef(ef), af(af), ff(ff), v(v), forward(forward), inplace(inplace) {}
+
+    ggml_tensor * _ggml_rope_multi(
+                struct ggml_context * ctx,
+                struct ggml_tensor  * a,
+                struct ggml_tensor  * b,
+                struct ggml_tensor  * c,
+                int                   n_dims,
+                int                   sections[GGML_MROPE_SECTIONS],
+                int                   mode,
+                int                   n_ctx_orig,
+                float                 freq_base,
+                float                 freq_scale,
+                float                 ext_factor,
+                float                 attn_factor,
+                float                 beta_fast,
+                float                 beta_slow) {
+        if (use_comp) {
+            return nullptr;
+        } else {
+            return ggml_rope_multi(
+                ctx, a, b, c, n_dims, sections, mode, n_ctx_orig,
+                freq_base, freq_scale, ext_factor, attn_factor,
+                beta_fast, beta_slow);
+        }
+    }
+
+    struct ggml_tensor * _ggml_rope_ext(
+                struct ggml_context * ctx,
+                struct ggml_tensor  * a,
+                struct ggml_tensor  * b,
+                struct ggml_tensor  * c,
+                int                   n_dims,
+                int                   mode,
+                int                   n_ctx_orig,
+                float                 freq_base,
+                float                 freq_scale,
+                float                 ext_factor,
+                float                 attn_factor,
+                float                 beta_fast,
+                float                 beta_slow) {
+        if (use_comp) {
+            b = ggml_cast(ctx, b, GGML_TYPE_F32); // pos must be F32
+            return ggml_rope_comp(
+                ctx, a, b, n_dims,
+                freq_base, GGML_ROPE_ORDERING_NORMAL);
+        } else {
+            return ggml_rope_ext(
+                ctx, a, b, c, n_dims, mode, n_ctx_orig,
+                freq_base, freq_scale, ext_factor, attn_factor,
+                beta_fast, beta_slow);
+        }
+    }
+
+    ggml_tensor * build_graph(ggml_context * ctx) {
+        ggml_tensor * a;
+        if (v & 1) {
+            auto ne = ne_a; ne[0] *= 2; ne[1] *= 4; ne[2] *= 3;
+            a = ggml_new_tensor(ctx, type, 4, ne.data());
+            if (forward) {
+                ggml_set_param(a);
+            }
+            ggml_set_name(a, "a");
+
+            a = ggml_view_4d(ctx, a, ne_a[0], ne_a[1], ne_a[2], ne_a[3], a->nb[1], a->nb[2], a->nb[3], 0);
+            ggml_set_name(a, "view_of_a");
+        } else {
+            a = ggml_new_tensor(ctx, type, 4, ne_a.data());
+            if (forward) {
+                ggml_set_param(a);
+            }
+            ggml_set_name(a, "a");
+        }
+
+        const bool is_mrope = mode & GGML_ROPE_TYPE_MROPE;
+        const bool is_vision = mode == GGML_ROPE_TYPE_VISION;
+
+        ggml_tensor * pos;
+        if (is_mrope || is_vision) {
+            pos = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, ne_a[2] * 4);
+        } else {
+            pos = ggml_new_tensor_1d(ctx, GGML_TYPE_I32, ne_a[2]);
+        }
+        ggml_set_name(pos, "pos");
+
+        ggml_tensor * freq = nullptr;
+        if (ff) {
+            freq = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, n_dims/2);
+            ggml_set_name(freq, "freq");
+        }
+
+        ggml_tensor * out = nullptr;
+        if (is_mrope) {
+            if (is_vision) {
+                GGML_ASSERT(n_dims/4 > 0);
+                int rope_sections[4] = {n_dims/4, n_dims/4, 0, 0}; // Vision-RoPE only use first two dimension for image (x, y) coordinate
+                if (forward) {
+                    if (inplace) {
+                        //out = _ggml_rope_multi_inplace(ctx, a, pos, freq, n_dims/2, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                    } else {
+                        out = _ggml_rope_multi(ctx, a, pos, freq, n_dims/2, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                    }
+                } else {
+                    //out = _ggml_rope_multi_back(ctx, a, pos, freq, n_dims/2, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                }
+            } else {
+                GGML_ASSERT(n_dims/3 > 0);
+                int rope_sections[4] = {n_dims/3, n_dims/3, n_dims/3, 0};
+                if (forward) {
+                    if (inplace) {
+                        //out = _ggml_rope_multi_inplace(ctx, a, pos, freq, n_dims, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                    } else {
+                        out = _ggml_rope_multi(ctx, a, pos, freq, n_dims, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                    }
+                } else {
+                    //out = _ggml_rope_multi_back(ctx, a, pos, freq, n_dims, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                }
+            }
+        } else {
+            if (forward) {
+                if (inplace) {
+                    //out = _ggml_rope_ext_inplace(ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                } else {
+                    out = _ggml_rope_ext(ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                }
+            } else {
+                //out = _ggml_rope_ext_back(ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+            }
+        }
+
+        if (out) {
+            ggml_set_name(out, "out");
+        }
+
+        return out;
+    }
+
+    void init_tensor_uniform(ggml_tensor * tensor, float fmin = -1.0f, float fmax = 1.0f) {
+        const size_t n_elements = ggml_nelements(tensor);
+        switch (tensor->type) {
+            case GGML_TYPE_F32:
+                {
+                    float * data = (float *)tensor->data;
+                    for (size_t i = 0; i < n_elements; i++) {
+                        data[i] = frand()*(fmax - fmin) + fmin;
+                    }
+                } break;
+            default:
+                assert(false);
+        }
+    }
+
+    void initialize_tensors(ggml_context * ctx) {
+        for (ggml_tensor * t = ggml_get_first_tensor(ctx); t != NULL; t = ggml_get_next_tensor(ctx, t)) {
+            if (t->type == GGML_TYPE_I32) {
+                // pos
+                const int num_pos_ids = (mode & GGML_ROPE_TYPE_MROPE) ? ne_a[2] * 4 : ne_a[2];
+                std::vector<int> data(num_pos_ids);
+                for (int i = 0; i < num_pos_ids; i++) {
+                    data[i] = rand() % n_ctx;
+                }
+                memcpy(t->data, data.data(), num_pos_ids * sizeof(int));
+            } else {
+                if (t->ne[0] == n_dims/2) {
+                    // frequency factors in the range [0.9f, 1.1f]
+                    init_tensor_uniform(t, 0.9f, 1.1f);
+                } else {
+                    init_tensor_uniform(t);
+                }
+            }
+        }
+    }
+};
+
+static void test_rope_comp() {
+    ggml_init_params params = {
+        /* .mem_size   = */ 128*1024*1024,
+        /* .mem_buffer = */ NULL,
+        /* .no_alloc   = */ false,
+    };
+
+    std::vector<test_rope *> test_cases;
+
+    bool all = true;
+    bool fw  = true;
+    for (float fs : { 1.0f, 1.4245f }) {
+        for (float ef : { 0.0f, 0.7465f }) {
+            for (float af : { 1.0f, 1.4245f }) {
+                for (ggml_type type : {GGML_TYPE_F32, GGML_TYPE_F16}) {
+                    for (bool ff : {false, true}) { // freq_factors
+                        for (float v : { 0, 1 }) {
+                            test_cases.emplace_back(new test_rope(type, {128,  32, 2, 1}, 128, GGML_ROPE_TYPE_NORMAL, 512, fs, ef, af, ff, v, fw)); // llama 7B
+
+                            if (all) {
+                                test_cases.emplace_back(new test_rope(type, {128,  40, 2, 1}, 128, GGML_ROPE_TYPE_NORMAL, 512, fs, ef, af, ff, v, fw)); // llama 13B
+                                test_cases.emplace_back(new test_rope(type, {128,  52, 2, 1}, 128, GGML_ROPE_TYPE_NORMAL, 512, fs, ef, af, ff, v, fw)); // llama 30B
+                                test_cases.emplace_back(new test_rope(type, {128,  64, 2, 1}, 128, GGML_ROPE_TYPE_NORMAL, 512, fs, ef, af, ff, v, fw)); // llama 65B
+                            }
+
+                            if (all) {
+                                test_cases.emplace_back(new test_rope(type, { 64,   1, 2, 1},  64, GGML_ROPE_TYPE_NEOX, 512, fs, ef, af, ff, v, fw)); // neox (falcon 7B)
+                                test_cases.emplace_back(new test_rope(type, { 64,  71, 2, 1},  64, GGML_ROPE_TYPE_NEOX, 512, fs, ef, af, ff, v, fw)); // neox (falcon 7B)
+                                test_cases.emplace_back(new test_rope(type, { 64,   8, 2, 1},  64, GGML_ROPE_TYPE_NEOX, 512, fs, ef, af, ff, v, fw)); // neox (falcon 40B)
+
+                                test_cases.emplace_back(new test_rope(type, { 80,  32, 2, 1},  20, GGML_ROPE_TYPE_NORMAL, 512, fs, ef, af, ff, v, fw));
+                                test_cases.emplace_back(new test_rope(type, { 80,  32, 2, 1},  32, GGML_ROPE_TYPE_NORMAL, 512, fs, ef, af, ff, v, fw));
+                                test_cases.emplace_back(new test_rope(type, { 80,  32, 4, 1},  32, GGML_ROPE_TYPE_NORMAL, 512, fs, ef, af, ff, v, fw));
+
+                                test_cases.emplace_back(new test_rope(type, { 80,  32, 2, 1},  20, GGML_ROPE_TYPE_NEOX, 512, fs, ef, af, ff, v, fw)); // neox (stablelm)
+                                test_cases.emplace_back(new test_rope(type, { 80,  32, 2, 1},  32, GGML_ROPE_TYPE_NEOX, 512, fs, ef, af, ff, v, fw)); // neox (phi-2)
+                                test_cases.emplace_back(new test_rope(type, { 80,  32, 4, 1},  32, GGML_ROPE_TYPE_NEOX, 512, fs, ef, af, ff, v, fw)); // neox (phi-2)
+                            }
+
+                            if (all) {
+                                test_cases.emplace_back(new test_rope(type, {128,  12, 2, 1}, 128, GGML_ROPE_TYPE_MROPE,  512, fs, ef, af, ff, v, fw)); // rope_multi,m-rope (qwen2vl 2B)
+                                test_cases.emplace_back(new test_rope(type, {128,  28, 2, 1}, 128, GGML_ROPE_TYPE_MROPE,  512, fs, ef, af, ff, v, fw)); // rope_multi,m-rope (qwen2vl 7B)
+                                test_cases.emplace_back(new test_rope(type, {128,  12, 2, 1},  20, GGML_ROPE_TYPE_MROPE,  512, fs, ef, af, ff, v, fw));
+                                test_cases.emplace_back(new test_rope(type, {128,  28, 2, 1},  32, GGML_ROPE_TYPE_MROPE,  512, fs, ef, af, ff, v, fw));
+                                test_cases.emplace_back(new test_rope(type, {128,  12, 2, 1}, 128, GGML_ROPE_TYPE_IMROPE,  512, fs, ef, af, ff, v, fw)); // rope_multi,imrope (qwen3vl 2B)
+                                test_cases.emplace_back(new test_rope(type, {128,  28, 2, 1}, 128, GGML_ROPE_TYPE_IMROPE,  512, fs, ef, af, ff, v, fw)); // rope_multi,imrope (qwen3vl 7B)
+                                test_cases.emplace_back(new test_rope(type, {128,  12, 2, 1},  20, GGML_ROPE_TYPE_IMROPE,  512, fs, ef, af, ff, v, fw));
+                                test_cases.emplace_back(new test_rope(type, {128,  28, 2, 1},  32, GGML_ROPE_TYPE_IMROPE,  512, fs, ef, af, ff, v, fw));
+                                test_cases.emplace_back(new test_rope(type, { 80,  16, 2, 1},  80, GGML_ROPE_TYPE_VISION, 512, fs, ef, af, ff, v, fw)); // rope_multi,m-rope (qwen2vl ViT)
+                                test_cases.emplace_back(new test_rope(type, {128,  16, 2, 1}, 128, GGML_ROPE_TYPE_IMROPE, 512, fs, ef, af, ff, v, fw)); // rope_multi,m-rope (qwen3vl)
+                            }
+
+                            test_cases.emplace_back(new test_rope(type, { 64, 128, 2, 1},  64, GGML_ROPE_TYPE_NEOX, 512, fs, ef, af, ff, v, fw)); // neox (falcon 40B)
+                        }
+                    }
+
+                    all = false;
+                }
+            }
+        }
+    }
+
+    std::vector<test_rope *> comp_cases;
+    for (auto & tc : test_cases) {
+        auto tc_comp = new test_rope(*tc);
+        tc_comp->use_comp = true;
+        comp_cases.push_back(tc_comp);
+    }
+
+    std::vector<uint8_t> work_buffer;
+
+    size_t n_passed = 0;
+
+    for (size_t i = 0; i < test_cases.size(); i++) {
+        test_rope * tc_rope = test_cases[i];
+        test_rope * tc_comp = comp_cases[i];
+
+        ggml_context * ctx0 = ggml_init(params);
+        ggml_cgraph * gf = ggml_new_graph(ctx0);
+
+        ggml_tensor * out0 = tc_rope->build_graph(ctx0);
+        ggml_tensor * out1 = tc_comp->build_graph(ctx0);
+
+        if (out0 == nullptr || out1 == nullptr) {
+            GGML_PRINT("test_rope_comp \x1b[33mSKIPPED\x1b[0m: %s\n", tc_rope->vars().c_str());
+            ggml_free(ctx0);
+            delete tc_comp;
+            delete tc_rope;
+            continue;
+        }
+
+        tc_rope->initialize_tensors(ctx0);
+        tc_comp->initialize_tensors(ctx0);
+
+        // calculate nmse between out0 and out1
+        ggml_tensor * diff    = ggml_sub(ctx0, out0, out1);
+        ggml_tensor * mse_a_b = ggml_sum(ctx0, ggml_sqr(ctx0, diff));
+        ggml_tensor * mse_a_0 = ggml_sum(ctx0, ggml_sqr(ctx0, out0));
+        ggml_tensor * out     = ggml_div(ctx0, mse_a_b, mse_a_0);
+
+        ggml_build_forward_expand(gf, out);
+        ggml_graph_compute_helper(work_buffer, gf, 4);
+
+        float nmse = ((float *)out->data)[0];
+        const float nmse_threshold = 1e-6f;
+        if (nmse > nmse_threshold) {
+            GGML_PRINT("test_rope_comp \x1b[31mFAILED\x1b[0m: nmse=%f > %f for %s\n",  nmse, nmse_threshold, tc_rope->vars().c_str());
+        } else {
+            GGML_PRINT("test_rope_comp OK    : nmse=%f <= %f for %s\n", nmse, nmse_threshold, tc_rope->vars().c_str());
+            n_passed++;
+        }
+
+        ggml_free(ctx0);
+        delete tc_comp;
+        delete tc_rope;
+    }
+
+    GGML_ASSERT(n_passed == test_cases.size());
+}
+
 int main(int /*argc*/, const char ** /*argv*/) {
     struct ggml_init_params params = {
         /* .mem_size   = */ 128*1024*1024,
@@ -258,6 +584,8 @@ int main(int /*argc*/, const char ** /*argv*/) {
     }
 
     ggml_free(ctx0);
+
+    test_rope_comp();
 
     return 0;
 }
