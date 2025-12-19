@@ -226,6 +226,26 @@ void server_models::load_models() {
             SRV_INF("  %c %s\n", has_custom ? '*' : ' ', name.c_str());
         }
     }
+
+    // load any autoload models
+    std::vector<std::string> autoload_models;
+    for (const auto & [name, inst] : mapping) {
+        std::string val;
+        if (inst.meta.preset.get_option(COMMON_ARG_PRESET_AUTOLOAD, val)) {
+            autoload_models.push_back(name);
+        }
+    }
+    if ((int)autoload_models.size() > base_params.models_max) {
+        throw std::runtime_error(string_format(
+            "number of autoload models (%zu) exceeds models_max (%d)",
+            autoload_models.size(),
+            base_params.models_max
+        ));
+    }
+    for (const auto & name : autoload_models) {
+        SRV_INF("autoloading model %s\n", name.c_str());
+        load(name);
+    }
 }
 
 void server_models::update_meta(const std::string & name, const server_model_meta & meta) {
