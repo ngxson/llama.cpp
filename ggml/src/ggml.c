@@ -4262,8 +4262,8 @@ void ggml_rope_yarn_corr_dims(
     // start and end correction dims
     float start = floorf(ggml_rope_yarn_corr_dim(n_dims, n_ctx_orig, beta_fast, freq_base));
     float end   =  ceilf(ggml_rope_yarn_corr_dim(n_dims, n_ctx_orig, beta_slow, freq_base));
-    dims[0] = MAX(0, start);
-    dims[1] = MIN(n_dims - 1, end);
+    dims[0] = MAX(0, start);        // yarn_low  (see rope.cu)
+    dims[1] = MIN(n_dims - 1, end); // yarn_high (see rope.cu)
 }
 
 // ggml_rope_comp
