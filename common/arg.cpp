@@ -3503,7 +3503,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
 void common_params_add_preset_options(std::vector<common_arg> & args) {
     // arguments below won't be treated as CLI args, only preset options
     args.push_back(common_arg(
-        {"autoload"}, "NAME",
+        {"load-on-startup"}, "NAME",
         "in server router mode, autoload this model on startup",
         [](common_params &, const std::string &) { /* unused */ }
     ).set_env(COMMON_ARG_PRESET_LOAD_ON_STARTUP).set_preset_only());
