@@ -834,18 +834,23 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
         case PROJECTOR_TYPE_GLM_EDGE:
             {
                 builder = std::make_unique<clip_graph_llava>(ctx, img);
-            } break;
+            }
+            break;
         case PROJECTOR_TYPE_DEEPSEEKOCR:
             {
                 builder = std::make_unique<clip_graph_deepseekocr>(ctx, img);
+            }
+            break;
         case PROJECTOR_TYPE_LFM2A:
             {
                 builder = std::make_unique<clip_graph_conformer>(ctx, img);
-            } break;
+            }
+            break;
         case PROJECTOR_TYPE_GLM4V:
             {
                 builder = std::make_unique<clip_graph_glm4v>(ctx, img);
-            } break;
+            }
+            break;
         default:
             GGML_ABORT("missing cgraph builder");
     }
