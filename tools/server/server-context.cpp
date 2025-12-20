@@ -851,7 +851,7 @@ struct server_context_impl {
 
         return true;
     }
-    
+
     // unlike load_model(), this is only called once during initialization
     bool init() {
         GGML_ASSERT(ctx != nullptr);
