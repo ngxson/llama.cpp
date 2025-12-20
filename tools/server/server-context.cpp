@@ -863,9 +863,12 @@ struct server_context_impl {
             common_chat_templates_source(chat_templates.get()),
             common_chat_format_example(chat_templates.get(), params_base.use_jinja, params_base.default_template_kwargs).c_str());
 
-        if (!populate_json_responses()) {
-            SRV_ERR("%s", "failed to populate JSON responses\n");
-            return false;
+        if (!is_resume) {
+            // do not repopulate on resume, as HTTP threads may be still using the existing JSON data
+            if (!populate_json_responses()) {
+                SRV_ERR("%s", "failed to populate JSON responses\n");
+                return false;
+            }
         }
 
         return true;
