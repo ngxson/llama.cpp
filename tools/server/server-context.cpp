@@ -560,6 +560,8 @@ struct server_context_impl {
 
     ~server_context_impl() {
         if (!sleeping) {
+            // destroy() is already called when entering sleeping state
+            // we don't call it again here to avoid double free
             destroy();
         }
     }
@@ -594,8 +596,7 @@ struct server_context_impl {
         } else {
             SRV_INF("%s", "server is exiting sleeping state\n");
             if (!load_model(params_base)) {
-                SRV_ERR("%s", "fatal: failed to reload model after sleeping\n");
-                exit(1);
+                GGML_ABORT("failed to reload model after sleeping");
             }
         }
         sleeping = new_state;
