@@ -607,19 +607,6 @@ struct server_context_impl {
     bool load_model(const common_params & params) {
         bool is_resume = sleeping;
 
-        if (!is_resume) {
-            // wiring up server queues
-            queue_tasks.on_new_task([this](server_task && task) {
-                process_single_task(std::move(task));
-            });
-            queue_tasks.on_update_slots([this]() {
-                update_slots();
-            });
-            queue_tasks.on_sleeping_state([this](bool sleeping) {
-                handle_sleeping_state(sleeping);
-            });
-        }
-
         SRV_INF("loading model '%s'\n", params.model.path.c_str());
 
         params_base = params;
@@ -809,11 +796,6 @@ struct server_context_impl {
             batch = llama_batch_init(std::max(n_batch, params_base.n_parallel), 0, 1);
         }
 
-        // preserve metric state across resumes
-        if (!is_resume) {
-            metrics.init();
-        }
-
         if (params_base.cache_ram_mib != 0) {
             if (params_base.cache_ram_mib < 0) {
                 SRV_WRN("prompt cache is enabled, size limit: %s\n", "no limit");
@@ -864,11 +846,34 @@ struct server_context_impl {
             common_chat_format_example(chat_templates.get(), params_base.use_jinja, params_base.default_template_kwargs).c_str());
 
         if (!is_resume) {
-            // do not repopulate on resume, as HTTP threads may be still using the existing JSON data
-            if (!populate_json_responses()) {
-                SRV_ERR("%s", "failed to populate JSON responses\n");
-                return false;
-            }
+            return init();
+        }
+
+        return true;
+    }
+    
+    // unlike load_model(), this is only called once during initialization
+    bool init() {
+        GGML_ASSERT(ctx != nullptr);
+        GGML_ASSERT(model != nullptr);
+        GGML_ASSERT(!sleeping);
+
+        // wiring up server queues
+        queue_tasks.on_new_task([this](server_task && task) {
+            process_single_task(std::move(task));
+        });
+        queue_tasks.on_update_slots([this]() {
+            update_slots();
+        });
+        queue_tasks.on_sleeping_state([this](bool sleeping) {
+            handle_sleeping_state(sleeping);
+        });
+
+        metrics.init();
+
+        if (!populate_json_responses()) {
+            SRV_ERR("%s", "failed to populate JSON responses\n");
+            return false;
         }
 
         return true;
