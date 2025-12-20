@@ -2891,6 +2891,9 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         {"--sleep-idle-seconds"}, "SECONDS",
         string_format("number of seconds of idleness after which the server will sleep (default: %d; -1 = disabled)", params.sleep_idle_seconds),
         [](common_params & params, int value) {
+            if (value == 0 || value < -1) {
+                throw std::invalid_argument("invalid value: cannot be 0 or less than -1");
+            }
             params.sleep_idle_seconds = value;
         }
     ).set_examples({LLAMA_EXAMPLE_SERVER}));

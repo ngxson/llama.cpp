@@ -2786,6 +2786,8 @@ struct server_res_generator : server_http_res {
     server_response_reader rd;
     server_res_generator(server_context_impl & ctx_server, bool bypass_sleep = false)
             : rd(ctx_server.queue_tasks, ctx_server.queue_results, HTTP_POLLING_SECONDS) {
+        // fast path in case sleeping is disabled
+        bypass_sleep |= ctx_server.params_base.sleep_idle_seconds < 0;
         if (!bypass_sleep) {
             ctx_server.queue_tasks.wait_until_no_sleep();
         }
