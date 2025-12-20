@@ -263,69 +263,26 @@ void clip_graph::cb(ggml_tensor * cur0, const char * name, int il) const {
     }
 }
 
-// Helper: Normalize over the Channel dimension (dim 2 in [W, H, C, B])
+// --- Helpers for MobileNetV5 Blocks ---
 // RMS Norm 2D - normalizes over channels for each spatial position
-// PyTorch: v = torch.mean(x.pow(2), dim=1) - mean over C for each (N,H,W)
-// We need to normalize each spatial position across its C channels
-ggml_tensor * clip_graph::rms_norm_2d(ggml_tensor * inp, ggml_tensor * weight, float eps, int block_idx) {
+ggml_tensor * clip_graph::rms_norm_2d(ggml_tensor * inp, ggml_tensor * weight, float eps) {
     // inp: [W, H, C, B]
-    const int64_t W = inp->ne[0];
-    const int64_t H = inp->ne[1];
-    const int64_t C = inp->ne[2];
-    const int64_t B = inp->ne[3];
 
-    // Step 1: Permute [W, H, C, B] -> [C, W, H, B]
-    // Puts Channels in ne[0] (contiguous)
     ggml_tensor * cur = ggml_permute(ctx0, inp, 2, 1, 0, 3);
     cur = ggml_cont(ctx0, cur);
-
-    // Step 2: Reshape [C, W, H, B] -> [C, W*H*B]
-    // We now have a 2D matrix where columns are Channels (ne[0]) 
-    // and rows are Spatial/Batch (ne[1]).
-    // cur = ggml_reshape_2d(ctx0, cur, C, W * H * B);
-
-    // REMOVED Step 3 (Transpose). 
-    // We WANT ne[0] to be C so rms_norm reduces over it.
-
-    // Step 4: Apply RMS Norm
-    // Normalizes ne[0] (C) for every element in ne[1] (Spatial/Batch).
     cur = ggml_rms_norm(ctx0, cur, eps);
-
-    // Step 5: Apply weight if present
+ 
     if (weight) {
-        // weight is [C]
-        // cur is [C, W*H*B]
-        // ggml_mul broadcasts automatically along higher dims.
-        // It multiplies element i of weight with element i of cur's ne[0].
         cur = ggml_mul(ctx0, cur, weight);
     }
 
-    // REMOVED Step 6 (Transpose back). We never transposed.
-
-    // Step 7: Reshape back to [C, W, H, B]
-    // cur = ggml_reshape_4d(ctx0, cur, C, W, H, B);
-
-    // Step 8: Permute back to [W, H, C, B]
-    // ne[0]=C, ne[1]=W, ne[2]=H, ne[3]=B
-    // We want new ne[0] to be old ne[1] (W)
-    // We want new ne[1] to be old ne[2] (H)
-    // We want new ne[2] to be old ne[0] (C)
-    // We want new ne[3] to be old ne[3] (B)
     cur = ggml_permute(ctx0, cur, 2, 1, 0, 3);
-
-    // cur = ggml_permute(ctx0, cur, 0, 2, 1, 3);
-    
-    // Note: The second permute in your original code was likely redundant/incorrect
-    // after the first one. A single permute is sufficient to restore order.
     cur = ggml_cont(ctx0, cur);
 
     return cur;
 }
 
-
-// ------------------------------------------------------------------------
 // Helper for Conv2dSame padding (asymmetric SAME padding like PyTorch/TF)
-// ------------------------------------------------------------------------
 ggml_tensor* clip_graph::pad_same_2d(ggml_tensor* inp, int kernel_h, int kernel_w, int stride_h, int stride_w, int dilation_h, int dilation_w) {
     const int64_t ih = inp->ne[1];  // height
     const int64_t iw = inp->ne[0];  // width
@@ -358,31 +315,20 @@ ggml_tensor* clip_graph::pad_same_2d(ggml_tensor* inp, int kernel_h, int kernel_
     return inp;
 }
 
-// ------------------------------------------------------------------------
-// Edge Residual Block (Stage 0) - CORRECTED
-// ------------------------------------------------------------------------
-ggml_tensor * clip_graph::build_edge_residual(ggml_tensor * inp, const mobilenetv5_block & block, int stride, int block_idx) {
+
+// Edge Residual Block (Stage 0)
+ggml_tensor * clip_graph::build_edge_residual(ggml_tensor * inp, const mobilenetv5_block & block, int stride) {
     ggml_tensor * cur = inp;
 
     // 1. Expansion Conv (3x3)
-    // --------------------------------------------------------------------
-    // LOGIC FIX:
-    // Block 0 (stride=2): Uses "Conv2dSame". We must manually pad, then conv with pad=0.
-    // Block 1,2 (stride=1): Uses standard "Conv2d" with padding=(1,1).
-    // --------------------------------------------------------------------
-    
     if (stride == 2) {
         // Case: Downsampling (Block 0)
         // Replicates Conv2dSame(kernel=3, stride=2)
-        // We calculate asymmetric padding dynamically
         cur = pad_same_2d(cur, 3, 3, stride, stride); 
-        
-        // Perform conv with 0 padding because we just applied it manually
         cur = ggml_conv_2d_direct(ctx0, block.s0_conv_exp_w, cur, stride, stride, 0, 0, 1, 1);
     } else {
         // Case: Normal 3x3 Block (Block 1, 2)
         // Replicates Conv2d(kernel=3, stride=1, padding=1)
-        // Standard symmetric padding of 1 is sufficient for 3x3 s1 to keep dims same
         cur = ggml_conv_2d_direct(ctx0, block.s0_conv_exp_w, cur, stride, stride, 1, 1, 1, 1);
     }
 
@@ -404,7 +350,7 @@ ggml_tensor * clip_graph::build_edge_residual(ggml_tensor * inp, const mobilenet
     return cur;
 }
 
-ggml_tensor * clip_graph::build_inverted_residual(ggml_tensor * inp, const mobilenetv5_block & block, int stride, int block_idx) {
+ggml_tensor * clip_graph::build_inverted_residual(ggml_tensor * inp, const mobilenetv5_block & block, int stride) {
     ggml_tensor * cur = inp;
 
     // 1. Depthwise Start (Optional)
@@ -412,7 +358,6 @@ ggml_tensor * clip_graph::build_inverted_residual(ggml_tensor * inp, const mobil
     if (block.dw_start_w) {
         int k = block.dw_start_w->ne[0]; // 3 or 5
         int p = k / 2;
-        // cur = ggml_conv_2d_dw_direct(ctx0, block.dw_start_w, cur, 1, 1, p, p, 1, 1);
         cur = ggml_conv_2d_dw(ctx0, block.dw_start_w, cur, 1, 1, p, p, 1, 1);
         if (block.dw_start_bn_w) cur = rms_norm_2d(cur, block.dw_start_bn_w);
     }
@@ -462,8 +407,6 @@ ggml_tensor * clip_graph::build_inverted_residual(ggml_tensor * inp, const mobil
     bool same_spatial = (inp->ne[0] == cur->ne[0]) && (inp->ne[1] == cur->ne[1]);
     bool same_channel = (inp->ne[2] == cur->ne[2]);
     if (same_spatial && same_channel) {
-        // --- FIXED LAYER SCALING ---
-        // ---------------------------
         cur = ggml_add(ctx0, cur, inp);
     }
 
@@ -471,24 +414,12 @@ ggml_tensor * clip_graph::build_inverted_residual(ggml_tensor * inp, const mobil
 }
 
 // MobileNetV5 Builder (Gemma 3n) - Attention Block
-ggml_tensor * clip_graph::build_mobilenet_attn(ggml_tensor * inp, const mobilenetv5_block & block, int block_idx) {
-
-    // ... [Debug Helpers kept same as original] ...
-    // auto DEBUG_SHAPE = [&](const char* label, ggml_tensor* t) { /* ... */ };
-    // auto REGISTER_DEBUG = [&](const std::string& name, ggml_tensor* t) { /* ... */ };
-
-    // // Debug input
-    // if (block_idx == 33 || block_idx == 50 || block_idx == 52) {
-    //     char debug_name[128];
-    //     snprintf(debug_name, sizeof(debug_name), "block%d_input", block_idx);
-    //     REGISTER_DEBUG(debug_name, inp);
-    // }
-
+ggml_tensor * clip_graph::build_mobilenet_attn(ggml_tensor * inp, const mobilenetv5_block & block) {
     ggml_tensor * cur = inp;
 
     // --- Norm ---
     if (block.attn_norm_w) {
-        cur = rms_norm_2d(cur, block.attn_norm_w, 1e-6f, block_idx);
+        cur = rms_norm_2d(cur, block.attn_norm_w, 1e-6f);
     }
 
     // --- 1. Q Calculation ---
@@ -502,7 +433,7 @@ ggml_tensor * clip_graph::build_mobilenet_attn(ggml_tensor * inp, const mobilene
         k_inp = pad_same_2d(cur, k_size, k_size, 2, 2);  // Apply SAME padding
         k_inp = ggml_conv_2d_dw(ctx0, block.attn_k_dw_w, k_inp, 2, 2, 0, 0, 1, 1);  // padding=0
         if (block.attn_k_norm_w) {
-            k_inp = rms_norm_2d(k_inp, block.attn_k_norm_w, 1e-6f, block_idx);
+            k_inp = rms_norm_2d(k_inp, block.attn_k_norm_w, 1e-6f);
         }
     }
     ggml_tensor * k = ggml_conv_2d_direct(ctx0, block.attn_k_w, k_inp, 1, 1, 0, 0, 1, 1);
@@ -515,12 +446,10 @@ ggml_tensor * clip_graph::build_mobilenet_attn(ggml_tensor * inp, const mobilene
         v_inp = pad_same_2d(cur, v_size, v_size, 2, 2);  // Apply SAME padding
         v_inp = ggml_conv_2d_dw(ctx0, block.attn_v_dw_w, v_inp, 2, 2, 0, 0, 1, 1);  // padding=0
         if (block.attn_v_norm_w) {
-            v_inp = rms_norm_2d(v_inp, block.attn_v_norm_w, 1e-6f, block_idx);
+            v_inp = rms_norm_2d(v_inp, block.attn_v_norm_w, 1e-6f);
         }
     }
     ggml_tensor * v = ggml_conv_2d_direct(ctx0, block.attn_v_w, v_inp, 1, 1, 0, 0, 1, 1);
-
-    // --- Reshape & Permute Logic ---
 
     const int W = cur->ne[0]; const int H = cur->ne[1]; const int B = cur->ne[3];
     const int D = k->ne[2]; // Head dimension
@@ -543,8 +472,6 @@ ggml_tensor * clip_graph::build_mobilenet_attn(ggml_tensor * inp, const mobilene
     k = ggml_cont(ctx0, k);
 
     // Process V: [Wk, Hk, D, B] -> [M, D, 1, B]
-    // NOTE: We keep V as [M, D] because ggml_mul_mat expects src0^T * src1.
-    // To get output [D, N], we will need [M, D]^T * [M, N].
     v = ggml_reshape_3d(ctx0, v, M, D, B);
     v = ggml_reshape_4d(ctx0, v, M, D, 1, B);
     v = ggml_cont(ctx0, v); // [M, D, 1, B]
@@ -553,82 +480,32 @@ ggml_tensor * clip_graph::build_mobilenet_attn(ggml_tensor * inp, const mobilene
     float scale = 1.0f / sqrtf((float)D);
 
     // Step 1: Compute Q @ K.T
-    // Q: [D, N, n_head, B]
-    // K: [D, M, 1, B]
-    // ggml_mul_mat computes K^T * Q  -> [D, M]^T * [D, N] -> [M, D] * [D, N] -> [M, N]
-    // Implicit Broadcast: K has 1 head, Q has n_head. ggml handles this automatically.
-    ggml_tensor * scores = ggml_mul_mat(ctx0, k, q); // Result: [M, N, n_head, B] (in ggml layout)
-
-    // // Debug scores
-    // if (block_idx == 33) {
-    //      char debug_name[128];
-    //      snprintf(debug_name, sizeof(debug_name), "block%d_scores_raw", block_idx);
-    //      REGISTER_DEBUG(debug_name, scores);
-    // }
+    ggml_tensor * scores = ggml_mul_mat(ctx0, k, q);
 
     scores = ggml_scale(ctx0, scores, scale);
 
-    // Step 2: Softmax
-    // scores is [M, N, n_head, B] (ne0=M, ne1=N)
-    // We need softmax over M (keys).
-    // ggml_soft_max applies to dim 0, which is M. Perfect - no permute needed!
     scores = ggml_soft_max(ctx0, scores);
 
-    // Step 3: Compute Attn @ V
-    // V:      [M, D, 1, B] (ne0=M, ne1=D)
-    // Scores: [M, N, n_head, B] (ne0=M, ne1=N)
-    //
-    // ggml_mul_mat computes V^T * Scores -> [M, D]^T * [M, N] -> [D, M] * [M, N] -> [D, N]
-    // Implicit Broadcast: V has 1 head, Scores has n_head. ggml handles this automatically.
-    ggml_tensor * kqv = ggml_mul_mat(ctx0, v, scores); // Result: [N, D, n_head, B]
+    ggml_tensor * kqv = ggml_mul_mat(ctx0, v, scores);
 
-    // // Debug kqv
-    // if (block_idx == 33) {
-    //      char debug_name[128];
-    //      snprintf(debug_name, sizeof(debug_name), "block%d_kqv_out", block_idx);
-    //      REGISTER_DEBUG(debug_name, kqv);
-    // }
-
-    // --- Reshape back to spatial layout ---
-    // kqv is [N, D, n_head, B]. We want [D, N, n_head, B] to merge heads.
-    kqv = ggml_permute(ctx0, kqv, 1, 0, 2, 3); // [D, N, n_head, B]
+    kqv = ggml_permute(ctx0, kqv, 1, 0, 2, 3);
     kqv = ggml_cont(ctx0, kqv);
     
-    // Reshape to [N, D*n_head, B] then [W, H, C, B]
+
     kqv = ggml_reshape_3d(ctx0, kqv, N, D * n_head, B);
     kqv = ggml_reshape_4d(ctx0, kqv, W, H, D * n_head, B);
     kqv = ggml_cont(ctx0, kqv);
 
-// Output projection
+    // Output projection
     cur = ggml_conv_2d_direct(ctx0, block.attn_o_w, kqv, 1, 1, 0, 0, 1, 1);
 
     // --- Residual & Layer Scale (FIXED) ---
     if (inp->ne[0] == cur->ne[0] && inp->ne[2] == cur->ne[2]) {
         if (block.layer_scale_w) {
-            // FIX: Simplified Layer Scale. No permute needed.
-            // Tensor is [W, H, C, B]. Weight is [C].
-            // We reshape Weight to [1, 1, C, 1].
-            // GGML will broadcast W and H dimensions automatically.
-
-            // Debug print shape of block.layer_scale_w
-            // fprintf(stderr, "DEBUG: block %d layer_scale_w shape: [%ld x %ld x %ld x %ld]\n", block_idx, block.layer_scale_w->ne[0], block.layer_scale_w->ne[1], block.layer_scale_w->ne[2], block.layer_scale_w->ne[3]);
-
-            // Debug print shape of cur before scaling
-            // fprintf(stderr, "DEBUG: block %d cur shape before scaling: [%ld x %ld x %ld x %ld]\n", block_idx, cur->ne[0], cur->ne[1], cur->ne[2], cur->ne[3]);
-
-
             ggml_tensor * scale_w_reshaped = ggml_reshape_4d(ctx0, block.layer_scale_w,
                 1, 1, block.layer_scale_w->ne[0], 1);
-
-            // Debug print shape of scale_w_reshaped
-            // fprintf(stderr, "DEBUG: block %d scale_w_reshaped shape: [%ld x %ld x %ld x %ld]\n", block_idx, scale_w_reshaped->ne[0], scale_w_reshaped->ne[1], scale_w_reshaped->ne[2], scale_w_reshaped->ne[3]);
-                
             cur = ggml_mul(ctx0, cur, scale_w_reshaped);
         }
-        
-        // Residual Addition
-        // 'cur' is the pointer to the graph node of the attention output.
-        // 'inp' is the pointer to the graph node of the block input.
         cur = ggml_add(ctx0, cur, inp);
     }
 

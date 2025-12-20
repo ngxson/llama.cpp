@@ -329,19 +329,19 @@ struct clip_model {
 
     // mobilenetv5 for gemma3n
     std::vector<mobilenetv5_block> mobilenet_blocks;
-    std::vector<int> mobilenet_stage_ends; // NEW: Track end indices of stages
+    std::vector<int> mobilenet_stage_ends;
     ggml_tensor * mobilenet_stem_conv_w = nullptr;
     ggml_tensor * mobilenet_stem_conv_b = nullptr;
     ggml_tensor * mobilenet_stem_norm_w = nullptr;
     ggml_tensor * mm_post_proj_norm_w = nullptr;
 
     // Multi-Scale Fusion Adapter (MSFA) components
-    ggml_tensor * msfa_concat_conv_w = nullptr;      // Concatenated feature processing
+    ggml_tensor * msfa_concat_conv_w = nullptr;
     ggml_tensor * msfa_concat_norm_w = nullptr;
-    ggml_tensor * msfa_ffn_expand_w = nullptr;       // FFN expansion
-    ggml_tensor * msfa_ffn_project_w = nullptr;      // FFN projection
-    ggml_tensor * msfa_ffn_expand_bn = nullptr;      // NEW: FFN expansion batch norm
-    ggml_tensor * msfa_ffn_project_bn = nullptr;    // NEW: FFN projection batch norm   
+    ggml_tensor * msfa_ffn_expand_w = nullptr;
+    ggml_tensor * msfa_ffn_project_w = nullptr;
+    ggml_tensor * msfa_ffn_expand_bn = nullptr;
+    ggml_tensor * msfa_ffn_project_bn = nullptr; 
 
 
     // pixtral, glm4v

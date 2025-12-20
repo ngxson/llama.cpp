@@ -73,8 +73,7 @@ struct clip_graph {
     ggml_tensor * rms_norm_2d(
         ggml_tensor * inp, 
         ggml_tensor * weight, 
-        float eps = 1e-6f, 
-        int block_idx=-1);
+        float eps = 1e-6f);
     
     ggml_tensor* pad_same_2d(
         ggml_tensor* inp, 
@@ -88,19 +87,16 @@ struct clip_graph {
     ggml_tensor * build_edge_residual(
         ggml_tensor * inp,
         const mobilenetv5_block & block,
-        int stride,
-        int block_idx = -1);
+        int stride);
 
     ggml_tensor * build_inverted_residual(
         ggml_tensor * inp, 
         const mobilenetv5_block & block, 
-        int stride, 
-        int block_idx = -1);
+        int stride);
 
     ggml_tensor * build_mobilenet_attn(
         ggml_tensor * inp, 
-        const mobilenetv5_block & block, 
-        int block_idx = -1);
+        const mobilenetv5_block & block);
 
     ggml_tensor * build_norm(
             ggml_tensor * cur,

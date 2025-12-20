@@ -9,8 +9,6 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
     // 1. Stem - Conv2dSame(3, 64, kernel_size=(3, 3), stride=(2, 2))
     ggml_tensor * cur = pad_same_2d(inp, 3, 3, 2, 2);  // Apply SAME padding
 
-    // ggml_tensor * mobilenet_stem_conv_w_fixed = fix_1x1_weight(model.mobilenet_stem_conv_w);
-
     cur = ggml_conv_2d_direct(ctx0, model.mobilenet_stem_conv_w, cur, 2, 2, 0, 0, 1, 1);  // padding=0
     if (model.mobilenet_stem_conv_b) {
         // Bias is [C, 1, 1, 1], need to reshape to [1, 1, C, 1] for broadcasting to [W, H, C, B]
@@ -47,22 +45,9 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
         const auto & block = model.mobilenet_blocks[i];
         int stride = is_stage_start(i) ? 2 : 1;
 
-        // Debug block type
-        const char* block_type = block.s0_conv_exp_w ? "edge_residual" :
-                                    block.attn_q_w ? "attention" : "inverted_residual";
-
-        // // Debug input for problematic blocks
-        // if (i >= 50 && i <= 54) {
-        //     fprintf(stderr, "DEBUG: Block %d (%s) input shape: [%ld, %ld, %ld, %ld], stride=%d\n",
-        //             i, block_type, cur->ne[0], cur->ne[1], cur->ne[2], cur->ne[3], stride);
-        // }
-
-        if (block.s0_conv_exp_w)      cur = build_edge_residual(cur, block, stride, i);
-        else if (block.attn_q_w)      cur = build_mobilenet_attn(cur, block, i);
-        else                          cur = build_inverted_residual(cur, block, stride, i);
-
-        // Register block output for debugging
-        char block_name[64];
+        if (block.s0_conv_exp_w)      cur = build_edge_residual(cur, block, stride);
+        else if (block.attn_q_w)      cur = build_mobilenet_attn(cur, block);
+        else                          cur = build_inverted_residual(cur, block, stride);
 
         if (is_fusion_point(i)) {
 
@@ -94,7 +79,7 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
                 // ggml_upscale generally takes integer factors or target sizes depending on helper.
                 // Assuming standard power-of-2 scaling (e.g. 16 -> 32 means scale=2).
                 int scale_w = high_res_w / feat_w;
-                int scale_h = high_res_h / feat_h;
+                // int scale_h = high_res_h / feat_h;
                 
                 // Safety check for non-integer scaling if strictly replicating
                 if (high_res_w % feat_w != 0) { 
@@ -122,9 +107,8 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
             // 1x1 Conv
             cur = ggml_conv_2d_direct(ctx0, model.msfa_ffn_expand_w, cur, 1, 1, 0, 0, 1, 1);
             
-            // MISSING IN YOUR CODE: Expansion Norm
             if (model.msfa_ffn_expand_bn) {
-                cur = rms_norm_2d(cur, model.msfa_ffn_expand_bn); // Helper to apply RMSNorm
+                cur = rms_norm_2d(cur, model.msfa_ffn_expand_bn);
             }
             
             cur = ggml_gelu(ctx0, cur);
@@ -136,7 +120,6 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
             // 1x1 Conv
             cur = ggml_conv_2d_direct(ctx0, model.msfa_ffn_project_w, cur, 1, 1, 0, 0, 1, 1);
             
-            // MISSING IN YOUR CODE: Projection Norm
             // UniversalInvertedResidual typically has a norm after projection
             if (model.msfa_ffn_project_bn) {
                 cur = rms_norm_2d(cur, model.msfa_ffn_project_bn);
@@ -151,17 +134,11 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
 
         if (current_w > target_out_res) {
             int s = current_w / target_out_res;
-            
-            // PyTorch Logic:
-            // if divisible: avg_pool
-            // if not divisible: bilinear interpolate (hard to do in pure ggml, usually assumed divisible here)
-            
+
             if (current_w % target_out_res == 0) {
                 // Avg Pool: Kernel=s, Stride=s
                 cur = ggml_pool_2d(ctx0, cur, GGML_OP_POOL_AVG, s, s, s, s, 0, 0);
             } else {
-                // Fallback or Error: ggml doesn't easily support bilinear downsampling 
-                // without custom ops, but standard models usually stick to integer strides.
                 fprintf(stderr, "Error: Irregular downsampling stride required.\n");
             }
 
@@ -174,7 +151,7 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
         }
     }
 
-    // 4. Gemma 3n Multimodal Projection (Embedder) - FULL FIX
+    // 4. Gemma 3n Multimodal Projection (Embedder)
     // Input: 'cur' is [Width, Height, Channels, Batch]
     int W = cur->ne[0];
     int H = cur->ne[1];
@@ -189,7 +166,7 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
     cur = ggml_cont(ctx0, cur);
 
 
-    // 2. FEATURE SCALING (Missing in your original code)
+    // 2. FEATURE SCALING
     // PyTorch: vision_outputs *= self.config.vision_config.hidden_size**0.5
     // This prevents the signal from vanishing during the subsequent RMSNorm.
     const float scale_factor = sqrtf((float)C);
@@ -227,8 +204,6 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
     // PyTorch: embedding_post_projection_norm = Gemma3nRMSNorm(..., with_scale=False)
     // with_scale=False means weight is registered as buffer with value 1.0
     // So output = rms_norm(x) * 1.0 = rms_norm(x), magnitude ~1
-    // NOTE: Vision embeddings intentionally have magnitude ~1, different from
-    // text embeddings at ~sqrt(n_embd). The model was trained with this mismatch.
     {
         const float eps = 1e-6f;
         cur = ggml_rms_norm(ctx0, cur, eps);
@@ -238,9 +213,6 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
             cur = ggml_mul(ctx0, cur, model.mm_post_proj_norm_w);
         }
     }
-
-
-    // cur = ggml_scale(ctx0, cur, scale_factor);
 
     ggml_build_forward_expand(gf, cur);
     return gf;

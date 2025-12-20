@@ -260,7 +260,7 @@ ggml_tensor * llm_build_gemma3n_iswa::get_per_layer_inputs() {
         cb(inp_per_layer, "inp_per_layer_selected", -1);
     } else {
         // For embedding inputs (e.g., from vision encoder)
-        // CRITICAL FIX: Vision tokens should use the padding token (ID=0) embedding
+        // Vision tokens should use the padding token (ID=0) embedding
         // from tok_embd_per_layer, NOT project the vision embeddings.
         // The projection happens later in project_per_layer_inputs().
         // This matches PyTorch behavior:
@@ -269,15 +269,6 @@ ggml_tensor * llm_build_gemma3n_iswa::get_per_layer_inputs() {
 
         inp->embd = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, n_embd, n_tokens);
         ggml_set_input(inp->embd);
-
-        // For vision, we need per_layer_inputs from padding token (ID=0)
-        // We CANNOT use inp->tokens because batch allows EITHER tokens OR embeddings
-        //
-        // The challenge: We need to broadcast padding token embedding from [embd_size, 1] to [embd_size, n_tokens]
-        // but ggml_repeat+ggml_dup doesn't work in no_alloc mode (creates views without backing memory).
-        //
-        // Solution: Use ggml_add to broadcast! GGML automatically broadcasts along compatible dimensions.
-        // We create zeros of shape [embd_size, n_tokens], then add padding_emb [embd_size, 1] which broadcasts.
 
         // tok_embd_per_layer shape: [embd_size, vocab_size] where embd_size = n_embd_altup * n_layer
         const int64_t embd_size = model.tok_embd_per_layer->ne[0];  // n_embd_altup * n_layer
