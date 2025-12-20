@@ -544,9 +544,9 @@ struct server_context_impl {
 
     server_metrics metrics;
 
-    // cached responses for HTTP API
-    json json_server_props  = json::object();
-    // json json_server_models = json::object(); // TODO
+    // cached responses for HTTP API (read-only from HTTP threads)
+    json json_server_props      = json::object();
+    json json_server_model_meta = json::object();
 
     // Necessary similarity of prompt for slot selection
     float slot_prompt_similarity = 0.0f;
@@ -918,6 +918,18 @@ struct server_context_impl {
                     json_server_props["chat_template_tool_use"] = tool_use_src;
                 }
             }
+        }
+
+        // populate model metadata
+        {
+            json_server_model_meta = {
+                {"vocab_type",  llama_vocab_type       (vocab)},
+                {"n_vocab",     llama_vocab_n_tokens   (vocab)},
+                {"n_ctx_train", llama_model_n_ctx_train(model)},
+                {"n_embd",      llama_model_n_embd     (model)},
+                {"n_params",    llama_model_n_params   (model)},
+                {"size",        llama_model_size       (model)},
+            };
         }
 
         return true;
@@ -2724,17 +2736,6 @@ struct server_context_impl {
         SRV_DBG("%s", "run slots completed\n");
     }
 
-    json model_meta() const {
-        return json {
-            {"vocab_type",  llama_vocab_type       (vocab)},
-            {"n_vocab",     llama_vocab_n_tokens   (vocab)},
-            {"n_ctx_train", llama_model_n_ctx_train(model)},
-            {"n_embd",      llama_model_n_embd     (model)},
-            {"n_params",    llama_model_n_params   (model)},
-            {"size",        llama_model_size       (model)},
-        };
-    }
-
     int get_slot_n_ctx() {
         return slots.back().n_ctx;
     }
@@ -2812,6 +2813,7 @@ struct server_res_generator : server_http_res {
 //
 
 static std::unique_ptr<server_res_generator> handle_completions_impl(
+            std::unique_ptr<server_res_generator> && res_ptr,
             server_context_impl & ctx_server,
             server_task_type type,
             const json & data,
@@ -2820,7 +2822,7 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
             task_response_type res_type) {
     GGML_ASSERT(type == SERVER_TASK_TYPE_COMPLETION || type == SERVER_TASK_TYPE_INFILL);
 
-    auto res = std::make_unique<server_res_generator>(ctx_server);
+    auto res = std::move(res_ptr);
     auto completion_id = gen_chatcmplid();
     auto & rd = res->rd;
 
@@ -3024,6 +3026,9 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
 }
 
 void server_routes::init_routes() {
+    // IMPORTANT: all lambda functions must start with std::make_unique<server_res_generator>
+    // this is to ensure that the server_res_generator can handle sleeping case correctly
+
     this->get_health = [this](const server_http_req &) {
         // error and loading states are handled by middleware
         auto res = std::make_unique<server_res_generator>(ctx_server, true);
@@ -3329,6 +3334,7 @@ void server_routes::init_routes() {
 
         std::vector<raw_buffer> files; // dummy
         return handle_completions_impl(
+            std::move(res),
             ctx_server,
             SERVER_TASK_TYPE_INFILL,
             data,
@@ -3338,9 +3344,11 @@ void server_routes::init_routes() {
     };
 
     this->post_completions = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         std::vector<raw_buffer> files; // dummy
         const json body = json::parse(req.body);
         return handle_completions_impl(
+            std::move(res),
             ctx_server,
             SERVER_TASK_TYPE_COMPLETION,
             body,
@@ -3350,9 +3358,11 @@ void server_routes::init_routes() {
     };
 
     this->post_completions_oai = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         std::vector<raw_buffer> files; // dummy
         const json body = json::parse(req.body);
         return handle_completions_impl(
+            std::move(res),
             ctx_server,
             SERVER_TASK_TYPE_COMPLETION,
             body,
@@ -3362,6 +3372,7 @@ void server_routes::init_routes() {
     };
 
     this->post_chat_completions = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         std::vector<raw_buffer> files;
         json body = json::parse(req.body);
         json body_parsed = oaicompat_chat_params_parse(
@@ -3369,6 +3380,7 @@ void server_routes::init_routes() {
             ctx_server.oai_parser_opt,
             files);
         return handle_completions_impl(
+            std::move(res),
             ctx_server,
             SERVER_TASK_TYPE_COMPLETION,
             body_parsed,
@@ -3378,6 +3390,7 @@ void server_routes::init_routes() {
     };
 
     this->post_anthropic_messages = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         std::vector<raw_buffer> files;
         json body = convert_anthropic_to_oai(json::parse(req.body));
         json body_parsed = oaicompat_chat_params_parse(
@@ -3385,6 +3398,7 @@ void server_routes::init_routes() {
             ctx_server.oai_parser_opt,
             files);
         return handle_completions_impl(
+            std::move(res),
             ctx_server,
             SERVER_TASK_TYPE_COMPLETION,
             body_parsed,
@@ -3422,14 +3436,17 @@ void server_routes::init_routes() {
         return res;
     };
 
-    // TODO: allow this endpoint to be accessed bypassing sleep mode, same method as get_props
     this->get_models = [this](const server_http_req &) {
-        auto res = std::make_unique<server_res_generator>(ctx_server);
+        auto res = std::make_unique<server_res_generator>(ctx_server, true);
         json model_meta = nullptr;
         if (is_ready()) {
-            model_meta = ctx_server.model_meta();
+            model_meta = ctx_server.json_server_model_meta;
         }
         bool has_mtmd = ctx_server.mctx != nullptr;
+
+        // IMPORTANT: this endpoint can be accessed on model loading and in sleeping mode
+        // do NOT access dynamic model info that requires calling libllama APIs
+
         json models = {
             {"models", {
                 {
