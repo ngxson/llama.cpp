@@ -1630,7 +1630,6 @@ When the server enters sleep mode, the model and its associated memory (includin
 Note that the following endpoints are exempt from being considered as incoming tasks. They do not trigger model reloading and do not reset the idle timer:
 - `GET /health`
 - `GET /props`
-- `GET /models` and `GET /v1/models`
 
 ## More examples
 

@@ -3436,8 +3436,10 @@ void server_routes::init_routes() {
         return res;
     };
 
+    // TODO: this endpoint is unsafe to access during model reloading (i.e. wake up from sleeping)
+    // how to make it work even during load_model()?
     this->get_models = [this](const server_http_req &) {
-        auto res = std::make_unique<server_res_generator>(ctx_server, true);
+        auto res = std::make_unique<server_res_generator>(ctx_server);
         json model_meta = nullptr;
         if (is_ready()) {
             model_meta = ctx_server.json_server_model_meta;
