@@ -70,6 +70,38 @@ struct clip_graph {
 
     ggml_tensor * build_inp_raw(int channels = 3);
 
+    ggml_tensor * rms_norm_2d(
+        ggml_tensor * inp, 
+        ggml_tensor * weight, 
+        float eps = 1e-6f, 
+        int block_idx=-1);
+    
+    ggml_tensor* pad_same_2d(
+        ggml_tensor* inp, 
+        int kernel_h, 
+        int kernel_w, 
+        int stride_h, 
+        int stride_w, 
+        int dilation_h = 1, 
+        int dilation_w = 1);
+        
+    ggml_tensor * build_edge_residual(
+        ggml_tensor * inp,
+        const mobilenetv5_block & block,
+        int stride,
+        int block_idx = -1);
+
+    ggml_tensor * build_inverted_residual(
+        ggml_tensor * inp, 
+        const mobilenetv5_block & block, 
+        int stride, 
+        int block_idx = -1);
+
+    ggml_tensor * build_mobilenet_attn(
+        ggml_tensor * inp, 
+        const mobilenetv5_block & block, 
+        int block_idx = -1);
+
     ggml_tensor * build_norm(
             ggml_tensor * cur,
             ggml_tensor * mw,
