@@ -252,7 +252,15 @@ int main(int argc, char ** argv, char ** envp) {
             return 1;
         }
 
-        ctx_server.init();
+        if (!ctx_server.init()) {
+            clean_up();
+            if (ctx_http.thread.joinable()) {
+                ctx_http.thread.join();
+            }
+            LOG_ERR("%s: exiting due to server initialization error\n", __func__);
+            return 1;
+        }
+
         ctx_http.is_ready.store(true);
 
         LOG_INF("%s: model loaded\n", __func__);

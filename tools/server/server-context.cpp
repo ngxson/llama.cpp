@@ -544,7 +544,9 @@ struct server_context_impl {
 
     server_metrics metrics;
 
-    json webui_settings = json::object();
+    // cached responses for HTTP API
+    json json_server_props  = json::object();
+    // json json_server_models = json::object(); // TODO
 
     // Necessary similarity of prompt for slot selection
     float slot_prompt_similarity = 0.0f;
@@ -576,16 +578,6 @@ struct server_context_impl {
         SRV_INF("loading model '%s'\n", params.model.path.c_str());
 
         params_base = params;
-
-        webui_settings = json::object();
-        if (!params_base.webui_config_json.empty()) {
-            try {
-                webui_settings = json::parse(params_base.webui_config_json);
-            } catch (const std::exception & e) {
-                SRV_ERR("%s: failed to parse webui config: %s\n", __func__, e.what());
-                return false;
-            }
-        }
 
         llama_init = common_init_from_params(params_base);
 
@@ -703,13 +695,17 @@ struct server_context_impl {
     }
 
     // initialize slots and server-related data
-    void init() {
+    bool init() {
         // wiring up server queues
         queue_tasks.on_new_task([this](server_task && task) {
             process_single_task(std::move(task));
         });
         queue_tasks.on_update_slots([this]() {
             update_slots();
+        });
+        queue_tasks.on_sleeping_state([](bool sleeping) {
+            // TODO: handle sleeping state
+            SRV_INF("server queue is now %s\n", sleeping ? "sleeping" : "awake");
         });
 
         // Necessary similarity of prompt for slot selection
@@ -742,13 +738,13 @@ struct server_context_impl {
                 slot.ctx_dft = llama_init_from_model(model_dft, cparams_dft);
                 if (slot.ctx_dft == nullptr) {
                     SRV_ERR("%s", "failed to create draft context\n");
-                    return;
+                    return false;
                 }
 
                 slot.spec = common_speculative_init(slot.ctx, slot.ctx_dft);
                 if (slot.spec == nullptr) {
                     SRV_ERR("%s", "failed to create speculator\n");
-                    return;
+                    return false;
                 }
                 for (auto & pair : params_base.speculative.replacements) {
                     common_speculative_add_replacement_tgt_dft(slot.spec, pair.first.c_str(), pair.second.c_str());
@@ -832,6 +828,65 @@ struct server_context_impl {
         LOG_INF("%s: chat template, chat_template: %s, example_format: '%s'\n", __func__,
             common_chat_templates_source(chat_templates.get()),
             common_chat_format_example(chat_templates.get(), params_base.use_jinja, params_base.default_template_kwargs).c_str());
+
+        if (!populate_json_responses()) {
+            SRV_ERR("%s", "failed to populate JSON responses\n");
+            return false;
+        }
+
+        return true;
+    }
+
+    bool populate_json_responses() {
+        // populate webui settings
+        json json_webui_settings = json::object();
+        {
+            if (!params_base.webui_config_json.empty()) {
+                try {
+                    json_webui_settings = json::parse(params_base.webui_config_json);
+                } catch (const std::exception & e) {
+                    SRV_ERR("%s: failed to parse webui config: %s\n", __func__, e.what());
+                    return false;
+                }
+            }
+        }
+
+        // populate server properties
+        {
+            task_params params;
+            params.sampling = params_base.sampling;
+            json default_generation_settings_for_props = json {
+                {"params", params.to_json(true)},
+                {"n_ctx",  get_slot_n_ctx()},
+            };
+
+            json_server_props = {
+                { "default_generation_settings", default_generation_settings_for_props },
+                { "total_slots",                 params_base.n_parallel },
+                { "model_alias",                 model_name },
+                { "model_path",                  params_base.model.path },
+                { "modalities",                  json {
+                    {"vision", oai_parser_opt.allow_image},
+                    {"audio",  oai_parser_opt.allow_audio},
+                } },
+                { "endpoint_slots",              params_base.endpoint_slots },
+                { "endpoint_props",              params_base.endpoint_props },
+                { "endpoint_metrics",            params_base.endpoint_metrics },
+                { "webui",                       params_base.webui },
+                { "webui_settings",              json_webui_settings },
+                { "chat_template",               common_chat_templates_source(chat_templates.get()) },
+                { "bos_token",                   common_token_to_piece(ctx, llama_vocab_bos(vocab), /* special= */ true)},
+                { "eos_token",                   common_token_to_piece(ctx, llama_vocab_eos(vocab), /* special= */ true)},
+                { "build_info",                  build_info },
+            };
+            if (params_base.use_jinja) {
+                if (auto tool_use_src = common_chat_templates_source(chat_templates.get(), "tool_use")) {
+                    json_server_props["chat_template_tool_use"] = tool_use_src;
+                }
+            }
+        }
+
+        return true;
     }
 
     server_slot * get_slot_by_id(int id) {
@@ -2662,8 +2717,8 @@ struct server_context_impl {
 server_context::server_context() : impl(new server_context_impl()) {}
 server_context::~server_context() = default;
 
-void server_context::init() {
-    impl->init();
+bool server_context::init() {
+    return impl->init();
 }
 
 bool server_context::load_model(const common_params & params) {
@@ -2671,7 +2726,8 @@ bool server_context::load_model(const common_params & params) {
 }
 
 void server_context::start_loop() {
-    impl->queue_tasks.start_loop();
+    auto & params = impl->params_base;
+    impl->queue_tasks.start_loop(params.sleep_idle_seconds * 1000);
 }
 
 void server_context::terminate() {
@@ -2698,10 +2754,15 @@ server_context_info server_context::get_info() const {
 
 
 // generator-like API for HTTP response generation
+// may have bypass_sleep = true if the task does not use ctx_server
 struct server_res_generator : server_http_res {
     server_response_reader rd;
-    server_res_generator(server_context_impl & ctx_server)
-        : rd(ctx_server.queue_tasks, ctx_server.queue_results, HTTP_POLLING_SECONDS) {}
+    server_res_generator(server_context_impl & ctx_server, bool bypass_sleep = false)
+            : rd(ctx_server.queue_tasks, ctx_server.queue_results, HTTP_POLLING_SECONDS) {
+        if (!bypass_sleep) {
+            ctx_server.queue_tasks.wait_until_no_sleep();
+        }
+    }
     void ok(const json & response_data) {
         status = 200;
         data = safe_json_to_str(response_data);
@@ -2933,7 +2994,7 @@ static std::unique_ptr<server_res_generator> handle_completions_impl(
 void server_routes::init_routes() {
     this->get_health = [this](const server_http_req &) {
         // error and loading states are handled by middleware
-        auto res = std::make_unique<server_res_generator>(ctx_server);
+        auto res = std::make_unique<server_res_generator>(ctx_server, true);
         res->ok({{"status", "ok"}});
         return res;
     };
@@ -3115,46 +3176,10 @@ void server_routes::init_routes() {
     };
 
     this->get_props = [this](const server_http_req &) {
-        auto res = std::make_unique<server_res_generator>(ctx_server);
-        json default_generation_settings_for_props;
-
-        {
-            task_params params;
-
-            params.sampling = ctx_server.params_base.sampling;
-
-            default_generation_settings_for_props = json {
-                {"params", params.to_json(true)},
-                {"n_ctx",  ctx_server.get_slot_n_ctx()},
-            };
-        }
-
-        json data = {
-            { "default_generation_settings", default_generation_settings_for_props },
-            { "total_slots",                 ctx_server.params_base.n_parallel },
-            { "model_alias",                 ctx_server.model_name },
-            { "model_path",                  ctx_server.params_base.model.path },
-            { "modalities",                  json {
-                {"vision", ctx_server.oai_parser_opt.allow_image},
-                {"audio",  ctx_server.oai_parser_opt.allow_audio},
-            } },
-            { "endpoint_slots",              params.endpoint_slots },
-            { "endpoint_props",              params.endpoint_props },
-            { "endpoint_metrics",            params.endpoint_metrics },
-            { "webui",                       params.webui },
-            { "webui_settings",              ctx_server.webui_settings },
-            { "chat_template",               common_chat_templates_source(ctx_server.chat_templates.get()) },
-            { "bos_token",                   common_token_to_piece(ctx_server.ctx, llama_vocab_bos(ctx_server.vocab), /* special= */ true)},
-            { "eos_token",                   common_token_to_piece(ctx_server.ctx, llama_vocab_eos(ctx_server.vocab), /* special= */ true)},
-            { "build_info",                  build_info },
-        };
-        if (ctx_server.params_base.use_jinja) {
-            if (auto tool_use_src = common_chat_templates_source(ctx_server.chat_templates.get(), "tool_use")) {
-                data["chat_template_tool_use"] = tool_use_src;
-            }
-        }
-
-        res->ok(data);
+        auto res = std::make_unique<server_res_generator>(ctx_server, true);
+        auto props = ctx_server.json_server_props;
+        props["is_sleeping"] = ctx_server.queue_tasks.is_sleeping();
+        res->ok(props);
         return res;
     };
 
@@ -3365,6 +3390,7 @@ void server_routes::init_routes() {
         return res;
     };
 
+    // TODO: allow this endpoint to be accessed bypassing sleep mode, same method as get_props
     this->get_models = [this](const server_http_req &) {
         auto res = std::make_unique<server_res_generator>(ctx_server);
         json model_meta = nullptr;
