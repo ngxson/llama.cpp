@@ -22,9 +22,6 @@ struct server_context {
     server_context();
     ~server_context();
 
-    // initialize slots and server-related data
-    bool init();
-
     // load the model and initialize llama_context
     // returns true on success
     bool load_model(const common_params & params);

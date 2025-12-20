@@ -556,7 +556,15 @@ struct server_context_impl {
     common_chat_templates_ptr chat_templates;
     oaicompat_parser_options  oai_parser_opt;
 
+    bool sleeping = false;
+
     ~server_context_impl() {
+        if (!sleeping) {
+            destroy();
+        }
+    }
+
+    void destroy() {
         mtmd_free(mctx);
 
         // Clear any sampling context
@@ -573,8 +581,39 @@ struct server_context_impl {
         llama_batch_free(batch);
     }
 
+    void handle_sleeping_state(bool new_state) {
+        GGML_ASSERT(sleeping != new_state);
+        if (new_state) {
+            SRV_INF("%s", "server is entering sleeping state\n");
+            destroy();
+        } else {
+            SRV_INF("%s", "server is exiting sleeping state\n");
+            if (!load_model(params_base)) {
+                SRV_ERR("%s", "fatal: failed to reload model after sleeping\n");
+                exit(1);
+            }
+        }
+        sleeping = new_state;
+    }
+
     // load the model and initialize llama_context
+    // this may also be called to resume from sleeping state
     bool load_model(const common_params & params) {
+        bool is_resume = sleeping;
+
+        if (!is_resume) {
+            // wiring up server queues
+            queue_tasks.on_new_task([this](server_task && task) {
+                process_single_task(std::move(task));
+            });
+            queue_tasks.on_update_slots([this]() {
+                update_slots();
+            });
+            queue_tasks.on_sleeping_state([this](bool sleeping) {
+                handle_sleeping_state(sleeping);
+            });
+        }
+
         SRV_INF("loading model '%s'\n", params.model.path.c_str());
 
         params_base = params;
@@ -646,7 +685,9 @@ struct server_context_impl {
 
         std::string & mmproj_path = params_base.mmproj.path;
         if (!mmproj_path.empty()) {
-            mtmd_helper_log_set(common_log_default_callback, nullptr);
+            if (!is_resume) {
+                mtmd_helper_log_set(common_log_default_callback, nullptr);
+            }
 
             mtmd_context_params mparams = mtmd_context_params_default();
             mparams.use_gpu          = params_base.mmproj_use_gpu;
@@ -691,23 +732,6 @@ struct server_context_impl {
             }
         }
 
-        return true;
-    }
-
-    // initialize slots and server-related data
-    bool init() {
-        // wiring up server queues
-        queue_tasks.on_new_task([this](server_task && task) {
-            process_single_task(std::move(task));
-        });
-        queue_tasks.on_update_slots([this]() {
-            update_slots();
-        });
-        queue_tasks.on_sleeping_state([](bool sleeping) {
-            // TODO: handle sleeping state
-            SRV_INF("server queue is now %s\n", sleeping ? "sleeping" : "awake");
-        });
-
         // Necessary similarity of prompt for slot selection
         slot_prompt_similarity = params_base.slot_prompt_similarity;
 
@@ -722,6 +746,7 @@ struct server_context_impl {
             n_ctx_slot = n_ctx_train;
         }
 
+        slots.clear();
         for (int i = 0; i < params_base.n_parallel; i++) {
             server_slot slot;
 
@@ -777,6 +802,12 @@ struct server_context_impl {
             const int32_t n_batch = llama_n_batch(ctx);
             batch = llama_batch_init(std::max(n_batch, params_base.n_parallel), 0, 1);
         }
+
+        if (is_resume) {
+            return true;
+        }
+
+        // everything below this line is only for fresh model load
 
         metrics.init();
 
@@ -2716,10 +2747,6 @@ struct server_context_impl {
 
 server_context::server_context() : impl(new server_context_impl()) {}
 server_context::~server_context() = default;
-
-bool server_context::init() {
-    return impl->init();
-}
 
 bool server_context::load_model(const common_params & params) {
     return impl->load_model(params);
