@@ -809,13 +809,10 @@ struct server_context_impl {
             batch = llama_batch_init(std::max(n_batch, params_base.n_parallel), 0, 1);
         }
 
-        if (is_resume) {
-            return true;
+        // preserve metric state across resumes
+        if (!is_resume) {
+            metrics.init();
         }
-
-        // everything below this line is only for fresh model load
-
-        metrics.init();
 
         if (params_base.cache_ram_mib != 0) {
             if (params_base.cache_ram_mib < 0) {
