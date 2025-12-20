@@ -32,7 +32,7 @@ struct server_context {
     // terminate main loop (will unblock start_loop)
     void terminate();
 
-    // get the underlaying llama_context
+    // get the underlaying llama_context, can return nullptr if sleeping
     llama_context * get_llama_context() const;
 
     // get a new response reader, used by CLI application

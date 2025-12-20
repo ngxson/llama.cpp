@@ -565,7 +565,12 @@ struct server_context_impl {
     }
 
     void destroy() {
+        llama_init.reset();
+        ctx = nullptr;
+        model = nullptr;
+
         mtmd_free(mctx);
+        mctx = nullptr;
 
         // Clear any sampling context
         for (server_slot & slot : slots) {
