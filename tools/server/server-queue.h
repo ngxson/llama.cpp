@@ -63,7 +63,7 @@ public:
      * - Process the task (i.e. maybe copy data into slot)
      * - Check if multitask is finished
      * - Update all slots
-     * 
+     *
      * Sleeping procedure (disabled if idle_sleep_ms < 0):
      * - If there is no task after idle_sleep_ms, enter sleeping state
      * - Call callback_sleeping_state(true)
