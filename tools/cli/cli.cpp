@@ -161,7 +161,9 @@ struct cli_context {
 int main(int argc, char ** argv) {
     common_params params;
 
-    params.verbosity = LOG_LEVEL_ERROR; // by default, less verbose logs
+    // by default, less verbose logs
+    auto default_log_lvl = LOG_LEVEL_ERROR;
+    params.verbosity = default_log_lvl;
 
     if (!common_params_parse(argc, argv, params, LLAMA_EXAMPLE_CLI)) {
         return 1;
@@ -201,22 +203,43 @@ int main(int argc, char ** argv) {
     SetConsoleCtrlHandler(reinterpret_cast<PHANDLER_ROUTINE>(console_ctrl_handler), true);
 #endif
 
-    console::log("\nLoading model... "); // followed by loading animation
-    console::spinner::start();
+    // prepare model loading
+    auto curr_log_level = params.verbosity;
+    bool use_default_log = curr_log_level == default_log_lvl;
+    if (use_default_log) {
+        common_log_buffering(common_log_main(), true);
+        common_log_set_verbosity_thold(LOG_LEVEL_INFO);
+        console::log("\nLoading model... "); // followed by loading animation
+        console::spinner::start();
+    }
+
     if (!ctx_cli.ctx_server.load_model(params)) {
-        console::spinner::stop();
-        console::error("\nFailed to load the model\n");
+        if (use_default_log) {
+            console::spinner::stop();
+            console::log("\n");
+            common_log_buffering(common_log_main(), false);
+        }
+        console::error("\nFailed to load the model, see logs above\n");
         return 1;
     }
 
     ctx_cli.ctx_server.init();
 
-    console::spinner::stop();
-    console::log("\n");
+    if (use_default_log) {
+        console::spinner::stop();
+        console::log("\n");
+        common_log_set_verbosity_thold(curr_log_level);
+        common_log_drop(common_log_main());
+        common_log_buffering(common_log_main(), false);
+    }
 
+    // start server main loop in a separate thread
     std::thread inference_thread([&ctx_cli]() {
         ctx_cli.ctx_server.start_loop();
     });
+
+    // note: from this point onward, we're having 2 threads
+    // it is unsafe to call certain common_log functions that modify global state
 
     auto inf = ctx_cli.ctx_server.get_info();
     std::string modalities = "text";
