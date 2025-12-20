@@ -3453,10 +3453,6 @@ void server_routes::init_routes() {
             model_meta = ctx_server.json_server_model_meta;
         }
         bool has_mtmd = ctx_server.mctx != nullptr;
-
-        // IMPORTANT: this endpoint can be accessed on model loading and in sleeping mode
-        // do NOT access dynamic model info that requires calling libllama APIs
-
         json models = {
             {"models", {
                 {
