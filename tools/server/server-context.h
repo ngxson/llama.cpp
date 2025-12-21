@@ -10,6 +10,7 @@
 struct server_context_impl; // private implementation
 
 struct server_context_meta {
+    common_params params_base;
     std::string build_info;
     std::string model_name;
     std::string model_path;
@@ -80,6 +81,7 @@ struct server_routes {
     // note: update_meta() is not thread-safe and can only be called once on the main thread
     void update_meta(server_context & ctx_server) {
         server_meta = ctx_server.get_meta();
+        params = server_meta.params_base;
     }
 
     // handlers using lambda function, so that they can capture `this` without `std::bind`
@@ -121,7 +123,7 @@ private:
     // TODO: maybe make it const?
     server_context_meta server_meta;
 
-    const common_params & params;
+    common_params params;
     std::function<bool()> is_ready;
 
     server_context_impl & ctx_server;

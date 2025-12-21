@@ -2734,6 +2734,7 @@ server_response_reader server_context::get_response_reader() {
 server_context_meta server_context::get_meta() const {
     auto tool_use_src = common_chat_templates_source(impl->chat_templates.get(), "tool_use");
     return server_context_meta {
+        /* params_base            */ impl->params_base,
         /* build_info             */ build_info,
         /* model_name             */ impl->model_name,
         /* model_path             */ impl->params_base.model.path,
