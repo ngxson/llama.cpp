@@ -105,8 +105,10 @@ struct task_result_state {
 };
 
 struct server_task {
-    int id    = -1; // to be filled by server_queue
-    int index = -1; // used when there are multiple prompts (batch request)
+    int id = -1; // to be filled by server_queue
+
+    // TODO @ngxson : remove this field and implement a mapping task_id -> idx in the response_reader
+    size_t index = 0; // used when there are multiple prompts (batch request)
 
     // used by SERVER_TASK_TYPE_CANCEL
     int id_target = -1;
@@ -212,7 +214,10 @@ struct result_prompt_progress {
 struct server_task_result {
     int id           = -1;
     int id_slot      = -1;
-    size_t index     =  0; // to be used for batched tasks
+
+    // TODO @ngxson : remove this field and implement a mapping task_id -> idx in the response_reader
+    size_t index = 0; // to be used for batched tasks
+
     virtual bool is_error() {
         // only used by server_task_result_error
         return false;
@@ -253,8 +258,6 @@ struct completion_token_output {
 };
 
 struct server_task_result_cmpl_final : server_task_result {
-    int index = 0;
-
     std::string content;
     llama_tokens tokens;
 
@@ -353,7 +356,6 @@ struct server_task_result_cmpl_partial : server_task_result {
 };
 
 struct server_task_result_embd : server_task_result {
-    int index = 0;
     std::vector<std::vector<float>> embedding;
 
     int32_t n_tokens;
@@ -369,7 +371,6 @@ struct server_task_result_embd : server_task_result {
 };
 
 struct server_task_result_rerank : server_task_result {
-    int index = 0;
     float score = -1e6;
 
     int32_t n_tokens;
@@ -378,7 +379,6 @@ struct server_task_result_rerank : server_task_result {
 };
 
 struct server_task_result_error : server_task_result {
-    int index = 0;
     error_type err_type = ERROR_TYPE_SERVER;
     std::string err_msg;
 

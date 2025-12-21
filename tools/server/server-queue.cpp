@@ -389,6 +389,7 @@ server_task_result_ptr server_response_reader::next(const std::function<bool()> 
 
 server_response_reader::batch_response server_response_reader::wait_for_all(const std::function<bool()> & should_stop) {
     batch_response batch_res;
+    batch_res.results.clear();
     batch_res.results.resize(id_tasks.size());
     while (has_next()) {
         auto res = next(should_stop);
