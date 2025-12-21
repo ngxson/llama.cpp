@@ -67,17 +67,17 @@ for ($i = 1; $i -le $Iterations; $i++) {
     foreach ($model in $Models) {
         $CurrentRun++
         $PercentComplete = [math]::Round(($CurrentRun / $TotalRuns) * 100, 1)
-        
+
         # Progress bar
         Write-Progress -Activity "Benchmarking $($model.Name)" `
                        -Status "Iteration $i/$Iterations - Overall: $PercentComplete%" `
                        -PercentComplete $PercentComplete
-        
+
         try {
             # Run benchmark
             $output = & $LlamaBench -m $model.Path -t $Threads -r $Repeats -p $PromptTokens -n $GenerateTokens 2>&1
             $outputText = $output -join "`n"
-            
+
             # Parse output - look for tg (token generation) speed
             # Format: | model | size | params | backend | threads | test | t/s |
             # Example: | qwen3 1.7B Q3_K - Small | 948.91 MiB | 2.03 B | CPU | 4 | tg20 | 28.87 ± 1.45 |
@@ -99,7 +99,7 @@ for ($i = 1; $i -le $Iterations; $i++) {
                     break
                 }
             }
-            
+
             if (-not $found) {
                 # Debug: show what we got if parsing failed
                 if ($i -eq 1) {
@@ -114,7 +114,7 @@ for ($i = 1; $i -le $Iterations; $i++) {
             Write-Warning "Error on $($model.Name) iteration $i : $_"
         }
     }
-    
+
     # Periodic status update every 10 iterations
     if ($i % 10 -eq 0) {
         $Elapsed = (Get-Date) - $StartTime
@@ -131,17 +131,17 @@ $Duration = $EndTime - $StartTime
 # Calculate statistics
 function Get-Stats {
     param([System.Collections.ArrayList]$Data)
-    
+
     if ($Data.Count -eq 0) {
         return @{ Mean = 0; StdDev = 0; Min = 0; Max = 0; Median = 0; Count = 0 }
     }
-    
+
     $sorted = $Data | Sort-Object
     $mean = ($Data | Measure-Object -Average).Average
     $min = ($Data | Measure-Object -Minimum).Minimum
     $max = ($Data | Measure-Object -Maximum).Maximum
     $count = $Data.Count
-    
+
     # Median
     $midIndex = [math]::Floor($count / 2)
     if ($count % 2 -eq 0) {
@@ -149,22 +149,22 @@ function Get-Stats {
     } else {
         $median = $sorted[$midIndex]
     }
-    
+
     # Standard deviation
     $sumSquares = 0
     foreach ($val in $Data) {
         $sumSquares += [math]::Pow($val - $mean, 2)
     }
     $stdDev = [math]::Sqrt($sumSquares / $count)
-    
+
     # 95th percentile
     $p95Index = [math]::Floor($count * 0.95)
     $p95 = $sorted[[math]::Min($p95Index, $count - 1)]
-    
+
     # 5th percentile  
     $p5Index = [math]::Floor($count * 0.05)
     $p5 = $sorted[$p5Index]
-    
+
     return @{
         Mean = $mean
         StdDev = $stdDev
@@ -209,10 +209,10 @@ foreach ($model in $Models) {
     $vsBest = if ($stats.Mean -eq $FastestMean) { "FASTEST" } else { 
         "-" + [math]::Round((1 - $stats.Mean / $FastestMean) * 100, 1) + "%" 
     }
-    
+
     $row = "{0,-15} {1,10:F2} {2,10:F2} {3,10:F2} {4,10:F2} {5,10:F2} {6,10}" -f `
         $model.Name, $stats.Mean, $stats.StdDev, $stats.Median, $stats.Min, $stats.Max, $vsBest
-    
+
     if ($stats.Mean -eq $FastestMean) {
         Write-Host $row -ForegroundColor Green
     } else {
@@ -256,7 +256,7 @@ foreach ($entry in $Ranked) {
         $diffPercent = ($diffFromFirst / $FirstMean) * 100
         $speedDiff = "($([math]::Round($diffFromFirst, 2)) t/s slower, -$([math]::Round($diffPercent, 1))%)"
     }
-    
+
     $medal = switch ($Rank) { 1 { "🥇" } 2 { "🥈" } 3 { "🥉" } default { "  " } }
     Write-Host "$medal #$Rank $($entry.Key): $([math]::Round($entry.Value.Mean, 2)) ± $([math]::Round($entry.Value.StdDev, 2)) t/s $speedDiff"
     $Rank++
@@ -294,4 +294,3 @@ foreach ($model in $Models) {
 }
 $RawExport | ConvertTo-Json | Out-File -FilePath $RawDataPath
 Write-Host "Raw data exported to: $RawDataPath" -ForegroundColor Green
-
