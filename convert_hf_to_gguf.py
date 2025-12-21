@@ -5966,9 +5966,6 @@ class Gemma3VisionModel(MmprojModel):
 @ModelBase.register("Gemma3nForConditionalGeneration", "Gemma3nVisionModel")
 class Gemma3nVisionModel(MmprojModel):
     """Vision encoder converter for Gemma3n using MobileNetV5 architecture"""
-
-    # MobileNetV5 doesn't have transformer layers, so we don't need block count
-    # Set n_block_keys to empty list to skip the find_hparam check
     n_block_keys = []
 
     def find_hparam(self, keys: list[str], optional: bool = False) -> Any:
@@ -5984,34 +5981,17 @@ class Gemma3nVisionModel(MmprojModel):
 
     def find_vparam(self, keys: list[str], optional: bool = False) -> Any:
         """Override to provide hardcoded MobileNetV5 parameters that aren't in config"""
-        # MobileNetV5 hardcodes these values in the architecture definition
-        # rather than storing them in config.json
-
         # Handle empty keys list (n_block_keys) - return 0 for CNN architecture
         if not keys:
             return 0
 
-        # Check if we're looking for image_size
-        if "image_size" in keys:
-            # MobileNetV5 300m_enc uses 768x768 input
-            return 768
-
-        # Check if we're looking for patch_size
-        if "patch_size" in keys:
-            # MobileNetV5 is CNN-based, doesn't use patches
-            # Set to 1 for compatibility
-            return 1
-
-        # Check if we're looking for intermediate_size
         if "intermediate_size" in keys:
-            # MobileNetV5 uses expansion ratios in inverted residual blocks
             # Typical expansion is 4x the embedding dimension
             hidden_size = self.hparams_vision.get("hidden_size", 2048)
             return hidden_size * 4
 
-        # Check if we're looking for num_attention_heads
         if "num_attention_heads" in keys or "num_heads" in keys:
-            # MobileNetV5 uses Multi-Query Attention with 8 heads
+            # Multi-Query Attention with 8 heads
             return 8
 
         # For other parameters, use parent implementation
@@ -6019,41 +5999,25 @@ class Gemma3nVisionModel(MmprojModel):
 
     def set_gguf_parameters(self):
         # MobileNetV5 does not use normalisation at all
-        IMAGENET_MEAN = [0.5 , 0.5 , 0.5 ]
-        IMAGENET_STD = [0.5 , 0.5 , 0.5 ]
+        self.preprocessor_config["image_mean"] = [0.0 , 0.0 , 0.0 ]
+        self.preprocessor_config["image_std"] = [1.0 , 1.0 , 1.0 ]
+        self.hparams_vision["image_size"] = self.preprocessor_config.get(
+            "size", {"height": 768, "width": 768}
+        )["height"]
 
-        # Check if preprocessor_config has incorrect normalization values
-        if "image_mean" in self.preprocessor_config:
-            current_mean = self.preprocessor_config["image_mean"]
-            if current_mean != IMAGENET_MEAN:
-                logger.warning(f"Overriding image_mean from {current_mean} to ImageNet standard {IMAGENET_MEAN}")
-                self.preprocessor_config["image_mean"] = IMAGENET_MEAN
-        else:
-            logger.info(f"Setting image_mean to ImageNet standard {IMAGENET_MEAN}")
-            self.preprocessor_config["image_mean"] = IMAGENET_MEAN
-
-        if "image_std" in self.preprocessor_config:
-            current_std = self.preprocessor_config["image_std"]
-            if current_std != IMAGENET_STD:
-                logger.warning(f"Overriding image_std from {current_std} to ImageNet standard {IMAGENET_STD}")
-                self.preprocessor_config["image_std"] = IMAGENET_STD
-        else:
-            logger.info(f"Setting image_std to ImageNet standard {IMAGENET_STD}")
-            self.preprocessor_config["image_std"] = IMAGENET_STD
+        # Image sequence length (256 tokens = 16x16 for Gemma3n)
+        image_seq_length = self.preprocessor_config.get("image_seq_length", 256)
+        image_size = self.hparams_vision["image_size"]
+        self.hparams_vision["patch_size"] = image_size // image_seq_length
 
         # Now call parent which will use the corrected values
         super().set_gguf_parameters()
-        hparams = self.hparams
 
         # Set projector type to GEMMA3N
         self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.GEMMA3N)
 
         # MobileNetV5 specific parameters
-        self.gguf_writer.add_vision_attention_layernorm_eps(hparams.get("layer_norm_eps", 1e-6))
-        self.gguf_writer.add_vision_use_gelu(True)  # MobileNetV5 uses approximate GELU
-
-        # Image sequence length (256 tokens = 16x16 for Gemma3n)
-        image_seq_length = self.preprocessor_config.get("image_seq_length", 256)
+        self.gguf_writer.add_vision_attention_layernorm_eps(self.hparams.get("layer_norm_eps", 1e-6))
 
     def tensor_force_quant(self, name, new_name, bid, n_dims):
         # Force quantization settings for specific tensor types
@@ -6090,7 +6054,6 @@ class Gemma3nVisionModel(MmprojModel):
         # Handle normalization layer naming
         name = name.replace("hard_embedding_norm", "hard_emb_norm")
         name = name.replace("soft_embedding_norm", "soft_emb_norm")
-        # name = name.replace("embedding_post_projection_norm", "post_proj_norm")
 
         # Gemma3n uses Gemma3p5RMSNorm which has scale_shift=0, so no correction needed
         # Unlike Gemma3 which uses Gemma3RMSNorm with scale_shift=1
@@ -6098,37 +6061,11 @@ class Gemma3nVisionModel(MmprojModel):
             # No correction needed for Gemma3n
             pass
 
-        return [(self.map_tensor_name(name), data_torch)]
-
-    def map_tensor_name(self, name: str) -> str:
-        """Map Gemma3n tensor names to GGUF format"""
-        # Projector tensors (from embed_vision) - use mm. prefix like Gemma3
-        # IMPORTANT: Keep the .weight suffix to match ggml expectations
-        if name == "embedding.weight":
-            return "mm.embedding.weight"
-        if name == "embedding_projection.weight":
-            return "mm.input_projection.weight"  # Main projection 
-        if name == "hard_emb_norm.weight":
-            return "mm.hard_emb_norm.weight"  # Hard embedding normalization
-        if name == "soft_emb_norm.weight":
-            return "mm.soft_emb_norm.weight"  # Soft embedding normalization 
-        if name == "post_proj_norm.weight":
-            return "mm.post_proj_norm.weight"  # Post projection normalization (if exists)
-
-        # Vision tower tensors - add v.enc. prefix for MobileNetV5 encoder
         if name.startswith("vision_tower."):
-            # Remove vision_tower prefix and add v.enc. prefix
-            tensor_suffix = name[13:]  # Remove "vision_tower."
-            return f"v.enc.{tensor_suffix}"
-
-        # If no match, try parent implementation
-        try:
-            return super().map_tensor_name(name)
-        except ValueError:
-            # If parent also can't map it, provide a sensible default
-            # This shouldn't happen, but provides a fallback
-            logger.warning(f"Using fallback mapping for tensor: {name}")
-            return f"v.{name}"
+            tensor_suffix = name[13:]
+            return [(f"v.enc.{tensor_suffix}", data_torch)]
+        else:
+            return [(self.map_tensor_name(name), data_torch)]
 
 
 @ModelBase.register("Gemma3nForCausalLM", "Gemma3nForConditionalGeneration")
@@ -6172,24 +6109,6 @@ class Gemma3NModel(Gemma3Model):
         # Restore vocab_size_per_layer_input for later use
         if vocab_size_per_layer_input is not None:
             self.hparams["vocab_size_per_layer_input"] = vocab_size_per_layer_input
-
-        # Fix chat template for Gemma3n multimodal: replace special token placeholders with mtmd markers
-        # The mtmd library uses <__media__> as the default marker for images/audio
-        # but Gemma3n's chat template uses <image_soft_token> and <audio_soft_token>
-        chat_template_key = "tokenizer.chat_template"
-        for kv_dict in self.gguf_writer.kv_data:
-            if chat_template_key in kv_dict:
-                template_value = kv_dict[chat_template_key].value
-
-                # Replace soft token placeholders with mtmd markers
-                if '<image_soft_token>' in template_value or '<audio_soft_token>' in template_value:
-                    logger.info("Fixing Gemma3n chat template: replacing soft token placeholders with mtmd markers")
-                    template_value = template_value.replace('<image_soft_token>', '<__media__>')
-                    template_value = template_value.replace('<audio_soft_token>', '<__media__>')
-
-                    # Update the value in place
-                    kv_dict[chat_template_key].value = template_value
-                break
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()

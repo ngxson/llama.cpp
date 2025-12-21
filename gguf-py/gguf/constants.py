@@ -667,6 +667,9 @@ class MODEL_TENSOR(IntEnum):
     V_MM_INP_NORM        = auto()
     V_MM_INP_PROJ        = auto() # gemma3
     V_MM_SOFT_EMB_NORM   = auto() # gemma3
+    V_MM_EMBEDDING       = auto() # gemma3n
+    V_MM_HARD_EMB_NORM   = auto() # gemma3n
+    V_MM_POST_PROJ_NORM  = auto() # gemma3n
     V_RESMPL_POS_EMBD_K  = auto() # minicpmv
     V_RESMPL_ATTN_Q      = auto() # minicpmv
     V_RESMPL_ATTN_K      = auto() # minicpmv
@@ -1059,6 +1062,9 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.V_MM_INP_PROJ:             "mm.input_projection",
     MODEL_TENSOR.V_MM_INP_NORM:             "mm.input_norm",
     MODEL_TENSOR.V_MM_SOFT_EMB_NORM:        "mm.soft_emb_norm",
+    MODEL_TENSOR.V_MM_EMBEDDING:            "mm.embedding",
+    MODEL_TENSOR.V_MM_HARD_EMB_NORM:        "mm.hard_emb_norm",
+    MODEL_TENSOR.V_MM_POST_PROJ_NORM:       "mm.post_proj_norm",
     MODEL_TENSOR.V_RESMPL_POS_EMBD_K:       "resampler.pos_embd_k",
     MODEL_TENSOR.V_RESMPL_ATTN_Q:           "resampler.attn.q",
     MODEL_TENSOR.V_RESMPL_ATTN_K:           "resampler.attn.k",
@@ -1157,6 +1163,9 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.V_MM_INP_PROJ,
         MODEL_TENSOR.V_MM_INP_NORM,
         MODEL_TENSOR.V_MM_SOFT_EMB_NORM,
+        MODEL_TENSOR.V_MM_EMBEDDING,
+        MODEL_TENSOR.V_MM_HARD_EMB_NORM,
+        MODEL_TENSOR.V_MM_POST_PROJ_NORM,
         MODEL_TENSOR.V_RESMPL_POS_EMBD_K,
         MODEL_TENSOR.V_RESMPL_ATTN_Q,
         MODEL_TENSOR.V_RESMPL_ATTN_K,

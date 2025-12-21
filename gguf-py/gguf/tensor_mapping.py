@@ -119,6 +119,27 @@ class TensorNameMap:
         MODEL_TENSOR.CONV1D: (
             "backbone.embed", # roberta
         ),
+
+        # Vision multimodal projector tensors (non-block) for gemma3n
+        MODEL_TENSOR.V_MM_INP_PROJ: (
+            "embedding_projection", # gemma3n
+        ),
+
+        MODEL_TENSOR.V_MM_SOFT_EMB_NORM: (
+            "soft_emb_norm", # gemma3n
+        ),
+
+        MODEL_TENSOR.V_MM_EMBEDDING: (
+            "embedding", # gemma3n
+        ),
+
+        MODEL_TENSOR.V_MM_HARD_EMB_NORM: (
+            "hard_emb_norm", # gemma3n
+        ),
+
+        MODEL_TENSOR.V_MM_POST_PROJ_NORM: (
+            "post_proj_norm", # gemma3n
+        ),
     }
 
     block_mappings_cfg: dict[MODEL_TENSOR, tuple[str, ...]] = {
