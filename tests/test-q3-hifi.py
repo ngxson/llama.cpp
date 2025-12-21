@@ -20,6 +20,7 @@ import re
 import subprocess
 import sys
 from pathlib import Path
+import logging
 
 # Configuration
 PPL_THRESHOLD = 25.0  # Reasonable threshold for 3-bit quantization
@@ -97,7 +98,7 @@ def find_executable(name: str, build_dir: Path) -> Path:
 
 def run_command(cmd: list, capture_output: bool = True) -> subprocess.CompletedProcess:
     """Run a command and return the result."""
-    print(f"Running: {' '.join(str(c) for c in cmd)}")
+    logging.debug("Running: %s", ' '.join(str(c) for c in cmd))
     result = subprocess.run(
         cmd,
         capture_output=capture_output,
@@ -139,18 +140,18 @@ def main():
     try:
         perplexity_exe = find_executable("llama-perplexity", build_dir)
     except FileNotFoundError as e:
-        print(f"Error: {e}")
-        print("Make sure you've built llama.cpp first.")
+        logging.error("Error: %s", e)
+        logging.info("Make sure you've built llama.cpp first.")
         return 1
 
-    print(f"Using perplexity: {perplexity_exe}")
-    print(f"Testing model: {model_path}")
+    logging.info("Using perplexity: %s", perplexity_exe)
+    logging.info("Testing model: %s", model_path)
 
     if not model_path.exists():
-        print(f"Error: Model not found at {model_path}")
+        logging.error("Error: Model not found at %s", model_path)
         return 1
 
-    print(f"Model size: {model_path.stat().st_size / 1024 / 1024:.2f} MiB")
+    logging.info("Model size: %.2f MiB", model_path.stat().st_size / 1024 / 1024)
 
     # Create test text file
     test_text_path = Path("tests") / "test-q3-hifi-text.txt"
@@ -158,7 +159,7 @@ def main():
     test_text_path.write_text(TEST_TEXT)
 
     # Run perplexity test with small context
-    print("\n=== Running perplexity test ===")
+    logging.info("=== Running perplexity test ===")
     result = run_command([
         str(perplexity_exe),
         "-m", str(model_path),
@@ -170,24 +171,23 @@ def main():
     output = result.stdout + result.stderr
 
     if result.returncode != 0:
-        print(f"Perplexity test failed:\n{output}")
+        logging.error("Perplexity test failed:\n%s", output)
         return 1
 
     # Extract and check PPL
     try:
         ppl = extract_ppl(output)
     except ValueError as e:
-        print(f"Error: {e}")
+        logging.error("Error: %s", e)
         return 1
-
-    print(f"\nPerplexity: {ppl:.4f}")
-    print(f"Threshold: {threshold}")
+    logging.info("Perplexity: %.4f", ppl)
+    logging.info("Threshold: %s", threshold)
 
     if ppl < threshold:
-        print(f"\n✅ Test PASSED: PPL ({ppl:.4f}) is below threshold ({threshold})", flush=True)
+        logging.info("Test PASSED: PPL (%.4f) is below threshold (%.4f)", ppl, threshold)
         return 0
     else:
-        print(f"\n❌ Test FAILED: PPL ({ppl:.4f}) exceeds threshold ({threshold})", flush=True)
+        logging.error("Test FAILED: PPL (%.4f) exceeds threshold (%.4f)", ppl, threshold)
         return 1
 
 
