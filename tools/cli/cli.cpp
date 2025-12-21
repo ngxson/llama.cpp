@@ -175,6 +175,9 @@ int main(int argc, char ** argv) {
         console::error("please use llama-completion instead\n");
     }
 
+    // TODO @ngxson: we need this to have colors in log, will it have any side effects?
+    common_log_set_prefix(common_log_main(), true);
+
     common_init();
 
     // struct that contains llama context and inference
@@ -208,13 +211,14 @@ int main(int argc, char ** argv) {
     bool use_default_log = curr_log_level == default_log_lvl;
     if (use_default_log) {
         common_log_buffering(common_log_main(), true);
-        common_log_set_verbosity_thold(LOG_LEVEL_INFO);
+        common_log_set_verbosity_thold(LOG_LEVEL_WARN);
         console::log("\nLoading model... "); // followed by loading animation
         console::spinner::start();
     }
 
     if (!ctx_cli.ctx_server.load_model(params)) {
         if (use_default_log) {
+            console::error("\n----- ERROR -----\n");
             console::spinner::stop();
             console::log("\n");
             common_log_buffering(common_log_main(), false);
