@@ -32,7 +32,7 @@ typedef struct {
     uint8_t qs[64];        // 64 bytes: low 2 bits (2 bits per weight)
     uint8_t scales[12];    // 12 bytes: 16 sub-group scales (6-bit each)
     ggml_half d;           // 2 bytes: super-block scale
-    
+
     // === OUTLIER EXTENSION (18 bytes) ===
     uint8_t outlier_idx[6];    // 6 bytes: outlier positions (0-255)
     ggml_half outlier_vals[6]; // 12 bytes: FP16 outlier values
