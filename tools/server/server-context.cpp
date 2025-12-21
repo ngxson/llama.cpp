@@ -2822,12 +2822,10 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
             inputs = tokenize_input_prompts(ctx_server.vocab, ctx_server.mctx, prompt, true, true);
         }
         tasks.reserve(inputs.size());
-        int idx = 0;
         for (size_t i = 0; i < inputs.size(); i++) {
             server_task task = server_task(type);
 
-            task.id    = rd.get_new_id();
-            task.index = idx++;
+            task.id = rd.get_new_id();
 
             task.tokens = std::move(inputs[i]);
             task.params = server_task::params_from_json_cmpl(
@@ -2847,8 +2845,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
                 for (size_t j = 0; j < task.n_children; j++) {
                     server_task child = task.create_child(
                         task.id,
-                        rd.get_new_id(),
-                        idx++);
+                        rd.get_new_id());
                     tasks.push_back(std::move(child));
                 }
             }
@@ -3609,7 +3606,6 @@ void server_routes::init_routes() {
                 auto tmp = format_prompt_rerank(ctx_server.model, ctx_server.vocab, ctx_server.mctx, query, documents[i]);
                 server_task task = server_task(SERVER_TASK_TYPE_RERANK);
                 task.id     = rd.get_new_id();
-                task.index  = i;
                 task.tokens = std::move(tmp);
                 tasks.push_back(std::move(task));
             }
@@ -3854,7 +3850,6 @@ std::unique_ptr<server_res_generator> server_routes::handle_embeddings_impl(cons
             server_task task = server_task(SERVER_TASK_TYPE_EMBEDDING);
 
             task.id     = rd.get_new_id();
-            task.index  = i;
             task.tokens = std::move(tokenized_prompts[i]);
 
             // OAI-compat

@@ -163,10 +163,9 @@ struct server_task {
         return ids;
     }
 
-    server_task create_child(int id_parent, int id_child, int idx) const {
+    server_task create_child(int id_parent, int id_child) const {
         server_task copy;
         copy.id        = id_child;
-        copy.index     = idx;
         copy.id_parent = id_parent;
         copy.params    = params;
         copy.type      = type;
@@ -213,6 +212,7 @@ struct result_prompt_progress {
 struct server_task_result {
     int id           = -1;
     int id_slot      = -1;
+    size_t index     =  0; // to be used for batched tasks
     virtual bool is_error() {
         // only used by server_task_result_error
         return false;
@@ -220,9 +220,6 @@ struct server_task_result {
     virtual bool is_stop() {
         // only used by server_task_result_cmpl_*
         return true;
-    }
-    virtual int get_index() {
-        return 0;
     }
     virtual void update(task_result_state &) {
         // only used by server_task_result_cmpl_*
@@ -290,10 +287,6 @@ struct server_task_result_cmpl_final : server_task_result {
     std::vector<common_chat_msg_diff> oaicompat_msg_diffs; // to be populated by update()
     bool is_updated = false;
 
-    virtual int get_index() override {
-        return index;
-    }
-
     virtual bool is_stop() override {
         return true; // in stream mode, final responses are considered stop
     }
@@ -319,8 +312,6 @@ struct server_task_result_cmpl_final : server_task_result {
 };
 
 struct server_task_result_cmpl_partial : server_task_result {
-    int index = 0;
-
     std::string  content;
     llama_tokens tokens;
 
@@ -340,10 +331,6 @@ struct server_task_result_cmpl_partial : server_task_result {
     std::string        oaicompat_cmpl_id;
     std::vector<common_chat_msg_diff> oaicompat_msg_diffs; // to be populated by update()
     bool is_updated = false;
-
-    virtual int get_index() override {
-        return index;
-    }
 
     virtual bool is_stop() override {
         return false; // in stream mode, partial responses are not considered stop
@@ -374,10 +361,6 @@ struct server_task_result_embd : server_task_result {
     // response formatting
     task_response_type res_type = TASK_RESPONSE_TYPE_NONE;
 
-    virtual int get_index() override {
-        return index;
-    }
-
     virtual json to_json() override;
 
     json to_json_non_oaicompat();
@@ -390,10 +373,6 @@ struct server_task_result_rerank : server_task_result {
     float score = -1e6;
 
     int32_t n_tokens;
-
-    virtual int get_index() override {
-        return index;
-    }
 
     virtual json to_json() override;
 };

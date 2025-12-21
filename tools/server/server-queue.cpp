@@ -331,6 +331,7 @@ void server_response::terminate() {
 
 void server_response_reader::post_task(server_task && task, bool front) {
     GGML_ASSERT(id_tasks.empty() && "post_task() can only be called once per reader");
+    task.index = 0;
     id_tasks.insert(task.id);
     states.push_back(task.create_state());
     queue_results.add_waiting_task_id(task.id);
@@ -342,6 +343,7 @@ void server_response_reader::post_tasks(std::vector<server_task> && tasks, bool 
     id_tasks = server_task::get_list_id(tasks);
     states.reserve(tasks.size());
     for (size_t i = 0; i < tasks.size(); i++) {
+        tasks[i].index = i;
         states.push_back(tasks[i].create_state());
     }
     queue_results.add_waiting_tasks(tasks);
@@ -371,7 +373,7 @@ server_task_result_ptr server_response_reader::next(const std::function<bool()> 
             }
             if (!states.empty()) {
                 // update the generation state if needed
-                size_t idx = result->get_index();
+                const size_t idx = result->index;
                 GGML_ASSERT(idx < states.size());
                 result->update(states[idx]);
             }
@@ -398,7 +400,7 @@ server_response_reader::batch_response server_response_reader::wait_for_all(cons
             batch_res.error = std::move(res);
             return batch_res;
         }
-        const size_t idx = res->get_index();
+        const size_t idx = res->index;
         GGML_ASSERT(idx < batch_res.results.size() && "index out of range");
         GGML_ASSERT(batch_res.results[idx] == nullptr && "duplicate result received");
         batch_res.results[idx] = std::move(res);
