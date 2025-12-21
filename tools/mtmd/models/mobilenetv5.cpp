@@ -55,7 +55,7 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
         }
     }
 
-    // 3. Multi-Scale Fusion Adapter (MSFA) - REPLICATED & FIXED
+    // 3. Multi-Scale Fusion Adapter (MSFA)
     if (!intermediate_features.empty()) {
         
         // A. Reference Resolution: PyTorch implementation uses inputs[0]
@@ -191,8 +191,6 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
     // 4. PROJECTION
     // PyTorch: embedding_projection = nn.Linear(vision_hidden, text_hidden, bias=False)
     // Weight stored as [out_features, in_features] = [text_hidden_size, vision_hidden_size]
-    // Need to transpose for ggml_mul_mat which computes A^T * B
-    // This matches Gemma3's projection at line ~1319 which also transposes
     if (model.mm_input_proj_w) {
         cur = ggml_mul_mat(ctx0, model.mm_input_proj_w, cur);         
     }

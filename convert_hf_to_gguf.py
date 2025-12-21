@@ -6018,14 +6018,9 @@ class Gemma3nVisionModel(MmprojModel):
         return super().find_vparam(keys, optional)
 
     def set_gguf_parameters(self):
-        # MobileNetV5 requires ImageNet normalization values
-        # Override preprocessor_config to ensure correct values before calling super()
-        # IMAGENET_MEAN = [0.485, 0.456, 0.406]
-        # IMAGENET_STD = [0.229, 0.224, 0.225]
+        # MobileNetV5 does not use normalisation at all
         IMAGENET_MEAN = [0.5 , 0.5 , 0.5 ]
         IMAGENET_STD = [0.5 , 0.5 , 0.5 ]
-
-        print("test")
 
         # Check if preprocessor_config has incorrect normalization values
         if "image_mean" in self.preprocessor_config:
@@ -6033,7 +6028,6 @@ class Gemma3nVisionModel(MmprojModel):
             if current_mean != IMAGENET_MEAN:
                 logger.warning(f"Overriding image_mean from {current_mean} to ImageNet standard {IMAGENET_MEAN}")
                 self.preprocessor_config["image_mean"] = IMAGENET_MEAN
-            print("test2")
         else:
             logger.info(f"Setting image_mean to ImageNet standard {IMAGENET_MEAN}")
             self.preprocessor_config["image_mean"] = IMAGENET_MEAN
@@ -6060,7 +6054,6 @@ class Gemma3nVisionModel(MmprojModel):
 
         # Image sequence length (256 tokens = 16x16 for Gemma3n)
         image_seq_length = self.preprocessor_config.get("image_seq_length", 256)
-        # Note: Additional metadata can be added as needed
 
     def tensor_force_quant(self, name, new_name, bid, n_dims):
         # Force quantization settings for specific tensor types
@@ -6110,17 +6103,17 @@ class Gemma3nVisionModel(MmprojModel):
     def map_tensor_name(self, name: str) -> str:
         """Map Gemma3n tensor names to GGUF format"""
         # Projector tensors (from embed_vision) - use mm. prefix like Gemma3
-        # IMPORTANT: Keep the .weight suffix to match C++ expectations
+        # IMPORTANT: Keep the .weight suffix to match ggml expectations
         if name == "embedding.weight":
             return "mm.embedding.weight"
         if name == "embedding_projection.weight":
-            return "mm.input_projection.weight"  # Main projection used by C++
+            return "mm.input_projection.weight"  # Main projection 
         if name == "hard_emb_norm.weight":
             return "mm.hard_emb_norm.weight"  # Hard embedding normalization
         if name == "soft_emb_norm.weight":
-            return "mm.soft_emb_norm.weight"  # Soft embedding normalization (used by C++)
+            return "mm.soft_emb_norm.weight"  # Soft embedding normalization 
         if name == "post_proj_norm.weight":
-            return "mm.post_proj_norm.weight"  # Post projection normalization (CRITICAL for Gemma3n)
+            return "mm.post_proj_norm.weight"  # Post projection normalization (if exists)
 
         # Vision tower tensors - add v.enc. prefix for MobileNetV5 encoder
         if name.startswith("vision_tower."):
