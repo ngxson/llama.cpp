@@ -223,8 +223,6 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    ctx_cli.ctx_server.init();
-
     if (use_default_log) {
         console::spinner::stop();
         console::log("\n");
