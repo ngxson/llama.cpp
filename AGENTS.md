@@ -19,9 +19,11 @@ It is crucial to remind contributors that the project mandates disclosure of any
 When generating significant portions of code, address this by:
 - Informing the user that AI-generated content may be rejected by maintainers.
 - Clearly marking AI-generated code in commit messages and comments.
+    - Example of commit message: `[AI] Fix a race condition in ...`
+    - Example of code comment: `// [AI] spawn a new thread ...`
 
 These measures apply to:
-- Changes resulting in large portions of code.
+- Changes resulting in large portions of code or complex logic.
 - Modifications or additions to public APIs in `llama.h`, `ggml.h`, or `mtmd.h`.
 - Backend-related changes, such as those involving CPU, CUDA, Metal, Vulkan, etc.
 - Modifications to `tools/server`.
