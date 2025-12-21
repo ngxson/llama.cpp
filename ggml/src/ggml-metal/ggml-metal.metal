@@ -897,17 +897,17 @@ void dequantize_q3_hifi(device const block_q3_hifi * xb, short il, thread type4x
     const float d_all = half_to_float(xb->d);
     device const uint8_t * qs = xb->qs;        // low 2 bits
     device const uint8_t * hmask = xb->hmask;  // high bit
-    
+
     // Process 16 values starting at il*16
     for (int i = 0; i < 16; ++i) {
         const int idx = il * 16 + i;
-        
+
         // Extract 3-bit value using Q3_K layout (qs + hmask)
         const uint8_t lo2 = (qs[idx / 4] >> ((idx % 4) * 2)) & 0x03;
         const uint8_t hi1 = (hmask[idx / 8] >> (idx % 8)) & 0x01;
         const int quant_val = (int)(lo2 | (hi1 << 2)) - 4; // [0,7] → [-4,3]
         float val = quant_val * d_all;
-        
+
         // Check if this index is an outlier and restore FP16 value
         for (int k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
             if (xb->outlier_idx[k] == idx) {
@@ -915,7 +915,7 @@ void dequantize_q3_hifi(device const block_q3_hifi * xb, short il, thread type4x
                 break;
             }
         }
-        
+
         reg[i/4][i%4] = val;
     }
 }
@@ -7378,7 +7378,7 @@ void kernel_mul_mv_q3_hifi_f32_impl(
         for (short row = 0; row < nr0; ++row) {
             device const block_q3_hifi * xb = x + i + row * (args.nb01 / sizeof(block_q3_hifi));
             device const float * y_block = y_base;
-            
+
             for (int k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
                 const int idx = xb->outlier_idx[k];
                 const float outlier_val = half_to_float(xb->outlier_vals[k]);
