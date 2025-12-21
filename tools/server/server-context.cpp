@@ -2794,15 +2794,14 @@ struct server_res_generator : server_http_res {
 //
 
 std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
-            std::unique_ptr<server_res_generator> && res_ptr,
+            const server_http_req & req,
             server_task_type type,
             const json & data,
             const std::vector<raw_buffer> & files,
-            const std::function<bool()> & should_stop,
             task_response_type res_type) {
     GGML_ASSERT(type == SERVER_TASK_TYPE_COMPLETION || type == SERVER_TASK_TYPE_INFILL);
 
-    auto res = std::move(res_ptr);
+    auto res = create_response();
     auto completion_id = gen_chatcmplid();
     auto & rd = res->rd;
 
@@ -2868,7 +2867,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
 
     if (!stream) {
         // non-stream, wait for the results
-        auto all_results = rd.wait_for_all(should_stop);
+        auto all_results = rd.wait_for_all(req.should_stop);
         if (all_results.is_terminated) {
             return res; // connection is closed
         } else if (all_results.error) {
@@ -2900,7 +2899,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
         // in streaming mode, the first error must be treated as non-stream response
         // this is to match the OAI API behavior
         // ref: https://github.com/ggml-org/llama.cpp/pull/16486#discussion_r2419657309
-        server_task_result_ptr first_result = rd.next(should_stop);
+        server_task_result_ptr first_result = rd.next(req.should_stop);
         if (first_result == nullptr) {
             return res; // connection is closed
         } else if (first_result->is_error()) {
@@ -2923,7 +2922,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
         }
         res->status = 200;
         res->content_type = "text/event-stream";
-        res->next = [res_this = res.get(), res_type, &should_stop](std::string & output) -> bool {
+        res->next = [res_this = res.get(), res_type, &req](std::string & output) -> bool {
             static auto format_error = [](task_response_type res_type, const json & res_json) {
                 if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
                     return format_anthropic_sse({
@@ -2936,7 +2935,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
             };
 
             try {
-                if (should_stop()) {
+                if (req.should_stop()) {
                     SRV_DBG("%s", "stopping streaming due to should_stop condition\n");
                     return false; // should_stop condition met
                 }
@@ -2965,7 +2964,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
                 }
 
                 // receive subsequent results
-                auto result = rd.next(should_stop);
+                auto result = rd.next(req.should_stop);
                 if (result == nullptr) {
                     SRV_DBG("%s", "stopping streaming due to should_stop condition\n");
                     return false; // should_stop condition met
@@ -3358,11 +3357,10 @@ void server_routes::init_routes() {
 
         std::vector<raw_buffer> files; // dummy
         return handle_completions_impl(
-            std::move(res),
+            req,
             SERVER_TASK_TYPE_INFILL,
             data,
             files,
-            req.should_stop,
             TASK_RESPONSE_TYPE_NONE); // infill is not OAI compatible
     };
 
@@ -3371,11 +3369,10 @@ void server_routes::init_routes() {
         std::vector<raw_buffer> files; // dummy
         const json body = json::parse(req.body);
         return handle_completions_impl(
-            std::move(res),
+            req,
             SERVER_TASK_TYPE_COMPLETION,
             body,
             files,
-            req.should_stop,
             TASK_RESPONSE_TYPE_NONE);
     };
 
@@ -3384,11 +3381,10 @@ void server_routes::init_routes() {
         std::vector<raw_buffer> files; // dummy
         const json body = json::parse(req.body);
         return handle_completions_impl(
-            std::move(res),
+            req,
             SERVER_TASK_TYPE_COMPLETION,
             body,
             files,
-            req.should_stop,
             TASK_RESPONSE_TYPE_OAI_CMPL);
     };
 
@@ -3401,11 +3397,10 @@ void server_routes::init_routes() {
             ctx_server.oai_parser_opt,
             files);
         return handle_completions_impl(
-            std::move(res),
+            req,
             SERVER_TASK_TYPE_COMPLETION,
             body_parsed,
             files,
-            req.should_stop,
             TASK_RESPONSE_TYPE_OAI_CHAT);
     };
 
@@ -3418,11 +3413,10 @@ void server_routes::init_routes() {
             ctx_server.oai_parser_opt,
             files);
         return handle_completions_impl(
-            std::move(res),
+            req,
             SERVER_TASK_TYPE_COMPLETION,
             body_parsed,
             files,
-            req.should_stop,
             TASK_RESPONSE_TYPE_ANTHROPIC);
     };
 

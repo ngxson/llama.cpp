@@ -109,11 +109,10 @@ struct server_routes {
     server_http_context::handler_t post_lora_adapters;
 private:
     std::unique_ptr<server_res_generator> handle_completions_impl(
-            std::unique_ptr<server_res_generator> && res_ptr,
+            const server_http_req & req,
             server_task_type type,
             const json & data,
             const std::vector<raw_buffer> & files,
-            const std::function<bool()> & should_stop,
             task_response_type res_type);
     std::unique_ptr<server_res_generator> handle_slots_save(const server_http_req & req, int id_slot);
     std::unique_ptr<server_res_generator> handle_slots_restore(const server_http_req & req, int id_slot);
