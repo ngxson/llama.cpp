@@ -2463,7 +2463,7 @@ void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const 
         const int8_t * GGML_RESTRICT q8 = y[i].qs;
         const uint8_t * GGML_RESTRICT idx = x[i].outlier_idx;
         const ggml_fp16_t * GGML_RESTRICT vals = x[i].outlier_vals;
-        
+
         // Unrolled: process all 8 outliers without loop overhead
         // Using FMA-friendly pattern: accumulate (w * a) * d_y
         sumf += GGML_FP16_TO_FP32(vals[0]) * (float)q8[idx[0]] * d_y;

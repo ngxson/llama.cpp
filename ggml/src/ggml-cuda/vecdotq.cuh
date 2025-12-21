@@ -813,25 +813,25 @@ static __device__ __forceinline__ float vec_dot_q3_hifi_q8_1(
     // Thread processes weights in positions determined by iqs and bq8_offset
     // iqs in [0,8), each thread handles 32 weights (256/8)
     // Weights are interleaved: thread iqs handles indices where (idx/32) == iqs/4 and ((idx%32)/4) matches
-    
+
     // Simpler approach: each thread adds outlier contributions for indices it "owns"
     // based on the Q3_K data layout pattern
-    
+
 #pragma unroll
     for (int k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
         const int idx = bq3_hifi->outlier_idx[k];
-        
+
         // Determine which bq8 block this index falls into
         const int idx_bq8 = idx / QK8_1;  // Which Q8 block (0-7 for 256 weights)
         const int idx_in_bq8 = idx % QK8_1;  // Position within Q8 block (0-31)
-        
+
         // Check if this outlier is in the range this thread processes
         // Thread at iqs with bq8_offset processes Q8 blocks [bq8_offset, bq8_offset + QR3_K)
         if (idx_bq8 >= bq8_offset && idx_bq8 < bq8_offset + QR3_K) {
             // Further check: within Q8 block, thread processes specific positions
             // based on (iqs % QI8_1) pattern
             const int thread_q8_offset = iqs % QI8_1;
-            
+
             // Each thread processes 4 consecutive int8 values at positions [thread_q8_offset*4, thread_q8_offset*4+4)
             const int pos_in_q8_group = idx_in_bq8 / 4;
             if (pos_in_q8_group == thread_q8_offset) {

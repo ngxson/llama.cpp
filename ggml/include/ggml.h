@@ -427,7 +427,7 @@ extern "C" {
         // GGML_TYPE_IQ4_NL_8_8 = 39,
         GGML_TYPE_MXFP4   = 40, // MXFP4 (1 block)
         GGML_TYPE_Q3_HIFI = 41, // Q3_HIFI: Q3_K layout + 6 FP16 outliers per block
-        GGML_TYPE_COUNT   = 42,   
+        GGML_TYPE_COUNT   = 42,
     };
 
     // precision

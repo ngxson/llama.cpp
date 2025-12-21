@@ -175,14 +175,14 @@ layout(buffer_reference, std430, buffer_reference_align = 2) buffer decodeBufQ3_
 float16_t dequantFuncQ3_HIFI(const in decodeBufQ3_HIFI bl, const in uint blockCoords[2], const in uint coordInBlock[2])
 {
     const uint idx = coordInBlock[1];
-    
+
     // First check if this is an outlier position
     for (uint k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
         if (uint(bl.block.outlier_idx[k]) == idx) {
             return bl.block.outlier_vals[k];
         }
     }
-    
+
     // Standard Q3_K dequantization
     const uint iqs = idx;
     const uint n = iqs / 128;

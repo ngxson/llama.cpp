@@ -2161,7 +2161,7 @@ void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const 
         const int8_t * GGML_RESTRICT q8 = y[i].qs;
         const uint8_t * GGML_RESTRICT idx = x[i].outlier_idx;
         const ggml_fp16_t * GGML_RESTRICT vals = x[i].outlier_vals;
-        
+
         // Unrolled: process all 8 outliers
         sum += GGML_FP16_TO_FP32(vals[0]) * q8[idx[0]] * d_y;
         sum += GGML_FP16_TO_FP32(vals[1]) * q8[idx[1]] * d_y;
@@ -4210,7 +4210,7 @@ void dequantize_row_q3_hifi(const block_q3_hifi * GGML_RESTRICT x, float * GGML_
         for (; i < Q3_HIFI_BLOCK_SIZE - 3; i += 4) {
             // Extract 4 3-bit values (12 bits = 1.5 bytes)
             int32_t quant_vals[4];
-            
+
             for (int j = 0; j < 4; ++j) {
                 const int byte_idx = ((i + j) * 3) / 8;
                 const int bit_offset = ((i + j) * 3) % 8;
@@ -4220,21 +4220,21 @@ void dequantize_row_q3_hifi(const block_q3_hifi * GGML_RESTRICT x, float * GGML_
                 }
                 quant_vals[j] = (int32_t)bits - 4; // [0,7] → [-4,3]
             }
-            
+
             // Load into NEON register
             int32x4_t quant_vec = vld1q_s32(quant_vals);
-            
+
             // Convert to float
             float32x4_t quant_f = vcvtq_f32_s32(quant_vec);
-            
+
             // Multiply by scale
             float32x4_t scale_vec = vdupq_n_f32(d);
             quant_f = vmulq_f32(quant_f, scale_vec);
-            
+
             // Store
             vst1q_f32(&yb[i], quant_f);
         }
-        
+
         // Handle remaining values (scalar fallback)
         for (; i < Q3_HIFI_BLOCK_SIZE; ++i) {
             const int byte_idx = (i * 3) / 8;
