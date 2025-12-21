@@ -149,9 +149,10 @@ struct server_task {
     }
 
     static task_params params_from_json_cmpl(
-            const llama_context * ctx,
-            const common_params & params_base,
-            const json & data);
+        const llama_vocab * vocab,
+        const common_params & params_base,
+        const int n_ctx_slot,
+        const json & data);
 
     // utility function
     static std::unordered_set<int> get_list_id(const std::vector<server_task> & tasks) {

@@ -177,12 +177,11 @@ bool server_http_context::init(const common_params & params) {
         if (!ready) {
             auto tmp = string_split<std::string>(req.path, '.');
             if (req.path == "/" || tmp.back() == "html") {
-                res.set_content(reinterpret_cast<const char*>(loading_html), loading_html_len, "text/html; charset=utf-8");
                 res.status = 503;
-            } else if (req.path == "/models" || req.path == "/v1/models" || req.path == "/api/tags") {
-                // allow the models endpoint to be accessed during loading
-                return true;
+                res.set_content(reinterpret_cast<const char*>(loading_html), loading_html_len, "text/html; charset=utf-8");
             } else {
+                // no endpoints is allowed to be accessed when the server is not ready
+                // this is to prevent any data races or inconsistent states
                 res.status = 503;
                 res.set_content(
                     safe_json_to_str(json {

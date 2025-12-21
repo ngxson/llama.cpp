@@ -325,6 +325,7 @@ std::vector<llama_token_data> get_token_probabilities(llama_context * ctx, int i
 std::string safe_json_to_str(const json & data);
 
 std::string tokens_to_str(llama_context * ctx, const llama_tokens & tokens);
+std::string tokens_to_str(const llama_vocab * vocab, const llama_tokens & tokens);
 
 // format incomplete utf-8 multibyte character for output
 std::string tokens_to_output_formatted_string(const llama_context * ctx, const llama_token token);

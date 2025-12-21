@@ -1435,7 +1435,7 @@ std::string safe_json_to_str(const json & data) {
 
 // TODO: reuse llama_detokenize
 template <class Iter>
-static std::string tokens_to_str(llama_context * ctx, Iter begin, Iter end) {
+static std::string tokens_to_str(const llama_vocab * ctx, Iter begin, Iter end) {
     std::string ret;
     for (; begin != end; ++begin) {
         ret += common_token_to_piece(ctx, *begin);
@@ -1445,7 +1445,12 @@ static std::string tokens_to_str(llama_context * ctx, Iter begin, Iter end) {
 }
 
 std::string tokens_to_str(llama_context * ctx, const llama_tokens & tokens) {
-    return tokens_to_str(ctx, tokens.begin(), tokens.end());
+    auto model = llama_get_model(ctx);
+    return tokens_to_str(llama_model_get_vocab(model), tokens.begin(), tokens.end());
+}
+
+std::string tokens_to_str(const llama_vocab * vocab, const llama_tokens & tokens) {
+    return tokens_to_str(vocab, tokens.begin(), tokens.end());
 }
 
 // format incomplete utf-8 multibyte character for output

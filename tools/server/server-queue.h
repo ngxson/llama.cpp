@@ -5,6 +5,7 @@
 #include <condition_variable>
 #include <deque>
 #include <mutex>
+#include <vector>
 #include <unordered_set>
 
 // struct for managing server tasks
@@ -25,9 +26,9 @@ private:
     std::condition_variable condition_tasks;
 
     // callback functions
-    std::function<void(server_task &&)> callback_new_task;
-    std::function<void(void)>           callback_update_slots;
-    std::function<void(bool)>           callback_sleeping_state;
+    std::function<void(server_task &&)>    callback_new_task;
+    std::function<void(void)>              callback_update_slots;
+    std::vector<std::function<void(bool)>> callback_sleeping_state;
 
 public:
     // Add a new task to the end of the queue
@@ -97,7 +98,7 @@ public:
     // note: when entering sleeping state, the callback is called AFTER sleeping is set to true
     //       when leaving sleeping state, the callback is called BEFORE sleeping is set to false
     void on_sleeping_state(std::function<void(bool)> callback) {
-        callback_sleeping_state = std::move(callback);
+        callback_sleeping_state.push_back(std::move(callback));
     }
 
 private:
@@ -173,8 +174,10 @@ struct server_response_reader {
     int get_new_id() {
         return queue_tasks.get_new_id();
     }
-    void post_task(server_task && task);
-    void post_tasks(std::vector<server_task> && tasks);
+
+    // if front = true, the task will be posted to the front of the queue (high priority)
+    void post_task(server_task && task, bool front = false);
+    void post_tasks(std::vector<server_task> && tasks, bool front = false);
     bool has_next() const;
 
     // return nullptr if should_stop() is true before receiving a result

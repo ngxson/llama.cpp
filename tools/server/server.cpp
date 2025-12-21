@@ -252,6 +252,7 @@ int main(int argc, char ** argv, char ** envp) {
             return 1;
         }
 
+        routes.update_meta(ctx_server);
         ctx_http.is_ready.store(true);
 
         LOG_INF("%s: model loaded\n", __func__);

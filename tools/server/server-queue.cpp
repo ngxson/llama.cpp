@@ -163,7 +163,9 @@ void server_queue::start_loop(int64_t idle_sleep_ms) {
             if (should_sleep()) {
                 QUE_INF("%s", "entering sleeping state\n");
                 sleeping = true;
-                callback_sleeping_state(true);
+                for (const auto & cb : callback_sleeping_state) {
+                    cb(true);
+                }
                 req_stop_sleeping = false;
                 // wait until we are requested to exit sleeping state
                 condition_tasks.wait(lock, [&]{
@@ -174,7 +176,9 @@ void server_queue::start_loop(int64_t idle_sleep_ms) {
                 }
                 QUE_INF("%s", "exiting sleeping state\n");
                 req_stop_sleeping = false;
-                callback_sleeping_state(false);
+                for (const auto & cb : callback_sleeping_state) {
+                    cb(false);
+                }
                 sleeping = false;
                 time_last_task = ggml_time_ms();
                 condition_tasks.notify_all(); // notify wait_until_no_sleep()
@@ -325,15 +329,15 @@ void server_response::terminate() {
 // server_response_reader
 //
 
-void server_response_reader::post_task(server_task && task) {
+void server_response_reader::post_task(server_task && task, bool front) {
     GGML_ASSERT(id_tasks.empty() && "post_task() can only be called once per reader");
     id_tasks.insert(task.id);
     states.push_back(task.create_state());
     queue_results.add_waiting_task_id(task.id);
-    queue_tasks.post(std::move(task));
+    queue_tasks.post(std::move(task), front);
 }
 
-void server_response_reader::post_tasks(std::vector<server_task> && tasks) {
+void server_response_reader::post_tasks(std::vector<server_task> && tasks, bool front) {
     GGML_ASSERT(id_tasks.empty() && "post_tasks() can only be called once per reader");
     id_tasks = server_task::get_list_id(tasks);
     states.reserve(tasks.size());
@@ -341,7 +345,7 @@ void server_response_reader::post_tasks(std::vector<server_task> && tasks) {
         states.push_back(tasks[i].create_state());
     }
     queue_results.add_waiting_tasks(tasks);
-    queue_tasks.post(std::move(tasks));
+    queue_tasks.post(std::move(tasks), front);
 }
 
 bool server_response_reader::has_next() const {
