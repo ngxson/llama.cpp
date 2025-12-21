@@ -222,7 +222,7 @@ struct server_task_result {
         return true;
     }
     virtual int get_index() {
-        return -1;
+        return 0;
     }
     virtual void update(task_result_state &) {
         // only used by server_task_result_cmpl_*
