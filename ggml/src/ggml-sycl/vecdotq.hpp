@@ -837,7 +837,7 @@ vec_dot_q3_hifi_q8_1(const void *__restrict__ vbq,
         const int idx = bq3_hifi->outlier_idx[k];
         const int idx_bq8 = idx / QK8_1;
         const int idx_in_bq8 = idx % QK8_1;
-        
+
         // Check if this outlier is in the range this thread processes
         if (idx_bq8 >= bq8_offset && idx_bq8 < bq8_offset + QR3_K) {
             const int thread_q8_offset = iqs % QI8_1;
