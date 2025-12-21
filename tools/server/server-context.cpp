@@ -2734,7 +2734,6 @@ server_response_reader server_context::get_response_reader() {
 server_context_meta server_context::get_meta() const {
     auto tool_use_src = common_chat_templates_source(impl->chat_templates.get(), "tool_use");
     return server_context_meta {
-        /* params_base            */ impl->params_base,
         /* build_info             */ build_info,
         /* model_name             */ impl->model_name,
         /* model_path             */ impl->params_base.model.path,
@@ -2834,14 +2833,14 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
             task.params = server_task::params_from_json_cmpl(
                     ctx_server.vocab,
                     params,
-                    server_meta.slot_n_ctx,
+                    meta->slot_n_ctx,
                     data);
             task.id_slot = json_value(data, "id_slot", -1);
 
             // OAI-compat
             task.params.res_type          = res_type;
             task.params.oaicompat_cmpl_id = completion_id;
-            task.params.oaicompat_model   = server_meta.model_name;
+            task.params.oaicompat_model   = meta->model_name;
 
             if (task.params.n_cmpl > 1) {
                 task.n_children = task.params.n_cmpl - 1;
@@ -3009,8 +3008,8 @@ std::unique_ptr<server_res_generator> server_routes::create_response(bool bypass
     return std::make_unique<server_res_generator>(queue_tasks, queue_results, params.sleep_idle_seconds, bypass_sleep);
 }
 
-server_routes::server_routes(const common_params & params, server_context & ctx_server, std::function<bool()> is_ready)
-        : params(params), is_ready(is_ready),
+server_routes::server_routes(const common_params & params, server_context & ctx_server)
+        : params(params),
           ctx_server(*ctx_server.impl),
           queue_tasks(ctx_server.impl->queue_tasks),
           queue_results(ctx_server.impl->queue_results) {
@@ -3215,32 +3214,32 @@ void server_routes::init_routes() {
         tparams.sampling = params.sampling;
         json default_generation_settings_for_props = json {
             { "params", tparams.to_json(true) },
-            { "n_ctx",  server_meta.slot_n_ctx },
+            { "n_ctx",  meta->slot_n_ctx },
         };
 
         json props = {
             { "default_generation_settings", default_generation_settings_for_props },
             { "total_slots",                 params.n_parallel },
-            { "model_alias",                 server_meta.model_name },
-            { "model_path",                  server_meta.model_path },
+            { "model_alias",                 meta->model_name },
+            { "model_path",                  meta->model_path },
             { "modalities",                  json {
-                {"vision", server_meta.has_inp_image},
-                {"audio",  server_meta.has_inp_audio},
+                {"vision", meta->has_inp_image},
+                {"audio",  meta->has_inp_audio},
             } },
             { "endpoint_slots",              params.endpoint_slots },
             { "endpoint_props",              params.endpoint_props },
             { "endpoint_metrics",            params.endpoint_metrics },
             { "webui",                       params.webui },
-            { "webui_settings",              server_meta.json_webui_settings },
-            { "chat_template",               server_meta.chat_template },
-            { "bos_token",                   server_meta.bos_token_str },
-            { "eos_token",                   server_meta.eos_token_str },
-            { "build_info",                  server_meta.build_info },
+            { "webui_settings",              meta->json_webui_settings },
+            { "chat_template",               meta->chat_template },
+            { "bos_token",                   meta->bos_token_str },
+            { "eos_token",                   meta->eos_token_str },
+            { "build_info",                  meta->build_info },
             { "is_sleeping",                 queue_tasks.is_sleeping() },
         };
         if (params.use_jinja) {
-            if (!server_meta.chat_template_tool_use.empty()) {
-                props["chat_template_tool_use"] = server_meta.chat_template_tool_use;
+            if (!meta->chat_template_tool_use.empty()) {
+                props["chat_template_tool_use"] = meta->chat_template_tool_use;
             }
         }
         res->ok(props);
@@ -3264,12 +3263,12 @@ void server_routes::init_routes() {
         json data = {
             {
                 "model_info", {
-                    { "llama.context_length", server_meta.slot_n_ctx },
+                    { "llama.context_length", meta->slot_n_ctx },
                 }
             },
             {"modelfile", ""},
             {"parameters", ""},
-            {"template", server_meta.chat_template},
+            {"template", meta->chat_template},
             {"details", {
                 {"parent_model", ""},
                 {"format", "gguf"},
@@ -3279,7 +3278,7 @@ void server_routes::init_routes() {
                 {"quantization_level", ""}
             }},
             {"model_info", ""},
-            {"capabilities", server_meta.has_mtmd ? json({"completion","multimodal"}) : json({"completion"})}
+            {"capabilities", meta->has_mtmd ? json({"completion","multimodal"}) : json({"completion"})}
         };
 
         res->ok(data);
@@ -3350,7 +3349,7 @@ void server_routes::init_routes() {
             data.at("input_extra"),
             params.n_batch,
             params.n_predict,
-            server_meta.slot_n_ctx,
+            meta->slot_n_ctx,
             params.spm_infill,
             tokenized_prompts[0].get_text_tokens() // TODO: this could maybe be multimodal.
         );
@@ -3459,15 +3458,15 @@ void server_routes::init_routes() {
         json models = {
             {"models", {
                 {
-                    {"name",  server_meta.model_name},
-                    {"model", server_meta.model_name},
+                    {"name",  meta->model_name},
+                    {"model", meta->model_name},
                     {"modified_at", ""},
                     {"size", ""},
                     {"digest", ""}, // dummy value, llama.cpp does not support managing model file's hash
                     {"type", "model"},
                     {"description", ""},
                     {"tags", {""}},
-                    {"capabilities", server_meta.has_mtmd ? json({"completion","multimodal"}) : json({"completion"})},
+                    {"capabilities", meta->has_mtmd ? json({"completion","multimodal"}) : json({"completion"})},
                     {"parameters", ""},
                     {"details", {
                         {"parent_model", ""},
@@ -3482,17 +3481,17 @@ void server_routes::init_routes() {
             {"object", "list"},
             {"data", {
                 {
-                    {"id",       server_meta.model_name},
+                    {"id",       meta->model_name},
                     {"object",   "model"},
                     {"created",  std::time(0)},
                     {"owned_by", "llamacpp"},
                     {"meta",     {
-                        {"vocab_type",  server_meta.model_vocab_type},
-                        {"n_vocab",     server_meta.model_vocab_n_tokens},
-                        {"n_ctx_train", server_meta.model_n_ctx_train},
-                        {"n_embd",      server_meta.model_n_embd_inp},
-                        {"n_params",    server_meta.model_n_params},
-                        {"size",        server_meta.model_size},
+                        {"vocab_type",  meta->model_vocab_type},
+                        {"n_vocab",     meta->model_vocab_n_tokens},
+                        {"n_ctx_train", meta->model_n_ctx_train},
+                        {"n_embd",      meta->model_n_embd_inp},
+                        {"n_params",    meta->model_n_params},
+                        {"size",        meta->model_size},
                     }},
                 },
             }}
@@ -3636,7 +3635,7 @@ void server_routes::init_routes() {
         // write JSON response
         json root = format_response_rerank(
             body,
-            server_meta.model_name,
+            meta->model_name,
             responses,
             is_tei_format,
             documents,
@@ -3799,7 +3798,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_embeddings_impl(cons
         return res;
     }
 
-    if (res_type != TASK_RESPONSE_TYPE_NONE && server_meta.pooling_type == LLAMA_POOLING_TYPE_NONE) {
+    if (res_type != TASK_RESPONSE_TYPE_NONE && meta->pooling_type == LLAMA_POOLING_TYPE_NONE) {
         res->error(format_error_response("Pooling type 'none' is not OAI compatible. Please use a different pooling type", ERROR_TYPE_INVALID_REQUEST));
         return res;
     }
@@ -3820,7 +3819,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_embeddings_impl(cons
 
     bool use_base64 = false;
     if (body.count("encoding_format") != 0) {
-        const std::string& format = body.at("encoding_format");
+        const std::string & format = body.at("encoding_format");
         if (format == "base64") {
             use_base64 = true;
         } else if (format != "float") {
@@ -3841,8 +3840,8 @@ std::unique_ptr<server_res_generator> server_routes::handle_embeddings_impl(cons
     int embd_normalize = 2; // default to Euclidean/L2 norm
     if (body.count("embd_normalize") != 0) {
         embd_normalize = body.at("embd_normalize");
-        if (server_meta.pooling_type == LLAMA_POOLING_TYPE_NONE) {
-            SRV_DBG("embd_normalize is not supported by pooling type %d, ignoring it\n", server_meta.pooling_type);
+        if (meta->pooling_type == LLAMA_POOLING_TYPE_NONE) {
+            SRV_DBG("embd_normalize is not supported by pooling type %d, ignoring it\n", meta->pooling_type);
         }
     }
 
@@ -3885,7 +3884,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_embeddings_impl(cons
 
     // write JSON response
     json root = res_type == TASK_RESPONSE_TYPE_OAI_EMBD
-        ? format_embeddings_response_oaicompat(body, server_meta.model_name, responses, use_base64)
+        ? format_embeddings_response_oaicompat(body, meta->model_name, responses, use_base64)
         : json(responses);
     res->ok(root);
     return res;

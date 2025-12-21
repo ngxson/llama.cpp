@@ -10,7 +10,6 @@
 struct server_context_impl; // private implementation
 
 struct server_context_meta {
-    common_params params_base;
     std::string build_info;
     std::string model_name;
     std::string model_path;
@@ -74,17 +73,17 @@ struct server_context {
 struct server_res_generator;
 
 struct server_routes {
-    server_routes(const common_params & params, server_context & ctx_server, std::function<bool()> is_ready);
+    server_routes(const common_params & params, server_context & ctx_server);
 
     void init_routes();
 
-    // note: update_meta() is not thread-safe and can only be called once on the main thread
-    void update_meta(server_context & ctx_server) {
-        server_meta = ctx_server.get_meta();
-        params = server_meta.params_base;
+    // note: this is not thread-safe and can only when ctx_http.is_ready is false
+    void update_meta(const server_context & ctx_server) {
+        this->meta = std::make_unique<server_context_meta>(ctx_server.get_meta());
     }
 
     // handlers using lambda function, so that they can capture `this` without `std::bind`
+    // they won't be called until ctx_http.is_ready is set to true
     server_http_context::handler_t get_health;
     server_http_context::handler_t get_metrics;
     server_http_context::handler_t get_slots;
@@ -119,13 +118,12 @@ private:
     std::unique_ptr<server_res_generator> handle_slots_erase(const server_http_req &, int id_slot);
     std::unique_ptr<server_res_generator> handle_embeddings_impl(const server_http_req & req, task_response_type res_type);
 
-    // TODO: maybe make it const?
-    server_context_meta server_meta;
+    // using unique_ptr to allow late initialization of const
+    std::unique_ptr<const server_context_meta> meta;
 
-    common_params params;
-    std::function<bool()> is_ready;
+    const common_params & params;
+    const server_context_impl & ctx_server;
 
-    server_context_impl & ctx_server;
     server_queue & queue_tasks;
     server_response & queue_results;
     std::unique_ptr<server_res_generator> create_response(bool bypass_sleep = false);

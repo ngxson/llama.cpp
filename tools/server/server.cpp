@@ -119,7 +119,7 @@ int main(int argc, char ** argv, char ** envp) {
     //
 
     // register API routes
-    server_routes routes(params, ctx_server, [&ctx_http]() { return ctx_http.is_ready.load(); });
+    server_routes routes(params, ctx_server);
 
     bool is_router_server = params.model.path.empty();
     std::optional<server_models_routes> models_routes{};
