@@ -1,4 +1,4 @@
-# Copilot Instructions for llama.cpp
+# Instructions for llama.cpp
 
 ## Repository Overview
 
