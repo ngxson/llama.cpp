@@ -263,255 +263,6 @@ void clip_graph::cb(ggml_tensor * cur0, const char * name, int il) const {
     }
 }
 
-// --- Helpers for MobileNetV5 Blocks ---
-// RMS Norm 2D - normalizes over channels for each spatial position
-ggml_tensor * clip_graph::rms_norm_2d(ggml_tensor * inp, ggml_tensor * weight, float eps) {
-    // inp: [W, H, C, B]
-
-    ggml_tensor * cur = ggml_permute(ctx0, inp, 2, 1, 0, 3);
-    cur = ggml_cont(ctx0, cur);
-    cur = ggml_rms_norm(ctx0, cur, eps);
- 
-    if (weight) {
-        cur = ggml_mul(ctx0, cur, weight);
-    }
-
-    cur = ggml_permute(ctx0, cur, 2, 1, 0, 3);
-    cur = ggml_cont(ctx0, cur);
-
-    return cur;
-}
-
-// Helper for Conv2dSame padding (asymmetric SAME padding like PyTorch/TF)
-ggml_tensor* clip_graph::pad_same_2d(ggml_tensor* inp, int kernel_h, int kernel_w, int stride_h, int stride_w, int dilation_h, int dilation_w) {
-    const int64_t ih = inp->ne[1];  // height
-    const int64_t iw = inp->ne[0];  // width
-
-    // Calculate output size (ceil division)
-    const int64_t oh = (ih + stride_h - 1) / stride_h;
-    const int64_t ow = (iw + stride_w - 1) / stride_w;
-
-    // Calculate padding needed
-    const int64_t pad_h = std::max((int64_t)0, (oh - 1) * stride_h + (kernel_h - 1) * dilation_h + 1 - ih);
-    const int64_t pad_w = std::max((int64_t)0, (ow - 1) * stride_w + (kernel_w - 1) * dilation_w + 1 - iw);
-
-    // Split padding asymmetrically
-    const int pad_h_top = pad_h / 2;
-    const int pad_h_bottom = pad_h - pad_h_top;
-    const int pad_w_left = pad_w / 2;
-    const int pad_w_right = pad_w - pad_w_left;
-
-    // Apply padding if needed
-    // ggml_pad_ext: (ctx, tensor, lp0, rp0, lp1, rp1, lp2, rp2, lp3, rp3)
-    // For [W, H, C, B]: p0=width, p1=height, p2=channels, p3=batch
-    if (pad_h > 0 || pad_w > 0) {
-        inp = ggml_pad_ext(ctx0, inp,
-            pad_w_left, pad_w_right,     // width padding (dim 0)
-            pad_h_top, pad_h_bottom,      // height padding (dim 1)
-            0, 0,                         // no channel padding (dim 2)
-            0, 0);                        // no batch padding (dim 3)
-    }
-
-    return inp;
-}
-
-
-// Edge Residual Block (Stage 0)
-ggml_tensor * clip_graph::build_edge_residual(ggml_tensor * inp, const mobilenetv5_block & block, int stride) {
-    ggml_tensor * cur = inp;
-
-    // 1. Expansion Conv (3x3)
-    if (stride == 2) {
-        // Case: Downsampling (Block 0)
-        // Replicates Conv2dSame(kernel=3, stride=2)
-        cur = pad_same_2d(cur, 3, 3, stride, stride); 
-        cur = ggml_conv_2d_direct(ctx0, block.s0_conv_exp_w, cur, stride, stride, 0, 0, 1, 1);
-    } else {
-        // Case: Normal 3x3 Block (Block 1, 2)
-        // Replicates Conv2d(kernel=3, stride=1, padding=1)
-        cur = ggml_conv_2d_direct(ctx0, block.s0_conv_exp_w, cur, stride, stride, 1, 1, 1, 1);
-    }
-
-    // BN + Activation
-    if (block.s0_bn1_w) cur = rms_norm_2d(cur, block.s0_bn1_w);
-    cur = ggml_gelu(ctx0, cur);
-
-    // 2. Pointwise Linear Conv (1x1)
-    // 1x1 Convs usually have padding=0 and stride=1
-    cur = ggml_conv_2d_direct(ctx0, block.s0_conv_pwl_w, cur, 1, 1, 0, 0, 1, 1);
-    if (block.s0_bn2_w) cur = rms_norm_2d(cur, block.s0_bn2_w);
-
-    // 3. Residual Connection
-    // Only apply residual if spatial dimensions and channels match (stride 1)
-    if (stride == 1 && inp->ne[2] == cur->ne[2] && inp->ne[0] == cur->ne[0]) {
-        cur = ggml_add(ctx0, cur, inp);
-    }
-
-    return cur;
-}
-
-ggml_tensor * clip_graph::build_inverted_residual(ggml_tensor * inp, const mobilenetv5_block & block, int stride) {
-    ggml_tensor * cur = inp;
-
-    // 1. Depthwise Start (Optional)
-    // NOTE: dw_start always has stride=1 (no downsampling here)
-    if (block.dw_start_w) {
-        int k = block.dw_start_w->ne[0]; // 3 or 5
-        int p = k / 2;
-        cur = ggml_conv_2d_dw(ctx0, block.dw_start_w, cur, 1, 1, p, p, 1, 1);
-        if (block.dw_start_bn_w) cur = rms_norm_2d(cur, block.dw_start_bn_w);
-    }
-
-    // 2. Pointwise Expansion (1x1)
-    if (block.pw_exp_w) {
-        // Standard 1x1 conv, pad=0, stride=1
-        cur = ggml_conv_2d_direct(ctx0, block.pw_exp_w, cur, 1, 1, 0, 0, 1, 1);
-        if (block.pw_exp_bn_w) cur = rms_norm_2d(cur, block.pw_exp_bn_w);
-        cur = ggml_gelu(ctx0, cur);
-    }
-
-    // 3. Depthwise Mid (Optional)
-    // NOTE: dw_mid is where downsampling happens (stride=2 for first block of stage)
-    if (block.dw_mid_w) {
-        int k = block.dw_mid_w->ne[0]; // 3 or 5
-        
-        if (stride > 1) {
-            // Case: Stride 2 (Downsample) -> Use Asymmetric "Same" Padding
-            cur = pad_same_2d(cur, k, k, stride, stride);
-            cur = ggml_conv_2d_dw(ctx0, block.dw_mid_w, cur, stride, stride, 0, 0, 1, 1); // pad=0
-        } else {
-            // Case: Stride 1 -> Use Standard Symmetric Padding
-            int p = k / 2;
-            cur = ggml_conv_2d_dw(ctx0, block.dw_mid_w, cur, stride, stride, p, p, 1, 1);
-        }
-
-        if (block.dw_mid_bn_w) cur = rms_norm_2d(cur, block.dw_mid_bn_w);
-        cur = ggml_gelu(ctx0, cur);
-    }
-
-    // 4. Pointwise Projection (1x1)
-    if (block.pw_proj_w) {
-        cur = ggml_conv_2d_direct(ctx0, block.pw_proj_w, cur, 1, 1, 0, 0, 1, 1);
-        if (block.pw_proj_bn_w) cur = rms_norm_2d(cur, block.pw_proj_bn_w);
-    }
-
-    // Apply Layer Scaling if present
-    if (block.layer_scale_w) {
-        ggml_tensor * scale_w_reshaped = ggml_reshape_4d(ctx0, block.layer_scale_w,
-            1, 1, block.layer_scale_w->ne[0], 1);
-        
-        cur = ggml_mul(ctx0, cur, scale_w_reshaped);
-    }
-
-    // 5. Residual Connection
-    bool same_spatial = (inp->ne[0] == cur->ne[0]) && (inp->ne[1] == cur->ne[1]);
-    bool same_channel = (inp->ne[2] == cur->ne[2]);
-    if (same_spatial && same_channel) {
-        cur = ggml_add(ctx0, cur, inp);
-    }
-
-    return cur;
-}
-
-// MobileNetV5 Builder (Gemma 3n) - Attention Block
-ggml_tensor * clip_graph::build_mobilenet_attn(ggml_tensor * inp, const mobilenetv5_block & block) {
-    ggml_tensor * cur = inp;
-
-    // --- Norm ---
-    if (block.attn_norm_w) {
-        cur = rms_norm_2d(cur, block.attn_norm_w, 1e-6f);
-    }
-
-    // --- 1. Q Calculation ---
-    ggml_tensor * q = ggml_conv_2d_direct(ctx0, block.attn_q_w, cur, 1, 1, 0, 0, 1, 1);
-
-    // --- 2. K Calculation (Downsampled) ---
-    // Uses Conv2dSame(640, 640, kernel_size=(3, 3), stride=(2, 2), groups=640)
-    ggml_tensor * k_inp = cur;
-    if (block.attn_k_dw_w) {
-        int k_size = block.attn_k_dw_w->ne[0];  // Usually 3
-        k_inp = pad_same_2d(cur, k_size, k_size, 2, 2);  // Apply SAME padding
-        k_inp = ggml_conv_2d_dw(ctx0, block.attn_k_dw_w, k_inp, 2, 2, 0, 0, 1, 1);  // padding=0
-        if (block.attn_k_norm_w) {
-            k_inp = rms_norm_2d(k_inp, block.attn_k_norm_w, 1e-6f);
-        }
-    }
-    ggml_tensor * k = ggml_conv_2d_direct(ctx0, block.attn_k_w, k_inp, 1, 1, 0, 0, 1, 1);
-
-    // --- 3. V Calculation (Downsampled) ---
-    // Uses Conv2dSame(640, 640, kernel_size=(3, 3), stride=(2, 2), groups=640)
-    ggml_tensor * v_inp = cur;
-    if (block.attn_v_dw_w) {
-        int v_size = block.attn_v_dw_w->ne[0];  // Usually 3
-        v_inp = pad_same_2d(cur, v_size, v_size, 2, 2);  // Apply SAME padding
-        v_inp = ggml_conv_2d_dw(ctx0, block.attn_v_dw_w, v_inp, 2, 2, 0, 0, 1, 1);  // padding=0
-        if (block.attn_v_norm_w) {
-            v_inp = rms_norm_2d(v_inp, block.attn_v_norm_w, 1e-6f);
-        }
-    }
-    ggml_tensor * v = ggml_conv_2d_direct(ctx0, block.attn_v_w, v_inp, 1, 1, 0, 0, 1, 1);
-
-    const int W = cur->ne[0]; const int H = cur->ne[1]; const int B = cur->ne[3];
-    const int D = k->ne[2]; // Head dimension
-    const int n_head = q->ne[2] / D;
-    const int N = W * H;
-
-    // Process Q: [W, H, D*n_head, B] -> [D, N, n_head, B]
-    q = ggml_reshape_3d(ctx0, q, N, D*n_head, B);
-    q = ggml_reshape_4d(ctx0, q, N, D, n_head, B);
-    q = ggml_permute(ctx0, q, 1, 0, 2, 3); // [D, N, n_head, B]
-    q = ggml_cont(ctx0, q);
-
-    const int Wk = k->ne[0]; const int Hk = k->ne[1];
-    const int M = Wk * Hk; 
-
-    // Process K: [Wk, Hk, D, B] -> [D, M, 1, B]
-    k = ggml_reshape_3d(ctx0, k, M, D, B);
-    k = ggml_reshape_4d(ctx0, k, M, D, 1, B);
-    k = ggml_permute(ctx0, k, 1, 0, 2, 3); // [D, M, 1, B]
-    k = ggml_cont(ctx0, k);
-
-    // Process V: [Wk, Hk, D, B] -> [M, D, 1, B]
-    v = ggml_reshape_3d(ctx0, v, M, D, B);
-    v = ggml_reshape_4d(ctx0, v, M, D, 1, B);
-    v = ggml_cont(ctx0, v); // [M, D, 1, B]
-
-    // --- Multi-Query Attention ---
-    float scale = 1.0f / sqrtf((float)D);
-
-    // Step 1: Compute Q @ K.T
-    ggml_tensor * scores = ggml_mul_mat(ctx0, k, q);
-
-    scores = ggml_scale(ctx0, scores, scale);
-
-    scores = ggml_soft_max(ctx0, scores);
-
-    ggml_tensor * kqv = ggml_mul_mat(ctx0, v, scores);
-
-    kqv = ggml_permute(ctx0, kqv, 1, 0, 2, 3);
-    kqv = ggml_cont(ctx0, kqv);
-    
-
-    kqv = ggml_reshape_3d(ctx0, kqv, N, D * n_head, B);
-    kqv = ggml_reshape_4d(ctx0, kqv, W, H, D * n_head, B);
-    kqv = ggml_cont(ctx0, kqv);
-
-    // Output projection
-    cur = ggml_conv_2d_direct(ctx0, block.attn_o_w, kqv, 1, 1, 0, 0, 1, 1);
-
-    // --- Residual & Layer Scale (FIXED) ---
-    if (inp->ne[0] == cur->ne[0] && inp->ne[2] == cur->ne[2]) {
-        if (block.layer_scale_w) {
-            ggml_tensor * scale_w_reshaped = ggml_reshape_4d(ctx0, block.layer_scale_w,
-                1, 1, block.layer_scale_w->ne[0], 1);
-            cur = ggml_mul(ctx0, cur, scale_w_reshaped);
-        }
-        cur = ggml_add(ctx0, cur, inp);
-    }
-
-    return cur;
-}
-
 // siglip2 naflex
 ggml_tensor * clip_graph::resize_position_embeddings(uint32_t interpolation_mode) {
     ggml_tensor * pos_embd = model.position_embeddings;
@@ -2414,18 +2165,6 @@ void clip_build_img_from_pixels(const unsigned char * rgb_pixels, int nx, int ny
     memcpy(img->buf.data(), rgb_pixels, img->buf.size());
 }
 
-// Rescale image from u8 to f32 without normalization (for models like GEMMA3N that use SiglipImageProcessorFast)
-// This only converts from [0, 255] to [0.0, 1.0] range without applying mean/std normalization
-static void rescale_image_u8_to_f32(const clip_image_u8 & src, clip_image_f32 & dst) {
-    dst.nx = src.nx;
-    dst.ny = src.ny;
-    dst.buf.resize(src.buf.size());
- 
-    for (size_t i = 0; i < src.buf.size(); ++i) {
-        dst.buf[i] = static_cast<float>(src.buf[i]) / 255.0f;
-    }
-}
-
 // Normalize image to float32 - careful with pytorch .to(model.device, dtype=torch.float16) - this sometimes reduces precision (32>16>32), sometimes not
 static void normalize_image_u8_to_f32(const clip_image_u8 & src, clip_image_f32 & dst, const float mean[3], const float std[3]) {
     dst.nx = src.nx;
@@ -3123,13 +2862,11 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
 
         case PROJECTOR_TYPE_GEMMA3N:
             {
-                // GEMMA3N uses SiglipImageProcessorFast which only rescales to [0.0, 1.0] without normalization
-                // Resize to 768x768 using bilinear interpolation, then rescale to f32
                 clip_image_u8 resized_image;
                 int sz = params.image_size;
                 img_tool::resize(*img, resized_image, {sz, sz}, img_tool::RESIZE_ALGO_BILINEAR, false);
                 clip_image_f32_ptr img_f32(clip_image_f32_init());
-                rescale_image_u8_to_f32(resized_image, *img_f32);
+                normalize_image_u8_to_f32(resized_image, *img_f32, params.image_mean, params.image_std);
                 res_imgs->entries.push_back(std::move(img_f32));
             } break;
 
@@ -3396,7 +3133,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
             {
                 // MobileNetV5 MSFA adapter always outputs fixed 16x16 resolution
                 // regardless of input size (see architecture description)
-                n_patches = 16 * 16;  // 256 tokens
+                n_patches = ctx->model.hparams.image_size / ctx->model.hparams.patch_size;
             } break;
         case PROJECTOR_TYPE_LFM2:
         case PROJECTOR_TYPE_KIMIVL:
@@ -3967,10 +3704,6 @@ bool clip_is_llava(const struct clip_ctx * ctx) {
 
 bool clip_is_gemma3(const struct clip_ctx * ctx) {
     return ctx->proj_type() == PROJECTOR_TYPE_GEMMA3;
-}
-
-bool clip_is_gemma3n(const struct clip_ctx * ctx) {
-    return ctx->proj_type() == PROJECTOR_TYPE_GEMMA3N;
 }
 
 bool clip_has_vision_encoder(const struct clip_ctx * ctx) {
