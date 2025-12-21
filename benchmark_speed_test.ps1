@@ -161,7 +161,7 @@ function Get-Stats {
     $p95Index = [math]::Floor($count * 0.95)
     $p95 = $sorted[[math]::Min($p95Index, $count - 1)]
 
-    # 5th percentile  
+    # 5th percentile
     $p5Index = [math]::Floor($count * 0.05)
     $p5 = $sorted[$p5Index]
 
@@ -206,8 +206,8 @@ Write-Host "-" * 70
 
 foreach ($model in $Models) {
     $stats = $AllStats[$model.Name]
-    $vsBest = if ($stats.Mean -eq $FastestMean) { "FASTEST" } else { 
-        "-" + [math]::Round((1 - $stats.Mean / $FastestMean) * 100, 1) + "%" 
+    $vsBest = if ($stats.Mean -eq $FastestMean) { "FASTEST" } else {
+        "-" + [math]::Round((1 - $stats.Mean / $FastestMean) * 100, 1) + "%"
     }
 
     $row = "{0,-15} {1,10:F2} {2,10:F2} {3,10:F2} {4,10:F2} {5,10:F2} {6,10}" -f `
