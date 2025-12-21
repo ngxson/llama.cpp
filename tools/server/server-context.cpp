@@ -3213,7 +3213,7 @@ void server_routes::init_routes() {
         GGML_UNUSED(server_ctx);
 
         task_params tparams;
-        tparams.sampling = tparams.sampling;
+        tparams.sampling = params.sampling;
         json default_generation_settings_for_props = json {
             { "params", tparams.to_json(true) },
             { "n_ctx",  server_meta.slot_n_ctx },
