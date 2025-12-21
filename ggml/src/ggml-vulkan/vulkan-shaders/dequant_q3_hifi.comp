@@ -41,17 +41,17 @@ void main() {
         for (uint l = l0; l < l0 + 4; ++l) {
             const uint global_idx = y_idx + l;
             const uint local_idx = 128 * n + 32 * j + l;
-            
+
             // Standard Q3_K dequantization
             FLOAT_TYPE val = dl * FLOAT_TYPE(int8_t((data_a[i].qs[qs_idx + l] >> shift) & 3) - (((data_a[i].hmask[l] & m) != 0) ? 0 : 4));
-            
+
             // Q3_HIFI extension: Check if this is an outlier and replace with FP16 value
             [[unroll]] for (uint k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
                 if (data_a[i].outlier_idx[k] == local_idx) {
                     val = FLOAT_TYPE(data_a[i].outlier_vals[k]);
                 }
             }
-            
+
             data_b[global_idx] = D_TYPE(val);
         }
     }

@@ -534,11 +534,11 @@ vec2 dequantize(uint ib, uint iqs, uint a_offset) {
     // Compute local indices for outlier checking
     const uint local_idx0 = 128 * n + 32 * j + (iqs % 16) * 2;
     const uint local_idx1 = local_idx0 + 1;
-    
+
     // Base Q3_K dequantization
     float v0 = dl * float(int8_t((data_a[a_offset + ib].qs[qsi    ] >> qsshift) & 3) - (((data_a[a_offset + ib].hmask[hmi    ] & m) != 0) ? 0 : 4));
     float v1 = dl * float(int8_t((data_a[a_offset + ib].qs[qsi + 1] >> qsshift) & 3) - (((data_a[a_offset + ib].hmask[hmi + 1] & m) != 0) ? 0 : 4));
-    
+
     // Check for outliers and replace with FP16 values
     [[unroll]] for (uint k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
         if (data_a[a_offset + ib].outlier_idx[k] == local_idx0) {
@@ -548,7 +548,7 @@ vec2 dequantize(uint ib, uint iqs, uint a_offset) {
             v1 = float(data_a[a_offset + ib].outlier_vals[k]);
         }
     }
-    
+
     return vec2(v0, v1);
 }
 vec2 get_dm(uint ib, uint a_offset) {
