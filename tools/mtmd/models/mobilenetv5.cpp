@@ -160,7 +160,8 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
 
     // 1. Permute and Flatten to [Channels, Tokens, Batch]
     // PyTorch expects (Batch, Seq, Hidden), GGML usually processes (Hidden, Seq, Batch)
-    cur = ggml_permute(ctx0, cur, 2, 0, 1, 3); // -> [C, W, H, B]
+    cur = ggml_permute(ctx0, cur, 2, 1, 0, 3); // -> [C, H, W, B]
+    cur = ggml_permute(ctx0, cur, 0, 2, 1, 3); // -> [C, W, H, B]
     cur = ggml_cont(ctx0, cur);
     cur = ggml_reshape_3d(ctx0, cur, C, W*H, B);
     cur = ggml_cont(ctx0, cur);
@@ -193,11 +194,7 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
     // Need to transpose for ggml_mul_mat which computes A^T * B
     // This matches Gemma3's projection at line ~1319 which also transposes
     if (model.mm_input_proj_w) {
-        // cur = ggml_mul_mat(ctx0, model.mm_input_proj_w, cur);
-        cur = ggml_mul_mat(ctx0,
-            ggml_cont(ctx0, ggml_transpose(ctx0, model.mm_input_proj_w)),
-            cur);            
-
+        cur = ggml_mul_mat(ctx0, model.mm_input_proj_w, cur);         
     }
 
     // 5. POST PROJECTION NORM
