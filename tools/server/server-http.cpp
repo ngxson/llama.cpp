@@ -342,6 +342,7 @@ static void process_handler_response(server_http_req_ptr && request, server_http
         set_headers(res, response->headers);
         std::string content_type = response->content_type;
         // convert to shared_ptr as both chunked_content_provider() and on_complete() need to use it
+        std::shared_ptr<server_http_req> q_ptr = std::move(request);
         std::shared_ptr<server_http_res> r_ptr = std::move(response);
         const auto chunked_content_provider = [response = r_ptr](size_t, httplib::DataSink & sink) -> bool {
             std::string chunk;
@@ -357,7 +358,7 @@ static void process_handler_response(server_http_req_ptr && request, server_http
             }
             return has_next;
         };
-        const auto on_complete = [request = std::move(request), response = r_ptr](bool) mutable {
+        const auto on_complete = [request = q_ptr, response = r_ptr](bool) mutable {
             response.reset(); // trigger the destruction of the response object
             request.reset();  // trigger the destruction of the request object
         };
