@@ -54,7 +54,7 @@ struct server_context {
     void start_loop();
 
     // terminate main loop (will unblock start_loop)
-    void terminate();
+    void terminate(int timeout_secs = -1);
 
     // get the underlaying llama_context, can return nullptr if sleeping
     // not thread-safe, should only be used from the main thread

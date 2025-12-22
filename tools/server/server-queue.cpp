@@ -101,13 +101,30 @@ void server_queue::wait_until_no_sleep() {
     }
 }
 
-void server_queue::terminate() {
+void server_queue::terminate(int timeout_secs) {
     std::unique_lock<std::mutex> lock(mutex_tasks);
-    running = false;
-    condition_tasks.notify_all();
+    if (running) {
+        QUE_DBG("%s", "terminate requested\n");
+        running = false;
+        condition_tasks.notify_all();
+
+        if (timeout_secs > 0) {
+            // start timer thread to force termination
+            th_timer = std::thread([this, timeout_secs]() {
+                std::unique_lock<std::mutex> lock(mutex_tasks);
+                auto timeout = std::chrono::seconds(timeout_secs);
+                auto status = condition_timer.wait_for(lock, timeout);
+                if (status == std::cv_status::timeout && !stopped) {
+                    GGML_ABORT("forced termination after %d seconds timeout\n", timeout_secs);
+                }
+            });
+        }
+    }
 }
 
 void server_queue::start_loop(int64_t idle_sleep_ms) {
+    GGML_ASSERT(!running && "server_queue is already running");
+    GGML_ASSERT(!stopped && "cannot reuse server_queue after termination");
     running = true;
     time_last_task = ggml_time_ms();
 
@@ -190,6 +207,12 @@ void server_queue::start_loop(int64_t idle_sleep_ms) {
                 // otherwise, loop again to check sleeping condition
             }
         }
+    }
+
+    {
+        std::unique_lock<std::mutex> lock(mutex_tasks);
+        stopped = true;
+        condition_timer.notify_all(); // notify th_timer if waiting
     }
 }
 

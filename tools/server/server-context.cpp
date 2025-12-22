@@ -2770,8 +2770,8 @@ void server_context::start_loop() {
     impl->queue_tasks.start_loop(params.sleep_idle_seconds * 1000);
 }
 
-void server_context::terminate() {
-    impl->queue_tasks.terminate();
+void server_context::terminate(int timeout_secs) {
+    impl->queue_tasks.terminate(timeout_secs);
 }
 
 llama_context * server_context::get_llama_context() const {

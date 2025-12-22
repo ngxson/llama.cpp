@@ -7,6 +7,7 @@
 #include <mutex>
 #include <vector>
 #include <unordered_set>
+#include <thread>
 
 // struct for managing server tasks
 // in most cases, use server_response_reader to post new tasks and retrieve results
@@ -14,6 +15,7 @@ struct server_queue {
 private:
     int id = 0;
     bool running  = false;
+    bool stopped  = false;
     bool sleeping = false;
     bool req_stop_sleeping = false;
     int64_t time_last_task = 0;
@@ -24,13 +26,23 @@ private:
 
     std::mutex mutex_tasks;
     std::condition_variable condition_tasks;
+    std::condition_variable condition_timer; // notifying th_timer
 
     // callback functions
     std::function<void(server_task &&)> callback_new_task;
     std::function<void(void)>           callback_update_slots;
     std::function<void(bool)>           callback_sleeping_state;
 
+    // timer for termination timeout
+    std::thread th_timer;
+
 public:
+    ~server_queue() {
+        if (th_timer.joinable()) {
+            th_timer.join();
+        }
+    }
+
     // Add a new task to the end of the queue
     int post(server_task && task, bool front = false);
 
@@ -56,7 +68,8 @@ public:
     }
 
     // end the start_loop routine
-    void terminate();
+    // if timeout_secs > 0, wait for that many seconds before forcing termination
+    void terminate(int timeout_secs = -1);
 
     /**
      * Main loop consists of these steps:

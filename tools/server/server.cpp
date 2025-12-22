@@ -259,7 +259,7 @@ int main(int argc, char ** argv, char ** envp) {
 
         shutdown_handler = [&](int) {
             // this will unblock start_loop()
-            ctx_server.terminate();
+            ctx_server.terminate(params.shutdown_timeout_seconds);
         };
     }
 
