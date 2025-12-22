@@ -54,6 +54,7 @@ static void write_table_entry(std::ostringstream & ss, const common_arg & opt) {
     }
     // help text
     std::string md_help(opt.help);
+    md_help = string_strip(md_help);
     string_replace_all(md_help, "\n", "<br/>");
     string_replace_all(md_help, "|", "\\|");
     ss << "` | " << md_help << " |\n";

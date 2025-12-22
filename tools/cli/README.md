@@ -19,13 +19,13 @@
 | `-tb, --threads-batch N` | number of threads to use during batch and prompt processing (default: same as --threads) |
 | `-C, --cpu-mask M` | CPU affinity mask: arbitrarily long hex. Complements cpu-range (default: "") |
 | `-Cr, --cpu-range lo-hi` | range of CPUs for affinity. Complements --cpu-mask |
-| `--cpu-strict <0\|1>` | use strict CPU placement (default: 0)<br/> |
-| `--prio N` | set process/thread priority : low(-1), normal(0), medium(1), high(2), realtime(3) (default: 0)<br/> |
-| `--poll <0...100>` | use polling level to wait for work (0 - no polling, default: 50)<br/> |
+| `--cpu-strict <0\|1>` | use strict CPU placement (default: 0) |
+| `--prio N` | set process/thread priority : low(-1), normal(0), medium(1), high(2), realtime(3) (default: 0) |
+| `--poll <0...100>` | use polling level to wait for work (0 - no polling, default: 50) |
 | `-Cb, --cpu-mask-batch M` | CPU affinity mask: arbitrarily long hex. Complements cpu-range-batch (default: same as --cpu-mask) |
 | `-Crb, --cpu-range-batch lo-hi` | ranges of CPUs for affinity. Complements --cpu-mask-batch |
 | `--cpu-strict-batch <0\|1>` | use strict CPU placement (default: same as --cpu-strict) |
-| `--prio-batch N` | set process/thread priority : 0-normal, 1-medium, 2-high, 3-realtime (default: 0)<br/> |
+| `--prio-batch N` | set process/thread priority : 0-normal, 1-medium, 2-high, 3-realtime (default: 0) |
 | `--poll-batch <0\|1>` | use polling to wait for work (default: same as --poll) |
 | `-c, --ctx-size N` | size of the prompt context (default: 0, 0 = loaded from model)<br/>(env: LLAMA_ARG_CTX_SIZE) |
 | `-n, --predict, --n-predict N` | number of tokens to predict (default: -1, -1 = infinity)<br/>(env: LLAMA_ARG_N_PREDICT) |
@@ -123,7 +123,7 @@
 | `--dry-base N` | set DRY sampling base value (default: 1.75) |
 | `--dry-allowed-length N` | set allowed length for DRY sampling (default: 2) |
 | `--dry-penalty-last-n N` | set DRY penalty for the last n tokens (default: -1, 0 = disable, -1 = context size) |
-| `--dry-sequence-breaker STRING` | add sequence breaker for DRY sampling, clearing out default breakers ('\n', ':', '"', '*') in the process; use "none" to not use any sequence breakers<br/> |
+| `--dry-sequence-breaker STRING` | add sequence breaker for DRY sampling, clearing out default breakers ('\n', ':', '"', '*') in the process; use "none" to not use any sequence breakers |
 | `--dynatemp-range N` | dynamic temperature range (default: 0.0, 0.0 = disabled) |
 | `--dynatemp-exp N` | dynamic temperature exponent (default: 1.0) |
 | `--mirostat N` | use Mirostat sampling.<br/>Top K, Nucleus and Locally Typical samplers are ignored if used.<br/>(default: 0, 0 = disabled, 1 = Mirostat, 2 = Mirostat 2.0) |
@@ -148,7 +148,7 @@
 | `-sys, --system-prompt PROMPT` | system prompt to use with model (if applicable, depending on chat template) |
 | `--show-timings, --no-show-timings` | whether to show timing information after each response (default: true)<br/>(env: LLAMA_ARG_SHOW_TIMINGS) |
 | `-sysf, --system-prompt-file FNAME` | a file containing the system prompt (default: none) |
-| `-r, --reverse-prompt PROMPT` | halt generation at PROMPT, return control in interactive mode<br/> |
+| `-r, --reverse-prompt PROMPT` | halt generation at PROMPT, return control in interactive mode |
 | `-sp, --special` | special tokens output enabled (default: false) |
 | `-cnv, --conversation, -no-cnv, --no-conversation` | whether to run in conversation mode:<br/>- does not print special tokens and suffix/prefix<br/>- interactive mode is also enabled<br/>(default: auto enabled if chat template is available) |
 | `-st, --single-turn` | run conversation for a single turn only, then exit when done<br/>will not be interactive if first turn is predefined with --prompt<br/>(default: false) |
@@ -158,7 +158,7 @@
 | `-mmu, --mmproj-url URL` | URL to a multimodal projector file. see tools/mtmd/README.md<br/>(env: LLAMA_ARG_MMPROJ_URL) |
 | `--mmproj-auto, --no-mmproj, --no-mmproj-auto` | whether to use multimodal projector file (if available), useful when using -hf (default: enabled)<br/>(env: LLAMA_ARG_MMPROJ_AUTO) |
 | `--mmproj-offload, --no-mmproj-offload` | whether to enable GPU offloading for multimodal projector (default: enabled)<br/>(env: LLAMA_ARG_MMPROJ_OFFLOAD) |
-| `--image, --audio FILE` | path to an image or audio file. use with multimodal models, use comma-separated values for multiple files<br/> |
+| `--image, --audio FILE` | path to an image or audio file. use with multimodal models, use comma-separated values for multiple files |
 | `--image-min-tokens N` | minimum number of tokens each image can take, only used by vision models with dynamic resolution (default: read from model)<br/>(env: LLAMA_ARG_IMAGE_MIN_TOKENS) |
 | `--image-max-tokens N` | maximum number of tokens each image can take, only used by vision models with dynamic resolution (default: read from model)<br/>(env: LLAMA_ARG_IMAGE_MAX_TOKENS) |
 | `-otd, --override-tensor-draft <tensor name pattern>=<buffer type>,...` | override tensor buffer type for draft model |
@@ -185,5 +185,6 @@
 | `--vision-gemma-12b-default` | use Gemma 3 12B QAT (note: can download weights from the internet) |
 
 <!-- HELP_END -->
+
 
 

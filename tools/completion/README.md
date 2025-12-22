@@ -101,13 +101,13 @@ llama-completion.exe -m models\gemma-1.1-7b-it.Q4_K_M.gguf --ignore-eos -n -1
 | `-tb, --threads-batch N` | number of threads to use during batch and prompt processing (default: same as --threads) |
 | `-C, --cpu-mask M` | CPU affinity mask: arbitrarily long hex. Complements cpu-range (default: "") |
 | `-Cr, --cpu-range lo-hi` | range of CPUs for affinity. Complements --cpu-mask |
-| `--cpu-strict <0\|1>` | use strict CPU placement (default: 0)<br/> |
-| `--prio N` | set process/thread priority : low(-1), normal(0), medium(1), high(2), realtime(3) (default: 0)<br/> |
-| `--poll <0...100>` | use polling level to wait for work (0 - no polling, default: 50)<br/> |
+| `--cpu-strict <0\|1>` | use strict CPU placement (default: 0) |
+| `--prio N` | set process/thread priority : low(-1), normal(0), medium(1), high(2), realtime(3) (default: 0) |
+| `--poll <0...100>` | use polling level to wait for work (0 - no polling, default: 50) |
 | `-Cb, --cpu-mask-batch M` | CPU affinity mask: arbitrarily long hex. Complements cpu-range-batch (default: same as --cpu-mask) |
 | `-Crb, --cpu-range-batch lo-hi` | ranges of CPUs for affinity. Complements --cpu-mask-batch |
 | `--cpu-strict-batch <0\|1>` | use strict CPU placement (default: same as --cpu-strict) |
-| `--prio-batch N` | set process/thread priority : 0-normal, 1-medium, 2-high, 3-realtime (default: 0)<br/> |
+| `--prio-batch N` | set process/thread priority : 0-normal, 1-medium, 2-high, 3-realtime (default: 0) |
 | `--poll-batch <0\|1>` | use polling to wait for work (default: same as --poll) |
 | `-c, --ctx-size N` | size of the prompt context (default: 0, 0 = loaded from model)<br/>(env: LLAMA_ARG_CTX_SIZE) |
 | `-n, --predict, --n-predict N` | number of tokens to predict (default: -1, -1 = infinity, -2 = until context filled)<br/>(env: LLAMA_ARG_N_PREDICT) |
@@ -205,7 +205,7 @@ llama-completion.exe -m models\gemma-1.1-7b-it.Q4_K_M.gguf --ignore-eos -n -1
 | `--dry-base N` | set DRY sampling base value (default: 1.75) |
 | `--dry-allowed-length N` | set allowed length for DRY sampling (default: 2) |
 | `--dry-penalty-last-n N` | set DRY penalty for the last n tokens (default: -1, 0 = disable, -1 = context size) |
-| `--dry-sequence-breaker STRING` | add sequence breaker for DRY sampling, clearing out default breakers ('\n', ':', '"', '*') in the process; use "none" to not use any sequence breakers<br/> |
+| `--dry-sequence-breaker STRING` | add sequence breaker for DRY sampling, clearing out default breakers ('\n', ':', '"', '*') in the process; use "none" to not use any sequence breakers |
 | `--dynatemp-range N` | dynamic temperature range (default: 0.0, 0.0 = disabled) |
 | `--dynatemp-exp N` | dynamic temperature exponent (default: 1.0) |
 | `--mirostat N` | use Mirostat sampling.<br/>Top K, Nucleus and Locally Typical samplers are ignored if used.<br/>(default: 0, 0 = disabled, 1 = Mirostat, 2 = Mirostat 2.0) |
@@ -229,9 +229,9 @@ llama-completion.exe -m models\gemma-1.1-7b-it.Q4_K_M.gguf --ignore-eos -n -1
 | `-sysf, --system-prompt-file FNAME` | a file containing the system prompt (default: none) |
 | `-ptc, --print-token-count N` | print token count every N tokens (default: -1) |
 | `--prompt-cache FNAME` | file to cache prompt state for faster startup (default: none) |
-| `--prompt-cache-all` | if specified, saves user input and generations to cache as well<br/> |
+| `--prompt-cache-all` | if specified, saves user input and generations to cache as well |
 | `--prompt-cache-ro` | if specified, uses the prompt cache but does not update it |
-| `-r, --reverse-prompt PROMPT` | halt generation at PROMPT, return control in interactive mode<br/> |
+| `-r, --reverse-prompt PROMPT` | halt generation at PROMPT, return control in interactive mode |
 | `-sp, --special` | special tokens output enabled (default: false) |
 | `-cnv, --conversation, -no-cnv, --no-conversation` | whether to run in conversation mode:<br/>- does not print special tokens and suffix/prefix<br/>- interactive mode is also enabled<br/>(default: auto enabled if chat template is available) |
 | `-st, --single-turn` | run conversation for a single turn only, then exit when done<br/>will not be interactive if first turn is predefined with --prompt<br/>(default: false) |
@@ -252,6 +252,7 @@ llama-completion.exe -m models\gemma-1.1-7b-it.Q4_K_M.gguf --ignore-eos -n -1
 | `--simple-io` | use basic IO for better compatibility in subprocesses and limited consoles |
 
 <!-- HELP_END -->
+
 
 
 
