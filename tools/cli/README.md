@@ -185,6 +185,3 @@
 | `--vision-gemma-12b-default` | use Gemma 3 12B QAT (note: can download weights from the internet) |
 
 <!-- HELP_END -->
-
-
-

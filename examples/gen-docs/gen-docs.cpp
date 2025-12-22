@@ -96,7 +96,7 @@ static void write_help(std::ostringstream & ss, const md_file & md) {
     ss << "\n\n### " << md.specific_section_header << "\n\n";
     write_table(ss, specific_options);
 
-    ss << "\n" << HELP_END_MARKER << "\n";
+    ss << "\n" << HELP_END_MARKER;
 }
 
 int main(int, char **) {

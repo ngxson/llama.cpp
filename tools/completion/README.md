@@ -253,9 +253,6 @@ llama-completion.exe -m models\gemma-1.1-7b-it.Q4_K_M.gguf --ignore-eos -n -1
 
 <!-- HELP_END -->
 
-
-
-
 ## Common Options
 
 In this section, we cover the most commonly used options for running the `llama-completion` program with the LLaMA models:

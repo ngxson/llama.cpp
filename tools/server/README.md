@@ -239,9 +239,6 @@ For the ful list of features, please refer to [server's changelog](https://githu
 
 <!-- HELP_END -->
 
-
-
-
 Note: If both command line argument and environment variable are both set for the same param, the argument will take precedence over env var.
 
 For boolean options like `--mmap` or `--kv-offload`, the environment variable is handled as shown in this example:
