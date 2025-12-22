@@ -26,9 +26,9 @@ private:
     std::condition_variable condition_tasks;
 
     // callback functions
-    std::function<void(server_task &&)>    callback_new_task;
-    std::function<void(void)>              callback_update_slots;
-    std::vector<std::function<void(bool)>> callback_sleeping_state;
+    std::function<void(server_task &&)> callback_new_task;
+    std::function<void(void)>           callback_update_slots;
+    std::function<void(bool)>           callback_sleeping_state;
 
 public:
     // Add a new task to the end of the queue
@@ -98,7 +98,7 @@ public:
     // note: when entering sleeping state, the callback is called AFTER sleeping is set to true
     //       when leaving sleeping state, the callback is called BEFORE sleeping is set to false
     void on_sleeping_state(std::function<void(bool)> callback) {
-        callback_sleeping_state.push_back(std::move(callback));
+        callback_sleeping_state = std::move(callback);
     }
 
 private:
