@@ -109,13 +109,17 @@ void server_queue::terminate(int timeout_secs) {
         condition_tasks.notify_all();
 
         if (timeout_secs > 0) {
+            QUE_INF("will force termination after %d seconds...\n", timeout_secs);
+
             // start timer thread to force termination
             th_timer = std::thread([this, timeout_secs]() {
                 std::unique_lock<std::mutex> lock(mutex_tasks);
                 auto timeout = std::chrono::seconds(timeout_secs);
                 auto status = condition_timer.wait_for(lock, timeout);
                 if (status == std::cv_status::timeout && !stopped) {
-                    GGML_ABORT("forced termination after %d seconds timeout\n", timeout_secs);
+                    // use fprintf to avoid any delay in logging subsystem
+                    fprintf(stderr, "forced termination after %d seconds timeout\n", timeout_secs);
+                    exit(1);
                 }
             });
         }
@@ -208,11 +212,16 @@ void server_queue::start_loop(int64_t idle_sleep_ms) {
             }
         }
     }
+}
 
+server_queue::~server_queue() {
     {
         std::unique_lock<std::mutex> lock(mutex_tasks);
         stopped = true;
         condition_timer.notify_all(); // notify th_timer if waiting
+    }
+    if (th_timer.joinable()) {
+        th_timer.join();
     }
 }
 

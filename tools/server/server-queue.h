@@ -37,11 +37,7 @@ private:
     std::thread th_timer;
 
 public:
-    ~server_queue() {
-        if (th_timer.joinable()) {
-            th_timer.join();
-        }
-    }
+    ~server_queue();
 
     // Add a new task to the end of the queue
     int post(server_task && task, bool front = false);
