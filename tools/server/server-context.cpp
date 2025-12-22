@@ -564,7 +564,7 @@ private:
 
     server_metrics metrics;
 
-    json json_webui_config = json::object();
+    json json_webui_settings = json::object();
 
     // Necessary similarity of prompt for slot selection
     float slot_prompt_similarity = 0.0f;
@@ -882,7 +882,7 @@ private:
         {
             if (!params_base.webui_config_json.empty()) {
                 try {
-                    json_webui_config = json::parse(params_base.webui_config_json);
+                    json_webui_settings = json::parse(params_base.webui_config_json);
                 } catch (const std::exception & e) {
                     SRV_ERR("%s: failed to parse webui config: %s\n", __func__, e.what());
                     return false;
@@ -2791,7 +2791,7 @@ server_context_meta server_context::get_meta() const {
         /* has_mtmd               */ impl->mctx != nullptr,
         /* has_inp_image          */ impl->oai_parser_opt.allow_image,
         /* has_inp_audio          */ impl->oai_parser_opt.allow_audio,
-        /* json_webui_settings    */ impl->json_webui_config,
+        /* json_webui_settings    */ impl->json_webui_settings,
         /* slot_n_ctx             */ impl->get_slot_n_ctx(),
         /* pooling_type           */ llama_pooling_type(impl->ctx),
 
