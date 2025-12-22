@@ -1821,9 +1821,9 @@ private:
                         llama_tokens alora_invocation_tokens;
                         if (n_alora_tokens) {
                             const llama_token * alora_tokens = llama_adapter_get_alora_invocation_tokens(lora.ptr);
-                            for (uint64_t i = 0; i < n_alora_tokens; ++i) {
-                                alora_invocation_string += common_token_to_piece(vocab, alora_tokens[i]);
-                                alora_invocation_tokens.push_back(alora_tokens[i]);
+                            for (uint64_t j = 0; j < n_alora_tokens; ++j) {
+                                alora_invocation_string += common_token_to_piece(vocab, alora_tokens[j]);
+                                alora_invocation_tokens.push_back(alora_tokens[j]);
                             }
                         }
                         res->loras.push_back(server_task_result_get_lora::lora{
