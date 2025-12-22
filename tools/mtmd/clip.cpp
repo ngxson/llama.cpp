@@ -1536,8 +1536,6 @@ struct clip_model_loader {
                     model.msfa_ffn_project_w = get_tensor(TN_MNV5_MSFA_FFN_PROJ_W, false);
                     model.msfa_ffn_project_bn = get_tensor(TN_MNV5_MSFA_FFN_PROJ_BN, false);
                     
-                    // IMPORTANT: Your GGUF log shows 'v.enc.msfa.norm.weight' -> shape {2048}
-                    // Ensure TN_MNV5_MSFA_NORM matches this string
                     model.msfa_concat_norm_w = get_tensor(TN_MNV5_MSFA_NORM, false);
 
                     // Dynamically load blocks stage by stage
@@ -1620,8 +1618,6 @@ struct clip_model_loader {
                     // Load projection weights (similar to Gemma3)
                     model.mm_input_proj_w = get_tensor(TN_MM_INP_PROJ);
                     model.mm_soft_emb_norm_w = get_tensor(TN_MM_SOFT_EMB_N);
-                    // model.mm_post_proj_norm_w = get_tensor(TN_MM_POST_PROJ_N);  // CRITICAL: Post projection norm
-                    // Load additional Gemma3n projection tensors
                     model.mm_0_w = get_tensor("mm.embedding.weight", false);  // Input embedding
                     model.mm_1_w = get_tensor("mm.hard_emb_norm.weight", false);  // Hard embedding norm
                 } break;
