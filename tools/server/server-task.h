@@ -6,6 +6,7 @@
 #include <string>
 #include <unordered_set>
 #include <list>
+#include <map>
 
 // TODO: prevent including the whole server-common.h as we only use server_tokens
 #include "server-common.h"
@@ -23,6 +24,7 @@ enum server_task_type {
     SERVER_TASK_TYPE_SLOT_SAVE,
     SERVER_TASK_TYPE_SLOT_RESTORE,
     SERVER_TASK_TYPE_SLOT_ERASE,
+    SERVER_TASK_TYPE_GET_LORA,
     SERVER_TASK_TYPE_SET_LORA,
 };
 
@@ -60,7 +62,7 @@ struct task_params {
     int64_t t_max_prompt_ms  = -1; // TODO: implement
     int64_t t_max_predict_ms = -1; // if positive, limit the generation phase to this time limit
 
-    std::vector<common_adapter_lora_info> lora;
+    std::map<int, float> lora; // mapping adapter ID -> scale
 
     std::vector<std::string> antiprompt;
     std::vector<std::string> response_fields;
@@ -140,7 +142,7 @@ struct server_task {
     bool metrics_reset_bucket = false;
 
     // used by SERVER_TASK_TYPE_SET_LORA
-    std::vector<common_adapter_lora_info> set_lora;
+    std::map<int, float> set_lora; // mapping adapter ID -> scale
 
     server_task() = default;
 
@@ -436,6 +438,17 @@ struct server_task_result_slot_save_load : server_task_result {
 
 struct server_task_result_slot_erase : server_task_result {
     size_t n_erased;
+
+    virtual json to_json() override;
+};
+
+struct server_task_result_get_lora : server_task_result {
+    struct lora {
+        common_adapter_lora_info info;
+        std::string  alora_invocation_string;
+        llama_tokens alora_invocation_tokens;
+    };
+    std::vector<lora> loras;
 
     virtual json to_json() override;
 };

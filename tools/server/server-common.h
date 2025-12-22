@@ -107,9 +107,7 @@ bool lora_should_clear_cache(
         const std::vector<common_adapter_lora_info> & current,
         const std::vector<common_adapter_lora_info> & next);
 
-std::vector<common_adapter_lora_info> parse_lora_request(
-        const std::vector<common_adapter_lora_info> & lora_base,
-        const json & data);
+std::map<int, float> parse_lora_request(const json & data);
 
 bool are_lora_equal(
         const std::vector<common_adapter_lora_info> & l1,

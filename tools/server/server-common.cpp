@@ -115,26 +115,14 @@ bool lora_should_clear_cache(
         !lora_all_alora(next));
 }
 
-std::vector<common_adapter_lora_info> parse_lora_request(
-        const std::vector<common_adapter_lora_info> & lora_base,
-        const json & data) {
-    std::vector<common_adapter_lora_info> lora(lora_base);
-    int max_idx = lora.size();
-
-    // clear existing value
-    for (auto & entry : lora) {
-        entry.scale = 0.0f;
-    }
+std::map<int, float> parse_lora_request(const json & data) {
+    std::map<int, float> lora;
 
     // set value
     for (const auto & entry : data) {
         int id      = json_value(entry, "id", -1);
         float scale = json_value(entry, "scale", 0.0f);
-        if (0 <= id && id < max_idx) {
-            lora[id].scale = scale;
-        } else {
-            throw std::runtime_error("invalid adapter id");
-        }
+        lora[id] = scale;
     }
 
     return lora;

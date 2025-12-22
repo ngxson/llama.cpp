@@ -1048,18 +1048,37 @@ private:
         return res;
     }
 
+    std::vector<common_adapter_lora_info> construct_lora_list(const std::map<int, float> & config) {
+        std::vector<common_adapter_lora_info> output = params_base.lora_adapters; // copy
+        for (size_t i = 0; i < output.size(); ++i) {
+            auto it = config.find(i);
+            if (it != config.end()) {
+                output[i].scale = it->second;
+            } else {
+                output[i].scale = 0.0f;
+            }
+        }
+        return output;
+    }
+
     bool launch_slot_with_task(server_slot & slot, server_task && task) {
         slot.reset();
 
-        if (!are_lora_equal(task.params.lora, slot.lora)) {
-            // if lora has changed, check to see if the cache should be cleared
-            if (lora_should_clear_cache(slot.lora, task.params.lora)) {
-                SLT_INF(slot, "clearing cache for lora change. %zu loras -> %zu loras\n", slot.lora.size(), task.params.lora.size());
-                slot.prompt.tokens.clear();
-            } else {
-                SLT_INF(slot, "keeping cache for alora. %zu target loras\n", task.params.lora.size());
+        // process per-request lora adapters
+        if (!task.params.lora.empty()) {
+            auto task_loras = construct_lora_list(task.params.lora);
+            if (!are_lora_equal(task_loras, slot.lora)) {
+                // if lora has changed, check to see if the cache should be cleared
+                if (lora_should_clear_cache(slot.lora, task_loras)) {
+                    SLT_INF(slot, "clearing cache for lora change. %zu loras -> %zu loras\n", slot.lora.size(), task.params.lora.size());
+                    slot.prompt.tokens.clear();
+                } else {
+                    SLT_INF(slot, "keeping cache for alora. %zu target loras\n", task_loras.size());
+                }
+                slot.lora = task_loras;
             }
-            slot.lora = task.params.lora;
+        } else {
+            slot.lora = params_base.lora_adapters;
         }
 
         // if using alora, make sure it's only a single one requested and active
@@ -1789,9 +1808,41 @@ private:
                     res->n_erased = n_erased;
                     queue_results.send(std::move(res));
                 } break;
+            case SERVER_TASK_TYPE_GET_LORA:
+                {
+                    // TODO @ngxson : make lora_adapters a dedicated member of server_context
+                    auto & loras = params_base.lora_adapters;
+                    auto res = std::make_unique<server_task_result_get_lora>();
+                    res->id = task.id;
+                    for (size_t i = 0; i < loras.size(); ++i) {
+                        auto & lora = loras[i];
+                        std::string alora_invocation_string = "";
+                        const uint64_t n_alora_tokens = llama_adapter_get_alora_n_invocation_tokens(lora.ptr);
+                        llama_tokens alora_invocation_tokens;
+                        if (n_alora_tokens) {
+                            const llama_token * alora_tokens = llama_adapter_get_alora_invocation_tokens(lora.ptr);
+                            for (uint64_t i = 0; i < n_alora_tokens; ++i) {
+                                alora_invocation_string += common_token_to_piece(vocab, alora_tokens[i]);
+                                alora_invocation_tokens.push_back(alora_tokens[i]);
+                            }
+                        }
+                        res->loras.push_back(server_task_result_get_lora::lora{
+                            lora,
+                            alora_invocation_string,
+                            alora_invocation_tokens,
+                        });
+                    }
+                    queue_results.send(std::move(res));
+                } break;
             case SERVER_TASK_TYPE_SET_LORA:
                 {
-                    params_base.lora_adapters = std::move(task.set_lora);
+                    auto new_loras = construct_lora_list(task.set_lora);
+                    // logging
+                    for (size_t i = 0; i < new_loras.size(); ++i) {
+                        SRV_INF("set lora adapter idx=%zu scale=%f\n", i, new_loras[i].scale);
+                    }
+                    // TODO @ngxson : make lora_adapters a dedicated member of server_context
+                    params_base.lora_adapters = new_loras;
                     auto res = std::make_unique<server_task_result_apply_lora>();
                     res->id = task.id;
                     queue_results.send(std::move(res));
@@ -3641,34 +3692,26 @@ void server_routes::init_routes() {
         return res;
     };
 
-    this->get_lora_adapters = [this](const server_http_req &) {
+    this->get_lora_adapters = [this](const server_http_req & req) {
         auto res = create_response();
-        json result = json::array();
-        const auto & loras = params.lora_adapters;
-        for (size_t i = 0; i < loras.size(); ++i) {
-            auto & lora = loras[i];
-            json entry = {
-                {"id", i},
-                {"path", lora.path},
-                {"scale", lora.scale},
-                {"task_name", lora.task_name},
-                {"prompt_prefix", lora.prompt_prefix},
-            };
-            std::string alora_invocation_string = "";
-            const uint64_t n_alora_tokens = llama_adapter_get_alora_n_invocation_tokens(lora.ptr);
-            std::vector<llama_token> alora_invocation_tokens;
-            if (n_alora_tokens) {
-                const llama_token * alora_tokens = llama_adapter_get_alora_invocation_tokens(lora.ptr);
-                for (uint64_t i = 0; i < n_alora_tokens; ++i) {
-                    alora_invocation_string += common_token_to_piece(ctx_server.vocab, alora_tokens[i]);
-                    alora_invocation_tokens.push_back(alora_tokens[i]);
-                }
-                entry["alora_invocation_string"] = alora_invocation_string;
-                entry["alora_invocation_tokens"] = alora_invocation_tokens;
-            }
-            result.push_back(std::move(entry));
+
+        auto & rd = res->rd;
+        {
+            server_task task(SERVER_TASK_TYPE_GET_LORA);
+            task.id = rd.get_new_id();
+            rd.post_task(std::move(task));
         }
-        res->ok(result);
+
+        // get the result
+        server_task_result_ptr result = rd.next(req.should_stop);
+
+        if (result->is_error()) {
+            res->error(result->to_json());
+            return res;
+        }
+
+        GGML_ASSERT(dynamic_cast<server_task_result_get_lora*>(result.get()) != nullptr);
+        res->ok(result->to_json());
         return res;
     };
 
@@ -3684,7 +3727,7 @@ void server_routes::init_routes() {
         {
             server_task task(SERVER_TASK_TYPE_SET_LORA);
             task.id = rd.get_new_id();
-            task.set_lora = parse_lora_request(params.lora_adapters, body);
+            task.set_lora = parse_lora_request(body);
             rd.post_task(std::move(task));
         }
 
