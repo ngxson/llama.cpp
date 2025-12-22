@@ -5,13 +5,14 @@ This example program allows you to use various LLaMA language models easily and 
 ## Table of Contents
 
 1. [Quick Start](#quick-start)
-2. [Common Options](#common-options)
-3. [Input Prompts](#input-prompts)
-4. [Interaction](#interaction)
-5. [Context Management](#context-management)
-6. [Generation Flags](#generation-flags)
-7. [Performance Tuning and Memory Options](#performance-tuning-and-memory-options)
-8. [Additional Options](#additional-options)
+2. [Usage](#usage)
+3. [Common Options](#common-options)
+4. [Input Prompts](#input-prompts)
+5. [Interaction](#interaction)
+6. [Context Management](#context-management)
+7. [Generation Flags](#generation-flags)
+8. [Performance Tuning and Memory Options](#performance-tuning-and-memory-options)
+9. [Additional Options](#additional-options)
 
 ## Quick Start
 
