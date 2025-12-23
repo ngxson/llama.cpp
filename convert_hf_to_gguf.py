@@ -7369,11 +7369,14 @@ class MimoV2Model(TextModel):
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
 
+        n_layers = self.hparams["num_hidden_layers"]
+
         assert self.hparams["swa_head_dim"] == self.hparams["head_dim"]
         assert self.hparams["swa_num_attention_heads"] == self.hparams["num_attention_heads"]
-        assert self.hparams["swa_num_key_value_heads"] == self.hparams["num_key_value_heads"]
+        assert self.hparams["swa_num_key_value_heads"] == self.hparams["num_key_value_heads"] * 2 # TODO: remove this when it is supported
         assert self.hparams["swa_v_head_dim"] == self.hparams["v_head_dim"]
 
+        self.gguf_writer.add_sliding_window_pattern(self.hparams["hybrid_layer_pattern"])
         self.gguf_writer.add_value_length(self.hparams["v_head_dim"])
         self.gguf_writer.add_expert_count(self.hparams["n_routed_experts"])
         self.gguf_writer.add_expert_feed_forward_length(self.hparams["moe_intermediate_size"])
@@ -7389,6 +7392,10 @@ class MimoV2Model(TextModel):
 
         if "attention_sink" in name and not name.endswith(".weight"):
             name += ".weight"
+
+        # TODO: BEFORE MERGING THIS PR, REMOVE THIS AND ADD MTP TENSORS TO GGUF EVEN IF THEY ARE NOT USED
+        if "model.mtp." in name:
+            return []
 
         # process the experts separately
         if name.find("mlp.experts") != -1:
