@@ -7364,7 +7364,7 @@ class MiniMaxM2Model(TextModel):
 
 @ModelBase.register("MiMoV2FlashForCausalLM")
 class MimoV2Model(TextModel):
-    model_arch = gguf.MODEL_ARCH.MIMOV2
+    model_arch = gguf.MODEL_ARCH.MIMO2
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
