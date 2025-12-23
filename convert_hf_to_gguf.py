@@ -7372,6 +7372,11 @@ class MimoV2Model(TextModel):
         assert self.hparams["swa_head_dim"] == self.hparams["head_dim"]
         assert self.hparams["swa_num_attention_heads"] == self.hparams["num_attention_heads"]
         assert self.hparams["swa_num_key_value_heads"] == self.hparams["num_key_value_heads"]
+        assert self.hparams["swa_v_head_dim"] == self.hparams["v_head_dim"]
+
+        self.gguf_writer.add_value_length(self.hparams["v_head_dim"])
+        self.gguf_writer.add_expert_count(self.hparams["n_routed_experts"])
+        self.gguf_writer.add_expert_feed_forward_length(self.hparams["moe_intermediate_size"])
 
         rope_dim = int(self.hparams["head_dim"] * self.hparams["partial_rotary_factor"])
         self.gguf_writer.add_rope_dimension_count(rope_dim)
@@ -7381,6 +7386,9 @@ class MimoV2Model(TextModel):
     def modify_tensors(self, data_torch, name, bid):
         if name.endswith("e_score_correction_bias"):
             name = name.replace("e_score_correction_bias", "e_score_correction.bias")
+
+        if "attention_sink" in name and not name.endswith(".weight"):
+            name += ".weight"
 
         # process the experts separately
         if name.find("mlp.experts") != -1:
