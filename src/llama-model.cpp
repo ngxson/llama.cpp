@@ -2341,6 +2341,10 @@ void llama_model::load_hparams(llama_model_loader & ml) {
         case LLM_ARCH_MIMO2:
             {
                 hparams.swa_type = LLAMA_SWA_TYPE_STANDARD;
+                hparams.n_swa    = 128;
+                hparams.rope_freq_base_train_swa = 10000.0f;
+
+                ml.get_key       (LLM_KV_ATTENTION_SLIDING_WINDOW,         hparams.n_swa,      false);
                 ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.swa_layers, hparams.n_layer);
 
                 switch (hparams.n_layer) {
