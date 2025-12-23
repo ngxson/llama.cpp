@@ -1173,6 +1173,8 @@ class TextModel(ModelBase):
         if chkhsh == "877081d19cf6996e2c4ff0e1236341e9b7bde288f5311a56a937f0afbbb3aeb5":
             # ref: https://huggingface.co/deepseek-ai/DeepSeek-V3
             res = "deepseek-v3"
+        if chkhsh == "9d70134b369a70e5735009b6de918f7581b5211f7c074d1f89f753aea8248af1":
+            res = "utu-vl"
         if chkhsh == "b3f499bb4255f8ca19fccd664443283318f2fd2414d5e0b040fbdd0cc195d6c5":
             # ref: https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
             res = "deepseek-r1-qwen"
@@ -7133,6 +7135,7 @@ class DeepseekModel(TextModel):
     "DeepseekV2ForCausalLM",
     "DeepseekV3ForCausalLM",
     "KimiVLForConditionalGeneration",
+    "UTUVLForCausalLM",
 )
 class DeepseekV2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.DEEPSEEK2
@@ -7211,11 +7214,26 @@ class DeepseekV2Model(TextModel):
         self.gguf_writer.add_key_length_mla(hparams["qk_nope_head_dim"] + hparams["qk_rope_head_dim"])
         self.gguf_writer.add_value_length_mla(hparams["v_head_dim"])
 
-        self.gguf_writer.add_expert_feed_forward_length(hparams["moe_intermediate_size"])
-        self.gguf_writer.add_expert_count(hparams["n_routed_experts"])
-        self.gguf_writer.add_expert_shared_count(hparams["n_shared_experts"])
-        self.gguf_writer.add_expert_weights_scale(hparams["routed_scaling_factor"])
-        self.gguf_writer.add_expert_weights_norm(hparams["norm_topk_prob"])
+        if hparams.get("moe_intermediate_size") is not None:
+            self.gguf_writer.add_expert_feed_forward_length(hparams["moe_intermediate_size"])
+        else:
+            self.gguf_writer.add_expert_feed_forward_length(hparams.get("intermediate_size", 0))
+        
+        if hparams.get("n_routed_experts") is not None:
+            self.gguf_writer.add_expert_count(hparams["n_routed_experts"])
+        
+        if hparams.get("n_shared_experts") is not None:
+            self.gguf_writer.add_expert_shared_count(hparams["n_shared_experts"])
+        else:
+            self.gguf_writer.add_expert_shared_count(0)
+        
+        if hparams.get("routed_scaling_factor") is not None:
+            self.gguf_writer.add_expert_weights_scale(hparams["routed_scaling_factor"])
+        else:
+            self.gguf_writer.add_expert_weights_scale(1.0)
+        
+        if hparams.get("norm_topk_prob") is not None and hparams["norm_topk_prob"]:
+            self.gguf_writer.add_expert_weights_norm(hparams["norm_topk_prob"])
 
         self.gguf_writer.add_rope_dimension_count(hparams["qk_rope_head_dim"])
 
@@ -7226,14 +7244,25 @@ class DeepseekV2Model(TextModel):
             self.gguf_writer.add_rope_scaling_yarn_log_mul(0.1 * rope_mscale_all)
 
     _experts: list[dict[str, Tensor]] | None = None
+    _token_embd: Tensor | None = None
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         # skip vision tensors and remove "language_model." for Kimi-VL
         if "vision_tower" in name or "multi_modal_projector" in name:
             return []
-
+        if name.startswith("siglip2.") or name.startswith("merger."):
+            return []
         if name.startswith("language_model."):
             name = name.replace("language_model.", "")
+
+        # skip lm_head.weight if tie_word_embeddings is True
+        if self.hparams.get("tie_word_embeddings", False):
+            # Save token_embd for potential duplication as output if tie_word_embeddings is True
+            if name == "model.embed_tokens.weight":
+                self._token_embd = data_torch
+            if name == "lm_head.weight" or name == "model.lm_head.weight":
+                logger.info("Skipping tied output layer 'lm_head.weight' - will duplicate from token_embd.weight")
+                return []
 
         # rename e_score_correction_bias tensors
         if name.endswith("e_score_correction_bias"):
@@ -7246,7 +7275,7 @@ class DeepseekV2Model(TextModel):
             return []
 
         # process the experts separately
-        if name.find("mlp.experts") != -1:
+        if name.find("mlp.experts") != -1 and self.hparams.get("n_routed_experts") is not None:
             n_experts = self.hparams["n_routed_experts"]
             assert bid is not None
 
@@ -7308,7 +7337,10 @@ class DeepseekV2Model(TextModel):
             experts = [k for d in self._experts for k in d.keys()]
             if len(experts) > 0:
                 raise ValueError(f"Unprocessed experts: {experts}")
-
+        if self._token_embd is not None:
+            logger.info("Model has tie_word_embeddings=True but no lm_head.weight found - adding output.weight from token_embd.weight")
+            output_name = self.format_tensor_name(gguf.MODEL_TENSOR.OUTPUT)
+            self.gguf_writer.add_tensor(output_name, self._token_embd.numpy())
 
 @ModelBase.register("MiniMaxM2ForCausalLM")
 class MiniMaxM2Model(TextModel):
@@ -10466,7 +10498,46 @@ class JanusProVisionModel(MmprojModel):
 
         return []
 
+@ModelBase.register("UtuVLForConditionalGeneration", "UTUVLForCausalLM")
+class UtuVLVisionModel(MmprojModel):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        assert self.hparams_vision is not None
+        self.hparams_vision["image_size"] = self.hparams_vision.get("image_size", 560)
+    
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        
+        self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.UTUVL)
+        self.gguf_writer.add_vision_attention_layernorm_eps(self.hparams.get("layer_norm_eps", 1e-6))
+        
+        # Handle activation function
+        hidden_act = str(self.hparams.get("hidden_act", "gelu_pytorch_tanh")).lower()
+        if hidden_act in ("gelu", "gelu_pytorch_tanh", "gelu_fast", "gelu_new", "gelu_accurate"):
+            self.gguf_writer.add_vision_use_gelu(True)
+        elif hidden_act == "silu":
+            self.gguf_writer.add_vision_use_silu(True)
+        else:
+            raise ValueError(f"Unsupported activation function for UTUVL: {hidden_act}")
+        
+        self.gguf_writer.add_vision_spatial_merge_size(self.hparams.get("spatial_merge_size", 2))
 
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        del bid  # unused
+        
+        # Skip language model tensors
+        skip_prefixes = ('lm_head.', 'model.layers.', 'model.embed_tokens.', 'model.norm.')
+        if name.startswith(skip_prefixes):
+            return []
+        
+        # Try to map the tensor using TensorNameMap (handles vision encoder and projector)
+        try:
+            new_name = self.map_tensor_name(name)
+            return [(new_name, data_torch)]
+        except ValueError:
+            # If mapping fails, log warning and skip
+            logger.warning(f"Cannot map tensor: {name}")
+            return []  
 ###### CONVERSION LOGIC ######
 
 

@@ -3432,6 +3432,7 @@ class VisionProjectorType:
     JANUS_PRO = "janus_pro"
     LFM2A = "lfm2a" # audio
     GLM4V = "glm4v"
+    UTUVL = "utuvl"
 
 
 # Items here are (block size, type size)

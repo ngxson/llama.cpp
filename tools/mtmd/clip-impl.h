@@ -187,6 +187,7 @@ enum projector_type {
     PROJECTOR_TYPE_JANUS_PRO,
     PROJECTOR_TYPE_LFM2A,
     PROJECTOR_TYPE_GLM4V,
+    PROJECTOR_TYPE_UTUVL,
     PROJECTOR_TYPE_UNKNOWN,
 };
 
@@ -216,6 +217,7 @@ static std::map<projector_type, std::string> PROJECTOR_TYPE_NAMES = {
     { PROJECTOR_TYPE_JANUS_PRO, "janus_pro"},
     { PROJECTOR_TYPE_LFM2A,     "lfm2a"},
     { PROJECTOR_TYPE_GLM4V,     "glm4v"},
+    { PROJECTOR_TYPE_UTUVL,     "utuvl"},
 };
 
 static projector_type clip_projector_type_from_string(const std::string & str) {
