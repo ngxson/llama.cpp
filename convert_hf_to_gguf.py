@@ -7372,6 +7372,7 @@ class MimoV2Model(TextModel):
         assert self.hparams["swa_head_dim"] == self.hparams["head_dim"]
         assert self.hparams["swa_num_attention_heads"] == self.hparams["num_attention_heads"]
         assert self.hparams["swa_v_head_dim"] == self.hparams["v_head_dim"]
+        assert self.hparams["topk_method"] == "noaux_tc"
 
         n_head_kv = self.hparams["num_key_value_heads"]
         n_head_kv_swa = self.hparams["swa_num_key_value_heads"]

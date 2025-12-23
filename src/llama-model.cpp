@@ -130,6 +130,7 @@ const char * llm_type_name(llm_type type) {
         case LLM_TYPE_230B_A10B:     return "230B.A10B";
         case LLM_TYPE_235B_A22B:     return "235B.A22B";
         case LLM_TYPE_300B_A47B:     return "300B.A47B";
+        case LLM_TYPE_310B_A15B:     return "310B.A15B";
         case LLM_TYPE_355B_A32B:     return "355B.A32B";
         case LLM_TYPE_E2B:           return "E2B";
         case LLM_TYPE_E4B:           return "E4B";
@@ -2341,15 +2342,14 @@ void llama_model::load_hparams(llama_model_loader & ml) {
         case LLM_ARCH_MIMO2:
             {
                 hparams.swa_type = LLAMA_SWA_TYPE_STANDARD;
-                hparams.n_swa    = 128;
                 hparams.rope_freq_base_train_swa = 10000.0f;
 
-                ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH,  hparams.n_ff_exp);
-                ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,    hparams.n_swa, false);
+                ml.get_key(LLM_KV_EXPERT_FEED_FORWARD_LENGTH, hparams.n_ff_exp);
+                ml.get_key(LLM_KV_ATTENTION_SLIDING_WINDOW,   hparams.n_swa);
                 ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.swa_layers, hparams.n_layer);
 
                 switch (hparams.n_layer) {
-                    // TODO
+                    case 48: type = LLM_TYPE_310B_A15B; break;
                     default: type = LLM_TYPE_UNKNOWN;
                 }
             } break;

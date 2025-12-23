@@ -97,7 +97,7 @@ llm_build_mimo2_iswa::llm_build_mimo2_iswa(const llama_model & model, const llm_
                     n_expert, n_expert_used,
                     LLM_FFN_SILU, true,
                     false, 0.0,
-                    LLAMA_EXPERT_GATING_FUNC_TYPE_SOFTMAX,
+                    LLAMA_EXPERT_GATING_FUNC_TYPE_SIGMOID,
                     il);
             cb(cur, "ffn_moe_out", il);
         }
