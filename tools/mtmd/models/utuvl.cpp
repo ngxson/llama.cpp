@@ -170,20 +170,6 @@ ggml_cgraph * clip_graph_utuvl::build() {
                     model.mm_1_w, model.mm_1_b,
                     FFN_GELU,
                     -1);
-    // // 3. First linear layer
-    // embeddings = ggml_mul_mat(ctx0, model.mm_0_w, embeddings);
-    // embeddings = ggml_add(ctx0, embeddings, model.mm_0_b);
-    // cb(embeddings, "merger_fc1", -1);
-
-    // // 4. GELU activation
-    // embeddings = ggml_gelu(ctx0, embeddings);
-    // cb(embeddings, "merger_gelu", -1);
-
-    // // 5. Second linear layer
-    // embeddings = ggml_mul_mat(ctx0, model.mm_1_w, embeddings);
-    // embeddings = ggml_add(ctx0, embeddings, model.mm_1_b);
-
-    // build the graph
     ggml_build_forward_expand(gf, embeddings);
 
     return gf;

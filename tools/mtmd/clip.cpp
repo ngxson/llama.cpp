@@ -3342,6 +3342,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 set_input_i32("positions", positions);
             } break;
         case PROJECTOR_TYPE_QWEN25VL:
+        case PROJECTOR_TYPE_UTUVL:
             {
                 // pw * ph = number of tokens output by ViT after apply patch merger
                 // ipw * ipw = number of vision token been processed inside ViT
@@ -3356,7 +3357,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 std::vector<int> inv_idx(ph * pw);
 
                 if (use_window_attn) {
-                    const int attn_window_size = 112;
+                    const int attn_window_size = ctx->model.proj_type == PROJECTOR_TYPE_QWEN25VL ? 112 : patch_size * 2 * 8;
                     const int grid_window = attn_window_size / patch_size / merge_ratio;
                     int dst = 0;
                     // [num_vision_tokens, num_vision_tokens] attention mask tensor
@@ -3421,78 +3422,6 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                     }
                 }
 
-                set_input_i32("positions", positions);
-            } break;
-        case PROJECTOR_TYPE_UTUVL:
-            {
-                const bool use_window_attn = true;
-                const int merge_ratio = 2;
-                const int pw  = image_size_width  / patch_size / merge_ratio;  // patches after merger
-                const int ph  = image_size_height / patch_size / merge_ratio;
-                const int ipw = image_size_width  / patch_size;  // internal patches in ViT
-                const int iph = image_size_height / patch_size;
-                std::vector<int> idx    (ph * pw);
-                std::vector<int> inv_idx(ph * pw);
-                if (use_window_attn) {
-                    const int attn_window_size = patch_size * 2 * 8;
-                    const int grid_window = attn_window_size / patch_size / merge_ratio;
-                    int dst = 0;
-                    // [num_vision_tokens, num_vision_tokens] attention mask tensor
-                    std::vector<float> mask(pow(ipw * iph, 2), std::numeric_limits<float>::lowest());
-                    int mask_row = 0;
-                    for (int y = 0; y < ph; y += grid_window) {
-                        for (int x = 0; x < pw; x += grid_window) {
-                            const int win_h = std::min(grid_window, ph - y);
-                            const int win_w = std::min(grid_window, pw - x);
-                            const int dst_0 = dst;
-                            // group all tokens belong to the same window togather (to a continue range)
-                            for (int dy = 0; dy < win_h; dy++) {
-                                for (int dx = 0; dx < win_w; dx++) {
-                                    const int src = (y + dy) * pw + (x + dx);
-                                    GGML_ASSERT(src < (int)idx.size());
-                                    GGML_ASSERT(dst < (int)inv_idx.size());
-                                    idx    [src] = dst;
-                                    inv_idx[dst] = src;
-                                    dst++;
-                                }
-                            }
-                            for (int r=0; r < win_h * win_w * merge_ratio * merge_ratio; r++) {
-                                int row_offset = mask_row * (ipw * iph);
-                                std::fill(
-                                    mask.begin() + row_offset + (dst_0 * merge_ratio * merge_ratio),
-                                    mask.begin() + row_offset + (dst   * merge_ratio * merge_ratio),
-                                    0.0);
-                                mask_row++;
-                            }
-                        }
-                    }
-                    set_input_i32("window_idx",     idx);
-                    set_input_i32("inv_window_idx", inv_idx);
-                    set_input_f32("window_mask",    mask);
-                } else {
-                    for (int i = 0; i < ph * pw; i++) {
-                        idx[i] = i;
-                    }
-                }
-                const int mpow = merge_ratio * merge_ratio;
-                std::vector<int> positions(n_pos * 4);
-                int ptr = 0;
-                for (int y = 0; y < iph; y += merge_ratio) {
-                    for (int x = 0; x < ipw; x += merge_ratio) {
-                        for (int dy = 0; dy < merge_ratio; dy++) {
-                            for (int dx = 0; dx < merge_ratio; dx++) {
-                                // Remap positions to match window-grouped order
-                                auto remap = idx[ptr / mpow];
-                                remap = (remap * mpow) + (ptr % mpow);
-                                positions[                  remap] = y + dy;
-                                positions[    num_patches + remap] = x + dx;
-                                positions[2 * num_patches + remap] = y + dy;
-                                positions[3 * num_patches + remap] = x + dx;
-                                ptr++;
-                            }
-                        }
-                    }
-                }
                 set_input_i32("positions", positions);
             } break;
         case PROJECTOR_TYPE_PIXTRAL:
