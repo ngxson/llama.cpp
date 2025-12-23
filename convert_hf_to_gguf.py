@@ -7397,7 +7397,7 @@ class MimoV2Model(TextModel):
         if "attention_sink" in name and not name.endswith(".weight"):
             name += ".weight"
 
-        # TODO: BEFORE MERGING THIS PR, REMOVE THIS AND ADD MTP TENSORS TO GGUF EVEN IF THEY ARE NOT USED
+        # TODO: mimo v2 does not indicate the number of next-token-prediction layers, therefore we cannot do the same way as GLM4_MOE
         if "model.mtp." in name:
             return []
 

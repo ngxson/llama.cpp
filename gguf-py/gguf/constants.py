@@ -449,7 +449,7 @@ class MODEL_ARCH(IntEnum):
     RND1             = auto()
     PANGU_EMBED      = auto()
     MISTRAL3         = auto()
-    MIMO2           = auto()
+    MIMO2            = auto()
 
 
 class VISION_PROJECTOR_TYPE(IntEnum):
