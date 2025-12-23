@@ -31,14 +31,6 @@ llm_build_mimo2::llm_build_mimo2(const llama_model & model, const llm_graph_para
             ggml_tensor * Vcur = build_lora_mm(model.layers[il].wv, cur);
             cb(Vcur, "Vcur", il);
 
-            Qcur = build_norm(Qcur, model.layers[il].attn_q_norm, NULL,
-                    LLM_NORM_RMS, il);
-            cb(Qcur, "Qcur_normed", il);
-
-            Kcur = build_norm(Kcur, model.layers[il].attn_k_norm, NULL,
-                    LLM_NORM_RMS, il);
-            cb(Kcur, "Kcur_normed", il);
-
             Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head_k, n_head,    n_tokens);
             Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head_k, n_head_kv, n_tokens);
             Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head_v, n_head_kv, n_tokens);
@@ -59,9 +51,11 @@ llm_build_mimo2::llm_build_mimo2(const llama_model & model, const llm_graph_para
             cb(Kcur, "Kcur", il);
             cb(Vcur, "Vcur", il);
 
+            ggml_tensor * sinks = model.layers[il].attn_sinks;
+
             cur = build_attn(inp_attn,
                     model.layers[il].wo, NULL,
-                    Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f/sqrtf(float(n_embd_head_k)), il);
+                    Qcur, Kcur, Vcur, nullptr, sinks, nullptr, 1.0f/sqrtf(float(n_embd_head_k)), il);
         }
 
         if (il == n_layer - 1 && inp_out_ids) {
