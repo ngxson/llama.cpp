@@ -7369,12 +7369,15 @@ class MimoV2Model(TextModel):
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
 
-        n_layers = self.hparams["num_hidden_layers"]
-
         assert self.hparams["swa_head_dim"] == self.hparams["head_dim"]
         assert self.hparams["swa_num_attention_heads"] == self.hparams["num_attention_heads"]
         assert self.hparams["swa_num_key_value_heads"] == self.hparams["num_key_value_heads"] * 2 # TODO: remove this when it is supported
         assert self.hparams["swa_v_head_dim"] == self.hparams["v_head_dim"]
+
+        n_head_kv = self.hparams["num_key_value_heads"]
+        n_head_kv_swa = self.hparams["swa_num_key_value_heads"]
+        n_head_kv_arr = [n_head_kv_swa if use_swa == 1 else n_head_kv for use_swa in self.hparams["hybrid_layer_pattern"]]
+        self.gguf_writer.add_head_count_kv(n_head_kv_arr)
 
         self.gguf_writer.add_sliding_window_pattern(self.hparams["hybrid_layer_pattern"])
         self.gguf_writer.add_value_length(self.hparams["v_head_dim"])

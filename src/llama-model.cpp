@@ -2340,7 +2340,9 @@ void llama_model::load_hparams(llama_model_loader & ml) {
             } break;
         case LLM_ARCH_MIMO2:
             {
-                // TODO
+                hparams.swa_type = LLAMA_SWA_TYPE_STANDARD;
+                ml.get_key_or_arr(LLM_KV_ATTENTION_SLIDING_WINDOW_PATTERN, hparams.swa_layers, hparams.n_layer);
+
                 switch (hparams.n_layer) {
                     // TODO
                     default: type = LLM_TYPE_UNKNOWN;
@@ -6664,6 +6666,9 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
 
                     for (int i = 0; i < n_layer; ++i) {
                         auto & layer = layers[i];
+                        uint32_t n_embd_k_gqa = hparams.n_embd_k_gqa(i);
+                        uint32_t n_embd_v_gqa = hparams.n_embd_v_gqa(i);
+                        uint32_t n_head = hparams.n_head(i);
 
                         layer.wq = create_tensor(tn(LLM_TENSOR_ATTN_Q, "weight", i), { n_embd, n_embd_head_k * n_head }, 0);
                         layer.wk = create_tensor(tn(LLM_TENSOR_ATTN_K, "weight", i), { n_embd, n_embd_k_gqa }, 0);
@@ -7748,7 +7753,7 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
             } break;
         case LLM_ARCH_MIMO2:
             {
-                llm = std::make_unique<llm_build_mimo2>(*this, params);
+                llm = std::make_unique<llm_build_mimo2_iswa>(*this, params);
             } break;
         default:
             GGML_ABORT("fatal error");

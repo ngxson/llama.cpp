@@ -1,18 +1,21 @@
 
 #include "models.h"
 
-llm_build_mimo2::llm_build_mimo2(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
+llm_build_mimo2_iswa::llm_build_mimo2_iswa(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     ggml_tensor * cur;
     ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
 
     ggml_tensor * inp_pos = build_inp_pos();
-    auto inp_attn = build_attn_inp_kv();
+    auto * inp_attn = build_attn_inp_kv_iswa();
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     for (int il = 0; il < n_layer; ++il) {
         ggml_tensor * inpSA = inpL;
+
+        uint32_t n_head    = hparams.n_head(il);
+        uint32_t n_head_kv = hparams.n_head_kv(il);
 
         cur = inpL;
 
