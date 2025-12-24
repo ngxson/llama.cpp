@@ -116,6 +116,7 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_PANGU_EMBED,      "pangu-embedded"   },
     { LLM_ARCH_MISTRAL3,         "mistral3"         },
     { LLM_ARCH_MIMO2,            "mimo2"           },
+    { LLM_ARCH_LLAMA_EMBED,      "llama-embed"      },
     { LLM_ARCH_UNKNOWN,          "(unknown)"        },
 };
 
@@ -501,6 +502,7 @@ static std::set<llm_tensor> llm_get_tensor_names(llm_arch arch) {
         case LLM_ARCH_LLAMA:
         case LLM_ARCH_DECI:
         case LLM_ARCH_MISTRAL3:
+        case LLM_ARCH_LLAMA_EMBED:
             return {
                 LLM_TENSOR_TOKEN_EMBD,
                 LLM_TENSOR_OUTPUT_NORM,
