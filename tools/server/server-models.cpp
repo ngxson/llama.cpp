@@ -379,7 +379,7 @@ void server_models::unload_lru() {
     int64_t lru_last_used = ggml_time_ms();
     size_t count_active = 0;
     {
-        std::lock_guard<std::mutex> lk(mutex);
+        std::unique_lock<std::mutex> lk(mutex);
         for (const auto & m : mapping) {
             if (m.second.meta.is_active()) {
                 count_active++;
@@ -393,6 +393,13 @@ void server_models::unload_lru() {
     if (!lru_model_name.empty() && count_active >= (size_t)base_params.models_max) {
         SRV_INF("models_max limit reached, removing LRU name=%s\n", lru_model_name.c_str());
         unload(lru_model_name);
+        // wait for unload to complete
+        {
+            std::unique_lock<std::mutex> lk(mutex);
+            cv.wait(lk, [this, &lru_model_name]() {
+                return mapping[lru_model_name].meta.status == SERVER_MODEL_STATUS_UNLOADED;
+            });
+        }
     }
 }
 
