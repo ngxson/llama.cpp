@@ -293,8 +293,9 @@ class Keys:
         SPATIAL_MERGE_SIZE  = "clip.vision.spatial_merge_size"
         USE_GELU            = "clip.use_gelu"
         USE_SILU            = "clip.use_silu"
-        N_WA_PATTERN        = "clip.vision.n_wa_pattern" # used by qwen2.5vl
+        WA_LAYERS           = "clip.vision.wa_layers" # used by qwen2.5vl and utuvl
         IS_DEEPSTACK_LAYERS = "clip.vision.is_deepstack_layers"
+        WINDOW_SIZE         = "clip.vision.window_size"
 
         class Attention:
             HEAD_COUNT      = "clip.vision.attention.head_count"

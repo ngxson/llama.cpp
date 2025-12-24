@@ -3,7 +3,7 @@
 ggml_cgraph * clip_graph_utuvl::build() {
     GGML_ASSERT(model.class_embedding == nullptr);
     const int batch_size       = 1;
-    const bool use_window_attn = true;
+    const bool use_window_attn = !hparams.wa_layers.empty();
     const int n_pos            = n_patches;
     const int num_position_ids = n_pos * 4; 
     const int m = 2;
@@ -17,29 +17,32 @@ ggml_cgraph * clip_graph_utuvl::build() {
 
     ggml_tensor * inp = build_inp_raw();
     
-    inp = ggml_reshape_4d(
-        ctx0, inp,
-        Wm * m * patch_size, m * patch_size, Hm, 3);
-    inp = ggml_permute(ctx0, inp, 1, 2, 3, 0); 
-    inp = ggml_cont_4d(
-        ctx0, inp,
-        m * patch_size * 3, Wm, m * patch_size, Hm);
+    // change conv3d to linear 
+    // reshape and permute to get patches, permute from (patch_size, m, Wm, patch_size, m, Hm, C) to (C, patch_size, patch_size, m, m, Wm, Hm)
+    {
+        inp = ggml_reshape_4d(
+            ctx0, inp,
+            Wm * m * patch_size, m * patch_size, Hm, 3);
+        inp = ggml_permute(ctx0, inp, 1, 2, 3, 0); 
+        inp = ggml_cont_4d(
+            ctx0, inp,
+            m * patch_size * 3, Wm, m * patch_size, Hm);
 
-    inp = ggml_permute(ctx0, inp, 0, 2, 1, 3);
-    inp = ggml_cont_4d(
-        ctx0, inp,
-        m * patch_size * 3, patch_size, m, Hm * Wm);
+        inp = ggml_permute(ctx0, inp, 0, 2, 1, 3);
+        inp = ggml_cont_4d(
+            ctx0, inp,
+            m * patch_size * 3, patch_size, m, Hm * Wm);
 
-    inp = ggml_permute(ctx0, inp, 1, 0, 2, 3);
-    inp = ggml_cont_4d(
-        ctx0, inp,
-        patch_size, 3, patch_size, Hm * Wm * m * m);
-    
-    inp = ggml_permute(ctx0, inp, 2, 0, 1, 3);
-    inp = ggml_cont_3d(
-        ctx0, inp,
-        3*patch_size* patch_size,  Hm * Wm * m * m, 1);
-
+        inp = ggml_permute(ctx0, inp, 1, 0, 2, 3);
+        inp = ggml_cont_4d(
+            ctx0, inp,
+            patch_size, 3, patch_size, Hm * Wm * m * m);
+        
+        inp = ggml_permute(ctx0, inp, 2, 0, 1, 3);
+        inp = ggml_cont_3d(
+            ctx0, inp,
+            3*patch_size* patch_size,  Hm * Wm * m * m, 1);
+    }
     inp = ggml_mul_mat(ctx0, model.patch_embeddings_0, inp);
     
     if (model.patch_bias) {
@@ -85,7 +88,7 @@ ggml_cgraph * clip_graph_utuvl::build() {
     // loop over layers
     for (int il = 0; il < n_layer; il++) {
         const auto & layer = model.layers[il];
-        const bool full_attn = (il + 1) % 8 == 0 || il == n_layer - 1;
+        const bool full_attn = use_window_attn ? hparams.wa_layers.count(il) > 0 : true;
 
         ggml_tensor * cur = inpL; // inpL = residual, cur = hidden_states
             

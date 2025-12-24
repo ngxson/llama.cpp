@@ -5,8 +5,7 @@ ggml_cgraph * clip_graph_qwen2vl::build() {
     GGML_ASSERT(model.class_embedding == nullptr);
 
     const int batch_size       = 1;
-    const bool use_window_attn = hparams.n_wa_pattern > 0;
-    const int n_wa_pattern     = hparams.n_wa_pattern;
+    const bool use_window_attn = !hparams.wa_layers.empty();
     const int n_pos            = n_patches;
     const int num_position_ids = n_pos * 4; // m-rope requires 4 dim per position
 
@@ -79,7 +78,7 @@ ggml_cgraph * clip_graph_qwen2vl::build() {
     // loop over layers
     for (int il = 0; il < n_layer; il++) {
         const auto & layer = model.layers[il];
-        const bool full_attn = use_window_attn ? (il + 1) % n_wa_pattern == 0 : true;
+        const bool full_attn = use_window_attn ? hparams.wa_layers.count(il) > 0 : true;
 
         ggml_tensor * cur = inpL; // inpL = residual, cur = hidden_states
 

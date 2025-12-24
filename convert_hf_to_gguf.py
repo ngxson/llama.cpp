@@ -1173,8 +1173,6 @@ class TextModel(ModelBase):
         if chkhsh == "877081d19cf6996e2c4ff0e1236341e9b7bde288f5311a56a937f0afbbb3aeb5":
             # ref: https://huggingface.co/deepseek-ai/DeepSeek-V3
             res = "deepseek-v3"
-        if chkhsh == "9d70134b369a70e5735009b6de918f7581b5211f7c074d1f89f753aea8248af1":
-            res = "utu-vl"
         if chkhsh == "b3f499bb4255f8ca19fccd664443283318f2fd2414d5e0b040fbdd0cc195d6c5":
             # ref: https://huggingface.co/deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
             res = "deepseek-r1-qwen"
@@ -1232,6 +1230,9 @@ class TextModel(ModelBase):
         if chkhsh == "4a2e2abae11ca2b86d570fc5b44be4d5eb5e72cc8f22dd136a94b37da83ab665":
             # ref: https://huggingface.co/KORMo-Team/KORMo-tokenizer
             res = "kormo"
+        if chkhsh == "9d70134b369a70e5735009b6de918f7581b5211f7c074d1f89f753aea8248af1":
+            # ref: ./Youtu-VL
+            res = "utu-vl"
 
         if res is None:
             logger.warning("\n")
@@ -3808,15 +3809,10 @@ class Qwen2VLVisionModel(MmprojModel):
             else:
                 self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.QWEN25VL)
             self.gguf_writer.add_vision_use_silu(True)
-            # find n_wa_pattern (window attention pattern)
+            # save window attention layers (full attention block indexes)
             fullatt_block_indexes = hparams.get("fullatt_block_indexes")
             assert fullatt_block_indexes is not None, "fullatt_block_indexes is required for qwen2_5_vl"
-            n_wa_pattern = fullatt_block_indexes[0] + 1
-            # validate n_wa_pattern
-            for i in range(1, len(fullatt_block_indexes)):
-                if fullatt_block_indexes[i] - fullatt_block_indexes[i - 1] != n_wa_pattern:
-                    raise ValueError(f"Invalid fullatt_block_indexes: {fullatt_block_indexes}")
-            self.gguf_writer.add_vision_n_wa_pattern(n_wa_pattern)
+            self.gguf_writer.add_vision_wa_layers(fullatt_block_indexes)
         else:
             raise ValueError(f"Unknown QwenVL model type: {self.global_config['model_type']}")
         # default values below are taken from HF tranformers code
@@ -7214,26 +7210,26 @@ class DeepseekV2Model(TextModel):
         self.gguf_writer.add_key_length_mla(hparams["qk_nope_head_dim"] + hparams["qk_rope_head_dim"])
         self.gguf_writer.add_value_length_mla(hparams["v_head_dim"])
 
-        if hparams.get("moe_intermediate_size") is not None:
-            self.gguf_writer.add_expert_feed_forward_length(hparams["moe_intermediate_size"])
+        if (moe_intermediate_size := hparams.get("moe_intermediate_size")) is not None:
+            self.gguf_writer.add_expert_feed_forward_length(moe_intermediate_size)
         else:
             self.gguf_writer.add_expert_feed_forward_length(hparams.get("intermediate_size", 0))
         
-        if hparams.get("n_routed_experts") is not None:
-            self.gguf_writer.add_expert_count(hparams["n_routed_experts"])
+        if (n_routed_experts := hparams.get("n_routed_experts")) is not None:
+            self.gguf_writer.add_expert_count(n_routed_experts)
         
-        if hparams.get("n_shared_experts") is not None:
-            self.gguf_writer.add_expert_shared_count(hparams["n_shared_experts"])
+        if (n_shared_experts := hparams.get("n_shared_experts")) is not None:
+            self.gguf_writer.add_expert_shared_count(n_shared_experts)
         else:
             self.gguf_writer.add_expert_shared_count(0)
         
-        if hparams.get("routed_scaling_factor") is not None:
-            self.gguf_writer.add_expert_weights_scale(hparams["routed_scaling_factor"])
+        if (routed_scaling_factor := hparams.get("routed_scaling_factor")) is not None:
+            self.gguf_writer.add_expert_weights_scale(routed_scaling_factor)
         else:
             self.gguf_writer.add_expert_weights_scale(1.0)
         
-        if hparams.get("norm_topk_prob") is not None and hparams["norm_topk_prob"]:
-            self.gguf_writer.add_expert_weights_norm(hparams["norm_topk_prob"])
+        if (norm_topk_prob := hparams.get("norm_topk_prob")) is not None and norm_topk_prob:
+            self.gguf_writer.add_expert_weights_norm(norm_topk_prob)
 
         self.gguf_writer.add_rope_dimension_count(hparams["qk_rope_head_dim"])
 
@@ -7244,7 +7240,6 @@ class DeepseekV2Model(TextModel):
             self.gguf_writer.add_rope_scaling_yarn_log_mul(0.1 * rope_mscale_all)
 
     _experts: list[dict[str, Tensor]] | None = None
-    _token_embd: Tensor | None = None
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         # skip vision tensors and remove "language_model." for Kimi-VL
@@ -7257,11 +7252,8 @@ class DeepseekV2Model(TextModel):
 
         # skip lm_head.weight if tie_word_embeddings is True
         if self.hparams.get("tie_word_embeddings", False):
-            # Save token_embd for potential duplication as output if tie_word_embeddings is True
-            if name == "model.embed_tokens.weight":
-                self._token_embd = data_torch
             if name == "lm_head.weight" or name == "model.lm_head.weight":
-                logger.info("Skipping tied output layer 'lm_head.weight' - will duplicate from token_embd.weight")
+                logger.info("Skipping tied output layer 'lm_head.weight' (will use token_embd.weight)")
                 return []
 
         # rename e_score_correction_bias tensors
@@ -7337,10 +7329,6 @@ class DeepseekV2Model(TextModel):
             experts = [k for d in self._experts for k in d.keys()]
             if len(experts) > 0:
                 raise ValueError(f"Unprocessed experts: {experts}")
-        if self._token_embd is not None:
-            logger.info("Model has tie_word_embeddings=True but no lm_head.weight found - adding output.weight from token_embd.weight")
-            output_name = self.format_tensor_name(gguf.MODEL_TENSOR.OUTPUT)
-            self.gguf_writer.add_tensor(output_name, self._token_embd.numpy())
 
 @ModelBase.register("MiniMaxM2ForCausalLM")
 class MiniMaxM2Model(TextModel):
@@ -10521,7 +10509,14 @@ class UtuVLVisionModel(MmprojModel):
             raise ValueError(f"Unsupported activation function for UTUVL: {hidden_act}")
         
         self.gguf_writer.add_vision_spatial_merge_size(self.hparams.get("spatial_merge_size", 2))
-
+        
+        window_size = self.hparams.get("window_size")
+        if window_size is not None:
+            self.gguf_writer.add_vision_window_size(window_size)
+        fullatt_block_indexes = self.hparams.get("fullatt_block_indexes")
+        assert fullatt_block_indexes is not None, "fullatt_block_indexes is required for utuvl"
+        self.gguf_writer.add_vision_wa_layers(layers=fullatt_block_indexes)
+        
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         del bid  # unused
         

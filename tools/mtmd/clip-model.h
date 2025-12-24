@@ -60,7 +60,7 @@ struct clip_hparams {
     int32_t image_crop_resolution;
     std::unordered_set<int32_t> vision_feature_layer;
     int32_t attn_window_size = 0;
-    int32_t n_wa_pattern = 0;
+    std::unordered_set<int32_t> wa_layers; // window attention full layers
 
     // audio
     int32_t n_mel_bins = 0; // whisper preprocessor

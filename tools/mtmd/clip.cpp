@@ -1151,7 +1151,14 @@ struct clip_model_loader {
                     {
                         hparams.n_merge = 2; // default value for Qwen 2 and 2.5
                         get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.n_merge, false);
-                        get_u32(KEY_WIN_ATTN_PATTERN, hparams.n_wa_pattern, model.proj_type == PROJECTOR_TYPE_QWEN25VL); // only 2.5 requires it
+                        // load window attention layers (only 2.5 requires it)
+                        if (model.proj_type == PROJECTOR_TYPE_QWEN25VL) {
+                            std::vector<int> wa_layers_vec;
+                            get_arr_int(KEY_WIN_ATTN_LAYERS, wa_layers_vec, true);
+                            for (auto & layer : wa_layers_vec) {
+                                hparams.wa_layers.insert(layer);
+                            }
+                        }
                         // ref: https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct/blob/main/preprocessor_config.json
                         hparams.set_limit_image_tokens(8, 4096);
                         hparams.set_warmup_n_tokens(46*46); // avoid OOM on warmup
@@ -1166,6 +1173,12 @@ struct clip_model_loader {
                     {
                         hparams.n_merge = 2; 
                         get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.n_merge, false);
+                        get_u32(KEY_ATTN_WINDOW_SIZE, hparams.attn_window_size, true);
+                        std::vector<int> wa_layers_vec;
+                        get_arr_int(KEY_WIN_ATTN_LAYERS, wa_layers_vec, true);
+                        for (auto & layer : wa_layers_vec) {
+                            hparams.wa_layers.insert(layer);
+                        }
                         hparams.set_limit_image_tokens(8, 4096);
                         hparams.set_warmup_n_tokens(46*46); // avoid OOM on warmup
                         const int warn_min_pixels = 1024 * hparams.n_merge * hparams.n_merge * hparams.patch_size * hparams.patch_size;
@@ -1240,7 +1253,13 @@ struct clip_model_loader {
                 LOG_INF("%s: has_llava_proj:     %d\n", __func__, hparams.has_llava_projector);
                 LOG_INF("%s: minicpmv_version:   %d\n", __func__, hparams.minicpmv_version);
                 LOG_INF("%s: n_merge:            %d\n", __func__, hparams.n_merge);
-                LOG_INF("%s: n_wa_pattern:       %d\n", __func__, hparams.n_wa_pattern);
+                if (!hparams.wa_layers.empty()) {
+                    LOG_INF("%s: wa_layers:          ", __func__);
+                    for (auto & layer : hparams.wa_layers) {
+                        LOG_INF("%d ", layer);
+                    }
+                    LOG_INF("\n");
+                }
                 if (hparams.image_min_pixels > 0) {
                     LOG_INF("%s: image_min_pixels:   %d%s\n", __func__, hparams.image_min_pixels, hparams.custom_image_min_tokens > 0 ? " (custom value)" : "");
                 }
@@ -3346,7 +3365,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
             {
                 // pw * ph = number of tokens output by ViT after apply patch merger
                 // ipw * ipw = number of vision token been processed inside ViT
-                const bool use_window_attn = hparams.n_wa_pattern > 0; // for qwen2.5vl
+                const bool use_window_attn = !hparams.wa_layers.empty(); // for qwen2.5vl
                 const int merge_ratio = 2;
                 const int pw  = image_size_width  / patch_size / merge_ratio;
                 const int ph  = image_size_height / patch_size / merge_ratio;
@@ -3357,7 +3376,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 std::vector<int> inv_idx(ph * pw);
 
                 if (use_window_attn) {
-                    const int attn_window_size = ctx->model.proj_type == PROJECTOR_TYPE_QWEN25VL ? 112 : patch_size * 2 * 8;
+                    const int attn_window_size = hparams.attn_window_size > 0 ? hparams.attn_window_size : 112;
                     const int grid_window = attn_window_size / patch_size / merge_ratio;
                     int dst = 0;
                     // [num_vision_tokens, num_vision_tokens] attention mask tensor
