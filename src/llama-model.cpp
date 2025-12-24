@@ -2341,6 +2341,8 @@ void llama_model::load_hparams(llama_model_loader & ml) {
             } break;
         case LLM_ARCH_MIMO2:
             {
+                ml.get_key(LLM_KV_ATTENTION_LAYERNORM_RMS_EPS, hparams.f_norm_rms_eps);
+
                 hparams.swa_type = LLAMA_SWA_TYPE_STANDARD;
                 hparams.rope_freq_base_train_swa = 10000.0f;
 

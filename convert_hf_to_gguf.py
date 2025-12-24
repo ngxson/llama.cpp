@@ -7388,6 +7388,8 @@ class MimoV2Model(TextModel):
         rope_dim = int(self.hparams["head_dim"] * self.hparams["partial_rotary_factor"])
         self.gguf_writer.add_rope_dimension_count(rope_dim)
 
+        self.gguf_writer.add_layer_norm_rms_eps(self.hparams.get("layernorm_epsilon", 1e-5))
+
     _experts: list[dict[str, Tensor]] | None = None
 
     def modify_tensors(self, data_torch, name, bid):
@@ -7432,6 +7434,15 @@ class MimoV2Model(TextModel):
             else:
                 return []
         return [(self.map_tensor_name(name), data_torch)]
+
+    def prepare_tensors(self):
+        super().prepare_tensors()
+
+        if self._experts is not None:
+            # flatten `list[dict[str, Tensor]]` into `list[str]`
+            experts = [k for d in self._experts for k in d.keys()]
+            if len(experts) > 0:
+                raise ValueError(f"Unprocessed experts: {experts}")
 
 
 @ModelBase.register("PanguEmbeddedForCausalLM")
