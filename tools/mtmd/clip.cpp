@@ -2729,7 +2729,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 const int max_num_patches = params.image_max_pixels > 0 ? 
                     params.image_max_pixels / (patch_size * patch_size) : 256;
                 
-                // Binary search for optimal scale to fit within max_num_patches
+                // Linear search for optimal scale to fit within max_num_patches
                 float scale = 1.0f;
                 int target_height = original_size.height;
                 int target_width = original_size.width;
@@ -2742,7 +2742,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                     return std::max(align_size, aligned);
                 };
                 
-                // Binary search with 0.02 step size
+                // Linear search with 0.02 step size
                 while (scale > 0.0f) {
                     target_height = get_scaled_image_size(scale, original_size.height);
                     target_width = get_scaled_image_size(scale, original_size.width);
