@@ -1172,11 +1172,11 @@ struct clip_model_loader {
                         for (auto & layer : wa_layers_vec) {
                             hparams.wa_layers.insert(layer);
                         }
-                        hparams.set_limit_image_tokens(8, 4096);
-                        hparams.set_warmup_n_tokens(46*46); // avoid OOM on warmup
-                        const int warn_min_pixels = 1024 * hparams.n_merge * hparams.n_merge * hparams.patch_size * hparams.patch_size;
+                        hparams.set_limit_image_tokens(1, 62500);
+                        hparams.set_warmup_n_tokens(16*16); // avoid OOM on warmup
+                        const int warn_min_pixels = 1 * hparams.n_merge * hparams.n_merge * hparams.patch_size * hparams.patch_size;
                         if (hparams.image_min_pixels < warn_min_pixels) {
-                            LOG_WRN("%s: Youtu-VL models require at minimum 1024 image tokens to function correctly on grounding tasks\n", __func__);
+                            LOG_WRN("%s: Youtu-VL models require at minimum 1 image tokens to function correctly on grounding tasks\n", __func__);
                         }
                     } break;
                 case PROJECTOR_TYPE_GLM4V:
