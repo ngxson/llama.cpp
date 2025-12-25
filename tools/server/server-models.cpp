@@ -244,6 +244,14 @@ void server_models::load_models() {
         }
     }
 
+    // handle custom pin option
+    for (auto & [name, inst] : mapping) {
+        std::string val;
+        if (inst.meta.preset.get_option(COMMON_ARG_PRESET_PIN, val)) {
+            inst.meta.pinned = true;
+        }
+    }
+
     // load any autoload models
     std::vector<std::string> models_to_load;
     for (const auto & [name, inst] : mapping) {
@@ -383,7 +391,7 @@ void server_models::unload_lru() {
         for (const auto & m : mapping) {
             if (m.second.meta.is_active()) {
                 count_active++;
-                if (m.second.meta.last_used < lru_last_used) {
+                if (!m.second.meta.pinned && m.second.meta.last_used < lru_last_used) {
                     lru_model_name = m.first;
                     lru_last_used = m.second.meta.last_used;
                 }
