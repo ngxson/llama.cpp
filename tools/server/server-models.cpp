@@ -391,6 +391,8 @@ void server_models::unload_lru() {
         for (const auto & m : mapping) {
             if (m.second.meta.is_active()) {
                 count_active++;
+                // If all active models are pinned, this condition never holds and no LRU eviction will occur.
+                // The server will keep all pinned models in memory, potentially exceeding models_max.
                 if (!m.second.meta.pinned && m.second.meta.last_used < lru_last_used) {
                     lru_model_name = m.first;
                     lru_last_used = m.second.meta.last_used;
@@ -408,6 +410,8 @@ void server_models::unload_lru() {
                 return mapping[lru_model_name].meta.status == SERVER_MODEL_STATUS_UNLOADED;
             });
         }
+    } else if (count_active >= (size_t)base_params.models_max) {
+        SRV_WRN("models_max limit reached, but no unpinned models available for LRU eviction - automatic unload cannot succeed\n");
     }
 }
 
