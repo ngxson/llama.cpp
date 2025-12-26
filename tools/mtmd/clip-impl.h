@@ -154,44 +154,44 @@
 #define TN_CONV_PW2        "%s.blk.%d.conv_pw2.%s"
 
 // mobilenetv5 (gemma3n) definitions
-#define TN_MNV5_STEM_CONV        "v.enc.conv_stem.conv.weight"
-#define TN_MNV5_STEM_BIAS        "v.enc.conv_stem.conv.bias"
-#define TN_MNV5_STEM_BN          "v.enc.conv_stem.bn.weight"
+#define TN_MNV5_STEM_CONV        "v.conv_stem.conv.weight"
+#define TN_MNV5_STEM_BIAS        "v.conv_stem.conv.bias"
+#define TN_MNV5_STEM_BN          "v.conv_stem.bn.weight"
 
 // Stage 0 Block (Edge Residual)
-#define TN_MNV5_BLK_S0_EXP_W     "v.enc.blocks.%d.%d.conv_exp.weight"
-#define TN_MNV5_BLK_S0_BN1_W     "v.enc.blocks.%d.%d.bn1.weight"
-#define TN_MNV5_BLK_S0_PWL_W     "v.enc.blocks.%d.%d.conv_pwl.weight"
-#define TN_MNV5_BLK_S0_BN2_W     "v.enc.blocks.%d.%d.bn2.weight"
+#define TN_MNV5_BLK_S0_EXP_W     "v.blk.%d.%d.conv_exp.weight"
+#define TN_MNV5_BLK_S0_BN1_W     "v.blk.%d.%d.bn1.weight"
+#define TN_MNV5_BLK_S0_PWL_W     "v.blk.%d.%d.conv_pwl.weight"
+#define TN_MNV5_BLK_S0_BN2_W     "v.blk.%d.%d.bn2.weight"
 
 // Stage 1+ Block (Universal Inverted Residual)
-#define TN_MNV5_BLK_DW_START_W   "v.enc.blocks.%d.%d.dw_start.conv.weight"
-#define TN_MNV5_BLK_DW_START_BN  "v.enc.blocks.%d.%d.dw_start.bn.weight"
-#define TN_MNV5_BLK_DW_MID_W     "v.enc.blocks.%d.%d.dw_mid.conv.weight"
-#define TN_MNV5_BLK_DW_MID_BN    "v.enc.blocks.%d.%d.dw_mid.bn.weight"
-#define TN_MNV5_BLK_PW_EXP_W     "v.enc.blocks.%d.%d.pw_exp.conv.weight"
-#define TN_MNV5_BLK_PW_EXP_BN    "v.enc.blocks.%d.%d.pw_exp.bn.weight"
-#define TN_MNV5_BLK_PW_PROJ_W    "v.enc.blocks.%d.%d.pw_proj.conv.weight"
-#define TN_MNV5_BLK_PW_PROJ_BN   "v.enc.blocks.%d.%d.pw_proj.bn.weight"
-#define TN_MNV5_BLK_LAYER_SCALE  "v.enc.blocks.%d.%d.layer_scale.gamma"
+#define TN_MNV5_BLK_DW_START_W   "v.blk.%d.%d.dw_start.conv.weight"
+#define TN_MNV5_BLK_DW_START_BN  "v.blk.%d.%d.dw_start.bn.weight"
+#define TN_MNV5_BLK_DW_MID_W     "v.blk.%d.%d.dw_mid.conv.weight"
+#define TN_MNV5_BLK_DW_MID_BN    "v.blk.%d.%d.dw_mid.bn.weight"
+#define TN_MNV5_BLK_PW_EXP_W     "v.blk.%d.%d.pw_exp.conv.weight"
+#define TN_MNV5_BLK_PW_EXP_BN    "v.blk.%d.%d.pw_exp.bn.weight"
+#define TN_MNV5_BLK_PW_PROJ_W    "v.blk.%d.%d.pw_proj.conv.weight"
+#define TN_MNV5_BLK_PW_PROJ_BN   "v.blk.%d.%d.pw_proj.bn.weight"
+#define TN_MNV5_BLK_LAYER_SCALE  "v.blk.%d.%d.layer_scale.gamma"
 
 // Attention Components
-#define TN_MNV5_ATTN_Q_W         "v.enc.blocks.%d.%d.attn.query.proj.weight"
-#define TN_MNV5_ATTN_K_W         "v.enc.blocks.%d.%d.attn.key.proj.weight"
-#define TN_MNV5_ATTN_V_W         "v.enc.blocks.%d.%d.attn.value.proj.weight"
-#define TN_MNV5_ATTN_O_W         "v.enc.blocks.%d.%d.attn.output.proj.weight"
-#define TN_MNV5_ATTN_K_DW        "v.enc.blocks.%d.%d.attn.key.down_conv.weight"
-#define TN_MNV5_ATTN_K_NORM      "v.enc.blocks.%d.%d.attn.key.norm.weight"
-#define TN_MNV5_ATTN_V_DW        "v.enc.blocks.%d.%d.attn.value.down_conv.weight"
-#define TN_MNV5_ATTN_V_NORM      "v.enc.blocks.%d.%d.attn.value.norm.weight"
-#define TN_MNV5_ATTN_NORM        "v.enc.blocks.%d.%d.norm.weight" // Block norm used in attn blocks
+#define TN_MNV5_ATTN_Q_W         "v.blk.%d.%d.attn.query.proj.weight"
+#define TN_MNV5_ATTN_K_W         "v.blk.%d.%d.attn.key.proj.weight"
+#define TN_MNV5_ATTN_V_W         "v.blk.%d.%d.attn.value.proj.weight"
+#define TN_MNV5_ATTN_O_W         "v.blk.%d.%d.attn.output.proj.weight"
+#define TN_MNV5_ATTN_K_DW        "v.blk.%d.%d.attn.key.down_conv.weight"
+#define TN_MNV5_ATTN_K_NORM      "v.blk.%d.%d.attn.key.norm.weight"
+#define TN_MNV5_ATTN_V_DW        "v.blk.%d.%d.attn.value.down_conv.weight"
+#define TN_MNV5_ATTN_V_NORM      "v.blk.%d.%d.attn.value.norm.weight"
+#define TN_MNV5_ATTN_NORM        "v.blk.%d.%d.norm.weight" // Block norm used in attn blocks
 
 // MSFA
-#define TN_MNV5_MSFA_FFN_EXP_W   "v.enc.msfa.ffn.pw_exp.conv.weight"
-#define TN_MNV5_MSFA_FFN_EXP_BN  "v.enc.msfa.ffn.pw_exp.bn.weight"
-#define TN_MNV5_MSFA_FFN_PROJ_W  "v.enc.msfa.ffn.pw_proj.conv.weight"
-#define TN_MNV5_MSFA_FFN_PROJ_BN "v.enc.msfa.ffn.pw_proj.bn.weight"
-#define TN_MNV5_MSFA_NORM        "v.enc.msfa.norm.weight"
+#define TN_MNV5_MSFA_FFN_EXP_W   "v.msfa.ffn.pw_exp.conv.weight"
+#define TN_MNV5_MSFA_FFN_EXP_BN  "v.msfa.ffn.pw_exp.bn.weight"
+#define TN_MNV5_MSFA_FFN_PROJ_W  "v.msfa.ffn.pw_proj.conv.weight"
+#define TN_MNV5_MSFA_FFN_PROJ_BN "v.msfa.ffn.pw_proj.bn.weight"
+#define TN_MNV5_MSFA_NORM        "v.msfa.norm.weight"
 
 
 // align x to upper multiple of n
