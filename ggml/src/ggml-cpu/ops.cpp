@@ -5819,7 +5819,14 @@ void ggml_compute_forward_rope(
 
 // ggml_compute_forward_rope_comp
 
-template<typename T> //float or ggml_fp16_t
+enum ggml_rope_comp_mode {
+    GGML_ROPE_COMP_MODE_NORMAL,
+    GGML_ROPE_COMP_MODE_MROPE,
+    GGML_ROPE_COMP_MODE_IMROPE,
+    GGML_ROPE_COMP_MODE_VISION,
+};
+
+template<typename T, ggml_rope_comp_mode mode> // T = float or ggml_fp16_t
 static void ggml_compute_forward_rope_comp_flt(
         const ggml_compute_params * params,
         ggml_tensor * dst,
@@ -5832,11 +5839,11 @@ static void ggml_compute_forward_rope_comp_flt(
     GGML_ASSERT(src0->type == GGML_TYPE_F32 || src0->type == GGML_TYPE_F16);
     GGML_ASSERT(src1->type == GGML_TYPE_F32);
 
-    int32_t n_dims, idx_pair, idx_scale, idx_offset;
+    int32_t n_rot, idx_pair, idx_scale, idx_offset;
     float theta_scale, yarn_high, yarn_low, freq_scale, ramp_factor, attn_factor;
     int32_t sections[4];
 
-    memcpy(&n_dims,         (int32_t *)dst->op_params +  0, sizeof(int32_t));
+    memcpy(&n_rot,          (int32_t *)dst->op_params +  0, sizeof(int32_t));
     memcpy(&idx_pair,       (int32_t *)dst->op_params +  1, sizeof(int32_t));
     memcpy(&idx_scale,      (int32_t *)dst->op_params +  2, sizeof(int32_t));
     memcpy(&idx_offset,     (int32_t *)dst->op_params +  3, sizeof(int32_t));
@@ -5861,8 +5868,8 @@ static void ggml_compute_forward_rope_comp_flt(
 
     const int nr = ggml_nrows(dst);
 
-    GGML_ASSERT(n_dims <= ne0);
-    GGML_ASSERT(n_dims % 2 == 0);
+    GGML_ASSERT(n_rot <= ne0);
+    GGML_ASSERT(n_rot % 2 == 0);
 
     // rows per thread
     const int dr = (nr + nth - 1)/nth;
@@ -5874,12 +5881,13 @@ static void ggml_compute_forward_rope_comp_flt(
     // row index used to determine which thread to use
     int ir = 0;
 
-    // TODO M-RoPE
+    int sect_dims = sections[0] + sections[1] + sections[2] + sections[3];
+    int sec_w     = sections[0] + sections[1];
 
     const float * freq_factors = NULL;
     if (src2 != NULL) {
         GGML_ASSERT(src2->type == GGML_TYPE_F32);
-        GGML_ASSERT(src2->ne[0] >= n_dims / 2);
+        GGML_ASSERT(src2->ne[0] >= n_rot / 2);
         freq_factors = (const float *) src2->data;
     }
 
@@ -5890,11 +5898,55 @@ static void ggml_compute_forward_rope_comp_flt(
 
     const float * pos = (const float *) src1->data;
 
-    auto init_cache = [&](float * cache, float p) -> void {
-        for (int64_t i0 = 0; i0 < ne0; i0 += 2) {
+    auto init_cache = [&](float * cache, int64_t i2) -> void {
+        static std::mutex mutex;
+        std::lock_guard<std::mutex> lock(mutex);
+        for (int64_t i0 = 0; i0 < n_rot; i0 += 2) {
+            int64_t i_dim = i0/2;
+            float th_base = pos[i2]; // theta_base
+
+            // handle m-rope and vision rope
+            // dim: t = time, h = height, w = width, e = extra
+            if constexpr (mode == GGML_ROPE_COMP_MODE_MROPE) {
+                int sector = (i0 / 2) % sect_dims;
+                if (sector >= sections[0] && sector < sec_w) {
+                    th_base = pos[i2 + ne2]; // h
+                } else if (sector >= sec_w && sector < sec_w + sections[2]) {
+                    th_base = pos[i2 + ne2 * 2]; // w
+                } else if (sector >= sec_w + sections[2]) {
+                    th_base = pos[i2 + ne2 * 3]; // e
+                } else {
+                    th_base = pos[i2]; // t
+                }
+            } else if constexpr (mode == GGML_ROPE_COMP_MODE_IMROPE) {
+                int sector = (i0 / 2) % sect_dims;
+                if (sector % 3 == 1 && sector < 3 * sections[1]) {
+                    th_base = pos[i2 + ne2]; // h
+                } else if (sector % 3 == 2 && sector < 3 * sections[2]) {
+                    th_base = pos[i2 + ne2 * 2]; // w
+                } else if (sector % 3 == 0 && sector < 3 * sections[0]) {
+                    th_base = pos[i2]; // t
+                } else {
+                    th_base = pos[i2 + ne2 * 3]; // e
+                }
+            } else if constexpr (mode == GGML_ROPE_COMP_MODE_VISION) {
+                // for vision, we reset the dim index for each section
+                // it is equivalent to running 2 rope op separatedly
+                int sector = (i0 / 2) % sec_w;
+
+                // only 2 dims are supported for vision rope
+                if (sector < sections[0]) {
+                    th_base = pos[i2];
+                    i_dim = sector;
+                } else {
+                    th_base = pos[i2 + ne2];
+                    i_dim = sector - sections[0];
+                }
+            }
+
             const float freq_factor = freq_factors ? freq_factors[i0/2] : 1.0f;
 
-            float theta = p * powf(theta_scale, i0/2) / freq_factor;
+            float theta = th_base * powf(theta_scale, i_dim) / freq_factor;
             const float theta_extrap = theta;
             const float theta_interp = freq_scale * theta;
 
@@ -5914,11 +5966,7 @@ static void ggml_compute_forward_rope_comp_flt(
         for (int64_t i2 = 0; i2 < ne2; i2++) { // seq-len
 
             float * cache = (float *) params->wdata + (ne0 + CACHE_LINE_SIZE_F32)*ith;
-            {
-                const float p = pos[i2];
-                init_cache(cache, p);
-            }
-            // TODO M-RoPE
+            init_cache(cache, i2);
 
             for (int64_t i1 = idx_offset; i1 < ne1; i1++) { // attn-heads
                 if (ir++ < ir0) continue;
@@ -5927,11 +5975,10 @@ static void ggml_compute_forward_rope_comp_flt(
                 T * src       = (T *)((char *) src0->data + i3*nb03 + i2*nb02 + i1*nb01);
                 T * dst_data  = (T *)((char *)  dst->data + i3*nb3  + i2*nb2  + i1*nb1);
 
-                rotate_pairs<T>(n_dims, idx_pair, cache, src, dst_data, idx_scale);
-                // TODO M-RoPE
+                rotate_pairs<T>(n_rot, idx_pair, cache, src, dst_data, idx_scale);
 
                 // fill the remain channels with data from src tensor
-                for (int64_t i0 = n_dims; i0 < ne0; i0 += 2) {
+                for (int64_t i0 = n_rot; i0 < ne0; i0 += 2) {
                     const T * const src = (T *)((char *) src0->data + i3*nb03 + i2*nb02 + i1*nb01 + i0*nb00);
                           T * dst_data  = (T *)((char *)  dst->data + i3*nb3  + i2*nb2  + i1*nb1  + i0*nb0);
 
@@ -5948,15 +5995,26 @@ void ggml_compute_forward_rope_comp(
         ggml_tensor * dst) {
 
     const ggml_tensor * src0 = dst->src[0];
+    const int mode = ((int32_t *) dst->op_params)[14];
+
+    bool is_mrope  = mode == GGML_ROPE_TYPE_MROPE;
+    bool is_imrope = mode == GGML_ROPE_TYPE_IMROPE;
+    bool is_vision = mode == GGML_ROPE_TYPE_VISION;
 
     switch (src0->type) {
         case GGML_TYPE_F16:
             {
-                ggml_compute_forward_rope_comp_flt<ggml_fp16_t>(params, dst, true);
+                /**/ if (is_vision) ggml_compute_forward_rope_comp_flt<ggml_fp16_t, GGML_ROPE_COMP_MODE_VISION>(params, dst, true);
+                else if (is_imrope) ggml_compute_forward_rope_comp_flt<ggml_fp16_t, GGML_ROPE_COMP_MODE_IMROPE>(params, dst, true);
+                else if (is_mrope)  ggml_compute_forward_rope_comp_flt<ggml_fp16_t, GGML_ROPE_COMP_MODE_MROPE> (params, dst, true);
+                else                ggml_compute_forward_rope_comp_flt<ggml_fp16_t, GGML_ROPE_COMP_MODE_NORMAL>(params, dst, true);
             } break;
         case GGML_TYPE_F32:
             {
-                ggml_compute_forward_rope_comp_flt<float>(params, dst, true);
+                /**/ if (is_vision) ggml_compute_forward_rope_comp_flt<float, GGML_ROPE_COMP_MODE_VISION>(params, dst, true);
+                else if (is_imrope) ggml_compute_forward_rope_comp_flt<float, GGML_ROPE_COMP_MODE_IMROPE>(params, dst, true);
+                else if (is_mrope)  ggml_compute_forward_rope_comp_flt<float, GGML_ROPE_COMP_MODE_MROPE> (params, dst, true);
+                else                ggml_compute_forward_rope_comp_flt<float, GGML_ROPE_COMP_MODE_NORMAL>(params, dst, true);
             } break;
         default:
             {

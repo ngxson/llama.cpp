@@ -1866,12 +1866,16 @@ extern "C" {
     };
 
     // RoPE composable API
+    // note:
+    //     theta_scale is usually powf(freq_base, -2.0f / (float)n_rot)
+    //     each dimension i_dim is rotated by angle theta as follows:
+    //     theta = pos[i_token] * theta_scale^i_dim
     GGML_API struct ggml_tensor * ggml_rope_comp(
             struct ggml_context   * ctx,
             struct ggml_tensor    * a,
-            struct ggml_tensor    * b, // pos must be F32
-            int32_t                 n_dims,
-            float                   freq_base,
+            struct ggml_tensor    * b,
+            int32_t                 n_rot,
+            float                   theta_scale,
             enum ggml_rope_ordering ordering);
 
     GGML_API struct ggml_tensor * ggml_rope_comp_set_freq_factors(
@@ -1884,6 +1888,7 @@ extern "C" {
             struct ggml_context * ctx,
             struct ggml_tensor  * node,
             int                   n_ctx_orig,
+            int                   n_dims,
             float                 freq_base,
             float                 freq_scale,  // == 1.0f / scale_factor
             float                 ramp_factor, // usually 1.0f
@@ -1892,9 +1897,11 @@ extern "C" {
             float                 beta_slow);
 
     // set M-RoPE mode
+    // TODO: maybe require pos tensor to be 2D tensor [n_tokens, 4]
     GGML_API struct ggml_tensor * ggml_rope_comp_set_multi(
             struct ggml_context * ctx,
             struct ggml_tensor  * node,
+            int                   mode,
             int                   sections[GGML_MROPE_SECTIONS]);
 
     // rotary position embedding backward, i.e compute dx from dy
