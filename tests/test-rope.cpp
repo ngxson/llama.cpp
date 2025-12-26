@@ -1,6 +1,7 @@
 #include "ggml.h"
 #include "ggml-cpu.h"
 
+#include <array>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -237,8 +238,8 @@ struct test_rope {
             x = ggml_rope_comp_set_yarn(ctx, x, n_ctx_orig, n_dims,
                 freq_base, freq_scale, ext_factor, attn_factor,
                 beta_fast, beta_slow);
-            if (freq) {
-                x = ggml_rope_comp_set_freq_factors(ctx, x, freq);
+            if (c) {
+                x = ggml_rope_comp_set_freq_factors(ctx, x, c);
             }
             return x;
         } else {

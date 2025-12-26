@@ -41,6 +41,8 @@
 #include <vector>
 #include <unordered_map>
 
+#include "test-rope.h" // TODO: not a good idea, but ok for demo purposes
+
 #ifdef __EMSCRIPTEN__
 #   define N_THREADS 1
 #else
@@ -4395,6 +4397,7 @@ struct test_rope : public test_case {
     int v; // view (1 : non-contiguous a)
     bool forward;
     bool inplace;
+    bool use_comp = false;
 
     std::string vars() override {
         // forward can be inferred from the op, does not need to be printed
@@ -4444,6 +4447,9 @@ struct test_rope : public test_case {
             ggml_set_name(freq, "freq");
         }
 
+        // reuse the same code for testing both rope + rope_comp
+        rope_utils utils(use_comp);
+
         ggml_tensor * out;
         if (is_mrope) {
             if (is_vision) {
@@ -4451,9 +4457,9 @@ struct test_rope : public test_case {
                 int rope_sections[4] = {n_dims/4, n_dims/4, 0, 0}; // Vision-RoPE only use first two dimension for image (x, y) coordinate
                 if (forward) {
                     if (inplace) {
-                        out = ggml_rope_multi_inplace(ctx, a, pos, freq, n_dims/2, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                        out = utils.rope_multi_inplace(ctx, a, pos, freq, n_dims/2, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
                     } else {
-                        out = ggml_rope_multi(ctx, a, pos, freq, n_dims/2, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                        out = utils.rope_multi(ctx, a, pos, freq, n_dims/2, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
                     }
                 } else {
                     out = ggml_rope_multi_back(ctx, a, pos, freq, n_dims/2, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
@@ -4463,9 +4469,9 @@ struct test_rope : public test_case {
                 int rope_sections[4] = {n_dims/3, n_dims/3, n_dims/3, 0};
                 if (forward) {
                     if (inplace) {
-                        out = ggml_rope_multi_inplace(ctx, a, pos, freq, n_dims, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                        out = utils.rope_multi_inplace(ctx, a, pos, freq, n_dims, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
                     } else {
-                        out = ggml_rope_multi(ctx, a, pos, freq, n_dims, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                        out = utils.rope_multi(ctx, a, pos, freq, n_dims, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
                     }
                 } else {
                     out = ggml_rope_multi_back(ctx, a, pos, freq, n_dims, rope_sections, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
@@ -4474,9 +4480,9 @@ struct test_rope : public test_case {
         } else {
             if (forward) {
                 if (inplace) {
-                    out = ggml_rope_ext_inplace(ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                    out = utils.rope_ext_inplace(ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
                 } else {
-                    out = ggml_rope_ext(ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
+                    out = utils.rope_ext(ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
                 }
             } else {
                 out = ggml_rope_ext_back(ctx, a, pos, freq, n_dims, mode, 0, 10000.0f, fs, ef, af, 1.0f, 1.0f);
@@ -4516,6 +4522,20 @@ struct test_rope : public test_case {
 
     bool grad_precise() override {
         return true;
+    }
+};
+
+// GGML_ROPE_COMP
+struct test_rope_comp : public test_rope {
+    test_rope_comp(const test_rope & other)
+        : test_rope(other.type, other.ne_a, other.n_dims, other.mode, other.n_ctx, other.fs,
+                    other.ef, other.af, other.ff, other.v, other.forward, other.inplace) {
+        use_comp = true;
+    }
+
+    std::string op_desc(ggml_tensor * t) override {
+        GGML_UNUSED(t);
+        return "ROPE_COMP";
     }
 };
 
@@ -6800,6 +6820,21 @@ static const ggml_type other_types[] = {
 #pragma optimize("", off)
 #endif
 
+// mirror rope and rope_comp
+static void mirror_rope_comp(std::vector<std::unique_ptr<test_case>> & test_cases) {
+    std::vector<std::unique_ptr<test_case>> added_cases;
+    for (const auto & tc_ptr : test_cases) {
+        const test_case * tc = tc_ptr.get();
+        const test_rope * rope_tc = dynamic_cast<const test_rope *>(tc);
+        if (rope_tc) {
+            added_cases.emplace_back(new test_rope_comp(*rope_tc));
+        }
+    }
+    for (auto & tc_ptr : added_cases) {
+        test_cases.emplace_back(std::move(tc_ptr));
+    }
+}
+
 // Test cases for evaluation: should try to cover edge cases while using small input sizes to keep the runtime low
 static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
     std::vector<std::unique_ptr<test_case>> test_cases;
@@ -7823,6 +7858,8 @@ static std::vector<std::unique_ptr<test_case>> make_test_cases_eval() {
             }
         }
     }
+
+    mirror_rope_comp(test_cases);
 
     for (int v : { 0, 1, 2, 3 }) {
         for (int dim : { 0, 1, 2, 3, }) {
