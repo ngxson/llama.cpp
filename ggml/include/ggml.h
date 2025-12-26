@@ -1884,20 +1884,24 @@ extern "C" {
             struct ggml_tensor  * freq_factors);
 
     // set YaRN parameters
+    // note:
+    //    freq_scale == 1.0f / scale_factor
+    //    ramp_factor is usually 1.0f
+    //    n_dims is usually n_rot, but can also be different because it is not used for indexing
     GGML_API struct ggml_tensor * ggml_rope_comp_set_yarn(
             struct ggml_context * ctx,
             struct ggml_tensor  * node,
             int                   n_ctx_orig,
             int                   n_dims,
             float                 freq_base,
-            float                 freq_scale,  // == 1.0f / scale_factor
-            float                 ramp_factor, // usually 1.0f
+            float                 freq_scale,
+            float                 ramp_factor,
             float                 attn_factor,
             float                 beta_fast,
             float                 beta_slow);
 
     // set M-RoPE mode
-    // TODO: maybe require pos tensor to be 2D tensor [n_tokens, 4]
+    // pos tensor must have shape [n_tokens, 4]
     GGML_API struct ggml_tensor * ggml_rope_comp_set_multi(
             struct ggml_context * ctx,
             struct ggml_tensor  * node,

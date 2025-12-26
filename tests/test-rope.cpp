@@ -177,6 +177,11 @@ struct test_rope {
             int legacy_type = GGML_ROPE_TYPE_NEOX; // the only mode supported by legacy m-rope kernel
             int n_dims_corrected = n_dims;
             float freq_base_corrected = freq_base;
+            ggml_tensor * pos = ggml_cast(ctx, b, GGML_TYPE_F32); // pos must be F32
+
+            // pos must be 4D
+            pos = ggml_reshape_2d(ctx, pos, b->ne[0]/4, 4);
+
             if (mode == GGML_ROPE_TYPE_VISION) {
                 // correct n_dims for vision
                 // instead of rotating n_dims/2, we actually rotate all dims
@@ -187,8 +192,9 @@ struct test_rope {
                 // to adjust theta_scale, we need to adjust freq_base accordingly
                 freq_base_corrected = powf(freq_base, 2.0f);
             }
+
             ggml_tensor * x = _ggml_rope_ext(
-                ctx, a, b, c, n_dims_corrected, legacy_type, n_ctx_orig,
+                ctx, a, pos, c, n_dims_corrected, legacy_type, n_ctx_orig,
                 freq_base_corrected, freq_scale, ext_factor, attn_factor,
                 beta_fast, beta_slow);
             GGML_ASSERT(x->op == GGML_OP_ROPE_COMP);

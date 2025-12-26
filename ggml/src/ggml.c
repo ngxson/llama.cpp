@@ -4275,11 +4275,9 @@ GGML_API struct ggml_tensor * ggml_rope_comp(
         int32_t                 n_rot,
         float                   theta_scale,
         enum ggml_rope_ordering ordering) {
-    GGML_ASSERT(ggml_is_vector(b));
     GGML_ASSERT(b->type == GGML_TYPE_F32);
-
-    GGML_ASSERT(b->ne[0] >= a->ne[2]); // also allow M-RoPE
-    GGML_ASSERT(b->ne[0] % a->ne[2] == 0);
+    GGML_ASSERT(b->ne[0] == a->ne[2]);
+    GGML_ASSERT(b->ne[1] == 1 || b->ne[1] == GGML_MROPE_SECTIONS);
 
     int32_t idx_pair  = 1;
     int32_t idx_scale = 1;
@@ -4376,7 +4374,7 @@ struct ggml_tensor * ggml_rope_comp_set_multi(
     bool is_vision = mode == GGML_ROPE_TYPE_VISION;
 
     GGML_ASSERT(is_mrope || is_imrope || is_vision);
-    GGML_ASSERT(node->src[1]->ne[0] % GGML_MROPE_SECTIONS == 0);
+    GGML_ASSERT(node->src[1]->ne[1] == GGML_MROPE_SECTIONS);
 
     memcpy(node->op_params + 10, &sections[0], sizeof(int32_t));
     memcpy(node->op_params + 11, &sections[1], sizeof(int32_t));
