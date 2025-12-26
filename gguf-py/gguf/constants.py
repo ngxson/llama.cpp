@@ -1072,7 +1072,7 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.V_MM_EMBEDDING:            "mm.embedding",                 # gemma3n
     MODEL_TENSOR.V_MM_HARD_EMB_NORM:        "mm.hard_emb_norm",             # gemma3n
     MODEL_TENSOR.V_ENC_CONV_STEM:           "v.conv_stem.conv",         # gemma3n
-    MODEL_TENSOR.V_ENC_CONV_STEM_BIAS:      "v.conv_stem.conv_bias",    # gemma3n
+    MODEL_TENSOR.V_ENC_CONV_STEM_BIAS:      "v.conv_stem.conv.bias",    # gemma3n
     MODEL_TENSOR.V_ENC_CONV_STEM_NORM:      "v.conv_stem.bn",           # gemma3n
     MODEL_TENSOR.V_ENC_MSFA_EXP:            "v.msfa.ffn.pw_exp.conv",   # gemma3n
     MODEL_TENSOR.V_ENC_MSFA_EXP_NORM:       "v.msfa.ffn.pw_exp.bn",     # gemma3n
