@@ -4368,7 +4368,7 @@ struct ggml_tensor * ggml_rope_comp_set_multi(
             int                   sections[GGML_MROPE_SECTIONS]) {
     GGML_UNUSED(ctx);
     GGML_ASSERT(node->op == GGML_OP_ROPE_COMP);
-    
+
     bool is_mrope  = mode == GGML_ROPE_TYPE_MROPE;
     bool is_imrope = mode == GGML_ROPE_TYPE_IMROPE;
     bool is_vision = mode == GGML_ROPE_TYPE_VISION;

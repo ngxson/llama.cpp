@@ -277,7 +277,7 @@ typedef struct {
     uint64_t nb1;
     uint64_t nb2;
     uint64_t nb3;
-    int32_t  n_dims;
+    int32_t  n_rot;
     int32_t  idx_pair;
     int32_t  idx_scale;
     int32_t  idx_offset;
@@ -291,6 +291,7 @@ typedef struct {
     int32_t  sect_1;
     int32_t  sect_2;
     int32_t  sect_3;
+    int      mode;
     bool     src2;
 } ggml_metal_kargs_rope_comp;
 

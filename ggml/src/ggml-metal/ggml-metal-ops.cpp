@@ -3239,11 +3239,11 @@ int ggml_metal_op_rope_comp(ggml_metal_op_t ctx, int idx) {
 
     const int nth = std::min(1024, ne00);
 
-    int32_t n_dims, idx_pair, idx_scale, idx_offset;
+    int32_t n_rot, idx_pair, idx_scale, idx_offset, mode;
     float theta_scale, yarn_high, yarn_low, freq_scale, ramp_factor, attn_factor;
     int32_t sections[4];
 
-    memcpy(&n_dims,         (int32_t *)op->op_params +  0, sizeof(int32_t));
+    memcpy(&n_rot,          (int32_t *)op->op_params +  0, sizeof(int32_t));
     memcpy(&idx_pair,       (int32_t *)op->op_params +  1, sizeof(int32_t));
     memcpy(&idx_scale,      (int32_t *)op->op_params +  2, sizeof(int32_t));
     memcpy(&idx_offset,     (int32_t *)op->op_params +  3, sizeof(int32_t));
@@ -3257,6 +3257,7 @@ int ggml_metal_op_rope_comp(ggml_metal_op_t ctx, int idx) {
     memcpy(&sections[1],    (int32_t *)op->op_params + 11, sizeof(int32_t));
     memcpy(&sections[2],    (int32_t *)op->op_params + 12, sizeof(int32_t));
     memcpy(&sections[3],    (int32_t *)op->op_params + 13, sizeof(int32_t));
+    memcpy(&mode,           (int32_t *)op->op_params + 14, sizeof(int32_t));
 
     ggml_metal_kargs_rope_comp args = {
         /*.ne00        =*/ ne00,
@@ -3275,7 +3276,7 @@ int ggml_metal_op_rope_comp(ggml_metal_op_t ctx, int idx) {
         /*.nb1         =*/ nb1,
         /*.nb2         =*/ nb2,
         /*.nb3         =*/ nb3,
-        /*.n_dims      =*/ n_dims,
+        /*.n_rot       =*/ n_rot,
         /*.idx_pair    =*/ idx_pair,
         /*.idx_scale   =*/ idx_scale,
         /*.idx_offset  =*/ idx_offset,
@@ -3289,6 +3290,7 @@ int ggml_metal_op_rope_comp(ggml_metal_op_t ctx, int idx) {
         /*.sect_1      =*/ sections[1],
         /*.sect_2      =*/ sections[2],
         /*.sect_3      =*/ sections[3],
+        /*.mode        =*/ mode,
         /*.src2        =*/ op->src[2] != nullptr,
     };
 
