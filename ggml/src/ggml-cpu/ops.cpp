@@ -5899,8 +5899,6 @@ static void ggml_compute_forward_rope_comp_flt(
     const float * pos = (const float *) src1->data;
 
     auto init_cache = [&](float * cache, int64_t i2) -> void {
-        static std::mutex mutex;
-        std::lock_guard<std::mutex> lock(mutex);
         for (int64_t i0 = 0; i0 < n_rot; i0 += 2) {
             int64_t i_dim = i0/2;
             float th_base = pos[i2]; // theta_base
