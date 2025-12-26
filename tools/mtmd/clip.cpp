@@ -1615,11 +1615,8 @@ struct clip_model_loader {
                             LOG_INF("%s: Stage %d ended at global block index %zu\n", __func__, stage, model.mobilenet_blocks.size() - 1);
                         }
                     }
-                    // Load projection weights (similar to Gemma3)
                     model.mm_input_proj_w = get_tensor(TN_MM_INP_PROJ);
                     model.mm_soft_emb_norm_w = get_tensor(TN_MM_SOFT_EMB_N);
-                    model.mm_0_w = get_tensor("mm.embedding.weight", false);  // Input embedding
-                    model.mm_1_w = get_tensor("mm.hard_emb_norm.weight", false);  // Hard embedding norm
                 } break;
             case PROJECTOR_TYPE_IDEFICS3:
                 {

@@ -5968,6 +5968,32 @@ class Gemma3nVisionModel(MmprojModel):
     """Vision encoder converter for Gemma3n using MobileNetV5 architecture"""
     n_block_keys = []
 
+    # Double indexed mapping for MobileNetV5 blocks
+    block_tensor_mapping = {
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.conv_exp.weight":             "v.enc.blocks.{bid}.{sid}.conv_exp.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.bn1.weight":                  "v.enc.blocks.{bid}.{sid}.bn1.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.conv_pwl.weight":             "v.enc.blocks.{bid}.{sid}.conv_pwl.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.bn2.weight":                  "v.enc.blocks.{bid}.{sid}.bn2.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.dw_start.conv.weight":        "v.enc.blocks.{bid}.{sid}.dw_start.conv.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.dw_start.bn.weight":          "v.enc.blocks.{bid}.{sid}.dw_start.bn.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.dw_mid.conv.weight":          "v.enc.blocks.{bid}.{sid}.dw_mid.conv.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.dw_mid.bn.weight":            "v.enc.blocks.{bid}.{sid}.dw_mid.bn.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.pw_exp.conv.weight":          "v.enc.blocks.{bid}.{sid}.pw_exp.conv.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.pw_exp.bn.weight":            "v.enc.blocks.{bid}.{sid}.pw_exp.bn.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.pw_proj.conv.weight":         "v.enc.blocks.{bid}.{sid}.pw_proj.conv.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.pw_proj.bn.weight":           "v.enc.blocks.{bid}.{sid}.pw_proj.bn.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.layer_scale.gamma":           "v.enc.blocks.{bid}.{sid}.layer_scale.gamma",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.attn.query.proj.weight":      "v.enc.blocks.{bid}.{sid}.attn.query.proj.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.attn.key.proj.weight":        "v.enc.blocks.{bid}.{sid}.attn.key.proj.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.attn.value.proj.weight":      "v.enc.blocks.{bid}.{sid}.attn.value.proj.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.attn.output.proj.weight":     "v.enc.blocks.{bid}.{sid}.attn.output.proj.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.attn.key.down_conv.weight":   "v.enc.blocks.{bid}.{sid}.attn.key.down_conv.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.attn.key.norm.weight":        "v.enc.blocks.{bid}.{sid}.attn.key.norm.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.attn.value.down_conv.weight": "v.enc.blocks.{bid}.{sid}.attn.value.down_conv.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.attn.value.norm.weight":      "v.enc.blocks.{bid}.{sid}.attn.value.norm.weight",
+        "model.vision_tower.timm_model.blocks.{bid}.{sid}.norm.weight":                 "v.enc.blocks.{bid}.{sid}.norm.weight",
+    }
+
     def find_hparam(self, keys: list[str], optional: bool = False) -> Any:
         """Override to return 0 for block count since MobileNetV5 is CNN-based"""
         if not keys:  # If n_block_keys is empty (our case)
@@ -6027,10 +6053,23 @@ class Gemma3nVisionModel(MmprojModel):
             return gguf.GGMLQuantizationType.F32
         return super().tensor_force_quant(name, new_name, bid, n_dims)
 
+    def custom_map(self, name: str) -> str:
+        """Parses names like model.vision_tower.timm_model.blocks.1.2.suffix and applies template mapping."""
+        parts = name.split(".")
+        # MobileNet blocks have at least 7 parts: model, vision_tower, timm_model, blocks, bid, sid, and suffix
+        if len(parts) >= 7:
+            bid, sid = parts[4], parts[5]
+            suffix = ".".join(parts[6:])
+            template = f"model.vision_tower.timm_model.blocks.{{bid}}.{{sid}}.{suffix}"
+            if template in self.block_tensor_mapping:
+                return self.block_tensor_mapping[template].format(bid=bid, sid=sid)
+
+        raise ValueError(f"Unknown name: {name}")
+
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         del bid  # unused
 
-        # Gemma3n uses different prefixes than other models:
+        # Gemma3n uses
         # - model.embed_vision.* for projection layers
         # - model.vision_tower.* for vision encoder
         # Skip non-vision tensors
@@ -6038,34 +6077,17 @@ class Gemma3nVisionModel(MmprojModel):
                 name.startswith("model.vision_tower.")):
             return []
 
-        # Strip "model." prefix to match expected llama.cpp format
-        if name.startswith("model."):
-            name = name[6:]  # Remove "model." prefix
-
-        # Process MobileNetV5 and projection tensors
-        name = name.replace("_weight", ".weight")
-
-        # Rename embed_vision to match our C++ implementation expectations
-        name = name.replace("embed_vision.", "")
-
-        # Rename vision_tower.timm_model to vision_tower for cleaner naming
-        name = name.replace("vision_tower.timm_model.", "vision_tower.")
-
-        # Handle normalization layer naming
-        name = name.replace("hard_embedding_norm", "hard_emb_norm")
-        name = name.replace("soft_embedding_norm", "soft_emb_norm")
-
-        # Gemma3n uses Gemma3p5RMSNorm which has scale_shift=0, so no correction needed
-        # Unlike Gemma3 which uses Gemma3RMSNorm with scale_shift=1
-        if "soft_emb_norm.weight" in name:
-            # No correction needed for Gemma3n
-            pass
-
-        if name.startswith("vision_tower."):
-            tensor_suffix = name[13:]
-            return [(f"v.enc.{tensor_suffix}", data_torch)]
+        if name.startswith("model.vision_tower.timm_model.blocks."):
+            # Double-indexed block tensors through custom logic
+            new_name = self.custom_map(name)
         else:
-            return [(self.map_tensor_name(name), data_torch)]
+            # Route non-repeating (conv_stem, msfa, embedding, etc.) and un-catched through tensor_mapping.py
+            new_name = self.map_tensor_name(name)
+        
+        if new_name.endswith("conv_stem.conv.bias") or new_name.endswith("layer_scale.gamma"):
+            data_torch = data_torch.unsqueeze(0).unsqueeze(-1).unsqueeze(-1) # [1, C, 1, 1]
+
+        yield (new_name, data_torch)
 
 
 @ModelBase.register("Gemma3nForCausalLM", "Gemma3nForConditionalGeneration")

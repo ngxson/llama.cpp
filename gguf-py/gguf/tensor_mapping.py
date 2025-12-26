@@ -120,25 +120,41 @@ class TensorNameMap:
             "backbone.embed", # roberta
         ),
 
-        # Vision multimodal projector tensors (non-block) for gemma3n
-        MODEL_TENSOR.V_MM_INP_PROJ: (
-            "embedding_projection", # gemma3n
-        ),
-
-        MODEL_TENSOR.V_MM_SOFT_EMB_NORM: (
-            "soft_emb_norm", # gemma3n
-        ),
-
         MODEL_TENSOR.V_MM_EMBEDDING: (
-            "embedding", # gemma3n
+            "model.embed_vision.embedding", # gemma3n
         ),
-
         MODEL_TENSOR.V_MM_HARD_EMB_NORM: (
-            "hard_emb_norm", # gemma3n
+            "model.embed_vision.hard_embedding_norm", # gemma3n
         ),
-
-        MODEL_TENSOR.V_MM_POST_PROJ_NORM: (
-            "post_proj_norm", # gemma3n
+        MODEL_TENSOR.V_MM_INP_PROJ: (
+            "model.embed_vision.embedding_projection", # gemma3n
+        ),
+        MODEL_TENSOR.V_MM_SOFT_EMB_NORM: (
+            "model.embed_vision.soft_embedding_norm", # gemma3n
+        ),
+        MODEL_TENSOR.V_ENC_CONV_STEM: (
+            "model.vision_tower.timm_model.conv_stem.conv", # gemma3n
+        ),
+        MODEL_TENSOR.V_ENC_CONV_STEM_BIAS: (
+            "model.vision_tower.timm_model.conv_stem.conv.bias", # gemma3n
+        ),
+        MODEL_TENSOR.V_ENC_CONV_STEM_NORM: (
+            "model.vision_tower.timm_model.conv_stem.bn", # gemma3n
+        ),
+        MODEL_TENSOR.V_ENC_MSFA_EXP: (
+            "model.vision_tower.timm_model.msfa.ffn.pw_exp.conv", # gemma3n
+        ),
+        MODEL_TENSOR.V_ENC_MSFA_EXP_NORM: (
+            "model.vision_tower.timm_model.msfa.ffn.pw_exp.bn", # gemma3n
+        ),
+        MODEL_TENSOR.V_ENC_MSFA_PROJ: (
+            "model.vision_tower.timm_model.msfa.ffn.pw_proj.conv", # gemma3n
+        ),
+        MODEL_TENSOR.V_ENC_MSFA_PROJ_NORM: (
+            "model.vision_tower.timm_model.msfa.ffn.pw_proj.bn", # gemma3n
+        ),
+        MODEL_TENSOR.V_ENC_MSFA_NORM: (
+            "model.vision_tower.timm_model.msfa.norm", # gemma3n
         ),
     }
 

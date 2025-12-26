@@ -669,7 +669,14 @@ class MODEL_TENSOR(IntEnum):
     V_MM_SOFT_EMB_NORM   = auto() # gemma3
     V_MM_EMBEDDING       = auto() # gemma3n
     V_MM_HARD_EMB_NORM   = auto() # gemma3n
-    V_MM_POST_PROJ_NORM  = auto() # gemma3n
+    V_ENC_CONV_STEM       = auto() # gemma3n
+    V_ENC_CONV_STEM_BIAS  = auto() # gemma3n
+    V_ENC_CONV_STEM_NORM  = auto() # gemma3n
+    V_ENC_MSFA_EXP        = auto() # gemma3n
+    V_ENC_MSFA_EXP_NORM   = auto() # gemma3n
+    V_ENC_MSFA_PROJ       = auto() # gemma3n
+    V_ENC_MSFA_PROJ_NORM  = auto() # gemma3n
+    V_ENC_MSFA_NORM       = auto() # gemma3n
     V_RESMPL_POS_EMBD_K  = auto() # minicpmv
     V_RESMPL_ATTN_Q      = auto() # minicpmv
     V_RESMPL_ATTN_K      = auto() # minicpmv
@@ -1061,10 +1068,17 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.V_MM_POST_NORM:            "mm.post_norm",
     MODEL_TENSOR.V_MM_INP_PROJ:             "mm.input_projection",
     MODEL_TENSOR.V_MM_INP_NORM:             "mm.input_norm",
-    MODEL_TENSOR.V_MM_SOFT_EMB_NORM:        "mm.soft_emb_norm",
-    MODEL_TENSOR.V_MM_EMBEDDING:            "mm.embedding",
-    MODEL_TENSOR.V_MM_HARD_EMB_NORM:        "mm.hard_emb_norm",
-    MODEL_TENSOR.V_MM_POST_PROJ_NORM:       "mm.post_proj_norm",
+    MODEL_TENSOR.V_MM_SOFT_EMB_NORM:        "mm.soft_emb_norm",             # gemma3n
+    MODEL_TENSOR.V_MM_EMBEDDING:            "mm.embedding",                 # gemma3n
+    MODEL_TENSOR.V_MM_HARD_EMB_NORM:        "mm.hard_emb_norm",             # gemma3n
+    MODEL_TENSOR.V_ENC_CONV_STEM:           "v.enc.conv_stem.conv",         # gemma3n
+    MODEL_TENSOR.V_ENC_CONV_STEM_BIAS:      "v.enc.conv_stem.conv_bias",    # gemma3n
+    MODEL_TENSOR.V_ENC_CONV_STEM_NORM:      "v.enc.conv_stem.bn",           # gemma3n
+    MODEL_TENSOR.V_ENC_MSFA_EXP:            "v.enc.msfa.ffn.pw_exp.conv",   # gemma3n
+    MODEL_TENSOR.V_ENC_MSFA_EXP_NORM:       "v.enc.msfa.ffn.pw_exp.bn",     # gemma3n
+    MODEL_TENSOR.V_ENC_MSFA_PROJ:           "v.enc.msfa.ffn.pw_proj.conv",  # gemma3n
+    MODEL_TENSOR.V_ENC_MSFA_PROJ_NORM:      "v.enc.msfa.ffn.pw_proj.bn",    # gemma3n
+    MODEL_TENSOR.V_ENC_MSFA_NORM:           "v.enc.msfa.norm",              # gemma3n
     MODEL_TENSOR.V_RESMPL_POS_EMBD_K:       "resampler.pos_embd_k",
     MODEL_TENSOR.V_RESMPL_ATTN_Q:           "resampler.attn.q",
     MODEL_TENSOR.V_RESMPL_ATTN_K:           "resampler.attn.k",
@@ -1165,7 +1179,14 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.V_MM_SOFT_EMB_NORM,
         MODEL_TENSOR.V_MM_EMBEDDING,
         MODEL_TENSOR.V_MM_HARD_EMB_NORM,
-        MODEL_TENSOR.V_MM_POST_PROJ_NORM,
+        MODEL_TENSOR.V_ENC_CONV_STEM,
+        MODEL_TENSOR.V_ENC_CONV_STEM_BIAS,
+        MODEL_TENSOR.V_ENC_CONV_STEM_NORM,
+        MODEL_TENSOR.V_ENC_MSFA_EXP,
+        MODEL_TENSOR.V_ENC_MSFA_EXP_NORM,
+        MODEL_TENSOR.V_ENC_MSFA_PROJ,
+        MODEL_TENSOR.V_ENC_MSFA_PROJ_NORM,
+        MODEL_TENSOR.V_ENC_MSFA_NORM,
         MODEL_TENSOR.V_RESMPL_POS_EMBD_K,
         MODEL_TENSOR.V_RESMPL_ATTN_Q,
         MODEL_TENSOR.V_RESMPL_ATTN_K,

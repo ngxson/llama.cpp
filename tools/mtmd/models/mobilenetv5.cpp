@@ -1,6 +1,6 @@
 #include "models.h"
 
-// --- Helpers for MobileNetV5 Blocks ---
+// Helpers for MobileNetV5 Blocks
 // RMS Norm 2D - normalizes over channels for each spatial position
 ggml_tensor * clip_graph_mobilenetv5::rms_norm_2d(ggml_tensor * inp, ggml_tensor * weight, float eps) {
     // inp: [W, H, C, B]
@@ -19,7 +19,7 @@ ggml_tensor * clip_graph_mobilenetv5::rms_norm_2d(ggml_tensor * inp, ggml_tensor
     return cur;
 }
 
-// Helper for Conv2dSame padding (asymmetric SAME padding like PyTorch/TF)
+// Conv2dSame padding - asymmetric SAME padding like PyTorch/TF
 ggml_tensor* clip_graph_mobilenetv5::pad_same_2d(ggml_tensor* inp, int kernel_h, int kernel_w, int stride_h, int stride_w, int dilation_h, int dilation_w) {
     const int64_t ih = inp->ne[1];  // height
     const int64_t iw = inp->ne[0];  // width
@@ -87,6 +87,7 @@ ggml_tensor * clip_graph_mobilenetv5::build_edge_residual(ggml_tensor * inp, con
     return cur;
 }
 
+// Universal Inverted Residual Block (Stage 1+)
 ggml_tensor * clip_graph_mobilenetv5::build_inverted_residual(ggml_tensor * inp, const mobilenetv5_block & block, int stride) {
     ggml_tensor * cur = inp;
 
@@ -133,11 +134,8 @@ ggml_tensor * clip_graph_mobilenetv5::build_inverted_residual(ggml_tensor * inp,
     }
 
     // Apply Layer Scaling if present
-    if (block.layer_scale_w) {
-        ggml_tensor * scale_w_reshaped = ggml_reshape_4d(ctx0, block.layer_scale_w,
-            1, 1, block.layer_scale_w->ne[0], 1);
-        
-        cur = ggml_mul(ctx0, cur, scale_w_reshaped);
+    if (block.layer_scale_w) {        
+        cur = ggml_mul(ctx0, cur, block.layer_scale_w);
     }
 
     // 5. Residual Connection
@@ -150,19 +148,19 @@ ggml_tensor * clip_graph_mobilenetv5::build_inverted_residual(ggml_tensor * inp,
     return cur;
 }
 
-// MobileNetV5 Builder (Gemma 3n) - Attention Block
+// Attention Block (MQA) 
 ggml_tensor * clip_graph_mobilenetv5::build_mobilenet_attn(ggml_tensor * inp, const mobilenetv5_block & block) {
     ggml_tensor * cur = inp;
 
-    // --- Norm ---
+    // Norm
     if (block.attn_norm_w) {
         cur = rms_norm_2d(cur, block.attn_norm_w, 1e-6f);
     }
 
-    // --- 1. Q Calculation ---
+    // 1. Q Calculation
     ggml_tensor * q = ggml_conv_2d_direct(ctx0, block.attn_q_w, cur, 1, 1, 0, 0, 1, 1);
 
-    // --- 2. K Calculation (Downsampled) ---
+    // 2. K Calculation (Downsampled)
     // Uses Conv2dSame(640, 640, kernel_size=(3, 3), stride=(2, 2), groups=640)
     ggml_tensor * k_inp = cur;
     if (block.attn_k_dw_w) {
@@ -175,7 +173,7 @@ ggml_tensor * clip_graph_mobilenetv5::build_mobilenet_attn(ggml_tensor * inp, co
     }
     ggml_tensor * k = ggml_conv_2d_direct(ctx0, block.attn_k_w, k_inp, 1, 1, 0, 0, 1, 1);
 
-    // --- 3. V Calculation (Downsampled) ---
+    // 3. V Calculation (Downsampled)
     // Uses Conv2dSame(640, 640, kernel_size=(3, 3), stride=(2, 2), groups=640)
     ggml_tensor * v_inp = cur;
     if (block.attn_v_dw_w) {
@@ -213,7 +211,7 @@ ggml_tensor * clip_graph_mobilenetv5::build_mobilenet_attn(ggml_tensor * inp, co
     v = ggml_reshape_4d(ctx0, v, M, D, 1, B);
     v = ggml_cont(ctx0, v); // [M, D, 1, B]
 
-    // --- Multi-Query Attention ---
+    // Multi-Query Attention
     float scale = 1.0f / sqrtf((float)D);
 
     // Step 1: Compute Q @ K.T
@@ -236,12 +234,10 @@ ggml_tensor * clip_graph_mobilenetv5::build_mobilenet_attn(ggml_tensor * inp, co
     // Output projection
     cur = ggml_conv_2d_direct(ctx0, block.attn_o_w, kqv, 1, 1, 0, 0, 1, 1);
 
-    // --- Residual & Layer Scale (FIXED) ---
+    // Residual & Layer Scale
     if (inp->ne[0] == cur->ne[0] && inp->ne[2] == cur->ne[2]) {
         if (block.layer_scale_w) {
-            ggml_tensor * scale_w_reshaped = ggml_reshape_4d(ctx0, block.layer_scale_w,
-                1, 1, block.layer_scale_w->ne[0], 1);
-            cur = ggml_mul(ctx0, cur, scale_w_reshaped);
+            cur = ggml_mul(ctx0, cur, block.layer_scale_w);
         }
         cur = ggml_add(ctx0, cur, inp);
     }
@@ -250,9 +246,6 @@ ggml_tensor * clip_graph_mobilenetv5::build_mobilenet_attn(ggml_tensor * inp, co
 }
 
 ggml_cgraph * clip_graph_mobilenetv5::build() {
-
-    fprintf(stderr, "\n--- START build_mobilenetv5 ---\n");
-
     ggml_tensor * inp = build_inp_raw();
 
     // 1. Stem - Conv2dSame(3, 64, kernel_size=(3, 3), stride=(2, 2))
@@ -260,9 +253,7 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
 
     cur = ggml_conv_2d_direct(ctx0, model.mobilenet_stem_conv_w, cur, 2, 2, 0, 0, 1, 1);  // padding=0
     if (model.mobilenet_stem_conv_b) {
-        // Bias is [C, 1, 1, 1], need to reshape to [1, 1, C, 1] for broadcasting to [W, H, C, B]
-        ggml_tensor * bias = ggml_reshape_4d(ctx0, model.mobilenet_stem_conv_b, 1, 1, cur->ne[2], 1);
-        cur = ggml_add(ctx0, cur, bias);
+        cur = ggml_add(ctx0, cur, model.mobilenet_stem_conv_b);
     }
     if (model.mobilenet_stem_norm_w) cur = rms_norm_2d(cur, model.mobilenet_stem_norm_w);
     cur = ggml_gelu(ctx0, cur);
@@ -332,7 +323,7 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
                 
                 // Safety check for non-integer scaling if strictly replicating
                 if (high_res_w % feat_w != 0) { 
-                    fprintf(stderr, "Warning: Non-integer scaling detected in MSFA\n"); 
+                    LOG_WRN("%s: non-integer scaling detected\n", __func__);
                 }
 
                 // Upsample (Nearest Neighbor)
@@ -388,7 +379,7 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
                 // Avg Pool: Kernel=s, Stride=s
                 cur = ggml_pool_2d(ctx0, cur, GGML_OP_POOL_AVG, s, s, s, s, 0, 0);
             } else {
-                fprintf(stderr, "Error: Irregular downsampling stride required.\n");
+                LOG_ERR("%s: irregular downsampling stride required\n", __func__);
             }
 
         }
@@ -418,7 +409,6 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
 
     // 2. FEATURE SCALING
     // PyTorch: vision_outputs *= self.config.vision_config.hidden_size**0.5
-    // This prevents the signal from vanishing during the subsequent RMSNorm.
     const float scale_factor = sqrtf((float)C);
     cur = ggml_scale(ctx0, cur, scale_factor);
 
