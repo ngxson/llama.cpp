@@ -667,6 +667,7 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
         case LLAMA_FTYPE_MOSTLY_Q3_HIFI: default_type = GGML_TYPE_Q3_K;    break; // Adaptive: Q3_K base, Q3_HIFI on sensitive layers
         case LLAMA_FTYPE_MOSTLY_Q4_HIFI_M: default_type = GGML_TYPE_Q4_K; break; // Smart allocation: Q5_K on sensitive, Q6_K on important
         case LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI: default_type = GGML_TYPE_Q4_K; break; // Q4_K_M + Q6_K_HIFI outliers on critical tensors
+        case LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI_DYN: default_type = GGML_TYPE_Q4_K; break; // Q4_K_M + 2-8 dynamic outliers + early exit
 
         default: throw std::runtime_error(format("invalid output file type %d\n", ftype));
     }
