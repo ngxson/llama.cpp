@@ -121,7 +121,7 @@ struct value_array_t : public value_t {
 };
 using value_array = std::unique_ptr<value_array_t>;
 
-/*struct value_object_t : public value_t {
+struct value_object_t : public value_t {
     value_object_t() {
         val_obj = std::make_shared<std::map<std::string, value>>();
     }
@@ -130,7 +130,10 @@ using value_array = std::unique_ptr<value_array_t>;
         val_obj = v->val_obj;
     }
     value_object_t(const std::map<std::string, value> & obj) {
-        val_obj = std::make_shared<std::map<std::string, value>>(obj);
+        val_obj = std::make_shared<std::map<std::string, value>>();
+        for (const auto & pair : obj) {
+            (*val_obj)[pair.first] = pair.second->clone();
+        }
     }
     virtual std::string type() const override { return "Object"; }
     virtual const std::map<std::string, value> & as_object() const override { return *val_obj; }
@@ -139,13 +142,6 @@ using value_array = std::unique_ptr<value_array_t>;
         tmp->val_obj = this->val_obj;
         return tmp;
     }
-};
-using value_object = std::unique_ptr<value_object_t>;*/
-
-struct value_object_t : public value_t {
-    virtual std::string type() const override { return "TEST"; }
-    virtual bool is_null() const override { return true; }
-    virtual value clone() const override { return std::make_unique<value_object_t>(*this); }
 };
 using value_object = std::unique_ptr<value_object_t>;
 
