@@ -13,12 +13,12 @@ const func_builtins & value_int_t::get_builtins() const {
         {"abs", [](const func_args & args) -> value {
             args.ensure_vals<value_int>();
             int64_t val = args.args[0]->as_int();
-            return std::make_unique<value_int_t>(val < 0 ? -val : val);
+            return mk_val<value_int>(val < 0 ? -val : val);
         }},
         {"float", [](const func_args & args) -> value {
             args.ensure_vals<value_int>();
             double val = static_cast<double>(args.args[0]->as_int());
-            return std::make_unique<value_float_t>(val);
+            return mk_val<value_float>(val);
         }},
     };
     return builtins;
@@ -30,12 +30,12 @@ const func_builtins & value_float_t::get_builtins() const {
         {"abs", [](const func_args & args) -> value {
             args.ensure_vals<value_float>();
             double val = args.args[0]->as_float();
-            return std::make_unique<value_float_t>(val < 0.0 ? -val : val);
+            return mk_val<value_float>(val < 0.0 ? -val : val);
         }},
         {"int", [](const func_args & args) -> value {
             args.ensure_vals<value_float>();
             int64_t val = static_cast<int64_t>(args.args[0]->as_float());
-            return std::make_unique<value_int_t>(val);
+            return mk_val<value_int>(val);
         }},
     };
     return builtins;
@@ -74,28 +74,28 @@ const func_builtins & value_string_t::get_builtins() const {
             args.ensure_vals<value_string>();
             std::string str = args.args[0]->as_string();
             std::transform(str.begin(), str.end(), str.begin(), ::toupper);
-            return std::make_unique<value_string_t>(str);
+            return mk_val<value_string>(str);
         }},
         {"lower", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
             std::string str = args.args[0]->as_string();
             std::transform(str.begin(), str.end(), str.begin(), ::tolower);
-            return std::make_unique<value_string_t>(str);
+            return mk_val<value_string>(str);
         }},
         {"strip", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
             std::string str = args.args[0]->as_string();
-            return std::make_unique<value_string_t>(string_strip(str, true, true));
+            return mk_val<value_string>(string_strip(str, true, true));
         }},
         {"rstrip", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
             std::string str = args.args[0]->as_string();
-            return std::make_unique<value_string_t>(string_strip(str, false, true));
+            return mk_val<value_string>(string_strip(str, false, true));
         }},
         {"lstrip", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
             std::string str = args.args[0]->as_string();
-            return std::make_unique<value_string_t>(string_strip(str, true, false));
+            return mk_val<value_string>(string_strip(str, true, false));
         }},
         {"title", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
@@ -111,7 +111,7 @@ const func_builtins & value_string_t::get_builtins() const {
                     c = ::tolower(static_cast<unsigned char>(c));
                 }
             }
-            return std::make_unique<value_string_t>(str);
+            return mk_val<value_string>(str);
         }},
         {"capitalize", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
@@ -120,38 +120,38 @@ const func_builtins & value_string_t::get_builtins() const {
                 str[0] = ::toupper(static_cast<unsigned char>(str[0]));
                 std::transform(str.begin() + 1, str.end(), str.begin() + 1, ::tolower);
             }
-            return std::make_unique<value_string_t>(str);
+            return mk_val<value_string>(str);
         }},
         {"length", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
             std::string str = args.args[0]->as_string();
-            return std::make_unique<value_int_t>(str.length());
+            return mk_val<value_int>(str.length());
         }},
         {"startswith", [](const func_args & args) -> value {
             args.ensure_vals<value_string, value_string>();
             std::string str = args.args[0]->as_string();
             std::string prefix = args.args[1]->as_string();
-            return std::make_unique<value_bool_t>(string_startswith(str, prefix));
+            return mk_val<value_bool>(string_startswith(str, prefix));
         }},
         {"endswith", [](const func_args & args) -> value {
             args.ensure_vals<value_string, value_string>();
             std::string str = args.args[0]->as_string();
             std::string suffix = args.args[1]->as_string();
-            return std::make_unique<value_bool_t>(string_endswith(str, suffix));
+            return mk_val<value_bool>(string_endswith(str, suffix));
         }},
         {"split", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
             std::string str = args.args[0]->as_string();
             std::string delim = (args.args.size() > 1) ? args.args[1]->as_string() : " ";
-            auto result = std::make_unique<value_array_t>();
+            auto result = mk_val<value_array>();
             size_t pos = 0;
             std::string token;
             while ((pos = str.find(delim)) != std::string::npos) {
                 token = str.substr(0, pos);
-                result->val_arr->push_back(std::make_unique<value_string_t>(token));
+                result->val_arr->push_back(mk_val<value_string>(token));
                 str.erase(0, pos + delim.length());
             }
-            result->val_arr->push_back(std::make_unique<value_string_t>(str));
+            result->val_arr->push_back(mk_val<value_string>(str));
             return std::move(result);
         }},
         {"replace", [](const func_args & args) -> value {
@@ -164,13 +164,13 @@ const func_builtins & value_string_t::get_builtins() const {
                 str.replace(pos, old_str.length(), new_str);
                 pos += new_str.length();
             }
-            return std::make_unique<value_string_t>(str);
+            return mk_val<value_string>(str);
         }},
         {"int", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
             std::string str = args.args[0]->as_string();
             try {
-                return std::make_unique<value_int_t>(std::stoi(str));
+                return mk_val<value_int>(std::stoi(str));
             } catch (...) {
                 throw std::runtime_error("Cannot convert string '" + str + "' to int");
             }
@@ -179,7 +179,7 @@ const func_builtins & value_string_t::get_builtins() const {
             args.ensure_vals<value_string>();
             std::string str = args.args[0]->as_string();
             try {
-                return std::make_unique<value_float_t>(std::stod(str));
+                return mk_val<value_float>(std::stod(str));
             } catch (...) {
                 throw std::runtime_error("Cannot convert string '" + str + "' to float");
             }
@@ -187,7 +187,7 @@ const func_builtins & value_string_t::get_builtins() const {
         {"string", [](const func_args & args) -> value {
             // no-op
             args.ensure_vals<value_string>();
-            return std::make_unique<value_string_t>(args.args[0]->as_string());
+            return mk_val<value_string>(args.args[0]->as_string());
         }},
         {"indent", [](const func_args & args) -> value {
             throw std::runtime_error("indent builtin not implemented");
@@ -205,17 +205,17 @@ const func_builtins & value_bool_t::get_builtins() const {
         {"int", [](const func_args & args) -> value {
             args.ensure_vals<value_bool>();
             bool val = args.args[0]->as_bool();
-            return std::make_unique<value_int_t>(val ? 1 : 0);
+            return mk_val<value_int>(val ? 1 : 0);
         }},
         {"float", [](const func_args & args) -> value {
             args.ensure_vals<value_bool>();
             bool val = args.args[0]->as_bool();
-            return std::make_unique<value_float_t>(val ? 1.0 : 0.0);
+            return mk_val<value_float>(val ? 1.0 : 0.0);
         }},
         {"string", [](const func_args & args) -> value {
             args.ensure_vals<value_bool>();
             bool val = args.args[0]->as_bool();
-            return std::make_unique<value_string_t>(val ? "True" : "False");
+            return mk_val<value_string>(val ? "True" : "False");
         }},
     };
     return builtins;
@@ -227,7 +227,7 @@ const func_builtins & value_array_t::get_builtins() const {
         {"list", [](const func_args & args) -> value {
             args.ensure_vals<value_array>();
             const auto & arr = args.args[0]->as_array();
-            auto result = std::make_unique<value_array_t>();
+            auto result = mk_val<value_array>();
             for (const auto& v : arr) {
                 result->val_arr->push_back(v->clone());
             }
@@ -237,7 +237,7 @@ const func_builtins & value_array_t::get_builtins() const {
             args.ensure_vals<value_array>();
             const auto & arr = args.args[0]->as_array();
             if (arr.empty()) {
-                return std::make_unique<value_undefined_t>();
+                return mk_val<value_undefined>();
             }
             return arr[0]->clone();
         }},
@@ -245,14 +245,14 @@ const func_builtins & value_array_t::get_builtins() const {
             args.ensure_vals<value_array>();
             const auto & arr = args.args[0]->as_array();
             if (arr.empty()) {
-                return std::make_unique<value_undefined_t>();
+                return mk_val<value_undefined>();
             }
             return arr[arr.size() - 1]->clone();
         }},
         {"length", [](const func_args & args) -> value {
             args.ensure_vals<value_array>();
             const auto & arr = args.args[0]->as_array();
-            return std::make_unique<value_int_t>(static_cast<int64_t>(arr.size()));
+            return mk_val<value_int>(static_cast<int64_t>(arr.size()));
         }},
         // TODO: reverse, sort, join, string, unique
     };
@@ -270,22 +270,22 @@ const func_builtins & value_object_t::get_builtins() const {
             if (it != obj.end()) {
                 return it->second->clone();
             } else {
-                return std::make_unique<value_undefined_t>();
+                return mk_val<value_undefined>();
             }
         }},
         {"keys", [](const func_args & args) -> value {
             args.ensure_vals<value_object>();
             const auto & obj = args.args[0]->as_object();
-            auto result = std::make_unique<value_array_t>();
+            auto result = mk_val<value_array>();
             for (const auto & pair : obj) {
-                result->val_arr->push_back(std::make_unique<value_string_t>(pair.first));
+                result->val_arr->push_back(mk_val<value_string>(pair.first));
             }
             return result;
         }},
         {"values", [](const func_args & args) -> value {
             args.ensure_vals<value_object>();
             const auto & obj = args.args[0]->as_object();
-            auto result = std::make_unique<value_array_t>();
+            auto result = mk_val<value_array>();
             for (const auto & pair : obj) {
                 result->val_arr->push_back(pair.second->clone());
             }
@@ -294,10 +294,10 @@ const func_builtins & value_object_t::get_builtins() const {
         {"items", [](const func_args & args) -> value {
             args.ensure_vals<value_object>();
             const auto & obj = args.args[0]->as_object();
-            auto result = std::make_unique<value_array_t>();
+            auto result = mk_val<value_array>();
             for (const auto & pair : obj) {
-                auto item = std::make_unique<value_array_t>();
-                item->val_arr->push_back(std::make_unique<value_string_t>(pair.first));
+                auto item = mk_val<value_array>();
+                item->val_arr->push_back(mk_val<value_string>(pair.first));
                 item->val_arr->push_back(pair.second->clone());
                 result->val_arr->push_back(std::move(item));
             }

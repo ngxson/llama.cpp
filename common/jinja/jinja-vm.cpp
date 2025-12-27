@@ -28,16 +28,16 @@ value binary_expression::execute(context & ctx) {
     // Equality operators
     value right_val = right->execute(ctx);
     if (op.value == "==") {
-        return std::make_unique<value_bool_t>(left_val == right_val);
+        return mk_val<value_bool>(left_val == right_val);
     } else if (op.value == "!=") {
-        return std::make_unique<value_bool_t>(left_val != right_val);
+        return mk_val<value_bool>(left_val != right_val);
     }
 
     // Handle undefined and null values
     if (is_val<value_undefined>(left_val) || is_val<value_undefined>(right_val)) {
         if (is_val<value_undefined>(right_val) && (op.value == "in" || op.value == "not in")) {
             // Special case: `anything in undefined` is `false` and `anything not in undefined` is `true`
-            return std::make_unique<value_bool_t>(op.value == "not in");
+            return mk_val<value_bool>(op.value == "not in");
         }
         throw std::runtime_error("Cannot perform operation " + op.value + " on undefined values");
     } else if (is_val<value_null>(left_val) || is_val<value_null>(right_val)) {
@@ -46,7 +46,7 @@ value binary_expression::execute(context & ctx) {
 
     // String concatenation with ~
     if (op.value == "~") {
-        return std::make_unique<value_string_t>(left_val->as_string() + right_val->as_string());
+        return mk_val<value_string>(left_val->as_string() + right_val->as_string());
     }
 
     // Float operations
@@ -58,28 +58,28 @@ value binary_expression::execute(context & ctx) {
             double res = (op.value == "+") ? a + b : (op.value == "-") ? a - b : a * b;
             bool is_float = is_val<value_float>(left_val) || is_val<value_float>(right_val);
             if (is_float) {
-                return std::make_unique<value_float_t>(res);
+                return mk_val<value_float>(res);
             } else {
-                return std::make_unique<value_int_t>(static_cast<int64_t>(res));
+                return mk_val<value_int>(static_cast<int64_t>(res));
             }
         } else if (op.value == "/") {
-            return std::make_unique<value_float_t>(a / b);
+            return mk_val<value_float>(a / b);
         } else if (op.value == "%") {
             double rem = std::fmod(a, b);
             bool is_float = is_val<value_float>(left_val) || is_val<value_float>(right_val);
             if (is_float) {
-                return std::make_unique<value_float_t>(rem);
+                return mk_val<value_float>(rem);
             } else {
-                return std::make_unique<value_int_t>(static_cast<int64_t>(rem));
+                return mk_val<value_int>(static_cast<int64_t>(rem));
             }
         } else if (op.value == "<") {
-            return std::make_unique<value_bool_t>(a < b);
+            return mk_val<value_bool>(a < b);
         } else if (op.value == ">") {
-            return std::make_unique<value_bool_t>(a > b);
+            return mk_val<value_bool>(a > b);
         } else if (op.value == ">=") {
-            return std::make_unique<value_bool_t>(a >= b);
+            return mk_val<value_bool>(a >= b);
         } else if (op.value == "<=") {
-            return std::make_unique<value_bool_t>(a <= b);
+            return mk_val<value_bool>(a <= b);
         }
     }
 
@@ -88,7 +88,7 @@ value binary_expression::execute(context & ctx) {
         if (op.value == "+") {
             auto & left_arr = left_val->as_array();
             auto & right_arr = right_val->as_array();
-            auto result = std::make_unique<value_array_t>();
+            auto result = mk_val<value_array>();
             for (const auto & item : left_arr) {
                 result->val_arr->push_back(item->clone());
             }
@@ -101,16 +101,16 @@ value binary_expression::execute(context & ctx) {
         auto & arr = right_val->as_array();
         bool member = std::find_if(arr.begin(), arr.end(), [&](const value& v) { return v == left_val; }) != arr.end();
         if (op.value == "in") {
-            return std::make_unique<value_bool_t>(member);
+            return mk_val<value_bool>(member);
         } else if (op.value == "not in") {
-            return std::make_unique<value_bool_t>(!member);
+            return mk_val<value_bool>(!member);
         }
     }
 
     // String concatenation
     if (is_val<value_string>(left_val) || is_val<value_string>(right_val)) {
         if (op.value == "+") {
-            return std::make_unique<value_string_t>(left_val->as_string() + right_val->as_string());
+            return mk_val<value_string>(left_val->as_string() + right_val->as_string());
         }
     }
 
@@ -119,9 +119,9 @@ value binary_expression::execute(context & ctx) {
         auto left_str = left_val->as_string();
         auto right_str = right_val->as_string();
         if (op.value == "in") {
-            return std::make_unique<value_bool_t>(right_str.find(left_str) != std::string::npos);
+            return mk_val<value_bool>(right_str.find(left_str) != std::string::npos);
         } else if (op.value == "not in") {
-            return std::make_unique<value_bool_t>(right_str.find(left_str) == std::string::npos);
+            return mk_val<value_bool>(right_str.find(left_str) == std::string::npos);
         }
     }
 
@@ -131,9 +131,9 @@ value binary_expression::execute(context & ctx) {
         auto & obj = right_val->as_object();
         bool has_key = obj.find(key) != obj.end();
         if (op.value == "in") {
-            return std::make_unique<value_bool_t>(has_key);
+            return mk_val<value_bool>(has_key);
         } else if (op.value == "not in") {
-            return std::make_unique<value_bool_t>(!has_key);
+            return mk_val<value_bool>(!has_key);
         }
     }
 

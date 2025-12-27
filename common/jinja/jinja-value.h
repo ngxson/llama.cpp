@@ -28,7 +28,7 @@ bool is_val(const value & ptr) {
     return dynamic_cast<const PointeeType*>(ptr.get()) != nullptr;
 }
 template<typename T, typename... Args>
-bool mk_val(Args&&... args) {
+value mk_val(Args&&... args) {
     using PointeeType = typename extract_pointee<T>::type;
     return std::make_unique<PointeeType>(std::forward<Args>(args)...);
 }
