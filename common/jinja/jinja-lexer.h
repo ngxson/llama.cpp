@@ -48,6 +48,38 @@ struct token {
     std::string value;
 };
 
+std::string type_to_string(token::type t) {
+    switch (t) {
+        case token::undefined: return "undefined";
+        case token::text: return "text";
+        case token::numeric_literal: return "numeric_literal";
+        case token::string_literal: return "string_literal";
+        case token::identifier: return "identifier";
+        case token::equals: return "equals";
+        case token::open_paren: return "open_paren";
+        case token::close_paren: return "close_paren";
+        case token::open_statement: return "open_statement";
+        case token::close_statement: return "close_statement";
+        case token::open_expression: return "open_expression";
+        case token::close_expression: return "close_expression";
+        case token::open_square_bracket: return "open_square_bracket";
+        case token::close_square_bracket: return "close_square_bracket";
+        case token::open_curly_bracket: return "open_curly_bracket";
+        case token::close_curly_bracket: return "close_curly_bracket";
+        case token::comma: return "comma";
+        case token::dot: return "dot";
+        case token::colon: return "colon";
+        case token::pipe: return "pipe";
+        case token::call_operator: return "call_operator";
+        case token::additive_binary_operator: return "additive_binary_operator";
+        case token::multiplicative_binary_operator: return "multiplicative_binary_operator";
+        case token::comparison_binary_operator: return "comparison_binary_operator";
+        case token::unary_operator: return "unary_operator";
+        case token::comment: return "comment";
+        default: return "unknown";
+    }
+}
+
 struct lexer {
     const std::map<char, char> escape_chars = {
         {'n', '\n'},
