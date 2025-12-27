@@ -9,22 +9,27 @@
 
 namespace jinja {
 
-// Helper to check type without asserting (useful for logic)
+// Helper to extract the inner type if T is unique_ptr<U>, else T itself
 template<typename T>
-static bool is_type(const value & ptr) {
-    return dynamic_cast<const T*>(ptr.get()) != nullptr;
+struct extract_pointee {
+    using type = T;
+};
+
+template<typename U>
+struct extract_pointee<std::unique_ptr<U>> {
+    using type = U;
+};
+
+template<typename T>
+static bool is_type(const value& ptr) {
+    using PointeeType = typename extract_pointee<T>::type;
+    return dynamic_cast<const PointeeType*>(ptr.get()) != nullptr;
 }
 
-struct vm {
-    context & ctx;
-    explicit vm(context & ctx) : ctx(ctx) {}
-
-    void execute(program & prog) {
-        for (auto & stmt : prog.body) {
-            stmt->execute(ctx);
-        }
-    }
-};
+template<typename T>
+static bool is_stmt(const statement_ptr & ptr) {
+    return dynamic_cast<const T*>(ptr.get()) != nullptr;
+}
 
 value binary_expression::execute(context & ctx) {
     value left_val = left->execute(ctx);
@@ -97,13 +102,16 @@ value binary_expression::execute(context & ctx) {
     // Array operations
     if (is_type<value_array>(left_val) && is_type<value_array>(right_val)) {
         if (op.value == "+") {
-            auto& left_arr = left_val->as_array();
-            auto& right_arr = right_val->as_array();
-            std::vector<value> result = left_arr;
-            for (auto & v : right_arr) {
-                result.push_back(std::move(v));
+            auto & left_arr = left_val->as_array();
+            auto & right_arr = right_val->as_array();
+            auto result = std::make_unique<value_array_t>();
+            for (const auto & item : left_arr) {
+                result->val_arr->push_back(item->clone());
             }
-            return std::make_unique<value_array_t>(result);
+            for (const auto & item : right_arr) {
+                result->val_arr->push_back(item->clone());
+            }
+            return result;
         }
     } else if (is_type<value_array>(right_val)) {
         auto & arr = right_val->as_array();
@@ -146,6 +154,54 @@ value binary_expression::execute(context & ctx) {
     }
 
     throw std::runtime_error("Unknown operator \"" + op.value + "\" between " + left_val->type() + " and " + right_val->type());
+}
+
+value filter_expression::execute(context & ctx) {
+    value input = operand->execute(ctx);
+    value filter_func = filter->execute(ctx);
+
+    if (is_stmt<identifier>(filter)) {
+        auto filter_val = dynamic_cast<identifier*>(filter.get())->value;
+
+        if (filter_val == "to_json") {
+            // TODO: Implement to_json filter
+            throw std::runtime_error("to_json filter not implemented");
+        }
+
+        if (is_type<value_array>(input)) {
+            auto & arr = input->as_array();
+            if (filter_val == "list") {
+                return std::make_unique<value_array_t>(input);
+            } else if (filter_val == "first") {
+                if (arr.empty()) {
+                    return std::make_unique<value_undefined_t>();
+                }
+                return arr[0]->clone();
+            } else if (filter_val == "last") {
+                if (arr.empty()) {
+                    return std::make_unique<value_undefined_t>();
+                }
+                return arr[arr.size() - 1]->clone();
+            } else if (filter_val == "length") {
+                return std::make_unique<value_int_t>(static_cast<int64_t>(arr.size()));
+            } else {
+                // TODO: reverse, sort, join, string, unique
+                throw std::runtime_error("Unknown filter '" + filter_val + "' for array");
+            }
+
+        } else if (is_type<value_string>(input)) {
+            auto str = input->as_string();
+            // TODO
+            throw std::runtime_error("Unknown filter '" + filter_val + "' for string");
+
+        } else if (is_type<value_int>(input) || is_type<value_float>(input)) {
+            // TODO
+            throw std::runtime_error("Unknown filter '" + filter_val + "' for number");
+
+        } else {
+            throw std::runtime_error("Filters not supported for type " + input->type());
+        }
+    }
 }
 
 } // namespace jinja

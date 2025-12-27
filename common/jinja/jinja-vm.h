@@ -23,7 +23,7 @@ struct context {
 struct statement {
     virtual ~statement() = default;
     virtual std::string type() const { return "Statement"; }
-    virtual value execute(context & ctx) = 0;
+    virtual value execute(context & ctx) { throw std::runtime_error("cannot exec " + type()); };
 };
 
 using statement_ptr = std::unique_ptr<statement>;
@@ -186,44 +186,53 @@ struct identifier : public expression {
 // Literals
 
 struct integer_literal : public expression { 
-    int64_t value;
-    explicit integer_literal(int64_t value) : value(value) {}
+    int64_t val;
+    explicit integer_literal(int64_t val) : val(val) {}
     std::string type() const override { return "IntegerLiteral"; }
+    value execute(context & ctx) override {
+        return std::make_unique<value_int_t>(val);
+    }
 };
 
 struct float_literal : public expression {
-    double value;
-    explicit float_literal(double value) : value(value) {}
+    double val;
+    explicit float_literal(double val) : val(val) {}
     std::string type() const override { return "FloatLiteral"; }
+    value execute(context & ctx) override {
+        return std::make_unique<value_float_t>(val);
+    }
 };
 
 struct string_literal : public expression {
-    std::string value;
-    explicit string_literal(const std::string & value) : value(value) {}
+    std::string val;
+    explicit string_literal(const std::string & val) : val(val) {}
     std::string type() const override { return "StringLiteral"; }
+    value execute(context & ctx) override {
+        return std::make_unique<value_string_t>(val);
+    }
 };
 
 struct array_literal : public expression {
-    statements value;
-    explicit array_literal(statements && value) : value(std::move(value)) {
-        for (const auto& item : this->value) chk_type<expression>(item);
+    statements val;
+    explicit array_literal(statements && val) : val(std::move(val)) {
+        for (const auto& item : this->val) chk_type<expression>(item);
     }
     std::string type() const override { return "ArrayLiteral"; }
 };
 
 struct tuple_literal : public expression {
-    statements value;
-    explicit tuple_literal(statements && value) : value(std::move(value)) {
-        for (const auto& item : this->value) chk_type<expression>(item);
+    statements val;
+    explicit tuple_literal(statements && val) : val(std::move(val)) {
+        for (const auto & item : this->val) chk_type<expression>(item);
     }
     std::string type() const override { return "TupleLiteral"; }
 };
 
 struct object_literal : public expression {
-    std::vector<std::pair<statement_ptr, statement_ptr>> value;
-    explicit object_literal(std::vector<std::pair<statement_ptr, statement_ptr>> && value) 
-        : value(std::move(value)) {
-        for (const auto & pair : this->value) {
+    std::vector<std::pair<statement_ptr, statement_ptr>> val;
+    explicit object_literal(std::vector<std::pair<statement_ptr, statement_ptr>> && val) 
+        : val(std::move(val)) {
+        for (const auto & pair : this->val) {
             chk_type<expression>(pair.first);
             chk_type<expression>(pair.second);
         }
@@ -389,6 +398,22 @@ struct ternary_expression : public expression {
         chk_type<expression>(this->false_expr);
     }
     std::string type() const override { return "Ternary"; }
+};
+
+//////////////////////
+
+struct vm {
+    context & ctx;
+    explicit vm(context & ctx) : ctx(ctx) {}
+
+    std::vector<value> execute(program & prog) {
+        std::vector<value> results;
+        for (auto & stmt : prog.body) {
+            value res = stmt->execute(ctx);
+            results.push_back(std::move(res));
+        }
+        return results;
+    }
 };
 
 } // namespace jinja
