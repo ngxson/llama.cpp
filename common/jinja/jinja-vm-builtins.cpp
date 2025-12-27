@@ -8,6 +8,40 @@
 
 namespace jinja {
 
+const func_builtins & value_int_t::get_builtins() const {
+    static const func_builtins builtins = {
+        {"abs", [](const func_args & args) -> value {
+            args.ensure_vals<value_int>();
+            int64_t val = args.args[0]->as_int();
+            return std::make_unique<value_int_t>(val < 0 ? -val : val);
+        }},
+        {"float", [](const func_args & args) -> value {
+            args.ensure_vals<value_int>();
+            double val = static_cast<double>(args.args[0]->as_int());
+            return std::make_unique<value_float_t>(val);
+        }},
+    };
+    return builtins;
+}
+
+
+const func_builtins & value_float_t::get_builtins() const {
+    static const func_builtins builtins = {
+        {"abs", [](const func_args & args) -> value {
+            args.ensure_vals<value_float>();
+            double val = args.args[0]->as_float();
+            return std::make_unique<value_float_t>(val < 0.0 ? -val : val);
+        }},
+        {"int", [](const func_args & args) -> value {
+            args.ensure_vals<value_float>();
+            int64_t val = static_cast<int64_t>(args.args[0]->as_float());
+            return std::make_unique<value_int_t>(val);
+        }},
+    };
+    return builtins;
+}
+
+
 static std::string string_strip(const std::string & str, bool left, bool right) {
     size_t start = 0;
     size_t end = str.length();
@@ -132,8 +166,146 @@ const func_builtins & value_string_t::get_builtins() const {
             }
             return std::make_unique<value_string_t>(str);
         }},
+        {"int", [](const func_args & args) -> value {
+            args.ensure_vals<value_string>();
+            std::string str = args.args[0]->as_string();
+            try {
+                return std::make_unique<value_int_t>(std::stoi(str));
+            } catch (...) {
+                throw std::runtime_error("Cannot convert string '" + str + "' to int");
+            }
+        }},
+        {"float", [](const func_args & args) -> value {
+            args.ensure_vals<value_string>();
+            std::string str = args.args[0]->as_string();
+            try {
+                return std::make_unique<value_float_t>(std::stod(str));
+            } catch (...) {
+                throw std::runtime_error("Cannot convert string '" + str + "' to float");
+            }
+        }},
+        {"string", [](const func_args & args) -> value {
+            // no-op
+            args.ensure_vals<value_string>();
+            return std::make_unique<value_string_t>(args.args[0]->as_string());
+        }},
+        {"indent", [](const func_args & args) -> value {
+            throw std::runtime_error("indent builtin not implemented");
+        }},
+        {"join", [](const func_args & args) -> value {
+            throw std::runtime_error("join builtin not implemented");
+        }},
     };
     return builtins;
 };
+
+
+const func_builtins & value_bool_t::get_builtins() const {
+    static const func_builtins builtins = {
+        {"int", [](const func_args & args) -> value {
+            args.ensure_vals<value_bool>();
+            bool val = args.args[0]->as_bool();
+            return std::make_unique<value_int_t>(val ? 1 : 0);
+        }},
+        {"float", [](const func_args & args) -> value {
+            args.ensure_vals<value_bool>();
+            bool val = args.args[0]->as_bool();
+            return std::make_unique<value_float_t>(val ? 1.0 : 0.0);
+        }},
+        {"string", [](const func_args & args) -> value {
+            args.ensure_vals<value_bool>();
+            bool val = args.args[0]->as_bool();
+            return std::make_unique<value_string_t>(val ? "True" : "False");
+        }},
+    };
+    return builtins;
+}
+
+
+const func_builtins & value_array_t::get_builtins() const {
+    static const func_builtins builtins = {
+        {"list", [](const func_args & args) -> value {
+            args.ensure_vals<value_array>();
+            const auto & arr = args.args[0]->as_array();
+            auto result = std::make_unique<value_array_t>();
+            for (const auto& v : arr) {
+                result->val_arr->push_back(v->clone());
+            }
+            return result;
+        }},
+        {"first", [](const func_args & args) -> value {
+            args.ensure_vals<value_array>();
+            const auto & arr = args.args[0]->as_array();
+            if (arr.empty()) {
+                return std::make_unique<value_undefined_t>();
+            }
+            return arr[0]->clone();
+        }},
+        {"last", [](const func_args & args) -> value {
+            args.ensure_vals<value_array>();
+            const auto & arr = args.args[0]->as_array();
+            if (arr.empty()) {
+                return std::make_unique<value_undefined_t>();
+            }
+            return arr[arr.size() - 1]->clone();
+        }},
+        {"length", [](const func_args & args) -> value {
+            args.ensure_vals<value_array>();
+            const auto & arr = args.args[0]->as_array();
+            return std::make_unique<value_int_t>(static_cast<int64_t>(arr.size()));
+        }},
+        // TODO: reverse, sort, join, string, unique
+    };
+    return builtins;
+}
+
+
+const func_builtins & value_object_t::get_builtins() const {
+    static const func_builtins builtins = {
+        {"get", [](const func_args & args) -> value {
+            args.ensure_vals<value_object, value_string>(); // TODO: add default value
+            const auto & obj = args.args[0]->as_object();
+            std::string key = args.args[1]->as_string();
+            auto it = obj.find(key);
+            if (it != obj.end()) {
+                return it->second->clone();
+            } else {
+                return std::make_unique<value_undefined_t>();
+            }
+        }},
+        {"keys", [](const func_args & args) -> value {
+            args.ensure_vals<value_object>();
+            const auto & obj = args.args[0]->as_object();
+            auto result = std::make_unique<value_array_t>();
+            for (const auto & pair : obj) {
+                result->val_arr->push_back(std::make_unique<value_string_t>(pair.first));
+            }
+            return result;
+        }},
+        {"values", [](const func_args & args) -> value {
+            args.ensure_vals<value_object>();
+            const auto & obj = args.args[0]->as_object();
+            auto result = std::make_unique<value_array_t>();
+            for (const auto & pair : obj) {
+                result->val_arr->push_back(pair.second->clone());
+            }
+            return result;
+        }},
+        {"items", [](const func_args & args) -> value {
+            args.ensure_vals<value_object>();
+            const auto & obj = args.args[0]->as_object();
+            auto result = std::make_unique<value_array_t>();
+            for (const auto & pair : obj) {
+                auto item = std::make_unique<value_array_t>();
+                item->val_arr->push_back(std::make_unique<value_string_t>(pair.first));
+                item->val_arr->push_back(pair.second->clone());
+                result->val_arr->push_back(std::move(item));
+            }
+            return result;
+        }},
+    };
+    return builtins;
+}
+
 
 } // namespace jinja

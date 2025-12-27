@@ -118,6 +118,7 @@ struct value_t {
     }
 };
 
+
 struct value_int_t : public value_t {
     value_int_t(int64_t v) { val_int = v; }
     virtual std::string type() const override { return "Integer"; }
@@ -125,8 +126,10 @@ struct value_int_t : public value_t {
     virtual double as_float() const override { return static_cast<double>(val_int); }
     virtual std::string as_string() const override { return std::to_string(val_int); }
     virtual value clone() const override { return std::make_unique<value_int_t>(*this); }
+    virtual const func_builtins & get_builtins() const override;
 };
 using value_int = std::unique_ptr<value_int_t>;
+
 
 struct value_float_t : public value_t {
     value_float_t(double v) { val_flt = v; }
@@ -135,17 +138,20 @@ struct value_float_t : public value_t {
     virtual int64_t as_int() const override { return static_cast<int64_t>(val_flt); }
     virtual std::string as_string() const override { return std::to_string(val_flt); }
     virtual value clone() const override { return std::make_unique<value_float_t>(*this); }
+    virtual const func_builtins & get_builtins() const override;
 };
 using value_float = std::unique_ptr<value_float_t>;
+
 
 struct value_string_t : public value_t {
     value_string_t(const std::string & v) { val_str = v; }
     virtual std::string type() const override { return "String"; }
     virtual std::string as_string() const override { return val_str; }
     virtual value clone() const override { return std::make_unique<value_string_t>(*this); }
-    const func_builtins & get_builtins() const override;
+    virtual const func_builtins & get_builtins() const override;
 };
 using value_string = std::unique_ptr<value_string_t>;
+
 
 struct value_bool_t : public value_t {
     value_bool_t(bool v) { val_bool = v; }
@@ -153,8 +159,10 @@ struct value_bool_t : public value_t {
     virtual bool as_bool() const override { return val_bool; }
     virtual std::string as_string() const override { return val_bool ? "True" : "False"; }
     virtual value clone() const override { return std::make_unique<value_bool_t>(*this); }
+    virtual const func_builtins & get_builtins() const override;
 };
 using value_bool = std::unique_ptr<value_bool_t>;
+
 
 struct value_array_t : public value_t {
     value_array_t() {
@@ -184,8 +192,10 @@ struct value_array_t : public value_t {
         tmp->val_arr = this->val_arr;
         return tmp;
     }
+    virtual const func_builtins & get_builtins() const override;
 };
 using value_array = std::unique_ptr<value_array_t>;
+
 
 struct value_object_t : public value_t {
     value_object_t() {
@@ -208,8 +218,10 @@ struct value_object_t : public value_t {
         tmp->val_obj = this->val_obj;
         return tmp;
     }
+    virtual const func_builtins & get_builtins() const override;
 };
 using value_object = std::unique_ptr<value_object_t>;
+
 
 struct value_func_t : public value_t {
     value_func_t(func_handler & func) {
@@ -223,12 +235,14 @@ struct value_func_t : public value_t {
 };
 using value_func = std::unique_ptr<value_func_t>;
 
+
 struct value_null_t : public value_t {
     virtual std::string type() const override { return "Null"; }
     virtual bool is_null() const override { return true; }
     virtual value clone() const override { return std::make_unique<value_null_t>(*this); }
 };
 using value_null = std::unique_ptr<value_null_t>;
+
 
 struct value_undefined_t : public value_t {
     virtual std::string type() const override { return "Undefined"; }

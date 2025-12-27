@@ -142,7 +142,17 @@ value binary_expression::execute(context & ctx) {
 
 value filter_expression::execute(context & ctx) {
     value input = operand->execute(ctx);
-    // value filter_func = filter->execute(ctx);
+
+    auto try_builtin = [&](const std::string & name) -> value {
+        auto builtins = input->get_builtins();
+        auto it = builtins.find(name);
+        if (it != builtins.end()) {
+            func_args args;
+            args.args.push_back(input->clone());
+            return it->second(args);
+        }
+        return nullptr;
+    };
 
     if (is_stmt<identifier>(filter)) {
         auto filter_val = dynamic_cast<identifier*>(filter.get())->value;
@@ -154,43 +164,42 @@ value filter_expression::execute(context & ctx) {
 
         if (is_val<value_array>(input)) {
             auto & arr = input->as_array();
-            if (filter_val == "list") {
-                return std::make_unique<value_array_t>(input);
-            } else if (filter_val == "first") {
-                if (arr.empty()) {
-                    return std::make_unique<value_undefined_t>();
-                }
-                return arr[0]->clone();
-            } else if (filter_val == "last") {
-                if (arr.empty()) {
-                    return std::make_unique<value_undefined_t>();
-                }
-                return arr[arr.size() - 1]->clone();
-            } else if (filter_val == "length") {
-                return std::make_unique<value_int_t>(static_cast<int64_t>(arr.size()));
-            } else {
-                // TODO: reverse, sort, join, string, unique
-                throw std::runtime_error("Unknown filter '" + filter_val + "' for array");
+            auto res = try_builtin(filter_val);
+            if (res) {
+                return res;
             }
+            throw std::runtime_error("Unknown filter '" + filter_val + "' for array");
 
         } else if (is_val<value_string>(input)) {
             auto str = input->as_string();
             auto builtins = input->get_builtins();
-            auto it = builtins.find(filter_val);
-            if (it != builtins.end()) {
-                func_args args;
-                args.args.push_back(input->clone());
-                return it->second(args);
+            if (filter_val == "trim") {
+                filter_val = "strip"; // alias
+            }
+            auto res = try_builtin(filter_val);
+            if (res) {
+                return res;
             }
             throw std::runtime_error("Unknown filter '" + filter_val + "' for string");
 
         } else if (is_val<value_int>(input) || is_val<value_float>(input)) {
-            // TODO
+            auto res = try_builtin(filter_val);
+            if (res) {
+                return res;
+            }
             throw std::runtime_error("Unknown filter '" + filter_val + "' for number");
 
         } else {
             throw std::runtime_error("Filters not supported for type " + input->type());
         }
+
+    } else if (is_stmt<call_expression>(filter)) {
+        // TODO
+        // value filter_func = filter->execute(ctx);
+        throw std::runtime_error("Filter with arguments not implemented");
+
+    } else {
+        throw std::runtime_error("Invalid filter expression");
     }
 }
 
