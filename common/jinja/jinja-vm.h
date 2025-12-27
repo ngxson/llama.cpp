@@ -23,7 +23,7 @@ struct context {
 struct statement {
     virtual ~statement() = default;
     virtual std::string type() const { return "Statement"; }
-    virtual value execute(context & ctx) { throw std::runtime_error("cannot exec " + type()); };
+    virtual value execute(context & ctx) { throw std::runtime_error("cannot exec " + type()); }
 };
 
 using statement_ptr = std::unique_ptr<statement>;

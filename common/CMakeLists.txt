@@ -84,8 +84,12 @@ add_library(${TARGET} STATIC
     unicode.cpp
     unicode.h
     jinja/jinja-lexer.cpp
+    jinja/jinja-lexer.h
     jinja/jinja-parser.cpp
+    jinja/jinja-parser.h
     jinja/jinja-vm.cpp
+    jinja/jinja-vm.h
+    jinja/jinja-vm-builtins.cpp
     )
 
 target_include_directories(${TARGET} PUBLIC . ../vendor)
