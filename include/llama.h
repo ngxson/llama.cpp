@@ -155,6 +155,7 @@ extern "C" {
         // LLAMA_FTYPE_MOSTLY_Q3_HIFI_OLD = 39, // removed - replaced by Q3_HIFI (41)
         // LLAMA_FTYPE_MOSTLY_Q3_HIFI_UNIFORM = 40, // removed - uniform version, superseded by adaptive
         LLAMA_FTYPE_MOSTLY_Q3_HIFI       = 41, // Adaptive: Q3_HIFI on sensitive layers, Q4_K/Q3_K elsewhere
+        LLAMA_FTYPE_MOSTLY_Q4_HIFI_M     = 42, // Smart Q5_K allocation: Q5_K on attn_v/ffn_gate/embd, Q6_K on ffn_down/output
 
         LLAMA_FTYPE_GUESSED = 1024, // not specified in the model file
     };
