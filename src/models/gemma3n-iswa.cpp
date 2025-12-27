@@ -248,9 +248,9 @@ ggml_tensor * llm_build_gemma3n_iswa::view_2d_slice(ggml_tensor * x, int idx) {
 // equivalent to get_per_layer_inputs() in python code
 // output shape: [n_embd_altup, n_layer, n_tokens]
 ggml_tensor * llm_build_gemma3n_iswa::get_per_layer_inputs() {
-    auto          inp = std::make_unique<llm_graph_input_embd>();
     ggml_tensor * inp_per_layer;
     if (ubatch.token) {
+        auto inp = std::make_unique<llm_graph_input_embd>();
         inp->tokens = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, ubatch.n_tokens);
         ggml_set_input(inp->tokens);
         res->t_tokens = inp->tokens;
@@ -258,54 +258,20 @@ ggml_tensor * llm_build_gemma3n_iswa::get_per_layer_inputs() {
         inp_per_layer = ggml_reshape_3d(ctx0, inp_per_layer, n_embd_altup, n_layer, n_tokens);
         inp_per_layer = ggml_scale(ctx0, inp_per_layer, sqrtf((float) n_embd_altup));
         cb(inp_per_layer, "inp_per_layer_selected", -1);
+        res->add_input(std::move(inp));
     } else {
-        // For embedding inputs (e.g., from vision encoder)
-        // Vision tokens should use the padding token (ID=0) embedding
-        // from tok_embd_per_layer, NOT project the vision embeddings.
-        // The projection happens later in project_per_layer_inputs().
-        // This matches PyTorch behavior:
-        //   per_layer_inputs_tokens = torch.where(mask, input_ids, torch.zeros_like(input_ids))
-        //   per_layer_inputs = EmbedPerLayer(per_layer_inputs_tokens)  # Uses padding (0) for vision
-
-        inp->embd = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, n_embd, n_tokens);
-        ggml_set_input(inp->embd);
-
-        // tok_embd_per_layer shape: [embd_size, vocab_size] where embd_size = n_embd_altup * n_layer
+        // Vision embedding path: use padding token (ID=0) embedding
         const int64_t embd_size = model.tok_embd_per_layer->ne[0];  // n_embd_altup * n_layer
 
-        // Create zeros tensor [embd_size, n_tokens] by projecting vision embeddings and multiplying by 0
-        // First, project inp->embd [n_embd, n_tokens] to per-layer space [embd_size, n_tokens]
-        ggml_tensor * zeros_per_layer = ggml_mul_mat(ctx0, model.per_layer_model_proj, inp->embd);
-        zeros_per_layer = ggml_scale(ctx0, zeros_per_layer, 0.0f);  // Multiply by 0 to get zeros
-        ggml_set_name(zeros_per_layer, "zeros_per_layer");
+        // Extract and dequantize padding token embedding (column 0)
+        ggml_tensor * padding_q = ggml_view_1d(ctx0, model.tok_embd_per_layer, embd_size, 0);
+        ggml_tensor * padding_f32 = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, embd_size);
+        inp_per_layer = ggml_cpy(ctx0, padding_q, padding_f32);
 
-        // Extract column 0 (padding token's embedding) as a vector: [embd_size]
-        // Note: tok_embd_per_layer is quantized (q8_0), so the view is also q8_0
-        ggml_tensor * padding_embd_vec_q = ggml_view_1d(ctx0, model.tok_embd_per_layer,
-                                                         embd_size,  // number of elements
-                                                         0);         // offset (column 0)
-        ggml_set_name(padding_embd_vec_q, "padding_token_emb_q8");
-
-        // Dequantize to f32 using ggml_cpy
-        ggml_tensor * padding_embd_vec_f32 = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, embd_size);
-        ggml_tensor * padding_embd_vec = ggml_cpy(ctx0, padding_embd_vec_q, padding_embd_vec_f32);
-        ggml_set_name(padding_embd_vec, "padding_token_emb_f32");
-
-        // Reshape to [embd_size, 1] for broadcasting
-        ggml_tensor * padding_embd_col = ggml_reshape_2d(ctx0, padding_embd_vec, embd_size, 1);
-
-        // Add: zeros [embd_size, n_tokens] + padding [embd_size, 1] = broadcasted padding [embd_size, n_tokens]
-        ggml_tensor * inp_per_layer_flat = ggml_add(ctx0, zeros_per_layer, padding_embd_col);
-        ggml_set_name(inp_per_layer_flat, "inp_per_layer_broadcasted");
-
-        // Reshape to [n_embd_altup, n_layer, n_tokens] for per-layer processing
-        inp_per_layer = ggml_reshape_3d(ctx0, inp_per_layer_flat, n_embd_altup, n_layer, n_tokens);
-
-        // Apply same scaling as text tokens
-        // inp_per_layer = ggml_scale(ctx0, inp_per_layer, sqrtf((float) n_embd_altup));
+        // Reshape to [n_embd_altup, n_layer, 1]
+        inp_per_layer = ggml_reshape_3d(ctx0, inp_per_layer, n_embd_altup, n_layer, 1);
         cb(inp_per_layer, "inp_per_layer_vision", -1);
     }
-    res->add_input(std::move(inp));
     return inp_per_layer;
 }
 
@@ -323,7 +289,7 @@ ggml_tensor * llm_build_gemma3n_iswa::project_per_layer_inputs(ggml_tensor * inp
                                               -1);  // [n_embd_altup, n_layer, n_tokens]
     cb(per_layer_proj, "per_layer_proj", -1);
 
-    inp_per_layer = ggml_add(ctx0, inp_per_layer, per_layer_proj);
+    inp_per_layer = ggml_add(ctx0, per_layer_proj, inp_per_layer);
     inp_per_layer = ggml_scale(ctx0, inp_per_layer, per_layer_input_scale);
     cb(inp_per_layer, "inp_per_layer", -1);
 
