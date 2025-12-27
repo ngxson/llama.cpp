@@ -13,8 +13,17 @@
 namespace jinja {
 
 struct context {
-    std::ostringstream out;
     std::map<std::string, value> var;
+
+    context() = default;
+    ~context() = default;
+
+    context(const context & parent) {
+        // inherit variables (for example, when entering a new scope)
+        for (const auto & pair : parent.var) {
+            var[pair.first] = pair.second->clone();
+        }
+    }
 };
 
 /**
@@ -59,7 +68,9 @@ struct program : public statement {
 
     explicit program(statements && body) : body(std::move(body)) {}
     std::string type() const override { return "Program"; }
-    value execute(context & ctx) override {}
+    value execute(context & ctx) override {
+        throw std::runtime_error("Cannot execute program directly, use jinja::vm instead");
+    }
 };
 
 struct if_statement : public statement {
@@ -73,7 +84,7 @@ struct if_statement : public statement {
     }
 
     std::string type() const override { return "If"; }
-    value execute(context & ctx) override {}
+    value execute(context & ctx) override;
 };
 
 struct identifier;
@@ -97,17 +108,17 @@ struct for_statement : public statement {
     }
 
     std::string type() const override { return "For"; }
-    value execute(context & ctx) override {}
+    value execute(context & ctx) override;
 };
 
 struct break_statement : public statement {
     std::string type() const override { return "Break"; }
-    value execute(context & ctx) override {}
+    value execute(context & ctx) override;
 };
 
 struct continue_statement : public statement {
     std::string type() const override { return "Continue"; }
-    value execute(context & ctx) override {}
+    value execute(context & ctx) override;
 };
 
 struct set_statement : public statement {
@@ -122,7 +133,7 @@ struct set_statement : public statement {
     }
 
     std::string type() const override { return "Set"; }
-    value execute(context & ctx) override {}
+    value execute(context & ctx) override;
 };
 
 struct macro_statement : public statement {

@@ -203,4 +203,24 @@ value filter_expression::execute(context & ctx) {
     }
 }
 
+value if_statement::execute(context & ctx) {
+    throw std::runtime_error("if_statement::execute not implemented");
+}
+
+value for_statement::execute(context & ctx) {
+    throw std::runtime_error("for_statement::execute not implemented");
+}
+
+value break_statement::execute(context & ctx) {
+    throw std::runtime_error("break_statement::execute not implemented");
+}
+
+value continue_statement::execute(context & ctx) {
+    throw std::runtime_error("continue_statement::execute not implemented");
+}
+
+value set_statement::execute(context & ctx) {
+    throw std::runtime_error("set_statement::execute not implemented");
+}
+
 } // namespace jinja
