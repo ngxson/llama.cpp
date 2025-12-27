@@ -112,13 +112,13 @@ struct continue_statement : public statement {
 
 struct set_statement : public statement {
     statement_ptr assignee;
-    statement_ptr value;
+    statement_ptr val;
     statements body;
 
     set_statement(statement_ptr && assignee, statement_ptr && value, statements && body)
-        : assignee(std::move(assignee)), value(std::move(value)), body(std::move(body)) {
+        : assignee(std::move(assignee)), val(std::move(value)), body(std::move(body)) {
         chk_type<expression>(this->assignee);
-        chk_type<expression>(this->value);
+        chk_type<expression>(this->val);
     }
 
     std::string type() const override { return "Set"; }
@@ -141,8 +141,8 @@ struct macro_statement : public statement {
 };
 
 struct comment_statement : public statement {
-    std::string value;
-    explicit comment_statement(const std::string & value) : value(value) {}
+    std::string val;
+    explicit comment_statement(const std::string & v) : val(v) {}
     std::string type() const override { return "Comment"; }
     value execute(context & ctx) override {}
 };
@@ -266,6 +266,7 @@ struct filter_expression : public expression {
         chk_type<identifier, call_expression>(this->filter);
     }
     std::string type() const override { return "FilterExpression"; }
+    value execute(context & ctx) override;
 };
 
 struct filter_statement : public statement {
