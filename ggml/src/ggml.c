@@ -740,6 +740,14 @@ static const struct ggml_type_traits type_traits[GGML_TYPE_COUNT] = {
         .to_float                 = (ggml_to_float_t) dequantize_row_q3_hifi,
         .from_float_ref           = (ggml_from_float_t) quantize_row_q3_hifi_ref,
     },
+    [GGML_TYPE_Q6_K_HIFI] = {
+        .type_name                = "Q6_K_HIFI",
+        .blck_size                = QK_K,
+        .type_size                = sizeof(block_q6_k_hifi),
+        .is_quantized             = true,
+        .to_float                 = (ggml_to_float_t) dequantize_row_q6_k_hifi,
+        .from_float_ref           = (ggml_from_float_t) quantize_row_q6_k_hifi_ref,
+    },
     [GGML_TYPE_Q4_K] = {
         .type_name                = "q4_K",
         .blck_size                = QK_K,

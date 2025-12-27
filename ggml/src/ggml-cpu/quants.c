@@ -96,6 +96,12 @@ void quantize_row_q6_K(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, i
     quantize_row_q6_K_ref(x, y, k);
 }
 
+void quantize_row_q6_k_hifi(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
+    assert(k % QK_K == 0);
+    block_q6_k_hifi * GGML_RESTRICT y = vy;
+    quantize_row_q6_k_hifi_ref(x, y, k);
+}
+
 // ====================== Ternary (de)-quantization (BitNet b1.58 and TriLMs)
 
 void quantize_row_tq1_0(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {

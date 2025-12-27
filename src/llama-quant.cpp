@@ -222,6 +222,10 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                      ftype == LLAMA_FTYPE_MOSTLY_IQ1_M) {
                 new_type = GGML_TYPE_Q5_K;
             }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI) {
+                // Q4_KM_HIFI: Q6_K_HIFI (Q6_K + 4 outliers) on output for max precision
+                new_type = GGML_TYPE_Q6_K_HIFI;
+            }
             else if (new_type != GGML_TYPE_Q8_0) {
                 new_type = GGML_TYPE_Q6_K;
             }
@@ -254,6 +258,10 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_HIFI_M) {
                 // Q4_HIFI_M: Q5_K on token embeddings (sensitive to quantization)
                 new_type = GGML_TYPE_Q5_K;
+            }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI) {
+                // Q4_KM_HIFI: Q6_K_HIFI (Q6_K + 4 outliers) on token embeddings
+                new_type = GGML_TYPE_Q6_K_HIFI;
             }
         }
     } else if (ftype == LLAMA_FTYPE_MOSTLY_IQ2_XXS || ftype == LLAMA_FTYPE_MOSTLY_IQ2_XS || ftype == LLAMA_FTYPE_MOSTLY_IQ1_S ||
@@ -306,6 +314,14 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_HIFI_M) {
             // Q4_HIFI_M v2: Q5_K only on early layers (0-10) - most sensitive to quantization
             new_type = qs.i_attention_wv <= 10 ? GGML_TYPE_Q5_K : GGML_TYPE_Q4_K;
+        }
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI) {
+            // Q4_KM_HIFI: Q6_K_HIFI on early layers (0-5) for max precision, Q6_K elsewhere (like Q4_K_M)
+            if (qs.i_attention_wv <= 5) {
+                new_type = GGML_TYPE_Q6_K_HIFI;
+            } else if (use_more_bits(qs.i_attention_wv, qs.n_attention_wv)) {
+                new_type = GGML_TYPE_Q6_K;  // Follow Q4_K_M behavior for other layers
+            }
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L) new_type = GGML_TYPE_Q5_K;
         else if ((ftype == LLAMA_FTYPE_MOSTLY_IQ4_NL || ftype == LLAMA_FTYPE_MOSTLY_IQ4_XS) && qs.model.hparams.n_gqa() >= 4) {
@@ -377,7 +393,8 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L) {
             new_type = arch == LLM_ARCH_FALCON ? GGML_TYPE_Q4_K : GGML_TYPE_Q5_K;
         }
-        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M) {
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI) {
+            // Q4_KM_HIFI follows Q4_K_M behavior for ffn_down
             if (arch == LLM_ARCH_FALCON) {
                 new_type = i_layer < n_layer/16 ? GGML_TYPE_Q6_K :
                            use_more_bits(i_layer, n_layer) ? GGML_TYPE_Q5_K : GGML_TYPE_Q4_K;
@@ -427,7 +444,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             ftype == LLAMA_FTYPE_MOSTLY_Q3_HIFI) {
             new_type = GGML_TYPE_Q4_K;
         }
-        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M) new_type = GGML_TYPE_Q5_K;
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI) new_type = GGML_TYPE_Q5_K;
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_M) new_type = GGML_TYPE_Q6_K;
     }
     else if (name.find("ffn_gate") != std::string::npos) {
@@ -599,6 +616,7 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
         case LLAMA_FTYPE_MOSTLY_IQ3_M:   default_type = GGML_TYPE_IQ3_S;   break;
         case LLAMA_FTYPE_MOSTLY_Q3_HIFI: default_type = GGML_TYPE_Q3_K;    break; // Adaptive: Q3_K base, Q3_HIFI on sensitive layers
         case LLAMA_FTYPE_MOSTLY_Q4_HIFI_M: default_type = GGML_TYPE_Q4_K; break; // Smart allocation: Q5_K on sensitive, Q6_K on important
+        case LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI: default_type = GGML_TYPE_Q4_K; break; // Q4_K_M + Q6_K_HIFI outliers on critical tensors
 
         default: throw std::runtime_error(format("invalid output file type %d\n", ftype));
     }
