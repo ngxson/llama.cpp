@@ -112,7 +112,8 @@ GGML_API void dequantize_row_q6_k_hifi(const block_q6_k_hifi * GGML_RESTRICT x, 
 GGML_API size_t quantize_q6_k_hifi(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
 
 // Q6_K_HIFI_DYNAMIC: Dynamic outlier count (2-8) based on layer sensitivity + early exit optimization
-GGML_API void quantize_row_q6_k_hifi_dynamic_ref(const float * GGML_RESTRICT x, block_q6_k_hifi_dynamic * GGML_RESTRICT y, int64_t k, int outlier_count);
+GGML_API void quantize_row_q6_k_hifi_dynamic_ref(const float * GGML_RESTRICT x, block_q6_k_hifi_dynamic * GGML_RESTRICT y, int64_t k);
+GGML_API void quantize_row_q6_k_hifi_dynamic_ref_ex(const float * GGML_RESTRICT x, block_q6_k_hifi_dynamic * GGML_RESTRICT y, int64_t k, int outlier_count);
 GGML_API void dequantize_row_q6_k_hifi_dynamic(const block_q6_k_hifi_dynamic * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 GGML_API size_t quantize_q6_k_hifi_dynamic(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
 

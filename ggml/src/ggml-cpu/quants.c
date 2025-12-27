@@ -105,8 +105,8 @@ void quantize_row_q6_k_hifi(const float * GGML_RESTRICT x, void * GGML_RESTRICT 
 void quantize_row_q6_k_hifi_dynamic(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
     assert(k % QK_K == 0);
     block_q6_k_hifi_dynamic * GGML_RESTRICT y = vy;
-    // Default to 6 outliers for generic quantization path
-    quantize_row_q6_k_hifi_dynamic_ref(x, y, k, Q6_K_HIFI_DYNAMIC_DEFAULT_OUTLIERS);
+    // Uses default outlier count (6) via the 3-argument wrapper
+    quantize_row_q6_k_hifi_dynamic_ref(x, y, k);
 }
 
 // ====================== Ternary (de)-quantization (BitNet b1.58 and TriLMs)

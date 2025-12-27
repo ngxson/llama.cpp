@@ -384,13 +384,14 @@ typedef struct {
     uint8_t qh[QK_K/4];      // 64 bytes: quants, upper 2 bits
     int8_t  scales[QK_K/16]; // 16 bytes: scales, quantized with 8 bits
     ggml_half d;             // 2 bytes: super-block scale
-    // === DYNAMIC OUTLIER EXTENSION (25 bytes) ===
+    // === DYNAMIC OUTLIER EXTENSION (26 bytes with padding) ===
     uint8_t outlier_count;                              // 1 byte: actual outlier count (2-8)
     uint8_t outlier_idx[Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS];    // 8 bytes: outlier positions (0-255)
+    uint8_t _padding;                                   // 1 byte: padding for ggml_half alignment
     ggml_half outlier_vals[Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS]; // 16 bytes: FP16 outlier values
 } block_q6_k_hifi_dynamic;
-// Total: 235 bytes (210 + 25)
-static_assert(sizeof(block_q6_k_hifi_dynamic) == sizeof(block_q6_K) + 1 + Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS + Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS*sizeof(ggml_half), "wrong q6_k_hifi_dynamic block size/padding");
+// Total: 236 bytes (210 + 26)
+static_assert(sizeof(block_q6_k_hifi_dynamic) == sizeof(block_q6_K) + 2 + Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS + Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS*sizeof(ggml_half), "wrong q6_k_hifi_dynamic block size/padding");
 
 // This is only used for intermediate quantization and dot products
 typedef struct {

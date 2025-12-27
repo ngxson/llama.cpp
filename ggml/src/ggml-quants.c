@@ -2182,7 +2182,8 @@ size_t quantize_q6_k_hifi(const float * GGML_RESTRICT src, void * GGML_RESTRICT 
 // - Includes early-exit optimization: skip outlier correction when |activation| < threshold
 // ================================================================================================
 
-void quantize_row_q6_k_hifi_dynamic_ref(const float * GGML_RESTRICT x, block_q6_k_hifi_dynamic * GGML_RESTRICT y, int64_t k, int outlier_count) {
+// Extended version with explicit outlier count parameter
+void quantize_row_q6_k_hifi_dynamic_ref_ex(const float * GGML_RESTRICT x, block_q6_k_hifi_dynamic * GGML_RESTRICT y, int64_t k, int outlier_count) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;
 
@@ -2194,8 +2195,9 @@ void quantize_row_q6_k_hifi_dynamic_ref(const float * GGML_RESTRICT x, block_q6_
         const float * xb = x + ib * QK_K;
         block_q6_k_hifi_dynamic * block = &y[ib];
 
-        // Store the outlier count
+        // Store the outlier count and initialize padding
         block->outlier_count = (uint8_t)outlier_count;
+        block->_padding = 0;
 
         // Step 1: Find top-k outliers by magnitude
         float mag[QK_K];
@@ -2240,6 +2242,11 @@ void quantize_row_q6_k_hifi_dynamic_ref(const float * GGML_RESTRICT x, block_q6_
     }
 }
 
+// 3-argument wrapper for ggml_from_float_t compatibility (uses default outlier count)
+void quantize_row_q6_k_hifi_dynamic_ref(const float * GGML_RESTRICT x, block_q6_k_hifi_dynamic * GGML_RESTRICT y, int64_t k) {
+    quantize_row_q6_k_hifi_dynamic_ref_ex(x, y, k, Q6_K_HIFI_DYNAMIC_DEFAULT_OUTLIERS);
+}
+
 static void quantize_row_q6_k_hifi_dynamic_impl(const float * GGML_RESTRICT x, block_q6_k_hifi_dynamic * GGML_RESTRICT y, int64_t k, const float * GGML_RESTRICT quant_weights, int outlier_count) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;
@@ -2254,6 +2261,7 @@ static void quantize_row_q6_k_hifi_dynamic_impl(const float * GGML_RESTRICT x, b
         block_q6_k_hifi_dynamic * block = &y[ib];
 
         block->outlier_count = (uint8_t)outlier_count;
+        block->_padding = 0;
 
         // Find top-k outliers using imatrix-weighted importance
         float importance[QK_K];
@@ -2329,7 +2337,7 @@ size_t quantize_q6_k_hifi_dynamic(const float * GGML_RESTRICT src, void * GGML_R
     if (!quant_weights) {
         char * qrow = (char *)dst;
         for (int64_t row = 0; row < nrow; ++row) {
-            quantize_row_q6_k_hifi_dynamic_ref(src, (block_q6_k_hifi_dynamic*)qrow, n_per_row, outlier_count);
+            quantize_row_q6_k_hifi_dynamic_ref_ex(src, (block_q6_k_hifi_dynamic*)qrow, n_per_row, outlier_count);
             src += n_per_row;
             qrow += row_size;
         }
