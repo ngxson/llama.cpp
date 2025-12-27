@@ -5,6 +5,7 @@
 #include <map>
 #include <functional>
 #include <memory>
+#include <sstream>
 
 
 namespace jinja {
@@ -144,6 +145,8 @@ using value_float = std::unique_ptr<value_float_t>;
 
 
 struct value_string_t : public value_t {
+    bool is_user_input = false; // may skip parsing special tokens if true
+
     value_string_t(const std::string & v) { val_str = v; }
     virtual std::string type() const override { return "String"; }
     virtual std::string as_string() const override { return val_str; }
@@ -191,6 +194,16 @@ struct value_array_t : public value_t {
         auto tmp = std::make_unique<value_array_t>();
         tmp->val_arr = this->val_arr;
         return tmp;
+    }
+    virtual std::string as_string() const override {
+        std::ostringstream ss;
+        ss << "[";
+        for (size_t i = 0; i < val_arr->size(); i++) {
+            if (i > 0) ss << ", ";
+            ss << val_arr->at(i)->as_string();
+        }
+        ss << "]";
+        return ss.str();
     }
     virtual const func_builtins & get_builtins() const override;
 };

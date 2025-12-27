@@ -197,7 +197,7 @@ const func_builtins & value_string_t::get_builtins() const {
         }},
     };
     return builtins;
-};
+}
 
 
 const func_builtins & value_bool_t::get_builtins() const {

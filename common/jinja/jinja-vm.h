@@ -171,6 +171,7 @@ struct member_expression : public expression {
         chk_type<expression>(this->property);
     }
     std::string type() const override { return "MemberExpression"; }
+    value execute(context & ctx) override;
 };
 
 struct call_expression : public expression {
@@ -189,9 +190,10 @@ struct call_expression : public expression {
  * Represents a user-defined variable or symbol in the template.
  */
 struct identifier : public expression {
-    std::string value;
-    explicit identifier(const std::string & value) : value(value) {}
+    std::string val;
+    explicit identifier(const std::string & val) : val(val) {}
     std::string type() const override { return "Identifier"; }
+    value execute(context & ctx) override;
 };
 
 // Literals

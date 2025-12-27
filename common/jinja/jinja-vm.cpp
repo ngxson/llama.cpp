@@ -8,11 +8,25 @@
 #include <memory>
 #include <algorithm>
 
+#define JJ_DEBUG(msg, ...)  printf("jinja-vm: " msg "\n", __VA_ARGS__)
+//#define JJ_DEBUG(msg, ...)  // no-op
+
 namespace jinja {
 
 template<typename T>
 static bool is_stmt(const statement_ptr & ptr) {
     return dynamic_cast<const T*>(ptr.get()) != nullptr;
+}
+
+value identifier::execute(context & ctx) {
+    auto it = ctx.var.find(val);
+    if (it != ctx.var.end()) {
+        JJ_DEBUG("Identifier '%s' found", val.c_str());
+        return it->second->clone();
+    } else {
+        JJ_DEBUG("Identifier '%s' not found, returning undefined", val.c_str());
+        return mk_val<value_undefined>();
+    }
 }
 
 value binary_expression::execute(context & ctx) {
@@ -151,11 +165,11 @@ value filter_expression::execute(context & ctx) {
             args.args.push_back(input->clone());
             return it->second(args);
         }
-        return nullptr;
+        throw std::runtime_error("Unknown (built-in) filter '" + name + "' for type " + input->type());
     };
 
     if (is_stmt<identifier>(filter)) {
-        auto filter_val = dynamic_cast<identifier*>(filter.get())->value;
+        auto filter_val = dynamic_cast<identifier*>(filter.get())->val;
 
         if (filter_val == "to_json") {
             // TODO: Implement to_json filter
@@ -204,7 +218,15 @@ value filter_expression::execute(context & ctx) {
 }
 
 value if_statement::execute(context & ctx) {
-    throw std::runtime_error("if_statement::execute not implemented");
+    value test_val = test->execute(ctx);
+    auto out = mk_val<value_array>();
+    if (test_val->as_bool()) {
+        for (auto & stmt : body) {
+            JJ_DEBUG("Executing if body statement of type %s", stmt->type().c_str());
+            out->val_arr->push_back(stmt->execute(ctx));
+        }
+    }
+    return out;
 }
 
 value for_statement::execute(context & ctx) {
@@ -221,6 +243,81 @@ value continue_statement::execute(context & ctx) {
 
 value set_statement::execute(context & ctx) {
     throw std::runtime_error("set_statement::execute not implemented");
+}
+
+value member_expression::execute(context & ctx) {
+    value object = this->object->execute(ctx);
+
+    value property;
+    if (this->computed) {
+        property = this->property->execute(ctx);
+    } else {
+        property = mk_val<value_string>(dynamic_cast<identifier*>(this->property.get())->val);
+    }
+
+    value val = mk_val<value_undefined>();
+
+    if (is_val<value_object>(object)) {
+        if (!is_val<value_string>(property)) {
+            throw std::runtime_error("Cannot access object with non-string: got " + property->type());
+        }
+        auto key = property->as_string();
+        auto & obj = object->as_object();
+        auto it = obj.find(key);
+        if (it != obj.end()) {
+            val = it->second->clone();
+        } else {
+            auto builtins = object->get_builtins();
+            auto bit = builtins.find(key);
+            if (bit != builtins.end()) {
+                func_args args;
+                args.args.push_back(object->clone());
+                val = bit->second(args);
+            }
+        }
+
+    } else if (is_val<value_array>(object) || is_val<value_string>(object)) {
+        if (is_val<value_int>(property)) {
+            int64_t index = property->as_int();
+            if (is_val<value_array>(object)) {
+                auto & arr = object->as_array();
+                if (index >= 0 && index < static_cast<int64_t>(arr.size())) {
+                    val = arr[index]->clone();
+                }
+            } else { // value_string
+                auto str = object->as_string();
+                if (index >= 0 && index < static_cast<int64_t>(str.size())) {
+                    val = mk_val<value_string>(std::string(1, str[index]));
+                }
+            }
+        } else if (is_val<value_string>(property)) {
+            auto key = property->as_string();
+            auto builtins = object->get_builtins();
+            auto bit = builtins.find(key);
+            if (bit != builtins.end()) {
+                func_args args;
+                args.args.push_back(object->clone());
+                val = bit->second(args);
+            }
+        } else {
+            throw std::runtime_error("Cannot access property with non-string/non-number: got " + property->type());
+        }
+
+    } else {
+        if (!is_val<value_string>(property)) {
+            throw std::runtime_error("Cannot access property with non-string: got " + property->type());
+        }
+        auto key = property->as_string();
+        auto builtins = object->get_builtins();
+        auto bit = builtins.find(key);
+        if (bit != builtins.end()) {
+            func_args args;
+            args.args.push_back(object->clone());
+            val = bit->second(args);
+        }
+    }
+
+    return val;
 }
 
 } // namespace jinja
