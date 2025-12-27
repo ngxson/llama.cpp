@@ -474,7 +474,7 @@ private:
         while (!is(token::close_square_bracket)) {
             if (is(token::colon)) {
                 // A case where a default is used
-			// e.g., [:2] will be parsed as [undefined, 2]
+			    // e.g., [:2] will be parsed as [undefined, 2]
                 slices.push_back(nullptr);
                 ++current; // consume colon
                 is_slice = true;

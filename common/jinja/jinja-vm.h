@@ -1,16 +1,20 @@
 #pragma once
+
 #include "jinja-lexer.h"
+#include "jinja-value.h"
 
 #include <string>
 #include <vector>
 #include <cassert>
 #include <memory>
+#include <sstream>
 
 
 namespace jinja {
 
 struct context {
-    // TODO
+    std::ostringstream out;
+    std::map<std::string, value> var;
 };
 
 /**
@@ -19,7 +23,7 @@ struct context {
 struct statement {
     virtual ~statement() = default;
     virtual std::string type() const { return "Statement"; }
-    virtual void execute(context & ctx) = 0;
+    virtual value execute(context & ctx) = 0;
 };
 
 using statement_ptr = std::unique_ptr<statement>;
@@ -46,7 +50,6 @@ static void chk_type(const statement_ptr & ptr) {
  */
 struct expression : public statement {
     std::string type() const override { return "Expression"; }
-    void execute(context & ctx) override {}
 };
 
 // Statements
@@ -56,7 +59,7 @@ struct program : public statement {
 
     explicit program(statements && body) : body(std::move(body)) {}
     std::string type() const override { return "Program"; }
-    void execute(context & ctx) override {}
+    value execute(context & ctx) override {}
 };
 
 struct if_statement : public statement {
@@ -70,7 +73,7 @@ struct if_statement : public statement {
     }
 
     std::string type() const override { return "If"; }
-    void execute(context & ctx) override {}
+    value execute(context & ctx) override {}
 };
 
 struct identifier;
@@ -94,17 +97,17 @@ struct for_statement : public statement {
     }
 
     std::string type() const override { return "For"; }
-    void execute(context & ctx) override {}
+    value execute(context & ctx) override {}
 };
 
 struct break_statement : public statement {
     std::string type() const override { return "Break"; }
-    void execute(context & ctx) override {}
+    value execute(context & ctx) override {}
 };
 
 struct continue_statement : public statement {
     std::string type() const override { return "Continue"; }
-    void execute(context & ctx) override {}
+    value execute(context & ctx) override {}
 };
 
 struct set_statement : public statement {
@@ -119,7 +122,7 @@ struct set_statement : public statement {
     }
 
     std::string type() const override { return "Set"; }
-    void execute(context & ctx) override {}
+    value execute(context & ctx) override {}
 };
 
 struct macro_statement : public statement {
@@ -134,14 +137,14 @@ struct macro_statement : public statement {
     }
 
     std::string type() const override { return "Macro"; }
-    void execute(context & ctx) override {}
+    value execute(context & ctx) override {}
 };
 
 struct comment_statement : public statement {
     std::string value;
     explicit comment_statement(const std::string & value) : value(value) {}
     std::string type() const override { return "Comment"; }
-    void execute(context & ctx) override {}
+    value execute(context & ctx) override {}
 };
 
 // Expressions
@@ -246,6 +249,7 @@ struct binary_expression : public expression {
         chk_type<expression>(this->right);
     }
     std::string type() const override { return "BinaryExpression"; }
+    value execute(context & ctx) override;
 };
 
 /**
@@ -273,7 +277,7 @@ struct filter_statement : public statement {
         chk_type<identifier, call_expression>(this->filter);
     }
     std::string type() const override { return "FilterStatement"; }
-    void execute(context & ctx) override {}
+    value execute(context & ctx) override {}
 };
 
 /**
@@ -369,7 +373,7 @@ struct call_statement : public statement {
         for (const auto& arg : this->caller_args) chk_type<expression>(arg);
     }
     std::string type() const override { return "CallStatement"; }
-    void execute(context & ctx) override {}
+    value execute(context & ctx) override {}
 };
 
 struct ternary_expression : public expression {
