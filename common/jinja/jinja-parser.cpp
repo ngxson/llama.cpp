@@ -1,5 +1,6 @@
 #include "jinja-lexer.h"
 #include "jinja-vm.h"
+#include "jinja-parser.h"
 
 #include <string>
 #include <vector>
@@ -22,12 +23,12 @@ class parser {
 public:
     parser(const std::vector<token> & t) : tokens(t) {}
 
-    statement_ptr parse() {
+    program parse() {
         statements body;
         while (current < tokens.size()) {
             body.push_back(parse_any());
         }
-        return std::make_unique<program>(std::move(body));
+        return program(std::move(body));
     }
 
 private:
@@ -320,7 +321,7 @@ private:
     statement_ptr parse_logical_or_expression() {
         auto left = parse_logical_and_expression();
         while (is_identifier("or")) {
-            auto op = tokens[current++];
+            token op = tokens[current++];
             left = std::make_unique<binary_expression>(op, std::move(left), parse_logical_and_expression());
         }
         return left;
@@ -538,7 +539,7 @@ private:
     }
 };
 
-statement_ptr parse(const std::vector<token>& tokens) {
+program parse_from_tokens(const std::vector<token> & tokens) {
     return parser(tokens).parse();
 }
 

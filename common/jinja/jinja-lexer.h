@@ -1,3 +1,5 @@
+#pragma once
+
 #include <vector>
 #include <string>
 #include <map>
@@ -48,7 +50,7 @@ struct token {
     std::string value;
 };
 
-std::string type_to_string(token::type t) {
+static std::string type_to_string(token::type t) {
     switch (t) {
         case token::undefined: return "undefined";
         case token::text: return "text";

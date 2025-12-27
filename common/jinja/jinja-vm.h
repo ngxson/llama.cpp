@@ -1,3 +1,4 @@
+#pragma once
 #include "jinja-lexer.h"
 
 #include <string>
@@ -181,26 +182,21 @@ struct identifier : public expression {
 
 // Literals
 
-/**
- * Abstract base class for all Literal expressions.
- * Should not be instantiated directly.
- */
-template <typename T>
-struct literal : public expression {
-    T value;
-    explicit literal(T && value) : value(std::move(value)) {}
-    std::string type() const override { return "Literal"; }
-};
-
-struct integer_literal : public literal<int64_t> { 
+struct integer_literal : public expression { 
+    int64_t value;
+    explicit integer_literal(int64_t value) : value(value) {}
     std::string type() const override { return "IntegerLiteral"; }
 };
 
-struct float_literal : public literal<double> {
+struct float_literal : public expression {
+    double value;
+    explicit float_literal(double value) : value(value) {}
     std::string type() const override { return "FloatLiteral"; }
 };
 
-struct string_literal : public literal<std::string> {
+struct string_literal : public expression {
+    std::string value;
+    explicit string_literal(const std::string & value) : value(value) {}
     std::string type() const override { return "StringLiteral"; }
 };
 
@@ -240,11 +236,11 @@ struct object_literal : public expression {
  * of operations being determined by the operator.
  */
 struct binary_expression : public expression {
-    token::type op;
+    token op;
     statement_ptr left;
     statement_ptr right;
 
-    binary_expression(token::type op, statement_ptr && left, statement_ptr && right)
+    binary_expression(token op, statement_ptr && left, statement_ptr && right)
         : op(op), left(std::move(left)), right(std::move(right)) {
         chk_type<expression>(this->left);
         chk_type<expression>(this->right);
