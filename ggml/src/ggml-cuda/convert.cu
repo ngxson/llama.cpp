@@ -325,6 +325,46 @@ static __global__ void dequantize_block_q6_k_hifi(const void * __restrict__ vx, 
     }
 }
 
+// Q6_K_HIFI_DYNAMIC: Q6_K with 2-8 dynamic FP16 outliers based on layer sensitivity
+template<typename dst_t>
+static __global__ void dequantize_block_q6_k_hifi_dynamic(const void * __restrict__ vx, dst_t * __restrict__ yy) {
+    const block_q6_k_hifi_dynamic * x = (const block_q6_k_hifi_dynamic *) vx;
+
+    const int64_t i = blockIdx.x;
+
+    // Q6_K bulk dequantization (same as dequantize_block_q6_K)
+    const int64_t tid = threadIdx.x;
+    const int64_t ip  = tid/32;   // ip is 0 or 1
+    const int64_t il  = tid - 32*ip; // 0...32
+    const int64_t is  = 8*ip + il/16;
+
+    dst_t * y = yy + i*QK_K + 128*ip + il;
+
+    const float d = x[i].d;
+
+    const uint8_t * ql = x[i].ql + 64*ip + il;
+    const uint8_t   qh = x[i].qh[32*ip + il];
+    const int8_t  * sc = x[i].scales + is;
+
+    y[ 0] = d * sc[0] * ((int8_t)((ql[ 0] & 0xF) | (((qh >> 0) & 3) << 4)) - 32);
+    y[32] = d * sc[2] * ((int8_t)((ql[32] & 0xF) | (((qh >> 2) & 3) << 4)) - 32);
+    y[64] = d * sc[4] * ((int8_t)((ql[ 0]  >> 4) | (((qh >> 4) & 3) << 4)) - 32);
+    y[96] = d * sc[6] * ((int8_t)((ql[32]  >> 4) | (((qh >> 6) & 3) << 4)) - 32);
+
+    // Thread 0 handles dynamic outlier restoration (2-8 outliers)
+    __syncthreads();
+    if (threadIdx.x == 0) {
+        dst_t * yb = yy + i*QK_K;
+        const int outlier_count = x[i].outlier_count;
+        const __half * outlier_vals = reinterpret_cast<const __half*>(x[i].outlier_vals);
+        // Loop only up to actual outlier count (dynamic)
+        for (int k = 0; k < outlier_count && k < Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS; ++k) {
+            const int idx = x[i].outlier_idx[k];
+            yb[idx] = __half2float(outlier_vals[k]);
+        }
+    }
+}
+
 template<typename dst_t>
 static __global__ void dequantize_block_iq2_xxs(const void * __restrict__ vx, dst_t * __restrict__ yy) {
 
@@ -650,6 +690,12 @@ static void dequantize_row_q6_k_hifi_cuda(const void * vx, dst_t * y, const int6
 }
 
 template<typename dst_t>
+static void dequantize_row_q6_k_hifi_dynamic_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
+    const int nb = k / QK_K;
+    dequantize_block_q6_k_hifi_dynamic<<<nb, 64, 0, stream>>>(vx, y);
+}
+
+template<typename dst_t>
 static void dequantize_row_iq2_xxs_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
     const int nb = k / QK_K;
     dequantize_block_iq2_xxs<<<nb, 32, 0, stream>>>(vx, y);
@@ -778,6 +824,8 @@ to_fp16_cuda_t ggml_get_to_fp16_cuda(ggml_type type) {
             return dequantize_row_q3_hifi_cuda;
         case GGML_TYPE_Q6_K_HIFI:
             return dequantize_row_q6_k_hifi_cuda;
+        case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
+            return dequantize_row_q6_k_hifi_dynamic_cuda;
         case GGML_TYPE_Q4_K:
             return dequantize_row_q4_K_cuda;
         case GGML_TYPE_Q5_K:
@@ -833,6 +881,8 @@ to_fp32_cuda_t ggml_get_to_fp32_cuda(ggml_type type) {
             return dequantize_row_q3_hifi_cuda;
         case GGML_TYPE_Q6_K_HIFI:
             return dequantize_row_q6_k_hifi_cuda;
+        case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
+            return dequantize_row_q6_k_hifi_dynamic_cuda;
         case GGML_TYPE_Q4_K:
             return dequantize_row_q4_K_cuda;
         case GGML_TYPE_Q5_K:

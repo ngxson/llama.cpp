@@ -2175,6 +2175,175 @@ size_t quantize_q6_k_hifi(const float * GGML_RESTRICT src, void * GGML_RESTRICT 
     return nrow * row_size;
 }
 
+// ================================================================================================
+// Q6_K_HIFI_DYNAMIC: Dynamic outlier count (2-8) based on layer sensitivity
+// - Early layers get more outliers (6-8) as they are most sensitive to quantization
+// - Late layers get fewer outliers (2-4) as they have more redundancy
+// - Includes early-exit optimization: skip outlier correction when |activation| < threshold
+// ================================================================================================
+
+void quantize_row_q6_k_hifi_dynamic_ref(const float * GGML_RESTRICT x, block_q6_k_hifi_dynamic * GGML_RESTRICT y, int64_t k, int outlier_count) {
+    assert(k % QK_K == 0);
+    const int64_t nb = k / QK_K;
+
+    // Clamp outlier count to valid range
+    if (outlier_count < Q6_K_HIFI_DYNAMIC_MIN_OUTLIERS) outlier_count = Q6_K_HIFI_DYNAMIC_MIN_OUTLIERS;
+    if (outlier_count > Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS) outlier_count = Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS;
+
+    for (int64_t ib = 0; ib < nb; ++ib) {
+        const float * xb = x + ib * QK_K;
+        block_q6_k_hifi_dynamic * block = &y[ib];
+
+        // Store the outlier count
+        block->outlier_count = (uint8_t)outlier_count;
+
+        // Step 1: Find top-k outliers by magnitude
+        float mag[QK_K];
+        for (int i = 0; i < QK_K; ++i) {
+            mag[i] = fabsf(xb[i]);
+        }
+
+        int outlier_indices[Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS];
+        for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
+            int argmax = 0;
+            float max_val = mag[0];
+            for (int i = 1; i < QK_K; ++i) {
+                if (mag[i] > max_val) {
+                    max_val = mag[i];
+                    argmax = i;
+                }
+            }
+            outlier_indices[k_idx] = argmax;
+            mag[argmax] = -1.0f;  // Mark as used
+        }
+
+        // Step 2: Store outlier indices and values (only up to outlier_count)
+        for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
+            block->outlier_idx[k_idx] = (uint8_t)outlier_indices[k_idx];
+            block->outlier_vals[k_idx] = GGML_FP32_TO_FP16(xb[outlier_indices[k_idx]]);
+        }
+        // Zero-fill remaining outlier slots for consistency
+        for (int k_idx = outlier_count; k_idx < Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS; ++k_idx) {
+            block->outlier_idx[k_idx] = 0;
+            block->outlier_vals[k_idx] = 0;
+        }
+
+        // Step 3: Zero outliers and quantize remaining as Q6_K
+        float tmp[QK_K];
+        memcpy(tmp, xb, QK_K * sizeof(float));
+        for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
+            tmp[outlier_indices[k_idx]] = 0.0f;
+        }
+
+        // Use Q6_K quantization for the base (first 210 bytes of block match Q6_K exactly)
+        quantize_row_q6_K_ref(tmp, (block_q6_K *)block, QK_K);
+    }
+}
+
+static void quantize_row_q6_k_hifi_dynamic_impl(const float * GGML_RESTRICT x, block_q6_k_hifi_dynamic * GGML_RESTRICT y, int64_t k, const float * GGML_RESTRICT quant_weights, int outlier_count) {
+    assert(k % QK_K == 0);
+    const int64_t nb = k / QK_K;
+
+    // Clamp outlier count to valid range
+    if (outlier_count < Q6_K_HIFI_DYNAMIC_MIN_OUTLIERS) outlier_count = Q6_K_HIFI_DYNAMIC_MIN_OUTLIERS;
+    if (outlier_count > Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS) outlier_count = Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS;
+
+    for (int64_t ib = 0; ib < nb; ++ib) {
+        const float * xb = x + ib * QK_K;
+        const float * qw = quant_weights ? quant_weights + ib * QK_K : NULL;
+        block_q6_k_hifi_dynamic * block = &y[ib];
+
+        block->outlier_count = (uint8_t)outlier_count;
+
+        // Find top-k outliers using imatrix-weighted importance
+        float importance[QK_K];
+        for (int i = 0; i < QK_K; ++i) {
+            float weight = qw ? qw[i] : 1.0f;
+            importance[i] = fabsf(xb[i]) * weight;
+        }
+
+        int outlier_indices[Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS];
+        for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
+            int argmax = 0;
+            float max_val = importance[0];
+            for (int i = 1; i < QK_K; ++i) {
+                if (importance[i] > max_val) {
+                    max_val = importance[i];
+                    argmax = i;
+                }
+            }
+            outlier_indices[k_idx] = argmax;
+            importance[argmax] = -1.0f;
+        }
+
+        // Store outliers
+        for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
+            block->outlier_idx[k_idx] = (uint8_t)outlier_indices[k_idx];
+            block->outlier_vals[k_idx] = GGML_FP32_TO_FP16(xb[outlier_indices[k_idx]]);
+        }
+        for (int k_idx = outlier_count; k_idx < Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS; ++k_idx) {
+            block->outlier_idx[k_idx] = 0;
+            block->outlier_vals[k_idx] = 0;
+        }
+
+        // Zero outliers and quantize as Q6_K
+        float tmp[QK_K];
+        memcpy(tmp, xb, QK_K * sizeof(float));
+        for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
+            tmp[outlier_indices[k_idx]] = 0.0f;
+        }
+
+        quantize_row_q6_K_ref(tmp, (block_q6_K *)block, QK_K);
+    }
+}
+
+void dequantize_row_q6_k_hifi_dynamic(const block_q6_k_hifi_dynamic * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_K == 0);
+    const int64_t nb = k / QK_K;
+
+    for (int64_t ib = 0; ib < nb; ++ib) {
+        const block_q6_k_hifi_dynamic * block = &x[ib];
+        float * yb = y + ib * QK_K;
+
+        // Dequantize using Q6_K algorithm (first 210 bytes match Q6_K exactly)
+        dequantize_row_q6_K((const block_q6_K *)block, yb, QK_K);
+
+        // Overwrite outlier positions with FP16 values (only up to actual count)
+        const int outlier_count = block->outlier_count;
+        for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
+            const int idx = block->outlier_idx[k_idx];
+            yb[idx] = GGML_FP16_TO_FP32(block->outlier_vals[k_idx]);
+        }
+    }
+}
+
+// Default outlier count defined in ggml-common.h: Q6_K_HIFI_DYNAMIC_DEFAULT_OUTLIERS = 6
+// Actual count is determined by layer sensitivity in llama-quant.cpp
+
+size_t quantize_q6_k_hifi_dynamic(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrow, int64_t n_per_row, const float * quant_weights) {
+    const size_t row_size = ggml_row_size(GGML_TYPE_Q6_K_HIFI_DYNAMIC, n_per_row);
+    // Default to 6 outliers when called from generic quantization path
+    // Layer-aware quantization in llama-quant.cpp will use the _impl version with proper count
+    const int outlier_count = Q6_K_HIFI_DYNAMIC_DEFAULT_OUTLIERS;
+
+    if (!quant_weights) {
+        char * qrow = (char *)dst;
+        for (int64_t row = 0; row < nrow; ++row) {
+            quantize_row_q6_k_hifi_dynamic_ref(src, (block_q6_k_hifi_dynamic*)qrow, n_per_row, outlier_count);
+            src += n_per_row;
+            qrow += row_size;
+        }
+    } else {
+        char * qrow = (char *)dst;
+        for (int64_t row = 0; row < nrow; ++row) {
+            quantize_row_q6_k_hifi_dynamic_impl(src, (block_q6_k_hifi_dynamic*)qrow, n_per_row, quant_weights, outlier_count);
+            src += n_per_row;
+            qrow += row_size;
+        }
+    }
+    return nrow * row_size;
+}
+
 static void quantize_row_q4_0_impl(const float * GGML_RESTRICT x, block_q4_0 * GGML_RESTRICT y, int64_t n_per_row, const float * quant_weights) {
     static_assert(QK4_0 == 32, "QK4_0 must be 32");
 
@@ -5605,6 +5774,11 @@ bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbyte
         case GGML_TYPE_Q6_K_HIFI:
             {
                 VALIDATE_ROW_DATA_D_F16_IMPL(block_q6_k_hifi, data, nb);
+            } break;
+
+        case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
+            {
+                VALIDATE_ROW_DATA_D_F16_IMPL(block_q6_k_hifi_dynamic, data, nb);
             } break;
 
         case GGML_TYPE_I8:

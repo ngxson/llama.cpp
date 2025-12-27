@@ -291,6 +291,12 @@ static const struct ggml_type_traits_cpu type_traits_cpu[GGML_TYPE_COUNT] = {
         .vec_dot_type             = GGML_TYPE_Q8_K,
         .nrows                    = 1,
     },
+    [GGML_TYPE_Q6_K_HIFI_DYNAMIC] = {
+        .from_float               = quantize_row_q6_k_hifi_dynamic,
+        .vec_dot                  = ggml_vec_dot_q6_k_hifi_dynamic_q8_K, // Custom kernel with early exit
+        .vec_dot_type             = GGML_TYPE_Q8_K,
+        .nrows                    = 1,
+    },
     [GGML_TYPE_Q4_K] = {
         .from_float               = quantize_row_q4_K,
         .vec_dot                  = ggml_vec_dot_q4_K_q8_K,

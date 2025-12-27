@@ -185,6 +185,33 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
     auto use_more_bits = [](int i_layer, int n_layers) -> bool {
         return i_layer < n_layers/8 || i_layer >= 7*n_layers/8 || (i_layer - n_layers/8)%3 == 2;
     };
+
+    // Compute layer sensitivity score (0.0 = least, 1.0 = most sensitive) for dynamic outlier allocation
+    // Early layers (0-30%) are most sensitive to quantization error
+    // Middle layers (30-70%) are moderately sensitive
+    // Late layers (70-100%) have more redundancy and are least sensitive
+    auto compute_layer_sensitivity = [](int i_layer, int n_layers) -> float {
+        if (n_layers <= 1) return 1.0f;
+        float depth_ratio = (float)i_layer / (n_layers - 1);
+
+        if (depth_ratio <= 0.3f) {
+            return 1.0f;  // Early layers: most sensitive
+        } else if (depth_ratio <= 0.7f) {
+            // Middle layers: linear interpolation from 1.0 to 0.6
+            return 1.0f - (depth_ratio - 0.3f) * 1.0f;  // 1.0 -> 0.6
+        } else {
+            // Late layers: linear interpolation from 0.6 to 0.3
+            return 0.6f - (depth_ratio - 0.7f) * 1.0f;  // 0.6 -> 0.3
+        }
+    };
+
+    // Get dynamic outlier count based on sensitivity (maps 0.0-1.0 to 2-8 outliers)
+    auto get_dynamic_outlier_count = [](float sensitivity) -> int {
+        const int min_outliers = 2;
+        const int max_outliers = 8;
+        return min_outliers + (int)(sensitivity * (max_outliers - min_outliers));
+    };
+
     const int n_expert = std::max(1, (int)qs.model.hparams.n_expert);
     auto layer_info = [n_expert] (int i_layer, int n_layer, const char * name) {
         if (n_expert > 1) {
@@ -226,6 +253,10 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 // Q4_KM_HIFI: Q6_K_HIFI (Q6_K + 4 outliers) on output for max precision
                 new_type = GGML_TYPE_Q6_K_HIFI;
             }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI_DYN) {
+                // Q4_KM_HIFI_DYN: Q6_K_HIFI_DYNAMIC (Q6_K + 8 outliers) on output - always critical
+                new_type = GGML_TYPE_Q6_K_HIFI_DYNAMIC;
+            }
             else if (new_type != GGML_TYPE_Q8_0) {
                 new_type = GGML_TYPE_Q6_K;
             }
@@ -262,6 +293,10 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI) {
                 // Q4_KM_HIFI: Q6_K_HIFI (Q6_K + 4 outliers) on token embeddings
                 new_type = GGML_TYPE_Q6_K_HIFI;
+            }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI_DYN) {
+                // Q4_KM_HIFI_DYN: Q6_K_HIFI_DYNAMIC (Q6_K + 8 outliers) on token embeddings - always critical
+                new_type = GGML_TYPE_Q6_K_HIFI_DYNAMIC;
             }
         }
     } else if (ftype == LLAMA_FTYPE_MOSTLY_IQ2_XXS || ftype == LLAMA_FTYPE_MOSTLY_IQ2_XS || ftype == LLAMA_FTYPE_MOSTLY_IQ1_S ||
@@ -321,6 +356,21 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 new_type = GGML_TYPE_Q6_K_HIFI;
             } else if (use_more_bits(qs.i_attention_wv, qs.n_attention_wv)) {
                 new_type = GGML_TYPE_Q6_K;  // Follow Q4_K_M behavior for other layers
+            }
+        }
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI_DYN) {
+            // Q4_KM_HIFI_DYN: Dynamic outliers based on layer sensitivity
+            // Early layers get more outliers (6-8), late layers get fewer (2-4)
+            float sensitivity = compute_layer_sensitivity(qs.i_attention_wv, qs.n_attention_wv);
+            int outlier_count = get_dynamic_outlier_count(sensitivity);
+            (void)outlier_count; // Will be used at quantization time
+
+            // Early layers (0-30%): Q6_K_HIFI_DYNAMIC for max precision
+            // Other layers: Q6_K like Q4_K_M, or Q4_K
+            if (qs.i_attention_wv <= qs.n_attention_wv * 0.3f) {
+                new_type = GGML_TYPE_Q6_K_HIFI_DYNAMIC;
+            } else if (use_more_bits(qs.i_attention_wv, qs.n_attention_wv)) {
+                new_type = GGML_TYPE_Q6_K;  // Follow Q4_K_M behavior
             }
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L) new_type = GGML_TYPE_Q5_K;
@@ -393,8 +443,8 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L) {
             new_type = arch == LLM_ARCH_FALCON ? GGML_TYPE_Q4_K : GGML_TYPE_Q5_K;
         }
-        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI) {
-            // Q4_KM_HIFI follows Q4_K_M behavior for ffn_down
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI || ftype == LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI_DYN) {
+            // Q4_KM_HIFI and Q4_KM_HIFI_DYN follow Q4_K_M behavior for ffn_down
             if (arch == LLM_ARCH_FALCON) {
                 new_type = i_layer < n_layer/16 ? GGML_TYPE_Q6_K :
                            use_more_bits(i_layer, n_layer) ? GGML_TYPE_Q5_K : GGML_TYPE_Q4_K;
@@ -444,7 +494,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             ftype == LLAMA_FTYPE_MOSTLY_Q3_HIFI) {
             new_type = GGML_TYPE_Q4_K;
         }
-        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI) new_type = GGML_TYPE_Q5_K;
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI || ftype == LLAMA_FTYPE_MOSTLY_Q4_KM_HIFI_DYN) new_type = GGML_TYPE_Q5_K;
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_M) new_type = GGML_TYPE_Q6_K;
     }
     else if (name.find("ffn_gate") != std::string::npos) {

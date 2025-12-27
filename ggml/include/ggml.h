@@ -427,7 +427,8 @@ extern "C" {
         GGML_TYPE_MXFP4   = 39, // MXFP4 (1 block)
         GGML_TYPE_Q3_HIFI = 40, // Q3_HIFI: Q3_K layout + 8 FP16 outliers per block
         GGML_TYPE_Q6_K_HIFI = 41, // Q6_K_HIFI: Q6_K layout + 4 FP16 outliers for critical tensors
-        GGML_TYPE_COUNT   = 42,
+        GGML_TYPE_Q6_K_HIFI_DYNAMIC = 42, // Q6_K_HIFI_DYNAMIC: Q6_K + 2-8 outliers based on layer sensitivity
+        GGML_TYPE_COUNT   = 43,
     };
 
     // precision
