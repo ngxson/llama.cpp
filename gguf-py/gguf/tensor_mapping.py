@@ -135,9 +135,6 @@ class TensorNameMap:
         MODEL_TENSOR.V_ENC_CONV_STEM: (
             "model.vision_tower.timm_model.conv_stem.conv", # gemma3n
         ),
-        MODEL_TENSOR.V_ENC_CONV_STEM_BIAS: (
-            "model.vision_tower.timm_model.conv_stem.conv.bias", # gemma3n
-        ),
         MODEL_TENSOR.V_ENC_CONV_STEM_NORM: (
             "model.vision_tower.timm_model.conv_stem.bn", # gemma3n
         ),

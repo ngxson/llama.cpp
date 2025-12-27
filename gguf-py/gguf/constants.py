@@ -670,7 +670,6 @@ class MODEL_TENSOR(IntEnum):
     V_MM_EMBEDDING       = auto() # gemma3n
     V_MM_HARD_EMB_NORM   = auto() # gemma3n
     V_ENC_CONV_STEM       = auto() # gemma3n
-    V_ENC_CONV_STEM_BIAS  = auto() # gemma3n
     V_ENC_CONV_STEM_NORM  = auto() # gemma3n
     V_ENC_MSFA_EXP        = auto() # gemma3n
     V_ENC_MSFA_EXP_NORM   = auto() # gemma3n
@@ -1072,7 +1071,6 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.V_MM_EMBEDDING:            "mm.embedding",                 # gemma3n
     MODEL_TENSOR.V_MM_HARD_EMB_NORM:        "mm.hard_emb_norm",             # gemma3n
     MODEL_TENSOR.V_ENC_CONV_STEM:           "v.conv_stem.conv",         # gemma3n
-    MODEL_TENSOR.V_ENC_CONV_STEM_BIAS:      "v.conv_stem.conv.bias",    # gemma3n
     MODEL_TENSOR.V_ENC_CONV_STEM_NORM:      "v.conv_stem.bn",           # gemma3n
     MODEL_TENSOR.V_ENC_MSFA_EXP:            "v.msfa.ffn.pw_exp.conv",   # gemma3n
     MODEL_TENSOR.V_ENC_MSFA_EXP_NORM:       "v.msfa.ffn.pw_exp.bn",     # gemma3n
@@ -1180,7 +1178,6 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.V_MM_EMBEDDING,
         MODEL_TENSOR.V_MM_HARD_EMB_NORM,
         MODEL_TENSOR.V_ENC_CONV_STEM,
-        MODEL_TENSOR.V_ENC_CONV_STEM_BIAS,
         MODEL_TENSOR.V_ENC_CONV_STEM_NORM,
         MODEL_TENSOR.V_ENC_MSFA_EXP,
         MODEL_TENSOR.V_ENC_MSFA_EXP_NORM,
