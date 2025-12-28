@@ -89,7 +89,9 @@ add_library(${TARGET} STATIC
     jinja/jinja-parser.h
     jinja/jinja-vm.cpp
     jinja/jinja-vm.h
-    jinja/jinja-vm-builtins.cpp
+    jinja/jinja-value.cpp
+    jinja/jinja-value.h
+    jinja/jinja-string.h
     )
 
 target_include_directories(${TARGET} PUBLIC . ../vendor)

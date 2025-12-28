@@ -19,22 +19,6 @@ void enable_debug(bool enable) {
     g_jinja_debug = enable;
 }
 
-// func_args method implementations
-
-value func_args::get_kwarg(const std::string & key) const  {
-    for (const auto & arg : args) {
-        if (is_val<value_kwarg>(arg)) {
-            auto * kwarg = cast_val<value_kwarg>(arg);
-            if (kwarg->key == key) {
-                return kwarg->val;
-            }
-        }
-    }
-    return mk_val<value_undefined>();
-}
-
-// utils
-
 static value_array exec_statements(const statements & stmts, context & ctx) {
     auto result = mk_val<value_array>();
     for (const auto & stmt : stmts) {
