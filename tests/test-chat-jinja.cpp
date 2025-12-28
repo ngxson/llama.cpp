@@ -11,11 +11,11 @@
 #include "jinja/jinja-lexer.h"
 
 int main(void) {
-    //std::string contents = "{% if messages[0]['role'] == 'system' %}{{ raise_exception('System role not supported') }}{% endif %}{% for message in messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}{% endif %}{% if (message['role'] == 'assistant') %}{% set role = 'model' %}{% else %}{% set role = message['role'] %}{% endif %}{{ '<start_of_turn>' + role + '\\n' + message['content'] | trim + '<end_of_turn>\\n' }}{% endfor %}{% if add_generation_prompt %}{{'<start_of_turn>model\\n'}}{% endif %}";
+    std::string contents = "{% if messages[0]['role'] == 'system' %}{{ raise_exception('System role not supported') }}{% endif %}{% for message in messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}{% endif %}{% if (message['role'] == 'assistant') %}{% set role = 'model' %}{% else %}{% set role = message['role'] %}{% endif %}{{ '<start_of_turn>' + role + '\\n' + message['content'] | trim + '<end_of_turn>\\n' }}{% endfor %}{% if add_generation_prompt %}{{'<start_of_turn>model\\n'}}{% endif %}";
 
     //std::string contents = "{% if messages[0]['role'] != 'system' %}nice {{ messages[0]['content'] }}{% endif %}";
 
-    std::string contents = "<some_tokens> {{ messages[0]['content'] }} <another_token>";
+    //std::string contents = "<some_tokens> {{ messages[0]['content'] }} <another_token>";
 
     std::cout << "=== INPUT ===\n" << contents << "\n\n";
 
@@ -34,11 +34,11 @@ int main(void) {
         std::cout << "stmt type: " << stmt->type() << "\n";
     }
 
-    std::cout << "\n=== OUTPUT ===\n";
+    std::cout << "\n=== RUN ===\n";
     jinja::context ctx;
 
     auto make_non_special_string = [](const std::string & s) {
-        jinja::value_string str_val = std::make_unique<jinja::value_string_t>(s);
+        jinja::value_string str_val = jinja::mk_val<jinja::value_string>(s);
         str_val->is_user_input = true;
         return str_val;
     };
@@ -57,7 +57,12 @@ int main(void) {
 
     jinja::vm vm(ctx);
     auto results = vm.execute(ast);
+
+    std::cout << "\n=== RESULTS ===\n";
     for (const auto & res : results) {
+        if (res->is_null()) {
+            continue;
+        }
         auto str_ptr = dynamic_cast<jinja::value_string_t*>(res.get());
         std::string is_user_input = "false";
         if (str_ptr) {

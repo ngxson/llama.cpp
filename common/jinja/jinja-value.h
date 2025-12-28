@@ -28,8 +28,13 @@ bool is_val(const value & ptr) {
     using PointeeType = typename extract_pointee<T>::type;
     return dynamic_cast<const PointeeType*>(ptr.get()) != nullptr;
 }
+template<typename T>
+bool is_val(const value_t * ptr) {
+    using PointeeType = typename extract_pointee<T>::type;
+    return dynamic_cast<const PointeeType*>(ptr) != nullptr;
+}
 template<typename T, typename... Args>
-value mk_val(Args&&... args) {
+std::unique_ptr<typename extract_pointee<T>::type> mk_val(Args&&... args) {
     using PointeeType = typename extract_pointee<T>::type;
     return std::make_unique<PointeeType>(std::forward<Args>(args)...);
 }
@@ -70,6 +75,8 @@ struct func_args {
 using func_handler = std::function<value(const func_args &)>;
 using func_builtins = std::map<std::string, func_handler>;
 
+bool value_compare(const value & a, const value & b);
+
 struct value_t {
     int64_t val_int;
     double val_flt;
@@ -93,12 +100,12 @@ struct value_t {
 
     virtual std::string type() const { return ""; }
 
-    virtual int64_t as_int() const { throw std::runtime_error("Not an int value"); }
-    virtual double as_float() const { throw std::runtime_error("Not a float value"); }
-    virtual std::string as_string() const { throw std::runtime_error("Not a string value"); }
-    virtual bool as_bool() const { throw std::runtime_error("Not a bool value"); }
-    virtual const std::vector<value> & as_array() const { throw std::runtime_error("Not an array value"); }
-    virtual const std::map<std::string, value> & as_object() const { throw std::runtime_error("Not an object value"); }
+    virtual int64_t as_int() const { throw std::runtime_error(type() + " is not an int value"); }
+    virtual double as_float() const { throw std::runtime_error(type() + " is not a float value"); }
+    virtual std::string as_string() const { throw std::runtime_error(type() + " is not a string value"); }
+    virtual bool as_bool() const { throw std::runtime_error(type() + " is not a bool value"); }
+    virtual const std::vector<value> & as_array() const { throw std::runtime_error(type() + " is not an array value"); }
+    virtual const std::map<std::string, value> & as_object() const { throw std::runtime_error(type() + " is not an object value"); }
     virtual value invoke(const func_args &) const { throw std::runtime_error("Not a function value"); }
     virtual bool is_null() const { return false; }
     virtual bool is_undefined() const { return false; }
@@ -106,16 +113,10 @@ struct value_t {
         throw std::runtime_error("No builtins available for type " + type());
     }
 
+    virtual std::string as_repr() const { return as_string(); }
+
     virtual value clone() const {
         return std::make_unique<value_t>(*this);
-    }
-
-    virtual bool operator==(const value & other) const {
-        // TODO
-        return false;
-    }
-    virtual bool operator!=(const value & other) const {
-        return !(*this == other);
     }
 };
 
@@ -188,8 +189,12 @@ struct value_array_t : public value_t {
             val_arr->push_back(other.val_arr->at(i)->clone());
         }
     }
+    void push_back(const value & val) {
+        val_arr->push_back(val->clone());
+    }
     virtual std::string type() const override { return "Array"; }
     virtual const std::vector<value> & as_array() const override { return *val_arr; }
+    // clone will also share the underlying data (point to the same vector)
     virtual value clone() const override {
         auto tmp = std::make_unique<value_array_t>();
         tmp->val_arr = this->val_arr;
@@ -200,7 +205,7 @@ struct value_array_t : public value_t {
         ss << "[";
         for (size_t i = 0; i < val_arr->size(); i++) {
             if (i > 0) ss << ", ";
-            ss << val_arr->at(i)->as_string();
+            ss << val_arr->at(i)->as_repr();
         }
         ss << "]";
         return ss.str();
@@ -224,8 +229,12 @@ struct value_object_t : public value_t {
             (*val_obj)[pair.first] = pair.second->clone();
         }
     }
+    void insert(const std::string & key, const value & val) {
+        (*val_obj)[key] = val->clone();
+    }
     virtual std::string type() const override { return "Object"; }
     virtual const std::map<std::string, value> & as_object() const override { return *val_obj; }
+    // clone will also share the underlying data (point to the same map)
     virtual value clone() const override {
         auto tmp = std::make_unique<value_object_t>();
         tmp->val_obj = this->val_obj;
@@ -244,6 +253,7 @@ struct value_func_t : public value_t {
         return val_func(args);
     }
     virtual std::string type() const override { return "Function"; }
+    virtual std::string as_repr() const override { return type(); }
     virtual value clone() const override { return std::make_unique<value_func_t>(*this); }
 };
 using value_func = std::unique_ptr<value_func_t>;
@@ -252,6 +262,8 @@ using value_func = std::unique_ptr<value_func_t>;
 struct value_null_t : public value_t {
     virtual std::string type() const override { return "Null"; }
     virtual bool is_null() const override { return true; }
+    virtual bool as_bool() const override { return false; }
+    virtual std::string as_repr() const override { return type(); }
     virtual value clone() const override { return std::make_unique<value_null_t>(*this); }
 };
 using value_null = std::unique_ptr<value_null_t>;
@@ -260,8 +272,13 @@ using value_null = std::unique_ptr<value_null_t>;
 struct value_undefined_t : public value_t {
     virtual std::string type() const override { return "Undefined"; }
     virtual bool is_undefined() const override { return true; }
+    virtual bool as_bool() const override { return false; }
+    virtual std::string as_repr() const override { return type(); }
     virtual value clone() const override { return std::make_unique<value_undefined_t>(*this); }
 };
 using value_undefined = std::unique_ptr<value_undefined_t>;
+
+
+const func_builtins & global_builtins();
 
 } // namespace jinja

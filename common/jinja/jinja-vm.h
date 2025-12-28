@@ -32,7 +32,7 @@ struct context {
 struct statement {
     virtual ~statement() = default;
     virtual std::string type() const { return "Statement"; }
-    virtual value execute(context & ctx) { throw std::runtime_error("cannot exec " + type()); }
+    virtual value execute(context &) { throw std::runtime_error("cannot exec " + type()); }
 };
 
 using statement_ptr = std::unique_ptr<statement>;
@@ -68,7 +68,7 @@ struct program : public statement {
 
     explicit program(statements && body) : body(std::move(body)) {}
     std::string type() const override { return "Program"; }
-    value execute(context & ctx) override {
+    value execute(context &) override {
         throw std::runtime_error("Cannot execute program directly, use jinja::vm instead");
     }
 };
@@ -113,12 +113,30 @@ struct for_statement : public statement {
 
 struct break_statement : public statement {
     std::string type() const override { return "Break"; }
-    value execute(context & ctx) override;
+
+    struct exception : public std::exception {
+        const char* what() const noexcept override {
+            return "Break statement executed";
+        }
+    };
+
+    value execute(context &) override {
+        throw break_statement::exception();
+    }
 };
 
 struct continue_statement : public statement {
     std::string type() const override { return "Continue"; }
-    value execute(context & ctx) override;
+
+    struct exception : public std::exception {
+        const char* what() const noexcept override {
+            return "Continue statement executed";
+        }
+    };
+
+    value execute(context &) override {
+        throw continue_statement::exception();
+    }
 };
 
 struct set_statement : public statement {
@@ -148,14 +166,12 @@ struct macro_statement : public statement {
     }
 
     std::string type() const override { return "Macro"; }
-    value execute(context & ctx) override {}
 };
 
 struct comment_statement : public statement {
     std::string val;
     explicit comment_statement(const std::string & v) : val(v) {}
     std::string type() const override { return "Comment"; }
-    value execute(context & ctx) override {}
 };
 
 // Expressions
@@ -184,6 +200,7 @@ struct call_expression : public expression {
         for (const auto& arg : this->args) chk_type<expression>(arg);
     }
     std::string type() const override { return "CallExpression"; }
+    value execute(context & ctx) override;
 };
 
 /**
@@ -202,7 +219,7 @@ struct integer_literal : public expression {
     int64_t val;
     explicit integer_literal(int64_t val) : val(val) {}
     std::string type() const override { return "IntegerLiteral"; }
-    value execute(context & ctx) override {
+    value execute(context &) override {
         return std::make_unique<value_int_t>(val);
     }
 };
@@ -211,7 +228,7 @@ struct float_literal : public expression {
     double val;
     explicit float_literal(double val) : val(val) {}
     std::string type() const override { return "FloatLiteral"; }
-    value execute(context & ctx) override {
+    value execute(context &) override {
         return std::make_unique<value_float_t>(val);
     }
 };
@@ -220,7 +237,7 @@ struct string_literal : public expression {
     std::string val;
     explicit string_literal(const std::string & val) : val(val) {}
     std::string type() const override { return "StringLiteral"; }
-    value execute(context & ctx) override {
+    value execute(context &) override {
         return std::make_unique<value_string_t>(val);
     }
 };
@@ -300,7 +317,6 @@ struct filter_statement : public statement {
         chk_type<identifier, call_expression>(this->filter);
     }
     std::string type() const override { return "FilterStatement"; }
-    value execute(context & ctx) override {}
 };
 
 /**
@@ -396,7 +412,6 @@ struct call_statement : public statement {
         for (const auto& arg : this->caller_args) chk_type<expression>(arg);
     }
     std::string type() const override { return "CallStatement"; }
-    value execute(context & ctx) override {}
 };
 
 struct ternary_expression : public expression {
@@ -411,6 +426,14 @@ struct ternary_expression : public expression {
         chk_type<expression>(this->false_expr);
     }
     std::string type() const override { return "Ternary"; }
+};
+
+struct raised_exception : public std::exception {
+    std::string message;
+    raised_exception(const std::string & msg) : message(msg) {}
+    const char* what() const noexcept override {
+        return message.c_str();
+    }
 };
 
 //////////////////////

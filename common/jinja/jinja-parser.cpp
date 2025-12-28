@@ -142,11 +142,11 @@ private:
 
         } else if (name == "call") {
             statements caller_args;
-            bool has_caller_args = false;
+            // bool has_caller_args = false;
             if (is(token::open_paren)) {
                 // Optional caller arguments, e.g. {% call(user) dump_users(...) %}
                 caller_args = parse_args();
-                has_caller_args = true;
+                // has_caller_args = true;
             }
             auto callee = parse_primary_expression();
             if (!is_type<identifier>(callee)) throw std::runtime_error("Expected identifier");

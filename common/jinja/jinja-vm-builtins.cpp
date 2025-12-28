@@ -8,6 +8,18 @@
 
 namespace jinja {
 
+const func_builtins & global_builtins() {
+    static const func_builtins builtins = {
+        {"raise_exception", [](const func_args & args) -> value {
+            args.ensure_count(1);
+            std::string msg = args.args[0]->as_string();
+            throw raised_exception("Jinja Exception: " + msg);
+        }},
+    };
+    return builtins;
+}
+
+
 const func_builtins & value_int_t::get_builtins() const {
     static const func_builtins builtins = {
         {"abs", [](const func_args & args) -> value {
@@ -189,10 +201,10 @@ const func_builtins & value_string_t::get_builtins() const {
             args.ensure_vals<value_string>();
             return mk_val<value_string>(args.args[0]->as_string());
         }},
-        {"indent", [](const func_args & args) -> value {
+        {"indent", [](const func_args &) -> value {
             throw std::runtime_error("indent builtin not implemented");
         }},
-        {"join", [](const func_args & args) -> value {
+        {"join", [](const func_args &) -> value {
             throw std::runtime_error("join builtin not implemented");
         }},
     };
@@ -306,6 +318,5 @@ const func_builtins & value_object_t::get_builtins() const {
     };
     return builtins;
 }
-
 
 } // namespace jinja

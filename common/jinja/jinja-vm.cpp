@@ -18,11 +18,24 @@ static bool is_stmt(const statement_ptr & ptr) {
     return dynamic_cast<const T*>(ptr.get()) != nullptr;
 }
 
+static value_array exec_statements(const statements & stmts, context & ctx) {
+    auto result = mk_val<value_array>();
+    for (const auto & stmt : stmts) {
+        JJ_DEBUG("Executing statement of type %s", stmt->type().c_str());
+        result->val_arr->push_back(stmt->execute(ctx));
+    }
+    return result;
+}
+
 value identifier::execute(context & ctx) {
     auto it = ctx.var.find(val);
+    auto builtins = global_builtins();
     if (it != ctx.var.end()) {
         JJ_DEBUG("Identifier '%s' found", val.c_str());
         return it->second->clone();
+    } else if (builtins.find(val) != builtins.end()) {
+        JJ_DEBUG("Identifier '%s' found in builtins", val.c_str());
+        return mk_val<value_func>(builtins.at(val));
     } else {
         JJ_DEBUG("Identifier '%s' not found, returning undefined", val.c_str());
         return mk_val<value_undefined>();
@@ -31,6 +44,7 @@ value identifier::execute(context & ctx) {
 
 value binary_expression::execute(context & ctx) {
     value left_val = left->execute(ctx);
+    JJ_DEBUG("Executing binary expression with operator '%s'", op.value.c_str());
 
     // Logical operators
     if (op.value == "and") {
@@ -42,9 +56,9 @@ value binary_expression::execute(context & ctx) {
     // Equality operators
     value right_val = right->execute(ctx);
     if (op.value == "==") {
-        return mk_val<value_bool>(left_val == right_val);
+        return mk_val<value_bool>(value_compare(left_val, right_val));
     } else if (op.value == "!=") {
-        return mk_val<value_bool>(left_val != right_val);
+        return mk_val<value_bool>(!value_compare(left_val, right_val));
     }
 
     // Handle undefined and null values
@@ -70,6 +84,7 @@ value binary_expression::execute(context & ctx) {
         double b = right_val->as_float();
         if (op.value == "+" || op.value == "-" || op.value == "*") {
             double res = (op.value == "+") ? a + b : (op.value == "-") ? a - b : a * b;
+            JJ_DEBUG("Arithmetic operation: %f %s %f = %f", a, op.value.c_str(), b, res);
             bool is_float = is_val<value_float>(left_val) || is_val<value_float>(right_val);
             if (is_float) {
                 return mk_val<value_float>(res);
@@ -80,6 +95,7 @@ value binary_expression::execute(context & ctx) {
             return mk_val<value_float>(a / b);
         } else if (op.value == "%") {
             double rem = std::fmod(a, b);
+            JJ_DEBUG("Modulo operation: %f %% %f = %f", a, b, rem);
             bool is_float = is_val<value_float>(left_val) || is_val<value_float>(right_val);
             if (is_float) {
                 return mk_val<value_float>(rem);
@@ -123,6 +139,7 @@ value binary_expression::execute(context & ctx) {
 
     // String concatenation
     if (is_val<value_string>(left_val) || is_val<value_string>(right_val)) {
+        JJ_DEBUG("%s", "String concatenation with + operator");
         if (op.value == "+") {
             return mk_val<value_string>(left_val->as_string() + right_val->as_string());
         }
@@ -177,7 +194,6 @@ value filter_expression::execute(context & ctx) {
         }
 
         if (is_val<value_array>(input)) {
-            auto & arr = input->as_array();
             auto res = try_builtin(filter_val);
             if (res) {
                 return res;
@@ -222,7 +238,12 @@ value if_statement::execute(context & ctx) {
     auto out = mk_val<value_array>();
     if (test_val->as_bool()) {
         for (auto & stmt : body) {
-            JJ_DEBUG("Executing if body statement of type %s", stmt->type().c_str());
+            JJ_DEBUG("IF --> Executing THEN body, current block: %s", stmt->type().c_str());
+            out->val_arr->push_back(stmt->execute(ctx));
+        }
+    } else {
+        for (auto & stmt : alternate) {
+            JJ_DEBUG("IF --> Executing ELSE body, current block: %s", stmt->type().c_str());
             out->val_arr->push_back(stmt->execute(ctx));
         }
     }
@@ -230,19 +251,171 @@ value if_statement::execute(context & ctx) {
 }
 
 value for_statement::execute(context & ctx) {
-    throw std::runtime_error("for_statement::execute not implemented");
-}
+    context scope(ctx); // new scope for loop variables
 
-value break_statement::execute(context & ctx) {
-    throw std::runtime_error("break_statement::execute not implemented");
-}
+    statement_ptr iter_expr = std::move(iterable);
+    statement_ptr test_expr = nullptr;
 
-value continue_statement::execute(context & ctx) {
-    throw std::runtime_error("continue_statement::execute not implemented");
+    if (is_stmt<select_expression>(iterable)) {
+        JJ_DEBUG("%s", "For loop has test expression");
+        auto select = dynamic_cast<select_expression*>(iterable.get());
+        iter_expr = std::move(select->lhs);
+        test_expr = std::move(select->test);
+    }
+
+    JJ_DEBUG("Executing for statement, iterable type: %s", iter_expr->type().c_str());
+
+    value iterable_val = iter_expr->execute(scope);
+    if (!is_val<value_array>(iterable_val) && !is_val<value_object>(iterable_val)) {
+        throw std::runtime_error("Expected iterable or object type in for loop: got " + iterable_val->type());
+    }
+
+    std::vector<value> items;
+    if (is_val<value_object>(iterable_val)) {
+        auto & obj = iterable_val->as_object();
+        for (auto & p : obj) {
+            items.push_back(mk_val<value_string>(p.first));
+        }
+    } else {
+        auto & arr = iterable_val->as_array();
+        for (const auto & item : arr) {
+            items.push_back(item->clone());
+        }
+    }
+
+    std::vector<std::function<void(context &)>> scope_update_fns;
+
+    std::vector<value> filtered_items;
+    for (size_t i = 0; i < items.size(); ++i) {
+        context loop_scope(scope);
+
+        const value & current = items[i];
+
+        std::function<void(context&)> scope_update_fn = [](context &) { /* no-op */};
+        if (is_stmt<identifier>(loopvar)) {
+            auto id = dynamic_cast<identifier*>(loopvar.get())->val;
+            scope_update_fn = [id, &items, i](context & ctx) {
+                ctx.var[id] = items[i]->clone();
+            };
+        } else if (is_stmt<tuple_literal>(loopvar)) {
+            auto tuple = dynamic_cast<tuple_literal*>(loopvar.get());
+            if (!is_val<value_array>(current)) {
+                throw std::runtime_error("Cannot unpack non-iterable type: " + current->type());
+            }
+            auto & c_arr = current->as_array();
+            if (tuple->val.size() != c_arr.size()) {
+                throw std::runtime_error(std::string("Too ") + (tuple->val.size() > c_arr.size() ? "few" : "many") + " items to unpack");
+            }
+            scope_update_fn = [tuple, &items, i](context & ctx) {
+                auto & c_arr = items[i]->as_array();
+                for (size_t j = 0; j < tuple->val.size(); ++j) {
+                    if (!is_stmt<identifier>(tuple->val[j])) {
+                        throw std::runtime_error("Cannot unpack non-identifier type: " + tuple->val[j]->type());
+                    }
+                    auto id = dynamic_cast<identifier*>(tuple->val[j].get())->val;
+                    ctx.var[id] = c_arr[j]->clone();
+                }
+            };
+        } else {
+            throw std::runtime_error("Invalid loop variable(s): " + loopvar->type());
+        }
+        if (test_expr) {
+            scope_update_fn(loop_scope);
+            value test_val = test_expr->execute(loop_scope);
+            if (!test_val->as_bool()) {
+                continue;
+            }
+        }
+        filtered_items.push_back(current->clone());
+        scope_update_fns.push_back(scope_update_fn);
+    }
+    
+    auto result = mk_val<value_array>();
+
+    bool noIteration = true;
+    for (size_t i = 0; i < filtered_items.size(); ++i) {
+        JJ_DEBUG("For loop iteration %zu/%zu", i + 1, filtered_items.size());
+        value_object loop_obj = mk_val<value_object>();
+        loop_obj->insert("index", mk_val<value_int>(i + 1));
+        loop_obj->insert("index0", mk_val<value_int>(i));
+        loop_obj->insert("revindex", mk_val<value_int>(filtered_items.size() - i));
+        loop_obj->insert("revindex0", mk_val<value_int>(filtered_items.size() - i - 1));
+        loop_obj->insert("first", mk_val<value_bool>(i == 0));
+        loop_obj->insert("last", mk_val<value_bool>(i == filtered_items.size() - 1));
+        loop_obj->insert("length", mk_val<value_int>(filtered_items.size()));
+        loop_obj->insert("previtem", i > 0 ? filtered_items[i - 1]->clone() : mk_val<value_undefined>());
+        loop_obj->insert("nextitem", i < filtered_items.size() - 1 ? filtered_items[i + 1]->clone() : mk_val<value_undefined>());
+        ctx.var["loop"] = loop_obj->clone();
+        scope_update_fns[i](ctx);
+        try {
+            for (auto & stmt : body) {
+                value val = stmt->execute(ctx);
+                result->push_back(val);
+            }
+        } catch (const continue_statement::exception &) {
+            continue;
+        } catch (const break_statement::exception &) {
+            break;
+        }
+        noIteration = false;
+    }
+    if (noIteration) {
+        for (auto & stmt : default_block) {
+            value val = stmt->execute(ctx);
+            result->push_back(val);
+        }
+    }
+
+    return result;
 }
 
 value set_statement::execute(context & ctx) {
-    throw std::runtime_error("set_statement::execute not implemented");
+    auto rhs = val ? val->execute(ctx) : exec_statements(body, ctx);
+
+    if (is_stmt<identifier>(assignee)) {
+        auto var_name = dynamic_cast<identifier*>(assignee.get())->val;
+        JJ_DEBUG("Setting variable '%s'", var_name.c_str());
+        ctx.var[var_name] = rhs->clone();
+
+    } else if (is_stmt<tuple_literal>(assignee)) {
+        auto tuple = dynamic_cast<tuple_literal*>(assignee.get());
+        if (!is_val<value_array>(rhs)) {
+            throw std::runtime_error("Cannot unpack non-iterable type in set: " + rhs->type());
+        }
+        auto & arr = rhs->as_array();
+        if (arr.size() != tuple->val.size()) {
+            throw std::runtime_error(std::string("Too ") + (tuple->val.size() > arr.size() ? "few" : "many") + " items to unpack in set");
+        }
+        for (size_t i = 0; i < tuple->val.size(); ++i) {
+            auto & elem = tuple->val[i];
+            if (!is_stmt<identifier>(elem)) {
+                throw std::runtime_error("Cannot unpack to non-identifier in set: " + elem->type());
+            }
+            auto var_name = dynamic_cast<identifier*>(elem.get())->val;
+            ctx.var[var_name] = arr[i]->clone();
+        }
+
+    } else if (is_stmt<member_expression>(assignee)) {
+        auto member = dynamic_cast<member_expression*>(assignee.get());
+        value object = member->object->execute(ctx);
+        if (!is_val<value_object>(object)) {
+            throw std::runtime_error("Cannot assign to member of non-object");
+        }
+        if (member->computed) {
+            throw std::runtime_error("Cannot assign to computed member");
+        }
+        if (!is_stmt<identifier>(member->property)) {
+            throw std::runtime_error("Cannot assign to member with non-identifier property");
+        }
+        auto prop_name = dynamic_cast<identifier*>(member->property.get())->val;
+        auto obj_ptr = dynamic_cast<value_object*>(object.get());
+        JJ_DEBUG("Setting object property '%s'", prop_name.c_str());
+        obj_ptr->get()->insert(prop_name, rhs->clone());
+
+    } else {
+        throw std::runtime_error("Invalid LHS inside assignment expression: " + assignee->type());
+    }
+    return mk_val<value_null>();
 }
 
 value member_expression::execute(context & ctx) {
@@ -279,6 +452,7 @@ value member_expression::execute(context & ctx) {
     } else if (is_val<value_array>(object) || is_val<value_string>(object)) {
         if (is_val<value_int>(property)) {
             int64_t index = property->as_int();
+            JJ_DEBUG("Accessing %s index %lld", is_val<value_array>(object) ? "array" : "string", index);
             if (is_val<value_array>(object)) {
                 auto & arr = object->as_array();
                 if (index >= 0 && index < static_cast<int64_t>(arr.size())) {
@@ -292,6 +466,7 @@ value member_expression::execute(context & ctx) {
             }
         } else if (is_val<value_string>(property)) {
             auto key = property->as_string();
+            JJ_DEBUG("Accessing %s built-in '%s'", is_val<value_array>(object) ? "array" : "string", key.c_str());
             auto builtins = object->get_builtins();
             auto bit = builtins.find(key);
             if (bit != builtins.end()) {
@@ -318,6 +493,57 @@ value member_expression::execute(context & ctx) {
     }
 
     return val;
+}
+
+static func_args gather_call_args(const statements & arg_stmts, context & ctx) {
+    func_args args;
+    for (auto & arg_stmt : arg_stmts) {
+        args.args.push_back(arg_stmt->execute(ctx));
+    }
+    return args;
+}
+
+value call_expression::execute(context & ctx) {
+    auto args = gather_call_args(this->args, ctx);
+    value callee_val = callee->execute(ctx);
+    JJ_DEBUG("Calling function of type %s with %zu arguments", callee_val->type().c_str(), args.args.size());
+    if (!is_val<value_t>(callee_val)) {
+        throw std::runtime_error("Callee is not a function: got " + callee_val->type());
+    }
+    return callee_val->invoke(args);
+}
+
+// compare operator for value_t
+bool value_compare(const value & a, const value & b) {
+    JJ_DEBUG("Comparing types: %s and %s", a->type().c_str(), b->type().c_str());
+    // compare numeric types
+    if ((is_val<value_int>(a) || is_val<value_float>(a)) &&
+        (is_val<value_int>(b) || is_val<value_float>(b))){
+        try {
+            return a->as_float() == b->as_float();
+        } catch (...) {}
+    }
+    // compare string and number
+    // TODO: not sure if this is the right behavior
+    if ((is_val<value_string>(b) && (is_val<value_int>(a) || is_val<value_float>(a))) ||
+        (is_val<value_string>(a) && (is_val<value_int>(b) || is_val<value_float>(b)))) {
+        try {
+            return a->as_string() == b->as_string();
+        } catch (...) {}
+    }
+    // compare boolean simple
+    if (is_val<value_bool>(a) && is_val<value_bool>(b)) {
+        return a->as_bool() == b->as_bool();
+    }
+    // compare string simple
+    if (is_val<value_string>(a) && is_val<value_string>(b)) {
+        return a->as_string() == b->as_string();
+    }
+    // compare by type
+    if (a->type() != b->type()) {
+        return false;
+    }
+    return false;
 }
 
 } // namespace jinja
