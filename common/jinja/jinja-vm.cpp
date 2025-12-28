@@ -258,14 +258,14 @@ value filter_expression::execute_impl(context & ctx) {
             filter_id = "strip"; // alias
         }
         JJ_DEBUG("Applying filter '%s' to %s", filter_id.c_str(), input->type().c_str());
-        return try_builtin_func(filter_id, input)->invoke({});
+        return try_builtin_func(filter_id, input)->invoke(func_args(ctx));
 
     } else if (is_stmt<call_expression>(filter)) {
         auto call = cast_stmt<call_expression>(filter);
         auto filter_id = cast_stmt<identifier>(call->callee)->val;
 
         JJ_DEBUG("Applying filter '%s' with arguments to %s", filter_id.c_str(), input->type().c_str());
-        func_args args;
+        func_args args(ctx);
         for (const auto & arg_expr : call->args) {
             args.args.push_back(arg_expr->execute(ctx));
         }
@@ -302,7 +302,7 @@ value test_expression::execute_impl(context & ctx) {
         throw std::runtime_error("Unknown test '" + test_id + "'");
     }
 
-    func_args args;
+    func_args args(ctx);
     args.args.push_back(operand->execute(ctx));
     auto res = it->second(args);
 
@@ -574,7 +574,7 @@ value member_expression::execute_impl(context & ctx) {
                      stop_val->as_repr().c_str(),
                      step_val->as_repr().c_str());
             auto slice_func = try_builtin_func("slice", object);
-            func_args args;
+            func_args args(ctx);
             args.args.push_back(start_val);
             args.args.push_back(stop_val);
             args.args.push_back(step_val);
@@ -643,7 +643,7 @@ value member_expression::execute_impl(context & ctx) {
 
 value call_expression::execute_impl(context & ctx) {
     // gather arguments
-    func_args args;
+    func_args args(ctx);
     for (auto & arg_stmt : this->args) {
         auto arg_val = arg_stmt->execute(ctx);
         JJ_DEBUG("  Argument type: %s", arg_val->type().c_str());

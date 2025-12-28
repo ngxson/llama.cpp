@@ -103,9 +103,8 @@ const func_builtins & global_builtins() {
             std::string format = args.args[0]->as_string().str();
             // get current time
             // TODO: make sure this is the same behavior as Python's strftime
-            std::time_t t = std::time(nullptr);
             char buf[100];
-            if (std::strftime(buf, sizeof(buf), format.c_str(), std::localtime(&t))) {
+            if (std::strftime(buf, sizeof(buf), format.c_str(), std::localtime(&args.ctx.current_time))) {
                 return mk_val<value_string>(std::string(buf));
             } else {
                 throw raised_exception("strftime_now: failed to format time");

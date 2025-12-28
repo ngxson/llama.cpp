@@ -50,10 +50,13 @@ struct context {
     std::map<std::string, value> var;
     std::string source; // for debugging
 
+    std::time_t current_time; // for functions that need current time
+
     context() {
         var["true"] = mk_val<value_bool>(true);
         var["false"] = mk_val<value_bool>(false);
         var["none"] = mk_val<value_null>();
+        current_time = std::time(nullptr);
     }
     ~context() = default;
 

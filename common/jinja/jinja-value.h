@@ -57,9 +57,12 @@ void ensure_val(const value & ptr) {
 }
 // End Helper
 
+struct context; // forward declaration
 
 struct func_args {
     std::vector<value> args;
+    context & ctx;
+    func_args(context & ctx) : ctx(ctx) {}
     void ensure_count(size_t count) const {
         if (args.size() != count) {
             throw std::runtime_error("Expected " + std::to_string(count) + " arguments, got " + std::to_string(args.size()));
@@ -253,7 +256,7 @@ struct value_func_t : public value_t {
     }
     virtual value invoke(const func_args & args) const override {
         if (arg0) {
-            func_args new_args;
+            func_args new_args(args.ctx);
             new_args.args.push_back(arg0);
             for (const auto & a : args.args) {
                 new_args.args.push_back(a);
