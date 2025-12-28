@@ -11,9 +11,13 @@
 
 #define FILENAME "jinja-vm"
 
-bool g_jinja_debug = true;
+bool g_jinja_debug = false;
 
 namespace jinja {
+
+void enable_debug(bool enable) {
+    g_jinja_debug = enable;
+}
 
 // func_args method implementations
 
@@ -271,6 +275,17 @@ value filter_expression::execute_impl(context & ctx) {
     } else {
         throw std::runtime_error("Invalid filter expression");
     }
+}
+
+value filter_statement::execute_impl(context & ctx) {
+    // eval body as string, then apply filter
+    auto body_val = exec_statements(body, ctx);
+    value_string parts = mk_val<value_string>();
+    gather_string_parts_recursive(body_val, parts);
+
+    JJ_DEBUG("FilterStatement: applying filter to body string of length %zu", parts->val_str.length());
+    filter_expression filter_expr(std::move(parts), std::move(filter));
+    return filter_expr.execute(ctx);
 }
 
 value test_expression::execute_impl(context & ctx) {

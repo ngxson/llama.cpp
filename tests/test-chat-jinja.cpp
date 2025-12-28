@@ -45,7 +45,7 @@ int main(void) {
 
 
 void run(std::string contents) {
-    std::cout << "=== INPUT ===\n" << contents << "\n\n";
+    // jinja::enable_debug(true);
 
     jinja::lexer lexer;
     jinja::preprocess_options options;
@@ -53,13 +53,13 @@ void run(std::string contents) {
     options.lstrip_blocks = false;
     auto lexer_res = lexer.tokenize(contents, options);
     for (const auto & tok : lexer_res.tokens) {
-        std::cout << "token: type=" << static_cast<int>(tok.t) << " text='" << tok.value << "' pos=" << tok.pos << "\n";
+        //std::cout << "token: type=" << static_cast<int>(tok.t) << " text='" << tok.value << "' pos=" << tok.pos << "\n";
     }
 
     std::cout << "\n=== AST ===\n";
     jinja::program ast = jinja::parse_from_tokens(lexer_res.tokens);
     for (const auto & stmt : ast.body) {
-        std::cout << "stmt type: " << stmt->type() << "\n";
+        //std::cout << "stmt type: " << stmt->type() << "\n";
     }
 
     std::cout << "\n=== RUN ===\n";
@@ -91,7 +91,7 @@ void run(std::string contents) {
     auto parts = vm.gather_string_parts(results);
 
     std::cout << "\n=== RESULTS ===\n";
-    for (const auto & part : parts) {
+    for (const auto & part : parts.get()->val_str.parts) {
         std::cout << (part.is_input ? "DATA" : "TMPL") << ": " << part.val << "\n";
     }
 }

@@ -42,6 +42,10 @@ const T * cast_stmt(const statement_ptr & ptr) {
 }
 // End Helpers
 
+
+// not thread-safe
+void enable_debug(bool enable);
+
 struct context {
     std::map<std::string, value> var;
     std::string source; // for debugging
@@ -260,7 +264,7 @@ struct integer_literal : public expression {
     explicit integer_literal(int64_t val) : val(val) {}
     std::string type() const override { return "IntegerLiteral"; }
     value execute_impl(context &) override {
-        return std::make_unique<value_int_t>(val);
+        return mk_val<value_int>(val);
     }
 };
 
@@ -269,7 +273,7 @@ struct float_literal : public expression {
     explicit float_literal(double val) : val(val) {}
     std::string type() const override { return "FloatLiteral"; }
     value execute_impl(context &) override {
-        return std::make_unique<value_float_t>(val);
+        return mk_val<value_float>(val);
     }
 };
 
@@ -278,7 +282,7 @@ struct string_literal : public expression {
     explicit string_literal(const std::string & val) : val(val) {}
     std::string type() const override { return "StringLiteral"; }
     value execute_impl(context &) override {
-        return std::make_unique<value_string_t>(val);
+        return mk_val<value_string>(val);
     }
 };
 
@@ -341,7 +345,10 @@ struct binary_expression : public expression {
  * Operator precedence: https://github.com/pallets/jinja/issues/379#issuecomment-168076202
  */
 struct filter_expression : public expression {
+    // either an expression or a value is allowed
     statement_ptr operand;
+    value_string val; // will be set by filter_statement
+
     statement_ptr filter;
 
     filter_expression(statement_ptr && operand, statement_ptr && filter)
@@ -349,6 +356,12 @@ struct filter_expression : public expression {
         chk_type<expression>(this->operand);
         chk_type<identifier, call_expression>(this->filter);
     }
+
+    filter_expression(value_string && val, statement_ptr && filter)
+        : val(std::move(val)), filter(std::move(filter)) {
+        chk_type<identifier, call_expression>(this->filter);
+    }
+
     std::string type() const override { return "FilterExpression"; }
     value execute_impl(context & ctx) override;
 };
@@ -362,6 +375,7 @@ struct filter_statement : public statement {
         chk_type<identifier, call_expression>(this->filter);
     }
     std::string type() const override { return "FilterStatement"; }
+    value execute_impl(context & ctx) override;
 };
 
 /**
@@ -505,6 +519,26 @@ struct raised_exception : public std::exception {
 
 //////////////////////
 
+static void gather_string_parts_recursive(const value & val, value_string & parts) {
+    if (is_val<value_string>(val)) {
+        const auto & str_val = cast_val<value_string>(val)->val_str;
+        parts->val_str.append(str_val);
+    } else if (is_val<value_array>(val)) {
+        auto items = cast_val<value_array>(val)->as_array();
+        for (const auto & item : items) {
+            gather_string_parts_recursive(item, parts);
+        }
+    }
+}
+
+static std::string render_string_parts(const value_string & parts) {
+    std::ostringstream oss;
+    for (const auto & part : parts->val_str.parts) {
+        oss << part.val;
+    }
+    return oss.str();
+}
+
 struct vm {
     context & ctx;
     explicit vm(context & ctx) : ctx(ctx) {}
@@ -518,24 +552,10 @@ struct vm {
         return results;
     }
 
-    std::vector<jinja::string_part> gather_string_parts(const value & val) {
-        std::vector<jinja::string_part> parts;
+    value_string gather_string_parts(const value & val) {
+        value_string parts = mk_val<value_string>();
         gather_string_parts_recursive(val, parts);
         return parts;
-    }
-
-    void gather_string_parts_recursive(const value & val, std::vector<jinja::string_part> & parts) {
-        if (is_val<value_string>(val)) {
-            const auto & str_val = cast_val<value_string>(val)->val_str;
-            for (const auto & part : str_val.parts) {
-                parts.push_back(part);
-            }
-        } else if (is_val<value_array>(val)) {
-            auto items = cast_val<value_array>(val)->as_array();
-            for (const auto & item : items) {
-                gather_string_parts_recursive(item, parts);
-            }
-        }
     }
 };
 
