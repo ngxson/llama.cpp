@@ -82,6 +82,17 @@ value identifier::execute_impl(context & ctx) {
     }
 }
 
+value object_literal::execute_impl(context & ctx) {
+    auto obj = mk_val<value_object>();
+    for (const auto & pair : val) {
+        std::string key = pair.first->execute(ctx)->as_string().str();
+        value val = pair.second->execute(ctx);
+        JJ_DEBUG("Object literal: setting key '%s' of type %s", key.c_str(), val->type().c_str());
+        obj->val_obj[key] = val;
+    }
+    return obj;
+}
+
 value binary_expression::execute_impl(context & ctx) {
     value left_val = left->execute(ctx);
     JJ_DEBUG("Executing binary expression %s '%s' %s", left_val->type().c_str(), op.value.c_str(), right->type().c_str());
@@ -208,7 +219,7 @@ value binary_expression::execute_impl(context & ctx) {
     throw std::runtime_error("Unknown operator \"" + op.value + "\" between " + left_val->type() + " and " + right_val->type());
 }
 
-static value try_builtin_func(const std::string & name, const value & input, bool undef_on_missing = true) {
+static value try_builtin_func(const std::string & name, const value & input, bool undef_on_missing = false) {
     auto builtins = input->get_builtins();
     auto it = builtins.find(name);
     if (it != builtins.end()) {
@@ -331,11 +342,16 @@ value for_statement::execute_impl(context & ctx) {
 
     std::vector<value> items;
     if (is_val<value_object>(iterable_val)) {
+        JJ_DEBUG("%s", "For loop over object keys");
         auto & obj = iterable_val->as_object();
         for (auto & p : obj) {
-            items.push_back(mk_val<value_string>(p.first));
+            auto tuple = mk_val<value_array>();
+            tuple->push_back(mk_val<value_string>(p.first));
+            tuple->push_back(p.second);
+            items.push_back(tuple);
         }
     } else {
+        JJ_DEBUG("%s", "For loop over array items");
         auto & arr = iterable_val->as_array();
         for (const auto & item : arr) {
             items.push_back(item);

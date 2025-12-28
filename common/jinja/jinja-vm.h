@@ -308,6 +308,7 @@ struct object_literal : public expression {
         }
     }
     std::string type() const override { return "ObjectLiteral"; }
+    value execute_impl(context & ctx) override;
 };
 
 // Complex Expressions

@@ -429,6 +429,11 @@ const func_builtins & value_object_t::get_builtins() const {
             }
             return result;
         }},
+        {{"dictsort"}, [](const func_args & args) -> value {
+            // no-op
+            args.ensure_vals<value_object>();
+            return args.args[0];
+        }},
     };
     return builtins;
 }
