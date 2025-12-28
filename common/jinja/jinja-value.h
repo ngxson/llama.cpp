@@ -12,7 +12,7 @@
 namespace jinja {
 
 struct value_t;
-using value = std::unique_ptr<value_t>;
+using value = std::shared_ptr<value_t>;
 
 
 // Helper to check the type of a value
@@ -21,7 +21,7 @@ struct extract_pointee {
     using type = T;
 };
 template<typename U>
-struct extract_pointee<std::unique_ptr<U>> {
+struct extract_pointee<std::shared_ptr<U>> {
     using type = U;
 };
 template<typename T>
@@ -35,9 +35,19 @@ bool is_val(const value_t * ptr) {
     return dynamic_cast<const PointeeType*>(ptr) != nullptr;
 }
 template<typename T, typename... Args>
-std::unique_ptr<typename extract_pointee<T>::type> mk_val(Args&&... args) {
+std::shared_ptr<typename extract_pointee<T>::type> mk_val(Args&&... args) {
     using PointeeType = typename extract_pointee<T>::type;
-    return std::make_unique<PointeeType>(std::forward<Args>(args)...);
+    return std::make_shared<PointeeType>(std::forward<Args>(args)...);
+}
+template<typename T>
+const typename extract_pointee<T>::type * cast_val(const value & ptr) {
+    using PointeeType = typename extract_pointee<T>::type;
+    return dynamic_cast<const PointeeType*>(ptr.get());
+}
+template<typename T>
+typename extract_pointee<T>::type * cast_val(value & ptr) {
+    using PointeeType = typename extract_pointee<T>::type;
+    return dynamic_cast<PointeeType*>(ptr.get());
 }
 template<typename T>
 void ensure_val(const value & ptr) {
@@ -91,8 +101,8 @@ struct value_t {
     //     my_arr = [my_obj]
     //     my_obj["a"] = 3
     //     print(my_arr[0]["a"])  # should print 3
-    std::shared_ptr<std::vector<value>> val_arr;
-    std::shared_ptr<std::map<std::string, value>> val_obj;
+    std::vector<value> val_arr;
+    std::map<std::string, value> val_obj;
 
     func_handler val_func;
 
@@ -116,10 +126,6 @@ struct value_t {
     }
 
     virtual std::string as_repr() const { return as_string().str(); }
-
-    virtual value clone() const {
-        return std::make_unique<value_t>(*this);
-    }
 };
 
 
@@ -129,10 +135,9 @@ struct value_int_t : public value_t {
     virtual int64_t as_int() const override { return val_int; }
     virtual double as_float() const override { return static_cast<double>(val_int); }
     virtual string as_string() const override { return std::to_string(val_int); }
-    virtual value clone() const override { return std::make_unique<value_int_t>(*this); }
     virtual const func_builtins & get_builtins() const override;
 };
-using value_int = std::unique_ptr<value_int_t>;
+using value_int = std::shared_ptr<value_int_t>;
 
 
 struct value_float_t : public value_t {
@@ -141,10 +146,9 @@ struct value_float_t : public value_t {
     virtual double as_float() const override { return val_flt; }
     virtual int64_t as_int() const override { return static_cast<int64_t>(val_flt); }
     virtual string as_string() const override { return std::to_string(val_flt); }
-    virtual value clone() const override { return std::make_unique<value_float_t>(*this); }
     virtual const func_builtins & get_builtins() const override;
 };
-using value_float = std::unique_ptr<value_float_t>;
+using value_float = std::shared_ptr<value_float_t>;
 
 
 struct value_string_t : public value_t {
@@ -160,13 +164,12 @@ struct value_string_t : public value_t {
         }
         return ss.str();
     }
-    virtual value clone() const override { return std::make_unique<value_string_t>(*this); }
     virtual const func_builtins & get_builtins() const override;
     void mark_input() {
         val_str.mark_input();
     }
 };
-using value_string = std::unique_ptr<value_string_t>;
+using value_string = std::shared_ptr<value_string_t>;
 
 
 struct value_bool_t : public value_t {
@@ -174,92 +177,68 @@ struct value_bool_t : public value_t {
     virtual std::string type() const override { return "Boolean"; }
     virtual bool as_bool() const override { return val_bool; }
     virtual string as_string() const override { return std::string(val_bool ? "True" : "False"); }
-    virtual value clone() const override { return std::make_unique<value_bool_t>(*this); }
     virtual const func_builtins & get_builtins() const override;
 };
-using value_bool = std::unique_ptr<value_bool_t>;
+using value_bool = std::shared_ptr<value_bool_t>;
 
 
 struct value_array_t : public value_t {
-    value_array_t() {
-        val_arr = std::make_shared<std::vector<value>>();
-    }
+    value_array_t() = default;
     value_array_t(value & v) {
         // point to the same underlying data
         val_arr = v->val_arr;
     }
     void push_back(const value & val) {
-        val_arr->push_back(val->clone());
+        val_arr.push_back(val);
     }
     virtual std::string type() const override { return "Array"; }
-    virtual const std::vector<value> & as_array() const override { return *val_arr; }
-    // clone will also share the underlying data (point to the same vector)
-    virtual value clone() const override {
-        auto tmp = std::make_unique<value_array_t>();
-        tmp->val_arr = this->val_arr;
-        return tmp;
-    }
+    virtual const std::vector<value> & as_array() const override { return val_arr; }
     virtual string as_string() const override {
         std::ostringstream ss;
         ss << "[";
-        for (size_t i = 0; i < val_arr->size(); i++) {
+        for (size_t i = 0; i < val_arr.size(); i++) {
             if (i > 0) ss << ", ";
-            ss << val_arr->at(i)->as_repr();
+            ss << val_arr.at(i)->as_repr();
         }
         ss << "]";
         return ss.str();
     }
     virtual bool as_bool() const override {
-        return !val_arr->empty();
+        return !val_arr.empty();
     }
     virtual const func_builtins & get_builtins() const override;
 };
-using value_array = std::unique_ptr<value_array_t>;
+using value_array = std::shared_ptr<value_array_t>;
 
 
 struct value_object_t : public value_t {
-    value_object_t() {
-        val_obj = std::make_shared<std::map<std::string, value>>();
-    }
+    value_object_t() = default;
     value_object_t(value & v) {
         // point to the same underlying data
         val_obj = v->val_obj;
     }
     value_object_t(const std::map<std::string, value> & obj) {
-        val_obj = std::make_shared<std::map<std::string, value>>();
+        val_obj = std::map<std::string, value>();
         for (const auto & pair : obj) {
-            (*val_obj)[pair.first] = pair.second->clone();
+            val_obj[pair.first] = pair.second;
         }
     }
     void insert(const std::string & key, const value & val) {
-        (*val_obj)[key] = val->clone();
+        val_obj[key] = val;
     }
     virtual std::string type() const override { return "Object"; }
-    virtual const std::map<std::string, value> & as_object() const override { return *val_obj; }
-    // clone will also share the underlying data (point to the same map)
-    virtual value clone() const override {
-        auto tmp = std::make_unique<value_object_t>();
-        tmp->val_obj = this->val_obj;
-        return tmp;
-    }
+    virtual const std::map<std::string, value> & as_object() const override { return val_obj; }
     virtual bool as_bool() const override {
-        return !val_obj->empty();
+        return !val_obj.empty();
     }
     virtual const func_builtins & get_builtins() const override;
 };
-using value_object = std::unique_ptr<value_object_t>;
+using value_object = std::shared_ptr<value_object_t>;
 
 
 struct value_func_t : public value_t {
     std::string name; // for debugging
     value arg0; // bound "this" argument, if any
-    value_func_t(const value_func_t & other) {
-        val_func = other.val_func;
-        name = other.name;
-        if (other.arg0) {
-            arg0 = other.arg0->clone();
-        }
-    }
     value_func_t(const func_handler & func, std::string func_name = "") {
         val_func = func;
         name = func_name;
@@ -267,14 +246,14 @@ struct value_func_t : public value_t {
     value_func_t(const func_handler & func, const value & arg_this, std::string func_name = "") {
         val_func = func;
         name = func_name;
-        arg0 = arg_this->clone();
+        arg0 = arg_this;
     }
     virtual value invoke(const func_args & args) const override {
         if (arg0) {
             func_args new_args;
-            new_args.args.push_back(arg0->clone());
+            new_args.args.push_back(arg0);
             for (const auto & a : args.args) {
-                new_args.args.push_back(a->clone());
+                new_args.args.push_back(a);
             }
             return val_func(new_args);
         } else {
@@ -283,9 +262,8 @@ struct value_func_t : public value_t {
     }
     virtual std::string type() const override { return "Function"; }
     virtual std::string as_repr() const override { return type(); }
-    virtual value clone() const override { return std::make_unique<value_func_t>(*this); }
 };
-using value_func = std::unique_ptr<value_func_t>;
+using value_func = std::shared_ptr<value_func_t>;
 
 
 struct value_null_t : public value_t {
@@ -293,9 +271,8 @@ struct value_null_t : public value_t {
     virtual bool is_null() const override { return true; }
     virtual bool as_bool() const override { return false; }
     virtual std::string as_repr() const override { return type(); }
-    virtual value clone() const override { return std::make_unique<value_null_t>(*this); }
 };
-using value_null = std::unique_ptr<value_null_t>;
+using value_null = std::shared_ptr<value_null_t>;
 
 
 struct value_undefined_t : public value_t {
@@ -303,24 +280,18 @@ struct value_undefined_t : public value_t {
     virtual bool is_undefined() const override { return true; }
     virtual bool as_bool() const override { return false; }
     virtual std::string as_repr() const override { return type(); }
-    virtual value clone() const override { return std::make_unique<value_undefined_t>(*this); }
 };
-using value_undefined = std::unique_ptr<value_undefined_t>;
+using value_undefined = std::shared_ptr<value_undefined_t>;
 
 // special value for kwarg
 struct value_kwarg_t : public value_t {
     std::string key;
     value val;
-    value_kwarg_t(const value_kwarg_t & other) {
-        key = other.key;
-        val = other.val->clone();
-    }
-    value_kwarg_t(const std::string & k, const value & v) : key(k), val(v->clone()) {}
+    value_kwarg_t(const std::string & k, const value & v) : key(k), val(v) {}
     virtual std::string type() const override { return "KwArg"; }
     virtual std::string as_repr() const override { return type(); }
-    virtual value clone() const override { return std::make_unique<value_kwarg_t>(*this); }
 };
-using value_kwarg = std::unique_ptr<value_kwarg_t>;
+using value_kwarg = std::shared_ptr<value_kwarg_t>;
 
 
 const func_builtins & global_builtins();

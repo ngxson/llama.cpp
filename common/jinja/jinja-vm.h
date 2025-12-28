@@ -12,6 +12,33 @@
 
 namespace jinja {
 
+struct statement;
+using statement_ptr = std::unique_ptr<statement>;
+using statements = std::vector<statement_ptr>;
+
+// Helpers for dynamic casting and type checking
+template<typename T>
+struct extract_pointee_unique {
+    using type = T;
+};
+template<typename U>
+struct extract_pointee_unique<std::unique_ptr<U>> {
+    using type = U;
+};
+template<typename T>
+bool is_stmt(const statement_ptr & ptr) {
+    return dynamic_cast<const T*>(ptr.get()) != nullptr;
+}
+template<typename T>
+T * cast_stmt(statement_ptr & ptr) {
+    return dynamic_cast<T*>(ptr.get());
+}
+template<typename T>
+const T * cast_stmt(const statement_ptr & ptr) {
+    return dynamic_cast<const T*>(ptr.get());
+}
+// End Helpers
+
 struct context {
     std::map<std::string, value> var;
 
@@ -25,7 +52,7 @@ struct context {
     context(const context & parent) {
         // inherit variables (for example, when entering a new scope)
         for (const auto & pair : parent.var) {
-            var[pair.first] = pair.second->clone();
+            var[pair.first] = pair.second;
         }
     }
 };
@@ -38,9 +65,6 @@ struct statement {
     virtual std::string type() const { return "Statement"; }
     virtual value execute(context &) { throw std::runtime_error("cannot exec " + type()); }
 };
-
-using statement_ptr = std::unique_ptr<statement>;
-using statements = std::vector<statement_ptr>;
 
 // Type Checking Utilities
 
@@ -461,7 +485,7 @@ struct vm {
         value_array results = mk_val<value_array>();
         for (auto & stmt : prog.body) {
             value res = stmt->execute(ctx);
-            results->val_arr->push_back(std::move(res));
+            results->push_back(std::move(res));
         }
         return results;
     }
@@ -474,13 +498,13 @@ struct vm {
 
     void gather_string_parts_recursive(const value & val, std::vector<jinja::string_part> & parts) {
         if (is_val<value_string>(val)) {
-            const auto & str_val = dynamic_cast<value_string_t*>(val.get())->val_str;
+            const auto & str_val = cast_val<value_string>(val)->val_str;
             for (const auto & part : str_val.parts) {
                 parts.push_back(part);
             }
         } else if (is_val<value_array>(val)) {
-            auto items = dynamic_cast<value_array_t*>(val.get())->val_arr.get();
-            for (const auto & item : *items) {
+            auto items = cast_val<value_array>(val)->as_array();
+            for (const auto & item : items) {
                 gather_string_parts_recursive(item, parts);
             }
         }

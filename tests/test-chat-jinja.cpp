@@ -47,15 +47,15 @@ int main(void) {
         return str_val;
     };
 
-    jinja::value messages = jinja::mk_val<jinja::value_array>();
-    jinja::value msg1 = jinja::mk_val<jinja::value_object>();
-    (*msg1->val_obj)["role"]    = make_non_special_string("user");
-    (*msg1->val_obj)["content"] = make_non_special_string("Hello, how are you?");
-    messages->val_arr->push_back(std::move(msg1));
-    jinja::value msg2 = jinja::mk_val<jinja::value_object>();
-    (*msg2->val_obj)["role"]    = make_non_special_string("assistant");
-    (*msg2->val_obj)["content"] = make_non_special_string("I am fine, thank you!");
-    messages->val_arr->push_back(std::move(msg2));
+    jinja::value_array messages = jinja::mk_val<jinja::value_array>();
+    jinja::value_object msg1 = jinja::mk_val<jinja::value_object>();
+    msg1->insert("role",    make_non_special_string("user"));
+    msg1->insert("content", make_non_special_string("Hello, how are you?"));
+    messages->push_back(std::move(msg1));
+    jinja::value_object msg2 = jinja::mk_val<jinja::value_object>();
+    msg2->insert("role",    make_non_special_string("assistant"));
+    msg2->insert("content", make_non_special_string("I am fine, thank you!"));
+    messages->push_back(std::move(msg2));
 
     ctx.var["messages"] = std::move(messages);
 

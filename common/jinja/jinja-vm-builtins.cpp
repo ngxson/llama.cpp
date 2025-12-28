@@ -55,7 +55,7 @@ static T slice(const T & array, std::optional<int64_t> start = std::nullopt, std
     }
     for (int64_t i = start_val; direction * i < direction * stop_val; i += step) {
         if (i >= 0 && i < len) {
-            result.push_back(std::move(array[static_cast<size_t>(i)]->clone()));
+            result.push_back(array[static_cast<size_t>(i)]);
         }
     }
     return result;
@@ -87,7 +87,7 @@ const func_builtins & global_builtins() {
                 if (!is_val<value_kwarg>(arg)) {
                     throw raised_exception("namespace() arguments must be kwargs");
                 }
-                auto kwarg = dynamic_cast<value_kwarg_t*>(arg.get());
+                auto kwarg = cast_val<value_kwarg>(arg);
                 out->insert(kwarg->key, kwarg->val);
             }
             return out;
@@ -265,12 +265,12 @@ const func_builtins & value_string_t::get_builtins() const {
             std::string token;
             while ((pos = str.find(delim)) != std::string::npos) {
                 token = str.substr(0, pos);
-                result->val_arr->push_back(mk_val<value_string>(token));
+                result->push_back(mk_val<value_string>(token));
                 str.erase(0, pos + delim.length());
             }
             auto res = mk_val<value_string>(str);
             res->val_str.mark_input_based_on(args.args[0]->val_str);
-            result->val_arr->push_back(std::move(res));
+            result->push_back(std::move(res));
             return std::move(result);
         }},
         {"replace", [](const func_args & args) -> value {
@@ -353,7 +353,7 @@ const func_builtins & value_array_t::get_builtins() const {
             const auto & arr = args.args[0]->as_array();
             auto result = mk_val<value_array>();
             for (const auto& v : arr) {
-                result->val_arr->push_back(v->clone());
+                result->push_back(v);
             }
             return result;
         }},
@@ -363,7 +363,7 @@ const func_builtins & value_array_t::get_builtins() const {
             if (arr.empty()) {
                 return mk_val<value_undefined>();
             }
-            return arr[0]->clone();
+            return arr[0];
         }},
         {"last", [](const func_args & args) -> value {
             args.ensure_vals<value_array>();
@@ -371,7 +371,7 @@ const func_builtins & value_array_t::get_builtins() const {
             if (arr.empty()) {
                 return mk_val<value_undefined>();
             }
-            return arr[arr.size() - 1]->clone();
+            return arr[arr.size() - 1];
         }},
         {"length", [](const func_args & args) -> value {
             args.ensure_vals<value_array>();
@@ -391,7 +391,7 @@ const func_builtins & value_array_t::get_builtins() const {
             }
             auto arr = slice(args.args[0]->as_array(), start, stop, step);
             auto res = mk_val<value_array>();
-            res->val_arr = std::make_shared<std::vector<value>>(std::move(arr));
+            res->val_arr = std::move(arr);
             return res;
         }},
         // TODO: reverse, sort, join, string, unique
@@ -408,7 +408,7 @@ const func_builtins & value_object_t::get_builtins() const {
             std::string key = args.args[1]->as_string().str();
             auto it = obj.find(key);
             if (it != obj.end()) {
-                return it->second->clone();
+                return it->second;
             } else {
                 return mk_val<value_undefined>();
             }
@@ -418,7 +418,7 @@ const func_builtins & value_object_t::get_builtins() const {
             const auto & obj = args.args[0]->as_object();
             auto result = mk_val<value_array>();
             for (const auto & pair : obj) {
-                result->val_arr->push_back(mk_val<value_string>(pair.first));
+                result->push_back(mk_val<value_string>(pair.first));
             }
             return result;
         }},
@@ -427,7 +427,7 @@ const func_builtins & value_object_t::get_builtins() const {
             const auto & obj = args.args[0]->as_object();
             auto result = mk_val<value_array>();
             for (const auto & pair : obj) {
-                result->val_arr->push_back(pair.second->clone());
+                result->push_back(pair.second);
             }
             return result;
         }},
@@ -437,9 +437,9 @@ const func_builtins & value_object_t::get_builtins() const {
             auto result = mk_val<value_array>();
             for (const auto & pair : obj) {
                 auto item = mk_val<value_array>();
-                item->val_arr->push_back(mk_val<value_string>(pair.first));
-                item->val_arr->push_back(pair.second->clone());
-                result->val_arr->push_back(std::move(item));
+                item->push_back(mk_val<value_string>(pair.first));
+                item->push_back(pair.second);
+                result->push_back(std::move(item));
             }
             return result;
         }},

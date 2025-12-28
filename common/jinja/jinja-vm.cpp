@@ -13,16 +13,11 @@
 
 namespace jinja {
 
-template<typename T>
-static bool is_stmt(const statement_ptr & ptr) {
-    return dynamic_cast<const T*>(ptr.get()) != nullptr;
-}
-
 static value_array exec_statements(const statements & stmts, context & ctx) {
     auto result = mk_val<value_array>();
     for (const auto & stmt : stmts) {
         JJ_DEBUG("Executing statement of type %s", stmt->type().c_str());
-        result->val_arr->push_back(stmt->execute(ctx));
+        result->push_back(stmt->execute(ctx));
     }
     return result;
 }
@@ -32,7 +27,7 @@ value identifier::execute(context & ctx) {
     auto builtins = global_builtins();
     if (it != ctx.var.end()) {
         JJ_DEBUG("Identifier '%s' found", val.c_str());
-        return it->second->clone();
+        return it->second;
     } else if (builtins.find(val) != builtins.end()) {
         JJ_DEBUG("Identifier '%s' found in builtins", val.c_str());
         return mk_val<value_func>(builtins.at(val), val);
@@ -115,10 +110,10 @@ value binary_expression::execute(context & ctx) {
             auto & right_arr = right_val->as_array();
             auto result = mk_val<value_array>();
             for (const auto & item : left_arr) {
-                result->val_arr->push_back(item->clone());
+                result->push_back(item);
             }
             for (const auto & item : right_arr) {
-                result->val_arr->push_back(item->clone());
+                result->push_back(item);
             }
             return result;
         }
@@ -185,7 +180,7 @@ value filter_expression::execute(context & ctx) {
     value input = operand->execute(ctx);
 
     if (is_stmt<identifier>(filter)) {
-        auto filter_val = dynamic_cast<identifier*>(filter.get())->val;
+        auto filter_val = cast_stmt<identifier>(filter)->val;
 
         if (filter_val == "to_json") {
             // TODO: Implement to_json filter
@@ -215,7 +210,7 @@ value test_expression::execute(context & ctx) {
         throw std::runtime_error("Invalid test expression");
     }
 
-    auto test_id = dynamic_cast<identifier*>(test.get())->val;
+    auto test_id = cast_stmt<identifier>(test)->val;
     auto it = builtins.find("test_is_" + test_id);
     JJ_DEBUG("Test expression %s '%s'", operand->type().c_str(), test_id.c_str());
     if (it == builtins.end()) {
@@ -252,12 +247,12 @@ value if_statement::execute(context & ctx) {
     if (test_val->as_bool()) {
         for (auto & stmt : body) {
             JJ_DEBUG("IF --> Executing THEN body, current block: %s", stmt->type().c_str());
-            out->val_arr->push_back(stmt->execute(ctx));
+            out->push_back(stmt->execute(ctx));
         }
     } else {
         for (auto & stmt : alternate) {
             JJ_DEBUG("IF --> Executing ELSE body, current block: %s", stmt->type().c_str());
-            out->val_arr->push_back(stmt->execute(ctx));
+            out->push_back(stmt->execute(ctx));
         }
     }
     return out;
@@ -271,7 +266,7 @@ value for_statement::execute(context & ctx) {
 
     if (is_stmt<select_expression>(iterable)) {
         JJ_DEBUG("%s", "For loop has test expression");
-        auto select = dynamic_cast<select_expression*>(iterable.get());
+        auto select = cast_stmt<select_expression>(iterable);
         iter_expr = std::move(select->lhs);
         test_expr = std::move(select->test);
     }
@@ -292,7 +287,7 @@ value for_statement::execute(context & ctx) {
     } else {
         auto & arr = iterable_val->as_array();
         for (const auto & item : arr) {
-            items.push_back(item->clone());
+            items.push_back(item);
         }
     }
 
@@ -306,12 +301,12 @@ value for_statement::execute(context & ctx) {
 
         std::function<void(context&)> scope_update_fn = [](context &) { /* no-op */};
         if (is_stmt<identifier>(loopvar)) {
-            auto id = dynamic_cast<identifier*>(loopvar.get())->val;
+            auto id = cast_stmt<identifier>(loopvar)->val;
             scope_update_fn = [id, &items, i](context & ctx) {
-                ctx.var[id] = items[i]->clone();
+                ctx.var[id] = items[i];
             };
         } else if (is_stmt<tuple_literal>(loopvar)) {
-            auto tuple = dynamic_cast<tuple_literal*>(loopvar.get());
+            auto tuple = cast_stmt<tuple_literal>(loopvar);
             if (!is_val<value_array>(current)) {
                 throw std::runtime_error("Cannot unpack non-iterable type: " + current->type());
             }
@@ -325,8 +320,8 @@ value for_statement::execute(context & ctx) {
                     if (!is_stmt<identifier>(tuple->val[j])) {
                         throw std::runtime_error("Cannot unpack non-identifier type: " + tuple->val[j]->type());
                     }
-                    auto id = dynamic_cast<identifier*>(tuple->val[j].get())->val;
-                    ctx.var[id] = c_arr[j]->clone();
+                    auto id = cast_stmt<identifier>(tuple->val[j])->val;
+                    ctx.var[id] = c_arr[j];
                 }
             };
         } else {
@@ -339,7 +334,7 @@ value for_statement::execute(context & ctx) {
                 continue;
             }
         }
-        filtered_items.push_back(current->clone());
+        filtered_items.push_back(current);
         scope_update_fns.push_back(scope_update_fn);
     }
     
@@ -356,9 +351,9 @@ value for_statement::execute(context & ctx) {
         loop_obj->insert("first", mk_val<value_bool>(i == 0));
         loop_obj->insert("last", mk_val<value_bool>(i == filtered_items.size() - 1));
         loop_obj->insert("length", mk_val<value_int>(filtered_items.size()));
-        loop_obj->insert("previtem", i > 0 ? filtered_items[i - 1]->clone() : mk_val<value_undefined>());
-        loop_obj->insert("nextitem", i < filtered_items.size() - 1 ? filtered_items[i + 1]->clone() : mk_val<value_undefined>());
-        ctx.var["loop"] = loop_obj->clone();
+        loop_obj->insert("previtem", i > 0 ? filtered_items[i - 1] : mk_val<value_undefined>());
+        loop_obj->insert("nextitem", i < filtered_items.size() - 1 ? filtered_items[i + 1] : mk_val<value_undefined>());
+        ctx.var["loop"] = loop_obj;
         scope_update_fns[i](ctx);
         try {
             for (auto & stmt : body) {
@@ -386,12 +381,12 @@ value set_statement::execute(context & ctx) {
     auto rhs = val ? val->execute(ctx) : exec_statements(body, ctx);
 
     if (is_stmt<identifier>(assignee)) {
-        auto var_name = dynamic_cast<identifier*>(assignee.get())->val;
+        auto var_name = cast_stmt<identifier>(assignee)->val;
         JJ_DEBUG("Setting variable '%s' with value type %s", var_name.c_str(), rhs->type().c_str());
-        ctx.var[var_name] = rhs->clone();
+        ctx.var[var_name] = rhs;
 
     } else if (is_stmt<tuple_literal>(assignee)) {
-        auto tuple = dynamic_cast<tuple_literal*>(assignee.get());
+        auto tuple = cast_stmt<tuple_literal>(assignee);
         if (!is_val<value_array>(rhs)) {
             throw std::runtime_error("Cannot unpack non-iterable type in set: " + rhs->type());
         }
@@ -404,27 +399,27 @@ value set_statement::execute(context & ctx) {
             if (!is_stmt<identifier>(elem)) {
                 throw std::runtime_error("Cannot unpack to non-identifier in set: " + elem->type());
             }
-            auto var_name = dynamic_cast<identifier*>(elem.get())->val;
-            ctx.var[var_name] = arr[i]->clone();
+            auto var_name = cast_stmt<identifier>(elem)->val;
+            ctx.var[var_name] = arr[i];
         }
 
     } else if (is_stmt<member_expression>(assignee)) {
-        auto member = dynamic_cast<member_expression*>(assignee.get());
+        auto member = cast_stmt<member_expression>(assignee);
         if (member->computed) {
             throw std::runtime_error("Cannot assign to computed member");
         }
         if (!is_stmt<identifier>(member->property)) {
             throw std::runtime_error("Cannot assign to member with non-identifier property");
         }
-        auto prop_name = dynamic_cast<identifier*>(member->property.get())->val;
+        auto prop_name = cast_stmt<identifier>(member->property)->val;
 
         value object = member->object->execute(ctx);
         if (!is_val<value_object>(object)) {
             throw std::runtime_error("Cannot assign to member of non-object");
         }
-        auto obj_ptr = dynamic_cast<value_object_t*>(object.get());
+        auto obj_ptr = cast_val<value_object>(object);
         JJ_DEBUG("Setting object property '%s'", prop_name.c_str());
-        obj_ptr->insert(prop_name, rhs->clone());
+        obj_ptr->insert(prop_name, rhs);
 
     } else {
         throw std::runtime_error("Invalid LHS inside assignment expression: " + assignee->type());
@@ -433,7 +428,7 @@ value set_statement::execute(context & ctx) {
 }
 
 value macro_statement::execute(context & ctx) {
-    std::string name = dynamic_cast<identifier*>(this->name.get())->val;
+    std::string name = cast_stmt<identifier>(this->name)->val;
     const func_handler func = [this, &ctx, name](const func_args & args) -> value {
         JJ_DEBUG("Invoking macro '%s' with %zu arguments", name.c_str(), args.args.size());
         context macro_ctx(ctx); // new scope for macro execution
@@ -442,9 +437,9 @@ value macro_statement::execute(context & ctx) {
         size_t param_count = this->args.size();
         size_t arg_count = args.args.size();
         for (size_t i = 0; i < param_count; ++i) {
-            std::string param_name = dynamic_cast<identifier*>(this->args[i].get())->val;
+            std::string param_name = cast_stmt<identifier>(this->args[i])->val;
             if (i < arg_count) {
-                macro_ctx.var[param_name] = args.args[i]->clone();
+                macro_ctx.var[param_name] = args.args[i];
             } else {
                 macro_ctx.var[param_name] = mk_val<value_undefined>();
             }
@@ -466,7 +461,7 @@ value member_expression::execute(context & ctx) {
     if (this->computed) {
         JJ_DEBUG("Member expression, computing property type %s", this->property->type().c_str());
         if (is_stmt<slice_expression>(this->property)) {
-            auto s = dynamic_cast<slice_expression*>(this->property.get());
+            auto s = cast_stmt<slice_expression>(this->property);
             value start_val = s->start_expr ? s->start_expr->execute(ctx) : mk_val<value_undefined>();
             value stop_val  = s->stop_expr  ? s->stop_expr->execute(ctx)  : mk_val<value_undefined>();
             value step_val  = s->step_expr  ? s->step_expr->execute(ctx)  : mk_val<value_undefined>();
@@ -478,15 +473,15 @@ value member_expression::execute(context & ctx) {
                      step_val->as_repr().c_str());
             auto slice_func = try_builtin_func("slice", object);
             func_args args;
-            args.args.push_back(start_val->clone());
-            args.args.push_back(stop_val->clone());
-            args.args.push_back(step_val->clone());
+            args.args.push_back(start_val);
+            args.args.push_back(stop_val);
+            args.args.push_back(step_val);
             return slice_func->invoke(args);
         } else {
             property = this->property->execute(ctx);
         }
     } else {
-        property = mk_val<value_string>(dynamic_cast<identifier*>(this->property.get())->val);
+        property = mk_val<value_string>(cast_stmt<identifier>(this->property)->val);
     }
 
     JJ_DEBUG("Member expression on object type %s, property type %s", object->type().c_str(), property->type().c_str());
@@ -502,7 +497,7 @@ value member_expression::execute(context & ctx) {
         auto & obj = object->as_object();
         auto it = obj.find(key);
         if (it != obj.end()) {
-            val = it->second->clone();
+            val = it->second;
         } else {
             val = try_builtin_func(key, object, true);
         }
@@ -514,7 +509,7 @@ value member_expression::execute(context & ctx) {
             if (is_val<value_array>(object)) {
                 auto & arr = object->as_array();
                 if (index >= 0 && index < static_cast<int64_t>(arr.size())) {
-                    val = arr[index]->clone();
+                    val = arr[index];
                 }
             } else { // value_string
                 auto str = object->as_string().str();
@@ -554,7 +549,7 @@ value call_expression::execute(context & ctx) {
     if (!is_val<value_func>(callee_val)) {
         throw std::runtime_error("Callee is not a function: got " + callee_val->type());
     }
-    auto * callee_func = dynamic_cast<value_func_t*>(callee_val.get());
+    auto * callee_func = cast_val<value_func>(callee_val);
     JJ_DEBUG("Calling function '%s' with %zu arguments", callee_func->name.c_str(), args.args.size());
     return callee_func->invoke(args);
 }
@@ -597,7 +592,7 @@ value keyword_argument_expression::execute(context & ctx) {
         throw std::runtime_error("Keyword argument key must be identifiers");
     }
 
-    std::string k = dynamic_cast<identifier*>(key.get())->val;
+    std::string k = cast_stmt<identifier>(key)->val;
     JJ_DEBUG("Keyword argument expression key: %s, value: %s", k.c_str(), val->type().c_str());
 
     value v = val->execute(ctx);
