@@ -83,6 +83,8 @@ void run(std::string contents) {
     messages->push_back(std::move(msg2));
 
     ctx.var["messages"] = std::move(messages);
+    ctx.var["eos_token"] = jinja::mk_val<jinja::value_string>("</s>");
+    // ctx.var["tools"] = jinja::mk_val<jinja::value_null>();
 
     jinja::vm vm(ctx);
     const jinja::value results = vm.execute(ast);

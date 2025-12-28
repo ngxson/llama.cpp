@@ -71,7 +71,7 @@ struct statement {
     // execute_impl must be overridden by derived classes
     virtual value execute_impl(context &) { throw std::runtime_error("cannot exec " + type()); }
     // execute is the public method to execute a statement with error handling
-    virtual value execute(context &);
+    value execute(context &);
 };
 
 // Type Checking Utilities
@@ -288,13 +288,17 @@ struct array_literal : public expression {
         for (const auto& item : this->val) chk_type<expression>(item);
     }
     std::string type() const override { return "ArrayLiteral"; }
+    value execute_impl(context & ctx) override {
+        auto arr = mk_val<value_array>();
+        for (const auto & item_stmt : val) {
+            arr->push_back(item_stmt->execute(ctx));
+        }
+        return arr;
+    }
 };
 
-struct tuple_literal : public expression {
-    statements val;
-    explicit tuple_literal(statements && val) : val(std::move(val)) {
-        for (const auto & item : this->val) chk_type<expression>(item);
-    }
+struct tuple_literal : public array_literal {
+    explicit tuple_literal(statements && val) : array_literal(std::move(val)) {}
     std::string type() const override { return "TupleLiteral"; }
 };
 
@@ -376,6 +380,13 @@ struct select_expression : public expression {
         chk_type<expression>(this->test);
     }
     std::string type() const override { return "SelectExpression"; }
+    value execute_impl(context & ctx) override {
+        auto predicate = test->execute_impl(ctx);
+        if (!predicate->as_bool()) {
+            return mk_val<value_undefined>();
+        }
+        return lhs->execute_impl(ctx);
+    }
 };
 
 /**
@@ -474,6 +485,14 @@ struct ternary_expression : public expression {
         chk_type<expression>(this->false_expr);
     }
     std::string type() const override { return "Ternary"; }
+    value execute_impl(context & ctx) override {
+        value cond_val = condition->execute(ctx);
+        if (cond_val->as_bool()) {
+            return true_expr->execute(ctx);
+        } else {
+            return false_expr->execute(ctx);
+        }
+    }
 };
 
 struct raised_exception : public std::exception {

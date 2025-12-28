@@ -2,6 +2,7 @@
 #include "jinja-vm.h"
 #include "jinja-parser.h"
 #include "jinja-value.h"
+#include "jinja-utils.h"
 
 #include <string>
 #include <vector>
@@ -14,6 +15,22 @@ bool g_jinja_debug = true;
 
 namespace jinja {
 
+// func_args method implementations
+
+value func_args::get_kwarg(const std::string & key) const  {
+    for (const auto & arg : args) {
+        if (is_val<value_kwarg>(arg)) {
+            auto * kwarg = cast_val<value_kwarg>(arg);
+            if (kwarg->key == key) {
+                return kwarg->val;
+            }
+        }
+    }
+    return mk_val<value_undefined>();
+}
+
+// utils
+
 static value_array exec_statements(const statements & stmts, context & ctx) {
     auto result = mk_val<value_array>();
     for (const auto & stmt : stmts) {
@@ -21,23 +38,6 @@ static value_array exec_statements(const statements & stmts, context & ctx) {
         result->push_back(stmt->execute(ctx));
     }
     return result;
-}
-
-static void string_replace_all(std::string & s, const std::string & search, const std::string & replace) {
-    if (search.empty()) {
-        return;
-    }
-    std::string builder;
-    builder.reserve(s.length());
-    size_t pos = 0;
-    size_t last_pos = 0;
-    while ((pos = s.find(search, last_pos)) != std::string::npos) {
-        builder.append(s, last_pos, pos - last_pos);
-        builder.append(replace);
-        last_pos = pos + search.length();
-    }
-    builder.append(s, last_pos, std::string::npos);
-    s = std::move(builder);
 }
 
 // execute with error handling
@@ -138,6 +138,7 @@ value binary_expression::execute_impl(context & ctx) {
                 return mk_val<value_int>(static_cast<int64_t>(res));
             }
         } else if (op.value == "/") {
+            JJ_DEBUG("Division operation: %f / %f", a, b);
             return mk_val<value_float>(a / b);
         } else if (op.value == "%") {
             double rem = std::fmod(a, b);
@@ -149,12 +150,16 @@ value binary_expression::execute_impl(context & ctx) {
                 return mk_val<value_int>(static_cast<int64_t>(rem));
             }
         } else if (op.value == "<") {
+            JJ_DEBUG("Comparison operation: %f < %f is %d", a, b, a < b);
             return mk_val<value_bool>(a < b);
         } else if (op.value == ">") {
+            JJ_DEBUG("Comparison operation: %f > %f is %d", a, b, a > b);
             return mk_val<value_bool>(a > b);
         } else if (op.value == ">=") {
+            JJ_DEBUG("Comparison operation: %f >= %f is %d", a, b, a >= b);
             return mk_val<value_bool>(a >= b);
         } else if (op.value == "<=") {
+            JJ_DEBUG("Comparison operation: %f <= %f is %d", a, b, a <= b);
             return mk_val<value_bool>(a <= b);
         }
     }
@@ -235,24 +240,33 @@ static value try_builtin_func(const std::string & name, const value & input, boo
 value filter_expression::execute_impl(context & ctx) {
     value input = operand->execute(ctx);
 
-    if (is_stmt<identifier>(filter)) {
-        auto filter_val = cast_stmt<identifier>(filter)->val;
+    JJ_DEBUG("Applying filter to %s", input->type().c_str());
 
-        if (filter_val == "to_json") {
+    if (is_stmt<identifier>(filter)) {
+        auto filter_id = cast_stmt<identifier>(filter)->val;
+
+        if (filter_id == "to_json") {
             // TODO: Implement to_json filter
             throw std::runtime_error("to_json filter not implemented");
         }
 
-        if (filter_val == "trim") {
-            filter_val = "strip"; // alias
+        if (filter_id == "trim") {
+            filter_id = "strip"; // alias
         }
-        JJ_DEBUG("Applying filter '%s' to %s", filter_val.c_str(), input->type().c_str());
-        return try_builtin_func(filter_val, input)->invoke({});
+        JJ_DEBUG("Applying filter '%s' to %s", filter_id.c_str(), input->type().c_str());
+        return try_builtin_func(filter_id, input)->invoke({});
 
     } else if (is_stmt<call_expression>(filter)) {
-        // TODO
-        // value filter_func = filter->execute(ctx);
-        throw std::runtime_error("Filter with arguments not implemented");
+        auto call = cast_stmt<call_expression>(filter);
+        auto filter_id = cast_stmt<identifier>(call->callee)->val;
+
+        JJ_DEBUG("Applying filter '%s' with arguments to %s", filter_id.c_str(), input->type().c_str());
+        func_args args;
+        for (const auto & arg_expr : call->args) {
+            args.args.push_back(arg_expr->execute(ctx));
+        }
+
+        return try_builtin_func(filter_id, input)->invoke(args);
 
     } else {
         throw std::runtime_error("Invalid filter expression");
@@ -268,7 +282,7 @@ value test_expression::execute_impl(context & ctx) {
 
     auto test_id = cast_stmt<identifier>(test)->val;
     auto it = builtins.find("test_is_" + test_id);
-    JJ_DEBUG("Test expression %s '%s' %s", operand->type().c_str(), test_id.c_str(), negate ? "(negate)" : "");
+    JJ_DEBUG("Test expression %s '%s' %s (using function 'test_is_%s')", operand->type().c_str(), test_id.c_str(), negate ? "(negate)" : "", test_id.c_str());
     if (it == builtins.end()) {
         throw std::runtime_error("Unknown test '" + test_id + "'");
     }
@@ -336,6 +350,12 @@ value for_statement::execute_impl(context & ctx) {
     JJ_DEBUG("Executing for statement, iterable type: %s", iter_expr->type().c_str());
 
     value iterable_val = iter_expr->execute(scope);
+
+    if (iterable_val->is_undefined()) {
+        JJ_DEBUG("%s", "For loop iterable is undefined, skipping loop");
+        iterable_val = mk_val<value_array>();
+    }
+
     if (!is_val<value_array>(iterable_val) && !is_val<value_object>(iterable_val)) {
         throw std::runtime_error("Expected iterable or object type in for loop: got " + iterable_val->type());
     }
@@ -555,7 +575,10 @@ value member_expression::execute_impl(context & ctx) {
 
     value val = mk_val<value_undefined>();
 
-    if (is_val<value_object>(object)) {
+    if (is_val<value_undefined>(object)) {
+        JJ_DEBUG("%s", "Accessing property on undefined object, returning undefined");
+        return val;
+    } else if (is_val<value_object>(object)) {
         if (!is_val<value_string>(property)) {
             throw std::runtime_error("Cannot access object with non-string: got " + property->type());
         }
@@ -623,35 +646,39 @@ value call_expression::execute_impl(context & ctx) {
 
 // compare operator for value_t
 bool value_compare(const value & a, const value & b) {
-    JJ_DEBUG("Comparing types: %s and %s", a->type().c_str(), b->type().c_str());
-    // compare numeric types
-    if ((is_val<value_int>(a) || is_val<value_float>(a)) &&
-        (is_val<value_int>(b) || is_val<value_float>(b))){
-        try {
-            return a->as_float() == b->as_float();
-        } catch (...) {}
-    }
-    // compare string and number
-    // TODO: not sure if this is the right behavior
-    if ((is_val<value_string>(b) && (is_val<value_int>(a) || is_val<value_float>(a))) ||
-        (is_val<value_string>(a) && (is_val<value_int>(b) || is_val<value_float>(b)))) {
-        try {
+    auto cmp = [&]() {
+        // compare numeric types
+        if ((is_val<value_int>(a) || is_val<value_float>(a)) &&
+            (is_val<value_int>(b) || is_val<value_float>(b))){
+            try {
+                return a->as_float() == b->as_float();
+            } catch (...) {}
+        }
+        // compare string and number
+        // TODO: not sure if this is the right behavior
+        if ((is_val<value_string>(b) && (is_val<value_int>(a) || is_val<value_float>(a))) ||
+            (is_val<value_string>(a) && (is_val<value_int>(b) || is_val<value_float>(b)))) {
+            try {
+                return a->as_string().str() == b->as_string().str();
+            } catch (...) {}
+        }
+        // compare boolean simple
+        if (is_val<value_bool>(a) && is_val<value_bool>(b)) {
+            return a->as_bool() == b->as_bool();
+        }
+        // compare string simple
+        if (is_val<value_string>(a) && is_val<value_string>(b)) {
             return a->as_string().str() == b->as_string().str();
-        } catch (...) {}
-    }
-    // compare boolean simple
-    if (is_val<value_bool>(a) && is_val<value_bool>(b)) {
-        return a->as_bool() == b->as_bool();
-    }
-    // compare string simple
-    if (is_val<value_string>(a) && is_val<value_string>(b)) {
-        return a->as_string().str() == b->as_string().str();
-    }
-    // compare by type
-    if (a->type() != b->type()) {
+        }
+        // compare by type
+        if (a->type() != b->type()) {
+            return false;
+        }
         return false;
-    }
-    return false;
+    };
+    auto result = cmp();
+    JJ_DEBUG("Comparing types: %s and %s result=%d", a->type().c_str(), b->type().c_str(), result);
+    return result;
 }
 
 value keyword_argument_expression::execute_impl(context & ctx) {

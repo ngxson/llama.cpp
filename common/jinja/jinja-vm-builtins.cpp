@@ -67,12 +67,14 @@ template<typename T>
 static value test_type_fn(const func_args & args) {
     args.ensure_count(1);
     bool is_type = is_val<T>(args.args[0]);
+    JJ_DEBUG("test_type_fn: type=%s result=%d", typeid(T).name(), is_type ? 1 : 0);
     return mk_val<value_bool>(is_type);
 }
 template<typename T, typename U>
 static value test_type_fn(const func_args & args) {
     args.ensure_count(1);
     bool is_type = is_val<T>(args.args[0]) || is_val<U>(args.args[0]);
+    JJ_DEBUG("test_type_fn: type=%s or %s result=%d", typeid(T).name(), typeid(U).name(), is_type ? 1 : 0);
     return mk_val<value_bool>(is_type);
 }
 
@@ -94,6 +96,20 @@ const func_builtins & global_builtins() {
                 out->insert(kwarg->key, kwarg->val);
             }
             return out;
+        }},
+        {"strftime_now", [](const func_args & args) -> value {
+            args.ensure_count(1);
+            args.ensure_vals<value_string>();
+            std::string format = args.args[0]->as_string().str();
+            // get current time
+            // TODO: make sure this is the same behavior as Python's strftime
+            std::time_t t = std::time(nullptr);
+            char buf[100];
+            if (std::strftime(buf, sizeof(buf), format.c_str(), std::localtime(&t))) {
+                return mk_val<value_string>(std::string(buf));
+            } else {
+                throw raised_exception("strftime_now: failed to format time");
+            }
         }},
 
         // tests
@@ -296,6 +312,25 @@ const func_builtins & value_string_t::get_builtins() const {
             args.ensure_vals<value_string>();
             return mk_val<value_string>(args.args[0]->as_string());
         }},
+        {"default", [](const func_args & args) -> value {
+            value input = args.args[0];
+            if (!is_val<value_string>(input)) {
+                throw raised_exception("default() first argument must be a string");
+            }
+            value default_val = mk_val<value_string>("");
+            if (args.args.size() > 1 && !args.args[1]->is_undefined()) {
+                default_val = args.args[1];
+            }
+            value boolean_val = mk_val<value_bool>(false);
+            if (args.args.size() > 1) {
+                boolean_val = args.args[1];
+            }
+            if (input->is_undefined() || (boolean_val->as_bool() && !input->as_bool())) {
+                return default_val;
+            } else {
+                return input;
+            }
+        }},
         {"indent", [](const func_args &) -> value {
             throw std::runtime_error("indent builtin not implemented");
         }},
@@ -379,6 +414,40 @@ const func_builtins & value_array_t::get_builtins() const {
             auto res = mk_val<value_array>();
             res->val_arr = std::move(arr);
             return res;
+        }},
+        {"selectattr", [](const func_args & args) -> value {
+            value input = args.args[0];
+            if (!is_val<value_array>(input)) {
+                throw raised_exception("selectattr() first argument must be an array, got " + input->type());
+            }
+            std::vector<std::string> selected;
+            for (size_t i = 1; i < args.args.size(); ++i) {
+                const auto & v = args.args[i];
+                if (!is_val<value_string>(v)) {
+                    throw raised_exception("selectattr() attributes must be strings, got " + v->type());
+                }
+                JJ_DEBUG("selectattr: selecting attribute '%s'", v->as_string().str().c_str());
+                selected.push_back(v->as_string().str());
+            }
+            auto result = mk_val<value_array>();
+            for (const auto & item : input->as_array()) {
+                if (!is_val<value_object>(item)) {
+                    continue;
+                }
+                const auto & obj = item->as_object();
+                bool match = true;
+                for (const auto & attr : selected) {
+                    auto it = obj.find(attr);
+                    if (it == obj.end() || it->second->is_undefined() || (is_val<value_bool>(it->second) && !it->second->as_bool())) {
+                        match = false;
+                        break;
+                    }
+                }
+                if (match) {
+                    result->push_back(item);
+                }
+            }
+            return result;
         }},
         // TODO: reverse, sort, join, string, unique
     };

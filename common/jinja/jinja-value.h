@@ -65,7 +65,7 @@ struct func_args {
             throw std::runtime_error("Expected " + std::to_string(count) + " arguments, got " + std::to_string(args.size()));
         }
     }
-    // TODO: add support for get kwargs
+    value get_kwarg(const std::string & key) const;
     // utility functions
     template<typename T> void ensure_vals() const {
         ensure_count(1);
