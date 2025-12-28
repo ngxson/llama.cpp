@@ -257,14 +257,20 @@ value test_expression::execute_impl(context & ctx) {
 
     auto test_id = cast_stmt<identifier>(test)->val;
     auto it = builtins.find("test_is_" + test_id);
-    JJ_DEBUG("Test expression %s '%s'", operand->type().c_str(), test_id.c_str());
+    JJ_DEBUG("Test expression %s '%s' %s", operand->type().c_str(), test_id.c_str(), negate ? "(negate)" : "");
     if (it == builtins.end()) {
         throw std::runtime_error("Unknown test '" + test_id + "'");
     }
 
     func_args args;
     args.args.push_back(operand->execute(ctx));
-    return it->second(args);
+    auto res = it->second(args);
+
+    if (negate) {
+        return mk_val<value_bool>(!res->as_bool());
+    } else {
+        return res;
+    }
 }
 
 value unary_expression::execute_impl(context & ctx) {
@@ -538,7 +544,6 @@ value member_expression::execute_impl(context & ctx) {
             throw std::runtime_error("Cannot access object with non-string: got " + property->type());
         }
         auto key = property->as_string().str();
-        JJ_DEBUG("Accessing object property '%s'", key.c_str());
         auto & obj = object->as_object();
         auto it = obj.find(key);
         if (it != obj.end()) {
@@ -546,6 +551,7 @@ value member_expression::execute_impl(context & ctx) {
         } else {
             val = try_builtin_func(key, object, true);
         }
+        JJ_DEBUG("Accessed property '%s' value, got type: %s", key.c_str(), val->type().c_str());
 
     } else if (is_val<value_array>(object) || is_val<value_string>(object)) {
         if (is_val<value_int>(property)) {

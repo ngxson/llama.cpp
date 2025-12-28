@@ -17,10 +17,9 @@ int main(void) {
     //std::string contents = "{% if messages[0]['role'] != 'system' %}nice {{ messages[0]['content'] }}{% endif %}";
 
     //std::string contents = "<some_tokens> {{ messages[a]['content'] }} <another_token>";
-    //std::string contents = "{{ aaa[bbb] }}";
+    //std::string contents = "{% if a is not defined %}hello{% endif %}";
 
-    std::ifstream infile("models/templates/mistralai-Ministral-3-14B-Reasoning-2512.jinja");
-    std::string contents((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
+    std::ifstream infile("models/templates/mistralai-Ministral-3-14B-Reasoning-2512.jinja"); std::string contents((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
 
     std::cout << "=== INPUT ===\n" << contents << "\n\n";
 

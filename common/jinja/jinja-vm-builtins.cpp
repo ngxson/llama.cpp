@@ -9,6 +9,8 @@
 #include <optional>
 #include <algorithm>
 
+#define FILENAME "jinja-vm-builtins"
+
 namespace jinja {
 
 /**
@@ -88,6 +90,7 @@ const func_builtins & global_builtins() {
                     throw raised_exception("namespace() arguments must be kwargs");
                 }
                 auto kwarg = cast_val<value_kwarg>(arg);
+                JJ_DEBUG("namespace: adding key '%s'", kwarg->key.c_str());
                 out->insert(kwarg->key, kwarg->val);
             }
             return out;
@@ -132,7 +135,9 @@ const func_builtins & global_builtins() {
         {"test_is_none", test_type_fn<value_null>},
         {"test_is_defined", [](const func_args & args) -> value {
             args.ensure_count(1);
-            return mk_val<value_bool>(!is_val<value_undefined>(args.args[0]));
+            bool res = !args.args[0]->is_undefined();
+            JJ_DEBUG("test_is_defined: result=%d", res ? 1 : 0);
+            return mk_val<value_bool>(res);
         }},
         {"test_is_undefined", test_type_fn<value_undefined>},
     };
