@@ -9,6 +9,9 @@
 #include <memory>
 #include <sstream>
 
+#define JJ_DEBUG(msg, ...)  if (g_jinja_debug) printf("%s:%3d : " msg "\n", FILENAME, __LINE__, __VA_ARGS__)
+
+extern bool g_jinja_debug;
 
 namespace jinja {
 
@@ -37,14 +40,11 @@ template<typename T>
 const T * cast_stmt(const statement_ptr & ptr) {
     return dynamic_cast<const T*>(ptr.get());
 }
-template<typename T, typename... Args>
-std::unique_ptr<T> mk_stmt(Args&&... args) {
-    return std::make_unique<T>(std::forward<Args>(args)...);
-}
 // End Helpers
 
 struct context {
     std::map<std::string, value> var;
+    std::string source; // for debugging
 
     context() {
         var["true"] = mk_val<value_bool>(true);
@@ -65,9 +65,13 @@ struct context {
  * Base class for all nodes in the AST.
  */
 struct statement {
+    size_t pos; // position in source, for debugging
     virtual ~statement() = default;
     virtual std::string type() const { return "Statement"; }
-    virtual value execute(context &) { throw std::runtime_error("cannot exec " + type()); }
+    // execute_impl must be overridden by derived classes
+    virtual value execute_impl(context &) { throw std::runtime_error("cannot exec " + type()); }
+    // execute is the public method to execute a statement with error handling
+    virtual value execute(context &);
 };
 
 // Type Checking Utilities
@@ -100,7 +104,7 @@ struct program : public statement {
 
     explicit program(statements && body) : body(std::move(body)) {}
     std::string type() const override { return "Program"; }
-    value execute(context &) override {
+    value execute_impl(context &) override {
         throw std::runtime_error("Cannot execute program directly, use jinja::vm instead");
     }
 };
@@ -116,7 +120,7 @@ struct if_statement : public statement {
     }
 
     std::string type() const override { return "If"; }
-    value execute(context & ctx) override;
+    value execute_impl(context & ctx) override;
 };
 
 struct identifier;
@@ -140,7 +144,7 @@ struct for_statement : public statement {
     }
 
     std::string type() const override { return "For"; }
-    value execute(context & ctx) override;
+    value execute_impl(context & ctx) override;
 };
 
 struct break_statement : public statement {
@@ -152,7 +156,7 @@ struct break_statement : public statement {
         }
     };
 
-    value execute(context &) override {
+    value execute_impl(context &) override {
         throw break_statement::exception();
     }
 };
@@ -166,7 +170,7 @@ struct continue_statement : public statement {
         }
     };
 
-    value execute(context &) override {
+    value execute_impl(context &) override {
         throw continue_statement::exception();
     }
 };
@@ -183,7 +187,7 @@ struct set_statement : public statement {
     }
 
     std::string type() const override { return "Set"; }
-    value execute(context & ctx) override;
+    value execute_impl(context & ctx) override;
 };
 
 struct macro_statement : public statement {
@@ -198,14 +202,14 @@ struct macro_statement : public statement {
     }
 
     std::string type() const override { return "Macro"; }
-    value execute(context & ctx) override;
+    value execute_impl(context & ctx) override;
 };
 
 struct comment_statement : public statement {
     std::string val;
     explicit comment_statement(const std::string & v) : val(v) {}
     std::string type() const override { return "Comment"; }
-    value execute(context &) override {
+    value execute_impl(context &) override {
         return mk_val<value_null>();
     }
 };
@@ -223,7 +227,7 @@ struct member_expression : public expression {
         chk_type<expression>(this->property);
     }
     std::string type() const override { return "MemberExpression"; }
-    value execute(context & ctx) override;
+    value execute_impl(context & ctx) override;
 };
 
 struct call_expression : public expression {
@@ -236,7 +240,7 @@ struct call_expression : public expression {
         for (const auto& arg : this->args) chk_type<expression>(arg);
     }
     std::string type() const override { return "CallExpression"; }
-    value execute(context & ctx) override;
+    value execute_impl(context & ctx) override;
 };
 
 /**
@@ -246,7 +250,7 @@ struct identifier : public expression {
     std::string val;
     explicit identifier(const std::string & val) : val(val) {}
     std::string type() const override { return "Identifier"; }
-    value execute(context & ctx) override;
+    value execute_impl(context & ctx) override;
 };
 
 // Literals
@@ -255,7 +259,7 @@ struct integer_literal : public expression {
     int64_t val;
     explicit integer_literal(int64_t val) : val(val) {}
     std::string type() const override { return "IntegerLiteral"; }
-    value execute(context &) override {
+    value execute_impl(context &) override {
         return std::make_unique<value_int_t>(val);
     }
 };
@@ -264,7 +268,7 @@ struct float_literal : public expression {
     double val;
     explicit float_literal(double val) : val(val) {}
     std::string type() const override { return "FloatLiteral"; }
-    value execute(context &) override {
+    value execute_impl(context &) override {
         return std::make_unique<value_float_t>(val);
     }
 };
@@ -273,7 +277,7 @@ struct string_literal : public expression {
     std::string val;
     explicit string_literal(const std::string & val) : val(val) {}
     std::string type() const override { return "StringLiteral"; }
-    value execute(context &) override {
+    value execute_impl(context &) override {
         return std::make_unique<value_string_t>(val);
     }
 };
@@ -324,7 +328,7 @@ struct binary_expression : public expression {
         chk_type<expression>(this->right);
     }
     std::string type() const override { return "BinaryExpression"; }
-    value execute(context & ctx) override;
+    value execute_impl(context & ctx) override;
 };
 
 /**
@@ -341,7 +345,7 @@ struct filter_expression : public expression {
         chk_type<identifier, call_expression>(this->filter);
     }
     std::string type() const override { return "FilterExpression"; }
-    value execute(context & ctx) override;
+    value execute_impl(context & ctx) override;
 };
 
 struct filter_statement : public statement {
@@ -388,7 +392,7 @@ struct test_expression : public expression {
         chk_type<identifier>(this->test);
     }
     std::string type() const override { return "TestExpression"; }
-    value execute(context & ctx) override;
+    value execute_impl(context & ctx) override;
 };
 
 /**
@@ -403,7 +407,7 @@ struct unary_expression : public expression {
         chk_type<expression>(this->argument);
     }
     std::string type() const override { return "UnaryExpression"; }
-    value execute(context & ctx) override;
+    value execute_impl(context & ctx) override;
 };
 
 struct slice_expression : public expression {
@@ -418,7 +422,7 @@ struct slice_expression : public expression {
         chk_type<expression>(this->step_expr);
     }
     std::string type() const override { return "SliceExpression"; }
-    value execute(context &) override {
+    value execute_impl(context &) override {
         throw std::runtime_error("must be handled by MemberExpression");
     }
 };
@@ -433,7 +437,7 @@ struct keyword_argument_expression : public expression {
         chk_type<expression>(this->val);
     }
     std::string type() const override { return "KeywordArgumentExpression"; }
-    value execute(context & ctx) override;
+    value execute_impl(context & ctx) override;
 };
 
 struct spread_expression : public expression {

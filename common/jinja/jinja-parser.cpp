@@ -8,6 +8,8 @@
 #include <stdexcept>
 #include <algorithm>
 
+#define FILENAME "jinja-parser"
+
 namespace jinja {
 
 // Helper to check type without asserting (useful for logic)
@@ -19,9 +21,18 @@ static bool is_type(const statement_ptr & ptr) {
 class parser {
     const std::vector<token> & tokens;
     size_t current = 0;
+    size_t prev_cur = 0;
+
+    // for debugging; a token can be multiple chars in source
+    std::vector<size_t> tok_pos_to_src_pos;
 
 public:
-    parser(const std::vector<token> & t) : tokens(t) {}
+    parser(const std::vector<token> & t) : tokens(t) {
+        tok_pos_to_src_pos.resize(tokens.size());
+        for (size_t i = 0; i < tokens.size(); i++) {
+            tok_pos_to_src_pos[i] = tokens[i].pos;
+        }
+    }
 
     program parse() {
         statements body;
@@ -31,10 +42,18 @@ public:
         return program(std::move(body));
     }
 
+    template<typename T, typename... Args>
+    std::unique_ptr<T> mk_stmt(Args&&... args) {
+        auto ptr = std::make_unique<T>(std::forward<Args>(args)...);
+        ptr->pos = tok_pos_to_src_pos[prev_cur];
+        JJ_DEBUG("Created %s statement at src pos %zu", ptr->type().c_str(), ptr->pos);
+        return ptr;
+    }
+
 private:
     const token & peek(size_t offset = 0) const {
         if (current + offset >= tokens.size()) {
-            static const token end_token{token::undefined, ""};
+            static const token end_token{token::undefined, "", 0};
             return end_token;
         }
         return tokens[current + offset];
@@ -74,6 +93,7 @@ private:
     }
 
     statement_ptr parse_any() {
+        prev_cur = current;
         switch (peek().t) {
             case token::comment:
                 return mk_stmt<comment_statement>(tokens[current++].value);
@@ -90,6 +110,7 @@ private:
 
     statement_ptr parse_jinja_expression() {
         // Consume {{ }} tokens
+        prev_cur = current;
         expect(token::open_expression, "Expected {{");
         auto result = parse_expression();
         expect(token::close_expression, "Expected }}");
@@ -98,6 +119,7 @@ private:
 
     statement_ptr parse_jinja_statement() {
         // Consume {% token
+        prev_cur = current;
         expect(token::open_statement, "Expected {%");
         
         if (peek().t != token::identifier) {
@@ -194,6 +216,8 @@ private:
         auto left = parse_expression_sequence();
         statement_ptr value = nullptr;
         statements body;
+        
+        prev_cur = current;
 
         if (is(token::equals)) {
             current++;
@@ -217,6 +241,8 @@ private:
 
         statements body;
         statements alternate;
+
+        prev_cur = current;
 
         // Keep parsing 'if' body until we reach the first {% elif %} or {% else %} or {% endif %}
         while (!is_statement({"elif", "else", "endif"})) {
@@ -257,6 +283,7 @@ private:
         exprs.push_back(primary ? parse_primary_expression() : parse_expression());
         bool is_tuple = is(token::comma);
         while (is(token::comma)) {
+            prev_cur = current;
             current++; // consume comma
             exprs.push_back(primary ? parse_primary_expression() : parse_expression());
             if (!is(token::comma)) break;
@@ -283,6 +310,7 @@ private:
         }
 
         if (is_statement({"else"})) {
+            prev_cur = current;
             current += 2;
             expect(token::close_statement, "Expected %}");
             while (!is_statement({"endfor"})) {
@@ -303,10 +331,12 @@ private:
         auto a = parse_logical_or_expression();
         if (is_identifier("if")) {
             // Ternary expression
+            prev_cur = current;
             ++current; // consume 'if'
             auto test = parse_logical_or_expression();
             if (is_identifier("else")) {
                 // Ternary expression with else
+                prev_cur = current;
                 ++current; // consume 'else'
                 auto false_expr = parse_if_expression(); // recurse to support chained ternaries
                 return mk_stmt<ternary_expression>(std::move(test), std::move(a), std::move(false_expr));
@@ -321,6 +351,7 @@ private:
     statement_ptr parse_logical_or_expression() {
         auto left = parse_logical_and_expression();
         while (is_identifier("or")) {
+            prev_cur = current;
             token op = tokens[current++];
             left = mk_stmt<binary_expression>(op, std::move(left), parse_logical_and_expression());
         }
@@ -330,6 +361,7 @@ private:
     statement_ptr parse_logical_and_expression() {
         auto left = parse_logical_negation_expression();
         while (is_identifier("and")) {
+            prev_cur = current;
             auto op = tokens[current++];
             left = mk_stmt<binary_expression>(op, std::move(left), parse_logical_negation_expression());
         }
@@ -339,6 +371,7 @@ private:
     statement_ptr parse_logical_negation_expression() {
         // Try parse unary operators
         if (is_identifier("not")) {
+            prev_cur = current;
             auto op = tokens[current];
             ++current; // consume 'not'
             return mk_stmt<unary_expression>(op, parse_logical_negation_expression());
@@ -352,8 +385,9 @@ private:
         auto left = parse_additive_expression();
         while (true) {
             token op;
+            prev_cur = current;
             if (is_identifier("not") && peek(1).t == token::identifier && peek(1).value == "in") {
-                op = {token::identifier, "not in"};
+                op = {token::identifier, "not in", tokens[current].pos};
                 current += 2;
             } else if (is_identifier("in")) {
                 op = tokens[current++];
@@ -368,6 +402,7 @@ private:
     statement_ptr parse_additive_expression() {
         auto left = parse_multiplicative_expression();
         while (is(token::additive_binary_operator)) {
+            prev_cur = current;
             auto op = tokens[current++];
             left = mk_stmt<binary_expression>(op, std::move(left), parse_multiplicative_expression());
         }
@@ -377,6 +412,7 @@ private:
     statement_ptr parse_multiplicative_expression() {
         auto left = parse_test_expression();
         while (is(token::multiplicative_binary_operator)) {
+            prev_cur = current;
             auto op = tokens[current++];
             left = mk_stmt<binary_expression>(op, std::move(left), parse_test_expression());
         }
@@ -386,6 +422,7 @@ private:
     statement_ptr parse_test_expression() {
         auto operand = parse_filter_expression();
         while (is_identifier("is")) {
+            prev_cur = current;
             current++;
             bool negate = false;
             if (is_identifier("not")) { current++; negate = true; }
@@ -398,6 +435,7 @@ private:
     statement_ptr parse_filter_expression() {
         auto operand = parse_call_member_expression();
         while (is(token::pipe)) {
+            prev_cur = current;
             current++;
             auto filter = parse_primary_expression();
             if (is(token::open_paren)) filter = parse_call_expression(std::move(filter));
@@ -428,6 +466,7 @@ private:
         statements args;
         while (!is(token::close_paren)) {
             statement_ptr arg;
+            prev_cur = current;
             // unpacking: *expr
             if (peek().t == token::multiplicative_binary_operator && peek().value == "*") {
                 ++current; // consume *
@@ -472,6 +511,7 @@ private:
         statements slices;
         bool is_slice = false;
         while (!is(token::close_square_bracket)) {
+            prev_cur = current;
             if (is(token::colon)) {
                 // A case where a default is used
 			    // e.g., [:2] will be parsed as [undefined, 2]
@@ -496,6 +536,7 @@ private:
     }
 
     statement_ptr parse_primary_expression() {
+        prev_cur = current;
         auto t = tokens[current++];
         switch (t.t) {
             case token::numeric_literal:

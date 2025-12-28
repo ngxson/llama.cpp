@@ -54,12 +54,13 @@ std::string lexer::preprocess(const std::string & template_str, const preprocess
     return result;
 }
 
-std::vector<token> lexer::tokenize(const std::string & input, const preprocess_options & options) {
+lexer_result lexer::tokenize(const std::string & input, const preprocess_options & options) {
     std::vector<token> tokens;
     std::string src = preprocess(input, options);
     JJ_DEBUG("preprocessed input: '%s'", src.c_str());
 
     size_t pos = 0;
+    size_t start_pos = 0;
     size_t curly_bracket_depth = 0;
 
     using pred = std::function<bool(char)>;
@@ -101,6 +102,7 @@ std::vector<token> lexer::tokenize(const std::string & input, const preprocess_o
     };
 
     while (pos < src.size()) {
+        start_pos = pos;
         JJ_DEBUG("lexer main loop at pos %zu: '%s...'", pos, src.substr(pos, 10).c_str());
 
         // First, consume all text that is outside of a Jinja statement or expression
@@ -122,13 +124,14 @@ std::vector<token> lexer::tokenize(const std::string & input, const preprocess_o
             }
             JJ_DEBUG("consumed text: '%s'", text.c_str());
             if (!text.empty()) {
-                tokens.push_back({token::text, text});
+                tokens.push_back({token::text, text, start_pos});
                 continue;
             }
         }
 
         // Possibly consume a comment
         if (src[pos] == '{' && next_pos_is( {'#'} )) {
+            start_pos = pos;
             pos += 2; // Skip the opening {#
             std::string comment;
             while (!(src[pos] == '#' && next_pos_is( {'}'} ))) {
@@ -138,7 +141,7 @@ std::vector<token> lexer::tokenize(const std::string & input, const preprocess_o
                 comment += src[pos++];
             }
             JJ_DEBUG("consumed comment: '%s'", comment.c_str());
-            tokens.push_back({token::comment, comment});
+            tokens.push_back({token::comment, comment, start_pos});
             pos += 2; // Skip the closing #}
             continue;
         }
@@ -152,6 +155,7 @@ std::vector<token> lexer::tokenize(const std::string & input, const preprocess_o
 
         // Check for unary operators
         if (ch == '-' || ch == '+') {
+            start_pos = pos;
             token::type last_token_type = tokens.empty() ? token::undefined : tokens.back().t;
             if (last_token_type == token::text || last_token_type == token::undefined) {
                 throw std::runtime_error(std::string("lexer: unexpected character: ") + ch);
@@ -176,7 +180,7 @@ std::vector<token> lexer::tokenize(const std::string & input, const preprocess_o
                     std::string value = std::string(1, ch) + num;
                     token::type t = num.empty() ? token::unary_operator : token::numeric_literal;
                     JJ_DEBUG("consumed unary operator or numeric literal: '%s'", value.c_str());
-                    tokens.push_back({t, value});
+                    tokens.push_back({t, value, start_pos});
                     continue;
                 }
             }
@@ -185,12 +189,13 @@ std::vector<token> lexer::tokenize(const std::string & input, const preprocess_o
         // Try to match one of the tokens in the mapping table
         bool matched = false;
         for (const auto & [seq, typ] : ordered_mapping_table) {
+            start_pos = pos;
             // Inside an object literal, don't treat "}}" as expression-end
             if (seq == "}}" && curly_bracket_depth > 0) {
                 continue;
             }
             if (pos + seq.size() <= src.size() && src.substr(pos, seq.size()) == seq) {
-                tokens.push_back({typ, seq});
+                tokens.push_back({typ, seq, start_pos});
                 if (typ == token::open_expression) {
                     curly_bracket_depth = 0;
                 } else if (typ == token::open_curly_bracket) {
@@ -207,36 +212,39 @@ std::vector<token> lexer::tokenize(const std::string & input, const preprocess_o
 
         // Strings
         if (ch == '\'' || ch == '"') {
+            start_pos = pos;
             ++pos; // Skip opening quote
             std::string str = consume_while([ch](char c) { return c != ch; });
-            tokens.push_back({token::string_literal, str});
+            tokens.push_back({token::string_literal, str, start_pos});
             ++pos; // Skip closing quote
             continue;
         }
 
         // Numbers
         if (is_integer(ch)) {
+            start_pos = pos;
             std::string num = consume_while(is_integer);
             if (pos < src.size() && src[pos] == '.' && pos + 1 < src.size() && is_integer(src[pos + 1])) {
                 ++pos; // Consume '.'
                 std::string frac = consume_while(is_integer);
                 num += "." + frac;
             }
-            tokens.push_back({token::numeric_literal, num});
+            tokens.push_back({token::numeric_literal, num, start_pos});
             continue;
         }
 
         // Identifiers
         if (is_word(ch)) {
+            start_pos = pos;
             std::string word = consume_while(is_word);
-            tokens.push_back({token::identifier, word});
+            tokens.push_back({token::identifier, word, start_pos});
             continue;
         }
 
         throw std::runtime_error(std::string("lexer: unexpected character: ") + ch);
     }
 
-    return tokens;
+    return {std::move(tokens), std::move(src)};
 }
 
 } // namespace jinja

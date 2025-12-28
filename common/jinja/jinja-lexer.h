@@ -48,6 +48,7 @@ struct token {
     };
     type t;
     std::string value;
+    size_t pos;
 };
 
 static std::string type_to_string(token::type t) {
@@ -81,6 +82,11 @@ static std::string type_to_string(token::type t) {
         default: return "unknown";
     }
 }
+
+struct lexer_result {
+    std::vector<token> tokens;
+    std::string preprocessed_source;
+};
 
 struct lexer {
     const std::map<char, char> escape_chars = {
@@ -140,7 +146,7 @@ struct lexer {
 
     std::string preprocess(const std::string& template_str, const preprocess_options& options) const;
 
-    std::vector<token> tokenize(const std::string & input, const preprocess_options & options);
+    lexer_result tokenize(const std::string & input, const preprocess_options & options);
 };
 
 } // namespace jinja

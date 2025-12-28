@@ -8,8 +8,9 @@
 #include <memory>
 #include <algorithm>
 
-#define JJ_DEBUG(msg, ...)  printf("jinja-vm:%3d : " msg "\n", __LINE__, __VA_ARGS__)
-//#define JJ_DEBUG(msg, ...)  // no-op
+#define FILENAME "jinja-vm"
+
+bool g_jinja_debug = true;
 
 namespace jinja {
 
@@ -22,7 +23,51 @@ static value_array exec_statements(const statements & stmts, context & ctx) {
     return result;
 }
 
-value identifier::execute(context & ctx) {
+static void string_replace_all(std::string & s, const std::string & search, const std::string & replace) {
+    if (search.empty()) {
+        return;
+    }
+    std::string builder;
+    builder.reserve(s.length());
+    size_t pos = 0;
+    size_t last_pos = 0;
+    while ((pos = s.find(search, last_pos)) != std::string::npos) {
+        builder.append(s, last_pos, pos - last_pos);
+        builder.append(replace);
+        last_pos = pos + search.length();
+    }
+    builder.append(s, last_pos, std::string::npos);
+    s = std::move(builder);
+}
+
+// execute with error handling
+value statement::execute(context & ctx) {
+    try {
+        return execute_impl(ctx);
+    } catch (const std::exception & e) {
+        if (ctx.source.empty()) {
+            std::ostringstream oss;
+            oss << "\nError executing " << type() << " at position " << pos << ": " << e.what();
+            throw raised_exception(oss.str());
+        } else {
+            std::ostringstream oss;
+            constexpr int max_peak_chars = 40;
+            oss << "\n------------\n";
+            oss << "While executing " << type() << " at position " << pos << " in source:\n";
+            size_t start = (pos >= max_peak_chars) ? (pos - max_peak_chars) : 0;
+            size_t end = std::min(pos + max_peak_chars, ctx.source.length());
+            std::string substr = ctx.source.substr(start, end - start);
+            string_replace_all(substr, "\n", "\\n");
+            oss << "..." << substr << "...\n";
+            std::string spaces(pos - start + 3, ' ');
+            oss << spaces << "^\n";
+            oss << "Error: " << e.what();
+            throw raised_exception(oss.str());
+        }
+    }
+}
+
+value identifier::execute_impl(context & ctx) {
     auto it = ctx.var.find(val);
     auto builtins = global_builtins();
     if (it != ctx.var.end()) {
@@ -37,7 +82,7 @@ value identifier::execute(context & ctx) {
     }
 }
 
-value binary_expression::execute(context & ctx) {
+value binary_expression::execute_impl(context & ctx) {
     value left_val = left->execute(ctx);
     JJ_DEBUG("Executing binary expression %s '%s' %s", left_val->type().c_str(), op.value.c_str(), right->type().c_str());
 
@@ -176,7 +221,7 @@ static value try_builtin_func(const std::string & name, const value & input, boo
     throw std::runtime_error("Unknown (built-in) filter '" + name + "' for type " + input->type());
 }
 
-value filter_expression::execute(context & ctx) {
+value filter_expression::execute_impl(context & ctx) {
     value input = operand->execute(ctx);
 
     if (is_stmt<identifier>(filter)) {
@@ -203,7 +248,7 @@ value filter_expression::execute(context & ctx) {
     }
 }
 
-value test_expression::execute(context & ctx) {
+value test_expression::execute_impl(context & ctx) {
     // NOTE: "value is something" translates to function call "test_is_something(value)"
     const auto & builtins = global_builtins();
     if (!is_stmt<identifier>(test)) {
@@ -222,7 +267,7 @@ value test_expression::execute(context & ctx) {
     return it->second(args);
 }
 
-value unary_expression::execute(context & ctx) {
+value unary_expression::execute_impl(context & ctx) {
     value operand_val = argument->execute(ctx);
     JJ_DEBUG("Executing unary expression with operator '%s'", op.value.c_str());
 
@@ -241,7 +286,7 @@ value unary_expression::execute(context & ctx) {
     throw std::runtime_error("Unknown unary operator '" + op.value + "'");
 }
 
-value if_statement::execute(context & ctx) {
+value if_statement::execute_impl(context & ctx) {
     value test_val = test->execute(ctx);
     auto out = mk_val<value_array>();
     if (test_val->as_bool()) {
@@ -258,7 +303,7 @@ value if_statement::execute(context & ctx) {
     return out;
 }
 
-value for_statement::execute(context & ctx) {
+value for_statement::execute_impl(context & ctx) {
     context scope(ctx); // new scope for loop variables
 
     statement_ptr iter_expr = std::move(iterable);
@@ -377,7 +422,7 @@ value for_statement::execute(context & ctx) {
     return result;
 }
 
-value set_statement::execute(context & ctx) {
+value set_statement::execute_impl(context & ctx) {
     auto rhs = val ? val->execute(ctx) : exec_statements(body, ctx);
 
     if (is_stmt<identifier>(assignee)) {
@@ -427,7 +472,7 @@ value set_statement::execute(context & ctx) {
     return mk_val<value_null>();
 }
 
-value macro_statement::execute(context & ctx) {
+value macro_statement::execute_impl(context & ctx) {
     std::string name = cast_stmt<identifier>(this->name)->val;
     const func_handler func = [this, &ctx, name](const func_args & args) -> value {
         JJ_DEBUG("Invoking macro '%s' with %zu arguments", name.c_str(), args.args.size());
@@ -454,7 +499,7 @@ value macro_statement::execute(context & ctx) {
     return mk_val<value_null>();
 }
 
-value member_expression::execute(context & ctx) {
+value member_expression::execute_impl(context & ctx) {
     value object = this->object->execute(ctx);
 
     value property;
@@ -536,7 +581,7 @@ value member_expression::execute(context & ctx) {
     return val;
 }
 
-value call_expression::execute(context & ctx) {
+value call_expression::execute_impl(context & ctx) {
     // gather arguments
     func_args args;
     for (auto & arg_stmt : this->args) {
@@ -587,7 +632,7 @@ bool value_compare(const value & a, const value & b) {
     return false;
 }
 
-value keyword_argument_expression::execute(context & ctx) {
+value keyword_argument_expression::execute_impl(context & ctx) {
     if (!is_stmt<identifier>(key)) {
         throw std::runtime_error("Keyword argument key must be identifiers");
     }

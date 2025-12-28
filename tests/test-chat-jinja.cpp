@@ -16,9 +16,10 @@ int main(void) {
 
     //std::string contents = "{% if messages[0]['role'] != 'system' %}nice {{ messages[0]['content'] }}{% endif %}";
 
-    //std::string contents = "<some_tokens> {{ messages[0]['content'] }} <another_token>";
+    //std::string contents = "<some_tokens> {{ messages[a]['content'] }} <another_token>";
+    //std::string contents = "{{ aaa[bbb] }}";
 
-    std::ifstream infile("models/templates/Qwen-Qwen3-0.6B.jinja");
+    std::ifstream infile("models/templates/mistralai-Ministral-3-14B-Reasoning-2512.jinja");
     std::string contents((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
 
     std::cout << "=== INPUT ===\n" << contents << "\n\n";
@@ -27,19 +28,20 @@ int main(void) {
     jinja::preprocess_options options;
     options.trim_blocks = true;
     options.lstrip_blocks = false;
-    auto tokens = lexer.tokenize(contents, options);
-    for (const auto & tok : tokens) {
-        std::cout << "token: type=" << static_cast<int>(tok.t) << " text='" << tok.value << "'\n";
+    auto lexer_res = lexer.tokenize(contents, options);
+    for (const auto & tok : lexer_res.tokens) {
+        std::cout << "token: type=" << static_cast<int>(tok.t) << " text='" << tok.value << "' pos=" << tok.pos << "\n";
     }
 
     std::cout << "\n=== AST ===\n";
-    jinja::program ast = jinja::parse_from_tokens(tokens);
+    jinja::program ast = jinja::parse_from_tokens(lexer_res.tokens);
     for (const auto & stmt : ast.body) {
         std::cout << "stmt type: " << stmt->type() << "\n";
     }
 
     std::cout << "\n=== RUN ===\n";
     jinja::context ctx;
+    ctx.source = lexer_res.preprocessed_source;
 
     auto make_non_special_string = [](const std::string & s) {
         jinja::value_string str_val = jinja::mk_val<jinja::value_string>(s);

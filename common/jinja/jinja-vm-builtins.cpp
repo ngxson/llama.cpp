@@ -173,25 +173,6 @@ const func_builtins & value_float_t::get_builtins() const {
     return builtins;
 }
 
-
-// static std::string string_strip(const std::string & str, bool left, bool right) {
-//     size_t start = 0;
-//     size_t end = str.length();
-//     if (left) {
-//         while (start < end && isspace(static_cast<unsigned char>(str[start]))) {
-//             ++start;
-//         }
-//     }
-//     if (right) {
-//         while (end > start && isspace(static_cast<unsigned char>(str[end - 1]))) {
-//             --end;
-//         }
-//     }
-//     return str.substr(start, end - start);
-// }
-
-
-
 static bool string_startswith(const std::string & str, const std::string & prefix) {
     if (str.length() < prefix.length()) return false;
     return str.compare(0, prefix.length(), prefix) == 0;

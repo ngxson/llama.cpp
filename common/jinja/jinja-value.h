@@ -164,6 +164,9 @@ struct value_string_t : public value_t {
         }
         return ss.str();
     }
+    virtual bool as_bool() const override {
+        return val_str.length() > 0;
+    }
     virtual const func_builtins & get_builtins() const override;
     void mark_input() {
         val_str.mark_input();
