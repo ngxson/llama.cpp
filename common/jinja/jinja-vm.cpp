@@ -226,7 +226,7 @@ static value try_builtin_func(const std::string & name, const value & input, boo
 }
 
 value filter_expression::execute_impl(context & ctx) {
-    value input = operand->execute(ctx);
+    value input = operand ? operand->execute(ctx) : val;
 
     JJ_DEBUG("Applying filter to %s", input->type().c_str());
 

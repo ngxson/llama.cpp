@@ -3,6 +3,9 @@
 #include "jinja-parser.h"
 #include "jinja-value.h"
 
+// for converting from JSON to jinja values
+#include <nlohmann/json.hpp>
+
 #include <string>
 #include <cctype>
 #include <vector>
@@ -518,6 +521,52 @@ const func_builtins & value_object_t::get_builtins() const {
         }},
     };
     return builtins;
+}
+
+static value from_json(const nlohmann::json & j) {
+    if (j.is_null()) {
+        return mk_val<value_null>();
+    } else if (j.is_boolean()) {
+        return mk_val<value_bool>(j.get<bool>());
+    } else if (j.is_number_integer()) {
+        return mk_val<value_int>(j.get<int64_t>());
+    } else if (j.is_number_float()) {
+        return mk_val<value_float>(j.get<double>());
+    } else if (j.is_string()) {
+        return mk_val<value_string>(j.get<std::string>());
+    } else if (j.is_array()) {
+        auto arr = mk_val<value_array>();
+        for (const auto & item : j) {
+            arr->push_back(from_json(item));
+        }
+        return arr;
+    } else if (j.is_object()) {
+        if (j.contains("__input__")) {
+            // handle input marking
+            auto str = mk_val<value_string>(j.at("__input__").get<std::string>());
+            str->mark_input();
+            return str;
+        } else {
+            // normal object
+            auto obj = mk_val<value_object>();
+            for (auto it = j.begin(); it != j.end(); ++it) {
+                obj->insert(it.key(), from_json(it.value()));
+            }
+            return obj;
+        }
+    } else {
+        throw std::runtime_error("Unsupported JSON value type");
+    }
+}
+
+template<>
+void global_from_json(context & ctx, const nlohmann::json & json_obj) {
+    if (json_obj.is_null() || !json_obj.is_object()) {
+        throw std::runtime_error("global_from_json: input JSON value must be an object");
+    }
+    for (auto it = json_obj.begin(); it != json_obj.end(); ++it) {
+        ctx.var[it.key()] = from_json(it.value());
+    }
 }
 
 } // namespace jinja

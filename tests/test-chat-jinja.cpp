@@ -6,6 +6,8 @@
 #include <fstream>
 #include <filesystem>
 
+#include <nlohmann/json.hpp>
+
 #undef NDEBUG
 #include <cassert>
 
@@ -24,10 +26,14 @@ int main(void) {
 
     //std::ifstream infile("models/templates/mistralai-Ministral-3-14B-Reasoning-2512.jinja"); std::string contents((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
 
+    std::vector<std::string> failed_tests;
+
     // list all files in models/templates/ and run each
+    size_t test_count = 0;
     std::string dir_path = "models/templates/";
     for (const auto & entry : std::filesystem::directory_iterator(dir_path)) {
         if (entry.is_regular_file()) {
+            test_count++;
             std::cout << "\n\n=== RUNNING TEMPLATE FILE: " << entry.path().string() << " ===\n";
             std::ifstream infile(entry.path());
             std::string contents((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
@@ -35,10 +41,17 @@ int main(void) {
                 run(contents);
             } catch (const std::exception & e) {
                 std::cout << "Exception: " << e.what() << "\n";
-                std::cout << "=== CURRENT TEMPLATE FILE: " << entry.path().string() << " ===\n";
-                exit(1);
+                std::cout << "=== ERROR WITH TEMPLATE FILE: " << entry.path().string() << " ===\n";
+                failed_tests.push_back(entry.path().string());
             }
         }
+    }
+
+    std::cout << "\n\n=== TEST SUMMARY ===\n";
+    std::cout << "Total tests run: " << test_count << "\n";
+    std::cout << "Total failed tests: " << failed_tests.size() << "\n";
+    for (const auto & test : failed_tests) {
+        std::cout << "FAILED TEST: " << test << "\n";
     }
     return 0;
 }
@@ -66,25 +79,20 @@ void run(std::string contents) {
     jinja::context ctx;
     ctx.source = lexer_res.preprocessed_source;
 
-    auto make_non_special_string = [](const std::string & s) {
-        jinja::value_string str_val = jinja::mk_val<jinja::value_string>(s);
-        str_val->mark_input();
-        return str_val;
-    };
-
-    jinja::value_array messages = jinja::mk_val<jinja::value_array>();
-    jinja::value_object msg1 = jinja::mk_val<jinja::value_object>();
-    msg1->insert("role",    make_non_special_string("user"));
-    msg1->insert("content", make_non_special_string("Hello, how are you?"));
-    messages->push_back(std::move(msg1));
-    jinja::value_object msg2 = jinja::mk_val<jinja::value_object>();
-    msg2->insert("role",    make_non_special_string("assistant"));
-    msg2->insert("content", make_non_special_string("I am fine, thank you!"));
-    messages->push_back(std::move(msg2));
-
-    ctx.var["messages"] = std::move(messages);
-    ctx.var["eos_token"] = jinja::mk_val<jinja::value_string>("</s>");
-    // ctx.var["tools"] = jinja::mk_val<jinja::value_null>();
+    std::string json_inp = R"({
+        "messages": [
+            {
+                "role": "user",
+                "content": {"__input__": "Hello, how are you?"}
+            },
+            {
+                "role": "assistant",
+                "content": {"__input__": "I am fine, thank you!"}
+            }
+        ],
+        "eos_token": "</s>"
+    })";
+    jinja::global_from_json(ctx, nlohmann::json::parse(json_inp));
 
     jinja::vm vm(ctx);
     const jinja::value results = vm.execute(ast);

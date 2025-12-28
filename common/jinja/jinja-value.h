@@ -57,7 +57,40 @@ void ensure_val(const value & ptr) {
 }
 // End Helper
 
+
 struct context; // forward declaration
+
+
+// for converting from JSON to jinja values
+// example input JSON:
+// {
+//   "messages": [
+//     {"role": "user", "content": "Hello!"},
+//     {"role": "assistant", "content": "Hi there!"}
+//   ],
+//   "bos_token": "<s>",
+//   "eos_token": "</s>",
+// }
+//
+// to mark strings as user input, wrap them in a special object:
+// {
+//   "messages": [
+//     {
+//       "role": "user",
+//       "content": {"__input__": "Hello!"}  // this string is user input
+//     },
+//     ...
+//   ],
+// }
+//
+// marking input can be useful for tracking data provenance
+// and preventing template injection attacks
+//
+// Note: T_JSON can be nlohmann::json or similar types
+template<typename T_JSON>
+void global_from_json(context & ctx, const T_JSON & json_obj);
+
+
 
 struct func_args {
     std::vector<value> args;
