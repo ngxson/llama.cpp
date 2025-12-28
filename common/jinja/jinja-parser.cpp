@@ -76,9 +76,9 @@ private:
     statement_ptr parse_any() {
         switch (peek().t) {
             case token::comment:
-                return std::make_unique<comment_statement>(tokens[current++].value);
+                return mk_stmt<comment_statement>(tokens[current++].value);
             case token::text:
-                return std::make_unique<string_literal>(tokens[current++].value);
+                return mk_stmt<string_literal>(tokens[current++].value);
             case token::open_statement:
                 return parse_jinja_statement();
             case token::open_expression:
@@ -134,11 +134,11 @@ private:
 
         } else if (name == "break") {
             expect(token::close_statement, "Expected %}");
-            result = std::make_unique<break_statement>();
+            result = mk_stmt<break_statement>();
 
         } else if (name == "continue") {
             expect(token::close_statement, "Expected %}");
-            result = std::make_unique<continue_statement>();
+            result = mk_stmt<continue_statement>();
 
         } else if (name == "call") {
             statements caller_args;
@@ -163,8 +163,8 @@ private:
             expect_identifier("endcall");
             expect(token::close_statement, "Expected %}");
 
-            auto call_expr = std::make_unique<call_expression>(std::move(callee), std::move(call_args));
-            result = std::make_unique<call_statement>(std::move(call_expr), std::move(caller_args), std::move(body));
+            auto call_expr = mk_stmt<call_expression>(std::move(callee), std::move(call_args));
+            result = mk_stmt<call_statement>(std::move(call_expr), std::move(caller_args), std::move(body));
 
         } else if (name == "filter") {
             auto filter_node = parse_primary_expression();
@@ -181,7 +181,7 @@ private:
             expect(token::open_statement, "Expected {%");
             expect_identifier("endfilter");
             expect(token::close_statement, "Expected %}");
-            result = std::make_unique<filter_statement>(std::move(filter_node), std::move(body));
+            result = mk_stmt<filter_statement>(std::move(filter_node), std::move(body));
 
         } else {
             throw std::runtime_error("Unknown statement: " + name);
@@ -208,7 +208,7 @@ private:
             expect_identifier("endset");
         }
         expect(token::close_statement, "Expected %}");
-        return std::make_unique<set_statement>(std::move(left), std::move(value), std::move(body));
+        return mk_stmt<set_statement>(std::move(left), std::move(value), std::move(body));
     }
 
     statement_ptr parse_if_statement() {
@@ -237,7 +237,7 @@ private:
                 alternate.push_back(parse_any());
             }
         }
-        return std::make_unique<if_statement>(std::move(test), std::move(body), std::move(alternate));
+        return mk_stmt<if_statement>(std::move(test), std::move(body), std::move(alternate));
     }
 
     statement_ptr parse_macro_statement() {
@@ -249,7 +249,7 @@ private:
         while (!is_statement({"endmacro"})) {
             body.push_back(parse_any());
         }
-        return std::make_unique<macro_statement>(std::move(name), std::move(args), std::move(body));
+        return mk_stmt<macro_statement>(std::move(name), std::move(args), std::move(body));
     }
 
     statement_ptr parse_expression_sequence(bool primary = false) {
@@ -261,7 +261,7 @@ private:
             exprs.push_back(primary ? parse_primary_expression() : parse_expression());
             if (!is(token::comma)) break;
         }
-        return is_tuple ? std::make_unique<tuple_literal>(std::move(exprs)) : std::move(exprs[0]);
+        return is_tuple ? mk_stmt<tuple_literal>(std::move(exprs)) : std::move(exprs[0]);
     }
 
     statement_ptr parse_for_statement() {
@@ -289,7 +289,7 @@ private:
                 alternate.push_back(parse_any());
             }
         }
-        return std::make_unique<for_statement>(
+        return mk_stmt<for_statement>(
             std::move(loop_var), std::move(iterable),
             std::move(body), std::move(alternate));
     }
@@ -309,10 +309,10 @@ private:
                 // Ternary expression with else
                 ++current; // consume 'else'
                 auto false_expr = parse_if_expression(); // recurse to support chained ternaries
-                return std::make_unique<ternary_expression>(std::move(test), std::move(a), std::move(false_expr));
+                return mk_stmt<ternary_expression>(std::move(test), std::move(a), std::move(false_expr));
             } else {
                 // Select expression on iterable
-                return std::make_unique<select_expression>(std::move(a), std::move(test));
+                return mk_stmt<select_expression>(std::move(a), std::move(test));
             }
         }
         return a;
@@ -322,7 +322,7 @@ private:
         auto left = parse_logical_and_expression();
         while (is_identifier("or")) {
             token op = tokens[current++];
-            left = std::make_unique<binary_expression>(op, std::move(left), parse_logical_and_expression());
+            left = mk_stmt<binary_expression>(op, std::move(left), parse_logical_and_expression());
         }
         return left;
     }
@@ -331,7 +331,7 @@ private:
         auto left = parse_logical_negation_expression();
         while (is_identifier("and")) {
             auto op = tokens[current++];
-            left = std::make_unique<binary_expression>(op, std::move(left), parse_logical_negation_expression());
+            left = mk_stmt<binary_expression>(op, std::move(left), parse_logical_negation_expression());
         }
         return left;
     }
@@ -341,7 +341,7 @@ private:
         if (is_identifier("not")) {
             auto op = tokens[current];
             ++current; // consume 'not'
-            return std::make_unique<unary_expression>(op, parse_logical_negation_expression());
+            return mk_stmt<unary_expression>(op, parse_logical_negation_expression());
         }
         return parse_comparison_expression();
     }
@@ -360,7 +360,7 @@ private:
             } else if (is(token::comparison_binary_operator)) {
                 op = tokens[current++];
             } else break;
-            left = std::make_unique<binary_expression>(op, std::move(left), parse_additive_expression());
+            left = mk_stmt<binary_expression>(op, std::move(left), parse_additive_expression());
         }
         return left;
     }
@@ -369,7 +369,7 @@ private:
         auto left = parse_multiplicative_expression();
         while (is(token::additive_binary_operator)) {
             auto op = tokens[current++];
-            left = std::make_unique<binary_expression>(op, std::move(left), parse_multiplicative_expression());
+            left = mk_stmt<binary_expression>(op, std::move(left), parse_multiplicative_expression());
         }
         return left;
     }
@@ -378,7 +378,7 @@ private:
         auto left = parse_test_expression();
         while (is(token::multiplicative_binary_operator)) {
             auto op = tokens[current++];
-            left = std::make_unique<binary_expression>(op, std::move(left), parse_test_expression());
+            left = mk_stmt<binary_expression>(op, std::move(left), parse_test_expression());
         }
         return left;
     }
@@ -390,7 +390,7 @@ private:
             bool negate = false;
             if (is_identifier("not")) { current++; negate = true; }
             auto test_id = parse_primary_expression();
-            operand = std::make_unique<test_expression>(std::move(operand), negate, std::move(test_id));
+            operand = mk_stmt<test_expression>(std::move(operand), negate, std::move(test_id));
         }
         return operand;
     }
@@ -401,7 +401,7 @@ private:
             current++;
             auto filter = parse_primary_expression();
             if (is(token::open_paren)) filter = parse_call_expression(std::move(filter));
-            operand = std::make_unique<filter_expression>(std::move(operand), std::move(filter));
+            operand = mk_stmt<filter_expression>(std::move(operand), std::move(filter));
         }
         return operand;
     }
@@ -415,7 +415,7 @@ private:
     }
 
     statement_ptr parse_call_expression(statement_ptr callee) {
-        auto expr = std::make_unique<call_expression>(std::move(callee), parse_args());
+        auto expr = mk_stmt<call_expression>(std::move(callee), parse_args());
         auto member = parse_member_expression(std::move(expr)); // foo.x().y
         return is(token::open_paren)
             ? parse_call_expression(std::move(member)) // foo.x()()
@@ -431,14 +431,14 @@ private:
             // unpacking: *expr
             if (peek().t == token::multiplicative_binary_operator && peek().value == "*") {
                 ++current; // consume *
-                arg = std::make_unique<spread_expression>(parse_expression());
+                arg = mk_stmt<spread_expression>(parse_expression());
             } else {
                 arg = parse_expression();
                 if (is(token::equals)) {
                     // keyword argument
 				    // e.g., func(x = 5, y = a or b)
                     ++current; // consume equals
-                    arg = std::make_unique<keyword_argument_expression>(std::move(arg), parse_expression());
+                    arg = mk_stmt<keyword_argument_expression>(std::move(arg), parse_expression());
                 }
             }
             args.push_back(std::move(arg));
@@ -461,7 +461,7 @@ private:
             } else {
                 prop = parse_primary_expression();
             }
-            object = std::make_unique<member_expression>(std::move(object), std::move(prop), computed);
+            object = mk_stmt<member_expression>(std::move(object), std::move(prop), computed);
         }
         return object;
     }
@@ -490,7 +490,7 @@ private:
             statement_ptr start = slices.size() > 0 ? std::move(slices[0]) : nullptr;
             statement_ptr stop = slices.size() > 1 ? std::move(slices[1]) : nullptr;
             statement_ptr step = slices.size() > 2 ? std::move(slices[2]) : nullptr;
-            return std::make_unique<slice_expression>(std::move(start), std::move(stop), std::move(step));
+            return mk_stmt<slice_expression>(std::move(start), std::move(stop), std::move(step));
         }
         return std::move(slices[0]);
     }
@@ -499,15 +499,15 @@ private:
         auto t = tokens[current++];
         switch (t.t) {
             case token::numeric_literal:
-                if (t.value.find('.') != std::string::npos) return std::make_unique<float_literal>(std::stod(t.value));
-                return std::make_unique<integer_literal>(std::stoll(t.value));
+                if (t.value.find('.') != std::string::npos) return mk_stmt<float_literal>(std::stod(t.value));
+                return mk_stmt<integer_literal>(std::stoll(t.value));
             case token::string_literal: {
                 std::string val = t.value;
                 while (is(token::string_literal)) val += tokens[current++].value;
-                return std::make_unique<string_literal>(val);
+                return mk_stmt<string_literal>(val);
             }
             case token::identifier:
-                return std::make_unique<identifier>(t.value);
+                return mk_stmt<identifier>(t.value);
             case token::open_paren: {
                 auto expr = parse_expression_sequence();
                 expect(token::close_paren, "Expected )");
@@ -520,7 +520,7 @@ private:
                     if (is(token::comma)) current++;
                 }
                 current++;
-                return std::make_unique<array_literal>(std::move(vals));
+                return mk_stmt<array_literal>(std::move(vals));
             }
             case token::open_curly_bracket: {
                 std::vector<std::pair<statement_ptr, statement_ptr>> pairs;
@@ -531,7 +531,7 @@ private:
                     if (is(token::comma)) current++;
                 }
                 current++;
-                return std::make_unique<object_literal>(std::move(pairs));
+                return mk_stmt<object_literal>(std::move(pairs));
             }
             default:
                 throw std::runtime_error("Unexpected token: " + t.value);

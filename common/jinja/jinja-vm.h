@@ -37,6 +37,10 @@ template<typename T>
 const T * cast_stmt(const statement_ptr & ptr) {
     return dynamic_cast<const T*>(ptr.get());
 }
+template<typename T, typename... Args>
+std::unique_ptr<T> mk_stmt(Args&&... args) {
+    return std::make_unique<T>(std::forward<Args>(args)...);
+}
 // End Helpers
 
 struct context {
