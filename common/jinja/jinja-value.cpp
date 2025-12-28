@@ -127,6 +127,44 @@ const func_builtins & global_builtins() {
                 throw raised_exception("strftime_now: failed to format time");
             }
         }},
+        {"range", [](const func_args & args) -> value {
+            if (args.args.size() < 1 || args.args.size() > 3) {
+                throw raised_exception("slice() takes between 1 and 3 arguments");
+            }
+            int64_t arg0 = is_val<value_int>(args.args[0]) ? args.args[0]->as_int() : 0;
+            int64_t arg1 = is_val<value_int>(args.args[1]) ? args.args[1]->as_int() : -1;
+            int64_t arg2 = is_val<value_int>(args.args[2]) ? args.args[2]->as_int() : 1;
+
+            int64_t start, stop, step;
+            if (args.args.size() == 1) {
+                start = 0;
+                stop = arg0;
+                step = 1;
+            } else if (args.args.size() == 2) {
+                start = arg0;
+                stop = arg1;
+                step = 1;
+            } else {
+                start = arg0;
+                stop = arg1;
+                step = arg2;
+            }
+
+            auto out = mk_val<value_array>();
+            if (step == 0) {
+                throw raised_exception("range() step argument must not be zero");
+            }
+            if (step > 0) {
+                for (int64_t i = start; i < stop; i += step) {
+                    out->push_back(mk_val<value_int>(i));
+                }
+            } else {
+                for (int64_t i = start; i > stop; i += step) {
+                    out->push_back(mk_val<value_int>(i));
+                }
+            }
+            return out;
+        }},
 
         // tests
         {"test_is_boolean", test_type_fn<value_bool>},
@@ -416,7 +454,9 @@ const func_builtins & value_array_t::get_builtins() const {
             return mk_val<value_int>(static_cast<int64_t>(arr.size()));
         }},
         {"slice", [](const func_args & args) -> value {
-            args.ensure_count(4);
+            if (args.args.size() < 1 || args.args.size() > 4) {
+                throw raised_exception("slice() takes between 1 and 4 arguments");
+            }
             int64_t start = is_val<value_int>(args.args[1]) ? args.args[1]->as_int() : 0;
             int64_t stop  = is_val<value_int>(args.args[2]) ? args.args[2]->as_int() : -1;
             int64_t step  = is_val<value_int>(args.args[3]) ? args.args[3]->as_int() : 1;
@@ -465,7 +505,77 @@ const func_builtins & value_array_t::get_builtins() const {
             }
             return result;
         }},
-        // TODO: reverse, sort, join, string, unique
+        {"rejectattr", [](const func_args & args) -> value {
+            value input = args.args[0];
+            if (!is_val<value_array>(input)) {
+                throw raised_exception("rejectattr() first argument must be an array, got " + input->type());
+            }
+            std::vector<std::string> rejected;
+            for (size_t i = 1; i < args.args.size(); ++i) {
+                const auto & v = args.args[i];
+                if (!is_val<value_string>(v)) {
+                    throw raised_exception("rejectattr() attributes must be strings, got " + v->type());
+                }
+                JJ_DEBUG("rejectattr: rejecting attribute '%s'", v->as_string().str().c_str());
+                rejected.push_back(v->as_string().str());
+            }
+            auto result = mk_val<value_array>();
+            for (const auto & item : input->as_array()) {
+                if (!is_val<value_object>(item)) {
+                    result->push_back(item);
+                    continue;
+                }
+                const auto & obj = item->as_object();
+                bool match = false;
+                for (const auto & attr : rejected) {
+                    auto it = obj.find(attr);
+                    if (it != obj.end() && !it->second->is_undefined() && (!is_val<value_bool>(it->second) || it->second->as_bool())) {
+                        match = true;
+                        break;
+                    }
+                }
+                if (!match) {
+                    result->push_back(item);
+                }
+            }
+            return result;
+        }},
+        {"join", [](const func_args & args) -> value {
+            if (args.args.size() < 1 || args.args.size() > 2) {
+                throw raised_exception("join() takes one or two arguments");
+            }
+            if (!is_val<value_array>(args.args[0])) {
+                throw raised_exception("join() first argument must be an array");
+            }
+            const auto & arr = args.args[0]->as_array();
+            std::string delim = (args.args.size() > 1 && is_val<value_string>(args.args[1])) ? args.args[1]->as_string().str() : "";
+            std::string result;
+            for (size_t i = 0; i < arr.size(); ++i) {
+                if (!is_val<value_string>(arr[i])) {
+                    throw raised_exception("join() can only join arrays of strings");
+                }
+                result += arr[i]->as_string().str();
+                if (i < arr.size() - 1) {
+                    result += delim;
+                }
+            }
+            return mk_val<value_string>(result);
+        }},
+        {"string", [](const func_args & args) -> value {
+            args.ensure_vals<value_array>();
+            auto str = mk_val<value_string>();
+            gather_string_parts_recursive(args.args[0], str);
+            return str;
+        }},
+        {"sort", [](const func_args &) -> value {
+            throw std::runtime_error("Array sort builtin not implemented");
+        }},
+        {"reverse", [](const func_args &) -> value {
+            throw std::runtime_error("Array reverse builtin not implemented");
+        }},
+        {"unique", [](const func_args &) -> value {
+            throw std::runtime_error("Array unique builtin not implemented");
+        }},
     };
     return builtins;
 }
@@ -522,6 +632,26 @@ const func_builtins & value_object_t::get_builtins() const {
     };
     return builtins;
 }
+
+const func_builtins & value_null_t::get_builtins() const {
+    static const func_builtins builtins = {
+        {"list", [](const func_args &) -> value {
+            // fix for meetkai-functionary-medium-v3.1.jinja
+            // TODO: hide under a flag?
+            return mk_val<value_array>();
+        }},
+        {"selectattr", [](const func_args &) -> value {
+            // fix for meetkai-functionary-medium-v3.1.jinja
+            // TODO: hide under a flag?
+            return mk_val<value_array>();
+        }},
+    };
+    return builtins;
+}
+
+
+//////////////////////////////////
+
 
 static value from_json(const nlohmann::json & j) {
     if (j.is_null()) {

@@ -58,7 +58,7 @@ int main(void) {
 
 
 void run(std::string contents) {
-    // jinja::enable_debug(true);
+    jinja::enable_debug(true);
 
     jinja::lexer lexer;
     jinja::preprocess_options options;
@@ -90,7 +90,10 @@ void run(std::string contents) {
                 "content": {"__input__": "I am fine, thank you!"}
             }
         ],
-        "eos_token": "</s>"
+        "bos_token": "<s>",
+        "eos_token": "</s>",
+        "functions": "",
+        "datetime": ""
     })";
     jinja::global_from_json(ctx, nlohmann::json::parse(json_inp));
 

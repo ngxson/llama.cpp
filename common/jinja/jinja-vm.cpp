@@ -19,13 +19,16 @@ void enable_debug(bool enable) {
     g_jinja_debug = enable;
 }
 
-static value_array exec_statements(const statements & stmts, context & ctx) {
+static value_string exec_statements(const statements & stmts, context & ctx) {
     auto result = mk_val<value_array>();
     for (const auto & stmt : stmts) {
         JJ_DEBUG("Executing statement of type %s", stmt->type().c_str());
         result->push_back(stmt->execute(ctx));
     }
-    return result;
+    // convert to string parts
+    value_string str = mk_val<value_string>();
+    gather_string_parts_recursive(result, str);
+    return str;
 }
 
 // execute with error handling
@@ -66,7 +69,7 @@ value identifier::execute_impl(context & ctx) {
         return mk_val<value_func>(builtins.at(val), val);
     } else {
         JJ_DEBUG("Identifier '%s' not found, returning undefined", val.c_str());
-        return mk_val<value_undefined>();
+        return mk_val<value_undefined>(val);
     }
 }
 
@@ -83,7 +86,6 @@ value object_literal::execute_impl(context & ctx) {
 
 value binary_expression::execute_impl(context & ctx) {
     value left_val = left->execute(ctx);
-    JJ_DEBUG("Executing binary expression %s '%s' %s", left_val->type().c_str(), op.value.c_str(), right->type().c_str());
 
     // Logical operators
     if (op.value == "and") {
@@ -94,6 +96,7 @@ value binary_expression::execute_impl(context & ctx) {
 
     // Equality operators
     value right_val = right->execute(ctx);
+    JJ_DEBUG("Executing binary expression %s '%s' %s", left_val->type().c_str(), op.value.c_str(), right_val->type().c_str());
     if (op.value == "==") {
         return mk_val<value_bool>(value_compare(left_val, right_val));
     } else if (op.value == "!=") {
@@ -168,10 +171,18 @@ value binary_expression::execute_impl(context & ctx) {
         }
     } else if (is_val<value_array>(right_val)) {
         auto & arr = right_val->as_array();
-        bool member = std::find_if(arr.begin(), arr.end(), [&](const value& v) { return v == left_val; }) != arr.end();
+        bool member = false;
+        for (const auto & item : arr) {
+            if (value_compare(left_val, item)) {
+                member = true;
+                break;
+            }
+        }
         if (op.value == "in") {
+            JJ_DEBUG("Checking membership: %s in Array is %d", left_val->type().c_str(), member);
             return mk_val<value_bool>(member);
         } else if (op.value == "not in") {
+            JJ_DEBUG("Checking non-membership: %s not in Array is %d", left_val->type().c_str(), !member);
             return mk_val<value_bool>(!member);
         }
     }
@@ -220,7 +231,7 @@ static value try_builtin_func(const std::string & name, const value & input, boo
         return mk_val<value_func>(it->second, input, name);
     }
     if (undef_on_missing) {
-        return mk_val<value_undefined>();
+        return mk_val<value_undefined>(name);
     }
     throw std::runtime_error("Unknown (built-in) filter '" + name + "' for type " + input->type());
 }
@@ -330,7 +341,10 @@ value if_statement::execute_impl(context & ctx) {
             out->push_back(stmt->execute(ctx));
         }
     }
-    return out;
+    // convert to string parts
+    value_string str = mk_val<value_string>();
+    gather_string_parts_recursive(out, str);
+    return str;
 }
 
 value for_statement::execute_impl(context & ctx) {
@@ -437,8 +451,8 @@ value for_statement::execute_impl(context & ctx) {
         loop_obj->insert("first", mk_val<value_bool>(i == 0));
         loop_obj->insert("last", mk_val<value_bool>(i == filtered_items.size() - 1));
         loop_obj->insert("length", mk_val<value_int>(filtered_items.size()));
-        loop_obj->insert("previtem", i > 0 ? filtered_items[i - 1] : mk_val<value_undefined>());
-        loop_obj->insert("nextitem", i < filtered_items.size() - 1 ? filtered_items[i + 1] : mk_val<value_undefined>());
+        loop_obj->insert("previtem", i > 0 ? filtered_items[i - 1] : mk_val<value_undefined>("previtem"));
+        loop_obj->insert("nextitem", i < filtered_items.size() - 1 ? filtered_items[i + 1] : mk_val<value_undefined>("nextitem"));
         ctx.var["loop"] = loop_obj;
         scope_update_fns[i](ctx);
         try {
@@ -460,7 +474,10 @@ value for_statement::execute_impl(context & ctx) {
         }
     }
 
-    return result;
+    // convert to string parts
+    value_string str = mk_val<value_string>();
+    gather_string_parts_recursive(result, str);
+    return str;
 }
 
 value set_statement::execute_impl(context & ctx) {
@@ -515,24 +532,41 @@ value set_statement::execute_impl(context & ctx) {
 
 value macro_statement::execute_impl(context & ctx) {
     std::string name = cast_stmt<identifier>(this->name)->val;
-    const func_handler func = [this, &ctx, name](const func_args & args) -> value {
-        JJ_DEBUG("Invoking macro '%s' with %zu arguments", name.c_str(), args.args.size());
+
+    const func_handler func = [this, name, &ctx](const func_args & args) -> value {
+        size_t expected_count = this->args.size();
+        size_t input_count = args.args.size();
+    
+        JJ_DEBUG("Invoking macro '%s' with %zu input arguments (expected %zu)", name.c_str(), input_count, expected_count);
         context macro_ctx(ctx); // new scope for macro execution
 
         // bind parameters
-        size_t param_count = this->args.size();
-        size_t arg_count = args.args.size();
-        for (size_t i = 0; i < param_count; ++i) {
-            std::string param_name = cast_stmt<identifier>(this->args[i])->val;
-            if (i < arg_count) {
+        for (size_t i = 0; i < expected_count; ++i) {
+            if (i < input_count) {
+                std::string param_name = cast_stmt<identifier>(this->args[i])->val;
+                JJ_DEBUG("  Binding parameter '%s' to argument of type %s", param_name.c_str(), args.args[i]->type().c_str());
                 macro_ctx.var[param_name] = args.args[i];
             } else {
-                macro_ctx.var[param_name] = mk_val<value_undefined>();
+                auto & default_arg = this->args[i];
+                if (is_stmt<keyword_argument_expression>(default_arg)) {
+                    auto kwarg = cast_stmt<keyword_argument_expression>(default_arg);
+                    std::string param_name = cast_stmt<identifier>(kwarg->key)->val;
+                    JJ_DEBUG("  Binding parameter '%s' to default argument of type %s", param_name.c_str(), kwarg->val->type().c_str());
+                    macro_ctx.var[param_name] = kwarg->val->execute(ctx);
+                } else {
+                    throw std::runtime_error("Not enough arguments provided to macro '" + name + "'");
+                }
+                //std::string param_name = cast_stmt<identifier>(default_args[i])->val;
+                //JJ_DEBUG("  Binding parameter '%s' to default", param_name.c_str());
+                //macro_ctx.var[param_name] = default_args[i]->execute(ctx);
             }
         }
 
         // execute macro body
-        return exec_statements(this->body, macro_ctx);
+        JJ_DEBUG("Executing macro '%s' body with %zu statements", name.c_str(), this->body.size());
+        auto res = exec_statements(this->body, macro_ctx);
+        JJ_DEBUG("Macro '%s' execution complete, result: %s", name.c_str(), res->val_str.str().c_str());
+        return res;
     };
 
     JJ_DEBUG("Defining macro '%s' with %zu parameters", name.c_str(), args.size());
@@ -548,9 +582,9 @@ value member_expression::execute_impl(context & ctx) {
         JJ_DEBUG("Member expression, computing property type %s", this->property->type().c_str());
         if (is_stmt<slice_expression>(this->property)) {
             auto s = cast_stmt<slice_expression>(this->property);
-            value start_val = s->start_expr ? s->start_expr->execute(ctx) : mk_val<value_undefined>();
-            value stop_val  = s->stop_expr  ? s->stop_expr->execute(ctx)  : mk_val<value_undefined>();
-            value step_val  = s->step_expr  ? s->step_expr->execute(ctx)  : mk_val<value_undefined>();
+            value start_val = s->start_expr ? s->start_expr->execute(ctx) : mk_val<value_undefined>("start");
+            value stop_val  = s->stop_expr  ? s->stop_expr->execute(ctx)  : mk_val<value_undefined>("stop");
+            value step_val  = s->step_expr  ? s->step_expr->execute(ctx)  : mk_val<value_undefined>("step");
 
             // translate to function call: obj.slice(start, stop, step)
             JJ_DEBUG("Member expression is a slice: start %s, stop %s, step %s",
@@ -572,7 +606,7 @@ value member_expression::execute_impl(context & ctx) {
 
     JJ_DEBUG("Member expression on object type %s, property type %s", object->type().c_str(), property->type().c_str());
 
-    value val = mk_val<value_undefined>();
+    value val = mk_val<value_undefined>("object_property");
 
     if (is_val<value_undefined>(object)) {
         JJ_DEBUG("%s", "Accessing property on undefined object, returning undefined");

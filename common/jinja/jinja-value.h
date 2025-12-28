@@ -96,13 +96,14 @@ struct func_args {
     std::vector<value> args;
     context & ctx;
     func_args(context & ctx) : ctx(ctx) {}
-    void ensure_count(size_t count) const {
-        if (args.size() != count) {
-            throw std::runtime_error("Expected " + std::to_string(count) + " arguments, got " + std::to_string(args.size()));
+    void ensure_count(size_t min, size_t max = 999) const {
+        if (args.size() < min || args.size() > max) {
+            throw std::runtime_error("Expected between " + std::to_string(min) + " and " + std::to_string(max) + " arguments, got " + std::to_string(args.size()));
         }
     }
     value get_kwarg(const std::string & key) const;
     // utility functions
+    // TODO: allow optional arguments
     template<typename T> void ensure_vals() const {
         ensure_count(1);
         ensure_val<T>(args[0]);
@@ -310,12 +311,15 @@ struct value_null_t : public value_t {
     virtual bool is_null() const override { return true; }
     virtual bool as_bool() const override { return false; }
     virtual std::string as_repr() const override { return type(); }
+    virtual const func_builtins & get_builtins() const override;
 };
 using value_null = std::shared_ptr<value_null_t>;
 
 
 struct value_undefined_t : public value_t {
-    virtual std::string type() const override { return "Undefined"; }
+    std::string hint; // for debugging, to indicate where undefined came from
+    value_undefined_t(const std::string & h = "") : hint(h) {}
+    virtual std::string type() const override { return hint.empty() ? "Undefined" : "Undefined (hint: '" + hint + "')"; }
     virtual bool is_undefined() const override { return true; }
     virtual bool as_bool() const override { return false; }
     virtual std::string as_repr() const override { return type(); }
