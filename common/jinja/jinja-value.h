@@ -55,6 +55,7 @@ struct func_args {
             throw std::runtime_error("Expected " + std::to_string(count) + " arguments, got " + std::to_string(args.size()));
         }
     }
+    // TODO: add support for get kwargs
     // utility functions
     template<typename T> void ensure_vals() const {
         ensure_count(1);
@@ -187,19 +188,6 @@ struct value_array_t : public value_t {
         // point to the same underlying data
         val_arr = v->val_arr;
     }
-    value_array_t(value_array_t & other, size_t start = 0, size_t end = -1) {
-        val_arr = std::make_shared<std::vector<value>>();
-        size_t sz = other.val_arr->size();
-        if (end == static_cast<size_t>(-1) || end > sz) {
-            end = sz;
-        }
-        if (start > end || start >= sz) {
-            return;
-        }
-        for (size_t i = start; i < end; i++) {
-            val_arr->push_back(other.val_arr->at(i)->clone());
-        }
-    }
     void push_back(const value & val) {
         val_arr->push_back(val->clone());
     }
@@ -318,6 +306,21 @@ struct value_undefined_t : public value_t {
     virtual value clone() const override { return std::make_unique<value_undefined_t>(*this); }
 };
 using value_undefined = std::unique_ptr<value_undefined_t>;
+
+// special value for kwarg
+struct value_kwarg_t : public value_t {
+    std::string key;
+    value val;
+    value_kwarg_t(const value_kwarg_t & other) {
+        key = other.key;
+        val = other.val->clone();
+    }
+    value_kwarg_t(const std::string & k, const value & v) : key(k), val(v->clone()) {}
+    virtual std::string type() const override { return "KwArg"; }
+    virtual std::string as_repr() const override { return type(); }
+    virtual value clone() const override { return std::make_unique<value_kwarg_t>(*this); }
+};
+using value_kwarg = std::unique_ptr<value_kwarg_t>;
 
 
 const func_builtins & global_builtins();

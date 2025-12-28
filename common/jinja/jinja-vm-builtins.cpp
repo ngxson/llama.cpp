@@ -5,8 +5,61 @@
 
 #include <string>
 #include <cctype>
+#include <vector>
+#include <optional>
+#include <algorithm>
 
 namespace jinja {
+
+/**
+ * Function that mimics Python's array slicing.
+ */
+template<typename T>
+static T slice(const T & array, std::optional<int64_t> start = std::nullopt, std::optional<int64_t> stop = std::nullopt, int64_t step = 1) {
+    int64_t len = static_cast<int64_t>(array.size());
+    int64_t direction = (step > 0) ? 1 : ((step < 0) ? -1 : 0);
+    int64_t start_val;
+    int64_t stop_val;
+    if (direction >= 0) {
+        start_val = start.value_or(0);
+        if (start_val < 0) {
+            start_val = std::max(len + start_val, (int64_t)0);
+        } else {
+            start_val = std::min(start_val, len);
+        }
+
+        stop_val = stop.value_or(len);
+        if (stop_val < 0) {
+            stop_val = std::max(len + stop_val, (int64_t)0);
+        } else {
+            stop_val = std::min(stop_val, len);
+        }
+    } else {
+        start_val = start.value_or(len - 1);
+        if (start_val < 0) {
+            start_val = std::max(len + start_val, (int64_t)-1);
+        } else {
+            start_val = std::min(start_val, len - 1);
+        }
+
+        stop_val = stop.value_or(-1);
+        if (stop_val < -1) {
+            stop_val = std::max(len + stop_val, (int64_t)-1);
+        } else {
+            stop_val = std::min(stop_val, len - 1);
+        }
+    }
+    T result;
+    if (direction == 0) {
+        return result;
+    }
+    for (int64_t i = start_val; direction * i < direction * stop_val; i += step) {
+        if (i >= 0 && i < len) {
+            result.push_back(std::move(array[static_cast<size_t>(i)]->clone()));
+        }
+    }
+    return result;
+}
 
 template<typename T>
 static value test_type_fn(const func_args & args) {
@@ -27,6 +80,17 @@ const func_builtins & global_builtins() {
             args.ensure_vals<value_string>();
             std::string msg = args.args[0]->as_string().str();
             throw raised_exception("Jinja Exception: " + msg);
+        }},
+        {"namespace", [](const func_args & args) -> value {
+            auto out = mk_val<value_object>();
+            for (const auto & arg : args.args) {
+                if (!is_val<value_kwarg>(arg)) {
+                    throw raised_exception("namespace() arguments must be kwargs");
+                }
+                auto kwarg = dynamic_cast<value_kwarg_t*>(arg.get());
+                out->insert(kwarg->key, kwarg->val);
+            }
+            return out;
         }},
 
         // tests
@@ -125,6 +189,8 @@ const func_builtins & value_float_t::get_builtins() const {
 //     }
 //     return str.substr(start, end - start);
 // }
+
+
 
 static bool string_startswith(const std::string & str, const std::string & prefix) {
     if (str.length() < prefix.length()) return false;
@@ -250,6 +316,9 @@ const func_builtins & value_string_t::get_builtins() const {
         {"join", [](const func_args &) -> value {
             throw std::runtime_error("join builtin not implemented");
         }},
+        {"slice", [](const func_args &) -> value {
+            throw std::runtime_error("slice builtin not implemented");
+        }},
     };
     return builtins;
 }
@@ -308,6 +377,22 @@ const func_builtins & value_array_t::get_builtins() const {
             args.ensure_vals<value_array>();
             const auto & arr = args.args[0]->as_array();
             return mk_val<value_int>(static_cast<int64_t>(arr.size()));
+        }},
+        {"slice", [](const func_args & args) -> value {
+            args.ensure_count(4);
+            int64_t start = is_val<value_int>(args.args[1]) ? args.args[1]->as_int() : 0;
+            int64_t stop  = is_val<value_int>(args.args[2]) ? args.args[2]->as_int() : -1;
+            int64_t step  = is_val<value_int>(args.args[3]) ? args.args[3]->as_int() : 1;
+            if (!is_val<value_array>(args.args[0])) {
+                throw raised_exception("slice() first argument must be an array");
+            }
+            if (step == 0) {
+                throw raised_exception("slice step cannot be zero");
+            }
+            auto arr = slice(args.args[0]->as_array(), start, stop, step);
+            auto res = mk_val<value_array>();
+            res->val_arr = std::make_shared<std::vector<value>>(std::move(arr));
+            return res;
         }},
         // TODO: reverse, sort, join, string, unique
     };

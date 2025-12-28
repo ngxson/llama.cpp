@@ -18,7 +18,7 @@ int main(void) {
 
     //std::string contents = "<some_tokens> {{ messages[0]['content'] }} <another_token>";
 
-    std::ifstream infile("models/templates/moonshotai-Kimi-K2.jinja");
+    std::ifstream infile("models/templates/Qwen-Qwen3-0.6B.jinja");
     std::string contents((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
 
     std::cout << "=== INPUT ===\n" << contents << "\n\n";

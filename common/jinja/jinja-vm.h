@@ -15,7 +15,11 @@ namespace jinja {
 struct context {
     std::map<std::string, value> var;
 
-    context() = default;
+    context() {
+        var["true"] = mk_val<value_bool>(true);
+        var["false"] = mk_val<value_bool>(false);
+        var["none"] = mk_val<value_null>();
+    }
     ~context() = default;
 
     context(const context & parent) {
@@ -375,29 +379,33 @@ struct unary_expression : public expression {
 };
 
 struct slice_expression : public expression {
-    statement_ptr start;
-    statement_ptr stop;
-    statement_ptr step;
+    statement_ptr start_expr;
+    statement_ptr stop_expr;
+    statement_ptr step_expr;
 
-    slice_expression(statement_ptr && start, statement_ptr && stop, statement_ptr && step)
-        : start(std::move(start)), stop(std::move(stop)), step(std::move(step)) {
-        chk_type<expression>(this->start);
-        chk_type<expression>(this->stop);
-        chk_type<expression>(this->step);
+    slice_expression(statement_ptr && start_expr, statement_ptr && stop_expr, statement_ptr && step_expr)
+        : start_expr(std::move(start_expr)), stop_expr(std::move(stop_expr)), step_expr(std::move(step_expr)) {
+        chk_type<expression>(this->start_expr);
+        chk_type<expression>(this->stop_expr);
+        chk_type<expression>(this->step_expr);
     }
     std::string type() const override { return "SliceExpression"; }
+    value execute(context &) override {
+        throw std::runtime_error("must be handled by MemberExpression");
+    }
 };
 
 struct keyword_argument_expression : public expression {
     statement_ptr key;
-    statement_ptr value;
+    statement_ptr val;
 
-    keyword_argument_expression(statement_ptr && key, statement_ptr && value)
-        : key(std::move(key)), value(std::move(value)) {
+    keyword_argument_expression(statement_ptr && key, statement_ptr && val)
+        : key(std::move(key)), val(std::move(val)) {
         chk_type<identifier>(this->key);
-        chk_type<expression>(this->value);
+        chk_type<expression>(this->val);
     }
     std::string type() const override { return "KeywordArgumentExpression"; }
+    value execute(context & ctx) override;
 };
 
 struct spread_expression : public expression {

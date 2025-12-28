@@ -35,7 +35,7 @@ value identifier::execute(context & ctx) {
         return it->second->clone();
     } else if (builtins.find(val) != builtins.end()) {
         JJ_DEBUG("Identifier '%s' found in builtins", val.c_str());
-        return mk_val<value_func>(builtins.at(val));
+        return mk_val<value_func>(builtins.at(val), val);
     } else {
         JJ_DEBUG("Identifier '%s' not found, returning undefined", val.c_str());
         return mk_val<value_undefined>();
@@ -168,12 +168,15 @@ value binary_expression::execute(context & ctx) {
     throw std::runtime_error("Unknown operator \"" + op.value + "\" between " + left_val->type() + " and " + right_val->type());
 }
 
-static value try_builtin_func(const std::string & name, const value & input) {
+static value try_builtin_func(const std::string & name, const value & input, bool undef_on_missing = true) {
     auto builtins = input->get_builtins();
     auto it = builtins.find(name);
     if (it != builtins.end()) {
         JJ_DEBUG("Binding built-in '%s'", name.c_str());
         return mk_val<value_func>(it->second, input, name);
+    }
+    if (undef_on_missing) {
+        return mk_val<value_undefined>();
     }
     throw std::runtime_error("Unknown (built-in) filter '" + name + "' for type " + input->type());
 }
@@ -189,12 +192,11 @@ value filter_expression::execute(context & ctx) {
             throw std::runtime_error("to_json filter not implemented");
         }
 
-        auto str = input->as_string();
         if (filter_val == "trim") {
             filter_val = "strip"; // alias
         }
         JJ_DEBUG("Applying filter '%s' to %s", filter_val.c_str(), input->type().c_str());
-        return try_builtin_func(filter_val, input);
+        return try_builtin_func(filter_val, input)->invoke({});
 
     } else if (is_stmt<call_expression>(filter)) {
         // TODO
@@ -385,7 +387,7 @@ value set_statement::execute(context & ctx) {
 
     if (is_stmt<identifier>(assignee)) {
         auto var_name = dynamic_cast<identifier*>(assignee.get())->val;
-        JJ_DEBUG("Setting variable '%s'", var_name.c_str());
+        JJ_DEBUG("Setting variable '%s' with value type %s", var_name.c_str(), rhs->type().c_str());
         ctx.var[var_name] = rhs->clone();
 
     } else if (is_stmt<tuple_literal>(assignee)) {
@@ -408,10 +410,6 @@ value set_statement::execute(context & ctx) {
 
     } else if (is_stmt<member_expression>(assignee)) {
         auto member = dynamic_cast<member_expression*>(assignee.get());
-        value object = member->object->execute(ctx);
-        if (!is_val<value_object>(object)) {
-            throw std::runtime_error("Cannot assign to member of non-object");
-        }
         if (member->computed) {
             throw std::runtime_error("Cannot assign to computed member");
         }
@@ -419,9 +417,14 @@ value set_statement::execute(context & ctx) {
             throw std::runtime_error("Cannot assign to member with non-identifier property");
         }
         auto prop_name = dynamic_cast<identifier*>(member->property.get())->val;
-        auto obj_ptr = dynamic_cast<value_object*>(object.get());
+
+        value object = member->object->execute(ctx);
+        if (!is_val<value_object>(object)) {
+            throw std::runtime_error("Cannot assign to member of non-object");
+        }
+        auto obj_ptr = dynamic_cast<value_object_t*>(object.get());
         JJ_DEBUG("Setting object property '%s'", prop_name.c_str());
-        obj_ptr->get()->insert(prop_name, rhs->clone());
+        obj_ptr->insert(prop_name, rhs->clone());
 
     } else {
         throw std::runtime_error("Invalid LHS inside assignment expression: " + assignee->type());
@@ -462,7 +465,26 @@ value member_expression::execute(context & ctx) {
     value property;
     if (this->computed) {
         JJ_DEBUG("Member expression, computing property type %s", this->property->type().c_str());
-        property = this->property->execute(ctx);
+        if (is_stmt<slice_expression>(this->property)) {
+            auto s = dynamic_cast<slice_expression*>(this->property.get());
+            value start_val = s->start_expr ? s->start_expr->execute(ctx) : mk_val<value_undefined>();
+            value stop_val  = s->stop_expr  ? s->stop_expr->execute(ctx)  : mk_val<value_undefined>();
+            value step_val  = s->step_expr  ? s->step_expr->execute(ctx)  : mk_val<value_undefined>();
+
+            // translate to function call: obj.slice(start, stop, step)
+            JJ_DEBUG("Member expression is a slice: start %s, stop %s, step %s",
+                     start_val->as_repr().c_str(),
+                     stop_val->as_repr().c_str(),
+                     step_val->as_repr().c_str());
+            auto slice_func = try_builtin_func("slice", object);
+            func_args args;
+            args.args.push_back(start_val->clone());
+            args.args.push_back(stop_val->clone());
+            args.args.push_back(step_val->clone());
+            return slice_func->invoke(args);
+        } else {
+            property = this->property->execute(ctx);
+        }
     } else {
         property = mk_val<value_string>(dynamic_cast<identifier*>(this->property.get())->val);
     }
@@ -482,7 +504,7 @@ value member_expression::execute(context & ctx) {
         if (it != obj.end()) {
             val = it->second->clone();
         } else {
-            val = try_builtin_func(key, object);
+            val = try_builtin_func(key, object, true);
         }
 
     } else if (is_val<value_array>(object) || is_val<value_string>(object)) {
@@ -519,22 +541,22 @@ value member_expression::execute(context & ctx) {
     return val;
 }
 
-static func_args gather_call_args(const statements & arg_stmts, context & ctx) {
-    func_args args;
-    for (auto & arg_stmt : arg_stmts) {
-        args.args.push_back(arg_stmt->execute(ctx));
-    }
-    return args;
-}
-
 value call_expression::execute(context & ctx) {
-    auto args = gather_call_args(this->args, ctx);
+    // gather arguments
+    func_args args;
+    for (auto & arg_stmt : this->args) {
+        auto arg_val = arg_stmt->execute(ctx);
+        JJ_DEBUG("  Argument type: %s", arg_val->type().c_str());
+        args.args.push_back(std::move(arg_val));
+    }
+    // execute callee
     value callee_val = callee->execute(ctx);
-    JJ_DEBUG("Calling function of type %s with %zu arguments", callee_val->type().c_str(), args.args.size());
-    if (!is_val<value_t>(callee_val)) {
+    if (!is_val<value_func>(callee_val)) {
         throw std::runtime_error("Callee is not a function: got " + callee_val->type());
     }
-    return callee_val->invoke(args);
+    auto * callee_func = dynamic_cast<value_func_t*>(callee_val.get());
+    JJ_DEBUG("Calling function '%s' with %zu arguments", callee_func->name.c_str(), args.args.size());
+    return callee_func->invoke(args);
 }
 
 // compare operator for value_t
@@ -568,6 +590,20 @@ bool value_compare(const value & a, const value & b) {
         return false;
     }
     return false;
+}
+
+value keyword_argument_expression::execute(context & ctx) {
+    if (!is_stmt<identifier>(key)) {
+        throw std::runtime_error("Keyword argument key must be identifiers");
+    }
+
+    std::string k = dynamic_cast<identifier*>(key.get())->val;
+    JJ_DEBUG("Keyword argument expression key: %s, value: %s", k.c_str(), val->type().c_str());
+
+    value v = val->execute(ctx);
+    JJ_DEBUG("Keyword argument value executed, type: %s", v->type().c_str());
+
+    return mk_val<value_kwarg>(k, v);
 }
 
 } // namespace jinja
