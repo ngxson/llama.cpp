@@ -16,6 +16,24 @@ namespace jinja {
 struct string_part {
     bool is_input = false; // may skip parsing special tokens if true
     std::string val;
+
+    bool is_uppercase() const {
+        for (char c : val) {
+            if (std::islower(static_cast<unsigned char>(c))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool is_lowercase() const {
+        for (char c : val) {
+            if (std::isupper(static_cast<unsigned char>(c))) {
+                return false;
+            }
+        }
+        return true;
+    }
 };
 
 struct string {
@@ -61,6 +79,24 @@ struct string {
     bool all_parts_are_input() const {
         for (const auto & part : parts) {
             if (!part.is_input) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool is_uppercase() const {
+        for (const auto & part : parts) {
+            if (!part.is_uppercase()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool is_lowercase() const {
+        for (const auto & part : parts) {
+            if (!part.is_lowercase()) {
                 return false;
             }
         }

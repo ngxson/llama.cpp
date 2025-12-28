@@ -8,7 +8,7 @@
 #include <memory>
 #include <algorithm>
 
-#define JJ_DEBUG(msg, ...)  printf("jinja-vm: " msg "\n", __VA_ARGS__)
+#define JJ_DEBUG(msg, ...)  printf("jinja-vm:%3d : " msg "\n", __LINE__, __VA_ARGS__)
 //#define JJ_DEBUG(msg, ...)  // no-op
 
 namespace jinja {
@@ -44,7 +44,7 @@ value identifier::execute(context & ctx) {
 
 value binary_expression::execute(context & ctx) {
     value left_val = left->execute(ctx);
-    JJ_DEBUG("Executing binary expression with operator '%s'", op.value.c_str());
+    JJ_DEBUG("Executing binary expression %s '%s' %s", left_val->type().c_str(), op.value.c_str(), right->type().c_str());
 
     // Logical operators
     if (op.value == "and") {
@@ -168,19 +168,18 @@ value binary_expression::execute(context & ctx) {
     throw std::runtime_error("Unknown operator \"" + op.value + "\" between " + left_val->type() + " and " + right_val->type());
 }
 
+static value try_builtin_func(const std::string & name, const value & input) {
+    auto builtins = input->get_builtins();
+    auto it = builtins.find(name);
+    if (it != builtins.end()) {
+        JJ_DEBUG("Binding built-in '%s'", name.c_str());
+        return mk_val<value_func>(it->second, input, name);
+    }
+    throw std::runtime_error("Unknown (built-in) filter '" + name + "' for type " + input->type());
+}
+
 value filter_expression::execute(context & ctx) {
     value input = operand->execute(ctx);
-
-    auto try_builtin = [&](const std::string & name) -> value {
-        auto builtins = input->get_builtins();
-        auto it = builtins.find(name);
-        if (it != builtins.end()) {
-            func_args args;
-            args.args.push_back(input->clone());
-            return it->second(args);
-        }
-        throw std::runtime_error("Unknown (built-in) filter '" + name + "' for type " + input->type());
-    };
 
     if (is_stmt<identifier>(filter)) {
         auto filter_val = dynamic_cast<identifier*>(filter.get())->val;
@@ -190,35 +189,12 @@ value filter_expression::execute(context & ctx) {
             throw std::runtime_error("to_json filter not implemented");
         }
 
-        if (is_val<value_array>(input)) {
-            auto res = try_builtin(filter_val);
-            if (res) {
-                return res;
-            }
-            throw std::runtime_error("Unknown filter '" + filter_val + "' for array");
-
-        } else if (is_val<value_string>(input)) {
-            auto str = input->as_string();
-            auto builtins = input->get_builtins();
-            if (filter_val == "trim") {
-                filter_val = "strip"; // alias
-            }
-            auto res = try_builtin(filter_val);
-            if (res) {
-                return res;
-            }
-            throw std::runtime_error("Unknown filter '" + filter_val + "' for string");
-
-        } else if (is_val<value_int>(input) || is_val<value_float>(input)) {
-            auto res = try_builtin(filter_val);
-            if (res) {
-                return res;
-            }
-            throw std::runtime_error("Unknown filter '" + filter_val + "' for number");
-
-        } else {
-            throw std::runtime_error("Filters not supported for type " + input->type());
+        auto str = input->as_string();
+        if (filter_val == "trim") {
+            filter_val = "strip"; // alias
         }
+        JJ_DEBUG("Applying filter '%s' to %s", filter_val.c_str(), input->type().c_str());
+        return try_builtin_func(filter_val, input);
 
     } else if (is_stmt<call_expression>(filter)) {
         // TODO
@@ -228,6 +204,44 @@ value filter_expression::execute(context & ctx) {
     } else {
         throw std::runtime_error("Invalid filter expression");
     }
+}
+
+value test_expression::execute(context & ctx) {
+    // NOTE: "value is something" translates to function call "test_is_something(value)"
+    const auto & builtins = global_builtins();
+    if (!is_stmt<identifier>(test)) {
+        throw std::runtime_error("Invalid test expression");
+    }
+
+    auto test_id = dynamic_cast<identifier*>(test.get())->val;
+    auto it = builtins.find("test_is_" + test_id);
+    JJ_DEBUG("Test expression %s '%s'", operand->type().c_str(), test_id.c_str());
+    if (it == builtins.end()) {
+        throw std::runtime_error("Unknown test '" + test_id + "'");
+    }
+
+    func_args args;
+    args.args.push_back(operand->execute(ctx));
+    return it->second(args);
+}
+
+value unary_expression::execute(context & ctx) {
+    value operand_val = argument->execute(ctx);
+    JJ_DEBUG("Executing unary expression with operator '%s'", op.value.c_str());
+
+    if (op.value == "not") {
+        return mk_val<value_bool>(!operand_val->as_bool());
+    } else if (op.value == "-") {
+        if (is_val<value_int>(operand_val)) {
+            return mk_val<value_int>(-operand_val->as_int());
+        } else if (is_val<value_float>(operand_val)) {
+            return mk_val<value_float>(-operand_val->as_float());
+        } else {
+            throw std::runtime_error("Unary - operator requires numeric operand");
+        }
+    }
+
+    throw std::runtime_error("Unknown unary operator '" + op.value + "'");
 }
 
 value if_statement::execute(context & ctx) {
@@ -415,15 +429,45 @@ value set_statement::execute(context & ctx) {
     return mk_val<value_null>();
 }
 
+value macro_statement::execute(context & ctx) {
+    std::string name = dynamic_cast<identifier*>(this->name.get())->val;
+    const func_handler func = [this, &ctx, name](const func_args & args) -> value {
+        JJ_DEBUG("Invoking macro '%s' with %zu arguments", name.c_str(), args.args.size());
+        context macro_ctx(ctx); // new scope for macro execution
+
+        // bind parameters
+        size_t param_count = this->args.size();
+        size_t arg_count = args.args.size();
+        for (size_t i = 0; i < param_count; ++i) {
+            std::string param_name = dynamic_cast<identifier*>(this->args[i].get())->val;
+            if (i < arg_count) {
+                macro_ctx.var[param_name] = args.args[i]->clone();
+            } else {
+                macro_ctx.var[param_name] = mk_val<value_undefined>();
+            }
+        }
+
+        // execute macro body
+        return exec_statements(this->body, macro_ctx);
+    };
+
+    JJ_DEBUG("Defining macro '%s' with %zu parameters", name.c_str(), args.size());
+    ctx.var[name] = mk_val<value_func>(func);
+    return mk_val<value_null>();
+}
+
 value member_expression::execute(context & ctx) {
     value object = this->object->execute(ctx);
 
     value property;
     if (this->computed) {
+        JJ_DEBUG("Member expression, computing property type %s", this->property->type().c_str());
         property = this->property->execute(ctx);
     } else {
         property = mk_val<value_string>(dynamic_cast<identifier*>(this->property.get())->val);
     }
+
+    JJ_DEBUG("Member expression on object type %s, property type %s", object->type().c_str(), property->type().c_str());
 
     value val = mk_val<value_undefined>();
 
@@ -432,18 +476,13 @@ value member_expression::execute(context & ctx) {
             throw std::runtime_error("Cannot access object with non-string: got " + property->type());
         }
         auto key = property->as_string().str();
+        JJ_DEBUG("Accessing object property '%s'", key.c_str());
         auto & obj = object->as_object();
         auto it = obj.find(key);
         if (it != obj.end()) {
             val = it->second->clone();
         } else {
-            auto builtins = object->get_builtins();
-            auto bit = builtins.find(key);
-            if (bit != builtins.end()) {
-                func_args args;
-                args.args.push_back(object->clone());
-                val = bit->second(args);
-            }
+            val = try_builtin_func(key, object);
         }
 
     } else if (is_val<value_array>(object) || is_val<value_string>(object)) {
@@ -464,13 +503,7 @@ value member_expression::execute(context & ctx) {
         } else if (is_val<value_string>(property)) {
             auto key = property->as_string().str();
             JJ_DEBUG("Accessing %s built-in '%s'", is_val<value_array>(object) ? "array" : "string", key.c_str());
-            auto builtins = object->get_builtins();
-            auto bit = builtins.find(key);
-            if (bit != builtins.end()) {
-                func_args args;
-                args.args.push_back(object->clone());
-                val = bit->second(args);
-            }
+            val = try_builtin_func(key, object);
         } else {
             throw std::runtime_error("Cannot access property with non-string/non-number: got " + property->type());
         }
@@ -480,13 +513,7 @@ value member_expression::execute(context & ctx) {
             throw std::runtime_error("Cannot access property with non-string: got " + property->type());
         }
         auto key = property->as_string().str();
-        auto builtins = object->get_builtins();
-        auto bit = builtins.find(key);
-        if (bit != builtins.end()) {
-            func_args args;
-            args.args.push_back(object->clone());
-            val = bit->second(args);
-        }
+        val = try_builtin_func(key, object);
     }
 
     return val;

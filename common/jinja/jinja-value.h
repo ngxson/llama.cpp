@@ -107,7 +107,7 @@ struct value_t {
     virtual bool as_bool() const { throw std::runtime_error(type() + " is not a bool value"); }
     virtual const std::vector<value> & as_array() const { throw std::runtime_error(type() + " is not an array value"); }
     virtual const std::map<std::string, value> & as_object() const { throw std::runtime_error(type() + " is not an object value"); }
-    virtual value invoke(const func_args &) const { throw std::runtime_error("Not a function value"); }
+    virtual value invoke(const func_args &) const { throw std::runtime_error(type() + " is not a function value"); }
     virtual bool is_null() const { return false; }
     virtual bool is_undefined() const { return false; }
     virtual const func_builtins & get_builtins() const {
@@ -221,6 +221,9 @@ struct value_array_t : public value_t {
         ss << "]";
         return ss.str();
     }
+    virtual bool as_bool() const override {
+        return !val_arr->empty();
+    }
     virtual const func_builtins & get_builtins() const override;
 };
 using value_array = std::unique_ptr<value_array_t>;
@@ -251,17 +254,44 @@ struct value_object_t : public value_t {
         tmp->val_obj = this->val_obj;
         return tmp;
     }
+    virtual bool as_bool() const override {
+        return !val_obj->empty();
+    }
     virtual const func_builtins & get_builtins() const override;
 };
 using value_object = std::unique_ptr<value_object_t>;
 
 
 struct value_func_t : public value_t {
-    value_func_t(func_handler & func) {
+    std::string name; // for debugging
+    value arg0; // bound "this" argument, if any
+    value_func_t(const value_func_t & other) {
+        val_func = other.val_func;
+        name = other.name;
+        if (other.arg0) {
+            arg0 = other.arg0->clone();
+        }
+    }
+    value_func_t(const func_handler & func, std::string func_name = "") {
         val_func = func;
+        name = func_name;
+    }
+    value_func_t(const func_handler & func, const value & arg_this, std::string func_name = "") {
+        val_func = func;
+        name = func_name;
+        arg0 = arg_this->clone();
     }
     virtual value invoke(const func_args & args) const override {
-        return val_func(args);
+        if (arg0) {
+            func_args new_args;
+            new_args.args.push_back(arg0->clone());
+            for (const auto & a : args.args) {
+                new_args.args.push_back(a->clone());
+            }
+            return val_func(new_args);
+        } else {
+            return val_func(args);
+        }
     }
     virtual std::string type() const override { return "Function"; }
     virtual std::string as_repr() const override { return type(); }

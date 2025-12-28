@@ -3,6 +3,7 @@
 #include <sstream>
 #include <regex>
 #include <iostream>
+#include <fstream>
 
 #undef NDEBUG
 #include <cassert>
@@ -11,11 +12,14 @@
 #include "jinja/jinja-lexer.h"
 
 int main(void) {
-    std::string contents = "{% if messages[0]['role'] == 'system' %}{{ raise_exception('System role not supported') }}{% endif %}{% for message in messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}{% endif %}{% if (message['role'] == 'assistant') %}{% set role = 'model' %}{% else %}{% set role = message['role'] %}{% endif %}{{ '<start_of_turn>' + role + '\\n' + message['content'] | trim + '<end_of_turn>\\n' }}{% endfor %}{% if add_generation_prompt %}{{'<start_of_turn>model\\n'}}{% endif %}";
+    //std::string contents = "{% if messages[0]['role'] == 'system' %}{{ raise_exception('System role not supported') }}{% endif %}{% for message in messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}{% endif %}{% if (message['role'] == 'assistant') %}{% set role = 'model' %}{% else %}{% set role = message['role'] %}{% endif %}{{ '<start_of_turn>' + role + '\\n' + message['content'] | trim + '<end_of_turn>\\n' }}{% endfor %}{% if add_generation_prompt %}{{'<start_of_turn>model\\n'}}{% endif %}";
 
     //std::string contents = "{% if messages[0]['role'] != 'system' %}nice {{ messages[0]['content'] }}{% endif %}";
 
     //std::string contents = "<some_tokens> {{ messages[0]['content'] }} <another_token>";
+
+    std::ifstream infile("models/templates/moonshotai-Kimi-K2.jinja");
+    std::string contents((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
 
     std::cout << "=== INPUT ===\n" << contents << "\n\n";
 
@@ -56,14 +60,12 @@ int main(void) {
     ctx.var["messages"] = std::move(messages);
 
     jinja::vm vm(ctx);
-    auto results = vm.execute(ast);
+    const jinja::value results = vm.execute(ast);
+    auto parts = vm.gather_string_parts(results);
 
     std::cout << "\n=== RESULTS ===\n";
-    for (const auto & res : results) {
-        if (res->is_null()) {
-            continue;
-        }
-        std::cout << "result type: " << res->type() << " | value: " << res->as_repr();
+    for (const auto & part : parts) {
+        std::cout << (part.is_input ? "DATA" : "TMPL") << ": " << part.val << "\n";
     }
 
     return 0;

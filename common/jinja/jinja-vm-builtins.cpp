@@ -8,13 +8,69 @@
 
 namespace jinja {
 
+template<typename T>
+static value test_type_fn(const func_args & args) {
+    args.ensure_count(1);
+    bool is_type = is_val<T>(args.args[0]);
+    return mk_val<value_bool>(is_type);
+}
+template<typename T, typename U>
+static value test_type_fn(const func_args & args) {
+    args.ensure_count(1);
+    bool is_type = is_val<T>(args.args[0]) || is_val<U>(args.args[0]);
+    return mk_val<value_bool>(is_type);
+}
+
 const func_builtins & global_builtins() {
     static const func_builtins builtins = {
         {"raise_exception", [](const func_args & args) -> value {
-            args.ensure_count(1);
+            args.ensure_vals<value_string>();
             std::string msg = args.args[0]->as_string().str();
             throw raised_exception("Jinja Exception: " + msg);
         }},
+
+        // tests
+        {"test_is_boolean", test_type_fn<value_bool>},
+        {"test_is_callable", test_type_fn<value_func>},
+        {"test_is_odd", [](const func_args & args) -> value {
+            args.ensure_vals<value_int>();
+            int64_t val = args.args[0]->as_int();
+            return mk_val<value_bool>(val % 2 != 0);
+        }},
+        {"test_is_even", [](const func_args & args) -> value {
+            args.ensure_vals<value_int>();
+            int64_t val = args.args[0]->as_int();
+            return mk_val<value_bool>(val % 2 == 0);
+        }},
+        {"test_is_false", [](const func_args & args) -> value {
+            args.ensure_count(1);
+            bool val = is_val<value_bool>(args.args[0]) && !args.args[0]->as_bool();
+            return mk_val<value_bool>(val);
+        }},
+        {"test_is_true", [](const func_args & args) -> value {
+            args.ensure_count(1);
+            bool val = is_val<value_bool>(args.args[0]) && args.args[0]->as_bool();
+            return mk_val<value_bool>(val);
+        }},
+        {"test_is_string", test_type_fn<value_string>},
+        {"test_is_integer", test_type_fn<value_int>},
+        {"test_is_number", test_type_fn<value_int, value_float>},
+        {"test_is_iterable", test_type_fn<value_array, value_string>},
+        {"test_is_mapping", test_type_fn<value_object>},
+        {"test_is_lower", [](const func_args & args) -> value {
+            args.ensure_vals<value_string>();
+            return mk_val<value_bool>(args.args[0]->val_str.is_lowercase());
+        }},
+        {"test_is_upper", [](const func_args & args) -> value {
+            args.ensure_vals<value_string>();
+            return mk_val<value_bool>(args.args[0]->val_str.is_uppercase());
+        }},
+        {"test_is_none", test_type_fn<value_null>},
+        {"test_is_defined", [](const func_args & args) -> value {
+            args.ensure_count(1);
+            return mk_val<value_bool>(!is_val<value_undefined>(args.args[0]));
+        }},
+        {"test_is_undefined", test_type_fn<value_undefined>},
     };
     return builtins;
 }

@@ -166,12 +166,16 @@ struct macro_statement : public statement {
     }
 
     std::string type() const override { return "Macro"; }
+    value execute(context & ctx) override;
 };
 
 struct comment_statement : public statement {
     std::string val;
     explicit comment_statement(const std::string & v) : val(v) {}
     std::string type() const override { return "Comment"; }
+    value execute(context &) override {
+        return mk_val<value_null>();
+    }
 };
 
 // Expressions
@@ -339,6 +343,7 @@ struct select_expression : public expression {
 
 /**
  * An operation with two sides, separated by the "is" operator.
+ * NOTE: "value is something" translates to function call "test_is_something(value)"
  */
 struct test_expression : public expression {
     statement_ptr operand;
@@ -351,6 +356,7 @@ struct test_expression : public expression {
         chk_type<identifier>(this->test);
     }
     std::string type() const override { return "TestExpression"; }
+    value execute(context & ctx) override;
 };
 
 /**
@@ -365,6 +371,7 @@ struct unary_expression : public expression {
         chk_type<expression>(this->argument);
     }
     std::string type() const override { return "UnaryExpression"; }
+    value execute(context & ctx) override;
 };
 
 struct slice_expression : public expression {
@@ -442,13 +449,33 @@ struct vm {
     context & ctx;
     explicit vm(context & ctx) : ctx(ctx) {}
 
-    std::vector<value> execute(program & prog) {
-        std::vector<value> results;
+    value_array execute(program & prog) {
+        value_array results = mk_val<value_array>();
         for (auto & stmt : prog.body) {
             value res = stmt->execute(ctx);
-            results.push_back(std::move(res));
+            results->val_arr->push_back(std::move(res));
         }
         return results;
+    }
+
+    std::vector<jinja::string_part> gather_string_parts(const value & val) {
+        std::vector<jinja::string_part> parts;
+        gather_string_parts_recursive(val, parts);
+        return parts;
+    }
+
+    void gather_string_parts_recursive(const value & val, std::vector<jinja::string_part> & parts) {
+        if (is_val<value_string>(val)) {
+            const auto & str_val = dynamic_cast<value_string_t*>(val.get())->val_str;
+            for (const auto & part : str_val.parts) {
+                parts.push_back(part);
+            }
+        } else if (is_val<value_array>(val)) {
+            auto items = dynamic_cast<value_array_t*>(val.get())->val_arr.get();
+            for (const auto & item : *items) {
+                gather_string_parts_recursive(item, parts);
+            }
+        }
     }
 };
 
