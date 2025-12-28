@@ -39,7 +39,7 @@ int main(void) {
 
     auto make_non_special_string = [](const std::string & s) {
         jinja::value_string str_val = jinja::mk_val<jinja::value_string>(s);
-        str_val->is_user_input = true;
+        str_val->mark_input();
         return str_val;
     };
 
@@ -63,12 +63,7 @@ int main(void) {
         if (res->is_null()) {
             continue;
         }
-        auto str_ptr = dynamic_cast<jinja::value_string_t*>(res.get());
-        std::string is_user_input = "false";
-        if (str_ptr) {
-            is_user_input = str_ptr->is_user_input ? "true" : "false";
-        }
-        std::cout << "result type: " << res->type() << " | value: " << res->as_string() << " | is_user_input: " << is_user_input << "\n";
+        std::cout << "result type: " << res->type() << " | value: " << res->as_repr();
     }
 
     return 0;

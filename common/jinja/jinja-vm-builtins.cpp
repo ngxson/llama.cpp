@@ -12,7 +12,7 @@ const func_builtins & global_builtins() {
     static const func_builtins builtins = {
         {"raise_exception", [](const func_args & args) -> value {
             args.ensure_count(1);
-            std::string msg = args.args[0]->as_string();
+            std::string msg = args.args[0]->as_string().str();
             throw raised_exception("Jinja Exception: " + msg);
         }},
     };
@@ -54,21 +54,21 @@ const func_builtins & value_float_t::get_builtins() const {
 }
 
 
-static std::string string_strip(const std::string & str, bool left, bool right) {
-    size_t start = 0;
-    size_t end = str.length();
-    if (left) {
-        while (start < end && isspace(static_cast<unsigned char>(str[start]))) {
-            ++start;
-        }
-    }
-    if (right) {
-        while (end > start && isspace(static_cast<unsigned char>(str[end - 1]))) {
-            --end;
-        }
-    }
-    return str.substr(start, end - start);
-}
+// static std::string string_strip(const std::string & str, bool left, bool right) {
+//     size_t start = 0;
+//     size_t end = str.length();
+//     if (left) {
+//         while (start < end && isspace(static_cast<unsigned char>(str[start]))) {
+//             ++start;
+//         }
+//     }
+//     if (right) {
+//         while (end > start && isspace(static_cast<unsigned char>(str[end - 1]))) {
+//             --end;
+//         }
+//     }
+//     return str.substr(start, end - start);
+// }
 
 static bool string_startswith(const std::string & str, const std::string & prefix) {
     if (str.length() < prefix.length()) return false;
@@ -84,77 +84,60 @@ const func_builtins & value_string_t::get_builtins() const {
     static const func_builtins builtins = {
         {"upper", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            std::string str = args.args[0]->as_string();
-            std::transform(str.begin(), str.end(), str.begin(), ::toupper);
+            jinja::string str = args.args[0]->as_string().uppercase();
             return mk_val<value_string>(str);
         }},
         {"lower", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            std::string str = args.args[0]->as_string();
-            std::transform(str.begin(), str.end(), str.begin(), ::tolower);
+            jinja::string str = args.args[0]->as_string().lowercase();
             return mk_val<value_string>(str);
         }},
         {"strip", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            std::string str = args.args[0]->as_string();
-            return mk_val<value_string>(string_strip(str, true, true));
+            jinja::string str = args.args[0]->as_string().strip(true, true);
+            return mk_val<value_string>(str);
         }},
         {"rstrip", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            std::string str = args.args[0]->as_string();
-            return mk_val<value_string>(string_strip(str, false, true));
+            jinja::string str = args.args[0]->as_string().strip(false, true);
+            return mk_val<value_string>(str);
         }},
         {"lstrip", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            std::string str = args.args[0]->as_string();
-            return mk_val<value_string>(string_strip(str, true, false));
+            jinja::string str = args.args[0]->as_string().strip(true, false);
+            return mk_val<value_string>(str);
         }},
         {"title", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            std::string str = args.args[0]->as_string();
-            bool capitalize_next = true;
-            for (char &c : str) {
-                if (isspace(static_cast<unsigned char>(c))) {
-                    capitalize_next = true;
-                } else if (capitalize_next) {
-                    c = ::toupper(static_cast<unsigned char>(c));
-                    capitalize_next = false;
-                } else {
-                    c = ::tolower(static_cast<unsigned char>(c));
-                }
-            }
+            jinja::string str = args.args[0]->as_string().titlecase();
             return mk_val<value_string>(str);
         }},
         {"capitalize", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            std::string str = args.args[0]->as_string();
-            if (!str.empty()) {
-                str[0] = ::toupper(static_cast<unsigned char>(str[0]));
-                std::transform(str.begin() + 1, str.end(), str.begin() + 1, ::tolower);
-            }
+            jinja::string str = args.args[0]->as_string().capitalize();
             return mk_val<value_string>(str);
         }},
         {"length", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            std::string str = args.args[0]->as_string();
+            jinja::string str = args.args[0]->as_string();
             return mk_val<value_int>(str.length());
         }},
         {"startswith", [](const func_args & args) -> value {
             args.ensure_vals<value_string, value_string>();
-            std::string str = args.args[0]->as_string();
-            std::string prefix = args.args[1]->as_string();
+            std::string str = args.args[0]->as_string().str();
+            std::string prefix = args.args[1]->as_string().str();
             return mk_val<value_bool>(string_startswith(str, prefix));
         }},
         {"endswith", [](const func_args & args) -> value {
             args.ensure_vals<value_string, value_string>();
-            std::string str = args.args[0]->as_string();
-            std::string suffix = args.args[1]->as_string();
+            std::string str = args.args[0]->as_string().str();
+            std::string suffix = args.args[1]->as_string().str();
             return mk_val<value_bool>(string_endswith(str, suffix));
         }},
         {"split", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            std::string str = args.args[0]->as_string();
-            std::string delim = (args.args.size() > 1) ? args.args[1]->as_string() : " ";
+            std::string str = args.args[0]->as_string().str();
+            std::string delim = (args.args.size() > 1) ? args.args[1]->as_string().str() : " ";
             auto result = mk_val<value_array>();
             size_t pos = 0;
             std::string token;
@@ -163,24 +146,28 @@ const func_builtins & value_string_t::get_builtins() const {
                 result->val_arr->push_back(mk_val<value_string>(token));
                 str.erase(0, pos + delim.length());
             }
-            result->val_arr->push_back(mk_val<value_string>(str));
+            auto res = mk_val<value_string>(str);
+            res->val_str.mark_input_based_on(args.args[0]->val_str);
+            result->val_arr->push_back(std::move(res));
             return std::move(result);
         }},
         {"replace", [](const func_args & args) -> value {
             args.ensure_vals<value_string, value_string, value_string>();
-            std::string str = args.args[0]->as_string();
-            std::string old_str = args.args[1]->as_string();
-            std::string new_str = args.args[2]->as_string();
+            std::string str = args.args[0]->as_string().str();
+            std::string old_str = args.args[1]->as_string().str();
+            std::string new_str = args.args[2]->as_string().str();
             size_t pos = 0;
             while ((pos = str.find(old_str, pos)) != std::string::npos) {
                 str.replace(pos, old_str.length(), new_str);
                 pos += new_str.length();
             }
-            return mk_val<value_string>(str);
+            auto res = mk_val<value_string>(str);
+            res->val_str.mark_input_based_on(args.args[0]->val_str);
+            return res;
         }},
         {"int", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            std::string str = args.args[0]->as_string();
+            std::string str = args.args[0]->as_string().str();
             try {
                 return mk_val<value_int>(std::stoi(str));
             } catch (...) {
@@ -189,7 +176,7 @@ const func_builtins & value_string_t::get_builtins() const {
         }},
         {"float", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            std::string str = args.args[0]->as_string();
+            std::string str = args.args[0]->as_string().str();
             try {
                 return mk_val<value_float>(std::stod(str));
             } catch (...) {
@@ -277,7 +264,7 @@ const func_builtins & value_object_t::get_builtins() const {
         {"get", [](const func_args & args) -> value {
             args.ensure_vals<value_object, value_string>(); // TODO: add default value
             const auto & obj = args.args[0]->as_object();
-            std::string key = args.args[1]->as_string();
+            std::string key = args.args[1]->as_string().str();
             auto it = obj.find(key);
             if (it != obj.end()) {
                 return it->second->clone();

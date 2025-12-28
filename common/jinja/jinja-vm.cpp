@@ -72,11 +72,6 @@ value binary_expression::execute(context & ctx) {
         throw std::runtime_error("Cannot perform operation on null values");
     }
 
-    // String concatenation with ~
-    if (op.value == "~") {
-        return mk_val<value_string>(left_val->as_string() + right_val->as_string());
-    }
-
     // Float operations
     if ((is_val<value_int>(left_val) || is_val<value_float>(left_val)) &&
         (is_val<value_int>(right_val) || is_val<value_float>(right_val))) {
@@ -137,18 +132,20 @@ value binary_expression::execute(context & ctx) {
         }
     }
 
-    // String concatenation
-    if (is_val<value_string>(left_val) || is_val<value_string>(right_val)) {
-        JJ_DEBUG("%s", "String concatenation with + operator");
-        if (op.value == "+") {
-            return mk_val<value_string>(left_val->as_string() + right_val->as_string());
-        }
+    // String concatenation with ~ and +
+    if ((is_val<value_string>(left_val) || is_val<value_string>(right_val)) &&
+            (op.value == "~" || op.value == "+")) {
+        JJ_DEBUG("String concatenation with %s operator", op.value.c_str());
+        auto output = left_val->as_string().append(right_val->as_string());
+        auto res = mk_val<value_string>();
+        res->val_str = std::move(output);
+        return res;
     }
 
     // String membership
     if (is_val<value_string>(left_val) && is_val<value_string>(right_val)) {
-        auto left_str = left_val->as_string();
-        auto right_str = right_val->as_string();
+        auto left_str = left_val->as_string().str();
+        auto right_str = right_val->as_string().str();
         if (op.value == "in") {
             return mk_val<value_bool>(right_str.find(left_str) != std::string::npos);
         } else if (op.value == "not in") {
@@ -158,7 +155,7 @@ value binary_expression::execute(context & ctx) {
 
     // String in object
     if (is_val<value_string>(left_val) && is_val<value_object>(right_val)) {
-        auto key = left_val->as_string();
+        auto key = left_val->as_string().str();
         auto & obj = right_val->as_object();
         bool has_key = obj.find(key) != obj.end();
         if (op.value == "in") {
@@ -434,7 +431,7 @@ value member_expression::execute(context & ctx) {
         if (!is_val<value_string>(property)) {
             throw std::runtime_error("Cannot access object with non-string: got " + property->type());
         }
-        auto key = property->as_string();
+        auto key = property->as_string().str();
         auto & obj = object->as_object();
         auto it = obj.find(key);
         if (it != obj.end()) {
@@ -459,13 +456,13 @@ value member_expression::execute(context & ctx) {
                     val = arr[index]->clone();
                 }
             } else { // value_string
-                auto str = object->as_string();
+                auto str = object->as_string().str();
                 if (index >= 0 && index < static_cast<int64_t>(str.size())) {
                     val = mk_val<value_string>(std::string(1, str[index]));
                 }
             }
         } else if (is_val<value_string>(property)) {
-            auto key = property->as_string();
+            auto key = property->as_string().str();
             JJ_DEBUG("Accessing %s built-in '%s'", is_val<value_array>(object) ? "array" : "string", key.c_str());
             auto builtins = object->get_builtins();
             auto bit = builtins.find(key);
@@ -482,7 +479,7 @@ value member_expression::execute(context & ctx) {
         if (!is_val<value_string>(property)) {
             throw std::runtime_error("Cannot access property with non-string: got " + property->type());
         }
-        auto key = property->as_string();
+        auto key = property->as_string().str();
         auto builtins = object->get_builtins();
         auto bit = builtins.find(key);
         if (bit != builtins.end()) {
@@ -528,7 +525,7 @@ bool value_compare(const value & a, const value & b) {
     if ((is_val<value_string>(b) && (is_val<value_int>(a) || is_val<value_float>(a))) ||
         (is_val<value_string>(a) && (is_val<value_int>(b) || is_val<value_float>(b)))) {
         try {
-            return a->as_string() == b->as_string();
+            return a->as_string().str() == b->as_string().str();
         } catch (...) {}
     }
     // compare boolean simple
@@ -537,7 +534,7 @@ bool value_compare(const value & a, const value & b) {
     }
     // compare string simple
     if (is_val<value_string>(a) && is_val<value_string>(b)) {
-        return a->as_string() == b->as_string();
+        return a->as_string().str() == b->as_string().str();
     }
     // compare by type
     if (a->type() != b->type()) {

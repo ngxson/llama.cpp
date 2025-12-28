@@ -7,6 +7,7 @@
 #include <memory>
 #include <sstream>
 
+#include "jinja-string.h"
 
 namespace jinja {
 
@@ -80,7 +81,7 @@ bool value_compare(const value & a, const value & b);
 struct value_t {
     int64_t val_int;
     double val_flt;
-    std::string val_str;
+    string val_str;
     bool val_bool;
 
     // array and object are stored as shared_ptr to allow reference access
@@ -102,7 +103,7 @@ struct value_t {
 
     virtual int64_t as_int() const { throw std::runtime_error(type() + " is not an int value"); }
     virtual double as_float() const { throw std::runtime_error(type() + " is not a float value"); }
-    virtual std::string as_string() const { throw std::runtime_error(type() + " is not a string value"); }
+    virtual string as_string() const { throw std::runtime_error(type() + " is not a string value"); }
     virtual bool as_bool() const { throw std::runtime_error(type() + " is not a bool value"); }
     virtual const std::vector<value> & as_array() const { throw std::runtime_error(type() + " is not an array value"); }
     virtual const std::map<std::string, value> & as_object() const { throw std::runtime_error(type() + " is not an object value"); }
@@ -113,7 +114,7 @@ struct value_t {
         throw std::runtime_error("No builtins available for type " + type());
     }
 
-    virtual std::string as_repr() const { return as_string(); }
+    virtual std::string as_repr() const { return as_string().str(); }
 
     virtual value clone() const {
         return std::make_unique<value_t>(*this);
@@ -126,7 +127,7 @@ struct value_int_t : public value_t {
     virtual std::string type() const override { return "Integer"; }
     virtual int64_t as_int() const override { return val_int; }
     virtual double as_float() const override { return static_cast<double>(val_int); }
-    virtual std::string as_string() const override { return std::to_string(val_int); }
+    virtual string as_string() const override { return std::to_string(val_int); }
     virtual value clone() const override { return std::make_unique<value_int_t>(*this); }
     virtual const func_builtins & get_builtins() const override;
 };
@@ -138,7 +139,7 @@ struct value_float_t : public value_t {
     virtual std::string type() const override { return "Float"; }
     virtual double as_float() const override { return val_flt; }
     virtual int64_t as_int() const override { return static_cast<int64_t>(val_flt); }
-    virtual std::string as_string() const override { return std::to_string(val_flt); }
+    virtual string as_string() const override { return std::to_string(val_flt); }
     virtual value clone() const override { return std::make_unique<value_float_t>(*this); }
     virtual const func_builtins & get_builtins() const override;
 };
@@ -146,13 +147,23 @@ using value_float = std::unique_ptr<value_float_t>;
 
 
 struct value_string_t : public value_t {
-    bool is_user_input = false; // may skip parsing special tokens if true
-
-    value_string_t(const std::string & v) { val_str = v; }
+    value_string_t() { val_str = string(); }
+    value_string_t(const std::string & v) { val_str = string(v); }
+    value_string_t(const string & v) { val_str = v; }
     virtual std::string type() const override { return "String"; }
-    virtual std::string as_string() const override { return val_str; }
+    virtual string as_string() const override { return val_str; }
+    virtual std::string as_repr() const override {
+        std::ostringstream ss;
+        for (const auto & part : val_str.parts) {
+            ss << (part.is_input ? "INPUT: " : "TMPL:  ") << part.val << "\n";
+        }
+        return ss.str();
+    }
     virtual value clone() const override { return std::make_unique<value_string_t>(*this); }
     virtual const func_builtins & get_builtins() const override;
+    void mark_input() {
+        val_str.mark_input();
+    }
 };
 using value_string = std::unique_ptr<value_string_t>;
 
@@ -161,7 +172,7 @@ struct value_bool_t : public value_t {
     value_bool_t(bool v) { val_bool = v; }
     virtual std::string type() const override { return "Boolean"; }
     virtual bool as_bool() const override { return val_bool; }
-    virtual std::string as_string() const override { return val_bool ? "True" : "False"; }
+    virtual string as_string() const override { return std::string(val_bool ? "True" : "False"); }
     virtual value clone() const override { return std::make_unique<value_bool_t>(*this); }
     virtual const func_builtins & get_builtins() const override;
 };
@@ -200,7 +211,7 @@ struct value_array_t : public value_t {
         tmp->val_arr = this->val_arr;
         return tmp;
     }
-    virtual std::string as_string() const override {
+    virtual string as_string() const override {
         std::ostringstream ss;
         ss << "[";
         for (size_t i = 0; i < val_arr->size(); i++) {
