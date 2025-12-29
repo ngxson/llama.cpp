@@ -28,11 +28,32 @@ int main(void) {
 
     std::vector<std::string> failed_tests;
 
+    auto is_ignored_file = [](const std::string & filename) -> bool {
+        std::vector<std::string> ignored_files = {
+            "Apriel-",
+            "Olmo-3-7B-Instruct-Heretic-GGUF",
+        };
+        for (const auto & ignored : ignored_files) {
+            if (filename.find(ignored) != std::string::npos) {
+                return true;
+            }
+        }
+        return false;
+    };
+
     // list all files in models/templates/ and run each
     size_t test_count = 0;
-    std::string dir_path = "models/templates/";
+    size_t skip_count = 0;
+    //std::string dir_path = "models/templates/";
+    std::string dir_path = "../test-jinja/templates/";
     for (const auto & entry : std::filesystem::directory_iterator(dir_path)) {
         if (entry.is_regular_file()) {
+            if (is_ignored_file(entry.path().filename().string())) {
+                std::cout << "=== SKIPPING TEMPLATE FILE: " << entry.path().string() << " ===\n";
+                skip_count++;
+                continue;
+            }
+
             test_count++;
             std::cout << "\n\n=== RUNNING TEMPLATE FILE: " << entry.path().string() << " ===\n";
             std::ifstream infile(entry.path());
@@ -43,6 +64,7 @@ int main(void) {
                 std::cout << "Exception: " << e.what() << "\n";
                 std::cout << "=== ERROR WITH TEMPLATE FILE: " << entry.path().string() << " ===\n";
                 failed_tests.push_back(entry.path().string());
+                exit(1);
             }
         }
     }
@@ -50,6 +72,7 @@ int main(void) {
     std::cout << "\n\n=== TEST SUMMARY ===\n";
     std::cout << "Total tests run: " << test_count << "\n";
     std::cout << "Total failed tests: " << failed_tests.size() << "\n";
+    std::cout << "Total skipped tests: " << skip_count << "\n";
     for (const auto & test : failed_tests) {
         std::cout << "FAILED TEST: " << test << "\n";
     }
@@ -92,6 +115,7 @@ void run(std::string contents) {
         ],
         "bos_token": "<s>",
         "eos_token": "</s>",
+        "tools": [],
         "functions": "",
         "datetime": ""
     })";

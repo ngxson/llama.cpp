@@ -385,14 +385,30 @@ const func_builtins & value_string_t::get_builtins() const {
                 return input;
             }
         }},
+        {"slice", [](const func_args & args) -> value {
+            auto & input = args.args[0];
+            if (!is_val<value_string>(input)) {
+                throw raised_exception("slice() first argument must be a string");
+            }
+            if (args.args.size() < 1 || args.args.size() > 4) {
+                throw raised_exception("slice() takes between 1 and 4 arguments");
+            }
+            int64_t start = is_val<value_int>(args.args[1]) ? args.args[1]->as_int() : 0;
+            int64_t stop  = is_val<value_int>(args.args[2]) ? args.args[2]->as_int() : -1;
+            int64_t step  = is_val<value_int>(args.args[3]) ? args.args[3]->as_int() : 1;
+            if (step == 0) {
+                throw raised_exception("slice step cannot be zero");
+            }
+            auto sliced = slice(input->as_string().str(), start, stop, step);
+            auto res = mk_val<value_string>(sliced);
+            res->val_str.mark_input_based_on(input->as_string());
+            return res;
+        }},
         {"indent", [](const func_args &) -> value {
-            throw std::runtime_error("indent builtin not implemented");
+            throw std::runtime_error("String indent builtin not implemented");
         }},
         {"join", [](const func_args &) -> value {
-            throw std::runtime_error("join builtin not implemented");
-        }},
-        {"slice", [](const func_args &) -> value {
-            throw std::runtime_error("slice builtin not implemented");
+            throw std::runtime_error("String join builtin not implemented");
         }},
     };
     return builtins;
@@ -635,15 +651,21 @@ const func_builtins & value_object_t::get_builtins() const {
 
 const func_builtins & value_null_t::get_builtins() const {
     static const func_builtins builtins = {
-        {"list", [](const func_args &) -> value {
+        {"list", [](const func_args & args) -> value {
             // fix for meetkai-functionary-medium-v3.1.jinja
-            // TODO: hide under a flag?
-            return mk_val<value_array>();
+            if (args.ctx.wrk_around.none_has_builtins) {
+                return mk_val<value_array>();
+            } else {
+                throw raised_exception("'list' builtin not supported for none type");
+            }
         }},
-        {"selectattr", [](const func_args &) -> value {
+        {"selectattr", [](const func_args & args) -> value {
             // fix for meetkai-functionary-medium-v3.1.jinja
-            // TODO: hide under a flag?
-            return mk_val<value_array>();
+            if (args.ctx.wrk_around.none_has_builtins) {
+                return mk_val<value_array>();
+            } else {
+                throw raised_exception("'selectattr' builtin not supported for none type");
+            }
         }},
     };
     return builtins;
