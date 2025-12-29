@@ -35,6 +35,10 @@ static value_string exec_statements(const statements & stmts, context & ctx) {
 value statement::execute(context & ctx) {
     try {
         return execute_impl(ctx);
+    } catch (const continue_statement::signal & ex) {
+        throw ex;
+    } catch (const break_statement::signal & ex) {
+        throw ex;
     } catch (const std::exception & e) {
         if (ctx.source.empty()) {
             std::ostringstream oss;
@@ -359,15 +363,17 @@ value if_statement::execute_impl(context & ctx) {
 value for_statement::execute_impl(context & ctx) {
     context scope(ctx); // new scope for loop variables
 
-    statement_ptr iter_expr = std::move(iterable);
-    statement_ptr test_expr = nullptr;
+    jinja::select_expression * select_expr = cast_stmt<select_expression>(iterable);
+    statement_ptr test_expr_nullptr;
 
-    if (is_stmt<select_expression>(iterable)) {
-        JJ_DEBUG("%s", "For loop has test expression");
-        auto select = cast_stmt<select_expression>(iterable);
-        iter_expr = std::move(select->lhs);
-        test_expr = std::move(select->test);
-    }
+    statement_ptr & iter_expr = [&]() -> statement_ptr & {
+        auto tmp = cast_stmt<select_expression>(iterable);
+        return tmp ? tmp->lhs : iterable;
+    }();
+    statement_ptr & test_expr = [&]() -> statement_ptr & {
+        auto tmp = cast_stmt<select_expression>(iterable);
+        return tmp ? tmp->test : test_expr_nullptr;
+    }();
 
     JJ_DEBUG("Executing for statement, iterable type: %s", iter_expr->type().c_str());
 
@@ -436,21 +442,23 @@ value for_statement::execute_impl(context & ctx) {
         } else {
             throw std::runtime_error("Invalid loop variable(s): " + loopvar->type());
         }
-        if (test_expr) {
+        if (select_expr && test_expr) {
             scope_update_fn(loop_scope);
             value test_val = test_expr->execute(loop_scope);
             if (!test_val->as_bool()) {
                 continue;
             }
         }
+        JJ_DEBUG("For loop: adding item type %s at index %zu", current->type().c_str(), i);
         filtered_items.push_back(current);
         scope_update_fns.push_back(scope_update_fn);
     }
+    JJ_DEBUG("For loop: %zu items after filtering", filtered_items.size());
     
     auto result = mk_val<value_array>();
 
     bool noIteration = true;
-    for (size_t i = 0; i < filtered_items.size(); ++i) {
+    for (size_t i = 0; i < filtered_items.size(); i++) {
         JJ_DEBUG("For loop iteration %zu/%zu", i + 1, filtered_items.size());
         value_object loop_obj = mk_val<value_object>();
         loop_obj->insert("index", mk_val<value_int>(i + 1));
@@ -469,13 +477,15 @@ value for_statement::execute_impl(context & ctx) {
                 value val = stmt->execute(ctx);
                 result->push_back(val);
             }
-        } catch (const continue_statement::exception &) {
+        } catch (const continue_statement::signal &) {
             continue;
-        } catch (const break_statement::exception &) {
+        } catch (const break_statement::signal &) {
             break;
         }
         noIteration = false;
     }
+
+    JJ_DEBUG("For loop complete, total iterations: %zu", filtered_items.size());
     if (noIteration) {
         for (auto & stmt : default_block) {
             value val = stmt->execute(ctx);

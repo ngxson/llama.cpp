@@ -160,28 +160,28 @@ struct for_statement : public statement {
 struct break_statement : public statement {
     std::string type() const override { return "Break"; }
 
-    struct exception : public std::exception {
+    struct signal : public std::exception {
         const char* what() const noexcept override {
             return "Break statement executed";
         }
     };
 
     value execute_impl(context &) override {
-        throw break_statement::exception();
+        throw break_statement::signal();
     }
 };
 
 struct continue_statement : public statement {
     std::string type() const override { return "Continue"; }
 
-    struct exception : public std::exception {
+    struct signal : public std::exception {
         const char* what() const noexcept override {
             return "Continue statement executed";
         }
     };
 
     value execute_impl(context &) override {
-        throw continue_statement::exception();
+        throw continue_statement::signal();
     }
 };
 

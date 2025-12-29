@@ -34,6 +34,10 @@ int main(void) {
         std::vector<std::string> ignored_files = {
             "Apriel-",
             "Olmo-3-7B-Instruct-Heretic-GGUF",
+            "sheldonrobinson-Llama-Guard",
+            "deepseek-community-Janus-Pro-1B",
+            "bitshrine-gemma-2-2B-function-calling",
+            "PaddlePaddle-PaddleOCR-VL",
         };
         for (const auto & ignored : ignored_files) {
             if (filename.find(ignored) != std::string::npos) {
@@ -119,11 +123,18 @@ void run(std::string contents) {
         ],
         "bos_token": "<s>",
         "eos_token": "</s>",
-        "tools": [],
-        "functions": "",
-        "datetime": ""
+        "tools": []
     })";
-    jinja::global_from_json(ctx, nlohmann::json::parse(json_inp));
+    auto input_json = nlohmann::json::parse(json_inp);
+
+    // workaround for functionary models
+    input_json["functions"] = "";
+    input_json["datetime"] = "";
+
+    // workaround for Llama Guard models
+    input_json["excluded_category_keys"] = nlohmann::json::array();
+
+    jinja::global_from_json(ctx, input_json);
 
     jinja::vm vm(ctx);
     const jinja::value results = vm.execute(ast);

@@ -404,6 +404,17 @@ const func_builtins & value_string_t::get_builtins() const {
             res->val_str.mark_input_based_on(input->as_string());
             return res;
         }},
+        {"selectattr", [](const func_args & args) -> value {
+            if (args.ctx.wrk_around.string_has_selectattr) {
+                // no-op, return an array containing the original string
+                args.ensure_vals<value_string>();
+                auto result = mk_val<value_array>();
+                result->push_back(args.args[0]);
+                return result;
+            } else {
+                throw raised_exception("String selectattr builtin not supported");
+            }
+        }},
         {"indent", [](const func_args &) -> value {
             throw std::runtime_error("String indent builtin not implemented");
         }},

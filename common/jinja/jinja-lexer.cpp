@@ -105,7 +105,8 @@ std::string lexer::preprocess(const std::string & template_str, const preprocess
 
     // Handle custom transformers-specific `generation` tag
     // See https://github.com/huggingface/transformers/pull/30650 for more information.
-    // result = std::regex_replace(result, std::regex(R"((?s)\{%\s*generation\s*%\}.+?\{%\s*endgeneration\s*%\})"), "");
+    result = std::regex_replace(result, std::regex(R"(\{%\s*generation\s*%\})"), "");
+    result = std::regex_replace(result, std::regex(R"(\{%\s*endgeneration\s*%\})"), "");
 
     return result;
 }
