@@ -28,6 +28,8 @@ int main(void) {
 
     std::vector<std::string> failed_tests;
 
+    bool stop_on_first_failure = false;
+
     auto is_ignored_file = [](const std::string & filename) -> bool {
         std::vector<std::string> ignored_files = {
             "Apriel-",
@@ -64,7 +66,9 @@ int main(void) {
                 std::cout << "Exception: " << e.what() << "\n";
                 std::cout << "=== ERROR WITH TEMPLATE FILE: " << entry.path().string() << " ===\n";
                 failed_tests.push_back(entry.path().string());
-                exit(1);
+                if (stop_on_first_failure) {
+                    break;
+                }
             }
         }
     }
@@ -85,7 +89,7 @@ void run(std::string contents) {
 
     jinja::lexer lexer;
     jinja::preprocess_options options;
-    options.trim_blocks = true;
+    options.trim_blocks = false;
     options.lstrip_blocks = false;
     auto lexer_res = lexer.tokenize(contents, options);
     for (const auto & tok : lexer_res.tokens) {
@@ -93,7 +97,7 @@ void run(std::string contents) {
     }
 
     std::cout << "\n=== AST ===\n";
-    jinja::program ast = jinja::parse_from_tokens(lexer_res.tokens);
+    jinja::program ast = jinja::parse_from_tokens(lexer_res);
     for (const auto & stmt : ast.body) {
         //std::cout << "stmt type: " << stmt->type() << "\n";
     }

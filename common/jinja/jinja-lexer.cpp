@@ -1,4 +1,5 @@
 #include "jinja-lexer.h"
+#include "jinja-vm.h"
 
 #include <vector>
 #include <string>
@@ -7,12 +8,72 @@
 #include <stdexcept>
 #include <cctype>
 #include <functional>
+#include <string_view>
 
-
-// #define JJ_DEBUG(msg, ...)  printf("jinja-lexer: " msg "\n", __VA_ARGS__)
-#define JJ_DEBUG(msg, ...)  // no-op
+#define FILENAME "jinja-lexer"
 
 namespace jinja {
+
+// Trim template markers with '-' for whitespace control
+// Example: [spaces]{%- ... -%} --> {% ... %}
+#include <string>
+#include <cctype>
+
+static void trim_template_markers_inplace(std::string & s) {
+    // i = head ; j = tail (i <= j)
+    size_t j = 0; // Write pointer
+    const size_t len = s.length();
+    
+    for (size_t i = 0; i < len; ) {
+        bool handled = false;
+
+        // We need at least 3 characters for any marker: {X- or -X}
+        if (i + 2 < len) {
+            const char c1 = s[i];
+            const char c2 = s[i + 1];
+            const char c3 = s[i + 2];
+
+            // 1. Closing trim: -X} where X = %, }, #
+            // Example: [content]-%} [spaces] -> [content]%}
+            if (c1 == '-' && c3 == '}' && (c2 == '%' || c2 == '}' || c2 == '#')) {
+                s[j++] = c2;
+                s[j++] = '}';
+                i += 3;
+                // Strip leading whitespace AFTER the tag
+                while (i < len && std::isspace(static_cast<unsigned char>(s[i]))) {
+                    i++;
+                }
+                handled = true;
+            }
+            // 2. Opening trim: {X- where X = %, {, #
+            // Example: [spaces]{%- [content] -> {% [content]
+            else if (c1 == '{' && c3 == '-' && (c2 == '%' || c2 == '{' || c2 == '#')) {
+                // Trim trailing whitespace BEFORE the tag by moving write pointer back
+                while (j > 0 && std::isspace(static_cast<unsigned char>(s[j - 1]))) {
+                    j--;
+                }
+
+                // Safety: Prevent merging '{' with tag start (avoid creating '{{%' or '{{{')
+                // if the character immediately before our new tag is a literal '{'.
+                if (j > 0 && s[j - 1] == '{') {
+                    s[j++] = ' ';
+                }
+
+                s[j++] = '{';
+                s[j++] = c2;
+                i += 3;
+                handled = true;
+            }
+        }
+
+        if (!handled) {
+            // Note: j is always <= i here, so this is safe.
+            s[j++] = s[i++];
+        }
+    }
+
+    s.resize(j);
+}
 
 std::string lexer::preprocess(const std::string & template_str, const preprocess_options & options) const {
     std::string result = template_str;
@@ -40,12 +101,7 @@ std::string lexer::preprocess(const std::string & template_str, const preprocess
     }
 
     // Handle whitespace control with - in tags
-    result = std::regex_replace(result, std::regex(R"(-%\}\s*)"), "%}");
-    result = std::regex_replace(result, std::regex(R"(\s*\{%-)"), "{%");
-    result = std::regex_replace(result, std::regex(R"(-\}\}\s*)"), "}}");
-    result = std::regex_replace(result, std::regex(R"(\s*\{\{-)"), "{{");
-    result = std::regex_replace(result, std::regex(R"(-#\}\s*)"), "#}");
-    result = std::regex_replace(result, std::regex(R"(\s*\{\#-)"), "{#");
+    trim_template_markers_inplace(result);
 
     // Handle custom transformers-specific `generation` tag
     // See https://github.com/huggingface/transformers/pull/30650 for more information.

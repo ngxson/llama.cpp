@@ -131,23 +131,23 @@ const func_builtins & global_builtins() {
             if (args.args.size() < 1 || args.args.size() > 3) {
                 throw raised_exception("slice() takes between 1 and 3 arguments");
             }
-            int64_t arg0 = is_val<value_int>(args.args[0]) ? args.args[0]->as_int() : 0;
-            int64_t arg1 = is_val<value_int>(args.args[1]) ? args.args[1]->as_int() : -1;
-            int64_t arg2 = is_val<value_int>(args.args[2]) ? args.args[2]->as_int() : 1;
+            auto & arg0 = args.args[0];
+            auto & arg1 = args.args[1];
+            auto & arg2 = args.args[2];
 
             int64_t start, stop, step;
             if (args.args.size() == 1) {
                 start = 0;
-                stop = arg0;
+                stop = arg0->as_int();
                 step = 1;
             } else if (args.args.size() == 2) {
-                start = arg0;
-                stop = arg1;
+                start = arg0->as_int();
+                stop = arg1->as_int();
                 step = 1;
             } else {
-                start = arg0;
-                stop = arg1;
-                step = arg2;
+                start = arg0->as_int();
+                stop = arg1->as_int();
+                step = arg2->as_int();
             }
 
             auto out = mk_val<value_array>();

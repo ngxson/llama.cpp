@@ -26,8 +26,10 @@ class parser {
     // for debugging; a token can be multiple chars in source
     std::vector<size_t> tok_pos_to_src_pos;
 
+    std::string source; // for error reporting
+
 public:
-    parser(const std::vector<token> & t) : tokens(t) {
+    parser(const std::vector<token> & t, const std::string & src) : tokens(t), source(src) {
         tok_pos_to_src_pos.resize(tokens.size());
         for (size_t i = 0; i < tokens.size(); i++) {
             tok_pos_to_src_pos[i] = tokens[i].pos;
@@ -46,7 +48,16 @@ public:
     std::unique_ptr<T> mk_stmt(Args&&... args) {
         auto ptr = std::make_unique<T>(std::forward<Args>(args)...);
         ptr->pos = tok_pos_to_src_pos[prev_cur];
-        JJ_DEBUG("Created %s statement at src pos %zu", ptr->type().c_str(), ptr->pos);
+
+        std::string snippet = "no source";
+        if (!source.empty()) {
+            size_t start_pos = ptr->pos;
+            size_t end_pos = start_pos + 20;
+            if (end_pos > source.size()) end_pos = source.size();
+            snippet = source.substr(start_pos, end_pos - start_pos);
+        }
+        JJ_DEBUG("Created %-20s statement at src pos %-4zu (%s)", ptr->type().c_str(), ptr->pos, snippet.c_str());
+
         return ptr;
     }
 
@@ -544,7 +555,9 @@ private:
                 return mk_stmt<integer_literal>(std::stoll(t.value));
             case token::string_literal: {
                 std::string val = t.value;
-                while (is(token::string_literal)) val += tokens[current++].value;
+                while (is(token::string_literal)) {
+                    val += tokens[current++].value;
+                }
                 return mk_stmt<string_literal>(val);
             }
             case token::identifier:
@@ -575,13 +588,17 @@ private:
                 return mk_stmt<object_literal>(std::move(pairs));
             }
             default:
-                throw std::runtime_error("Unexpected token: " + t.value);
+                throw std::runtime_error("Unexpected token: " + t.value + " of type " + std::to_string(t.t));
         }
     }
 };
 
 program parse_from_tokens(const std::vector<token> & tokens) {
-    return parser(tokens).parse();
+    return parser(tokens, "").parse();
+}
+
+program parse_from_tokens(const lexer_result & lexer_res) {
+    return parser(lexer_res.tokens, lexer_res.preprocessed_source).parse();
 }
 
 } // namespace jinja

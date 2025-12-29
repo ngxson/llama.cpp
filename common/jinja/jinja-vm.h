@@ -10,7 +10,7 @@
 #include <memory>
 #include <sstream>
 
-#define JJ_DEBUG(msg, ...)  if (g_jinja_debug) printf("%s:%3d : " msg "\n", FILENAME, __LINE__, __VA_ARGS__)
+#define JJ_DEBUG(msg, ...)  if (g_jinja_debug) printf("%s:%-3d : " msg "\n", FILENAME, __LINE__, __VA_ARGS__)
 
 extern bool g_jinja_debug;
 
