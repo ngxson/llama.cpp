@@ -165,6 +165,11 @@ const func_builtins & global_builtins() {
             }
             return out;
         }},
+        {"tojson", [](const func_args & args) -> value {
+            args.ensure_count(1);
+            // placeholder implementation
+            return mk_val<value_string>("TODO: to_json output");
+        }},
 
         // tests
         {"test_is_boolean", test_type_fn<value_bool>},
@@ -646,7 +651,12 @@ const func_builtins & value_object_t::get_builtins() const {
             }
             return result;
         }},
-        {{"dictsort"}, [](const func_args & args) -> value {
+        {"tojson", [](const func_args & args) -> value {
+            args.ensure_vals<value_object>();
+            // use global to_json
+            return global_builtins().at("tojson")(args);
+        }},
+        {"dictsort", [](const func_args & args) -> value {
             // no-op
             args.ensure_vals<value_object>();
             return args.args[0];

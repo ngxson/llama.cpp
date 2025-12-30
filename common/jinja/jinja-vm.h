@@ -105,8 +105,9 @@ public:
         if (is_val<value_object>(val)) {
             auto & obj = val->as_object();
             for (const auto & pair : obj) {
-                flatten_globals[pair.first] = pair.second;
-                set_flattened_global_recursively(pair.first, pair.second);
+                std::string child_path = path + "." + pair.first;
+                flatten_globals[child_path] = pair.second;
+                set_flattened_global_recursively(child_path, pair.second);
             }
         } else if (is_val<value_array>(val)) {
             auto & arr = val->as_array();

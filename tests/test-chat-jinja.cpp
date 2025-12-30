@@ -123,6 +123,21 @@ void run_single(std::string contents) {
             {
                 "role": "assistant",
                 "content": {"__input__": "I am fine, thank you!"}
+            },
+            {
+                "role": "assistant",
+                "content": "Calling weather tool.",
+                "tool_calls": [
+                    {
+                        "function": {
+                            "name": "get_weather",
+                            "arguments": {
+                                "location": "New York",
+                                "unit": "celsius"
+                            }
+                        }
+                    }
+                ]
             }
         ],
         "bos_token": "<s>",

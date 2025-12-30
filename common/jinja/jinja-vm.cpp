@@ -312,9 +312,18 @@ value test_expression::execute_impl(context & ctx) {
         throw std::runtime_error("Unknown test '" + test_id + "'");
     }
 
+    value input = operand->execute(ctx);
+
     func_args args(ctx);
-    args.args.push_back(operand->execute(ctx));
+    args.args.push_back(input);
     auto res = it->second(args);
+
+    // hack: allow type inference
+    if (test_id == "defined" || test_id == "undefined" || test_id == "none") {
+        ctx.mark_known_type(input, inferred_type::optional);
+    } else if (test_id == "string") {
+        ctx.mark_known_type(input, inferred_type::string);
+    }
 
     if (negate) {
         return mk_val<value_bool>(!res->as_bool());
