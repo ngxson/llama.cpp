@@ -250,8 +250,8 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 new_type = GGML_TYPE_Q5_K;
             }
             else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_HIFI) {
-                // Q4_HIFI: Q6_K_HIFI_DYNAMIC (Q6_K + dynamic outliers) on output - always critical
-                new_type = GGML_TYPE_Q6_K_HIFI_DYNAMIC;
+                // Q4_HIFI: Q6_K_HIFI_RES8 (Q6_K + INT8 residuals) on output - always critical
+                new_type = GGML_TYPE_Q6_K_HIFI_RES8;
             }
             else if (new_type != GGML_TYPE_Q8_0) {
                 new_type = GGML_TYPE_Q6_K;
@@ -283,8 +283,8 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 new_type = GGML_TYPE_Q4_K;
             }
             else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_HIFI) {
-                // Q4_HIFI: Q6_K_HIFI_DYNAMIC (Q6_K + dynamic outliers) on token embeddings - always critical
-                new_type = GGML_TYPE_Q6_K_HIFI_DYNAMIC;
+                // Q4_HIFI: Q6_K_HIFI_RES8 (Q6_K + INT8 residuals) on token embeddings - always critical
+                new_type = GGML_TYPE_Q6_K_HIFI_RES8;
             }
         }
     } else if (ftype == LLAMA_FTYPE_MOSTLY_IQ2_XXS || ftype == LLAMA_FTYPE_MOSTLY_IQ2_XS || ftype == LLAMA_FTYPE_MOSTLY_IQ1_S ||
@@ -331,16 +331,11 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             new_type = qs.i_attention_wv < 2 ? GGML_TYPE_Q5_K : GGML_TYPE_Q4_K;
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_HIFI) {
-            // Q4_HIFI: Dynamic outliers based on layer sensitivity
-            // Early layers get more outliers (6-8), late layers get fewer (2-4)
-            float sensitivity = compute_layer_sensitivity(qs.i_attention_wv, qs.n_attention_wv);
-            int outlier_count = get_dynamic_outlier_count(sensitivity);
-            (void)outlier_count; // Will be used at quantization time
-
-            // Early layers (0-30%): Q6_K_HIFI_DYNAMIC for max precision
+            // Q4_HIFI: INT8 residuals with per-block scale for compact outlier storage
+            // Early layers (0-30%): Q6_K_HIFI_RES8 for max precision with minimal size
             // Other layers: Q6_K like Q4_K_M, or Q4_K
             if (qs.i_attention_wv <= qs.n_attention_wv * 0.3f) {
-                new_type = GGML_TYPE_Q6_K_HIFI_DYNAMIC;
+                new_type = GGML_TYPE_Q6_K_HIFI_RES8;
             } else if (use_more_bits(qs.i_attention_wv, qs.n_attention_wv)) {
                 new_type = GGML_TYPE_Q6_K;  // Follow Q4_K_M behavior
             }

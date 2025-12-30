@@ -297,6 +297,12 @@ static const struct ggml_type_traits_cpu type_traits_cpu[GGML_TYPE_COUNT] = {
         .vec_dot_type             = GGML_TYPE_Q8_K,
         .nrows                    = 1,
     },
+    [GGML_TYPE_Q6_K_HIFI_RES8] = {
+        .from_float               = quantize_row_q6_k_hifi_res8,
+        .vec_dot                  = ggml_vec_dot_q6_k_hifi_res8_q8_K, // Compact INT8 residuals kernel
+        .vec_dot_type             = GGML_TYPE_Q8_K,
+        .nrows                    = 1,
+    },
     [GGML_TYPE_Q4_K] = {
         .from_float               = quantize_row_q4_K,
         .vec_dot                  = ggml_vec_dot_q4_K_q8_K,
