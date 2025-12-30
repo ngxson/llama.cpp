@@ -186,32 +186,6 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         return i_layer < n_layers/8 || i_layer >= 7*n_layers/8 || (i_layer - n_layers/8)%3 == 2;
     };
 
-    // Compute layer sensitivity score (0.0 = least, 1.0 = most sensitive) for dynamic outlier allocation
-    // Early layers (0-30%) are most sensitive to quantization error
-    // Middle layers (30-70%) are moderately sensitive
-    // Late layers (70-100%) have more redundancy and are least sensitive
-    auto compute_layer_sensitivity = [](int i_layer, int n_layers) -> float {
-        if (n_layers <= 1) return 1.0f;
-        float depth_ratio = (float)i_layer / (n_layers - 1);
-
-        if (depth_ratio <= 0.3f) {
-            return 1.0f;  // Early layers: most sensitive
-        } else if (depth_ratio <= 0.7f) {
-            // Middle layers: linear interpolation from 1.0 to 0.6
-            return 1.0f - (depth_ratio - 0.3f) * 1.0f;  // 1.0 -> 0.6
-        } else {
-            // Late layers: linear interpolation from 0.6 to 0.3
-            return 0.6f - (depth_ratio - 0.7f) * 1.0f;  // 0.6 -> 0.3
-        }
-    };
-
-    // Get dynamic outlier count based on sensitivity (maps 0.0-1.0 to 2-8 outliers)
-    auto get_dynamic_outlier_count = [](float sensitivity) -> int {
-        const int min_outliers = 2;
-        const int max_outliers = 8;
-        return min_outliers + (int)(sensitivity * (max_outliers - min_outliers));
-    };
-
     const int n_expert = std::max(1, (int)qs.model.hparams.n_expert);
     auto layer_info = [n_expert] (int i_layer, int n_layer, const char * name) {
         if (n_expert > 1) {
