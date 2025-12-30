@@ -113,15 +113,15 @@ value binary_expression::execute_impl(context & ctx) {
             // Special case: `anything in undefined` is `false` and `anything not in undefined` is `true`
             return mk_val<value_bool>(op.value == "not in");
         }
-        if (ctx.wrk_around.string_plus_undefined_is_string && (op.value == "+" || op.value == "~")) {
-            JJ_DEBUG("%s", "Workaround: treating undefined as empty string for string concatenation");
-            auto left_str  = left_val->is_undefined()  ? string() : left_val->as_string();
-            auto right_str = right_val->is_undefined() ? string() : right_val->as_string();
-            auto output = left_str.append(right_str);
-            auto res = mk_val<value_string>();
-            res->val_str = std::move(output);
-            return res;
-        }
+        // if (ctx.wrk_around.string_plus_undefined_is_string && (op.value == "+" || op.value == "~")) {
+        //     JJ_DEBUG("%s", "Workaround: treating undefined as empty string for string concatenation");
+        //     auto left_str  = left_val->is_undefined()  ? string() : left_val->as_string();
+        //     auto right_str = right_val->is_undefined() ? string() : right_val->as_string();
+        //     auto output = left_str.append(right_str);
+        //     auto res = mk_val<value_string>();
+        //     res->val_str = std::move(output);
+        //     return res;
+        // }
         throw std::runtime_error("Cannot perform operation " + op.value + " on undefined values");
     } else if (is_val<value_null>(left_val) || is_val<value_null>(right_val)) {
         throw std::runtime_error("Cannot perform operation on null values");

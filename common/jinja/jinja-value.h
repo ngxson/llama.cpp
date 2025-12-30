@@ -132,12 +132,6 @@ struct value_t {
     string val_str;
     bool val_bool;
 
-    // array and object are stored as shared_ptr to allow reference access
-    // example:
-    //     my_obj = {"a": 1, "b": 2}
-    //     my_arr = [my_obj]
-    //     my_obj["a"] = 3
-    //     print(my_arr[0]["a"])  # should print 3
     std::vector<value> val_arr;
     std::map<std::string, value> val_obj;
 

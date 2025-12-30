@@ -14,7 +14,8 @@
 #include "jinja/jinja-parser.h"
 #include "jinja/jinja-lexer.h"
 
-void run(std::string contents);
+void run_multiple();
+void run_single(std::string contents);
 
 int main(void) {
     //std::string contents = "{% if messages[0]['role'] == 'system' %}{{ raise_exception('System role not supported') }}{% endif %}{% for message in messages %}{% if (message['role'] == 'user') != (loop.index0 % 2 == 0) %}{{ raise_exception('Conversation roles must alternate user/assistant/user/assistant/...') }}{% endif %}{% if (message['role'] == 'assistant') %}{% set role = 'model' %}{% else %}{% set role = message['role'] %}{% endif %}{{ '<start_of_turn>' + role + '\\n' + message['content'] | trim + '<end_of_turn>\\n' }}{% endfor %}{% if add_generation_prompt %}{{'<start_of_turn>model\\n'}}{% endif %}";
@@ -24,8 +25,16 @@ int main(void) {
     //std::string contents = "<some_tokens> {{ messages[a]['content'] }} <another_token>";
     //std::string contents = "{% if a is not defined %}hello{% endif %}";
 
-    //std::ifstream infile("models/templates/mistralai-Ministral-3-14B-Reasoning-2512.jinja"); std::string contents((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
+    std::ifstream infile("models/templates/Qwen-Qwen3-0.6B.jinja"); std::string contents((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
 
+    run_single(contents);
+
+    //run_multiple();
+
+    return 0;
+}
+
+void run_multiple(void) {
     std::vector<std::string> failed_tests;
 
     bool stop_on_first_failure = false;
@@ -65,7 +74,7 @@ int main(void) {
             std::ifstream infile(entry.path());
             std::string contents((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
             try {
-                run(contents);
+                run_single(contents);
             } catch (const std::exception & e) {
                 std::cout << "Exception: " << e.what() << "\n";
                 std::cout << "=== ERROR WITH TEMPLATE FILE: " << entry.path().string() << " ===\n";
@@ -84,27 +93,21 @@ int main(void) {
     for (const auto & test : failed_tests) {
         std::cout << "FAILED TEST: " << test << "\n";
     }
-    return 0;
 }
 
 
-void run(std::string contents) {
+void run_single(std::string contents) {
     jinja::enable_debug(true);
 
+    // lexing
     jinja::lexer lexer;
     jinja::preprocess_options options;
     options.trim_blocks = false;
     options.lstrip_blocks = false;
     auto lexer_res = lexer.tokenize(contents, options);
-    for (const auto & tok : lexer_res.tokens) {
-        //std::cout << "token: type=" << static_cast<int>(tok.t) << " text='" << tok.value << "' pos=" << tok.pos << "\n";
-    }
 
-    std::cout << "\n=== AST ===\n";
+    // compile to AST
     jinja::program ast = jinja::parse_from_tokens(lexer_res);
-    for (const auto & stmt : ast.body) {
-        //std::cout << "stmt type: " << stmt->type() << "\n";
-    }
 
     std::cout << "\n=== RUN ===\n";
     jinja::context ctx;

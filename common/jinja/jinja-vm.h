@@ -2,7 +2,6 @@
 
 #include "jinja-lexer.h"
 #include "jinja-value.h"
-#include "jinja-workaround.h"
 
 #include <string>
 #include <vector>
@@ -52,8 +51,6 @@ struct context {
     std::string source; // for debugging
 
     std::time_t current_time; // for functions that need current time
-
-    workarounds wrk_around; // workarounds for non-standard jinja behavior
 
     context() {
         var["true"] = mk_val<value_bool>(true);
