@@ -63,11 +63,11 @@ value statement::execute(context & ctx) {
 }
 
 value identifier::execute_impl(context & ctx) {
-    auto it = ctx.var.find(val);
+    auto it = ctx.get_val(val);
     auto builtins = global_builtins();
-    if (it != ctx.var.end()) {
+    if (!it->is_undefined()) {
         JJ_DEBUG("Identifier '%s' found", val.c_str());
-        return it->second;
+        return it;
     } else if (builtins.find(val) != builtins.end()) {
         JJ_DEBUG("Identifier '%s' found in builtins", val.c_str());
         return mk_val<value_func>(builtins.at(val), val);
@@ -102,6 +102,8 @@ value binary_expression::execute_impl(context & ctx) {
     value right_val = right->execute(ctx);
     JJ_DEBUG("Executing binary expression %s '%s' %s", left_val->type().c_str(), op.value.c_str(), right_val->type().c_str());
     if (op.value == "==") {
+        ctx.mark_known_type(left_val, right_val);
+        ctx.mark_known_type(right_val, left_val);
         return mk_val<value_bool>(value_compare(left_val, right_val));
     } else if (op.value == "!=") {
         return mk_val<value_bool>(!value_compare(left_val, right_val));
@@ -342,6 +344,10 @@ value unary_expression::execute_impl(context & ctx) {
 
 value if_statement::execute_impl(context & ctx) {
     value test_val = test->execute(ctx);
+
+    ctx.mark_known_type(test_val, inferred_type::boolean);
+    ctx.mark_known_type(test_val, inferred_type::optional);
+
     auto out = mk_val<value_array>();
     if (test_val->as_bool()) {
         for (auto & stmt : body) {
@@ -384,6 +390,9 @@ value for_statement::execute_impl(context & ctx) {
         iterable_val = mk_val<value_array>();
     }
 
+    ctx.mark_known_type(iterable_val, inferred_type::array);
+    ctx.mark_known_type(iterable_val, inferred_type::object);
+
     if (!is_val<value_array>(iterable_val) && !is_val<value_object>(iterable_val)) {
         throw std::runtime_error("Expected iterable or object type in for loop: got " + iterable_val->type());
     }
@@ -418,7 +427,7 @@ value for_statement::execute_impl(context & ctx) {
         if (is_stmt<identifier>(loopvar)) {
             auto id = cast_stmt<identifier>(loopvar)->val;
             scope_update_fn = [id, &items, i](context & ctx) {
-                ctx.var[id] = items[i];
+                ctx.set_val(id, items[i]);
             };
         } else if (is_stmt<tuple_literal>(loopvar)) {
             auto tuple = cast_stmt<tuple_literal>(loopvar);
@@ -436,7 +445,7 @@ value for_statement::execute_impl(context & ctx) {
                         throw std::runtime_error("Cannot unpack non-identifier type: " + tuple->val[j]->type());
                     }
                     auto id = cast_stmt<identifier>(tuple->val[j])->val;
-                    ctx.var[id] = c_arr[j];
+                    ctx.set_val(id, c_arr[j]);
                 }
             };
         } else {
@@ -470,11 +479,11 @@ value for_statement::execute_impl(context & ctx) {
         loop_obj->insert("length", mk_val<value_int>(filtered_items.size()));
         loop_obj->insert("previtem", i > 0 ? filtered_items[i - 1] : mk_val<value_undefined>("previtem"));
         loop_obj->insert("nextitem", i < filtered_items.size() - 1 ? filtered_items[i + 1] : mk_val<value_undefined>("nextitem"));
-        ctx.var["loop"] = loop_obj;
-        scope_update_fns[i](ctx);
+        scope.set_val("loop", loop_obj);
+        scope_update_fns[i](scope);
         try {
             for (auto & stmt : body) {
-                value val = stmt->execute(ctx);
+                value val = stmt->execute(scope);
                 result->push_back(val);
             }
         } catch (const continue_statement::signal &) {
@@ -505,7 +514,7 @@ value set_statement::execute_impl(context & ctx) {
     if (is_stmt<identifier>(assignee)) {
         auto var_name = cast_stmt<identifier>(assignee)->val;
         JJ_DEBUG("Setting variable '%s' with value type %s", var_name.c_str(), rhs->type().c_str());
-        ctx.var[var_name] = rhs;
+        ctx.set_val(var_name, rhs);
 
     } else if (is_stmt<tuple_literal>(assignee)) {
         auto tuple = cast_stmt<tuple_literal>(assignee);
@@ -522,7 +531,7 @@ value set_statement::execute_impl(context & ctx) {
                 throw std::runtime_error("Cannot unpack to non-identifier in set: " + elem->type());
             }
             auto var_name = cast_stmt<identifier>(elem)->val;
-            ctx.var[var_name] = arr[i];
+            ctx.set_val(var_name, arr[i]);
         }
 
     } else if (is_stmt<member_expression>(assignee)) {
@@ -564,14 +573,14 @@ value macro_statement::execute_impl(context & ctx) {
             if (i < input_count) {
                 std::string param_name = cast_stmt<identifier>(this->args[i])->val;
                 JJ_DEBUG("  Binding parameter '%s' to argument of type %s", param_name.c_str(), args.args[i]->type().c_str());
-                macro_ctx.var[param_name] = args.args[i];
+                macro_ctx.set_val(param_name, args.args[i]);
             } else {
                 auto & default_arg = this->args[i];
                 if (is_stmt<keyword_argument_expression>(default_arg)) {
                     auto kwarg = cast_stmt<keyword_argument_expression>(default_arg);
                     std::string param_name = cast_stmt<identifier>(kwarg->key)->val;
                     JJ_DEBUG("  Binding parameter '%s' to default argument of type %s", param_name.c_str(), kwarg->val->type().c_str());
-                    macro_ctx.var[param_name] = kwarg->val->execute(ctx);
+                    macro_ctx.set_val(param_name, kwarg->val->execute(ctx));
                 } else {
                     throw std::runtime_error("Not enough arguments provided to macro '" + name + "'");
                 }
@@ -589,7 +598,7 @@ value macro_statement::execute_impl(context & ctx) {
     };
 
     JJ_DEBUG("Defining macro '%s' with %zu parameters", name.c_str(), args.size());
-    ctx.var[name] = mk_val<value_func>(func);
+    ctx.set_val(name, mk_val<value_func>(func));
     return mk_val<value_null>();
 }
 

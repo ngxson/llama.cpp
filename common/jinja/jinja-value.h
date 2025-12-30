@@ -6,8 +6,10 @@
 #include <functional>
 #include <memory>
 #include <sstream>
+#include <set>
 
 #include "jinja-string.h"
+#include "jinja-type-infer.h"
 
 namespace jinja {
 
@@ -136,6 +138,10 @@ struct value_t {
     std::map<std::string, value> val_obj;
 
     func_handler val_func;
+
+    // for type inference
+    std::set<inferred_type> inf_types;
+    std::vector<value> inf_vals;
 
     value_t() = default;
     value_t(const value_t &) = default;
@@ -332,5 +338,27 @@ using value_kwarg = std::shared_ptr<value_kwarg_t>;
 
 
 const func_builtins & global_builtins();
+
+
+// utils
+
+static inferred_type value_to_inferred_type(const value & val) {
+    if (is_val<value_int>(val) || is_val<value_float>(val)) {
+        return inferred_type::numeric;
+    } else if (is_val<value_string>(val)) {
+        return inferred_type::string;
+    } else if (is_val<value_bool>(val)) {
+        return inferred_type::boolean;
+    } else if (is_val<value_array>(val)) {
+        return inferred_type::array;
+    } else if (is_val<value_object>(val)) {
+        return inferred_type::object;
+    } else if (is_val<value_null>(val) || is_val<value_undefined>(val)) {
+        return inferred_type::optional;
+    } else {
+        return inferred_type::unknown;
+    }
+}
+
 
 } // namespace jinja

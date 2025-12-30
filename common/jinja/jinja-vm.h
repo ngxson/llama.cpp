@@ -47,23 +47,74 @@ const T * cast_stmt(const statement_ptr & ptr) {
 void enable_debug(bool enable);
 
 struct context {
-    std::map<std::string, value> var;
     std::string source; // for debugging
-
     std::time_t current_time; // for functions that need current time
 
     context() {
-        var["true"] = mk_val<value_bool>(true);
-        var["false"] = mk_val<value_bool>(false);
-        var["none"] = mk_val<value_null>();
+        global = mk_val<value_object>();
+        global->insert("true",  mk_val<value_bool>(true));
+        global->insert("false", mk_val<value_bool>(false));
+        global->insert("none",  mk_val<value_null>());
         current_time = std::time(nullptr);
     }
     ~context() = default;
 
-    context(const context & parent) {
+    context(const context & parent) : context() {
         // inherit variables (for example, when entering a new scope)
-        for (const auto & pair : parent.var) {
-            var[pair.first] = pair.second;
+        auto & pvar = parent.global->as_object();
+        for (const auto & pair : pvar) {
+            set_val(pair.first, pair.second);
+        }
+    }
+
+    value get_val(const std::string & name) {
+        auto it = global->val_obj.find(name);
+        if (it != global->val_obj.end()) {
+            return it->second;
+        } else {
+            return mk_val<value_undefined>(name);
+        }
+    }
+
+    void set_val(const std::string & name, const value & val) {
+        global->insert(name, val);
+        set_flattened_global_recursively(name, val);
+    }
+
+    void mark_known_type(value & val, inferred_type type) {
+        val->inf_types.insert(type);
+    }
+
+    void mark_known_type(value & val, value & known_val) {
+        mark_known_type(val, value_to_inferred_type(known_val));
+        val->inf_vals.push_back(known_val);
+    }
+
+    // FOR TESTING ONLY
+    const value_object & get_global_object() const {
+        return global;
+    }
+
+private:
+    value_object global;
+
+public:
+    std::map<std::string, value> flatten_globals; // for debugging
+    void set_flattened_global_recursively(std::string path, const value & val) {
+        flatten_globals[path] = val;
+        if (is_val<value_object>(val)) {
+            auto & obj = val->as_object();
+            for (const auto & pair : obj) {
+                flatten_globals[pair.first] = pair.second;
+                set_flattened_global_recursively(pair.first, pair.second);
+            }
+        } else if (is_val<value_array>(val)) {
+            auto & arr = val->as_array();
+            for (size_t i = 0; i < arr.size(); ++i) {
+                std::string idx_path = path + "[" + std::to_string(i) + "]";
+                flatten_globals[idx_path] = arr[i];
+                set_flattened_global_recursively(idx_path, arr[i]);
+            }
         }
     }
 };
