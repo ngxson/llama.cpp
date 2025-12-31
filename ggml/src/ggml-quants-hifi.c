@@ -39,32 +39,32 @@ int ggml_hifi_compute_outlier_count(
 
     // Base outlier count based on layer position
     // Early layers (0-30%): Max precision - context formation is critical
-    // Middle layers (30-70%): Moderate precision - reasoning/processing
-    // Late layers (70-100%): Reduced precision - high redundancy in large models
+    // Middle layers (30-70%): High precision - reasoning/processing (tuned up from 6)
+    // Late layers (70-100%): Moderate precision - some redundancy in large models (tuned up from 4)
     int base_count;
     if (depth_ratio <= 0.30f) {
         base_count = 8;  // Early layers: max outliers
     } else if (depth_ratio <= 0.70f) {
-        base_count = 6;  // Middle layers: moderate
+        base_count = 7;  // Middle layers: high (tuned from 6)
     } else {
-        base_count = 4;  // Late layers: reduced
+        base_count = 5;  // Late layers: moderate (tuned from 4)
     }
 
     // Scale-dependent adjustment
     // Larger models have more parameter redundancy, especially in late layers
-    // This is the key insight from the 8B vs 1.7B comparison
+    // Threshold lowered to 7B to better handle models like Qwen3-8B (7.2B calculated)
     float scale_factor = 1.0f;
-    if (model_params_b >= 8.0f) {
-        // 8B+ models: aggressive reduction in late layers
+    if (model_params_b >= 7.0f) {
+        // 7B+ models: moderate reduction in late layers (less aggressive than before)
         if (depth_ratio > 0.70f) {
-            scale_factor = 0.6f;  // Reduce late layer outliers more
+            scale_factor = 0.75f;  // Moderate reduction (tuned from 0.6)
         } else if (depth_ratio > 0.50f) {
-            scale_factor = 0.8f;  // Moderate reduction in middle-late layers
+            scale_factor = 0.9f;   // Slight reduction in middle-late (tuned from 0.8)
         }
     } else if (model_params_b >= 4.0f) {
-        // 4B models: moderate reduction
+        // 4-7B models: slight reduction
         if (depth_ratio > 0.70f) {
-            scale_factor = 0.75f;
+            scale_factor = 0.85f;  // Less aggressive (tuned from 0.75)
         }
     } else if (model_params_b <= 1.0f) {
         // Small models (<1B): boost outliers everywhere
