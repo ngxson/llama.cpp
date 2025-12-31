@@ -52,19 +52,29 @@ int ggml_hifi_compute_outlier_count(
 
     // Scale-dependent adjustment
     // Larger models have more parameter redundancy, especially in late layers
-    // Threshold lowered to 7B to better handle models like Qwen3-8B (7.2B calculated)
+    // Key insight: At 4B+ scale, models are robust to quantization - fewer outliers may be better
     float scale_factor = 1.0f;
     if (model_params_b >= 7.0f) {
-        // 7B+ models: moderate reduction in late layers (less aggressive than before)
+        // 7B+ models: moderate reduction in middle and late layers
         if (depth_ratio > 0.70f) {
-            scale_factor = 0.75f;  // Moderate reduction (tuned from 0.6)
+            scale_factor = 0.75f;  // Moderate reduction for late layers
         } else if (depth_ratio > 0.50f) {
-            scale_factor = 0.9f;   // Slight reduction in middle-late (tuned from 0.8)
+            scale_factor = 0.9f;   // Slight reduction in middle-late
         }
-    } else if (model_params_b >= 4.0f) {
-        // 4-7B models: slight reduction
+    } else if (model_params_b >= 3.0f) {
+        // 3-7B models (including 4B): More aggressive reduction
+        // These models are robust enough that extra outliers add noise, not precision
         if (depth_ratio > 0.70f) {
-            scale_factor = 0.85f;  // Less aggressive (tuned from 0.75)
+            scale_factor = 0.65f;  // Aggressive late layer reduction (was 0.85)
+        } else if (depth_ratio > 0.50f) {
+            scale_factor = 0.80f;  // Moderate middle-late reduction (new)
+        } else if (depth_ratio > 0.30f) {
+            scale_factor = 0.90f;  // Slight middle reduction (new)
+        }
+    } else if (model_params_b >= 1.5f) {
+        // 1.5-3B models: light reduction in late layers only
+        if (depth_ratio > 0.70f) {
+            scale_factor = 0.85f;
         }
     } else if (model_params_b <= 1.0f) {
         // Small models (<1B): boost outliers everywhere
