@@ -5,8 +5,6 @@
 
 // HIFI layer-adaptive quantization context
 extern "C" {
-#define GGML_COMMON_DECL_CPP
-#include "ggml-common.h"
 #include "ggml-quants-hifi.h"
 }
 
