@@ -5,7 +5,7 @@
 
 // HIFI layer-adaptive quantization context
 extern "C" {
-#include "ggml-quants-hifi.h"
+#include "../ggml/src/ggml-quants-hifi.h"
 }
 
 #include <algorithm>
