@@ -70,7 +70,7 @@ value identifier::execute_impl(context & ctx) {
         return it;
     } else if (builtins.find(val) != builtins.end()) {
         JJ_DEBUG("Identifier '%s' found in builtins", val.c_str());
-        return mk_val<value_func>(builtins.at(val), val);
+        return mk_val<value_func>(val, builtins.at(val));
     } else {
         JJ_DEBUG("Identifier '%s' not found, returning undefined", val.c_str());
         return mk_val<value_undefined>(val);
@@ -243,7 +243,7 @@ static value try_builtin_func(const std::string & name, const value & input, boo
     auto it = builtins.find(name);
     if (it != builtins.end()) {
         JJ_DEBUG("Binding built-in '%s'", name.c_str());
-        return mk_val<value_func>(it->second, input, name);
+        return mk_val<value_func>(name, it->second, input);
     }
     if (undef_on_missing) {
         return mk_val<value_undefined>(name);
@@ -607,7 +607,7 @@ value macro_statement::execute_impl(context & ctx) {
     };
 
     JJ_DEBUG("Defining macro '%s' with %zu parameters", name.c_str(), args.size());
-    ctx.set_val(name, mk_val<value_func>(func));
+    ctx.set_val(name, mk_val<value_func>(name, func));
     return mk_val<value_null>();
 }
 

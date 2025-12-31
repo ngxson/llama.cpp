@@ -26,7 +26,9 @@ int main(void) {
     //std::string contents = "<some_tokens> {{ messages[a]['content'] }} <another_token>";
     //std::string contents = "{% if a is not defined %}hello{% endif %}";
 
-    std::ifstream infile("models/templates/Qwen-Qwen3-0.6B.jinja"); std::string contents((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
+    std::ifstream infile("models/templates/Qwen-Qwen3-0.6B.jinja");
+    //std::ifstream infile("models/templates/Kimi-K2-Thinking.jinja");
+    std::string contents((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
 
     run_single(contents);
 

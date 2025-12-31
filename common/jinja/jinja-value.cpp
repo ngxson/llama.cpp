@@ -115,7 +115,6 @@ const func_builtins & global_builtins() {
             return out;
         }},
         {"strftime_now", [](const func_args & args) -> value {
-            args.ensure_count(1);
             args.ensure_vals<value_string>();
             std::string format = args.args[0]->as_string().str();
             // get current time
@@ -128,9 +127,9 @@ const func_builtins & global_builtins() {
             }
         }},
         {"range", [](const func_args & args) -> value {
-            if (args.args.size() < 1 || args.args.size() > 3) {
-                throw raised_exception("slice() takes between 1 and 3 arguments");
-            }
+            args.ensure_count(1, 3);
+            args.ensure_vals<value_int, value_int, value_int>(true, false, false);
+
             auto & arg0 = args.args[0];
             auto & arg1 = args.args[1];
             auto & arg2 = args.args[2];
