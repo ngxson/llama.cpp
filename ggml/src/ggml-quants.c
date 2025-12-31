@@ -2,6 +2,7 @@
 #include "ggml-common.h"
 
 #include "ggml-quants.h"
+#include "ggml-quants-hifi.h"
 #include "ggml-impl.h"
 #include "ggml-cpu/ggml-cpu-impl.h"
 #include "ggml-cpu.h"
@@ -2539,9 +2540,24 @@ void dequantize_row_q6_k_hifi_res8(const block_q6_k_hifi_res8 * GGML_RESTRICT x,
 }
 
 // Main quantization entry point
+// Now supports layer-adaptive outlier count via the HIFI context
 size_t quantize_q6_k_hifi_res8(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrow, int64_t n_per_row, const float * quant_weights) {
     const size_t row_size = ggml_row_size(GGML_TYPE_Q6_K_HIFI_RES8, n_per_row);
-    const int outlier_count = Q6_K_HIFI_RES8_MAX_OUTLIERS;
+
+    // Check for layer-adaptive context
+    const ggml_hifi_quant_context * ctx = ggml_hifi_get_context();
+    int outlier_count;
+
+    if (ctx && ctx->is_active) {
+        // Use adaptive outlier count from context
+        outlier_count = ctx->outlier_count;
+        // Clamp to valid range
+        if (outlier_count < 1) outlier_count = 1;
+        if (outlier_count > Q6_K_HIFI_RES8_MAX_OUTLIERS) outlier_count = Q6_K_HIFI_RES8_MAX_OUTLIERS;
+    } else {
+        // Default to max outliers when no context
+        outlier_count = Q6_K_HIFI_RES8_MAX_OUTLIERS;
+    }
 
     if (!quant_weights) {
         char * qrow = (char *)dst;

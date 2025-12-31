@@ -3,12 +3,20 @@
 #include "llama-model.h"
 #include "llama-model-loader.h"
 
+// HIFI layer-adaptive quantization context
+extern "C" {
+#define GGML_COMMON_DECL_CPP
+#include "ggml-common.h"
+#include "ggml-quants-hifi.h"
+}
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <cinttypes>
 #include <fstream>
 #include <mutex>
+#include <numeric>
 #include <regex>
 #include <thread>
 #include <unordered_map>
@@ -496,10 +504,17 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
     return new_type;
 }
 
-static size_t llama_tensor_quantize_impl(enum ggml_type new_type, const float * f32_data, void * new_data, const int64_t chunk_size, int64_t nrows, int64_t n_per_row, const float * imatrix, std::vector<std::thread> & workers, const int nthread) {
+// Overload with HIFI context support
+static size_t llama_tensor_quantize_impl(enum ggml_type new_type, const float * f32_data, void * new_data, const int64_t chunk_size, int64_t nrows, int64_t n_per_row, const float * imatrix, std::vector<std::thread> & workers, const int nthread, const ggml_hifi_quant_context * hifi_ctx = nullptr) {
     if (nthread < 2) {
-        // single-thread
+        // single-thread - set context directly
+        if (hifi_ctx) {
+            ggml_hifi_set_context(hifi_ctx);
+        }
         size_t new_size = ggml_quantize_chunk(new_type, f32_data, new_data, 0, nrows, n_per_row, imatrix);
+        if (hifi_ctx) {
+            ggml_hifi_set_context(nullptr);
+        }
         if (!ggml_validate_row_data(new_type, new_data, new_size)) {
             throw std::runtime_error("quantized data validation failed");
         }
@@ -511,7 +526,12 @@ static size_t llama_tensor_quantize_impl(enum ggml_type new_type, const float * 
     size_t new_size = 0;
     bool valid = true;
     auto compute = [&mutex, &counter, &new_size, &valid, new_type, f32_data, new_data, chunk_size,
-            nrows, n_per_row, imatrix]() {
+            nrows, n_per_row, imatrix, hifi_ctx]() {
+        // Set HIFI context for this thread
+        if (hifi_ctx) {
+            ggml_hifi_set_context(hifi_ctx);
+        }
+
         const int64_t nrows_per_chunk = chunk_size / n_per_row;
         size_t local_size = 0;
         while (true) {
@@ -536,6 +556,11 @@ static size_t llama_tensor_quantize_impl(enum ggml_type new_type, const float * 
                 valid = false;
                 break;
             }
+        }
+
+        // Clear HIFI context for this thread
+        if (hifi_ctx) {
+            ggml_hifi_set_context(nullptr);
         }
     };
     for (int it = 0; it < nthread - 1; ++it) {
@@ -999,12 +1024,62 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
 
             // quantize each expert separately since they have different importance matrices
             new_size = 0;
+
+            // Set up HIFI context for Q6_K_HIFI_RES8 tensors with layer-adaptive outlier allocation
+            ggml_hifi_quant_context hifi_ctx = {};
+            const ggml_hifi_quant_context * hifi_ctx_ptr = nullptr;
+
+            if (new_type == GGML_TYPE_Q6_K_HIFI_RES8 && ftype == LLAMA_FTYPE_MOSTLY_Q4_HIFI) {
+                // Extract layer index from tensor name (e.g., "blk.5.attn_v.weight" -> 5)
+                int layer_idx = -1;
+                if (sscanf(name.c_str(), "blk.%d.", &layer_idx) != 1) {
+                    // Not a layer tensor (e.g., token_embd, output.weight)
+                    // Use max outliers for these critical tensors
+                    layer_idx = -1;
+                }
+
+                const int n_layers = (int)model.hparams.n_layer;
+
+                // Compute model size in billions (approximate)
+                const float model_params_b = (float)model.hparams.n_embd *
+                                             (float)model.hparams.n_layer *
+                                             12.0f / 1e9f;  // rough approximation
+
+                // Compute layer importance from imatrix if available
+                float layer_importance = 0.5f;  // default to medium
+                if (imatrix && n_per_row > 0) {
+                    layer_importance = ggml_hifi_compute_tensor_importance(imatrix, n_per_row);
+                }
+
+                // Compute adaptive outlier count
+                int outlier_count;
+                if (layer_idx < 0) {
+                    // Critical non-layer tensors (token_embd, output.weight): max outliers
+                    outlier_count = Q6_K_HIFI_RES8_MAX_OUTLIERS;
+                } else {
+                    outlier_count = ggml_hifi_compute_outlier_count(
+                        layer_idx, n_layers, layer_importance, model_params_b
+                    );
+                }
+
+                // Set up context
+                hifi_ctx.outlier_count = outlier_count;
+                hifi_ctx.layer_importance = layer_importance;
+                hifi_ctx.layer_idx = layer_idx;
+                hifi_ctx.total_layers = n_layers;
+                hifi_ctx.is_active = 1;
+                hifi_ctx_ptr = &hifi_ctx;
+
+                LLAMA_LOG_DEBUG("(HIFI layer=%d/%d, importance=%.2f, outliers=%d) ",
+                    layer_idx, n_layers, layer_importance, outlier_count);
+            }
+
             for (int64_t i03 = 0; i03 < tensor->ne[2]; ++i03) {
                 const float * f32_data_03 = f32_data + i03 * nelements_matrix;
                 void * new_data_03 = (char *)new_data + ggml_row_size(new_type, n_per_row) * i03 * nrows;
                 const float * imatrix_03 = imatrix ? imatrix + i03 * n_per_row : nullptr;
 
-                new_size += llama_tensor_quantize_impl(new_type, f32_data_03, new_data_03, chunk_size, nrows, n_per_row, imatrix_03, workers, nthread_use);
+                new_size += llama_tensor_quantize_impl(new_type, f32_data_03, new_data_03, chunk_size, nrows, n_per_row, imatrix_03, workers, nthread_use, hifi_ctx_ptr);
 
                 // TODO: temporary sanity check that the F16 -> MXFP4 is lossless
 #if 0
