@@ -8,9 +8,9 @@
 // Thread-local storage for the quantization context
 // Using a simple pointer approach - the context lifetime is managed by the caller
 #ifdef _MSC_VER
-    __declspec(thread) static const ggml_hifi_quant_context * g_hifi_context = NULL;
+    static __declspec(thread) const ggml_hifi_quant_context * g_hifi_context = NULL;
 #else
-    __thread static const ggml_hifi_quant_context * g_hifi_context = NULL;
+    static __thread const ggml_hifi_quant_context * g_hifi_context = NULL;
 #endif
 
 const ggml_hifi_quant_context * ggml_hifi_get_context(void) {
@@ -112,9 +112,9 @@ float ggml_hifi_compute_tensor_importance(
     double sum_sq = 0.0;
     double sum = 0.0;
     for (int64_t i = 0; i < n_elements; ++i) {
-        float val = imatrix_data[i];
+        double val = (double)imatrix_data[i];
         sum += val;
-        sum_sq += (double)val * val;
+        sum_sq += val * val;
     }
 
     // Use coefficient of variation as importance metric
