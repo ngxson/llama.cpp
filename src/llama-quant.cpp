@@ -1039,9 +1039,11 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
                 const int n_layers = (int)model.hparams.n_layer;
 
                 // Compute model size in billions (approximate)
-                const float model_params_b = (float)model.hparams.n_embd *
+                // For transformers: params ≈ 12 * L * d^2 (where L = layers, d = embedding dim)
+                const float model_params_b = 12.0f *
                                              (float)model.hparams.n_layer *
-                                             12.0f / 1e9f;  // rough approximation
+                                             (float)model.hparams.n_embd *
+                                             (float)model.hparams.n_embd / 1e9f;
 
                 // Compute layer importance from imatrix if available
                 float layer_importance = 0.5f;  // default to medium
@@ -1066,10 +1068,12 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
                 hifi_ctx.layer_idx = layer_idx;
                 hifi_ctx.total_layers = n_layers;
                 hifi_ctx.is_active = 1;
+                hifi_ctx.model_params_b = model_params_b;
                 hifi_ctx_ptr = &hifi_ctx;
 
-                LLAMA_LOG_DEBUG("(HIFI layer=%d/%d, importance=%.2f, outliers=%d) ",
-                    layer_idx, n_layers, layer_importance, outlier_count);
+                // Log adaptive outlier allocation (INFO level for visibility)
+                LLAMA_LOG_INFO("(HIFI: model=%.1fB layer=%d/%d imp=%.2f outliers=%d) ",
+                    model_params_b, layer_idx, n_layers, layer_importance, outlier_count);
             }
 
             for (int64_t i03 = 0; i03 < tensor->ne[2]; ++i03) {
