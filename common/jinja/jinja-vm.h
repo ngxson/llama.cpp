@@ -78,46 +78,10 @@ struct context {
 
     void set_val(const std::string & name, const value & val) {
         global->insert(name, val);
-        set_flattened_global_recursively(name, val);
-    }
-
-    void mark_known_type(value & val, inferred_type type) {
-        val->inf_types.insert(type);
-    }
-
-    void mark_known_type(value & val, value & known_val) {
-        mark_known_type(val, value_to_inferred_type(known_val));
-        val->inf_vals.push_back(known_val);
-    }
-
-    // FOR TESTING ONLY
-    const value_object & get_global_object() const {
-        return global;
     }
 
 private:
     value_object global;
-
-public:
-    std::map<std::string, value> flatten_globals; // for debugging
-    void set_flattened_global_recursively(std::string path, const value & val) {
-        flatten_globals[path] = val;
-        if (is_val<value_object>(val)) {
-            auto & obj = val->as_object();
-            for (const auto & pair : obj) {
-                std::string child_path = path + "." + pair.first;
-                flatten_globals[child_path] = pair.second;
-                set_flattened_global_recursively(child_path, pair.second);
-            }
-        } else if (is_val<value_array>(val)) {
-            auto & arr = val->as_array();
-            for (size_t i = 0; i < arr.size(); ++i) {
-                std::string idx_path = path + "[" + std::to_string(i) + "]";
-                flatten_globals[idx_path] = arr[i];
-                set_flattened_global_recursively(idx_path, arr[i]);
-            }
-        }
-    }
 };
 
 /**

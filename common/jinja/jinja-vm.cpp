@@ -102,8 +102,6 @@ value binary_expression::execute_impl(context & ctx) {
     value right_val = right->execute(ctx);
     JJ_DEBUG("Executing binary expression %s '%s' %s", left_val->type().c_str(), op.value.c_str(), right_val->type().c_str());
     if (op.value == "==") {
-        ctx.mark_known_type(left_val, right_val);
-        ctx.mark_known_type(right_val, left_val);
         return mk_val<value_bool>(value_compare(left_val, right_val));
     } else if (op.value == "!=") {
         return mk_val<value_bool>(!value_compare(left_val, right_val));
@@ -318,13 +316,6 @@ value test_expression::execute_impl(context & ctx) {
     args.args.push_back(input);
     auto res = it->second(args);
 
-    // hack: allow type inference
-    if (test_id == "defined" || test_id == "undefined" || test_id == "none") {
-        ctx.mark_known_type(input, inferred_type::optional);
-    } else if (test_id == "string") {
-        ctx.mark_known_type(input, inferred_type::string);
-    }
-
     if (negate) {
         return mk_val<value_bool>(!res->as_bool());
     } else {
@@ -353,9 +344,6 @@ value unary_expression::execute_impl(context & ctx) {
 
 value if_statement::execute_impl(context & ctx) {
     value test_val = test->execute(ctx);
-
-    ctx.mark_known_type(test_val, inferred_type::boolean);
-    ctx.mark_known_type(test_val, inferred_type::optional);
 
     auto out = mk_val<value_array>();
     if (test_val->as_bool()) {
@@ -398,9 +386,6 @@ value for_statement::execute_impl(context & ctx) {
         JJ_DEBUG("%s", "For loop iterable is undefined, skipping loop");
         iterable_val = mk_val<value_array>();
     }
-
-    ctx.mark_known_type(iterable_val, inferred_type::array);
-    ctx.mark_known_type(iterable_val, inferred_type::object);
 
     if (!is_val<value_array>(iterable_val) && !is_val<value_object>(iterable_val)) {
         throw std::runtime_error("Expected iterable or object type in for loop: got " + iterable_val->type());

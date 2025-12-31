@@ -13,7 +13,6 @@
 
 #include "jinja/jinja-parser.h"
 #include "jinja/jinja-lexer.h"
-#include "jinja/jinja-type-infer.h"
 
 void run_multiple();
 void run_single(std::string contents);
@@ -164,23 +163,5 @@ void run_single(std::string contents) {
     std::cout << "\n=== RESULTS ===\n";
     for (const auto & part : parts.get()->val_str.parts) {
         std::cout << (part.is_input ? "DATA" : "TMPL") << ": " << part.val << "\n";
-    }
-
-    std::cout << "\n=== TYPES ===\n";
-    auto & global_obj = ctx.flatten_globals;
-    for (const auto & pair : global_obj) {
-        std::string name = pair.first;
-        std::string inf_types;
-        for (const auto & t : pair.second->inf_types) {
-            inf_types += inferred_type_to_string(t) + " ";
-        }
-        if (inf_types.empty()) {
-            continue;
-        }
-        std::string inf_vals;
-        for (const auto & v : pair.second->inf_vals) {
-            inf_vals += v->as_string().str() + " ; ";
-        }
-        printf("Var: %-20s | Types: %-10s | Vals: %s\n", name.c_str(), inf_types.c_str(), inf_vals.c_str());
     }
 }
