@@ -312,12 +312,15 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_HIFI) {
             // Q4_HIFI: INT8 residuals with per-block scale for compact outlier storage
-            // Early layers (0-30%): Q6_K_HIFI_RES8 for max precision with minimal size
-            // Other layers: Q6_K like Q4_K_M, or Q4_K
-            if (qs.i_attention_wv <= qs.n_attention_wv * 0.3f) {
+            // Extended to 90% of layers to enable layer-adaptive outlier reduction:
+            // - Early layers (0-30%): 8 outliers (full precision)
+            // - Middle layers (30-70%): 5-6 outliers (moderate reduction for large models)
+            // - Late layers (70-90%): 3-4 outliers (aggressive reduction for large models)
+            // - Very late layers (90-100%): Q6_K fallback
+            if (qs.i_attention_wv <= qs.n_attention_wv * 0.9f) {
                 new_type = GGML_TYPE_Q6_K_HIFI_RES8;
             } else if (use_more_bits(qs.i_attention_wv, qs.n_attention_wv)) {
-                new_type = GGML_TYPE_Q6_K;  // Follow Q4_K_M behavior
+                new_type = GGML_TYPE_Q6_K;  // Follow Q4_K_M behavior for very late layers
             }
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L) new_type = GGML_TYPE_Q5_K;
