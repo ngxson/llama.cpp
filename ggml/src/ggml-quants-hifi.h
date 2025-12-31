@@ -28,6 +28,7 @@ typedef struct {
     int layer_idx;               // Current layer index, for debugging
     int total_layers;            // Total layer count, for debugging
     int is_active;               // Whether adaptive mode is enabled
+    float model_params_b;        // Model size in billions (e.g., 0.6, 1.7, 4.0, 8.0)
 } ggml_hifi_quant_context;
 
 // Get the current thread-local quantization context
