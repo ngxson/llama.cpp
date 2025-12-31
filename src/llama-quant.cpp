@@ -1041,12 +1041,22 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
 
                 const int n_layers = (int)model.hparams.n_layer;
 
-                // Compute model size in billions (approximate)
-                // For transformers: params ≈ 12 * L * d^2 (where L = layers, d = embedding dim)
-                const float model_params_b = 12.0f *
-                                             (float)model.hparams.n_layer *
-                                             (float)model.hparams.n_embd *
-                                             (float)model.hparams.n_embd / 1e9f;
+                // Compute model size in billions (more accurate formula)
+                // Params ≈ L * (4*d^2 + 3*d*n_ff) + 2*V*d
+                // Where: L=layers, d=embedding, n_ff=FFN hidden, V=vocab
+                const int64_t n_embd = model.hparams.n_embd;
+                const int64_t n_ff = model.hparams.n_ff();
+                const int64_t n_vocab = model.vocab.n_tokens();
+                const int64_t n_layer = model.hparams.n_layer;
+
+                // Attention: 4 weight matrices per layer (Q, K, V, O) each ~d*d
+                const int64_t attn_params = 4 * n_embd * n_embd * n_layer;
+                // FFN: 3 weight matrices per layer (gate, up, down) each ~d*n_ff
+                const int64_t ffn_params = 3 * n_embd * n_ff * n_layer;
+                // Embeddings: input + output (sometimes shared, but count both for safety)
+                const int64_t emb_params = 2 * n_vocab * n_embd;
+
+                const float model_params_b = (float)(attn_params + ffn_params + emb_params) / 1e9f;
 
                 // Compute layer importance from imatrix if available
                 float layer_importance = 0.5f;  // default to medium

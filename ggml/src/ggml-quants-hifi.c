@@ -64,14 +64,14 @@ int ggml_hifi_compute_outlier_count(
             scale_factor = 0.9f;   // Slight reduction in middle-late
         }
     } else if (model_params_b >= 3.0f) {
-        // 3-7B models (including 4B): Same approach as 8B - less aggressive
-        // Testing showed aggressive reduction hurts quality at this scale
+        // 3-7B models: Moderate reduction across layers
         if (depth_ratio > 0.70f) {
-            scale_factor = 0.80f;  // Moderate late layer reduction (was 0.65)
+            scale_factor = 0.65f;  // Late layers: significant reduction
         } else if (depth_ratio > 0.50f) {
-            scale_factor = 0.95f;  // Very light middle-late reduction (was 0.80)
+            scale_factor = 0.80f;  // Middle-late layers: moderate reduction
+        } else if (depth_ratio > 0.30f) {
+            scale_factor = 0.90f;  // Early-middle layers: light reduction
         }
-        // Early and early-middle layers: no reduction (scale_factor = 1.0)
     } else if (model_params_b >= 1.5f) {
         // 1.5-3B models: light reduction in late layers only
         if (depth_ratio > 0.70f) {
