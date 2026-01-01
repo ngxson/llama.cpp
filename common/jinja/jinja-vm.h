@@ -574,6 +574,16 @@ struct vm {
     value_string gather_string_parts(const value & val) {
         value_string parts = mk_val<value_string>();
         gather_string_parts_recursive(val, parts);
+        // join consecutive parts with the same type
+        auto & p = parts->val_str.parts;
+        for (size_t i = 1; i < p.size(); ) {
+            if (p[i].is_input == p[i - 1].is_input) {
+                p[i - 1].val += p[i].val;
+                p.erase(p.begin() + i);
+            } else {
+                i++;
+            }
+        }
         return parts;
     }
 };

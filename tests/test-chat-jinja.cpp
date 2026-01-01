@@ -56,7 +56,8 @@ std::string DEFAULT_JSON = R"({
     ],
     "bos_token": "<s>",
     "eos_token": "</s>",
-    "tools": []
+    "tools": [],
+    "add_generation_prompt": true
 })";
 
 int main(int argc, char ** argv) {
@@ -181,7 +182,7 @@ void run_single(std::string contents, json input) {
     auto parts = vm.gather_string_parts(results);
 
     std::cout << "\n=== RESULTS ===\n";
-    for (const auto & part : parts.get()->val_str.parts) {
+    for (const auto & part : parts->as_string().parts) {
         std::cout << (part.is_input ? "DATA" : "TMPL") << ": " << part.val << "\n";
     }
 }
