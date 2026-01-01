@@ -152,9 +152,8 @@ extern "C" {
         LLAMA_FTYPE_MOSTLY_TQ1_0         = 36, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_TQ2_0         = 37, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_MXFP4_MOE     = 38, // except 1d tensors
-        // LLAMA_FTYPE_MOSTLY_Q3_HIFI_OLD = 39, // removed - replaced by Q3_HIFI (41)
-        // LLAMA_FTYPE_MOSTLY_Q3_HIFI_UNIFORM = 40, // removed - uniform version, superseded by adaptive
-        LLAMA_FTYPE_MOSTLY_Q3_HIFI       = 41, // Adaptive: Q3_HIFI on sensitive layers, Q4_K/Q3_K elsewhere
+        // Legacy HIFI types (39-43) removed - consolidated into Q4_HIFI (44)
+        LLAMA_FTYPE_MOSTLY_Q4_HIFI       = 44, // Q4_K_M + 2-8 dynamic outliers + early exit (best quality/size ratio)
 
         LLAMA_FTYPE_GUESSED = 1024, // not specified in the model file
     };

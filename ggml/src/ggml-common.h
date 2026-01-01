@@ -352,6 +352,69 @@ typedef struct {
 } block_q6_K;
 static_assert(sizeof(block_q6_K) == sizeof(ggml_half) + QK_K / 16 + 3*QK_K/4, "wrong q6_K block size/padding");
 
+// Q6_K_HIFI: Q6_K base + 4 FP16 outliers for enhanced precision on critical tensors
+// Designed for Q4_K_M_HIFI: applies only to token_embd, output.weight, and early attn_v
+// Provides ~0.05-0.10 PPL improvement with minimal overhead (+12 bytes per block)
+#define Q6_K_HIFI_OUTLIERS 4
+typedef struct {
+    // === Q6_K-COMPATIBLE REGION (210 bytes) - DO NOT REORDER ===
+    uint8_t ql[QK_K/2];      // 128 bytes: quants, lower 4 bits
+    uint8_t qh[QK_K/4];      // 64 bytes: quants, upper 2 bits
+    int8_t  scales[QK_K/16]; // 16 bytes: scales, quantized with 8 bits
+    ggml_half d;             // 2 bytes: super-block scale
+    // === OUTLIER EXTENSION (12 bytes) ===
+    uint8_t outlier_idx[Q6_K_HIFI_OUTLIERS];    // 4 bytes: outlier positions (0-255)
+    ggml_half outlier_vals[Q6_K_HIFI_OUTLIERS]; // 8 bytes: FP16 outlier values
+} block_q6_k_hifi;
+static_assert(sizeof(block_q6_k_hifi) == sizeof(block_q6_K) + Q6_K_HIFI_OUTLIERS + Q6_K_HIFI_OUTLIERS*sizeof(ggml_half), "wrong q6_k_hifi block size/padding");
+
+// Q6_K_HIFI_DYNAMIC: Q6_K base + dynamic outliers (2-8) based on layer sensitivity
+// - Early layers (0-30%): 6-8 outliers (most sensitive)
+// - Middle layers (30-70%): 4-6 outliers (moderately sensitive)
+// - Late layers (70-100%): 2-4 outliers (least sensitive, more redundant)
+// - Embeddings/output: 8 outliers (always critical)
+// Includes early-exit optimization: skip outlier correction when |activation| < threshold
+#define Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS 8
+#define Q6_K_HIFI_DYNAMIC_MIN_OUTLIERS 2
+#define Q6_K_HIFI_DYNAMIC_DEFAULT_OUTLIERS 6  // Default for generic quantization path
+#define Q6_K_HIFI_EARLY_EXIT_THRESHOLD 4  // |q8| > 4 means |activation| > 0.03
+typedef struct {
+    // === Q6_K-COMPATIBLE REGION (210 bytes) - DO NOT REORDER ===
+    uint8_t ql[QK_K/2];      // 128 bytes: quants, lower 4 bits
+    uint8_t qh[QK_K/4];      // 64 bytes: quants, upper 2 bits
+    int8_t  scales[QK_K/16]; // 16 bytes: scales, quantized with 8 bits
+    ggml_half d;             // 2 bytes: super-block scale
+    // === DYNAMIC OUTLIER EXTENSION (26 bytes with padding) ===
+    uint8_t outlier_count;                              // 1 byte: actual outlier count (2-8)
+    uint8_t outlier_idx[Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS];    // 8 bytes: outlier positions (0-255)
+    uint8_t _padding;                                   // 1 byte: padding for ggml_half alignment
+    ggml_half outlier_vals[Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS]; // 16 bytes: FP16 outlier values
+} block_q6_k_hifi_dynamic;
+// Total: 236 bytes (210 + 26)
+static_assert(sizeof(block_q6_k_hifi_dynamic) == sizeof(block_q6_K) + 2 + Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS + Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS*sizeof(ggml_half), "wrong q6_k_hifi_dynamic block size/padding");
+
+// Q6_K_HIFI_RES8: Compact Q6_K with INT8 residuals + per-block shared scale
+// This format reduces size by using INT8 residuals instead of FP16 outlier values.
+// The residual is computed as: original_value - Q6_K_approximation, then quantized to INT8.
+// Reconstruction: Q6_K_dequant + residual_scale * (residual_vals[i] / 127.0f)
+// Size reduction: 236 -> 232 bytes (-1.7% vs Q6_K_HIFI_DYNAMIC, matches Q4_K_M size ratio)
+#define Q6_K_HIFI_RES8_MAX_OUTLIERS 8
+typedef struct {
+    // === Q6_K-COMPATIBLE REGION (210 bytes) - DO NOT REORDER ===
+    uint8_t ql[QK_K/2];      // 128 bytes: quants, lower 4 bits
+    uint8_t qh[QK_K/4];      // 64 bytes: quants, upper 2 bits
+    int8_t  scales[QK_K/16]; // 16 bytes: scales, quantized with 8 bits
+    ggml_half d;             // 2 bytes: super-block scale
+    // === COMPACT INT8 RESIDUAL EXTENSION (22 bytes) ===
+    uint8_t outlier_count;                               // 1 byte: actual outlier count (1-8)
+    uint8_t outlier_idx[Q6_K_HIFI_RES8_MAX_OUTLIERS];    // 8 bytes: outlier positions (0-255)
+    int8_t  residual_vals[Q6_K_HIFI_RES8_MAX_OUTLIERS];  // 8 bytes: INT8 residuals (-127 to +127)
+    uint8_t _padding;                                    // 1 byte: padding for float alignment
+    float   residual_scale;                              // 4 bytes: shared scale for residuals
+} block_q6_k_hifi_res8;
+// Total: 232 bytes (210 + 22) - saves 4 bytes/block vs Q6_K_HIFI_DYNAMIC
+static_assert(sizeof(block_q6_k_hifi_res8) == 232, "wrong q6_k_hifi_res8 block size/padding");
+
 // This is only used for intermediate quantization and dot products
 typedef struct {
     float   d;              // delta

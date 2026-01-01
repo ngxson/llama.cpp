@@ -964,6 +964,64 @@ static __device__ __forceinline__ float vec_dot_q6_K_q8_1(
     return vec_dot_q6_K_q8_1_impl_mmvq(vl, vh, u, scales, bq6_K->d, d8);
 }
 
+// Q6_K_HIFI_RES8: Q6_K layout + INT8 residuals + per-block scale
+// Applies residual corrections after Q6_K bulk computation
+#define VDR_Q6_K_HIFI_RES8_Q8_1_MMVQ VDR_Q6_K_Q8_1_MMVQ
+
+static __device__ __forceinline__ float vec_dot_q6_k_hifi_res8_q8_1(
+    const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
+
+    const block_q6_k_hifi_res8 * bq6_hifi = (const block_q6_k_hifi_res8 *) vbq + kbx;
+
+    // === Q6_K bulk dot product (identical to standard Q6_K) ===
+    const int bq8_offset = 2 * QR6_K * (iqs / (QI6_K/2)) + (iqs % (QI6_K/2)) / (QI6_K/4);
+    const int scale_offset = (QI6_K/4) * (iqs / (QI6_K/2)) + (iqs % (QI6_K/2)) / (QI6_K/8);
+    const int vh_shift = 2 * ((iqs % (QI6_K/2)) / (QI6_K/4));
+
+    const int vl = get_int_b2(bq6_hifi->ql, iqs);
+    const int vh = get_int_b2(bq6_hifi->qh, (QI6_K/4) * (iqs / (QI6_K/2)) + iqs % (QI6_K/4)) >> vh_shift;
+
+    const int8_t * scales = bq6_hifi->scales + scale_offset;
+
+    int    u[QR6_K];
+    float d8[QR6_K];
+
+#pragma unroll
+    for (int i = 0; i < QR6_K; ++i) {
+        u[i]  = get_int_b4(bq8_1[bq8_offset + 2*i].qs, iqs % QI8_1);
+        d8[i] = __low2float(bq8_1[bq8_offset + 2*i].ds);
+    }
+
+    float sum = vec_dot_q6_K_q8_1_impl_mmvq(vl, vh, u, scales, bq6_hifi->d, d8);
+
+    // === INT8 RESIDUAL CORRECTION ===
+    // Each thread in the warp processes different parts of the block.
+    // We use warp-level reduction: all threads compute corrections for all outliers,
+    // but only add them once via warp shuffle to avoid double-counting.
+    const int outlier_count = bq6_hifi->outlier_count;
+    
+    if (outlier_count > 0) {
+        const float res_scale = bq6_hifi->residual_scale * (1.0f / 127.0f);
+        
+        // Only thread 0 in the warp group for this block computes the residual correction
+        // to avoid multiple threads adding the same correction
+        if (iqs == 0) {
+            for (int k = 0; k < outlier_count && k < 8; ++k) {
+                const int idx = bq6_hifi->outlier_idx[k];
+                const int idx_bq8 = idx / QK8_1;
+                const int idx_in_bq8 = idx % QK8_1;
+                
+                const int8_t q8_val = ((const int8_t*)bq8_1[idx_bq8].qs)[idx_in_bq8];
+                const float d8_val = __low2float(bq8_1[idx_bq8].ds);
+                const float residual = res_scale * bq6_hifi->residual_vals[k];
+                sum += residual * q8_val * d8_val;
+            }
+        }
+    }
+
+    return sum;
+}
+
 #define VDR_IQ2_XXS_Q8_1_MMVQ 2
 #define VDR_IQ2_XXS_Q8_1_MMQ  2
 
