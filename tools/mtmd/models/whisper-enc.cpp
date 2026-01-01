@@ -19,9 +19,18 @@ ggml_cgraph * clip_graph_whisper_enc::build() {
         cur = ggml_add(ctx0, cur, model.conv1d_2_b);
 
         cur = ggml_gelu_erf(ctx0, cur);
+
         // transpose
         inp = ggml_cont(ctx0, ggml_transpose(ctx0, cur));
         cb(inp, "after_conv1d", -1);
+
+        if (model.conv_out_w) {
+            inp = ggml_mul_mat(ctx0, model.conv_out_w, inp);
+            if (model.conv_out_b) {
+                inp = ggml_add(ctx0, inp, model.conv_out_b);
+            }
+            cb(inp, "after_conv_out", -1);
+        }
     }
 
     // sanity check (only check one layer, but it should be the same for all)
@@ -76,6 +85,15 @@ ggml_cgraph * clip_graph_whisper_enc::build() {
         // projector
         cur = ggml_mul_mat(ctx0, model.mm_fc_w, cur);
         cur = ggml_add(ctx0, cur, model.mm_fc_b);
+
+    } else if (proj_type == PROJECTOR_TYPE_QWEN3A) {
+        // projector
+        cur = build_ffn(cur,
+            model.mm_1_w, model.mm_1_b,
+            nullptr, nullptr,
+            model.mm_2_w, model.mm_2_b,
+            FFN_GELU_ERF,
+            -1);
 
     } else if (proj_type == PROJECTOR_TYPE_VOXTRAL) {
         // projector

@@ -1083,6 +1083,12 @@ class GGUFWriter:
     def add_clip_projector_type(self, value: str) -> None:
         self.add_string(Keys.Clip.PROJECTOR_TYPE, value)
 
+    def add_clip_vision_projector_type(self, value: str) -> None:
+        self.add_string(Keys.Clip.VISION_PROJECTOR_TYPE, value)
+
+    def add_clip_audio_projector_type(self, value: str) -> None:
+        self.add_string(Keys.Clip.AUDIO_PROJECTOR_TYPE, value)
+
     def add_vision_projection_dim(self, value: int) -> None:
         self.add_uint32(Keys.ClipVision.PROJECTION_DIM, value)
 

@@ -275,10 +275,12 @@ class Keys:
         DATASETS    = "imatrix.datasets"
 
     class Clip:
-        PROJECTOR_TYPE      = "clip.projector_type"
-        HAS_VISION_ENCODER  = "clip.has_vision_encoder"
-        HAS_AUDIO_ENCODER   = "clip.has_audio_encoder"
-        HAS_LLAVA_PROJECTOR = "clip.has_llava_projector"
+        PROJECTOR_TYPE        = "clip.projector_type"
+        VISION_PROJECTOR_TYPE = "clip.vision.projector_type" # for mixed modalities
+        AUDIO_PROJECTOR_TYPE  = "clip.audio.projector_type" # for mixed modalities
+        HAS_VISION_ENCODER    = "clip.has_vision_encoder"
+        HAS_AUDIO_ENCODER     = "clip.has_audio_encoder"
+        HAS_LLAVA_PROJECTOR   = "clip.has_llava_projector"
 
     class ClipVision:
         IMAGE_SIZE          = "clip.vision.image_size"
@@ -698,6 +700,7 @@ class MODEL_TENSOR(IntEnum):
     A_ENC_EMBD_NORM      = auto()
     A_ENC_EMBD_TO_LOGITS = auto()
     A_ENC_CONV1D         = auto()
+    A_ENC_CONV_OUT       = auto()
     A_PRE_NORM           = auto()
     A_POST_NORM          = auto()
     A_ENC_ATTN_Q         = auto()
@@ -1095,6 +1098,7 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.A_ENC_EMBD_NORM:           "a.position_embd_norm",
     MODEL_TENSOR.A_ENC_EMBD_TO_LOGITS:      "a.embd_to_logits",
     MODEL_TENSOR.A_ENC_CONV1D:              "a.conv1d.{bid}",
+    MODEL_TENSOR.A_ENC_CONV_OUT:            "a.conv_out",
     MODEL_TENSOR.A_PRE_NORM:                "a.pre_ln",
     MODEL_TENSOR.A_POST_NORM:               "a.post_ln",
     MODEL_TENSOR.A_ENC_ATTN_Q:              "a.blk.{bid}.attn_q",
@@ -1192,6 +1196,7 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.A_ENC_EMBD_NORM,
         MODEL_TENSOR.A_ENC_EMBD_TO_LOGITS,
         MODEL_TENSOR.A_ENC_CONV1D,
+        MODEL_TENSOR.A_ENC_CONV_OUT,
         MODEL_TENSOR.A_PRE_NORM,
         MODEL_TENSOR.A_POST_NORM,
         MODEL_TENSOR.A_ENC_ATTN_Q,
@@ -3483,6 +3488,7 @@ class VisionProjectorType:
     ULTRAVOX = "ultravox"
     INTERNVL = "internvl"
     QWEN2A = "qwen2a" # audio
+    QWEN3A = "qwen3a" # audio
     GLMA = "glma" # audio
     QWEN25O = "qwen2.5o" # omni
     VOXTRAL = "voxtral"

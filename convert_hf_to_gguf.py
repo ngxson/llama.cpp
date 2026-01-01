@@ -3937,9 +3937,7 @@ class Qwen2VLVisionModel(MmprojModel):
         return [] # skip other tensors
 
 
-@ModelBase.register("Qwen2_5OmniModel")
-class Qwen25OmniModel(Qwen2VLVisionModel):
-    has_vision_encoder = True
+class Qwen25AudioModel(MmprojModel):
     has_audio_encoder = True
 
     def __init__(self, *args, **kwargs):
@@ -3954,12 +3952,6 @@ class Qwen25OmniModel(Qwen2VLVisionModel):
         assert self.hparams_audio is not None
         self.gguf_writer.add_audio_num_mel_bins(self.hparams_audio["num_mel_bins"])
         self.gguf_writer.add_audio_attention_layernorm_eps(self.hparams_audio.get("layer_norm_eps", 1e-5))
-
-    def get_vision_config(self) -> dict[str, Any] | None:
-        return self.global_config["thinker_config"].get("vision_config")
-
-    def get_audio_config(self) -> dict[str, Any] | None:
-        return self.global_config["thinker_config"].get("audio_config")
 
     def generate_extra_tensors(self) -> Iterable[tuple[str, Tensor]]:
         # SinusoidsPositionEmbedding
@@ -3993,7 +3985,30 @@ class Qwen25OmniModel(Qwen2VLVisionModel):
                 return []
             return [(self.map_tensor_name(name), data_torch)]
 
-        return super().modify_tensors(data_torch, name, bid)
+        return [] # skip other tensors
+
+
+@ModelBase.register("Qwen2_5OmniModel")
+class Qwen25OmniModel(Qwen2VLVisionModel, Qwen25AudioModel):
+    has_audio_encoder = True
+    has_vision_encoder = True
+
+    def get_vision_config(self) -> dict[str, Any] | None:
+        return self.global_config["thinker_config"].get("vision_config")
+
+    def get_audio_config(self) -> dict[str, Any] | None:
+        return self.global_config["thinker_config"].get("audio_config")
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.QWEN25O)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        if "visual." in name:
+            return Qwen2VLVisionModel.modify_tensors(self, data_torch, name, bid)
+        elif "audio_tower." in name:
+            return Qwen25AudioModel.modify_tensors(self, data_torch, name, bid)
+        return []
 
 
 @ModelBase.register("InternVisionModel")
@@ -4387,7 +4402,9 @@ class Qwen3VLVisionModel(MmprojModel):
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
-        self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.QWEN3VL)
+        # in case mixed modalities, the arch will be handled by subclass
+        if not self.has_audio_encoder:
+            self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.QWEN3VL)
         self.gguf_writer.add_vision_use_gelu(True)
 
         if self.hparams_vision is not None:
@@ -4470,9 +4487,42 @@ class Qwen3VLVisionModel(MmprojModel):
 
         if name.startswith("visual."):
             return [(self.map_tensor_name(name), data_torch)]
+        return [] # skip other tensors
 
-        # Fall back to parent class for other tensors
-        return super().modify_tensors(data_torch, name, bid)
+
+@ModelBase.register("Qwen3OmniMoeForConditionalGeneration")
+class Qwen3OmniMmprojModel(Qwen3VLVisionModel, Qwen25AudioModel):
+    has_audio_encoder = True
+    has_vision_encoder = True
+
+    def get_vision_config(self) -> dict[str, Any] | None:
+        return self.global_config["thinker_config"].get("vision_config")
+
+    def get_audio_config(self) -> dict[str, Any] | None:
+        return self.global_config["thinker_config"].get("audio_config")
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        self.gguf_writer.add_clip_vision_projector_type(gguf.VisionProjectorType.QWEN3VL)
+        self.gguf_writer.add_clip_audio_projector_type(gguf.VisionProjectorType.QWEN3A)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        if "visual." in name:
+            # need to transform vision tensor naming, so that modify_tensors() logic can be used correctly
+            name = name.replace("thinker.visual.", "model.visual.")
+            if ".merger_list." in name:
+                name = name.replace(".merger_list.", ".deepstack_merger_list.")
+                name = name.replace(".ln_q", ".norm")
+                name = name.replace(".mlp.0", ".linear_fc1")
+                name = name.replace(".mlp.2", ".linear_fc2")
+            if ".merger." in name:
+                name = name.replace(".ln_q", ".norm")
+                name = name.replace(".mlp.0", ".linear_fc1")
+                name = name.replace(".mlp.2", ".linear_fc2")
+            return Qwen3VLVisionModel.modify_tensors(self, data_torch, name, bid)
+        elif "audio_tower." in name:
+            return Qwen25AudioModel.modify_tensors(self, data_torch, name, bid)
+        return []
 
 
 @ModelBase.register("Glm4vForConditionalGeneration", "Glm4vMoeForConditionalGeneration")
@@ -4519,7 +4569,7 @@ class Qwen3VLTextModel(Qwen3Model):
         return super().modify_tensors(data_torch, name, bid)
 
 
-@ModelBase.register("Qwen3VLMoeForConditionalGeneration")
+@ModelBase.register("Qwen3VLMoeForConditionalGeneration", "Qwen3OmniMoeForConditionalGeneration")
 class Qwen3VLMoeTextModel(Qwen3MoeModel):
     model_arch = gguf.MODEL_ARCH.QWEN3VLMOE
 
@@ -4531,8 +4581,12 @@ class Qwen3VLMoeTextModel(Qwen3MoeModel):
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         # Skip vision tensors - they go in the mmproj file
-        if name.startswith("model.visual."):
+        if "visual." in name or "audio_tower." in name \
+                or "talker." in name or "code2wav." in name:
             return []
+
+        # qwen3-omni
+        name = name.replace("thinker.", "")
 
         return super().modify_tensors(data_torch, name, bid)
 
