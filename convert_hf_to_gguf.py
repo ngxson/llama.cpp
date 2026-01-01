@@ -4515,12 +4515,15 @@ class Qwen3OmniMmprojModel(Qwen3VLVisionModel, Qwen25AudioModel):
                 name = name.replace(".ln_q", ".norm")
                 name = name.replace(".mlp.0", ".linear_fc1")
                 name = name.replace(".mlp.2", ".linear_fc2")
-            if ".merger." in name:
+            elif ".merger." in name:
                 name = name.replace(".ln_q", ".norm")
                 name = name.replace(".mlp.0", ".linear_fc1")
                 name = name.replace(".mlp.2", ".linear_fc2")
             return Qwen3VLVisionModel.modify_tensors(self, data_torch, name, bid)
         elif "audio_tower." in name:
+            if "conv2d" in name and name.endswith(".bias"):
+                # transform conv2d bias [n_embd] --> [1, 1, n_embd]
+                data_torch = data_torch.unsqueeze(-1).unsqueeze(-1)
             return Qwen25AudioModel.modify_tensors(self, data_torch, name, bid)
         return []
 
@@ -4555,9 +4558,10 @@ class Qwen3VLTextModel(Qwen3Model):
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
-
-        # Handle MRoPE (Multi-axis Rotary Position Embedding) for Qwen3-VL
-        vision_config = self.hparams.get("vision_config", {})
+        if "thinker_config" in self.hparams:
+            vision_config = self.hparams["thinker_config"].get("vision_config", {})
+        else:
+            vision_config = self.hparams.get("vision_config", {})
         deepstack_layer_num = len(vision_config.get("deepstack_visual_indexes", []))
         self.gguf_writer.add_num_deepstack_layers(deepstack_layer_num)
 
@@ -4575,7 +4579,10 @@ class Qwen3VLMoeTextModel(Qwen3MoeModel):
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
-        vision_config = self.hparams.get("vision_config", {})
+        if "thinker_config" in self.hparams:
+            vision_config = self.hparams["thinker_config"].get("vision_config", {})
+        else:
+            vision_config = self.hparams.get("vision_config", {})
         deepstack_layer_num = len(vision_config.get("deepstack_visual_indexes", []))
         self.gguf_writer.add_num_deepstack_layers(deepstack_layer_num)
 

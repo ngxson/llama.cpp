@@ -1563,6 +1563,9 @@ class TensorNameMap:
         MODEL_TENSOR.A_ENC_CONV1D: (
             "audio_tower.conv{bid}", # ultravox
             "conformer.pre_encode.conv.{bid}", # lfm2
+        ),
+
+        MODEL_TENSOR.A_ENC_CONV2D: (
             "audio_tower.conv2d{bid}", # qwen3omni
         ),
 

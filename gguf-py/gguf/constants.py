@@ -700,6 +700,7 @@ class MODEL_TENSOR(IntEnum):
     A_ENC_EMBD_NORM      = auto()
     A_ENC_EMBD_TO_LOGITS = auto()
     A_ENC_CONV1D         = auto()
+    A_ENC_CONV2D         = auto()
     A_ENC_CONV_OUT       = auto()
     A_PRE_NORM           = auto()
     A_POST_NORM          = auto()
@@ -1098,6 +1099,7 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.A_ENC_EMBD_NORM:           "a.position_embd_norm",
     MODEL_TENSOR.A_ENC_EMBD_TO_LOGITS:      "a.embd_to_logits",
     MODEL_TENSOR.A_ENC_CONV1D:              "a.conv1d.{bid}",
+    MODEL_TENSOR.A_ENC_CONV2D:              "a.conv2d.{bid}",
     MODEL_TENSOR.A_ENC_CONV_OUT:            "a.conv_out",
     MODEL_TENSOR.A_PRE_NORM:                "a.pre_ln",
     MODEL_TENSOR.A_POST_NORM:               "a.post_ln",
@@ -1196,6 +1198,7 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.A_ENC_EMBD_NORM,
         MODEL_TENSOR.A_ENC_EMBD_TO_LOGITS,
         MODEL_TENSOR.A_ENC_CONV1D,
+        MODEL_TENSOR.A_ENC_CONV2D,
         MODEL_TENSOR.A_ENC_CONV_OUT,
         MODEL_TENSOR.A_PRE_NORM,
         MODEL_TENSOR.A_POST_NORM,

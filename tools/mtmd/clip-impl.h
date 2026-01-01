@@ -125,6 +125,7 @@
 
 // ultravox
 #define TN_CONV1D       "a.conv1d.%d.%s"
+#define TN_CONV2D       "a.conv2d.%d.%s"
 #define TN_CONV_OUT     "a.conv_out.%s"
 #define TN_MM_AUDIO_MLP "mm.a.mlp.%d.%s"
 #define TN_MM_AUDIO_FC  "mm.a.fc.%s" // fully connected layer
