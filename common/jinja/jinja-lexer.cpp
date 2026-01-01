@@ -4,7 +4,6 @@
 #include <vector>
 #include <string>
 #include <map>
-#include <regex>
 #include <stdexcept>
 #include <cctype>
 #include <functional>
@@ -23,7 +22,7 @@ static void trim_template_markers_inplace(std::string & s) {
     // i = head ; j = tail (i <= j)
     size_t j = 0; // Write pointer
     const size_t len = s.length();
-    
+
     for (size_t i = 0; i < len; ) {
         bool handled = false;
 
@@ -75,6 +74,32 @@ static void trim_template_markers_inplace(std::string & s) {
     s.resize(j);
 }
 
+static void trim_newline_after_tag_inplace(std::string & s) {
+    // i = head ; j = tail (i <= j)
+    size_t j = 0; // Write pointer
+    const size_t len = s.length();
+
+    for (size_t i = 0; i < len; ) {
+        s[j++] = s[i++];
+
+        if (i < len && (s[j-1] == '}' || s[j-1] == '%' || s[j-1] == '#' || s[j-1] == '-')) {
+            if (s[i] == '}') {
+                // We have a potential tag closer like %} or -} or #} or }}
+                // Now check if the next character is a newline
+                if (i + 1 < len && s[i + 1] == '\n') {
+                    // Skip the } and the following \n
+                    ++i; // skip the }
+                    ++i; // skip the \n
+                    // Do not advance j, we effectively removed the \n
+                    continue;
+                }
+            }
+        }
+    }
+
+    s.resize(j);
+}
+
 std::string lexer::preprocess(const std::string & template_str, const preprocess_options & options) const {
     std::string result = template_str;
     // According to https://jinja.palletsprojects.com/en/3.0.x/templates/#whitespace-control
@@ -97,7 +122,8 @@ std::string lexer::preprocess(const std::string & template_str, const preprocess
     if (options.trim_blocks) {
         // If an application configures Jinja to trim_blocks, the first newline after
         // a template tag is removed automatically (like in PHP).
-        result = std::regex_replace(result, std::regex(R"(([#%-]\})\n)"), "$1");
+        // Equivalent JS code: template.replace(/^[ \t]*({[#%-])/gm, "$1")
+        trim_newline_after_tag_inplace(result);
     }
 
     // Handle whitespace control with - in tags
@@ -105,8 +131,8 @@ std::string lexer::preprocess(const std::string & template_str, const preprocess
 
     // Handle custom transformers-specific `generation` tag
     // See https://github.com/huggingface/transformers/pull/30650 for more information.
-    result = std::regex_replace(result, std::regex(R"(\{%\s*generation\s*%\})"), "");
-    result = std::regex_replace(result, std::regex(R"(\{%\s*endgeneration\s*%\})"), "");
+    // result = std::regex_replace(result, std::regex(R"(\{%\s*generation\s*%\})"), "");
+    // result = std::regex_replace(result, std::regex(R"(\{%\s*endgeneration\s*%\})"), "");
 
     return result;
 }
