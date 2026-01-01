@@ -32,6 +32,37 @@ static void zeros(std::ofstream & file, size_t n) {
     }
 }
 
+// Compute model size in billions from hyperparameters
+static float compute_model_params_b(const llama_hparams & hparams, int64_t n_vocab) {
+    const int64_t n_embd = hparams.n_embd;
+    const int64_t n_ff = hparams.n_ff();
+    const int64_t n_layer = hparams.n_layer;
+    
+    // Attention: 4 weight matrices per layer (Q, K, V, O) each ~d*d
+    const int64_t attn_params = 4 * n_embd * n_embd * n_layer;
+    // FFN: 3 weight matrices per layer (gate, up, down) each ~d*n_ff
+    const int64_t ffn_params = 3 * n_embd * n_ff * n_layer;
+    // Embeddings: input + output
+    const int64_t emb_params = 2 * n_vocab * n_embd;
+    
+    return (float)(attn_params + ffn_params + emb_params) / 1e9f;
+}
+
+// Get the percentage of attn_v layers to enhance based on model size
+// Smaller models benefit more from enhancement, larger models have diminishing returns
+static float get_hifi_enhancement_threshold(float model_params_b) {
+    if (model_params_b <= 2.0f) {
+        // Small models (≤2B): enhance 50% of layers - high ROI
+        return 0.50f;
+    } else if (model_params_b <= 8.0f) {
+        // Medium models (2-8B): enhance 30% of layers - moderate ROI
+        return 0.30f;
+    } else {
+        // Large models (>8B): enhance only 15% of layers - diminishing returns
+        return 0.15f;
+    }
+}
+
 static std::string remap_layer(const std::string & orig_name, const std::vector<int> & prune, std::map<int, std::string> & mapped, int & next_id) {
     if (prune.empty()) {
         return orig_name;
@@ -311,17 +342,21 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             new_type = qs.i_attention_wv < 2 ? GGML_TYPE_Q5_K : GGML_TYPE_Q4_K;
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_HIFI) {
-            // Q4_HIFI: INT8 residuals with per-block scale for compact outlier storage
-            // Extended to 90% of layers to enable layer-adaptive outlier reduction:
-            // - Early layers (0-30%): 8 outliers (full precision)
-            // - Middle layers (30-70%): 5-6 outliers (moderate reduction for large models)
-            // - Late layers (70-90%): 3-4 outliers (aggressive reduction for large models)
-            // - Very late layers (90-100%): Q6_K fallback
-            if (qs.i_attention_wv <= qs.n_attention_wv * 0.9f) {
+            // Q4_HIFI: Model-size-aware enhancement to optimize size vs quality tradeoff
+            // - Small models (≤2B): enhance 50% of attn_v layers (high ROI)
+            // - Medium models (2-8B): enhance 30% of attn_v layers (moderate ROI)
+            // - Large models (>8B): enhance 15% of attn_v layers (diminishing returns)
+            // This reduces enhanced tensor count significantly for large models while
+            // preserving quality where it matters (early layers + embeddings)
+            const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+            const float enhancement_threshold = get_hifi_enhancement_threshold(model_params_b);
+            
+            if (qs.i_attention_wv <= qs.n_attention_wv * enhancement_threshold) {
                 new_type = GGML_TYPE_Q6_K_HIFI_RES8;
             } else if (use_more_bits(qs.i_attention_wv, qs.n_attention_wv)) {
-                new_type = GGML_TYPE_Q6_K;  // Follow Q4_K_M behavior for very late layers
+                new_type = GGML_TYPE_Q6_K;  // Follow Q4_K_M behavior for critical late layers
             }
+            // else: use default Q4_K for non-critical middle/late layers
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L) new_type = GGML_TYPE_Q5_K;
         else if ((ftype == LLAMA_FTYPE_MOSTLY_IQ4_NL || ftype == LLAMA_FTYPE_MOSTLY_IQ4_XS) && qs.model.hparams.n_gqa() >= 4) {
