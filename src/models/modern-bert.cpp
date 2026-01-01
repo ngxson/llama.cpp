@@ -26,6 +26,7 @@ llm_build_modern_bert<iswa>::llm_build_modern_bert(const llama_model & model, co
     for (int il = 0; il < n_layer; ++il) {
         float freq_base_l  = 0.0f;
 
+        // TODO @ngxson : do we expect to apply this globally, or dynamically per layer?
         if constexpr (iswa) {
             freq_base_l = model.get_rope_freq_base(cparams, il);
         } else {

@@ -33,7 +33,7 @@ llm_build_gemma3<iswa>::llm_build_gemma3(const llama_model & model, const llm_gr
         float freq_base_l  = 0.0f;
         float freq_scale_l = 0.0f;
 
-        if constexpr (iswa) {
+        if (hparams.is_swa(il)) {
             freq_base_l  = model.get_rope_freq_base (cparams, il);
             freq_scale_l = model.get_rope_freq_scale(cparams, il);
         } else {
