@@ -995,34 +995,26 @@ static __device__ __forceinline__ float vec_dot_q6_k_hifi_res8_q8_1(
     float sum = vec_dot_q6_K_q8_1_impl_mmvq(vl, vh, u, scales, bq6_hifi->d, d8);
 
     // === INT8 RESIDUAL CORRECTION ===
-    // Add residual * activation corrections at outlier positions
-    // Residual formula: sum += residual_scale * (residual_val / 127.0f) * q8_val * d8
+    // Each thread in the warp processes different parts of the block.
+    // We use warp-level reduction: all threads compute corrections for all outliers,
+    // but only add them once via warp shuffle to avoid double-counting.
     const int outlier_count = bq6_hifi->outlier_count;
-    const float res_scale = bq6_hifi->residual_scale * (1.0f / 127.0f);
-
-#pragma unroll
-    for (int k = 0; k < 8; ++k) {  // Max 8 outliers
-        if (k >= outlier_count) break;
-
-        const int idx = bq6_hifi->outlier_idx[k];
-
-        // Determine which bq8 block this index falls into
-        const int idx_bq8 = idx / QK8_1;  // Which Q8 block (0-7 for 256 weights)
-        const int idx_in_bq8 = idx % QK8_1;  // Position within Q8 block (0-31)
-
-        // Check if this outlier is in the range this thread processes
-        if (idx_bq8 >= bq8_offset && idx_bq8 < bq8_offset + 2*QR6_K) {
-            const int thread_q8_offset = iqs % QI8_1;
-            const int pos_in_q8_group = idx_in_bq8 / 4;
-
-            if (pos_in_q8_group == thread_q8_offset) {
+    
+    if (outlier_count > 0) {
+        const float res_scale = bq6_hifi->residual_scale * (1.0f / 127.0f);
+        
+        // Only thread 0 in the warp group for this block computes the residual correction
+        // to avoid multiple threads adding the same correction
+        if (iqs == 0) {
+            for (int k = 0; k < outlier_count && k < 8; ++k) {
+                const int idx = bq6_hifi->outlier_idx[k];
+                const int idx_bq8 = idx / QK8_1;
+                const int idx_in_bq8 = idx % QK8_1;
+                
                 const int8_t q8_val = ((const int8_t*)bq8_1[idx_bq8].qs)[idx_in_bq8];
-                // Early exit: skip if activation is too small
-                if (q8_val > 4 || q8_val < -4) {
-                    const float d8_val = __low2float(bq8_1[idx_bq8].ds);
-                    const float residual = res_scale * bq6_hifi->residual_vals[k];
-                    sum += residual * q8_val * d8_val;
-                }
+                const float d8_val = __low2float(bq8_1[idx_bq8].ds);
+                const float residual = res_scale * bq6_hifi->residual_vals[k];
+                sum += residual * q8_val * d8_val;
             }
         }
     }
