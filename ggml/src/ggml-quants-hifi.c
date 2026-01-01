@@ -23,6 +23,7 @@ void ggml_hifi_set_context(const ggml_hifi_quant_context * ctx) {
 
 // Compute adaptive outlier count based on layer position, importance, and model scale
 // This is the core algorithm for layer-wise imatrix adaptation
+// Strategy 2 optimization: More aggressive reduction in middle/late layers
 int ggml_hifi_compute_outlier_count(
     int layer_idx,
     int total_layers,
@@ -38,51 +39,49 @@ int ggml_hifi_compute_outlier_count(
     if (total_layers == 1) depth_ratio = 0.5f;
 
     // Base outlier count based on layer position
+    // Strategy 2: More aggressive reduction for size optimization
     // Early layers (0-30%): Max precision - context formation is critical
-    // Middle layers (30-70%): High precision - reasoning/processing (tuned up from 6)
-    // Late layers (70-100%): Moderate precision - some redundancy in large models (tuned up from 4)
+    // Middle layers (30-70%): Reduced precision (5 instead of 7)
+    // Late layers (70-100%): Minimal precision (2 instead of 5)
     int base_count;
     if (depth_ratio <= 0.30f) {
-        base_count = 8;  // Early layers: max outliers
+        base_count = 8;  // Early layers: max outliers (unchanged)
     } else if (depth_ratio <= 0.70f) {
-        base_count = 7;  // Middle layers: high (tuned from 6)
+        base_count = 5;  // Middle layers: reduced (was 7)
     } else {
-        base_count = 5;  // Late layers: moderate (tuned from 4)
+        base_count = 2;  // Late layers: minimal (was 5)
     }
 
     // Scale-dependent adjustment
-    // Key insight from testing:
-    // - 8B models: Less aggressive reduction works better (more outliers in middle layers)
-    // - 4B models: Aggressive reduction hurts quality - need similar approach to 8B
-    // - Small models: Boost outliers everywhere
+    // Key insight: Large models have more redundancy, can use fewer outliers
+    // Small models need more outliers to maintain quality
     float scale_factor = 1.0f;
     if (model_params_b >= 7.0f) {
-        // 7B+ models: moderate reduction in middle and late layers
-        if (depth_ratio > 0.70f) {
-            scale_factor = 0.75f;  // Moderate reduction for late layers
-        } else if (depth_ratio > 0.50f) {
-            scale_factor = 0.9f;   // Slight reduction in middle-late
+        // 7B+ models: already minimal late layers, no further reduction needed
+        // But we can slightly reduce middle layers for extra savings
+        if (depth_ratio > 0.30f && depth_ratio <= 0.70f) {
+            scale_factor = 0.9f;  // Middle layers: slight reduction
         }
     } else if (model_params_b >= 3.0f) {
-        // 3-7B models: Moderate reduction across layers
+        // 3-7B models: Moderate approach
         if (depth_ratio > 0.70f) {
-            scale_factor = 0.65f;  // Late layers: significant reduction
-        } else if (depth_ratio > 0.50f) {
-            scale_factor = 0.80f;  // Middle-late layers: moderate reduction
+            scale_factor = 1.0f;  // Late layers already at minimum
         } else if (depth_ratio > 0.30f) {
-            scale_factor = 0.90f;  // Early-middle layers: light reduction
+            scale_factor = 0.95f; // Middle layers: very light reduction
         }
     } else if (model_params_b >= 1.5f) {
-        // 1.5-3B models: light reduction in late layers only
+        // 1.5-3B models: Be more conservative, boost late layers slightly
         if (depth_ratio > 0.70f) {
-            scale_factor = 0.85f;
+            scale_factor = 1.25f; // Boost late layers back up (2 -> ~3)
         }
     } else if (model_params_b <= 1.0f) {
         // Small models (<1B): boost outliers everywhere
         // Small models are more sensitive to quantization error
-        scale_factor = 1.2f;
+        scale_factor = 1.3f;
         if (depth_ratio <= 0.30f) {
-            scale_factor = 1.3f;  // Extra boost for early layers
+            scale_factor = 1.4f;  // Extra boost for early layers
+        } else if (depth_ratio > 0.70f) {
+            scale_factor = 1.5f;  // Late layers need more for small models (2 -> 3)
         }
     }
 
