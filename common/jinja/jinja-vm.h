@@ -125,6 +125,7 @@ struct expression : public statement {
 struct program : public statement {
     statements body;
 
+    program() = default;
     explicit program(statements && body) : body(std::move(body)) {}
     std::string type() const override { return "Program"; }
     value execute_impl(context &) override {
@@ -562,7 +563,7 @@ struct vm {
     context & ctx;
     explicit vm(context & ctx) : ctx(ctx) {}
 
-    value_array execute(program & prog) {
+    value_array execute(const program & prog) {
         value_array results = mk_val<value_array>();
         for (auto & stmt : prog.body) {
             value res = stmt->execute(ctx);
