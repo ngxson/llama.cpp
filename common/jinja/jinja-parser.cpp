@@ -132,7 +132,7 @@ private:
         // Consume {% token
         prev_cur = current;
         expect(token::open_statement, "Expected {%");
-        
+
         if (peek().t != token::identifier) {
             throw std::runtime_error("Unknown statement");
         }
@@ -183,15 +183,15 @@ private:
             }
             auto callee = parse_primary_expression();
             if (!is_type<identifier>(callee)) throw std::runtime_error("Expected identifier");
-            
+
             auto call_args = parse_args();
             expect(token::close_statement, "Expected %}");
-            
+
             statements body;
             while (!is_statement({"endcall"})) {
                 body.push_back(parse_any());
             }
-            
+
             expect(token::open_statement, "Expected {%");
             expect_identifier("endcall");
             expect(token::close_statement, "Expected %}");
@@ -205,12 +205,12 @@ private:
                 filter_node = parse_call_expression(std::move(filter_node));
             }
             expect(token::close_statement, "Expected %}");
-            
+
             statements body;
             while (!is_statement({"endfilter"})) {
                 body.push_back(parse_any());
             }
-            
+
             expect(token::open_statement, "Expected {%");
             expect_identifier("endfilter");
             expect(token::close_statement, "Expected %}");
@@ -227,7 +227,7 @@ private:
         auto left = parse_expression_sequence();
         statement_ptr value = nullptr;
         statements body;
-        
+
         prev_cur = current;
 
         if (is(token::equals)) {
@@ -311,7 +311,7 @@ private:
         // `messages` in `for message in messages`
         auto iterable = parse_expression();
         expect(token::close_statement, "Expected %}");
-        
+
         statements body;
         statements alternate;
 
@@ -486,7 +486,7 @@ private:
                 arg = parse_expression();
                 if (is(token::equals)) {
                     // keyword argument
-				    // e.g., func(x = 5, y = a or b)
+                    // e.g., func(x = 5, y = a or b)
                     ++current; // consume equals
                     arg = mk_stmt<keyword_argument_expression>(std::move(arg), parse_expression());
                 }
@@ -525,7 +525,7 @@ private:
             prev_cur = current;
             if (is(token::colon)) {
                 // A case where a default is used
-			    // e.g., [:2] will be parsed as [undefined, 2]
+                // e.g., [:2] will be parsed as [undefined, 2]
                 slices.push_back(nullptr);
                 ++current; // consume colon
                 is_slice = true;

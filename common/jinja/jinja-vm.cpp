@@ -457,7 +457,7 @@ value for_statement::execute_impl(context & ctx) {
         scope_update_fns.push_back(scope_update_fn);
     }
     JJ_DEBUG("For loop: %zu items after filtering", filtered_items.size());
-    
+
     auto result = mk_val<value_array>();
 
     bool noIteration = true;
@@ -558,7 +558,7 @@ value macro_statement::execute_impl(context & ctx) {
     const func_handler func = [this, name, &ctx](const func_args & args) -> value {
         size_t expected_count = this->args.size();
         size_t input_count = args.args.size();
-    
+
         JJ_DEBUG("Invoking macro '%s' with %zu input arguments (expected %zu)", name.c_str(), input_count, expected_count);
         context macro_ctx(ctx); // new scope for macro execution
 

@@ -160,7 +160,7 @@ struct for_statement : public statement {
     statements default_block; // if no iteration took place
 
     for_statement(statement_ptr && loopvar, statement_ptr && iterable, statements && body, statements && default_block)
-        : loopvar(std::move(loopvar)), iterable(std::move(iterable)), 
+        : loopvar(std::move(loopvar)), iterable(std::move(iterable)),
           body(std::move(body)), default_block(std::move(default_block)) {
         chk_type<identifier, tuple_literal>(this->loopvar);
         chk_type<expression>(this->iterable);
@@ -278,7 +278,7 @@ struct identifier : public expression {
 
 // Literals
 
-struct integer_literal : public expression { 
+struct integer_literal : public expression {
     int64_t val;
     explicit integer_literal(int64_t val) : val(val) {}
     std::string type() const override { return "IntegerLiteral"; }
@@ -327,7 +327,7 @@ struct tuple_literal : public array_literal {
 
 struct object_literal : public expression {
     std::vector<std::pair<statement_ptr, statement_ptr>> val;
-    explicit object_literal(std::vector<std::pair<statement_ptr, statement_ptr>> && val) 
+    explicit object_literal(std::vector<std::pair<statement_ptr, statement_ptr>> && val)
         : val(std::move(val)) {
         for (const auto & pair : this->val) {
             chk_type<expression>(pair.first);
