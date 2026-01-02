@@ -17,13 +17,15 @@
 using json = nlohmann::json;
 
 void run_multiple(std::string dir_path, bool stop_on_first_failure, json input);
-void run_single(std::string contents, json input);
+void run_single(std::string contents, json input, const std::string & output_path = "");
 
 std::string HELP = R"(
 Usage: test-chat-jinja [OPTIONS] PATH_TO_TEMPLATE
 Options:
+  -h, --help               Show this help message and exit.
   --json <path>            Path to the JSON input file.
   --stop-on-first-fail     Stop testing on the first failure (default: false).
+  --output <path>          Path to output results (only for single template runs).
 If PATH_TO_TEMPLATE is a file, runs that single template.
 If PATH_TO_TEMPLATE is a directory, runs all .jinja files in that directory.
 )";
@@ -65,6 +67,7 @@ int main(int argc, char ** argv) {
 
     std::string tmpl_path;
     std::string json_path;
+    std::string output_path;
     bool stop_on_first_fail = false;
 
     for (size_t i = 1; i < args.size(); i++) {
@@ -76,6 +79,9 @@ int main(int argc, char ** argv) {
             i++;
         } else if (args[i] == "--stop-on-first-fail") {
             stop_on_first_fail = true;
+        } else if (args[i] == "--output" && i + 1 < args.size()) {
+            output_path = args[i + 1];
+            i++;
         } else if (tmpl_path.empty()) {
             tmpl_path = args[i];
         } else {
@@ -114,7 +120,7 @@ int main(int argc, char ** argv) {
         std::string contents = std::string(
             std::istreambuf_iterator<char>(infile),
             std::istreambuf_iterator<char>());
-        run_single(contents, input_json);
+        run_single(contents, input_json, output_path);
     } else {
         std::cerr << "Error: PATH_TO_TEMPLATE is not a valid file or directory: " << tmpl_path << "\n";
         return 1;
@@ -158,7 +164,7 @@ void run_multiple(std::string dir_path, bool stop_on_first_fail, json input) {
 }
 
 
-void run_single(std::string contents, json input) {
+void run_single(std::string contents, json input, const std::string & output_path) {
     jinja::enable_debug(true);
 
     // lexing
@@ -184,5 +190,16 @@ void run_single(std::string contents, json input) {
     std::cout << "\n=== RESULTS ===\n";
     for (const auto & part : parts->as_string().parts) {
         std::cout << (part.is_input ? "DATA" : "TMPL") << ": " << part.val << "\n";
+    }
+
+    if (!output_path.empty()) {
+        std::ofstream outfile(output_path);
+        if (!outfile) {
+            throw std::runtime_error("Could not open output file: " + output_path);
+        }
+        for (const auto & part : parts->as_string().parts) {
+            outfile << part.val;
+        }
+        std::cout << "\n=== OUTPUT WRITTEN TO " << output_path << " ===\n";
     }
 }
