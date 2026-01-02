@@ -13,134 +13,38 @@
 
 namespace jinja {
 
-// Trim template markers with '-' for whitespace control
-// Example: [spaces]{%- ... -%} --> {% ... %}
-#include <string>
-#include <cctype>
-
-static void trim_template_markers_inplace(std::string & s) {
-    // i = head ; j = tail (i <= j)
-    size_t j = 0; // Write pointer
-    const size_t len = s.length();
-
-    for (size_t i = 0; i < len; ) {
-        bool handled = false;
-
-        // We need at least 3 characters for any marker: {X- or -X}
-        if (i + 2 < len) {
-            const char c1 = s[i];
-            const char c2 = s[i + 1];
-            const char c3 = s[i + 2];
-
-            // 1. Closing trim: -X} where X = %, }, #
-            // Example: [content]-%} [spaces] -> [content]%}
-            if (c1 == '-' && c3 == '}' && (c2 == '%' || c2 == '}' || c2 == '#')) {
-                s[j++] = c2;
-                s[j++] = '}';
-                i += 3;
-                // Strip leading whitespace AFTER the tag
-                while (i < len && std::isspace(static_cast<unsigned char>(s[i]))) {
-                    i++;
-                }
-                handled = true;
-            }
-            // 2. Opening trim: {X- where X = %, {, #
-            // Example: [spaces]{%- [content] -> {% [content]
-            else if (c1 == '{' && c3 == '-' && (c2 == '%' || c2 == '{' || c2 == '#')) {
-                // Trim trailing whitespace BEFORE the tag by moving write pointer back
-                while (j > 0 && std::isspace(static_cast<unsigned char>(s[j - 1]))) {
-                    j--;
-                }
-
-                // Safety: Prevent merging '{' with tag start (avoid creating '{{%' or '{{{')
-                // if the character immediately before our new tag is a literal '{'.
-                if (j > 0 && s[j - 1] == '{') {
-                    s[j++] = ' ';
-                }
-
-                s[j++] = '{';
-                s[j++] = c2;
-                i += 3;
-                handled = true;
-            }
-        }
-
-        if (!handled) {
-            // Note: j is always <= i here, so this is safe.
-            s[j++] = s[i++];
-        }
+static void string_lstrip(std::string & s) {
+    size_t start = s.find_first_not_of(" \t\n\r");
+    if (start == std::string::npos) {
+        s.clear();
+    } else {
+        s.erase(0, start);
     }
-
-    s.resize(j);
 }
 
-static void trim_newline_after_tag_inplace(std::string & s) {
-    // i = head ; j = tail (i <= j)
-    size_t j = 0; // Write pointer
-    const size_t len = s.length();
-
-    for (size_t i = 0; i < len; ) {
-        s[j++] = s[i++];
-
-        if (i < len && (s[j-1] == '}' || s[j-1] == '%' || s[j-1] == '#' || s[j-1] == '-')) {
-            if (s[i] == '}') {
-                // We have a potential tag closer like %} or -} or #} or }}
-                // Now check if the next character is a newline
-                if (i + 1 < len && s[i + 1] == '\n') {
-                    // Skip the } and the following \n
-                    ++i; // skip the }
-                    ++i; // skip the \n
-                    // Do not advance j, we effectively removed the \n
-                    continue;
-                }
-            }
-        }
+static void string_rstrip(std::string & s) {
+    size_t end = s.find_last_not_of(" \t\n\r");
+    if (end == std::string::npos) {
+        s.clear();
+    } else {
+        s.erase(end + 1);
     }
-
-    s.resize(j);
 }
 
-std::string lexer::preprocess(const std::string & template_str, const preprocess_options & options) const {
-    std::string result = template_str;
-    // According to https://jinja.palletsprojects.com/en/3.0.x/templates/#whitespace-control
+lexer_result lexer::tokenize(const std::string & source) {
+    std::vector<token> tokens;
+    std::string src = source;
+
+    if (source.empty()) {
+        return {tokens, src};
+    }
 
     // In the default configuration:
     //  - a single trailing newline is stripped if present
     //  - other whitespace (spaces, tabs, newlines etc.) is returned unchanged
-    if (!result.empty() && result.back() == '\n') {
-        result.pop_back();
+    if (source.back() == '\n') {
+        src.pop_back();
     }
-
-    if (options.lstrip_blocks) {
-        // The lstrip_blocks option can also be set to strip tabs and spaces from the
-        // beginning of a line to the start of a block. (Nothing will be stripped if
-        // there are other characters before the start of the block.)
-        // result = std::regex_replace(result, std::regex(R"((?m)^[ \t]*(\{[#%-]))"), "$1");
-        throw std::runtime_error("lstrip_blocks option is not implemented yet");
-    }
-
-    if (options.trim_blocks) {
-        // If an application configures Jinja to trim_blocks, the first newline after
-        // a template tag is removed automatically (like in PHP).
-        // Equivalent JS code: template.replace(/^[ \t]*({[#%-])/gm, "$1")
-        trim_newline_after_tag_inplace(result);
-    }
-
-    // Handle whitespace control with - in tags
-    trim_template_markers_inplace(result);
-
-    // Handle custom transformers-specific `generation` tag
-    // See https://github.com/huggingface/transformers/pull/30650 for more information.
-    // result = std::regex_replace(result, std::regex(R"(\{%\s*generation\s*%\})"), "");
-    // result = std::regex_replace(result, std::regex(R"(\{%\s*endgeneration\s*%\})"), "");
-
-    return result;
-}
-
-lexer_result lexer::tokenize(const std::string & input, const preprocess_options & options) {
-    std::vector<token> tokens;
-    std::string src = preprocess(input, options);
-    JJ_DEBUG("preprocessed input: '%s'", src.c_str());
 
     size_t pos = 0;
     size_t start_pos = 0;
@@ -176,13 +80,16 @@ lexer_result lexer::tokenize(const std::string & input, const preprocess_options
         return str;
     };
 
-    auto next_pos_is = [&](std::initializer_list<char> chars) -> bool {
-        if (pos + 1 >= src.size()) return false;
+    auto next_pos_is = [&](std::initializer_list<char> chars, size_t n = 1) -> bool {
+        if (pos + n >= src.size()) return false;
         for (char c : chars) {
-            if (src[pos + 1] == c) return true;
+            if (src[pos + n] == c) return true;
         }
         return false;
     };
+
+    bool is_lstrip_block = true; // example: {%-
+    bool is_rstrip_block = false; // example: -%}
 
     while (pos < src.size()) {
         start_pos = pos;
@@ -205,14 +112,36 @@ lexer_result lexer::tokenize(const std::string & input, const preprocess_options
                     )) {
                 text += src[pos++];
             }
-            // JJ_DEBUG("consumed text: '%s'", text.c_str());
+
+            // always rstrip single trailing newline from text blocks
+            if (!text.empty() && text.front() == '\n') {
+                text.erase(0, 1);
+            }
+
+            if (is_rstrip_block) {
+                // example: {last_block}[space]text
+                // doing lstrip on text, effectively rstrip the LAST block
+                // JJ_DEBUG("RSTRIP block detected, current text: '%s'", text.c_str());
+                string_lstrip(text);
+            }
+
+            // is_lstrip_block = next_pos_is({'-'}, 2);
+            if (is_lstrip_block) {
+                // example: text[space]{current_block}
+                // doing rstrip on text, effectively lstrip the CURRENT block
+                // JJ_DEBUG("LSTRIP block detected, current text: '%s'", text.c_str());
+                string_rstrip(text);
+            }
+
             if (!text.empty()) {
+                // JJ_DEBUG("consumed text: '%s'", text.c_str());
                 tokens.push_back({token::text, text, start_pos});
                 continue;
             }
         }
 
         // Possibly consume a comment
+        // TODO: handle lstrip/rstrip for comments? (not important for now)
         if (src[pos] == '{' && next_pos_is( {'#'} )) {
             start_pos = pos;
             pos += 2; // Skip the opening {#
@@ -227,6 +156,14 @@ lexer_result lexer::tokenize(const std::string & input, const preprocess_options
             tokens.push_back({token::comment, comment, start_pos});
             pos += 2; // Skip the closing #}
             continue;
+        }
+
+        if (is_lstrip_block && (
+                last_token_type == token::open_expression ||
+                last_token_type == token::open_statement)
+        ) {
+            pos++; // consume '-' in {%- or {{-
+            if (pos >= src.size()) break;
         }
 
         // Consume (and ignore) all whitespace inside Jinja statements or expressions
@@ -286,6 +223,13 @@ lexer_result lexer::tokenize(const std::string & input, const preprocess_options
                 } else if (typ == token::close_curly_bracket) {
                     --curly_bracket_depth;
                 }
+
+                // optionally handle rstrip for this block
+                // this will affect the next text chunk
+                if (typ == token::close_statement || typ == token::close_expression) {
+                    is_rstrip_block = src[pos] == '-';
+                }
+
                 pos += seq.size();
                 matched = true;
                 break; // continue main loop
@@ -298,6 +242,7 @@ lexer_result lexer::tokenize(const std::string & input, const preprocess_options
             start_pos = pos;
             ++pos; // Skip opening quote
             std::string str = consume_while([ch](char c) { return c != ch; });
+            // JJ_DEBUG("consumed string literal: '%s'", str.c_str());
             tokens.push_back({token::string_literal, str, start_pos});
             ++pos; // Skip closing quote
             continue;
@@ -312,6 +257,7 @@ lexer_result lexer::tokenize(const std::string & input, const preprocess_options
                 std::string frac = consume_while(is_integer);
                 num += "." + frac;
             }
+            // JJ_DEBUG("consumed numeric literal: '%s'", num.c_str());
             tokens.push_back({token::numeric_literal, num, start_pos});
             continue;
         }
@@ -320,6 +266,7 @@ lexer_result lexer::tokenize(const std::string & input, const preprocess_options
         if (is_word(ch)) {
             start_pos = pos;
             std::string word = consume_while(is_word);
+            // JJ_DEBUG("consumed identifier: '%s'", word.c_str());
             tokens.push_back({token::identifier, word, start_pos});
             continue;
         }
@@ -327,7 +274,7 @@ lexer_result lexer::tokenize(const std::string & input, const preprocess_options
         throw std::runtime_error(std::string("lexer: unexpected character: ") + ch);
     }
 
-    return {std::move(tokens), std::move(src)};
+    return {std::move(tokens), src};
 }
 
 } // namespace jinja

@@ -604,7 +604,7 @@ program parse_from_tokens(const std::vector<token> & tokens) {
 }
 
 program parse_from_tokens(const lexer_result & lexer_res) {
-    return parser(lexer_res.tokens, lexer_res.preprocessed_source).parse();
+    return parser(lexer_res.tokens, lexer_res.source).parse();
 }
 
 } // namespace jinja

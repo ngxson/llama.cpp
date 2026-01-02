@@ -166,10 +166,7 @@ void run_single(std::string contents, json input, const std::string & output_pat
 
     // lexing
     jinja::lexer lexer;
-    jinja::preprocess_options options;
-    options.trim_blocks = false;
-    options.lstrip_blocks = false;
-    auto lexer_res = lexer.tokenize(contents, options);
+    auto lexer_res = lexer.tokenize(contents);
 
     // compile to AST
     jinja::program ast = jinja::parse_from_tokens(lexer_res);
@@ -179,7 +176,7 @@ void run_single(std::string contents, json input, const std::string & output_pat
 
     std::cout << "\n=== RUN ===\n";
     jinja::context ctx;
-    ctx.source = lexer_res.preprocessed_source;
+    ctx.source = lexer_res.source;
 
     jinja::global_from_json(ctx, input);
 

@@ -151,13 +151,10 @@ struct common_chat_template {
 
     common_chat_template(const std::string & src, const std::string & bos_token, const std::string & eos_token) {
         jinja::lexer lexer;
-        jinja::preprocess_options options;
-        options.trim_blocks = true;
-        options.lstrip_blocks = false;
-        auto lexer_res = lexer.tokenize(src, options);
+        auto lexer_res = lexer.tokenize(src);
         this->prog = jinja::parse_from_tokens(lexer_res);
 
-        this->src = lexer_res.preprocessed_source;
+        this->src = lexer_res.source;
         this->bos_tok = bos_token;
         this->eos_tok = eos_token;
 

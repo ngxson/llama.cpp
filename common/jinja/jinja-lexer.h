@@ -10,11 +10,6 @@
 
 namespace jinja {
 
-struct preprocess_options {
-    bool trim_blocks = false;
-    bool lstrip_blocks = false;
-};
-
 struct token {
     enum type {
         undefined,
@@ -85,7 +80,7 @@ static std::string type_to_string(token::type t) {
 
 struct lexer_result {
     std::vector<token> tokens;
-    std::string preprocessed_source;
+    std::string source;
 };
 
 struct lexer {
@@ -110,6 +105,11 @@ struct lexer {
     }
 
     const std::vector<std::pair<std::string, token::type>> ordered_mapping_table = {
+        // Trimmed control sequences
+        {"{%-", token::open_statement},
+        {"-%}", token::close_statement},
+        {"{{-", token::open_expression},
+        {"-}}", token::close_expression},
         // Control sequences
         {"{%", token::open_statement},
         {"%}", token::close_statement},
@@ -144,9 +144,7 @@ struct lexer {
         {"=", token::equals},
     };
 
-    std::string preprocess(const std::string& template_str, const preprocess_options& options) const;
-
-    lexer_result tokenize(const std::string & input, const preprocess_options & options);
+    lexer_result tokenize(const std::string & source);
 };
 
 } // namespace jinja
