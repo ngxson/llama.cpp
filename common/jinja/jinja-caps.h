@@ -154,6 +154,28 @@ static void caps_apply_workarounds(context & ctx, const caps & c) {
     }
 
     ctx.set_val("messages", messages);
+
+    //
+    // per-model workarounds
+    //
+
+    // workaround for shieldgemma-2b-Q2_K
+    if (ctx.get_val("guideline")->is_undefined()) {
+        ctx.set_val("guideline", mk_val<value_string>(""));
+    }
+
+    // workaround for functionary models
+    if (ctx.get_val("functions")->is_undefined()) {
+        ctx.set_val("functions", mk_val<value_string>(""));
+    }
+    if (ctx.get_val("datetime")->is_undefined()) {
+        ctx.set_val("datetime", mk_val<value_string>(""));
+    }
+
+    // workaround for Llama-3-5B-Sheard
+    if (ctx.get_val("system_message")->is_undefined()) {
+        ctx.set_val("system_message", mk_val<value_string>(""));
+    }
 }
 
 } // namespace jinja

@@ -203,6 +203,14 @@ struct continue_statement : public statement {
     }
 };
 
+// do nothing
+struct noop_statement : public statement {
+    std::string type() const override { return "Noop"; }
+    value execute_impl(context &) override {
+        return mk_val<value_null>();
+    }
+};
+
 struct set_statement : public statement {
     statement_ptr assignee;
     statement_ptr val;

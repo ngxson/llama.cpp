@@ -197,6 +197,7 @@ const func_builtins & global_builtins() {
         {"test_is_integer", test_type_fn<value_int>},
         {"test_is_number", test_type_fn<value_int, value_float>},
         {"test_is_iterable", test_type_fn<value_array, value_string>},
+        {"test_is_sequence", test_type_fn<value_array, value_string>},
         {"test_is_mapping", test_type_fn<value_object>},
         {"test_is_lower", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
@@ -654,6 +655,10 @@ const func_builtins & value_object_t::get_builtins() const {
                 result->push_back(std::move(item));
             }
             return result;
+        }},
+        {"string", [](const func_args & args) -> value {
+            args.ensure_vals<value_object>();
+            return mk_val<value_string>("TO BE IMPLEMENTED");
         }},
         {"tojson", [](const func_args & args) -> value {
             args.ensure_vals<value_object>();

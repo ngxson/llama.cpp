@@ -216,6 +216,12 @@ private:
             expect(token::close_statement, "Expected %}");
             result = mk_stmt<filter_statement>(std::move(filter_node), std::move(body));
 
+        } else if (name == "generation" || name == "endgeneration") {
+            // Ignore generation blocks (transformers-specific)
+            // See https://github.com/huggingface/transformers/pull/30650 for more information.
+            result = mk_stmt<noop_statement>();
+            current++;
+
         } else {
             throw std::runtime_error("Unknown statement: " + name);
         }
