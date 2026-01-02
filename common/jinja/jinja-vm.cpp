@@ -565,9 +565,20 @@ value macro_statement::execute_impl(context & ctx) {
         // bind parameters
         for (size_t i = 0; i < expected_count; ++i) {
             if (i < input_count) {
-                std::string param_name = cast_stmt<identifier>(this->args[i])->val;
-                JJ_DEBUG("  Binding parameter '%s' to argument of type %s", param_name.c_str(), args.args[i]->type().c_str());
-                macro_ctx.set_val(param_name, args.args[i]);
+                if (is_stmt<identifier>(this->args[i])) {
+                    // normal parameter
+                    std::string param_name = cast_stmt<identifier>(this->args[i])->val;
+                    JJ_DEBUG("  Binding parameter '%s' to argument of type %s", param_name.c_str(), args.args[i]->type().c_str());
+                    macro_ctx.set_val(param_name, args.args[i]);
+                } else if (is_stmt<keyword_argument_expression>(this->args[i])) {
+                    // default argument used as normal parameter
+                    auto kwarg = cast_stmt<keyword_argument_expression>(this->args[i]);
+                    std::string param_name = cast_stmt<identifier>(kwarg->key)->val;
+                    JJ_DEBUG("  Binding parameter '%s' to argument of type %s", param_name.c_str(), args.args[i]->type().c_str());
+                    macro_ctx.set_val(param_name, args.args[i]);
+                } else {
+                    throw std::runtime_error("Invalid parameter type in macro '" + name + "'");
+                }
             } else {
                 auto & default_arg = this->args[i];
                 if (is_stmt<keyword_argument_expression>(default_arg)) {
