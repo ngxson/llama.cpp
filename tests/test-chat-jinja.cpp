@@ -182,7 +182,6 @@ void run_single(std::string contents, json input, const std::string & output_pat
     ctx.source = lexer_res.preprocessed_source;
 
     jinja::global_from_json(ctx, input);
-    jinja::caps_apply_workarounds(ctx, caps);
 
     jinja::vm vm(ctx);
     const jinja::value results = vm.execute(ast);

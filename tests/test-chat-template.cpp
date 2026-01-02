@@ -9,6 +9,7 @@
 #include "llama.h"
 #include "common.h"
 #include "chat.h"
+#include "jinja/jinja-vm.h"
 
 static std::string normalize_newlines(const std::string & s) {
 #ifdef _WIN32
@@ -29,6 +30,8 @@ static common_chat_msg simple_msg(const std::string & role, const std::string & 
 }
 
 int main(void) {
+    // jinja::enable_debug(true);
+
     std::vector<llama_chat_message> conversation {
         {"system", "You are a helpful assistant"},
         {"user", "Hello"},

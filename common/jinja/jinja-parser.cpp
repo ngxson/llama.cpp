@@ -56,7 +56,7 @@ public:
             if (end_pos > source.size()) end_pos = source.size();
             snippet = source.substr(start_pos, end_pos - start_pos);
         }
-        JJ_DEBUG("Created %-20s statement at src pos %-4zu (%s)", ptr->type().c_str(), ptr->pos, snippet.c_str());
+        // JJ_DEBUG("Created %-20s statement at src pos %-4zu (%s)", ptr->type().c_str(), ptr->pos, snippet.c_str());
 
         return ptr;
     }

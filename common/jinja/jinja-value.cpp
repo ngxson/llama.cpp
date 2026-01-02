@@ -727,6 +727,7 @@ void global_from_json(context & ctx, const nlohmann::json & json_obj) {
         throw std::runtime_error("global_from_json: input JSON value must be an object");
     }
     for (auto it = json_obj.begin(); it != json_obj.end(); ++it) {
+        JJ_DEBUG("global_from_json: setting key '%s'", it.key().c_str());
         ctx.set_val(it.key(), from_json(it.value()));
     }
 }

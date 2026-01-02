@@ -186,7 +186,7 @@ lexer_result lexer::tokenize(const std::string & input, const preprocess_options
 
     while (pos < src.size()) {
         start_pos = pos;
-        JJ_DEBUG("lexer main loop at pos %zu: '%s...'", pos, src.substr(pos, 10).c_str());
+        // JJ_DEBUG("lexer main loop at pos %zu: '%s...'", pos, src.substr(pos, 10).c_str());
 
         // First, consume all text that is outside of a Jinja statement or expression
         token::type last_token_type = tokens.empty()
@@ -205,7 +205,7 @@ lexer_result lexer::tokenize(const std::string & input, const preprocess_options
                     )) {
                 text += src[pos++];
             }
-            JJ_DEBUG("consumed text: '%s'", text.c_str());
+            // JJ_DEBUG("consumed text: '%s'", text.c_str());
             if (!text.empty()) {
                 tokens.push_back({token::text, text, start_pos});
                 continue;
