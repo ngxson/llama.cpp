@@ -66,6 +66,9 @@ value identifier::execute_impl(context & ctx) {
     auto it = ctx.get_val(val);
     auto builtins = global_builtins();
     if (!it->is_undefined()) {
+        if (ctx.is_get_stats) {
+            it->stats.used = true;
+        }
         JJ_DEBUG("Identifier '%s' found", val.c_str());
         return it;
     } else if (builtins.find(val) != builtins.end()) {
@@ -236,7 +239,12 @@ value binary_expression::execute_impl(context & ctx) {
     throw std::runtime_error("Unknown operator \"" + op.value + "\" between " + left_val->type() + " and " + right_val->type());
 }
 
-static value try_builtin_func(const std::string & name, const value & input, bool undef_on_missing = false) {
+static value try_builtin_func(context & ctx, const std::string & name, value & input, bool undef_on_missing = false) {
+    JJ_DEBUG("Trying built-in function '%s' for type %s", name.c_str(), input->type().c_str());
+    if (ctx.is_get_stats) {
+        input->stats.used = true;
+        input->stats.ops.insert(name);
+    }
     auto builtins = input->get_builtins();
     auto it = builtins.find(name);
     if (it != builtins.end()) {
@@ -266,7 +274,7 @@ value filter_expression::execute_impl(context & ctx) {
             filter_id = "strip"; // alias
         }
         JJ_DEBUG("Applying filter '%s' to %s", filter_id.c_str(), input->type().c_str());
-        return try_builtin_func(filter_id, input)->invoke(func_args(ctx));
+        return try_builtin_func(ctx, filter_id, input)->invoke(func_args(ctx));
 
     } else if (is_stmt<call_expression>(filter)) {
         auto call = cast_stmt<call_expression>(filter);
@@ -278,7 +286,7 @@ value filter_expression::execute_impl(context & ctx) {
             args.args.push_back(arg_expr->execute(ctx));
         }
 
-        return try_builtin_func(filter_id, input)->invoke(args);
+        return try_builtin_func(ctx, filter_id, input)->invoke(args);
 
     } else {
         throw std::runtime_error("Invalid filter expression");
@@ -401,11 +409,19 @@ value for_statement::execute_impl(context & ctx) {
             tuple->push_back(p.second);
             items.push_back(tuple);
         }
+        if (ctx.is_get_stats) {
+            iterable_val->stats.used = true;
+            iterable_val->stats.ops.insert("object_access");
+        }
     } else {
         JJ_DEBUG("%s", "For loop over array items");
         auto & arr = iterable_val->as_array();
         for (const auto & item : arr) {
             items.push_back(item);
+        }
+        if (ctx.is_get_stats) {
+            iterable_val->stats.used = true;
+            iterable_val->stats.ops.insert("array_access");
         }
     }
 
@@ -624,7 +640,7 @@ value member_expression::execute_impl(context & ctx) {
                      start_val->as_repr().c_str(),
                      stop_val->as_repr().c_str(),
                      step_val->as_repr().c_str());
-            auto slice_func = try_builtin_func("slice", object);
+            auto slice_func = try_builtin_func(ctx, "slice", object);
             func_args args(ctx);
             args.args.push_back(start_val);
             args.args.push_back(stop_val);
@@ -654,7 +670,7 @@ value member_expression::execute_impl(context & ctx) {
         if (it != obj.end()) {
             val = it->second;
         } else {
-            val = try_builtin_func(key, object, true);
+            val = try_builtin_func(ctx, key, object, true);
         }
         JJ_DEBUG("Accessed property '%s' value, got type: %s", key.c_str(), val->type().c_str());
 
@@ -676,10 +692,11 @@ value member_expression::execute_impl(context & ctx) {
                     val = mk_val<value_string>(std::string(1, str[index]));
                 }
             }
+
         } else if (is_val<value_string>(property)) {
             auto key = property->as_string().str();
             JJ_DEBUG("Accessing %s built-in '%s'", is_val<value_array>(object) ? "array" : "string", key.c_str());
-            val = try_builtin_func(key, object);
+            val = try_builtin_func(ctx, key, object);
         } else {
             throw std::runtime_error("Cannot access property with non-string/non-number: got " + property->type());
         }
@@ -689,7 +706,17 @@ value member_expression::execute_impl(context & ctx) {
             throw std::runtime_error("Cannot access property with non-string: got " + property->type());
         }
         auto key = property->as_string().str();
-        val = try_builtin_func(key, object);
+        val = try_builtin_func(ctx, key, object);
+    }
+
+    if (ctx.is_get_stats && val && object && property) {
+        val->stats.used = true;
+        object->stats.used = true;
+        if (is_val<value_int>(property)) {
+            object->stats.ops.insert("array_access");
+        } else if (is_val<value_string>(property)) {
+            object->stats.ops.insert("object_access");
+        }
     }
 
     return val;

@@ -13,6 +13,7 @@
 
 #include "jinja/jinja-parser.h"
 #include "jinja/jinja-lexer.h"
+#include "jinja/jinja-caps.h"
 
 using json = nlohmann::json;
 
@@ -38,11 +39,7 @@ std::string DEFAULT_JSON = R"({
         },
         {
             "role": "assistant",
-            "content": {"__input__": "I am fine, thank you!"}
-        },
-        {
-            "role": "assistant",
-            "content": "Calling weather tool.",
+            "content": {"__input__": "I am fine, thank you!"},
             "tool_calls": [
                 {
                     "function": {
@@ -177,11 +174,15 @@ void run_single(std::string contents, json input, const std::string & output_pat
     // compile to AST
     jinja::program ast = jinja::parse_from_tokens(lexer_res);
 
+    // check caps for workarounds
+    auto caps = jinja::caps_get(ast);
+
     std::cout << "\n=== RUN ===\n";
     jinja::context ctx;
     ctx.source = lexer_res.preprocessed_source;
 
     jinja::global_from_json(ctx, input);
+    jinja::caps_apply_workarounds(ctx, caps);
 
     jinja::vm vm(ctx);
     const jinja::value results = vm.execute(ast);

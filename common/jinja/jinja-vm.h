@@ -50,6 +50,8 @@ struct context {
     std::string source; // for debugging
     std::time_t current_time; // for functions that need current time
 
+    bool is_get_stats = false; // whether to collect stats
+
     context() {
         global = mk_val<value_object>();
         global->insert("true",  mk_val<value_bool>(true));
@@ -65,6 +67,8 @@ struct context {
         for (const auto & pair : pvar) {
             set_val(pair.first, pair.second);
         }
+        current_time = parent.current_time;
+        is_get_stats = parent.is_get_stats;
     }
 
     value get_val(const std::string & name) {

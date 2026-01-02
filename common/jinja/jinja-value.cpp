@@ -12,7 +12,7 @@
 #include <optional>
 #include <algorithm>
 
-#define FILENAME "jinja-vm-builtins"
+#define FILENAME "jinja-value"
 
 namespace jinja {
 
@@ -407,6 +407,11 @@ const func_builtins & value_string_t::get_builtins() const {
             auto res = mk_val<value_string>(sliced);
             res->val_str.mark_input_based_on(input->as_string());
             return res;
+        }},
+        {"safe", [](const func_args & args) -> value {
+            // no-op for now
+            args.ensure_vals<value_string>();
+            return args.args[0];
         }},
         {"selectattr", [](const func_args &) -> value {
             throw std::runtime_error("String selectattr builtin not supported");

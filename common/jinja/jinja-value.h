@@ -107,6 +107,13 @@ struct value_t {
 
     func_handler val_func;
 
+    // only used if ctx.is_get_stats = true
+    struct stats_t {
+        bool used = false;
+        // ops can be builtin calls or operators: "array_access", "object_access"
+        std::set<std::string> ops;
+    } stats;
+
     value_t() = default;
     value_t(const value_t &) = default;
     virtual ~value_t() = default;
@@ -125,6 +132,9 @@ struct value_t {
     virtual const func_builtins & get_builtins() const {
         throw std::runtime_error("No builtins available for type " + type());
     }
+
+    virtual value & at(const std::string & key) { return val_obj[key]; }
+    virtual value & at(size_t index) { return val_arr.at(index); }
 
     virtual std::string as_repr() const { return as_string().str(); }
 };
