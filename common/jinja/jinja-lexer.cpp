@@ -14,7 +14,7 @@
 namespace jinja {
 
 static void string_lstrip(std::string & s) {
-    size_t start = s.find_first_not_of(" \t\n\r");
+    size_t start = s.find_first_not_of(" \t"); // no newlines
     if (start == std::string::npos) {
         s.clear();
     } else {
@@ -23,7 +23,7 @@ static void string_lstrip(std::string & s) {
 }
 
 static void string_rstrip(std::string & s) {
-    size_t end = s.find_last_not_of(" \t\n\r");
+    size_t end = s.find_last_not_of(" \t"); // no newlines
     if (end == std::string::npos) {
         s.clear();
     } else {
@@ -126,6 +126,8 @@ lexer_result lexer::tokenize(const std::string & source) {
             }
 
             // is_lstrip_block = next_pos_is({'-'}, 2);
+
+            // TODO: seems like the default behavior of hf.js is to always do this?
             if (is_lstrip_block) {
                 // example: text[space]{current_block}
                 // doing rstrip on text, effectively lstrip the CURRENT block
@@ -158,10 +160,11 @@ lexer_result lexer::tokenize(const std::string & source) {
             continue;
         }
 
-        if (is_lstrip_block && (
+        if (src[pos] == '-' && (
                 last_token_type == token::open_expression ||
                 last_token_type == token::open_statement)
         ) {
+            JJ_DEBUG("lexer main loop at pos %zu: '%s...'", pos, src.substr(pos, 10).c_str());
             pos++; // consume '-' in {%- or {{-
             if (pos >= src.size()) break;
         }
@@ -173,8 +176,10 @@ lexer_result lexer::tokenize(const std::string & source) {
 
         char ch = src[pos];
 
+        bool is_closing_block = ch == '-' && next_pos_is( {'%', '}'} );
+
         // Check for unary operators
-        if (ch == '-' || ch == '+') {
+        if (!is_closing_block && (ch == '-' || ch == '+')) {
             start_pos = pos;
             token::type last_token_type = tokens.empty() ? token::undefined : tokens.back().t;
             if (last_token_type == token::text || last_token_type == token::undefined) {
@@ -242,7 +247,7 @@ lexer_result lexer::tokenize(const std::string & source) {
             start_pos = pos;
             ++pos; // Skip opening quote
             std::string str = consume_while([ch](char c) { return c != ch; });
-            // JJ_DEBUG("consumed string literal: '%s'", str.c_str());
+            JJ_DEBUG("consumed string literal: '%s'", str.c_str());
             tokens.push_back({token::string_literal, str, start_pos});
             ++pos; // Skip closing quote
             continue;

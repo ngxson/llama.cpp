@@ -629,11 +629,17 @@ value member_expression::execute_impl(context & ctx) {
     value property;
     if (this->computed) {
         JJ_DEBUG("Member expression, computing property type %s", this->property->type().c_str());
+
+        int64_t arr_size = 0;
+        if (is_val<value_array>(object)) {
+            arr_size = object->as_array().size();
+        }
+
         if (is_stmt<slice_expression>(this->property)) {
             auto s = cast_stmt<slice_expression>(this->property);
-            value start_val = s->start_expr ? s->start_expr->execute(ctx) : mk_val<value_undefined>("start");
-            value stop_val  = s->stop_expr  ? s->stop_expr->execute(ctx)  : mk_val<value_undefined>("stop");
-            value step_val  = s->step_expr  ? s->step_expr->execute(ctx)  : mk_val<value_undefined>("step");
+            value start_val = s->start_expr ? s->start_expr->execute(ctx) : mk_val<value_int>(0);
+            value stop_val  = s->stop_expr  ? s->stop_expr->execute(ctx)  : mk_val<value_int>(arr_size);
+            value step_val  = s->step_expr  ? s->step_expr->execute(ctx)  : mk_val<value_int>(1);
 
             // translate to function call: obj.slice(start, stop, step)
             JJ_DEBUG("Member expression is a slice: start %s, stop %s, step %s",

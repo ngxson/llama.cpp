@@ -97,17 +97,21 @@ caps caps_get(jinja::program & prog) {
                 {
                     {"role", "system"},
                     {"content", "System message"}
-                }
+                },
+                {
+                    {"role", "user"},
+                    {"content", "User message"}
+                },
             });
         },
         [&]() {
             // tools
-            return json{nullptr};
+            return json::array();
         },
-        [&](bool success, value & messages, value &) {
+        [&](bool, value & messages, value &) {
             auto & content = messages->at(0)->at("content");
             caps_print_stats(content, "messages[0].content");
-            if (!success || !content->stats.used) {
+            if (!content->stats.used) {
                 result.supports_system_role = false;
             }
         }

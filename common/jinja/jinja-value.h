@@ -309,6 +309,12 @@ struct func_args {
         if (required1 && args.size() > 1) ensure_val<T1>(args[1]);
         if (required2 && args.size() > 2) ensure_val<T2>(args[2]);
     }
+    template<typename T0, typename T1, typename T2, typename T3> void ensure_vals(bool required0 = true, bool required1 = true, bool required2 = true, bool required3 = true) const {
+        if (required0 && args.size() > 0) ensure_val<T0>(args[0]);
+        if (required1 && args.size() > 1) ensure_val<T1>(args[1]);
+        if (required2 && args.size() > 2) ensure_val<T2>(args[2]);
+        if (required3 && args.size() > 3) ensure_val<T3>(args[3]);
+    }
 };
 
 struct value_func_t : public value_t {

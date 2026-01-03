@@ -34,34 +34,34 @@ value func_args::get_kwarg(const std::string & key) const  {
  * Function that mimics Python's array slicing.
  */
 template<typename T>
-static T slice(const T & array, std::optional<int64_t> start = std::nullopt, std::optional<int64_t> stop = std::nullopt, int64_t step = 1) {
+static T slice(const T & array, int64_t start, int64_t stop, int64_t step = 1) {
     int64_t len = static_cast<int64_t>(array.size());
     int64_t direction = (step > 0) ? 1 : ((step < 0) ? -1 : 0);
-    int64_t start_val;
-    int64_t stop_val;
+    int64_t start_val = 0;
+    int64_t stop_val = 0;
     if (direction >= 0) {
-        start_val = start.value_or(0);
+        start_val = start;
         if (start_val < 0) {
             start_val = std::max(len + start_val, (int64_t)0);
         } else {
             start_val = std::min(start_val, len);
         }
 
-        stop_val = stop.value_or(len);
+        stop_val = stop;
         if (stop_val < 0) {
             stop_val = std::max(len + stop_val, (int64_t)0);
         } else {
             stop_val = std::min(stop_val, len);
         }
     } else {
-        start_val = start.value_or(len - 1);
+        start_val = len - 1;
         if (start_val < 0) {
             start_val = std::max(len + start_val, (int64_t)-1);
         } else {
             start_val = std::min(start_val, len - 1);
         }
 
-        stop_val = stop.value_or(-1);
+        stop_val = -1;
         if (stop_val < -1) {
             stop_val = std::max(len + stop_val, (int64_t)-1);
         } else {
@@ -165,7 +165,7 @@ const func_builtins & global_builtins() {
             return out;
         }},
         {"tojson", [](const func_args & args) -> value {
-            args.ensure_count(1);
+            args.ensure_count(1, 2);
             // placeholder implementation
             return mk_val<value_string>("TODO: to_json output");
         }},
@@ -391,19 +391,31 @@ const func_builtins & value_string_t::get_builtins() const {
             }
         }},
         {"slice", [](const func_args & args) -> value {
-            auto & input = args.args[0];
-            if (!is_val<value_string>(input)) {
-                throw raised_exception("slice() first argument must be a string");
+            args.ensure_count(1, 4);
+            args.ensure_vals<value_string, value_int, value_int, value_int>(true, true, false, false);
+
+            auto & arg0 = args.args[1];
+            auto & arg1 = args.args[2];
+            auto & arg2 = args.args[3];
+
+            int64_t start, stop, step;
+            if (args.args.size() == 1) {
+                start = 0;
+                stop = arg0->as_int();
+                step = 1;
+            } else if (args.args.size() == 2) {
+                start = arg0->as_int();
+                stop = arg1->as_int();
+                step = 1;
+            } else {
+                start = arg0->as_int();
+                stop = arg1->as_int();
+                step = arg2->as_int();
             }
-            if (args.args.size() < 1 || args.args.size() > 4) {
-                throw raised_exception("slice() takes between 1 and 4 arguments");
-            }
-            int64_t start = is_val<value_int>(args.args[1]) ? args.args[1]->as_int() : 0;
-            int64_t stop  = is_val<value_int>(args.args[2]) ? args.args[2]->as_int() : -1;
-            int64_t step  = is_val<value_int>(args.args[3]) ? args.args[3]->as_int() : 1;
             if (step == 0) {
                 throw raised_exception("slice step cannot be zero");
             }
+            auto & input = args.args[0];
             auto sliced = slice(input->as_string().str(), start, stop, step);
             auto res = mk_val<value_string>(sliced);
             res->val_str.mark_input_based_on(input->as_string());
@@ -486,14 +498,26 @@ const func_builtins & value_array_t::get_builtins() const {
             return mk_val<value_int>(static_cast<int64_t>(arr.size()));
         }},
         {"slice", [](const func_args & args) -> value {
-            if (args.args.size() < 1 || args.args.size() > 4) {
-                throw raised_exception("slice() takes between 1 and 4 arguments");
-            }
-            int64_t start = is_val<value_int>(args.args[1]) ? args.args[1]->as_int() : 0;
-            int64_t stop  = is_val<value_int>(args.args[2]) ? args.args[2]->as_int() : -1;
-            int64_t step  = is_val<value_int>(args.args[3]) ? args.args[3]->as_int() : 1;
-            if (!is_val<value_array>(args.args[0])) {
-                throw raised_exception("slice() first argument must be an array");
+            args.ensure_count(1, 4);
+            args.ensure_vals<value_array, value_int, value_int, value_int>(true, true, false, false);
+
+            auto & arg0 = args.args[1];
+            auto & arg1 = args.args[2];
+            auto & arg2 = args.args[3];
+
+            int64_t start, stop, step;
+            if (args.args.size() == 1) {
+                start = 0;
+                stop = arg0->as_int();
+                step = 1;
+            } else if (args.args.size() == 2) {
+                start = arg0->as_int();
+                stop = arg1->as_int();
+                step = 1;
+            } else {
+                start = arg0->as_int();
+                stop = arg1->as_int();
+                step = arg2->as_int();
             }
             if (step == 0) {
                 throw raised_exception("slice step cannot be zero");
