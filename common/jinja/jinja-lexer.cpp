@@ -91,7 +91,7 @@ lexer_result lexer::tokenize(const std::string & source) {
         return false;
     };
 
-    bool is_lstrip_block = true; // example: {%-
+    bool is_lstrip_block = false; // example: {%-
     bool is_rstrip_block = false; // example: -%}
 
     while (pos < src.size()) {
@@ -129,9 +129,8 @@ lexer_result lexer::tokenize(const std::string & source) {
                 string_lstrip(text, " \t"); // not stripping newlines
             }
 
-            // is_lstrip_block = next_pos_is({'-'}, 2);
-
-            // TODO: seems like the default behavior of hf.js is to always do this?
+            // note: we always lstrip if the block is control or comment
+            is_lstrip_block = next_pos_is({'%', '#'}) || next_pos_is({'-'}, 2);
             if (is_lstrip_block) {
                 // example: text[space]{current_block}
                 // doing rstrip on text, effectively lstrip the CURRENT block
