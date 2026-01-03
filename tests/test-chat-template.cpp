@@ -14,7 +14,7 @@
 #include "llama.h"
 #include "common.h"
 #include "chat.h"
-#include "jinja/jinja-vm.h"
+#include "jinja/jinja-interpreter.h"
 #include "jinja/jinja-parser.h"
 #include "jinja/jinja-lexer.h"
 #include "jinja/jinja-caps.h"
@@ -209,9 +209,9 @@ static jinja::value_string format_using_direct_engine(
 
     jinja::global_from_json(ctx, input);
 
-    jinja::vm vm(ctx);
-    const jinja::value results = vm.execute(ast);
-    auto parts = vm.gather_string_parts(results);
+    jinja::interpreter interpreter(ctx);
+    const jinja::value results = interpreter.execute(ast);
+    auto parts = interpreter.gather_string_parts(results);
 
     std::cout << "\n=== RESULTS ===\n";
     for (const auto & part : parts->as_string().parts) {

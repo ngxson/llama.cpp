@@ -87,8 +87,8 @@ add_library(${TARGET} STATIC
     jinja/jinja-lexer.h
     jinja/jinja-parser.cpp
     jinja/jinja-parser.h
-    jinja/jinja-vm.cpp
-    jinja/jinja-vm.h
+    jinja/jinja-interpreter.cpp
+    jinja/jinja-interpreter.h
     jinja/jinja-value.cpp
     jinja/jinja-value.h
     jinja/jinja-string.h

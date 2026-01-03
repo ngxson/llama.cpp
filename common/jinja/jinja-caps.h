@@ -3,7 +3,7 @@
 #include <vector>
 
 #include "jinja-value.h"
-#include "jinja-vm.h"
+#include "jinja-interpreter.h"
 
 namespace jinja {
 
