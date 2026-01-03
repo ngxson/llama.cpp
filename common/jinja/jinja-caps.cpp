@@ -23,6 +23,8 @@ static void caps_try_execute(jinja::program & prog,
     jinja::global_from_json(ctx, json{
         {"messages", messages_fn()},
         {"tools", tools_fn()},
+        {"bos_token", ""},
+        {"eos_token", ""},
         {"add_generation_prompt", true}
     });
 

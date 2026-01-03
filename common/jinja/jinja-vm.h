@@ -597,6 +597,7 @@ struct vm {
                 i++;
             }
         }
+        parts->val_str.strip(true, false); // strip leading spaces
         return parts;
     }
 };

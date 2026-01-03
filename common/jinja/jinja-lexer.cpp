@@ -13,8 +13,8 @@
 
 namespace jinja {
 
-static void string_lstrip(std::string & s) {
-    size_t start = s.find_first_not_of(" \t"); // no newlines
+static void string_lstrip(std::string & s, const char * chars) {
+    size_t start = s.find_first_not_of(chars);
     if (start == std::string::npos) {
         s.clear();
     } else {
@@ -22,8 +22,8 @@ static void string_lstrip(std::string & s) {
     }
 }
 
-static void string_rstrip(std::string & s) {
-    size_t end = s.find_last_not_of(" \t"); // no newlines
+static void string_rstrip(std::string & s, const char * chars) {
+    size_t end = s.find_last_not_of(chars);
     if (end == std::string::npos) {
         s.clear();
     } else {
@@ -113,7 +113,8 @@ lexer_result lexer::tokenize(const std::string & source) {
                 text += src[pos++];
             }
 
-            // always rstrip single trailing newline from text blocks
+            // always strip single leading newline
+            // example: {{block}}\ntext
             if (!text.empty() && text.front() == '\n') {
                 text.erase(0, 1);
             }
@@ -122,7 +123,7 @@ lexer_result lexer::tokenize(const std::string & source) {
                 // example: {last_block}[space]text
                 // doing lstrip on text, effectively rstrip the LAST block
                 // JJ_DEBUG("RSTRIP block detected, current text: '%s'", text.c_str());
-                string_lstrip(text);
+                string_lstrip(text, " \t"); // not stripping newlines
             }
 
             // is_lstrip_block = next_pos_is({'-'}, 2);
@@ -132,7 +133,7 @@ lexer_result lexer::tokenize(const std::string & source) {
                 // example: text[space]{current_block}
                 // doing rstrip on text, effectively lstrip the CURRENT block
                 // JJ_DEBUG("LSTRIP block detected, current text: '%s'", text.c_str());
-                string_rstrip(text);
+                string_rstrip(text, " \t"); // not stripping newlines
             }
 
             if (!text.empty()) {
@@ -157,6 +158,9 @@ lexer_result lexer::tokenize(const std::string & source) {
             JJ_DEBUG("consumed comment: '%s'", comment.c_str());
             tokens.push_back({token::comment, comment, start_pos});
             pos += 2; // Skip the closing #}
+
+            // always do rstrip for comments
+            is_rstrip_block = true;
             continue;
         }
 
@@ -204,7 +208,7 @@ lexer_result lexer::tokenize(const std::string & source) {
                     std::string num = consume_while(is_integer);
                     std::string value = std::string(1, ch) + num;
                     token::type t = num.empty() ? token::unary_operator : token::numeric_literal;
-                    JJ_DEBUG("consumed unary operator or numeric literal: '%s'", value.c_str());
+                    // JJ_DEBUG("consumed unary operator or numeric literal: '%s'", value.c_str());
                     tokens.push_back({t, value, start_pos});
                     continue;
                 }
@@ -247,7 +251,7 @@ lexer_result lexer::tokenize(const std::string & source) {
             start_pos = pos;
             ++pos; // Skip opening quote
             std::string str = consume_while([ch](char c) { return c != ch; });
-            JJ_DEBUG("consumed string literal: '%s'", str.c_str());
+            // JJ_DEBUG("consumed string literal: '%s'", str.c_str());
             tokens.push_back({token::string_literal, str, start_pos});
             ++pos; // Skip closing quote
             continue;
