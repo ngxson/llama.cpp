@@ -8,6 +8,7 @@
 #include <vector>
 #include <memory>
 #include <algorithm>
+#include <cmath>
 
 #define FILENAME "jinja-vm"
 
@@ -683,7 +684,7 @@ value member_expression::execute_impl(context & ctx) {
     } else if (is_val<value_array>(object) || is_val<value_string>(object)) {
         if (is_val<value_int>(property)) {
             int64_t index = property->as_int();
-            JJ_DEBUG("Accessing %s index %lld", object->type().c_str(), index);
+            JJ_DEBUG("Accessing %s index %d", object->type().c_str(), (int)index);
             if (is_val<value_array>(object)) {
                 auto & arr = object->as_array();
                 if (index < 0) {
