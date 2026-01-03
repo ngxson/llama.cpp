@@ -193,8 +193,6 @@ static std::string format_using_common(
 static jinja::value_string format_using_direct_engine(
             const std::string & template_str,
             json & input) {
-    jinja::enable_debug(true);
-
     // lexing
     jinja::lexer lexer;
     auto lexer_res = lexer.tokenize(template_str);
@@ -225,6 +223,8 @@ static jinja::value_string format_using_direct_engine(
 
 
 void run_single(std::string contents, json input, bool use_common, const std::string & output_path) {
+    jinja::enable_debug(true);
+
     jinja::value_string output_parts;
 
     if (use_common) {

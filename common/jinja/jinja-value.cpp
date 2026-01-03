@@ -332,7 +332,7 @@ const func_builtins & value_string_t::get_builtins() const {
             auto res = mk_val<value_string>(str);
             res->val_str.mark_input_based_on(args.args[0]->val_str);
             result->push_back(std::move(res));
-            return std::move(result);
+            return result;
         }},
         {"replace", [](const func_args & args) -> value {
             args.ensure_vals<value_string, value_string, value_string>();
