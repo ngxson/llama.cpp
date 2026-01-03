@@ -95,6 +95,16 @@ static value test_type_fn(const func_args & args) {
     return mk_val<value_bool>(is_type);
 }
 
+static value tojson(const func_args & args) {
+    args.ensure_count(1, 2);
+    int indent = 0;
+    if (args.args.size() == 2 && is_val<value_int>(args.args[1])) {
+        indent = static_cast<int>(args.args[1]->as_int());
+    }
+    std::string json_str = value_to_json(args.args[0], indent);
+    return mk_val<value_string>(json_str);
+}
+
 const func_builtins & global_builtins() {
     static const func_builtins builtins = {
         {"raise_exception", [](const func_args & args) -> value {
@@ -164,11 +174,7 @@ const func_builtins & global_builtins() {
             }
             return out;
         }},
-        {"tojson", [](const func_args & args) -> value {
-            args.ensure_count(1, 2);
-            // placeholder implementation
-            return mk_val<value_string>("TODO: to_json output");
-        }},
+        {"tojson", tojson},
 
         // tests
         {"test_is_boolean", test_type_fn<value_bool>},
@@ -426,6 +432,7 @@ const func_builtins & value_string_t::get_builtins() const {
             args.ensure_vals<value_string>();
             return args.args[0];
         }},
+        {"tojson", tojson},
         {"selectattr", [](const func_args &) -> value {
             throw std::runtime_error("String selectattr builtin not supported");
         }},
@@ -623,6 +630,7 @@ const func_builtins & value_array_t::get_builtins() const {
             gather_string_parts_recursive(args.args[0], str);
             return str;
         }},
+        {"tojson", tojson},
         {"sort", [](const func_args &) -> value {
             throw std::runtime_error("Array sort builtin not implemented");
         }},
@@ -680,6 +688,7 @@ const func_builtins & value_object_t::get_builtins() const {
             }
             return result;
         }},
+        {"tojson", tojson},
         {"string", [](const func_args & args) -> value {
             args.ensure_vals<value_object>();
             return mk_val<value_string>("TO BE IMPLEMENTED");
@@ -747,6 +756,7 @@ static value from_json(const nlohmann::json & j) {
 
 template<>
 void global_from_json(context & ctx, const nlohmann::json & json_obj) {
+    // printf("global_from_json: %s\n" , json_obj.dump(2).c_str());
     if (json_obj.is_null() || !json_obj.is_object()) {
         throw std::runtime_error("global_from_json: input JSON value must be an object");
     }
@@ -754,6 +764,95 @@ void global_from_json(context & ctx, const nlohmann::json & json_obj) {
         JJ_DEBUG("global_from_json: setting key '%s'", it.key().c_str());
         ctx.set_val(it.key(), from_json(it.value()));
     }
+}
+
+static void value_to_json_internal(std::ostringstream & oss, const value & val, int curr_lvl, int indent) {
+    auto indent_str = [indent, curr_lvl]() -> std::string {
+        return (indent > 0) ? std::string(curr_lvl * indent, ' ') : "";
+    };
+    auto newline = [indent]() -> std::string {
+        return (indent > 0) ? "\n" : "";
+    };
+
+    if (is_val<value_null>(val) || val->is_undefined()) {
+        oss << "null";
+    } else if (is_val<value_bool>(val)) {
+        oss << (val->as_bool() ? "true" : "false");
+    } else if (is_val<value_int>(val)) {
+        oss << val->as_int();
+    } else if (is_val<value_float>(val)) {
+        oss << val->as_float();
+    } else if (is_val<value_string>(val)) {
+        oss << "\"";
+        for (char c : val->as_string().str()) {
+            switch (c) {
+                case '"': oss << "\\\""; break;
+                case '\\': oss << "\\\\"; break;
+                case '\b': oss << "\\b"; break;
+                case '\f': oss << "\\f"; break;
+                case '\n': oss << "\\n"; break;
+                case '\r': oss << "\\r"; break;
+                case '\t': oss << "\\t"; break;
+                default:
+                    if (static_cast<unsigned char>(c) < 0x20) {
+                        char buf[7];
+                        snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned char>(c));
+                        oss << buf;
+                    } else {
+                        oss << c;
+                    }
+            }
+        }
+        oss << "\"";
+    } else if (is_val<value_array>(val)) {
+        const auto & arr = val->as_array();
+        oss << "[";
+        if (!arr.empty()) {
+            oss << newline();
+            for (size_t i = 0; i < arr.size(); ++i) {
+                oss << indent_str() << std::string(indent, ' ');
+                value_to_json_internal(oss, arr[i], curr_lvl + 1, indent);
+                if (i < arr.size() - 1) {
+                    oss << ",";
+                    if (indent == 0) oss << " ";
+                }
+                oss << newline();
+            }
+            oss << indent_str();
+        }
+        oss << "]";
+    } else if (is_val<value_object>(val)) {
+        const auto & obj = val->as_object();
+        oss << "{";
+        if (!obj.empty()) {
+            oss << newline();
+            size_t i = 0;
+            for (const auto & pair : obj) {
+                oss << indent_str() << std::string(indent, ' ');
+                oss << "\"" << pair.first << "\":";
+                if (indent > 0) oss << " ";
+                else oss << " ";
+                value_to_json_internal(oss, pair.second, curr_lvl + 1, indent);
+                if (i < obj.size() - 1) {
+                    oss << ",";
+                    if (indent == 0) oss << " ";
+                }
+                oss << newline();
+                ++i;
+            }
+            oss << indent_str();
+        }
+        oss << "}";
+    } else {
+        oss << "null";
+    }
+}
+
+std::string value_to_json(const value & val, int indent) {
+    std::ostringstream oss;
+    value_to_json_internal(oss, val, 0, indent);
+    JJ_DEBUG("value_to_json: result=%s", oss.str().c_str());
+    return oss.str();
 }
 
 } // namespace jinja

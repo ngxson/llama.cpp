@@ -353,6 +353,7 @@ using value_kwarg = std::shared_ptr<value_kwarg_t>;
 // utils
 
 const func_builtins & global_builtins();
+std::string value_to_json(const value & val, int indent = 0);
 
 
 } // namespace jinja

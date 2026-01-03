@@ -84,6 +84,10 @@ struct context {
         global->insert(name, val);
     }
 
+    void print_vars() const {
+        printf("Context Variables:\n%s\n", value_to_json(global, 2).c_str());
+    }
+
 private:
     value_object global;
 };
