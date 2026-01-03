@@ -32,6 +32,20 @@ static value_string exec_statements(const statements & stmts, context & ctx) {
     return str;
 }
 
+static std::string get_line_col(const std::string & source, size_t pos) {
+    size_t line = 1;
+    size_t col = 1;
+    for (size_t i = 0; i < pos && i < source.size(); i++) {
+        if (source[i] == '\n') {
+            line++;
+            col = 1;
+        } else {
+            col++;
+        }
+    }
+    return "line " + std::to_string(line) + ", column " + std::to_string(col);
+}
+
 // execute with error handling
 value statement::execute(context & ctx) {
     try {
@@ -43,17 +57,17 @@ value statement::execute(context & ctx) {
     } catch (const std::exception & e) {
         if (ctx.source.empty()) {
             std::ostringstream oss;
-            oss << "\nError executing " << type() << " at position " << pos << ": " << e.what();
+            oss << "\nError executing " << type() << " at " << get_line_col(ctx.source, pos) << ": " << e.what();
             throw raised_exception(oss.str());
         } else {
             std::ostringstream oss;
             constexpr int max_peak_chars = 40;
             oss << "\n------------\n";
-            oss << "While executing " << type() << " at position " << pos << " in source:\n";
+            oss << "While executing " << type() << " at " << get_line_col(ctx.source, pos) << " in source:\n";
             size_t start = (pos >= max_peak_chars) ? (pos - max_peak_chars) : 0;
             size_t end = std::min(pos + max_peak_chars, ctx.source.length());
             std::string substr = ctx.source.substr(start, end - start);
-            string_replace_all(substr, "\n", "\\n");
+            string_replace_all(substr, "\n", "↵");
             oss << "..." << substr << "...\n";
             std::string spaces(pos - start + 3, ' ');
             oss << spaces << "^\n";

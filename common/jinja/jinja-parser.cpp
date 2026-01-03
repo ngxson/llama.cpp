@@ -21,7 +21,6 @@ static bool is_type(const statement_ptr & ptr) {
 class parser {
     const std::vector<token> & tokens;
     size_t current = 0;
-    size_t prev_cur = 0;
 
     // for debugging; a token can be multiple chars in source
     std::vector<size_t> tok_pos_to_src_pos;
@@ -44,10 +43,11 @@ public:
         return program(std::move(body));
     }
 
+    // NOTE: start_pos is the token index, used for error reporting
     template<typename T, typename... Args>
-    std::unique_ptr<T> mk_stmt(Args&&... args) {
+    std::unique_ptr<T> mk_stmt(size_t start_pos, Args&&... args) {
         auto ptr = std::make_unique<T>(std::forward<Args>(args)...);
-        ptr->pos = tok_pos_to_src_pos[prev_cur];
+        ptr->pos = tok_pos_to_src_pos[start_pos];
 
         std::string snippet = "no source";
         if (!source.empty()) {
@@ -104,12 +104,12 @@ private:
     }
 
     statement_ptr parse_any() {
-        prev_cur = current;
+        size_t start_pos = current;
         switch (peek().t) {
             case token::comment:
-                return mk_stmt<comment_statement>(tokens[current++].value);
+                return mk_stmt<comment_statement>(start_pos, tokens[current++].value);
             case token::text:
-                return mk_stmt<string_literal>(tokens[current++].value);
+                return mk_stmt<string_literal>(start_pos, tokens[current++].value);
             case token::open_statement:
                 return parse_jinja_statement();
             case token::open_expression:
@@ -121,7 +121,6 @@ private:
 
     statement_ptr parse_jinja_expression() {
         // Consume {{ }} tokens
-        prev_cur = current;
         expect(token::open_expression, "Expected {{");
         auto result = parse_expression();
         expect(token::close_expression, "Expected }}");
@@ -130,36 +129,36 @@ private:
 
     statement_ptr parse_jinja_statement() {
         // Consume {% token
-        prev_cur = current;
         expect(token::open_statement, "Expected {%");
 
         if (peek().t != token::identifier) {
             throw std::runtime_error("Unknown statement");
         }
 
+        size_t start_pos = current;
         std::string name = peek().value;
         current++; // consume identifier
 
         statement_ptr result;
         if (name == "set") {
-            result = parse_set_statement();
+            result = parse_set_statement(start_pos);
 
         } else if (name == "if") {
-            result = parse_if_statement();
+            result = parse_if_statement(start_pos);
             // expect {% endif %}
             expect(token::open_statement, "Expected {%");
             expect_identifier("endif");
             expect(token::close_statement, "Expected %}");
 
         } else if (name == "macro") {
-            result = parse_macro_statement();
+            result = parse_macro_statement(start_pos);
             // expect {% endmacro %}
             expect(token::open_statement, "Expected {%");
             expect_identifier("endmacro");
             expect(token::close_statement, "Expected %}");
 
         } else if (name == "for") {
-            result = parse_for_statement();
+            result = parse_for_statement(start_pos);
             // expect {% endfor %}
             expect(token::open_statement, "Expected {%");
             expect_identifier("endfor");
@@ -167,11 +166,11 @@ private:
 
         } else if (name == "break") {
             expect(token::close_statement, "Expected %}");
-            result = mk_stmt<break_statement>();
+            result = mk_stmt<break_statement>(start_pos);
 
         } else if (name == "continue") {
             expect(token::close_statement, "Expected %}");
-            result = mk_stmt<continue_statement>();
+            result = mk_stmt<continue_statement>(start_pos);
 
         } else if (name == "call") {
             statements caller_args;
@@ -196,8 +195,8 @@ private:
             expect_identifier("endcall");
             expect(token::close_statement, "Expected %}");
 
-            auto call_expr = mk_stmt<call_expression>(std::move(callee), std::move(call_args));
-            result = mk_stmt<call_statement>(std::move(call_expr), std::move(caller_args), std::move(body));
+            auto call_expr = mk_stmt<call_expression>(start_pos, std::move(callee), std::move(call_args));
+            result = mk_stmt<call_statement>(start_pos, std::move(call_expr), std::move(caller_args), std::move(body));
 
         } else if (name == "filter") {
             auto filter_node = parse_primary_expression();
@@ -214,12 +213,12 @@ private:
             expect(token::open_statement, "Expected {%");
             expect_identifier("endfilter");
             expect(token::close_statement, "Expected %}");
-            result = mk_stmt<filter_statement>(std::move(filter_node), std::move(body));
+            result = mk_stmt<filter_statement>(start_pos, std::move(filter_node), std::move(body));
 
         } else if (name == "generation" || name == "endgeneration") {
             // Ignore generation blocks (transformers-specific)
             // See https://github.com/huggingface/transformers/pull/30650 for more information.
-            result = mk_stmt<noop_statement>();
+            result = mk_stmt<noop_statement>(start_pos);
             current++;
 
         } else {
@@ -228,13 +227,11 @@ private:
         return result;
     }
 
-    statement_ptr parse_set_statement() {
+    statement_ptr parse_set_statement(size_t start_pos) {
         // NOTE: `set` acts as both declaration statement and assignment expression
         auto left = parse_expression_sequence();
         statement_ptr value = nullptr;
         statements body;
-
-        prev_cur = current;
 
         if (is(token::equals)) {
             current++;
@@ -249,17 +246,15 @@ private:
             expect_identifier("endset");
         }
         expect(token::close_statement, "Expected %}");
-        return mk_stmt<set_statement>(std::move(left), std::move(value), std::move(body));
+        return mk_stmt<set_statement>(start_pos, std::move(left), std::move(value), std::move(body));
     }
 
-    statement_ptr parse_if_statement() {
+    statement_ptr parse_if_statement(size_t start_pos) {
         auto test = parse_expression();
         expect(token::close_statement, "Expected %}");
 
         statements body;
         statements alternate;
-
-        prev_cur = current;
 
         // Keep parsing 'if' body until we reach the first {% elif %} or {% else %} or {% endif %}
         while (!is_statement({"elif", "else", "endif"})) {
@@ -267,9 +262,10 @@ private:
         }
 
         if (is_statement({"elif"})) {
+            size_t pos0 = current;
             ++current; // consume {%
             ++current; // consume 'elif'
-            alternate.push_back(parse_if_statement()); // nested If
+            alternate.push_back(parse_if_statement(pos0)); // nested If
         } else if (is_statement({"else"})) {
             ++current; // consume {%
             ++current; // consume 'else'
@@ -280,10 +276,10 @@ private:
                 alternate.push_back(parse_any());
             }
         }
-        return mk_stmt<if_statement>(std::move(test), std::move(body), std::move(alternate));
+        return mk_stmt<if_statement>(start_pos, std::move(test), std::move(body), std::move(alternate));
     }
 
-    statement_ptr parse_macro_statement() {
+    statement_ptr parse_macro_statement(size_t start_pos) {
         auto name = parse_primary_expression();
         auto args = parse_args();
         expect(token::close_statement, "Expected %}");
@@ -292,23 +288,23 @@ private:
         while (!is_statement({"endmacro"})) {
             body.push_back(parse_any());
         }
-        return mk_stmt<macro_statement>(std::move(name), std::move(args), std::move(body));
+        return mk_stmt<macro_statement>(start_pos, std::move(name), std::move(args), std::move(body));
     }
 
     statement_ptr parse_expression_sequence(bool primary = false) {
+        size_t start_pos = current;
         statements exprs;
         exprs.push_back(primary ? parse_primary_expression() : parse_expression());
         bool is_tuple = is(token::comma);
         while (is(token::comma)) {
-            prev_cur = current;
             current++; // consume comma
             exprs.push_back(primary ? parse_primary_expression() : parse_expression());
             if (!is(token::comma)) break;
         }
-        return is_tuple ? mk_stmt<tuple_literal>(std::move(exprs)) : std::move(exprs[0]);
+        return is_tuple ? mk_stmt<tuple_literal>(start_pos, std::move(exprs)) : std::move(exprs[0]);
     }
 
-    statement_ptr parse_for_statement() {
+    statement_ptr parse_for_statement(size_t start_pos) {
         // e.g., `message` in `for message in messages`
         auto loop_var = parse_expression_sequence(true); // should be an identifier/tuple
         if (!is_identifier("in")) throw std::runtime_error("Expected 'in'");
@@ -327,7 +323,6 @@ private:
         }
 
         if (is_statement({"else"})) {
-            prev_cur = current;
             current += 2;
             expect(token::close_statement, "Expected %}");
             while (!is_statement({"endfor"})) {
@@ -335,6 +330,7 @@ private:
             }
         }
         return mk_stmt<for_statement>(
+            start_pos,
             std::move(loop_var), std::move(iterable),
             std::move(body), std::move(alternate));
     }
@@ -348,18 +344,18 @@ private:
         auto a = parse_logical_or_expression();
         if (is_identifier("if")) {
             // Ternary expression
-            prev_cur = current;
+            size_t start_pos = current;
             ++current; // consume 'if'
             auto test = parse_logical_or_expression();
             if (is_identifier("else")) {
                 // Ternary expression with else
-                prev_cur = current;
+                size_t pos0 = current;
                 ++current; // consume 'else'
                 auto false_expr = parse_if_expression(); // recurse to support chained ternaries
-                return mk_stmt<ternary_expression>(std::move(test), std::move(a), std::move(false_expr));
+                return mk_stmt<ternary_expression>(pos0, std::move(test), std::move(a), std::move(false_expr));
             } else {
                 // Select expression on iterable
-                return mk_stmt<select_expression>(std::move(a), std::move(test));
+                return mk_stmt<select_expression>(start_pos, std::move(a), std::move(test));
             }
         }
         return a;
@@ -368,9 +364,9 @@ private:
     statement_ptr parse_logical_or_expression() {
         auto left = parse_logical_and_expression();
         while (is_identifier("or")) {
-            prev_cur = current;
+            size_t start_pos = current;
             token op = tokens[current++];
-            left = mk_stmt<binary_expression>(op, std::move(left), parse_logical_and_expression());
+            left = mk_stmt<binary_expression>(start_pos, op, std::move(left), parse_logical_and_expression());
         }
         return left;
     }
@@ -378,9 +374,9 @@ private:
     statement_ptr parse_logical_and_expression() {
         auto left = parse_logical_negation_expression();
         while (is_identifier("and")) {
-            prev_cur = current;
+            size_t start_pos = current;
             auto op = tokens[current++];
-            left = mk_stmt<binary_expression>(op, std::move(left), parse_logical_negation_expression());
+            left = mk_stmt<binary_expression>(start_pos, op, std::move(left), parse_logical_negation_expression());
         }
         return left;
     }
@@ -388,10 +384,10 @@ private:
     statement_ptr parse_logical_negation_expression() {
         // Try parse unary operators
         if (is_identifier("not")) {
-            prev_cur = current;
+            size_t start_pos = current;
             auto op = tokens[current];
             ++current; // consume 'not'
-            return mk_stmt<unary_expression>(op, parse_logical_negation_expression());
+            return mk_stmt<unary_expression>(start_pos, op, parse_logical_negation_expression());
         }
         return parse_comparison_expression();
     }
@@ -402,7 +398,7 @@ private:
         auto left = parse_additive_expression();
         while (true) {
             token op;
-            prev_cur = current;
+            size_t start_pos = current;
             if (is_identifier("not") && peek(1).t == token::identifier && peek(1).value == "in") {
                 op = {token::identifier, "not in", tokens[current].pos};
                 current += 2;
@@ -411,7 +407,7 @@ private:
             } else if (is(token::comparison_binary_operator)) {
                 op = tokens[current++];
             } else break;
-            left = mk_stmt<binary_expression>(op, std::move(left), parse_additive_expression());
+            left = mk_stmt<binary_expression>(start_pos, op, std::move(left), parse_additive_expression());
         }
         return left;
     }
@@ -419,9 +415,9 @@ private:
     statement_ptr parse_additive_expression() {
         auto left = parse_multiplicative_expression();
         while (is(token::additive_binary_operator)) {
-            prev_cur = current;
+            size_t start_pos = current;
             auto op = tokens[current++];
-            left = mk_stmt<binary_expression>(op, std::move(left), parse_multiplicative_expression());
+            left = mk_stmt<binary_expression>(start_pos, op, std::move(left), parse_multiplicative_expression());
         }
         return left;
     }
@@ -429,9 +425,9 @@ private:
     statement_ptr parse_multiplicative_expression() {
         auto left = parse_test_expression();
         while (is(token::multiplicative_binary_operator)) {
-            prev_cur = current;
+            size_t start_pos = current;
             auto op = tokens[current++];
-            left = mk_stmt<binary_expression>(op, std::move(left), parse_test_expression());
+            left = mk_stmt<binary_expression>(start_pos, op, std::move(left), parse_test_expression());
         }
         return left;
     }
@@ -439,12 +435,12 @@ private:
     statement_ptr parse_test_expression() {
         auto operand = parse_filter_expression();
         while (is_identifier("is")) {
-            prev_cur = current;
+            size_t start_pos = current;
             current++;
             bool negate = false;
             if (is_identifier("not")) { current++; negate = true; }
             auto test_id = parse_primary_expression();
-            operand = mk_stmt<test_expression>(std::move(operand), negate, std::move(test_id));
+            operand = mk_stmt<test_expression>(start_pos, std::move(operand), negate, std::move(test_id));
         }
         return operand;
     }
@@ -452,11 +448,11 @@ private:
     statement_ptr parse_filter_expression() {
         auto operand = parse_call_member_expression();
         while (is(token::pipe)) {
-            prev_cur = current;
+            size_t start_pos = current;
             current++;
             auto filter = parse_primary_expression();
             if (is(token::open_paren)) filter = parse_call_expression(std::move(filter));
-            operand = mk_stmt<filter_expression>(std::move(operand), std::move(filter));
+            operand = mk_stmt<filter_expression>(start_pos, std::move(operand), std::move(filter));
         }
         return operand;
     }
@@ -470,7 +466,8 @@ private:
     }
 
     statement_ptr parse_call_expression(statement_ptr callee) {
-        auto expr = mk_stmt<call_expression>(std::move(callee), parse_args());
+        size_t start_pos = current;
+        auto expr = mk_stmt<call_expression>(start_pos, std::move(callee), parse_args());
         auto member = parse_member_expression(std::move(expr)); // foo.x().y
         return is(token::open_paren)
             ? parse_call_expression(std::move(member)) // foo.x()()
@@ -483,18 +480,19 @@ private:
         statements args;
         while (!is(token::close_paren)) {
             statement_ptr arg;
-            prev_cur = current;
             // unpacking: *expr
             if (peek().t == token::multiplicative_binary_operator && peek().value == "*") {
+                size_t start_pos = current;
                 ++current; // consume *
-                arg = mk_stmt<spread_expression>(parse_expression());
+                arg = mk_stmt<spread_expression>(start_pos, parse_expression());
             } else {
                 arg = parse_expression();
                 if (is(token::equals)) {
                     // keyword argument
                     // e.g., func(x = 5, y = a or b)
+                    size_t start_pos = current;
                     ++current; // consume equals
-                    arg = mk_stmt<keyword_argument_expression>(std::move(arg), parse_expression());
+                    arg = mk_stmt<keyword_argument_expression>(start_pos, std::move(arg), parse_expression());
                 }
             }
             args.push_back(std::move(arg));
@@ -507,6 +505,7 @@ private:
     }
 
     statement_ptr parse_member_expression(statement_ptr object) {
+        size_t start_pos = current;
         while (is(token::dot) || is(token::open_square_bracket)) {
             auto op = tokens[current++];
             bool computed = op.t == token::open_square_bracket;
@@ -517,7 +516,7 @@ private:
             } else {
                 prop = parse_primary_expression();
             }
-            object = mk_stmt<member_expression>(std::move(object), std::move(prop), computed);
+            object = mk_stmt<member_expression>(start_pos, std::move(object), std::move(prop), computed);
         }
         return object;
     }
@@ -527,8 +526,8 @@ private:
         // e.g., ['test'], [0], [:2], [1:], [1:2], [1:2:3]
         statements slices;
         bool is_slice = false;
+        size_t start_pos = current;
         while (!is(token::close_square_bracket)) {
-            prev_cur = current;
             if (is(token::colon)) {
                 // A case where a default is used
                 // e.g., [:2] will be parsed as [undefined, 2]
@@ -547,27 +546,29 @@ private:
             statement_ptr start = slices.size() > 0 ? std::move(slices[0]) : nullptr;
             statement_ptr stop = slices.size() > 1 ? std::move(slices[1]) : nullptr;
             statement_ptr step = slices.size() > 2 ? std::move(slices[2]) : nullptr;
-            return mk_stmt<slice_expression>(std::move(start), std::move(stop), std::move(step));
+            return mk_stmt<slice_expression>(start_pos, std::move(start), std::move(stop), std::move(step));
         }
         return std::move(slices[0]);
     }
 
     statement_ptr parse_primary_expression() {
-        prev_cur = current;
+        size_t start_pos = current;
         auto t = tokens[current++];
         switch (t.t) {
             case token::numeric_literal:
-                if (t.value.find('.') != std::string::npos) return mk_stmt<float_literal>(std::stod(t.value));
-                return mk_stmt<integer_literal>(std::stoll(t.value));
+                if (t.value.find('.') != std::string::npos)
+                    return mk_stmt<float_literal>(start_pos, std::stod(t.value));
+                else
+                    return mk_stmt<integer_literal>(start_pos, std::stoll(t.value));
             case token::string_literal: {
                 std::string val = t.value;
                 while (is(token::string_literal)) {
                     val += tokens[current++].value;
                 }
-                return mk_stmt<string_literal>(val);
+                return mk_stmt<string_literal>(start_pos, val);
             }
             case token::identifier:
-                return mk_stmt<identifier>(t.value);
+                return mk_stmt<identifier>(start_pos, t.value);
             case token::open_paren: {
                 auto expr = parse_expression_sequence();
                 expect(token::close_paren, "Expected )");
@@ -580,7 +581,7 @@ private:
                     if (is(token::comma)) current++;
                 }
                 current++;
-                return mk_stmt<array_literal>(std::move(vals));
+                return mk_stmt<array_literal>(start_pos, std::move(vals));
             }
             case token::open_curly_bracket: {
                 std::vector<std::pair<statement_ptr, statement_ptr>> pairs;
@@ -591,7 +592,7 @@ private:
                     if (is(token::comma)) current++;
                 }
                 current++;
-                return mk_stmt<object_literal>(std::move(pairs));
+                return mk_stmt<object_literal>(start_pos, std::move(pairs));
             }
             default:
                 throw std::runtime_error("Unexpected token: " + t.value + " of type " + std::to_string(t.t));

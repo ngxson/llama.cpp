@@ -33,6 +33,9 @@ static void string_rstrip(std::string & s, const char * chars) {
 
 lexer_result lexer::tokenize(const std::string & source) {
     std::vector<token> tokens;
+
+    // NOTE: do NOT transform the source string (i.e. preprocessing), as we need to keep
+    //       the original character positions for error reporting etc.
     std::string src = source;
 
     if (source.empty()) {
