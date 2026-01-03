@@ -105,6 +105,83 @@ static value tojson(const func_args & args) {
     return mk_val<value_string>(json_str);
 }
 
+template<bool is_reject>
+static value selectattr(const func_args & args) {
+    args.ensure_count(2, 4);
+    args.ensure_vals<value_array, value_string, value_string, value_string>(true, true, false, false);
+
+    auto arr = args.args[0]->as_array();
+    auto attr_name = args.args[1]->as_string().str();
+    auto out = mk_val<value_array>();
+    value val_default = mk_val<value_undefined>();
+
+    if (args.args.size() == 2) {
+        // example: array | selectattr("active")
+        for (const auto & item : arr) {
+            if (!is_val<value_object>(item)) {
+                throw raised_exception("selectattr: item is not an object");
+            }
+            value attr_val = item->at(attr_name, val_default);
+            bool is_selected = attr_val->as_bool();
+            if constexpr (is_reject) is_selected = !is_selected;
+            if (is_selected) out->push_back(item);
+        }
+        return out;
+
+    } else if (args.args.size() == 3) {
+        // example: array | selectattr("equalto", "text")
+        // translated to: test_is_equalto(item, "text")
+        std::string test_name = args.args[1]->as_string().str();
+        value test_val = args.args[2];
+        auto & builtins = global_builtins();
+        auto it = builtins.find("test_is_" + test_name);
+        if (it == builtins.end()) {
+            throw raised_exception("selectattr: unknown test '" + test_name + "'");
+        }
+        auto test_fn = it->second;
+        for (const auto & item : arr) {
+            func_args test_args(args.ctx);
+            test_args.args.push_back(item); // current object
+            test_args.args.push_back(test_val); // extra argument
+            value test_result = test_fn(test_args);
+            bool is_selected = test_result->as_bool();
+            if constexpr (is_reject) is_selected = !is_selected;
+            if (is_selected) out->push_back(item);
+        }
+        return out;
+
+    } else if (args.args.size() == 4) {
+        // example: array | selectattr("status", "equalto", "active")
+        // translated to: test_is_equalto(item.status, "active")
+        std::string test_name = args.args[2]->as_string().str();
+        func_args test_args(args.ctx);
+        test_args.args.push_back(val_default); // placeholder for current object
+        test_args.args.push_back(args.args[3]); // extra argument
+        auto & builtins = global_builtins();
+        auto it = builtins.find("test_is_" + test_name);
+        if (it == builtins.end()) {
+            throw raised_exception("selectattr: unknown test '" + test_name + "'");
+        }
+        auto test_fn = it->second;
+        for (const auto & item : arr) {
+            if (!is_val<value_object>(item)) {
+                throw raised_exception("selectattr: item is not an object");
+            }
+            value attr_val = item->at(attr_name, val_default);
+            test_args.args[0] = attr_val;
+            value test_result = test_fn(test_args);
+            bool is_selected = test_result->as_bool();
+            if constexpr (is_reject) is_selected = !is_selected;
+            if (is_selected) out->push_back(item);
+        }
+        return out;
+    } else {
+        throw raised_exception("selectattr: invalid number of arguments");
+    }
+
+    return out;
+}
+
 const func_builtins & global_builtins() {
     static const func_builtins builtins = {
         {"raise_exception", [](const func_args & args) -> value {
@@ -221,6 +298,11 @@ const func_builtins & global_builtins() {
             return mk_val<value_bool>(res);
         }},
         {"test_is_undefined", test_type_fn<value_undefined>},
+        {"test_is_equalto", [](const func_args & args) -> value {
+            // alias for is_eq
+            args.ensure_count(2);
+            return mk_val<value_bool>(value_compare(args.args[0], args.args[1]));
+        }},
     };
     return builtins;
 }
@@ -433,12 +515,6 @@ const func_builtins & value_string_t::get_builtins() const {
             return args.args[0];
         }},
         {"tojson", tojson},
-        {"selectattr", [](const func_args &) -> value {
-            throw std::runtime_error("String selectattr builtin not supported");
-        }},
-        {"rejectattr", [](const func_args &) -> value {
-            throw std::runtime_error("String rejectattr builtin not supported");
-        }},
         {"indent", [](const func_args &) -> value {
             throw std::runtime_error("String indent builtin not implemented");
         }},
@@ -534,75 +610,10 @@ const func_builtins & value_array_t::get_builtins() const {
             res->val_arr = std::move(arr);
             return res;
         }},
-        {"selectattr", [](const func_args & args) -> value {
-            value input = args.args[0];
-            if (!is_val<value_array>(input)) {
-                throw raised_exception("selectattr() first argument must be an array, got " + input->type());
-            }
-            std::vector<std::string> selected;
-            for (size_t i = 1; i < args.args.size(); ++i) {
-                const auto & v = args.args[i];
-                if (!is_val<value_string>(v)) {
-                    throw raised_exception("selectattr() attributes must be strings, got " + v->type());
-                }
-                JJ_DEBUG("selectattr: selecting attribute '%s'", v->as_string().str().c_str());
-                selected.push_back(v->as_string().str());
-            }
-            auto result = mk_val<value_array>();
-            for (const auto & item : input->as_array()) {
-                if (!is_val<value_object>(item)) {
-                    continue;
-                }
-                const auto & obj = item->as_object();
-                bool match = true;
-                for (const auto & attr : selected) {
-                    auto it = obj.find(attr);
-                    if (it == obj.end() || it->second->is_undefined() || (is_val<value_bool>(it->second) && !it->second->as_bool())) {
-                        match = false;
-                        break;
-                    }
-                }
-                if (match) {
-                    result->push_back(item);
-                }
-            }
-            return result;
-        }},
-        {"rejectattr", [](const func_args & args) -> value {
-            value input = args.args[0];
-            if (!is_val<value_array>(input)) {
-                throw raised_exception("rejectattr() first argument must be an array, got " + input->type());
-            }
-            std::vector<std::string> rejected;
-            for (size_t i = 1; i < args.args.size(); ++i) {
-                const auto & v = args.args[i];
-                if (!is_val<value_string>(v)) {
-                    throw raised_exception("rejectattr() attributes must be strings, got " + v->type());
-                }
-                JJ_DEBUG("rejectattr: rejecting attribute '%s'", v->as_string().str().c_str());
-                rejected.push_back(v->as_string().str());
-            }
-            auto result = mk_val<value_array>();
-            for (const auto & item : input->as_array()) {
-                if (!is_val<value_object>(item)) {
-                    result->push_back(item);
-                    continue;
-                }
-                const auto & obj = item->as_object();
-                bool match = false;
-                for (const auto & attr : rejected) {
-                    auto it = obj.find(attr);
-                    if (it != obj.end() && !it->second->is_undefined() && (!is_val<value_bool>(it->second) || it->second->as_bool())) {
-                        match = true;
-                        break;
-                    }
-                }
-                if (!match) {
-                    result->push_back(item);
-                }
-            }
-            return result;
-        }},
+        {"selectattr", selectattr<false>},
+        {"select", selectattr<false>},
+        {"rejectattr", selectattr<true>},
+        {"reject", selectattr<true>},
         {"join", [](const func_args & args) -> value {
             if (args.args.size() < 1 || args.args.size() > 2) {
                 throw raised_exception("join() takes one or two arguments");
@@ -714,7 +725,7 @@ const func_builtins & value_object_t::get_builtins() const {
 
 const func_builtins & value_null_t::get_builtins() const {
     static const func_builtins builtins = {
-        // TODO: may need to implement this, idk
+        {"tojson", tojson},
     };
     return builtins;
 }

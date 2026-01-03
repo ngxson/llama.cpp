@@ -28,6 +28,9 @@ static void caps_try_execute(jinja::program & prog,
         {"add_generation_prompt", true}
     });
 
+    auto messages = ctx.get_val("messages");
+    auto tools = ctx.get_val("tools");
+
     bool success = false;
     try {
         jinja::interpreter interpreter(ctx);
@@ -38,8 +41,6 @@ static void caps_try_execute(jinja::program & prog,
         // ignore exceptions during capability analysis
     }
 
-    auto messages = ctx.get_val("messages");
-    auto tools = ctx.get_val("tools");
     return analyze_fn(success, messages, tools);
 }
 

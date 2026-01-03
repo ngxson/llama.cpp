@@ -147,8 +147,26 @@ struct value_t {
         throw std::runtime_error("No builtins available for type " + type());
     }
 
-    virtual value & at(const std::string & key) { return val_obj.unordered[key]; }
-    virtual value & at(size_t index) { return val_arr.at(index); }
+    virtual value & at(const std::string & key, value & default_val) {
+        auto it = val_obj.unordered.find(key);
+        if (it == val_obj.unordered.end()) {
+            return default_val;
+        }
+        return val_obj.unordered.at(key);
+    }
+    virtual value & at(const std::string & key) {
+        auto it = val_obj.unordered.find(key);
+        if (it == val_obj.unordered.end()) {
+            throw std::runtime_error("Key '" + key + "' not found in value of type " + type());
+        }
+        return val_obj.unordered.at(key);
+    }
+    virtual value & at(size_t index) {
+        if (index >= val_arr.size()) {
+            throw std::runtime_error("Index " + std::to_string(index) + " out of bounds for array of size " + std::to_string(val_arr.size()));
+        }
+        return val_arr[index];
+    }
 
     virtual std::string as_repr() const { return as_string().str(); }
 };
@@ -245,7 +263,6 @@ using value_array = std::shared_ptr<value_array_t>;
 struct value_object_t : public value_t {
     value_object_t() = default;
     value_object_t(value & v) {
-        // point to the same underlying data
         val_obj = v->val_obj;
     }
     value_object_t(const std::map<std::string, value> & obj) {
