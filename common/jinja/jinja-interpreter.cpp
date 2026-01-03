@@ -101,7 +101,7 @@ value object_literal::execute_impl(context & ctx) {
         std::string key = pair.first->execute(ctx)->as_string().str();
         value val = pair.second->execute(ctx);
         JJ_DEBUG("Object literal: setting key '%s' of type %s", key.c_str(), val->type().c_str());
-        obj->val_obj[key] = val;
+        obj->val_obj.insert(key, val);
     }
     return obj;
 }

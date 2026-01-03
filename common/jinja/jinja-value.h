@@ -103,7 +103,21 @@ struct value_t {
     bool val_bool;
 
     std::vector<value> val_arr;
-    std::map<std::string, value> val_obj;
+
+    struct map {
+        std::map<std::string, value> unordered;
+        std::vector<std::pair<std::string, value>> ordered;
+        void insert(const std::string & key, const value & val) {
+            if (unordered.find(key) != unordered.end()) {
+                // if key exists, remove from ordered list
+                ordered.erase(std::remove_if(ordered.begin(), ordered.end(),
+                    [&](const std::pair<std::string, value> & p) { return p.first == key; }),
+                    ordered.end());
+            }
+            unordered[key] = val;
+            ordered.push_back({key, val});
+        }
+    } val_obj;
 
     func_handler val_func;
 
@@ -133,7 +147,7 @@ struct value_t {
         throw std::runtime_error("No builtins available for type " + type());
     }
 
-    virtual value & at(const std::string & key) { return val_obj[key]; }
+    virtual value & at(const std::string & key) { return val_obj.unordered[key]; }
     virtual value & at(size_t index) { return val_arr.at(index); }
 
     virtual std::string as_repr() const { return as_string().str(); }
@@ -235,18 +249,17 @@ struct value_object_t : public value_t {
         val_obj = v->val_obj;
     }
     value_object_t(const std::map<std::string, value> & obj) {
-        val_obj = std::map<std::string, value>();
         for (const auto & pair : obj) {
-            val_obj[pair.first] = pair.second;
+            val_obj.insert(pair.first, pair.second);
         }
     }
     void insert(const std::string & key, const value & val) {
-        val_obj[key] = val;
+        val_obj.insert(key, val);
     }
     virtual std::string type() const override { return "Object"; }
-    virtual const std::map<std::string, value> & as_object() const override { return val_obj; }
+    virtual const std::map<std::string, value> & as_object() const override { return val_obj.unordered; }
     virtual bool as_bool() const override {
-        return !val_obj.empty();
+        return !val_obj.unordered.empty();
     }
     virtual const func_builtins & get_builtins() const override;
 };

@@ -822,7 +822,7 @@ static void value_to_json_internal(std::ostringstream & oss, const value & val, 
         }
         oss << "]";
     } else if (is_val<value_object>(val)) {
-        const auto & obj = val->as_object();
+        const auto & obj = val->val_obj.ordered; // IMPORTANT: need to keep exact order
         oss << "{";
         if (!obj.empty()) {
             oss << newline();

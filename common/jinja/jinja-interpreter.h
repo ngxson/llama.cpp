@@ -72,8 +72,8 @@ struct context {
     }
 
     value get_val(const std::string & name) {
-        auto it = global->val_obj.find(name);
-        if (it != global->val_obj.end()) {
+        auto it = global->val_obj.unordered.find(name);
+        if (it != global->val_obj.unordered.end()) {
             return it->second;
         } else {
             return mk_val<value_undefined>(name);
