@@ -823,8 +823,7 @@ static std::string apply(
 {
     // TODO IMPORTANT: IMPROVE THIS
 
-    jinja::context ctx;
-    ctx.source = tmpl.source(); // for debugging
+    jinja::context ctx(tmpl.source());
 
     nlohmann::ordered_json inp = nlohmann::ordered_json{
         {"messages", messages_override.has_value() ? *messages_override : inputs.messages},
@@ -1470,7 +1469,7 @@ static common_chat_params common_chat_params_init_llama_3_x(const common_chat_te
     data.prompt = apply(tmpl, inputs, /* messages_override =*/ std::nullopt, /* tools_override= */ std::nullopt, json {
         {"date_string", format_time(inputs.now, "%d %b %Y")},
         {"tools_in_user_message", false},
-        {"builtin_tools", builtin_tools.empty() ? json() : builtin_tools},
+        {"builtin_tools", builtin_tools},
     });
     return data;
 }

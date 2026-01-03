@@ -204,8 +204,7 @@ static jinja::value_string format_using_direct_engine(
     jinja::caps_get(ast);
 
     std::cout << "\n=== RUN ===\n";
-    jinja::context ctx;
-    ctx.source = lexer_res.source;
+    jinja::context ctx(template_str);
 
     jinja::global_from_json(ctx, input);
 

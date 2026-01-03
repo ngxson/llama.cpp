@@ -47,12 +47,13 @@ const T * cast_stmt(const statement_ptr & ptr) {
 void enable_debug(bool enable);
 
 struct context {
-    std::string source; // for debugging
+    std::shared_ptr<std::string> src; // for debugging; use shared_ptr to avoid copying on scope creation
     std::time_t current_time; // for functions that need current time
 
     bool is_get_stats = false; // whether to collect stats
 
-    context() {
+    // src is optional, used for error reporting
+    context(std::string src = "") : src(std::make_shared<std::string>(std::move(src))) {
         global = mk_val<value_object>();
         global->insert("true",  mk_val<value_bool>(true));
         global->insert("false", mk_val<value_bool>(false));
@@ -69,6 +70,7 @@ struct context {
         }
         current_time = parent.current_time;
         is_get_stats = parent.is_get_stats;
+        src = parent.src;
     }
 
     value get_val(const std::string & name) {
@@ -548,6 +550,15 @@ struct ternary_expression : public expression {
 struct raised_exception : public std::exception {
     std::string message;
     raised_exception(const std::string & msg) : message(msg) {}
+    const char* what() const noexcept override {
+        return message.c_str();
+    }
+};
+
+// Used to rethrow exceptions with modified messages
+struct rethrown_exception : public std::exception {
+    std::string message;
+    rethrown_exception(const std::string & msg) : message(msg) {}
     const char* what() const noexcept override {
         return message.c_str();
     }
