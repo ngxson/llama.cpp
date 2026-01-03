@@ -19,7 +19,7 @@
 #include "jinja/jinja-lexer.h"
 #include "jinja/jinja-caps.h"
 
-using json = nlohmann::json;
+using json = nlohmann::ordered_json;
 
 int main_automated_tests(void);
 

@@ -718,7 +718,7 @@ const func_builtins & value_null_t::get_builtins() const {
 //////////////////////////////////
 
 
-static value from_json(const nlohmann::json & j) {
+static value from_json(const nlohmann::ordered_json & j) {
     if (j.is_null()) {
         return mk_val<value_null>();
     } else if (j.is_boolean()) {
@@ -755,7 +755,7 @@ static value from_json(const nlohmann::json & j) {
 }
 
 template<>
-void global_from_json(context & ctx, const nlohmann::json & json_obj) {
+void global_from_json(context & ctx, const nlohmann::ordered_json & json_obj) {
     // printf("global_from_json: %s\n" , json_obj.dump(2).c_str());
     if (json_obj.is_null() || !json_obj.is_object()) {
         throw std::runtime_error("global_from_json: input JSON value must be an object");

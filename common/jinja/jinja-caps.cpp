@@ -8,7 +8,7 @@
 
 #define FILENAME "jinja-caps"
 
-using json = nlohmann::json;
+using json = nlohmann::ordered_json;
 
 namespace jinja {
 
@@ -208,18 +208,9 @@ caps caps_get(jinja::program & prog) {
         }
     );
 
-    debug_print_caps(result);
+    JJ_DEBUG("%s\n", result.to_string().c_str());
 
     return result;
-}
-
-void debug_print_caps(const caps & c) {
-    JJ_DEBUG("%s", "Caps:");
-    JJ_DEBUG("  requires_typed_content: %d", c.requires_typed_content);
-    JJ_DEBUG("  supports_tools: %d", c.supports_tools);
-    JJ_DEBUG("  supports_tool_calls: %d", c.supports_tool_calls);
-    JJ_DEBUG("  supports_parallel_tool_calls: %d", c.supports_parallel_tool_calls);
-    JJ_DEBUG("  supports_system_role: %d", c.supports_system_role);
 }
 
 } // namespace jinja

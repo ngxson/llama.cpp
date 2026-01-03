@@ -159,13 +159,58 @@ struct common_chat_template {
         this->eos_tok = eos_token;
 
         this->caps = jinja::caps_get(prog);
+        // LOG_INF("%s: caps:\n%s\n", __func__, this->caps.to_string().c_str());
     }
 
     const std::string & source() const { return src; }
     const std::string & bos_token() const { return bos_tok; }
     const std::string & eos_token() const { return eos_tok; }
-    static json add_system(const json &, const std::string &) {
-        throw std::runtime_error("common_chat_template::add_system not implemented");
+
+    // TODO: this is ugly, refactor it somehow
+    json add_system(const json & messages, const std::string & system_prompt) const {
+        GGML_ASSERT(messages.is_array());
+        auto msgs_copy = messages;
+        if (!caps.supports_system_role) {
+            if (msgs_copy.empty()) {
+                msgs_copy.insert(msgs_copy.begin(), json{
+                    {"role", "user"},
+                    {"content", system_prompt}
+                });
+            } else {
+                msgs_copy[0]["content"] = system_prompt + "\n\n"
+                    + msgs_copy[0]["content"].get<std::string>();
+            }
+        } else {
+            if (msgs_copy.empty() || msgs_copy[0].at("role") != "system") {
+                msgs_copy.insert(msgs_copy.begin(), json{
+                    {"role", "system"},
+                    {"content", system_prompt}
+                });
+            } else if (msgs_copy[0].at("role") == "system") {
+                msgs_copy[0]["content"] = system_prompt;
+            }
+        }
+        return msgs_copy;
+    }
+
+    static void modify_function_args_from_string_to_json(json & messages) {
+        GGML_ASSERT(messages.is_array());
+        for (auto & message : messages) {
+            if (message.contains("tool_calls")) {
+                for (auto & tool_call : message["tool_calls"]) {
+                    if (tool_call.contains("function") && tool_call["function"].contains("arguments")) {
+                        auto & args = tool_call["function"]["arguments"];
+                        if (args.is_string()) {
+                            try {
+                                args = json::parse(args.get<std::string>());
+                            } catch (const std::exception & e) {
+                                throw std::runtime_error("Failed to parse tool call arguments as JSON: " + std::string(e.what()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     chat_template_caps original_caps() const {
@@ -779,7 +824,7 @@ static std::string apply(
     jinja::context ctx;
     ctx.source = tmpl.source(); // for debugging
 
-    nlohmann::json inp = nlohmann::json{
+    nlohmann::ordered_json inp = nlohmann::ordered_json{
         {"messages", messages_override.has_value() ? *messages_override : inputs.messages},
         {"tools", tools_override.has_value() ? *tools_override : inputs.tools},
         {"bos_token", tmpl.bos_token()},
@@ -793,6 +838,9 @@ static std::string apply(
     }
     if (inputs.add_generation_prompt) {
         inp["add_generation_prompt"] = true;
+    }
+    if (inp["tools"].is_null()) {
+        inp["tools"] = json::array();
     }
     // TODO: more inputs?
 
@@ -892,9 +940,16 @@ static common_chat_params common_chat_params_init_generic(const common_chat_temp
         builder.add_schema("root", schema);
     });
 
-    auto tweaked_messages = common_chat_template::add_system(
+    auto tweaked_messages = tmpl.add_system(
         inputs.messages,
         "Respond in JSON format, either with `tool_call` (a request to call tools) or with `response` reply to the user's request");
+
+    // ensure all messages has "content" field
+    for (auto & message : tweaked_messages) {
+        if (!message.contains("content") || message["content"].is_null()) {
+            message["content"] = "";
+        }
+    }
 
     data.prompt = apply(tmpl, inputs, /* messages_override= */ tweaked_messages);
     data.format = COMMON_CHAT_FORMAT_GENERIC;
@@ -941,7 +996,9 @@ static common_chat_params common_chat_params_init_mistral_nemo(const common_chat
     data.preserved_tokens = {
         "[TOOL_CALLS]",
     };
-    data.prompt = apply(tmpl, inputs);
+    auto new_inputs = inputs;
+    common_chat_template::modify_function_args_from_string_to_json(new_inputs.messages);
+    data.prompt = apply(tmpl, new_inputs);
     data.format = COMMON_CHAT_FORMAT_MISTRAL_NEMO;
     return data;
 }
@@ -1252,6 +1309,7 @@ static common_chat_params common_chat_params_init_command_r7b(const common_chat_
             adjusted_messages.push_back(msg);
         }
     }
+    common_chat_template::modify_function_args_from_string_to_json(adjusted_messages);
     data.prompt = apply(tmpl, inputs, /* messages_override= */ adjusted_messages);
     data.format = COMMON_CHAT_FORMAT_COMMAND_R7B;
     if (string_ends_with(data.prompt, "<|START_THINKING|>")) {

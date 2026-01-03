@@ -81,7 +81,7 @@ struct context; // forward declaration
 // marking input can be useful for tracking data provenance
 // and preventing template injection attacks
 //
-// Note: T_JSON can be nlohmann::json or similar types
+// Note: T_JSON can be nlohmann::ordered_json
 template<typename T_JSON>
 void global_from_json(context & ctx, const T_JSON & json_obj);
 

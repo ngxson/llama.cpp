@@ -559,6 +559,9 @@ static void gather_string_parts_recursive(const value & val, value_string & part
     if (is_val<value_string>(val)) {
         const auto & str_val = cast_val<value_string>(val)->val_str;
         parts->val_str.append(str_val);
+    } else if (is_val<value_int>(val) || is_val<value_float>(val)) {
+        std::string str_val = val->as_string().str();
+        parts->val_str.append(str_val);
     } else if (is_val<value_array>(val)) {
         auto items = cast_val<value_array>(val)->as_array();
         for (const auto & item : items) {
