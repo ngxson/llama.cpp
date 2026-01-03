@@ -23,17 +23,18 @@ using json = nlohmann::json;
 
 int main_automated_tests(void);
 
-void run_multiple(std::string dir_path, bool stop_on_first_failure, json input);
-void run_single(std::string contents, json input, const std::string & output_path = "");
+void run_multiple(std::string dir_path, bool stop_on_first_failure, json input, bool use_common = false);
+void run_single(std::string contents, json input, bool use_common = false, const std::string & output_path = "");
 
 
 
 std::string HELP = R"(
-Usage: test-chat-jinja [OPTIONS] PATH_TO_TEMPLATE
+Usage: test-chat-template [OPTIONS] PATH_TO_TEMPLATE
 Options:
   -h, --help               Show this help message and exit.
   --json <path>            Path to the JSON input file.
   --stop-on-first-fail     Stop testing on the first failure (default: false).
+  --no-common              Use direct Jinja engine instead of common chat templates (default: use common).
   --output <path>          Path to output results (only for single template runs).
 If PATH_TO_TEMPLATE is a file, runs that single template.
 If PATH_TO_TEMPLATE is a directory, runs all .jinja files in that directory.
@@ -44,22 +45,11 @@ std::string DEFAULT_JSON = R"({
     "messages": [
         {
             "role": "user",
-            "content": {"__input__": "Hello, how are you?"}
+            "content": "Hello, how are you?"
         },
         {
             "role": "assistant",
-            "content": {"__input__": "I am fine, thank you!"},
-            "tool_calls": [
-                {
-                    "function": {
-                        "name": "get_weather",
-                        "arguments": {
-                            "location": "New York",
-                            "unit": "celsius"
-                        }
-                    }
-                }
-            ]
+            "content": "I am fine, thank you!"
         }
     ],
     "bos_token": "<s>",
@@ -75,6 +65,7 @@ int main(int argc, char ** argv) {
     std::string json_path;
     std::string output_path;
     bool stop_on_first_fail = false;
+    bool use_common = true;
 
     for (size_t i = 1; i < args.size(); i++) {
         if (args[i] == "--help" || args[i] == "-h") {
@@ -88,6 +79,8 @@ int main(int argc, char ** argv) {
         } else if (args[i] == "--output" && i + 1 < args.size()) {
             output_path = args[i + 1];
             i++;
+        } else if (args[i] == "--no-common") {
+            use_common = true;
         } else if (tmpl_path.empty()) {
             tmpl_path = args[i];
         } else {
@@ -118,13 +111,13 @@ int main(int argc, char ** argv) {
 
     std::filesystem::path p(tmpl_path);
     if (std::filesystem::is_directory(p)) {
-        run_multiple(tmpl_path, stop_on_first_fail, input_json);
+        run_multiple(tmpl_path, stop_on_first_fail, input_json, use_common);
     } else if (std::filesystem::is_regular_file(p)) {
         std::ifstream infile(tmpl_path);
         std::string contents = std::string(
             std::istreambuf_iterator<char>(infile),
             std::istreambuf_iterator<char>());
-        run_single(contents, input_json, output_path);
+        run_single(contents, input_json, use_common, output_path);
     } else {
         std::cerr << "Error: PATH_TO_TEMPLATE is not a valid file or directory: " << tmpl_path << "\n";
         return 1;
@@ -133,7 +126,7 @@ int main(int argc, char ** argv) {
     return 0;
 }
 
-void run_multiple(std::string dir_path, bool stop_on_first_fail, json input) {
+void run_multiple(std::string dir_path, bool stop_on_first_fail, json input, bool use_common) {
     std::vector<std::string> failed_tests;
 
     // list all files in models/templates/ and run each
@@ -147,7 +140,7 @@ void run_multiple(std::string dir_path, bool stop_on_first_fail, json input) {
             std::ifstream infile(entry.path());
             std::string contents((std::istreambuf_iterator<char>(infile)), std::istreambuf_iterator<char>());
             try {
-                run_single(contents, input);
+                run_single(contents, input, use_common);
             } catch (const std::exception & e) {
                 std::cout << "Exception: " << e.what() << "\n";
                 std::cout << "=== ERROR WITH TEMPLATE FILE: " << entry.path().string() << " ===\n";
@@ -168,12 +161,43 @@ void run_multiple(std::string dir_path, bool stop_on_first_fail, json input) {
 }
 
 
-void run_single(std::string contents, json input, const std::string & output_path) {
+static std::string normalize_newlines(const std::string & s) {
+#ifdef _WIN32
+  static const std::regex nl_regex("\r\n");
+  return std::regex_replace(s, nl_regex, "\n");
+#else
+  return s;
+#endif
+}
+
+
+static std::string format_using_common(
+            const std::string & template_str,
+            const std::string & bos_token,
+            const std::string & eos_token,
+            std::vector<common_chat_msg> & messages,
+            std::vector<common_chat_tool> tools = {}) {
+    auto tmpls = common_chat_templates_init(/* model= */ nullptr, template_str, bos_token, eos_token);
+    common_chat_templates_inputs inputs;
+    inputs.use_jinja = true;
+    inputs.messages = messages;
+    inputs.tools = tools;
+    inputs.add_generation_prompt = true;
+    auto output = common_chat_templates_apply(tmpls.get(), inputs).prompt;
+    output = normalize_newlines(output);
+    return output;
+}
+
+
+// skip libcommon, use direct jinja engine
+static jinja::value_string format_using_direct_engine(
+            const std::string & template_str,
+            json & input) {
     jinja::enable_debug(true);
 
     // lexing
     jinja::lexer lexer;
-    auto lexer_res = lexer.tokenize(contents);
+    auto lexer_res = lexer.tokenize(template_str);
 
     // compile to AST
     jinja::program ast = jinja::parse_from_tokens(lexer_res);
@@ -196,14 +220,44 @@ void run_single(std::string contents, json input, const std::string & output_pat
         std::cout << (part.is_input ? "DATA" : "TMPL") << ": " << part.val << "\n";
     }
 
+    return parts;
+}
+
+
+void run_single(std::string contents, json input, bool use_common, const std::string & output_path) {
+    jinja::value_string output_parts;
+
+    if (use_common) {
+        std::string bos_token = "<s>";
+        std::string eos_token = "</s>";
+        if (input.contains("bos_token")) {
+            bos_token = input["bos_token"].get<std::string>();
+        }
+        if (input.contains("eos_token")) {
+            eos_token = input["eos_token"].get<std::string>();
+        }
+        nlohmann::ordered_json msgs_json = input["messages"];
+        nlohmann::ordered_json tools_json = input["tools"];
+        auto messages = common_chat_msgs_parse_oaicompat(msgs_json);
+        auto tools = common_chat_tools_parse_oaicompat(tools_json);
+        auto output = format_using_common(contents, bos_token, eos_token, messages, tools);
+        std::cout << "\n=== OUTPUT ===\n";
+        std::cout << output << "\n";
+        output_parts = jinja::mk_val<jinja::value_string>(output);
+
+    } else {
+        output_parts = format_using_direct_engine(contents, input);
+        std::cout << "\n=== OUTPUT ===\n";
+        std::cout << output_parts->as_string().str() << "\n";
+    }
+
     if (!output_path.empty()) {
         std::ofstream outfile(output_path);
         if (!outfile) {
             throw std::runtime_error("Could not open output file: " + output_path);
         }
-        for (const auto & part : parts->as_string().parts) {
-            outfile << part.val;
-        }
+        outfile << output_parts->as_string().str();
+        outfile.close();
         std::cout << "\n=== OUTPUT WRITTEN TO " << output_path << " ===\n";
     }
 }
@@ -215,15 +269,6 @@ void run_single(std::string contents, json input, const std::string & output_pat
 //
 // Automated tests for chat templates
 //
-
-static std::string normalize_newlines(const std::string & s) {
-#ifdef _WIN32
-  static const std::regex nl_regex("\r\n");
-  return std::regex_replace(s, nl_regex, "\n");
-#else
-  return s;
-#endif
-}
 
 #define U8C(x) (const char*)(u8##x)
 
@@ -558,13 +603,11 @@ int main_automated_tests(void) {
         }
         std::cout << "\n\n=== " << test_case.name << " (jinja) ===\n\n";
         try {
-            auto tmpls = common_chat_templates_init(/* model= */ nullptr, test_case.template_str.c_str(), test_case.bos_token, test_case.eos_token);
-            common_chat_templates_inputs inputs;
-            inputs.use_jinja = true;
-            inputs.messages = messages;
-            inputs.add_generation_prompt = add_generation_prompt;
-            auto output = common_chat_templates_apply(tmpls.get(), inputs).prompt;
-            output = normalize_newlines(output);
+            auto output = format_using_common(
+                                test_case.template_str,
+                                test_case.bos_token,
+                                test_case.eos_token,
+                                messages);
             auto expected_output = normalize_newlines(test_case.expected_output_jinja.empty() ? test_case.expected_output : test_case.expected_output_jinja);
             if (output != expected_output) {
                 std::cout << "Template:```\n" << test_case.template_str << "\n```";
