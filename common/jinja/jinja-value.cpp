@@ -689,6 +689,11 @@ const func_builtins & value_object_t::get_builtins() const {
             return result;
         }},
         {"tojson", tojson},
+        {"length", [](const func_args & args) -> value {
+            args.ensure_vals<value_object>();
+            const auto & obj = args.args[0]->as_object();
+            return mk_val<value_int>(static_cast<int64_t>(obj.size()));
+        }},
         {"string", [](const func_args & args) -> value {
             args.ensure_vals<value_object>();
             return mk_val<value_string>("TO BE IMPLEMENTED");
