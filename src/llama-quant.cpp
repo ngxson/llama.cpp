@@ -722,6 +722,11 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
     gguf_set_val_u32(ctx_out.get(), "general.quantization_version", GGML_QNT_VERSION); // TODO: use LLM_KV
     gguf_set_val_u32(ctx_out.get(), "general.file_type", ftype); // TODO: use LLM_KV
 
+    // Set quantization type string for Hugging Face model card display
+    if (ftype == LLAMA_FTYPE_MOSTLY_Q4_HIFI) {
+        gguf_set_val_str(ctx_out.get(), "general.quantization_type", "Q4_HIFI");
+    }
+
     // Remove split metadata
     gguf_remove_key(ctx_out.get(), ml.llm_kv(LLM_KV_SPLIT_NO).c_str());
     gguf_remove_key(ctx_out.get(), ml.llm_kv(LLM_KV_SPLIT_COUNT).c_str());
