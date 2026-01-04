@@ -2765,7 +2765,7 @@ void dequantize_row_q5_k_hifi_res8(const block_q5_k_hifi_res8 * GGML_RESTRICT x,
 }
 
 // Public quantization function with imatrix support
-size_t quantize_row_q5_k_hifi_res8(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrow, int64_t n_per_row, const float * quant_weights) {
+size_t quantize_q5_k_hifi_res8(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrow, int64_t n_per_row, const float * quant_weights) {
     size_t row_size = ggml_row_size(GGML_TYPE_Q5_K_HIFI_RES8, n_per_row);
 
     // Get adaptive outlier count from HIFI context if available
