@@ -2820,6 +2820,7 @@ static common_chat_params common_chat_templates_apply_jinja(
         src.find("<function=") != std::string::npos &&
         src.find("<parameters>") != std::string::npos &&
         src.find("<parameter=") != std::string::npos) {
+        workaround::func_args_not_string(params.messages);
         // Nemotron 3 Nano 30B A3B
         if (src.find("<think>") != std::string::npos) {
             return common_chat_params_init_nemotron_v3(tmpl, params);

@@ -472,15 +472,27 @@ value for_statement::execute_impl(context & ctx) {
     for (size_t i = 0; i < items.size(); ++i) {
         context loop_scope(scope);
 
-        const value & current = items[i];
+        value current = items[i];
 
         std::function<void(context&)> scope_update_fn = [](context &) { /* no-op */};
         if (is_stmt<identifier>(loopvar)) {
             auto id = cast_stmt<identifier>(loopvar)->val;
-            scope_update_fn = [id, &items, i](context & ctx) {
-                ctx.set_val(id, items[i]);
-            };
+
+            if (is_val<value_object>(iterable_val)) {
+                // case example: {% for key in dict %}
+                current = items[i]->as_array()[0];
+                scope_update_fn = [id, &items, i](context & ctx) {
+                    ctx.set_val(id, items[i]->as_array()[0]);
+                };
+            } else {
+                // case example: {% for item in list %}
+                scope_update_fn = [id, &items, i](context & ctx) {
+                    ctx.set_val(id, items[i]);
+                };
+            }
+
         } else if (is_stmt<tuple_literal>(loopvar)) {
+            // case example: {% for key, value in dict %}
             auto tuple = cast_stmt<tuple_literal>(loopvar);
             if (!is_val<value_array>(current)) {
                 throw std::runtime_error("Cannot unpack non-iterable type: " + current->type());
@@ -499,9 +511,11 @@ value for_statement::execute_impl(context & ctx) {
                     ctx.set_val(id, c_arr[j]);
                 }
             };
+
         } else {
             throw std::runtime_error("Invalid loop variable(s): " + loopvar->type());
         }
+
         if (select_expr && test_expr) {
             scope_update_fn(loop_scope);
             value test_val = test_expr->execute(loop_scope);
