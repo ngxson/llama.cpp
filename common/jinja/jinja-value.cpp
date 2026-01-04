@@ -322,6 +322,7 @@ const func_builtins & global_builtins() {
 
 const func_builtins & value_int_t::get_builtins() const {
     static const func_builtins builtins = {
+        {"default", default_value},
         {"abs", [](const func_args & args) -> value {
             args.ensure_vals<value_int>();
             int64_t val = args.args[0]->as_int();
@@ -333,6 +334,7 @@ const func_builtins & value_int_t::get_builtins() const {
             return mk_val<value_float>(val);
         }},
         {"tojson", tojson},
+        {"string", tojson},
     };
     return builtins;
 }
@@ -351,6 +353,8 @@ const func_builtins & value_float_t::get_builtins() const {
             int64_t val = static_cast<int64_t>(args.args[0]->as_float());
             return mk_val<value_int>(val);
         }},
+        {"tojson", tojson},
+        {"string", tojson},
     };
     return builtins;
 }

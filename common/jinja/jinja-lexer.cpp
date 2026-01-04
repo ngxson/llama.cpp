@@ -91,6 +91,15 @@ lexer_result lexer::tokenize(const std::string & source) {
         return false;
     };
 
+    // note: default config for chat template: lstrip_blocks = false, trim_blocks = true
+
+    // text\n[space]{block} --> text\n{block}
+    bool opt_lstrip_blocks = true;
+
+    // {block}\n[space]text --> {block}[space]text
+    bool opt_trim_blocks = true;
+
+    // options set dynamically based on current/last block
     bool is_lstrip_block = false; // example: {%-
     bool is_rstrip_block = false; // example: -%}
 
@@ -106,6 +115,21 @@ lexer_result lexer::tokenize(const std::string & source) {
             last_token_type == token::close_statement ||
             last_token_type == token::close_expression ||
             last_token_type == token::comment) {
+
+            bool last_block_can_rm_newline = false;
+            is_rstrip_block = false;
+            if (pos > 3) {
+                char c0 = src[pos - 3];
+                char c1 = src[pos - 2];
+                char c2 = src[pos - 1];
+                // strip if: -[%}#]}text
+                is_rstrip_block = c0 == '-'
+                                    && (c1 == '%' || c1 == '}' || c1 == '#')
+                                    && c2 == '}';
+                // match behavior of hf.js: exclude {{ and }} cases, regex: ([#%-]})
+                last_block_can_rm_newline = (c1 == '#' || c1 == '%' || c1 == '-') && c2 == '}';
+            }
+
             std::string text;
             while (pos < src.size() &&
                     // Keep going until we hit the next Jinja statement or expression
@@ -114,6 +138,18 @@ lexer_result lexer::tokenize(const std::string & source) {
                         next_pos_is( {'%', '{', '#'} )
                     )) {
                 text += src[pos++];
+            }
+
+            // equivalent to hf.js code: template.replace(/^[ \t]*({[#%-])/gm, "$1");
+            if (opt_lstrip_blocks && src[pos] == '{' && next_pos_is({'%', '#', '-'})) {
+                string_rstrip(text, " \t"); // no newline here
+            }
+
+            // equivalent to hf.js code: template.replace(/([#%-]})\n/g, "$1");
+            if (opt_trim_blocks && last_block_can_rm_newline) {
+                if (!text.empty() && text.front() == '\n') {
+                    text.erase(text.begin());
+                }
             }
 
             if (is_rstrip_block) {
@@ -153,9 +189,6 @@ lexer_result lexer::tokenize(const std::string & source) {
             JJ_DEBUG("consumed comment: '%s'", comment.c_str());
             tokens.push_back({token::comment, comment, start_pos});
             pos += 2; // Skip the closing #}
-
-            // always do rstrip for comments
-            is_rstrip_block = true;
             continue;
         }
 
@@ -226,12 +259,6 @@ lexer_result lexer::tokenize(const std::string & source) {
                     ++curly_bracket_depth;
                 } else if (typ == token::close_curly_bracket) {
                     --curly_bracket_depth;
-                }
-
-                // optionally handle rstrip for this block
-                // this will affect the next text chunk
-                if (typ == token::close_statement || typ == token::close_expression) {
-                    is_rstrip_block = src[pos] == '-';
                 }
 
                 pos += seq.size();
