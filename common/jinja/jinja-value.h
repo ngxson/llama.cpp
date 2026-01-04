@@ -238,7 +238,17 @@ struct value_array_t : public value_t {
         val_arr = v->val_arr;
     }
     void push_back(const value & val) { val_arr.push_back(val); }
-    void pop_back() { val_arr.pop_back(); }
+    value pop_at(int64_t index) {
+        if (index < 0) {
+            index = static_cast<int64_t>(val_arr.size()) + index;
+        }
+        if (index < 0 || index >= static_cast<int64_t>(val_arr.size())) {
+            throw std::runtime_error("Index " + std::to_string(index) + " out of bounds for array of size " + std::to_string(val_arr.size()));
+        }
+        value val = val_arr.at(static_cast<size_t>(index));
+        val_arr.erase(val_arr.begin() + index);
+        return val;
+    }
     virtual std::string type() const override { return "Array"; }
     virtual const std::vector<value> & as_array() const override { return val_arr; }
     virtual string as_string() const override {

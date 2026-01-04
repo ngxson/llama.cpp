@@ -692,14 +692,12 @@ const func_builtins & value_array_t::get_builtins() const {
             return non_const_args.args[0];
         }},
         {"pop", [](const func_args & args) -> value {
-            args.ensure_count(2);
-            if (!is_val<value_array>(args.args[0])) {
-                throw raised_exception("append: first argument must be an array");
-            }
+            args.ensure_count(1, 2);
+            args.ensure_vals<value_array, value_int>(true, false);
+            int64_t index = args.args.size() == 2 ? args.args[1]->as_int() : -1;
             auto & non_const_args = const_cast<func_args &>(args); // need to modify the array
             auto arr = cast_val<value_array>(non_const_args.args[0]);
-            arr->pop_back();
-            return non_const_args.args[0];
+            return arr->pop_at(index);
         }},
         {"sort", [](const func_args &) -> value {
             throw std::runtime_error("Array sort builtin not implemented");
