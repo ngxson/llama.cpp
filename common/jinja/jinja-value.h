@@ -303,6 +303,7 @@ struct value_undefined_t : public value_t {
     virtual bool is_undefined() const override { return true; }
     virtual bool as_bool() const override { return false; }
     virtual std::string as_repr() const override { return type(); }
+    virtual const func_builtins & get_builtins() const override;
 };
 using value_undefined = std::shared_ptr<value_undefined_t>;
 

@@ -182,6 +182,18 @@ static value selectattr(const func_args & args) {
     return out;
 }
 
+static value default_value(const func_args & args) {
+    args.ensure_count(2, 3);
+    bool check_bool = false;
+    if (args.args.size() == 3) {
+        check_bool = args.args[2]->as_bool();
+    }
+    bool no_value = check_bool
+        ? (!args.args[0]->as_bool())
+        : (args.args[0]->is_undefined() || args.args[0]->is_null());
+    return no_value ? args.args[1] : args.args[0];
+}
+
 const func_builtins & global_builtins() {
     static const func_builtins builtins = {
         {"raise_exception", [](const func_args & args) -> value {
@@ -327,6 +339,7 @@ const func_builtins & value_int_t::get_builtins() const {
 
 const func_builtins & value_float_t::get_builtins() const {
     static const func_builtins builtins = {
+        {"default", default_value},
         {"abs", [](const func_args & args) -> value {
             args.ensure_vals<value_float>();
             double val = args.args[0]->as_float();
@@ -353,6 +366,7 @@ static bool string_endswith(const std::string & str, const std::string & suffix)
 
 const func_builtins & value_string_t::get_builtins() const {
     static const func_builtins builtins = {
+        {"default", default_value},
         {"upper", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
             jinja::string str = args.args[0]->as_string().uppercase();
@@ -528,6 +542,7 @@ const func_builtins & value_string_t::get_builtins() const {
 
 const func_builtins & value_bool_t::get_builtins() const {
     static const func_builtins builtins = {
+        {"default", default_value},
         {"int", [](const func_args & args) -> value {
             args.ensure_vals<value_bool>();
             bool val = args.args[0]->as_bool();
@@ -550,6 +565,7 @@ const func_builtins & value_bool_t::get_builtins() const {
 
 const func_builtins & value_array_t::get_builtins() const {
     static const func_builtins builtins = {
+        {"default", default_value},
         {"list", [](const func_args & args) -> value {
             args.ensure_vals<value_array>();
             const auto & arr = args.args[0]->as_array();
@@ -642,6 +658,24 @@ const func_builtins & value_array_t::get_builtins() const {
             return str;
         }},
         {"tojson", tojson},
+        {"map", [](const func_args & args) -> value {
+            args.ensure_count(2, 3);
+            if (!is_val<value_array>(args.args[0])) {
+                throw raised_exception("map: first argument must be an array");
+            }
+            std::string attribute = args.get_kwarg("attribute")->as_string().str();
+            value default_val = args.get_kwarg("default");
+            auto out = mk_val<value_array>();
+            auto arr = args.args[0]->as_array();
+            for (const auto & item : arr) {
+                if (!is_val<value_object>(item)) {
+                    throw raised_exception("map: item is not an object");
+                }
+                value attr_val = item->at(attribute, default_val);
+                out->push_back(attr_val);
+            }
+            return out;
+        }},
         {"sort", [](const func_args &) -> value {
             throw std::runtime_error("Array sort builtin not implemented");
         }},
@@ -658,6 +692,7 @@ const func_builtins & value_array_t::get_builtins() const {
 
 const func_builtins & value_object_t::get_builtins() const {
     static const func_builtins builtins = {
+        // {"default", default_value}, // cause issue with gpt-oss
         {"get", [](const func_args & args) -> value {
             args.ensure_vals<value_object, value_string>(); // TODO: add default value
             const auto & obj = args.args[0]->as_object();
@@ -725,7 +760,20 @@ const func_builtins & value_object_t::get_builtins() const {
 
 const func_builtins & value_null_t::get_builtins() const {
     static const func_builtins builtins = {
+        {"default", default_value},
         {"tojson", tojson},
+    };
+    return builtins;
+}
+
+
+const func_builtins & value_undefined_t::get_builtins() const {
+    static const func_builtins builtins = {
+        {"default", default_value},
+        {"tojson", [](const func_args & args) -> value {
+            args.ensure_vals<value_undefined>();
+            return mk_val<value_string>("null");
+        }},
     };
     return builtins;
 }

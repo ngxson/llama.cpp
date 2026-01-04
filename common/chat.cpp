@@ -193,26 +193,6 @@ struct common_chat_template {
         return msgs_copy;
     }
 
-    static void modify_function_args_from_string_to_json(json & messages) {
-        GGML_ASSERT(messages.is_array());
-        for (auto & message : messages) {
-            if (message.contains("tool_calls")) {
-                for (auto & tool_call : message["tool_calls"]) {
-                    if (tool_call.contains("function") && tool_call["function"].contains("arguments")) {
-                        auto & args = tool_call["function"]["arguments"];
-                        if (args.is_string()) {
-                            try {
-                                args = json::parse(args.get<std::string>());
-                            } catch (const std::exception & e) {
-                                throw std::runtime_error("Failed to parse tool call arguments as JSON: " + std::string(e.what()));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
     chat_template_caps original_caps() const {
         return caps;
     }
@@ -997,9 +977,7 @@ static common_chat_params common_chat_params_init_mistral_nemo(const common_chat
     data.preserved_tokens = {
         "[TOOL_CALLS]",
     };
-    auto new_inputs = inputs;
-    common_chat_template::modify_function_args_from_string_to_json(new_inputs.messages);
-    data.prompt = apply(tmpl, new_inputs);
+    data.prompt = apply(tmpl, inputs);
     data.format = COMMON_CHAT_FORMAT_MISTRAL_NEMO;
     return data;
 }
@@ -1310,7 +1288,6 @@ static common_chat_params common_chat_params_init_command_r7b(const common_chat_
             adjusted_messages.push_back(msg);
         }
     }
-    common_chat_template::modify_function_args_from_string_to_json(adjusted_messages);
     data.prompt = apply(tmpl, inputs, /* messages_override= */ adjusted_messages);
     data.format = COMMON_CHAT_FORMAT_COMMAND_R7B;
     if (string_ends_with(data.prompt, "<|START_THINKING|>")) {
@@ -2694,8 +2671,12 @@ static common_chat_params common_chat_params_init_seed_oss(
     return data;
 }
 
+// various workarounds for known issues with certain templates or model behaviors
+// TODO @ngxson : improve this (how?)
+namespace workaround {
+
 // if first message is system and template does not support it, merge it with next message
-static void handle_system_prompt_workaround(json & messages) {
+static void system_message_not_supported(json & messages) {
     if (!messages.empty() && messages.front().at("role") == "system") {
         if (messages.size() > 1) {
             LOG_DBG("Merging system prompt into next message\n");
@@ -2710,6 +2691,43 @@ static void handle_system_prompt_workaround(json & messages) {
         }
     }
 }
+
+static void func_args_not_string(json & messages) {
+    GGML_ASSERT(messages.is_array());
+    for (auto & message : messages) {
+        if (message.contains("tool_calls")) {
+            for (auto & tool_call : message["tool_calls"]) {
+                if (tool_call.contains("function") && tool_call["function"].contains("arguments")) {
+                    auto & args = tool_call["function"]["arguments"];
+                    if (args.is_string()) {
+                        try {
+                            args = json::parse(args.get<std::string>());
+                        } catch (const std::exception & e) {
+                            throw std::runtime_error("Failed to parse tool call arguments as JSON: " + std::string(e.what()));
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+static void move_tool_calls_to_content(json & messages, int indent_spaces = 2) {
+    GGML_ASSERT(messages.is_array());
+    for (auto & message : messages) {
+        if (message.contains("tool_calls")) {
+            auto tool_calls_new = json{
+                {"tool_calls", message.at("tool_calls")}
+            };
+            message.erase("tool_calls");
+            auto content = message.at("content");
+            std::string content_new = content.is_null() ? "" : content.get<std::string>();
+            message["content"] = content_new + tool_calls_new.dump(indent_spaces, ' ', false, json::error_handler_t::replace);
+        }
+    }
+}
+
+} // namespace workaround
 
 static common_chat_params common_chat_templates_apply_jinja(
     const struct common_chat_templates        * tmpls,
@@ -2733,7 +2751,7 @@ static common_chat_params common_chat_templates_apply_jinja(
     params.add_eos = tmpls->add_eos;
 
     if (!tmpl.original_caps().supports_system_role) {
-        handle_system_prompt_workaround(params.messages);
+        workaround::system_message_not_supported(params.messages);
     }
 
     params.extra_context = json::object();
@@ -2774,11 +2792,14 @@ static common_chat_params common_chat_templates_apply_jinja(
 
     // Command R7B: : use handler in all cases except json schema (thinking / tools).
     if (src.find("<|END_THINKING|><|START_ACTION|>") != std::string::npos && params.json_schema.is_null()) {
+        workaround::func_args_not_string(params.messages);
         return common_chat_params_init_command_r7b(tmpl, params);
     }
 
     // Granite (IBM) - detects thinking / tools support
     if (src.find("elif thinking") != std::string::npos && src.find("<|tool_call|>") != std::string::npos) {
+        workaround::func_args_not_string(params.messages);
+        workaround::move_tool_calls_to_content(params.messages);
         return common_chat_params_init_granite(tmpl, params);
     }
 
@@ -2894,6 +2915,7 @@ static common_chat_params common_chat_templates_apply_jinja(
     // Llama 3.1, 3.2, 3.3 (also requires date_string so using it even w/o tools)
     if (src.find("<|start_header_id|>ipython<|end_header_id|>") != std::string::npos) {
         auto allow_python_tag_builtin_tools = src.find("<|python_tag|>") != std::string::npos;
+        workaround::func_args_not_string(params.messages);
         return common_chat_params_init_llama_3_x(tmpl, params, allow_python_tag_builtin_tools);
     }
 
@@ -2915,10 +2937,13 @@ static common_chat_params common_chat_templates_apply_jinja(
 
     // Mistral Nemo (w/ tools)
     if (src.find("[TOOL_CALLS]") != std::string::npos) {
+        workaround::func_args_not_string(params.messages);
         return common_chat_params_init_mistral_nemo(tmpl, params);
     }
 
     // Generic fallback
+    workaround::func_args_not_string(params.messages);
+    workaround::move_tool_calls_to_content(params.messages);
     return common_chat_params_init_generic(tmpl, params);
 }
 

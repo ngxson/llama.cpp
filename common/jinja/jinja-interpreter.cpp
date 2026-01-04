@@ -87,7 +87,7 @@ value identifier::execute_impl(context & ctx) {
         if (ctx.is_get_stats) {
             it->stats.used = true;
         }
-        JJ_DEBUG("Identifier '%s' found", val.c_str());
+        JJ_DEBUG("Identifier '%s' found, type = %s", val.c_str(), it->type().c_str());
         return it;
     } else if (builtins.find(val) != builtins.end()) {
         JJ_DEBUG("Identifier '%s' found in builtins", val.c_str());
@@ -128,23 +128,42 @@ value binary_expression::execute_impl(context & ctx) {
         return mk_val<value_bool>(!value_compare(left_val, right_val));
     }
 
+    auto workaround_concat_null_with_str = [&](value & res) -> bool {
+        bool is_left_null  = left_val->is_null()  || left_val->is_undefined();
+        bool is_right_null = right_val->is_null() || right_val->is_undefined();
+        bool is_left_str   = is_val<value_string>(left_val);
+        bool is_right_str  = is_val<value_string>(right_val);
+        if ((is_left_null && is_right_str) || (is_right_null && is_left_str)) {
+            JJ_DEBUG("%s", "Workaround: treating null/undefined as empty string for string concatenation");
+            string left_str  = is_left_null  ? string() : left_val->as_string();
+            string right_str = is_right_null ? string() : right_val->as_string();
+            auto output = left_str.append(right_str);
+            res = mk_val<value_string>(std::move(output));
+            return true;
+        }
+        return false;
+    };
+
     // Handle undefined and null values
     if (is_val<value_undefined>(left_val) || is_val<value_undefined>(right_val)) {
         if (is_val<value_undefined>(right_val) && (op.value == "in" || op.value == "not in")) {
             // Special case: `anything in undefined` is `false` and `anything not in undefined` is `true`
             return mk_val<value_bool>(op.value == "not in");
         }
-        // if (ctx.wrk_around.string_plus_undefined_is_string && (op.value == "+" || op.value == "~")) {
-        //     JJ_DEBUG("%s", "Workaround: treating undefined as empty string for string concatenation");
-        //     auto left_str  = left_val->is_undefined()  ? string() : left_val->as_string();
-        //     auto right_str = right_val->is_undefined() ? string() : right_val->as_string();
-        //     auto output = left_str.append(right_str);
-        //     auto res = mk_val<value_string>();
-        //     res->val_str = std::move(output);
-        //     return res;
-        // }
+        if (op.value == "+" || op.value == "~") {
+            value res = mk_val<value_undefined>();
+            if (workaround_concat_null_with_str(res)) {
+                return res;
+            }
+        }
         throw std::runtime_error("Cannot perform operation " + op.value + " on undefined values");
     } else if (is_val<value_null>(left_val) || is_val<value_null>(right_val)) {
+        if (op.value == "+" || op.value == "~") {
+            value res = mk_val<value_undefined>();
+            if (workaround_concat_null_with_str(res)) {
+                return res;
+            }
+        }
         throw std::runtime_error("Cannot perform operation on null values");
     }
 
@@ -319,7 +338,11 @@ value filter_statement::execute_impl(context & ctx) {
 
     JJ_DEBUG("FilterStatement: applying filter to body string of length %zu", parts->val_str.length());
     filter_expression filter_expr(std::move(parts), std::move(filter));
-    return filter_expr.execute(ctx);
+    value out = filter_expr.execute(ctx);
+
+    // this node can be reused later, make sure filter is preserved
+    this->filter = std::move(filter_expr.filter);
+    return out;
 }
 
 value test_expression::execute_impl(context & ctx) {
@@ -684,6 +707,7 @@ value member_expression::execute_impl(context & ctx) {
     if (is_val<value_undefined>(object)) {
         JJ_DEBUG("%s", "Accessing property on undefined object, returning undefined");
         return val;
+
     } else if (is_val<value_object>(object)) {
         if (!is_val<value_string>(property)) {
             throw std::runtime_error("Cannot access object with non-string: got " + property->type());
