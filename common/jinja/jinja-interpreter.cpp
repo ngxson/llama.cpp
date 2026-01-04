@@ -101,10 +101,20 @@ value identifier::execute_impl(context & ctx) {
 value object_literal::execute_impl(context & ctx) {
     auto obj = mk_val<value_object>();
     for (const auto & pair : val) {
-        std::string key = pair.first->execute(ctx)->as_string().str();
+        value key_val = pair.first->execute(ctx);
+        if (!is_val<value_string>(key_val) && !is_val<value_int>(key_val)) {
+            throw std::runtime_error("Object literal: keys must be string or int values, got " + key_val->type());
+        }
+        std::string key = key_val->as_string().str();
         value val = pair.second->execute(ctx);
-        JJ_DEBUG("Object literal: setting key '%s' of type %s", key.c_str(), val->type().c_str());
-        obj->val_obj.insert(key, val);
+        JJ_DEBUG("Object literal: setting key '%s' with value type %s", key.c_str(), val->type().c_str());
+        obj->insert(key, val);
+
+        if (is_val<value_int>(key_val)) {
+            obj->val_obj.is_key_numeric = true;
+        } else if (obj->val_obj.is_key_numeric) {
+            throw std::runtime_error("Object literal: cannot mix numeric and non-numeric keys");
+        }
     }
     return obj;
 }
@@ -446,7 +456,11 @@ value for_statement::execute_impl(context & ctx) {
         auto & obj = iterable_val->as_object();
         for (auto & p : obj) {
             auto tuple = mk_val<value_array>();
-            tuple->push_back(mk_val<value_string>(p.first));
+            if (iterable_val->val_obj.is_key_numeric) {
+                tuple->push_back(mk_val<value_int>(std::stoll(p.first)));
+            } else {
+                tuple->push_back(mk_val<value_string>(p.first));
+            }
             tuple->push_back(p.second);
             items.push_back(tuple);
         }
@@ -578,7 +592,7 @@ value set_statement::execute_impl(context & ctx) {
 
     if (is_stmt<identifier>(assignee)) {
         auto var_name = cast_stmt<identifier>(assignee)->val;
-        JJ_DEBUG("Setting variable '%s' with value type %s", var_name.c_str(), rhs->type().c_str());
+        JJ_DEBUG("Setting global variable '%s' with value type %s", var_name.c_str(), rhs->type().c_str());
         ctx.set_val(var_name, rhs);
 
     } else if (is_stmt<tuple_literal>(assignee)) {
@@ -614,7 +628,7 @@ value set_statement::execute_impl(context & ctx) {
             throw std::runtime_error("Cannot assign to member of non-object");
         }
         auto obj_ptr = cast_val<value_object>(object);
-        JJ_DEBUG("Setting object property '%s'", prop_name.c_str());
+        JJ_DEBUG("Setting object property '%s' with value type %s", prop_name.c_str(), rhs->type().c_str());
         obj_ptr->insert(prop_name, rhs);
 
     } else {

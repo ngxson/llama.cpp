@@ -56,8 +56,11 @@ struct context {
     context(std::string src = "") : src(std::make_shared<std::string>(std::move(src))) {
         global = mk_val<value_object>();
         global->insert("true",  mk_val<value_bool>(true));
+        global->insert("True",  mk_val<value_bool>(true));
         global->insert("false", mk_val<value_bool>(false));
+        global->insert("False", mk_val<value_bool>(false));
         global->insert("none",  mk_val<value_null>());
+        global->insert("None",  mk_val<value_null>());
         current_time = std::time(nullptr);
     }
     ~context() = default;

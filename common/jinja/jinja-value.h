@@ -105,6 +105,10 @@ struct value_t {
     std::vector<value> val_arr;
 
     struct map {
+        // once set to true, all keys must be numeric
+        // caveat: we only allow either all numeric keys or all non-numeric keys
+        // for now, this only applied to for_statement in case of iterating over object keys/items
+        bool is_key_numeric = false;
         std::map<std::string, value> unordered;
         std::vector<std::pair<std::string, value>> ordered;
         void insert(const std::string & key, const value & val) {
