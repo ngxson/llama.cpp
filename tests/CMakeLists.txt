@@ -197,7 +197,6 @@ llama_build_and_test(
     peg-parser/test-json-parser.cpp
     peg-parser/test-json-serialization.cpp
     peg-parser/test-unicode.cpp
-    peg-parser/testing.h
     peg-parser/tests.h
 )
 llama_build_and_test(test-regex-partial.cpp)
