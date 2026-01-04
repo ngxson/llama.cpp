@@ -7,6 +7,7 @@
 #include <memory>
 #include <sstream>
 #include <set>
+#include <cstdint>
 
 #include "jinja-string.h"
 

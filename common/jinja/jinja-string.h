@@ -5,6 +5,7 @@
 #include <functional>
 #include <sstream>
 #include <algorithm>
+#include <cstdint>
 
 
 namespace jinja {
