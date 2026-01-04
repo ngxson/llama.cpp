@@ -2808,6 +2808,7 @@ static common_chat_params common_chat_templates_apply_jinja(
         src.find("<arg_key>") != std::string::npos &&
         src.find("<arg_value>") != std::string::npos &&
         params.json_schema.is_null()) {
+        workaround::func_args_not_string(params.messages);
         return common_chat_params_init_glm_4_5(tmpl, params);
     }
 
@@ -2848,6 +2849,7 @@ static common_chat_params common_chat_templates_apply_jinja(
 
     // Seed-OSS
     if (src.find("<seed:think>") != std::string::npos) {
+        workaround::func_args_not_string(params.messages);
         return common_chat_params_init_seed_oss(tmpl, params, inputs);
     }
 
