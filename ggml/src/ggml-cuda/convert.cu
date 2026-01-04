@@ -416,30 +416,30 @@ static __global__ void dequantize_block_q5_k_hifi_res8(const void * __restrict__
 
     // Q5_K bulk dequantization (same as dequantize_block_q5_K)
     const int64_t tid = threadIdx.x;
-    const int64_t il  = tid/16;  // il is in 0...1
-    const int64_t ir  = tid%16;  // ir is in 0...15
-    const int64_t is  = 2*il;    // is is in 0...2
+    const int64_t il  = tid/16;   // il is in 0...3
+    const int64_t ir  = tid%16;   // ir is in 0...15
+    const int64_t is  = 2*il;     // is is in 0...6
 
     dst_t * y = yy + i*QK_K + 64*il + 2*ir;
 
-    const float d = __half2float(x[i].GGML_COMMON_AGGR_U.GGML_COMMON_AGGR_S.d);
-    const float dmin = __half2float(x[i].GGML_COMMON_AGGR_U.GGML_COMMON_AGGR_S.dmin);
+    const float dall = __low2half(x[i].dm);
+    const float dmin = __high2half(x[i].dm);
 
     const uint8_t * ql = x[i].qs + 32*il + 2*ir;
     const uint8_t * qh = x[i].qh + 2*ir;
 
-    const uint8_t sc = x[i].scales[is + il/2];
-    const uint8_t m  = x[i].scales[is + il/2 + QK_K/32];
+    uint8_t sc, m;
+    get_scale_min_k4(is + 0, x[i].scales, sc, m);
+    const float d1 = dall * sc; const float m1 = dmin * m;
+    get_scale_min_k4(is + 1, x[i].scales, sc, m);
+    const float d2 = dall * sc; const float m2 = dmin * m;
 
-    const uint8_t sc0 = (sc & 0xF);
-    const uint8_t sc1 = (sc >> 4);
-    const uint8_t m0  = (m & 0xF);
-    const uint8_t m1  = (m >> 4);
-
-    y[0]  = d * sc0 * ((ql[0] & 0xF) + (((qh[0] >> (4*il+0)) & 1) << 4)) - dmin * m0;
-    y[1]  = d * sc0 * ((ql[1] & 0xF) + (((qh[1] >> (4*il+0)) & 1) << 4)) - dmin * m0;
-    y[32] = d * sc1 * ((ql[0] >> 4)  + (((qh[0] >> (4*il+1)) & 1) << 4)) - dmin * m1;
-    y[33] = d * sc1 * ((ql[1] >> 4)  + (((qh[1] >> (4*il+1)) & 1) << 4)) - dmin * m1;
+    uint8_t   hm  = 1 << (2*il);
+    y[ 0] = d1 * ((ql[ 0] & 0xF) + (qh[ 0] & hm ? 16 : 0)) - m1;
+    y[ 1] = d1 * ((ql[ 1] & 0xF) + (qh[ 1] & hm ? 16 : 0)) - m1;
+    hm <<= 1;
+    y[32] = d2 * ((ql[ 0] >>  4) + (qh[ 0] & hm ? 16 : 0)) - m2;
+    y[33] = d2 * ((ql[ 1] >>  4) + (qh[ 1] & hm ? 16 : 0)) - m2;
 
     // Thread 0 handles INT8 residual corrections
     __syncthreads();
@@ -796,7 +796,7 @@ static void dequantize_row_q6_k_hifi_res8_cuda(const void * vx, dst_t * y, const
 template<typename dst_t>
 static void dequantize_row_q5_k_hifi_res8_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
     const int nb = k / QK_K;
-    dequantize_block_q5_k_hifi_res8<<<nb, 32, 0, stream>>>(vx, y);
+    dequantize_block_q5_k_hifi_res8<<<nb, 64, 0, stream>>>(vx, y);
 }
 
 template<typename dst_t>

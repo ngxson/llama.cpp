@@ -1031,26 +1031,46 @@ static __device__ __forceinline__ float vec_dot_q5_k_hifi_res8_q8_1(
 
     const block_q5_k_hifi_res8 * bq5_hifi = (const block_q5_k_hifi_res8 *) vbq + kbx;
 
-    // === Q5_K bulk dot product (adapted from vec_dot_q5_K_q8_1) ===
-    const int bq8_offset = QR5_K * (iqs / (QI5_K/2)) + (iqs % (QI5_K/2)) / (QI5_K/4);
-    
-    const int * ql = (const int *)(bq5_hifi->qs + 16 * bq8_offset + 4 * ((iqs/2)%4));
-    const int * qh = (const int *)(bq5_hifi->qh + 4 * ((iqs/2)%4));
-
-    const float d = __half2float(bq5_hifi->GGML_COMMON_AGGR_U.GGML_COMMON_AGGR_S.d);
-    const float dmin = __half2float(bq5_hifi->GGML_COMMON_AGGR_U.GGML_COMMON_AGGR_S.dmin);
-
+    // === Q5_K bulk dot product (same as vec_dot_q5_K_q8_1) ===
+    int   vl[2];
+    int   vh[2];
     int    u[2*QR5_K];
     float d8[QR5_K];
 
+    const int bq8_offset = QR5_K * ((iqs/2) / (QI8_1/2));
+    const int * ql = (const int *)(bq5_hifi->qs + 16 * bq8_offset + 4 * ((iqs/2)%4));
+    const int * qh = (const int *)(bq5_hifi->qh + 4 * ((iqs/2)%4));
+
+    vl[0] = ql[0];
+    vl[1] = ql[4];
+
+    vh[0] = qh[0] >> bq8_offset;
+    vh[1] = qh[4] >> bq8_offset;
+
+    const uint16_t * scales = (const uint16_t *)bq5_hifi->scales;
+    uint16_t aux[2];
+    const int j = bq8_offset/2;
+    if (j < 2) {
+        aux[0] = scales[j+0] & 0x3f3f;
+        aux[1] = scales[j+2] & 0x3f3f;
+    } else {
+        aux[0] = ((scales[j+2] >> 0) & 0x0f0f) | ((scales[j-2] & 0xc0c0) >> 2);
+        aux[1] = ((scales[j+2] >> 4) & 0x0f0f) | ((scales[j-0] & 0xc0c0) >> 2);
+    }
+    const uint8_t * sc = (const uint8_t *)aux;
+    const uint8_t * m  = sc + 2;
+
 #pragma unroll
     for (int i = 0; i < QR5_K; ++i) {
-        u[2*i+0] = get_int_b4(bq8_1[bq8_offset + i].qs, iqs % QI8_1);
-        u[2*i+1] = get_int_b4(bq8_1[bq8_offset + i].qs, iqs % QI8_1 + QI8_1/2);
-        d8[i] = __low2float(bq8_1[bq8_offset + i].ds);
+        const block_q8_1 * bq8i = bq8_1 + bq8_offset + i;
+        d8[i] = __low2float(bq8i->ds);
+
+        const int * q8 = (const int *)bq8i->qs + ((iqs/2)%4);
+        u[2*i+0] = q8[0];
+        u[2*i+1] = q8[4];
     }
 
-    float sum = vec_dot_q5_K_q8_1_impl_vmmq(ql, qh, u, bq5_hifi->scales, d, dmin, d8);
+    float sum = vec_dot_q5_K_q8_1_impl_vmmq(vl, vh, u, sc, m, bq5_hifi->dm, d8);
 
     // === INT8 RESIDUAL CORRECTION ===
     const int outlier_count = bq5_hifi->outlier_count;
