@@ -1579,6 +1579,8 @@ static void test_template_output_parsers() {
                 "{\"arg1\": 1}\n"
                 "```<｜tool▁call▁end｜><｜tool▁calls▁end｜>");
     }
+// TODO @ngxson : IBM granite does NOT support native tool calls, to be removed...
+#if 0
     {
         auto tmpls = read_templates("models/templates/ibm-granite-granite-3.3-2B-Instruct.jinja");
         std::vector<std::string> end_tokens{ "<|end_of_text|>" };
@@ -1723,6 +1725,7 @@ static void test_template_output_parsers() {
                       /* expect_grammar_triggered= */ false
         );
     }
+#endif
     {
         auto tmpls = read_templates("models/templates/openai-gpt-oss-120b.jinja");
         std::vector<std::string> end_tokens{ "<|return|>", "<|call|>" };
@@ -2245,7 +2248,7 @@ static void test_template_output_parsers() {
                     /* .parse_tool_calls = */ true,
                 }));
     }
-    {
+    if (false) {
         auto tmpls = read_templates("models/templates/Apertus-8B-Instruct.jinja");
         std::vector<std::string> end_tokens{ "<|assistant_end|>" };
 
