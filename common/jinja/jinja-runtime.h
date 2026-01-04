@@ -142,7 +142,7 @@ struct program : public statement {
     explicit program(statements && body) : body(std::move(body)) {}
     std::string type() const override { return "Program"; }
     value execute_impl(context &) override {
-        throw std::runtime_error("Cannot execute program directly, use jinja::interpreter instead");
+        throw std::runtime_error("Cannot execute program directly, use jinja::runtime instead");
     }
 };
 
@@ -593,9 +593,9 @@ static std::string render_string_parts(const value_string & parts) {
     return oss.str();
 }
 
-struct interpreter {
+struct runtime {
     context & ctx;
-    explicit interpreter(context & ctx) : ctx(ctx) {}
+    explicit runtime(context & ctx) : ctx(ctx) {}
 
     value_array execute(const program & prog) {
         value_array results = mk_val<value_array>();

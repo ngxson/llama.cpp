@@ -5,7 +5,7 @@
 #include <sstream>
 
 #include "jinja-value.h"
-#include "jinja-interpreter.h"
+#include "jinja-runtime.h"
 
 namespace jinja {
 

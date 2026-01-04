@@ -1,5 +1,5 @@
 #include "jinja-lexer.h"
-#include "jinja-interpreter.h"
+#include "jinja-runtime.h"
 #include "jinja-parser.h"
 #include "jinja-value.h"
 #include "jinja-utils.h"
@@ -10,7 +10,7 @@
 #include <algorithm>
 #include <cmath>
 
-#define FILENAME "jinja-interpreter"
+#define FILENAME "jinja-runtime"
 
 bool g_jinja_debug = false;
 

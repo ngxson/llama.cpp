@@ -12,7 +12,7 @@
 
 #include "jinja/jinja-parser.h"
 #include "jinja/jinja-value.h"
-#include "jinja/jinja-interpreter.h"
+#include "jinja/jinja-runtime.h"
 #include "jinja/jinja-caps.h"
 
 #include <algorithm>
@@ -828,9 +828,9 @@ static std::string apply(
     jinja::global_from_json(ctx, inp);
 
     // render
-    jinja::interpreter interpreter(ctx);
-    const jinja::value results = interpreter.execute(tmpl.prog);
-    auto parts = interpreter.gather_string_parts(results);
+    jinja::runtime runtime(ctx);
+    const jinja::value results = runtime.execute(tmpl.prog);
+    auto parts = runtime.gather_string_parts(results);
 
     std::string result = parts->as_string().str();
 

@@ -1,7 +1,7 @@
 #include <vector>
 
 #include "jinja-value.h"
-#include "jinja-interpreter.h"
+#include "jinja-runtime.h"
 #include "jinja-caps.h"
 
 #include <nlohmann/json.hpp>
@@ -33,8 +33,8 @@ static void caps_try_execute(jinja::program & prog,
 
     bool success = false;
     try {
-        jinja::interpreter interpreter(ctx);
-        interpreter.execute(prog);
+        jinja::runtime runtime(ctx);
+        runtime.execute(prog);
         success = true;
     } catch (const std::exception & e) {
         JJ_DEBUG("Exception during execution: %s", e.what());

@@ -1,5 +1,5 @@
 #include "jinja-lexer.h"
-#include "jinja-interpreter.h"
+#include "jinja-runtime.h"
 #include "jinja-parser.h"
 
 #include <string>

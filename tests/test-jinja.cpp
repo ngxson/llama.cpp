@@ -3,7 +3,7 @@
 
 #include <nlohmann/json.hpp>
 
-#include "jinja/jinja-interpreter.h"
+#include "jinja/jinja-runtime.h"
 #include "jinja/jinja-parser.h"
 #include "jinja/jinja-lexer.h"
 
@@ -823,11 +823,11 @@ static void test_template(testing & t, const std::string & name, const std::stri
         jinja::context ctx(tmpl);
         jinja::global_from_json(ctx, vars);
 
-        jinja::interpreter interpreter(ctx);
+        jinja::runtime runtime(ctx);
 
         try {
-            const jinja::value results = interpreter.execute(ast);
-            auto parts = interpreter.gather_string_parts(results);
+            const jinja::value results = runtime.execute(ast);
+            auto parts = runtime.gather_string_parts(results);
 
             std::string rendered;
             for (const auto & part : parts->as_string().parts) {
