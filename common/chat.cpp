@@ -2771,11 +2771,6 @@ static void use_generic_schema(json & messages) {
                 }
             }
         }
-        if (message.contains("content")
-                && message.at("content").is_string()
-                && message.at("content").get<std::string>().empty()) {
-            message.erase("content");
-        }
     }
 }
 
