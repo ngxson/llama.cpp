@@ -418,7 +418,7 @@ static_assert(sizeof(block_q6_k_hifi_res8) == 232, "wrong q6_k_hifi_res8 block s
 // Q5_K_HIFI_RES8: Efficient Q5_K with INT8 residuals for 4B-10B models
 // This format is optimized for mid-scale models where Q6_K overhead is wasteful.
 // Q5_K base provides sufficient precision, outliers compensate for 1-bit loss.
-// Size: 198 bytes vs Q6_K_HIFI_RES8's 232 bytes (~15% smaller)
+// Size: 200 bytes vs Q6_K_HIFI_RES8's 232 bytes (~14% smaller)
 // Expected results: matches Q6_K_HIFI_RES8 quality at better BPW efficiency
 #define Q5_K_HIFI_RES8_MAX_OUTLIERS 8
 typedef struct {
@@ -433,15 +433,15 @@ typedef struct {
     uint8_t scales[K_SCALE_SIZE]; // 12 bytes: scales and mins, quantized with 6 bits
     uint8_t qh[QK_K/8];           // 32 bytes: quants, high bit
     uint8_t qs[QK_K/2];           // 128 bytes: quants, low 4 bits
-    // === COMPACT INT8 RESIDUAL EXTENSION (22 bytes) ===
+    // === COMPACT INT8 RESIDUAL EXTENSION (24 bytes) ===
     uint8_t outlier_count;                               // 1 byte: actual outlier count (1-8)
     uint8_t outlier_idx[Q5_K_HIFI_RES8_MAX_OUTLIERS];    // 8 bytes: outlier positions (0-255)
     int8_t  residual_vals[Q5_K_HIFI_RES8_MAX_OUTLIERS];  // 8 bytes: INT8 residuals (-127 to +127)
-    uint8_t _padding;                                    // 1 byte: padding for float alignment
+    uint8_t _padding[3];                                 // 3 bytes: padding for float alignment
     float   residual_scale;                              // 4 bytes: shared scale for residuals
 } block_q5_k_hifi_res8;
-// Total: 198 bytes (176 + 22) - 15% smaller than Q6_K_HIFI_RES8
-static_assert(sizeof(block_q5_k_hifi_res8) == 198, "wrong q5_k_hifi_res8 block size/padding");
+// Total: 200 bytes (176 + 24) - 14% smaller than Q6_K_HIFI_RES8
+static_assert(sizeof(block_q5_k_hifi_res8) == 200, "wrong q5_k_hifi_res8 block size/padding");
 
 // This is only used for intermediate quantization and dot products
 typedef struct {
