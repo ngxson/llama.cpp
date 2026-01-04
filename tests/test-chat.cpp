@@ -742,7 +742,6 @@ static void test_template_output_parsers() {
 
     // TODO @ngxson : the COMMON_CHAT_FORMAT_GENERIC relies on many workarounds for various models;
     // it is costly to maintain and not robust, considering removing it in the future.
-#if 0
     {
         // Not supported yet
         auto tmpls = read_templates("models/templates/CohereForAI-c4ai-command-r-plus-tool_use.jinja");
@@ -912,8 +911,6 @@ static void test_template_output_parsers() {
                       "  ]\n"
                       "}");
     }
-#endif
-
     {
         auto tmpls = read_templates("models/templates/mistralai-Mistral-Nemo-Instruct-2407.jinja");
         std::vector<std::string>   end_tokens{ "</s>" };
@@ -1579,8 +1576,6 @@ static void test_template_output_parsers() {
                 "{\"arg1\": 1}\n"
                 "```<｜tool▁call▁end｜><｜tool▁calls▁end｜>");
     }
-// TODO @ngxson : IBM granite does NOT support native tool calls, to be removed...
-#if 0
     {
         auto tmpls = read_templates("models/templates/ibm-granite-granite-3.3-2B-Instruct.jinja");
         std::vector<std::string> end_tokens{ "<|end_of_text|>" };
@@ -1725,7 +1720,6 @@ static void test_template_output_parsers() {
                       /* expect_grammar_triggered= */ false
         );
     }
-#endif
     {
         auto tmpls = read_templates("models/templates/openai-gpt-oss-120b.jinja");
         std::vector<std::string> end_tokens{ "<|return|>", "<|call|>" };

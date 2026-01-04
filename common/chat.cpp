@@ -2727,6 +2727,49 @@ static void move_tool_calls_to_content(json & messages, int indent_spaces = 2) {
     }
 }
 
+// TODO @ngxson : we may remove support for generic schema in the future
+static void use_generic_schema(json & messages) {
+    GGML_ASSERT(messages.is_array());
+    for (auto & message : messages) {
+        if (message.contains("tool_calls") && message.at("tool_calls").is_array()) {
+            auto & tool_calls = message.at("tool_calls");
+            for (auto & tool_call : tool_calls) {
+                if (tool_call.contains("type") && tool_call.at("type") == "function" &&
+                    tool_call.contains("function") && tool_call.at("function").is_object()) {
+                    // Copy values before erasing to avoid use-after-free
+                    json name_value;
+                    json arguments_value;
+                    json id_value;
+                    const auto & function = tool_call.at("function");
+                    if (function.contains("name")) {
+                        name_value = function.at("name");
+                    }
+                    if (function.contains("arguments")) {
+                        arguments_value = function.at("arguments");
+                    }
+                    if (tool_call.contains("id")) {
+                        id_value = tool_call.at("id");
+                    }
+                    // Now safely erase and assign in the correct order
+                    tool_call.erase("type");
+                    tool_call.erase("function");
+                    tool_call.erase("id");
+                    // Reassign in desired order: name, arguments, id
+                    if (!name_value.is_null()) {
+                        tool_call["name"] = name_value;
+                    }
+                    if (!arguments_value.is_null()) {
+                        tool_call["arguments"] = arguments_value;
+                    }
+                    if (!id_value.is_null()) {
+                        tool_call["id"] = id_value;
+                    }
+                }
+            }
+        }
+    }
+}
+
 } // namespace workaround
 
 static common_chat_params common_chat_templates_apply_jinja(
@@ -2799,6 +2842,7 @@ static common_chat_params common_chat_templates_apply_jinja(
     // Granite (IBM) - detects thinking / tools support
     if (src.find("elif thinking") != std::string::npos && src.find("<|tool_call|>") != std::string::npos) {
         workaround::func_args_not_string(params.messages);
+        workaround::use_generic_schema(params.messages);
         workaround::move_tool_calls_to_content(params.messages);
         return common_chat_params_init_granite(tmpl, params);
     }
@@ -2947,6 +2991,7 @@ static common_chat_params common_chat_templates_apply_jinja(
 
     // Generic fallback
     workaround::func_args_not_string(params.messages);
+    workaround::use_generic_schema(params.messages);
     workaround::move_tool_calls_to_content(params.messages);
     return common_chat_params_init_generic(tmpl, params);
 }
