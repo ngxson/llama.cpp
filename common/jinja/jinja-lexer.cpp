@@ -91,7 +91,7 @@ lexer_result lexer::tokenize(const std::string & source) {
         return false;
     };
 
-    // note: default config for chat template: lstrip_blocks = false, trim_blocks = true
+    // note: default config for chat template: lstrip_blocks = true, trim_blocks = true
 
     // text\n[space]{block} --> text\n{block}
     bool opt_lstrip_blocks = true;
@@ -130,20 +130,38 @@ lexer_result lexer::tokenize(const std::string & source) {
                 last_block_can_rm_newline = (c1 == '#' || c1 == '%' || c1 == '-') && c2 == '}';
             }
 
-            std::string text;
+            size_t start = pos;
+            size_t end = start;
             while (pos < src.size() &&
                     // Keep going until we hit the next Jinja statement or expression
                     !(
                         src[pos] == '{' &&
                         next_pos_is( {'%', '{', '#'} )
                     )) {
-                text += src[pos++];
+                end = ++pos;
             }
 
             // equivalent to hf.js code: template.replace(/^[ \t]*({[#%-])/gm, "$1");
             if (opt_lstrip_blocks && src[pos] == '{' && next_pos_is({'%', '#', '-'})) {
-                string_rstrip(text, " \t"); // no newline here
+                size_t current = end;
+                while (current > start) {
+                    char c = src[current - 1];
+                    if (current == 1) {
+                        end = 0; // Trim from the start of the string
+                        break;
+                    }
+                    if (c == '\n' || c == '\r') {
+                        end = current; // Trim from the start of the line
+                        break;
+                    }
+                    if (!std::isspace(c)) {
+                        break; // Found non-whitespace before newline, keep
+                    }
+                    --current;
+                }
             }
+
+            std::string text = src.substr(start, end - start);
 
             // equivalent to hf.js code: template.replace(/([#%-]})\n/g, "$1");
             if (opt_trim_blocks && last_block_can_rm_newline) {
@@ -159,7 +177,7 @@ lexer_result lexer::tokenize(const std::string & source) {
                 string_lstrip(text, " \t\r\n");
             }
 
-            is_lstrip_block = next_pos_is({'{', '%', '#'}) && next_pos_is({'-'}, 2);
+            is_lstrip_block = src[pos] == '{' && next_pos_is({'{', '%', '#'}) && next_pos_is({'-'}, 2);
             if (is_lstrip_block) {
                 // example: text[space]{current_block}
                 // doing rstrip on text, effectively lstrip the CURRENT block
