@@ -83,7 +83,7 @@ struct context; // forward declaration
 //
 // Note: T_JSON can be nlohmann::ordered_json
 template<typename T_JSON>
-void global_from_json(context & ctx, const T_JSON & json_obj);
+void global_from_json(context & ctx, const T_JSON & json_obj, bool mark_input);
 
 //
 // base value type

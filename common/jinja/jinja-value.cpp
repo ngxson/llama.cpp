@@ -855,7 +855,7 @@ const func_builtins & value_undefined_t::get_builtins() const {
 //////////////////////////////////
 
 
-static value from_json(const nlohmann::ordered_json & j) {
+static value from_json(const nlohmann::ordered_json & j, bool mark_input) {
     if (j.is_null()) {
         return mk_val<value_null>();
     } else if (j.is_boolean()) {
@@ -865,27 +865,23 @@ static value from_json(const nlohmann::ordered_json & j) {
     } else if (j.is_number_float()) {
         return mk_val<value_float>(j.get<double>());
     } else if (j.is_string()) {
-        return mk_val<value_string>(j.get<std::string>());
+        auto str = mk_val<value_string>(j.get<std::string>());
+        if (mark_input) {
+            str->mark_input();
+        }
+        return str;
     } else if (j.is_array()) {
         auto arr = mk_val<value_array>();
         for (const auto & item : j) {
-            arr->push_back(from_json(item));
+            arr->push_back(from_json(item, mark_input));
         }
         return arr;
     } else if (j.is_object()) {
-        if (j.contains("__input__")) {
-            // handle input marking
-            auto str = mk_val<value_string>(j.at("__input__").get<std::string>());
-            str->mark_input();
-            return str;
-        } else {
-            // normal object
-            auto obj = mk_val<value_object>();
-            for (auto it = j.begin(); it != j.end(); ++it) {
-                obj->insert(it.key(), from_json(it.value()));
-            }
-            return obj;
+        auto obj = mk_val<value_object>();
+        for (auto it = j.begin(); it != j.end(); ++it) {
+            obj->insert(it.key(), from_json(it.value(), mark_input));
         }
+        return obj;
     } else {
         throw std::runtime_error("Unsupported JSON value type");
     }
@@ -942,14 +938,14 @@ bool value_compare(const value & a, const value & b, value_compare_op op) {
 }
 
 template<>
-void global_from_json(context & ctx, const nlohmann::ordered_json & json_obj) {
+void global_from_json(context & ctx, const nlohmann::ordered_json & json_obj, bool mark_input) {
     // printf("global_from_json: %s\n" , json_obj.dump(2).c_str());
     if (json_obj.is_null() || !json_obj.is_object()) {
         throw std::runtime_error("global_from_json: input JSON value must be an object");
     }
     for (auto it = json_obj.begin(); it != json_obj.end(); ++it) {
         JJ_DEBUG("global_from_json: setting key '%s'", it.key().c_str());
-        ctx.set_val(it.key(), from_json(it.value()));
+        ctx.set_val(it.key(), from_json(it.value(), mark_input));
     }
 }
 

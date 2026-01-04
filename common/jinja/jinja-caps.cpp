@@ -26,7 +26,7 @@ static void caps_try_execute(jinja::program & prog,
         {"bos_token", ""},
         {"eos_token", ""},
         {"add_generation_prompt", true}
-    });
+    }, true);
 
     auto messages = ctx.get_val("messages");
     auto tools = ctx.get_val("tools");

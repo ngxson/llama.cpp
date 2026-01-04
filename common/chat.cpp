@@ -227,6 +227,7 @@ struct templates_params {
     bool add_bos;
     bool add_eos;
     bool is_inference = true;
+    bool mark_input = true; // whether to mark input strings in the jinja context
 };
 
 common_chat_tool_choice common_chat_tool_choice_parse_oaicompat(const std::string & tool_choice) {
@@ -805,8 +806,6 @@ static std::string apply(
     const std::optional<json> & tools_override = std::nullopt,
     const std::optional<json> & additional_context = std::nullopt)
 {
-    // TODO IMPORTANT: IMPROVE THIS
-
     jinja::context ctx(tmpl.source());
 
     nlohmann::ordered_json inp = nlohmann::ordered_json{
@@ -827,9 +826,8 @@ static std::string apply(
     if (inp["tools"].is_null()) {
         inp["tools"] = json::array();
     }
-    // TODO: more inputs?
 
-    jinja::global_from_json(ctx, inp);
+    jinja::global_from_json(ctx, inp, inputs.mark_input);
 
     // render
     jinja::runtime runtime(ctx);

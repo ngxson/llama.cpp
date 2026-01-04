@@ -821,7 +821,7 @@ static void test_template(testing & t, const std::string & name, const std::stri
         jinja::program ast = jinja::parse_from_tokens(lexer_res);
 
         jinja::context ctx(tmpl);
-        jinja::global_from_json(ctx, vars);
+        jinja::global_from_json(ctx, vars, true);
 
         jinja::runtime runtime(ctx);
 
