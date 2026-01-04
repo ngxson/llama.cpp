@@ -327,6 +327,9 @@ value filter_expression::execute_impl(context & ctx) {
 
     } else if (is_stmt<call_expression>(filter)) {
         auto call = cast_stmt<call_expression>(filter);
+        if (!is_stmt<identifier>(call->callee)) {
+            throw std::runtime_error("Filter callee must be an identifier");
+        }
         auto filter_id = cast_stmt<identifier>(call->callee)->val;
 
         JJ_DEBUG("Applying filter '%s' with arguments to %s", filter_id.c_str(), input->type().c_str());
@@ -640,6 +643,9 @@ value set_statement::execute_impl(context & ctx) {
 }
 
 value macro_statement::execute_impl(context & ctx) {
+    if (!is_stmt<identifier>(this->name)) {
+        throw std::runtime_error("Macro name must be an identifier");
+    }
     std::string name = cast_stmt<identifier>(this->name)->val;
 
     const func_handler func = [this, name, &ctx](const func_args & args) -> value {
@@ -660,6 +666,9 @@ value macro_statement::execute_impl(context & ctx) {
                 } else if (is_stmt<keyword_argument_expression>(this->args[i])) {
                     // default argument used as normal parameter
                     auto kwarg = cast_stmt<keyword_argument_expression>(this->args[i]);
+                    if (!is_stmt<identifier>(kwarg->key)) {
+                        throw std::runtime_error("Keyword argument key must be an identifier in macro '" + name + "'");
+                    }
                     std::string param_name = cast_stmt<identifier>(kwarg->key)->val;
                     JJ_DEBUG("  Binding parameter '%s' to argument of type %s", param_name.c_str(), args.args[i]->type().c_str());
                     macro_ctx.set_val(param_name, args.args[i]);
@@ -670,6 +679,9 @@ value macro_statement::execute_impl(context & ctx) {
                 auto & default_arg = this->args[i];
                 if (is_stmt<keyword_argument_expression>(default_arg)) {
                     auto kwarg = cast_stmt<keyword_argument_expression>(default_arg);
+                    if (!is_stmt<identifier>(kwarg->key)) {
+                        throw std::runtime_error("Keyword argument key must be an identifier in macro '" + name + "'");
+                    }
                     std::string param_name = cast_stmt<identifier>(kwarg->key)->val;
                     JJ_DEBUG("  Binding parameter '%s' to default argument of type %s", param_name.c_str(), kwarg->val->type().c_str());
                     macro_ctx.set_val(param_name, kwarg->val->execute(ctx));
@@ -727,6 +739,9 @@ value member_expression::execute_impl(context & ctx) {
             property = this->property->execute(ctx);
         }
     } else {
+        if (!is_stmt<identifier>(this->property)) {
+            throw std::runtime_error("Non-computed member property must be an identifier");
+        }
         property = mk_val<value_string>(cast_stmt<identifier>(this->property)->val);
     }
 
