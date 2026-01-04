@@ -260,8 +260,8 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                      ftype == LLAMA_FTYPE_MOSTLY_IQ1_M) {
                 new_type = GGML_TYPE_Q5_K;
             }
-            else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_HIFI) {
-                // Q4_HIFI: Q6_K_HIFI_RES8 (Q6_K + INT8 residuals) on output - always critical
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
+                // Q4_K_HIFI: Q6_K_HIFI_RES8 (Q6_K + INT8 residuals) on output - always critical
                 new_type = GGML_TYPE_Q6_K_HIFI_RES8;
             }
             else if (new_type != GGML_TYPE_Q8_0) {
@@ -293,8 +293,8 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             else if (ftype == LLAMA_FTYPE_MOSTLY_TQ1_0 || ftype == LLAMA_FTYPE_MOSTLY_TQ2_0) {
                 new_type = GGML_TYPE_Q4_K;
             }
-            else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_HIFI) {
-                // Q4_HIFI: Q6_K_HIFI_RES8 (Q6_K + INT8 residuals) on token embeddings - always critical
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
+                // Q4_K_HIFI: Q6_K_HIFI_RES8 (Q6_K + INT8 residuals) on token embeddings - always critical
                 new_type = GGML_TYPE_Q6_K_HIFI_RES8;
             }
         }
@@ -341,8 +341,8 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_M) {
             new_type = qs.i_attention_wv < 2 ? GGML_TYPE_Q5_K : GGML_TYPE_Q4_K;
         }
-        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_HIFI) {
-            // Q4_HIFI: Model-size-aware enhancement to optimize size vs quality tradeoff
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
+            // Q4_K_HIFI: Model-size-aware enhancement to optimize size vs quality tradeoff
             // - Small models (≤2B): enhance 50% of attn_v layers (high ROI)
             // - Medium models (2-8B): enhance 30% of attn_v layers (moderate ROI)
             // - Large models (>8B): enhance 15% of attn_v layers (diminishing returns)
@@ -418,8 +418,8 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L) {
             new_type = arch == LLM_ARCH_FALCON ? GGML_TYPE_Q4_K : GGML_TYPE_Q5_K;
         }
-        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q4_HIFI) {
-            // Q4_HIFI follows Q4_K_M behavior for ffn_down
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
+            // Q4_K_HIFI follows Q4_K_M behavior for ffn_down
             if (arch == LLM_ARCH_FALCON) {
                 new_type = i_layer < n_layer/16 ? GGML_TYPE_Q6_K :
                            use_more_bits(i_layer, n_layer) ? GGML_TYPE_Q5_K : GGML_TYPE_Q4_K;
@@ -466,7 +466,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L || ftype == LLAMA_FTYPE_MOSTLY_IQ3_M) {
             new_type = GGML_TYPE_Q4_K;
         }
-        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q4_HIFI) new_type = GGML_TYPE_Q5_K;
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) new_type = GGML_TYPE_Q5_K;
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_M) new_type = GGML_TYPE_Q6_K;
     }
     else if (name.find("ffn_gate") != std::string::npos) {
@@ -652,7 +652,7 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
         case LLAMA_FTYPE_MOSTLY_IQ4_XS:  default_type = GGML_TYPE_IQ4_XS;  break;
         case LLAMA_FTYPE_MOSTLY_IQ3_S:   default_type = GGML_TYPE_IQ3_S;   break;
         case LLAMA_FTYPE_MOSTLY_IQ3_M:   default_type = GGML_TYPE_IQ3_S;   break;
-        case LLAMA_FTYPE_MOSTLY_Q4_HIFI: default_type = GGML_TYPE_Q4_K; break; // Q4_K_M + dynamic outliers + early exit
+        case LLAMA_FTYPE_MOSTLY_Q4_K_HIFI: default_type = GGML_TYPE_Q4_K; break; // Q4_K_M + dynamic outliers + early exit
 
         default: throw std::runtime_error(format("invalid output file type %d\n", ftype));
     }
@@ -723,8 +723,8 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
     gguf_set_val_u32(ctx_out.get(), "general.file_type", ftype); // TODO: use LLM_KV
 
     // Set quantization type string for Hugging Face model card display
-    if (ftype == LLAMA_FTYPE_MOSTLY_Q4_HIFI) {
-        gguf_set_val_str(ctx_out.get(), "general.quantization_type", "Q4_HIFI");
+    if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
+        gguf_set_val_str(ctx_out.get(), "general.quantization_type", "Q4_K_HIFI");
     }
 
     // Remove split metadata
@@ -1070,7 +1070,7 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
             ggml_hifi_quant_context hifi_ctx = {};
             const ggml_hifi_quant_context * hifi_ctx_ptr = nullptr;
 
-            if (new_type == GGML_TYPE_Q6_K_HIFI_RES8 && ftype == LLAMA_FTYPE_MOSTLY_Q4_HIFI) {
+            if (new_type == GGML_TYPE_Q6_K_HIFI_RES8 && ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
                 // Extract layer index from tensor name (e.g., "blk.5.attn_v.weight" -> 5)
                 int layer_idx = -1;
                 if (sscanf(name.c_str(), "blk.%d.", &layer_idx) != 1) {

@@ -1,5 +1,5 @@
 // GGML HIFI Quantization Context
-// Provides layer-adaptive outlier allocation for Q4_HIFI quantization
+// Provides layer-adaptive outlier allocation for Q4_K_HIFI quantization
 //
 // This header defines the context infrastructure for passing layer-specific
 // parameters to the quantization functions without modifying the core GGML API.

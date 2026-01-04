@@ -1,5 +1,5 @@
 // GGML HIFI Quantization Context Implementation
-// Layer-adaptive outlier allocation for Q4_HIFI quantization
+// Layer-adaptive outlier allocation for Q4_K_HIFI quantization
 
 #include "ggml-quants-hifi.h"
 #include <math.h>
