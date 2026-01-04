@@ -154,7 +154,7 @@ lexer_result lexer::tokenize(const std::string & source) {
                         end = current; // Trim from the start of the line
                         break;
                     }
-                    if (!std::isspace(c)) {
+                    if (!std::isspace(static_cast<unsigned char>(c))) {
                         break; // Found non-whitespace before newline, keep
                     }
                     --current;
