@@ -216,7 +216,7 @@ struct continue_statement : public statement {
 struct noop_statement : public statement {
     std::string type() const override { return "Noop"; }
     value execute_impl(context &) override {
-        return mk_val<value_null>();
+        return mk_val<value_undefined>();
     }
 };
 
@@ -255,7 +255,7 @@ struct comment_statement : public statement {
     explicit comment_statement(const std::string & v) : val(v) {}
     std::string type() const override { return "Comment"; }
     value execute_impl(context &) override {
-        return mk_val<value_null>();
+        return mk_val<value_undefined>();
     }
 };
 
@@ -570,10 +570,11 @@ struct rethrown_exception : public std::exception {
 //////////////////////
 
 static void gather_string_parts_recursive(const value & val, value_string & parts) {
+    // TODO: probably allow print value_null as "None" string? currently this breaks some templates
     if (is_val<value_string>(val)) {
         const auto & str_val = cast_val<value_string>(val)->val_str;
         parts->val_str.append(str_val);
-    } else if (is_val<value_int>(val) || is_val<value_float>(val)) {
+    } else if (is_val<value_int>(val) || is_val<value_float>(val) || is_val<value_bool>(val)) {
         std::string str_val = val->as_string().str();
         parts->val_str.append(str_val);
     } else if (is_val<value_array>(val)) {

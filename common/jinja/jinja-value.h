@@ -94,7 +94,8 @@ struct func_args; // function argument values
 using func_handler = std::function<value(const func_args &)>;
 using func_builtins = std::map<std::string, func_handler>;
 
-bool value_compare(const value & a, const value & b);
+enum value_compare_op { eq, gt };
+bool value_compare(const value & a, const value & b, value_compare_op op);
 
 struct value_t {
     int64_t val_int;
@@ -195,7 +196,12 @@ struct value_float_t : public value_t {
     virtual std::string type() const override { return "Float"; }
     virtual double as_float() const override { return val_flt; }
     virtual int64_t as_int() const override { return static_cast<int64_t>(val_flt); }
-    virtual string as_string() const override { return std::to_string(val_flt); }
+    virtual string as_string() const override {
+        std::string out = std::to_string(val_flt);
+        out.erase(out.find_last_not_of('0') + 1, std::string::npos); // remove trailing zeros
+        if (out.back() == '.') out.pop_back(); // remove trailing dot
+        return out;
+    }
     virtual const func_builtins & get_builtins() const override;
 };
 using value_float = std::shared_ptr<value_float_t>;
@@ -238,8 +244,10 @@ using value_bool = std::shared_ptr<value_bool_t>;
 struct value_array_t : public value_t {
     value_array_t() = default;
     value_array_t(value & v) {
-        // point to the same underlying data
         val_arr = v->val_arr;
+    }
+    value_array_t(const std::vector<value> & arr) {
+        val_arr = arr;
     }
     void push_back(const value & val) { val_arr.push_back(val); }
     value pop_at(int64_t index) {
@@ -398,6 +406,10 @@ using value_kwarg = std::shared_ptr<value_kwarg_t>;
 
 const func_builtins & global_builtins();
 std::string value_to_json(const value & val, int indent = 0);
+
+struct not_implemented_exception : public std::runtime_error {
+    not_implemented_exception(const std::string & msg) : std::runtime_error("NotImplemented: " + msg) {}
+};
 
 
 } // namespace jinja

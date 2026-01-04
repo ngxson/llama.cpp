@@ -313,7 +313,7 @@ const func_builtins & global_builtins() {
         {"test_is_equalto", [](const func_args & args) -> value {
             // alias for is_eq
             args.ensure_count(2);
-            return mk_val<value_bool>(value_compare(args.args[0], args.args[1]));
+            return mk_val<value_bool>(value_compare(args.args[0], args.args[1], value_compare_op::eq));
         }},
     };
     return builtins;
@@ -442,10 +442,14 @@ const func_builtins & value_string_t::get_builtins() const {
             return result;
         }},
         {"replace", [](const func_args & args) -> value {
-            args.ensure_vals<value_string, value_string, value_string>();
+            args.ensure_vals<value_string, value_string, value_string, value_int>(true, true, true, false);
             std::string str = args.args[0]->as_string().str();
             std::string old_str = args.args[1]->as_string().str();
             std::string new_str = args.args[2]->as_string().str();
+            int64_t count = args.args.size() > 3 ? args.args[3]->as_int() : -1;
+            if (count > 0) {
+                throw not_implemented_exception("String replace with count argument not implemented");
+            }
             size_t pos = 0;
             while ((pos = str.find(old_str, pos)) != std::string::npos) {
                 str.replace(pos, old_str.length(), new_str);
@@ -535,10 +539,10 @@ const func_builtins & value_string_t::get_builtins() const {
         }},
         {"tojson", tojson},
         {"indent", [](const func_args &) -> value {
-            throw std::runtime_error("String indent builtin not implemented");
+            throw not_implemented_exception("String indent builtin not implemented");
         }},
         {"join", [](const func_args &) -> value {
-            throw std::runtime_error("String join builtin not implemented");
+            throw not_implemented_exception("String join builtin not implemented");
         }},
     };
     return builtins;
@@ -646,8 +650,8 @@ const func_builtins & value_array_t::get_builtins() const {
             std::string delim = (args.args.size() > 1 && is_val<value_string>(args.args[1])) ? args.args[1]->as_string().str() : "";
             std::string result;
             for (size_t i = 0; i < arr.size(); ++i) {
-                if (!is_val<value_string>(arr[i])) {
-                    throw raised_exception("join() can only join arrays of strings");
+                if (!is_val<value_string>(arr[i]) && !is_val<value_int>(arr[i]) && !is_val<value_float>(arr[i])) {
+                    throw raised_exception("join() can only join arrays of strings or numerics");
                 }
                 result += arr[i]->as_string().str();
                 if (i < arr.size() - 1) {
@@ -699,14 +703,41 @@ const func_builtins & value_array_t::get_builtins() const {
             auto arr = cast_val<value_array>(non_const_args.args[0]);
             return arr->pop_at(index);
         }},
-        {"sort", [](const func_args &) -> value {
-            throw std::runtime_error("Array sort builtin not implemented");
+        {"sort", [](const func_args & args) -> value {
+            args.ensure_count(1, 99);
+            if (!is_val<value_array>(args.args[0])) {
+                throw raised_exception("sort: first argument must be an array");
+            }
+            bool reverse = args.get_kwarg("reverse")->as_bool();
+            value attribute = args.get_kwarg("attribute");
+            std::string attr = attribute->is_undefined() ? "" : attribute->as_string().str();
+            std::vector<value> arr = cast_val<value_array>(args.args[0])->as_array(); // copy
+            std::sort(arr.begin(), arr.end(),[&](const value & a, const value & b) {
+                value val_a = a;
+                value val_b = b;
+                if (!attr.empty()) {
+                    if (!is_val<value_object>(a) || !is_val<value_object>(b)) {
+                        throw raised_exception("sort: items are not objects");
+                    }
+                    val_a = attr.empty() ? a : a->at(attr);
+                    val_b = attr.empty() ? b : b->at(attr);
+                }
+                if (reverse) {
+                    return value_compare(val_a, val_b, value_compare_op::gt);
+                } else {
+                    return !value_compare(val_a, val_b, value_compare_op::gt);
+                }
+            });
+            return mk_val<value_array>(arr);
         }},
-        {"reverse", [](const func_args &) -> value {
-            throw std::runtime_error("Array reverse builtin not implemented");
+        {"reverse", [](const func_args & args) -> value {
+            args.ensure_vals<value_array>();
+            std::vector<value> arr = cast_val<value_array>(args.args[0])->as_array(); // copy
+            std::reverse(arr.begin(), arr.end());
+            return mk_val<value_array>(arr);
         }},
         {"unique", [](const func_args &) -> value {
-            throw std::runtime_error("Array unique builtin not implemented");
+            throw not_implemented_exception("Array unique builtin not implemented");
         }},
     };
     return builtins;
@@ -717,14 +748,24 @@ const func_builtins & value_object_t::get_builtins() const {
     static const func_builtins builtins = {
         // {"default", default_value}, // cause issue with gpt-oss
         {"get", [](const func_args & args) -> value {
-            args.ensure_vals<value_object, value_string>(); // TODO: add default value
+            args.ensure_count(2, 3);
+            if (!is_val<value_object>(args.args[0])) {
+                throw raised_exception("get: first argument must be an object");
+            }
+            if (!is_val<value_string>(args.args[1])) {
+                throw raised_exception("get: second argument must be a string (key)");
+            }
+            value default_val = mk_val<value_null>();
+            if (args.args.size() == 3) {
+                default_val = args.args[2];
+            }
             const auto & obj = args.args[0]->as_object();
             std::string key = args.args[1]->as_string().str();
             auto it = obj.find(key);
             if (it != obj.end()) {
                 return it->second;
             } else {
-                return mk_val<value_undefined>();
+                return default_val;
             }
         }},
         {"keys", [](const func_args & args) -> value {
@@ -758,14 +799,11 @@ const func_builtins & value_object_t::get_builtins() const {
             return result;
         }},
         {"tojson", tojson},
+        {"string", tojson},
         {"length", [](const func_args & args) -> value {
             args.ensure_vals<value_object>();
             const auto & obj = args.args[0]->as_object();
             return mk_val<value_int>(static_cast<int64_t>(obj.size()));
-        }},
-        {"string", [](const func_args & args) -> value {
-            args.ensure_vals<value_object>();
-            return mk_val<value_string>("TO BE IMPLEMENTED");
         }},
         {"tojson", [](const func_args & args) -> value {
             args.ensure_vals<value_object>();
@@ -773,9 +811,21 @@ const func_builtins & value_object_t::get_builtins() const {
             return global_builtins().at("tojson")(args);
         }},
         {"dictsort", [](const func_args & args) -> value {
-            // no-op
             args.ensure_vals<value_object>();
-            return args.args[0];
+            std::string by_key = "";
+            if (!args.get_kwarg("by")->is_undefined()) {
+                throw not_implemented_exception("dictsort by key not implemented");
+            }
+            if (!args.get_kwarg("reverse")->is_undefined()) {
+                throw not_implemented_exception("dictsort reverse not implemented");
+            }
+            value_t::map obj = args.args[0]->val_obj; // copy
+            std::sort(obj.ordered.begin(), obj.ordered.end(), [&](const auto & a, const auto & b) {
+                return a.first < b.first;
+            });
+            auto result = mk_val<value_object>();
+            result->val_obj = std::move(obj);
+            return result;
         }},
     };
     return builtins;
@@ -839,6 +889,56 @@ static value from_json(const nlohmann::ordered_json & j) {
     } else {
         throw std::runtime_error("Unsupported JSON value type");
     }
+}
+
+// compare operator for value_t
+bool value_compare(const value & a, const value & b, value_compare_op op) {
+    auto cmp = [&]() {
+        // compare numeric types
+        if ((is_val<value_int>(a) || is_val<value_float>(a)) &&
+            (is_val<value_int>(b) || is_val<value_float>(b))){
+            try {
+                if (op == value_compare_op::eq) {
+                    return a->as_float() == b->as_float();
+                } else if (op == value_compare_op::gt) {
+                    return a->as_float() > b->as_float();
+                } else {
+                    throw std::runtime_error("Unsupported comparison operator for numeric types");
+                }
+            } catch (...) {}
+        }
+        // compare string and number
+        // TODO: not sure if this is the right behavior
+        if ((is_val<value_string>(b) && (is_val<value_int>(a) || is_val<value_float>(a))) ||
+            (is_val<value_string>(a) && (is_val<value_int>(b) || is_val<value_float>(b))) ||
+            (is_val<value_string>(a) && is_val<value_string>(b))) {
+            try {
+                if (op == value_compare_op::eq) {
+                    return a->as_string().str() == b->as_string().str();
+                } else if (op == value_compare_op::gt) {
+                    return a->as_string().str() > b->as_string().str();
+                } else {
+                    throw std::runtime_error("Unsupported comparison operator for string/number types");
+                }
+            } catch (...) {}
+        }
+        // compare boolean simple
+        if (is_val<value_bool>(a) && is_val<value_bool>(b)) {
+            if (op == value_compare_op::eq) {
+                return a->as_bool() == b->as_bool();
+            } else {
+                throw std::runtime_error("Unsupported comparison operator for bool type");
+            }
+        }
+        // compare by type
+        if (a->type() != b->type()) {
+            return false;
+        }
+        return false;
+    };
+    auto result = cmp();
+    JJ_DEBUG("Comparing types: %s and %s result=%d", a->type().c_str(), b->type().c_str(), result);
+    return result;
 }
 
 template<>

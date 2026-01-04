@@ -56,11 +56,13 @@ value statement::execute(context & ctx) {
         throw ex;
     } catch (const rethrown_exception & ex) {
         throw ex;
+    } catch (const not_implemented_exception & ex) {
+        throw ex;
     } catch (const std::exception & e) {
         const std::string & source = *ctx.src;
         if (source.empty()) {
             std::ostringstream oss;
-            oss << "\nError executing " << type() << " at " << get_line_col(source, pos) << ": " << e.what();
+            oss << "\nError executing " << type() << " at position " << pos << ": " << e.what();
             throw rethrown_exception(oss.str());
         } else {
             std::ostringstream oss;
@@ -133,9 +135,9 @@ value binary_expression::execute_impl(context & ctx) {
     value right_val = right->execute(ctx);
     JJ_DEBUG("Executing binary expression %s '%s' %s", left_val->type().c_str(), op.value.c_str(), right_val->type().c_str());
     if (op.value == "==") {
-        return mk_val<value_bool>(value_compare(left_val, right_val));
+        return mk_val<value_bool>(value_compare(left_val, right_val, value_compare_op::eq));
     } else if (op.value == "!=") {
-        return mk_val<value_bool>(!value_compare(left_val, right_val));
+        return mk_val<value_bool>(!value_compare(left_val, right_val, value_compare_op::eq));
     }
 
     auto workaround_concat_null_with_str = [&](value & res) -> bool {
@@ -236,7 +238,7 @@ value binary_expression::execute_impl(context & ctx) {
         auto & arr = right_val->as_array();
         bool member = false;
         for (const auto & item : arr) {
-            if (value_compare(left_val, item)) {
+            if (value_compare(left_val, item, value_compare_op::eq)) {
                 member = true;
                 break;
             }
@@ -634,7 +636,7 @@ value set_statement::execute_impl(context & ctx) {
     } else {
         throw std::runtime_error("Invalid LHS inside assignment expression: " + assignee->type());
     }
-    return mk_val<value_null>();
+    return mk_val<value_undefined>();
 }
 
 value macro_statement::execute_impl(context & ctx) {
@@ -689,7 +691,7 @@ value macro_statement::execute_impl(context & ctx) {
 
     JJ_DEBUG("Defining macro '%s' with %zu parameters", name.c_str(), args.size());
     ctx.set_val(name, mk_val<value_func>(name, func));
-    return mk_val<value_null>();
+    return mk_val<value_undefined>();
 }
 
 value member_expression::execute_impl(context & ctx) {
@@ -814,43 +816,6 @@ value call_expression::execute_impl(context & ctx) {
     auto * callee_func = cast_val<value_func>(callee_val);
     JJ_DEBUG("Calling function '%s' with %zu arguments", callee_func->name.c_str(), args.args.size());
     return callee_func->invoke(args);
-}
-
-// compare operator for value_t
-bool value_compare(const value & a, const value & b) {
-    auto cmp = [&]() {
-        // compare numeric types
-        if ((is_val<value_int>(a) || is_val<value_float>(a)) &&
-            (is_val<value_int>(b) || is_val<value_float>(b))){
-            try {
-                return a->as_float() == b->as_float();
-            } catch (...) {}
-        }
-        // compare string and number
-        // TODO: not sure if this is the right behavior
-        if ((is_val<value_string>(b) && (is_val<value_int>(a) || is_val<value_float>(a))) ||
-            (is_val<value_string>(a) && (is_val<value_int>(b) || is_val<value_float>(b)))) {
-            try {
-                return a->as_string().str() == b->as_string().str();
-            } catch (...) {}
-        }
-        // compare boolean simple
-        if (is_val<value_bool>(a) && is_val<value_bool>(b)) {
-            return a->as_bool() == b->as_bool();
-        }
-        // compare string simple
-        if (is_val<value_string>(a) && is_val<value_string>(b)) {
-            return a->as_string().str() == b->as_string().str();
-        }
-        // compare by type
-        if (a->type() != b->type()) {
-            return false;
-        }
-        return false;
-    };
-    auto result = cmp();
-    JJ_DEBUG("Comparing types: %s and %s result=%d", a->type().c_str(), b->type().c_str(), result);
-    return result;
 }
 
 value keyword_argument_expression::execute_impl(context & ctx) {
