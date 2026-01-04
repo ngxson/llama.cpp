@@ -177,8 +177,12 @@ struct common_chat_template {
                     {"content", system_prompt}
                 });
             } else {
-                msgs_copy[0]["content"] = system_prompt + "\n\n"
-                    + msgs_copy[0]["content"].get<std::string>();
+                auto & first_msg = msgs_copy[0];
+                if (!first_msg.contains("content")) {
+                    first_msg["content"] = "";
+                }
+                first_msg["content"] = system_prompt + "\n\n"
+                    + first_msg["content"].get<std::string>();
             }
         } else {
             if (msgs_copy.empty() || msgs_copy[0].at("role") != "system") {
