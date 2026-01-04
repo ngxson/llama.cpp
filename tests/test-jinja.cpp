@@ -16,7 +16,7 @@ static void assert_template(testing & t, const std::string & tmpl, const json & 
 static void test_whitespace_control(testing & t) {
     t.test("no whitespace control", [](testing & t) {
         assert_template(t,
-            "    {% if True %}\n    {% endif %}",
+            "    {% if true %}\n    {% endif %}",
             json::object(),
             "    \n    "
         );

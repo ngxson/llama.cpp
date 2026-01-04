@@ -116,26 +116,19 @@ lexer_result lexer::tokenize(const std::string & source) {
                 text += src[pos++];
             }
 
-            // always strip single leading newline
-            // example: {{block}}\ntext
-            if (!text.empty() && text.front() == '\n') {
-                text.erase(0, 1);
-            }
-
             if (is_rstrip_block) {
                 // example: {last_block}[space]text
                 // doing lstrip on text, effectively rstrip the LAST block
                 // JJ_DEBUG("RSTRIP block detected, current text: '%s'", text.c_str());
-                string_lstrip(text, " \t"); // not stripping newlines
+                string_lstrip(text, " \t\r\n");
             }
 
-            // note: we always lstrip if the block is control or comment
-            is_lstrip_block = next_pos_is({'%', '#'}) || next_pos_is({'-'}, 2);
+            is_lstrip_block = next_pos_is({'{', '%', '#'}) && next_pos_is({'-'}, 2);
             if (is_lstrip_block) {
                 // example: text[space]{current_block}
                 // doing rstrip on text, effectively lstrip the CURRENT block
                 // JJ_DEBUG("LSTRIP block detected, current text: '%s'", text.c_str());
-                string_rstrip(text, " \t"); // not stripping newlines
+                string_rstrip(text, " \t\r\n");
             }
 
             if (!text.empty()) {
