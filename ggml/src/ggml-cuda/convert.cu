@@ -407,6 +407,56 @@ static __global__ void dequantize_block_q6_k_hifi_res8(const void * __restrict__
     }
 }
 
+// Q5_K_HIFI_RES8: Efficient Q5_K base with INT8 residuals for 4B-10B models
+template<typename dst_t>
+static __global__ void dequantize_block_q5_k_hifi_res8(const void * __restrict__ vx, dst_t * __restrict__ yy) {
+    const block_q5_k_hifi_res8 * x = (const block_q5_k_hifi_res8 *) vx;
+
+    const int64_t i = blockIdx.x;
+
+    // Q5_K bulk dequantization (same as dequantize_block_q5_K)
+    const int64_t tid = threadIdx.x;
+    const int64_t il  = tid/16;  // il is in 0...1
+    const int64_t ir  = tid%16;  // ir is in 0...15
+    const int64_t is  = 2*il;    // is is in 0...2
+
+    dst_t * y = yy + i*QK_K + 64*il + 2*ir;
+
+    const float d = __half2float(x[i].GGML_COMMON_AGGR_U.GGML_COMMON_AGGR_S.d);
+    const float dmin = __half2float(x[i].GGML_COMMON_AGGR_U.GGML_COMMON_AGGR_S.dmin);
+
+    const uint8_t * ql = x[i].qs + 32*il + 2*ir;
+    const uint8_t * qh = x[i].qh + 2*ir;
+
+    const uint8_t sc = x[i].scales[is + il/2];
+    const uint8_t m  = x[i].scales[is + il/2 + QK_K/32];
+
+    const uint8_t sc0 = (sc & 0xF);
+    const uint8_t sc1 = (sc >> 4);
+    const uint8_t m0  = (m & 0xF);
+    const uint8_t m1  = (m >> 4);
+
+    y[0]  = d * sc0 * ((ql[0] & 0xF) + (((qh[0] >> (4*il+0)) & 1) << 4)) - dmin * m0;
+    y[1]  = d * sc0 * ((ql[1] & 0xF) + (((qh[1] >> (4*il+0)) & 1) << 4)) - dmin * m0;
+    y[32] = d * sc1 * ((ql[0] >> 4)  + (((qh[0] >> (4*il+1)) & 1) << 4)) - dmin * m1;
+    y[33] = d * sc1 * ((ql[1] >> 4)  + (((qh[1] >> (4*il+1)) & 1) << 4)) - dmin * m1;
+
+    // Thread 0 handles INT8 residual corrections
+    __syncthreads();
+    if (threadIdx.x == 0) {
+        dst_t * yb = yy + i*QK_K;
+        const int outlier_count = x[i].outlier_count;
+        const float res_scale = x[i].residual_scale;
+        const float scale_factor = res_scale * (1.0f / 127.0f);
+        // Add residual corrections at outlier positions
+        for (int k = 0; k < outlier_count && k < Q5_K_HIFI_RES8_MAX_OUTLIERS; ++k) {
+            const int idx = x[i].outlier_idx[k];
+            const float residual = x[i].residual_vals[k] * scale_factor;
+            yb[idx] += residual;
+        }
+    }
+}
+
 template<typename dst_t>
 static __global__ void dequantize_block_iq2_xxs(const void * __restrict__ vx, dst_t * __restrict__ yy) {
 
@@ -744,6 +794,12 @@ static void dequantize_row_q6_k_hifi_res8_cuda(const void * vx, dst_t * y, const
 }
 
 template<typename dst_t>
+static void dequantize_row_q5_k_hifi_res8_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
+    const int nb = k / QK_K;
+    dequantize_block_q5_k_hifi_res8<<<nb, 32, 0, stream>>>(vx, y);
+}
+
+template<typename dst_t>
 static void dequantize_row_iq2_xxs_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
     const int nb = k / QK_K;
     dequantize_block_iq2_xxs<<<nb, 32, 0, stream>>>(vx, y);
@@ -876,6 +932,8 @@ to_fp16_cuda_t ggml_get_to_fp16_cuda(ggml_type type) {
             return dequantize_row_q6_k_hifi_dynamic_cuda;
         case GGML_TYPE_Q6_K_HIFI_RES8:
             return dequantize_row_q6_k_hifi_res8_cuda;
+        case GGML_TYPE_Q5_K_HIFI_RES8:
+            return dequantize_row_q5_k_hifi_res8_cuda;
         case GGML_TYPE_Q4_K:
             return dequantize_row_q4_K_cuda;
         case GGML_TYPE_Q5_K:
@@ -935,6 +993,8 @@ to_fp32_cuda_t ggml_get_to_fp32_cuda(ggml_type type) {
             return dequantize_row_q6_k_hifi_dynamic_cuda;
         case GGML_TYPE_Q6_K_HIFI_RES8:
             return dequantize_row_q6_k_hifi_res8_cuda;
+        case GGML_TYPE_Q5_K_HIFI_RES8:
+            return dequantize_row_q5_k_hifi_res8_cuda;
         case GGML_TYPE_Q4_K:
             return dequantize_row_q4_K_cuda;
         case GGML_TYPE_Q5_K:

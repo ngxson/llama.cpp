@@ -1022,6 +1022,60 @@ static __device__ __forceinline__ float vec_dot_q6_k_hifi_res8_q8_1(
     return sum;
 }
 
+// Q5_K_HIFI_RES8: Q5_K layout + INT8 residuals + per-block scale
+// Efficient format for 4B-10B models with Q5_K base (176 bytes vs Q6_K's 210)
+#define VDR_Q5_K_HIFI_RES8_Q8_1_MMVQ VDR_Q5_K_Q8_1_MMVQ
+
+static __device__ __forceinline__ float vec_dot_q5_k_hifi_res8_q8_1(
+    const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
+
+    const block_q5_k_hifi_res8 * bq5_hifi = (const block_q5_k_hifi_res8 *) vbq + kbx;
+
+    // === Q5_K bulk dot product (adapted from vec_dot_q5_K_q8_1) ===
+    const int bq8_offset = QR5_K * (iqs / (QI5_K/2)) + (iqs % (QI5_K/2)) / (QI5_K/4);
+    
+    const int * ql = (const int *)(bq5_hifi->qs + 16 * bq8_offset + 4 * ((iqs/2)%4));
+    const int * qh = (const int *)(bq5_hifi->qh + 4 * ((iqs/2)%4));
+
+    const float d = __half2float(bq5_hifi->GGML_COMMON_AGGR_U.GGML_COMMON_AGGR_S.d);
+    const float dmin = __half2float(bq5_hifi->GGML_COMMON_AGGR_U.GGML_COMMON_AGGR_S.dmin);
+
+    int    u[2*QR5_K];
+    float d8[QR5_K];
+
+#pragma unroll
+    for (int i = 0; i < QR5_K; ++i) {
+        u[2*i+0] = get_int_b4(bq8_1[bq8_offset + i].qs, iqs % QI8_1);
+        u[2*i+1] = get_int_b4(bq8_1[bq8_offset + i].qs, iqs % QI8_1 + QI8_1/2);
+        d8[i] = __low2float(bq8_1[bq8_offset + i].ds);
+    }
+
+    float sum = vec_dot_q5_K_q8_1_impl_vmmq(ql, qh, u, bq5_hifi->scales, d, dmin, d8);
+
+    // === INT8 RESIDUAL CORRECTION ===
+    const int outlier_count = bq5_hifi->outlier_count;
+    
+    if (outlier_count > 0) {
+        const float res_scale = bq5_hifi->residual_scale * (1.0f / 127.0f);
+        
+        // Only thread 0 in the warp group for this block computes the residual correction
+        if (iqs == 0) {
+            for (int k = 0; k < outlier_count && k < 8; ++k) {
+                const int idx = bq5_hifi->outlier_idx[k];
+                const int idx_bq8 = idx / QK8_1;
+                const int idx_in_bq8 = idx % QK8_1;
+                
+                const int8_t q8_val = ((const int8_t*)bq8_1[idx_bq8].qs)[idx_in_bq8];
+                const float d8_val = __low2float(bq8_1[idx_bq8].ds);
+                const float residual = res_scale * bq5_hifi->residual_vals[k];
+                sum += residual * q8_val * d8_val;
+            }
+        }
+    }
+
+    return sum;
+}
+
 #define VDR_IQ2_XXS_Q8_1_MMVQ 2
 #define VDR_IQ2_XXS_Q8_1_MMQ  2
 

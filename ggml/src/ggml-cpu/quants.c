@@ -1019,6 +1019,94 @@ void ggml_vec_dot_q6_k_hifi_res8_q8_K(int n, float * GGML_RESTRICT s, size_t bs,
     *s = sumf;
 }
 
+// Q5_K_HIFI_RES8: Efficient Q5_K base + INT8 residuals for 4B-10B models
+// Uses same correction strategy as Q6_K_HIFI_RES8, but with Q5_K base for better BPW
+void ggml_vec_dot_q5_k_hifi_res8_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % QK_K == 0);
+    assert(nrc == 1);
+    UNUSED(nrc);
+    UNUSED(bx);
+    UNUSED(by);
+    UNUSED(bs);
+
+    const block_q5_k_hifi_res8 * GGML_RESTRICT x = vx;
+    const block_q8_K * GGML_RESTRICT y = vy;
+
+    const int nb = n / QK_K;
+
+    uint8_t utmp[QK_K];
+    int8_t stmp[QK_K];
+
+    float sumf = 0;
+    for (int i = 0; i < nb; ++i) {
+        // === Q5_K bulk dot product ===
+        const uint8_t * ql = x[i].qs;
+        const uint8_t * qh = x[i].qh;
+        const int8_t  * q8 = y[i].qs;
+
+        // Unpack Q5_K quantized values
+        for (int j = 0; j < QK_K; j += 64) {
+            for (int l = 0; l < 32; ++l) {
+                utmp[j + l]      = (ql[l] & 0xF) | (((qh[l] >> 0) & 1) << 4);
+                utmp[j + l + 32] = (ql[l] >>  4) | (((qh[l] >> 4) & 1) << 4);
+            }
+            ql += 32;
+            qh += 32;
+        }
+
+        // Convert to signed and compute dot product
+        int32_t sumi = 0;
+        const float d = GGML_CPU_FP16_TO_FP32(x[i].GGML_COMMON_AGGR_U.GGML_COMMON_AGGR_S.d);
+        const float dmin = GGML_CPU_FP16_TO_FP32(x[i].GGML_COMMON_AGGR_U.GGML_COMMON_AGGR_S.dmin);
+
+        // Decode scales
+        int sc[QK_K/16];
+        int m[QK_K/16];
+        for (int is = 0; is < QK_K/16; is += 2) {
+            const int j = is/2;
+            sc[is]     = x[i].scales[j] & 0xF;
+            sc[is + 1] = x[i].scales[j] >> 4;
+            m[is]      = x[i].scales[j + QK_K/32] & 0xF;
+            m[is + 1]  = x[i].scales[j + QK_K/32] >> 4;
+        }
+
+        // Main dot product loop
+        for (int j = 0; j < QK_K/16; ++j) {
+            const int scale = sc[j];
+            const int min_val = m[j];
+            int32_t sum1 = 0, sum2 = 0;
+            for (int l = 0; l < 16; ++l) {
+                sum1 += q8[j*16 + l] * (utmp[j*16 + l] - 16);
+                sum2 += q8[j*16 + l];
+            }
+            sumi += scale * sum1 - min_val * sum2;
+        }
+        sumf += d * sumi * y[i].d - dmin * y[i].bsums[0] * 16;
+
+        // === INT8 RESIDUAL CORRECTION ===
+        // Add residual * activation corrections at outlier positions
+        const int outlier_count = x[i].outlier_count;
+        const float res_scale = x[i].residual_scale;
+        const float d8 = y[i].d;
+        const float scale_factor = res_scale * (1.0f / 127.0f) * d8;
+        for (int k = 0; k < outlier_count; ++k) {
+            const int idx = x[i].outlier_idx[k];
+            const int8_t activation = y[i].qs[idx];
+            // Early exit: skip if activation is too small (same threshold as Q6_K_HIFI)
+            if (activation > 4 || activation < -4) {
+                const float residual = x[i].residual_vals[k] * scale_factor;
+                sumf += residual * activation;
+            }
+        }
+    }
+    *s = sumf;
+}
+
+// Wrapper for quantize_row_q5_k_hifi_res8
+void quantize_row_q5_k_hifi_res8(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
+    quantize_row_q5_k_hifi_res8_ref(x, (block_q5_k_hifi_res8 *)y, k);
+}
+
 void ggml_vec_dot_iq2_xxs_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);
     assert(nrc == 1);
