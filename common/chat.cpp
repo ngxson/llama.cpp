@@ -2869,6 +2869,7 @@ static common_chat_params common_chat_templates_apply_jinja(
 
     // MiniMax-M2 format detection
     if (src.find("]~!b[") != std::string::npos && src.find("]~b]") != std::string::npos) {
+        workaround::func_args_not_string(params.messages);
         return common_chat_params_init_minimax_m2(tmpl, params);
     }
 

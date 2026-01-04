@@ -332,6 +332,7 @@ const func_builtins & value_int_t::get_builtins() const {
             double val = static_cast<double>(args.args[0]->as_int());
             return mk_val<value_float>(val);
         }},
+        {"tojson", tojson},
     };
     return builtins;
 }

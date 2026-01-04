@@ -169,8 +169,6 @@ struct string {
         });
     }
     string strip(bool left, bool right) {
-        // TODO: what if leading/trailing continue in multiple parts?
-
         static auto strip_part = [](const std::string & s, bool left, bool right) -> std::string {
             size_t start = 0;
             size_t end = s.length();
@@ -190,11 +188,29 @@ struct string {
             return *this;
         }
         if (left) {
-            parts[0].val = strip_part(parts[0].val, true, false);
+            for (size_t i = 0; i < parts.size(); ++i) {
+                parts[i].val = strip_part(parts[i].val, true, false);
+                if (parts[i].val.empty()) {
+                    // remove empty part
+                    parts.erase(parts.begin() + i);
+                    --i;
+                    continue;
+                } else {
+                    break;
+                }
+            }
         }
         if (right) {
-            auto & last = parts[parts.size() - 1];
-            last.val = strip_part(last.val, false, true);
+            for (size_t i = parts.size(); i-- > 0;) {
+                parts[i].val = strip_part(parts[i].val, false, true);
+                if (parts[i].val.empty()) {
+                    // remove empty part
+                    parts.erase(parts.begin() + i);
+                    continue;
+                } else {
+                    break;
+                }
+            }
         }
         return *this;
     }
