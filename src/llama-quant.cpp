@@ -49,19 +49,13 @@ static float compute_model_params_b(const llama_hparams & hparams, int64_t n_voc
 }
 
 // Get the appropriate HIFI type based on model size
-// Small models (≤1.7B): Q5_K_HIFI_HYBRID - FP16 extreme + INT8 moderate outliers
-//   - Critical semantic tokens (numbers, operators) have extreme outlier weights
-//   - INT8 clips these values, FP16 preserves them exactly
-//   - Same 200 byte block size, better quality on small model edge cases
-// Larger models (>1.7B): Q5_K_HIFI_RES8 - all INT8 residuals
-//   - More parameters = more redundancy = INT8 sufficient
-//   - Consistent performance across diverse inputs
+// Q5_K_HIFI_RES8 is now used for ALL models - proven winner across all sizes:
+// - 34 bytes/block smaller than Q6_K_HIFI_RES8 (200 vs 232 bytes)
+// - 15% less memory bandwidth → faster on CPU-bound small models
+// - Q5_K + INT8 outliers achieves near-Q6_K quality with better speed
+// - Testing showed Q5_K_HIFI_HYBRID didn't outperform Q4_K_M+imatrix on small models
 static ggml_type get_hifi_enhanced_type(float model_params_b) {
-    if (model_params_b <= 1.7f) {
-        // Small models: FP16 extremes preserve critical semantic information
-        return GGML_TYPE_Q5_K_HIFI_HYBRID;
-    }
-    // Larger models: INT8 residuals are sufficient
+    (void)model_params_b;  // Q5_K_HIFI_RES8 for all model sizes
     return GGML_TYPE_Q5_K_HIFI_RES8;
 }
 
@@ -1126,10 +1120,8 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
             ggml_hifi_quant_context hifi_ctx = {};
             const ggml_hifi_quant_context * hifi_ctx_ptr = nullptr;
 
-            // Handle all HIFI types: Q6_K_HIFI_RES8, Q5_K_HIFI_RES8, and Q5_K_HIFI_HYBRID
-            const bool is_hifi_type = (new_type == GGML_TYPE_Q6_K_HIFI_RES8 || 
-                                       new_type == GGML_TYPE_Q5_K_HIFI_RES8 ||
-                                       new_type == GGML_TYPE_Q5_K_HIFI_HYBRID);
+            // Handle both Q6_K_HIFI_RES8 and Q5_K_HIFI_RES8 HIFI types
+            const bool is_hifi_type = (new_type == GGML_TYPE_Q6_K_HIFI_RES8 || new_type == GGML_TYPE_Q5_K_HIFI_RES8);
             if (is_hifi_type && ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
                 // Extract layer index from tensor name (e.g., "blk.5.attn_v.weight" -> 5)
                 int layer_idx = -1;
@@ -1166,17 +1158,8 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
 
                 // Compute adaptive outlier count
                 // Use the appropriate max outliers constant based on type
-                // Q5_K_HIFI_HYBRID: 4 extreme (FP16) + 3 moderate (INT8) = 7 total
-                // Q5_K_HIFI_RES8: 8 INT8 outliers
-                // Q6_K_HIFI_RES8: 8 INT8 outliers
-                int max_outliers;
-                if (new_type == GGML_TYPE_Q5_K_HIFI_HYBRID) {
-                    max_outliers = Q5_K_HIFI_HYBRID_MAX_EXTREME + Q5_K_HIFI_HYBRID_MAX_MODERATE;  // 7
-                } else if (new_type == GGML_TYPE_Q5_K_HIFI_RES8) {
-                    max_outliers = Q5_K_HIFI_RES8_MAX_OUTLIERS;  // 8
-                } else {
-                    max_outliers = Q6_K_HIFI_RES8_MAX_OUTLIERS;  // 8
-                }
+                const int max_outliers = (new_type == GGML_TYPE_Q5_K_HIFI_RES8) 
+                    ? Q5_K_HIFI_RES8_MAX_OUTLIERS : Q6_K_HIFI_RES8_MAX_OUTLIERS;
                 int outlier_count;
                 if (layer_idx < 0) {
                     // Critical non-layer tensors (token_embd, output.weight): max outliers
@@ -1199,14 +1182,7 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
                 hifi_ctx_ptr = &hifi_ctx;
 
                 // Log adaptive outlier allocation (INFO level for visibility)
-                const char * type_name;
-                if (new_type == GGML_TYPE_Q5_K_HIFI_HYBRID) {
-                    type_name = "Q5_K_HIFI_HYBRID";
-                } else if (new_type == GGML_TYPE_Q5_K_HIFI_RES8) {
-                    type_name = "Q5_K_HIFI";
-                } else {
-                    type_name = "Q6_K_HIFI";
-                }
+                const char * type_name = (new_type == GGML_TYPE_Q5_K_HIFI_RES8) ? "Q5_K_HIFI" : "Q6_K_HIFI";
                 LLAMA_LOG_INFO("(%s: model=%.1fB layer=%d/%d imp=%.2f outliers=%d) ",
                     type_name, model_params_b, layer_idx, n_layers, layer_importance, outlier_count);
             }
