@@ -6548,6 +6548,11 @@ bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbyte
                 VALIDATE_ROW_DATA_D_F16_IMPL(block_q5_k_hifi_res8, data, nb);
             } break;
 
+        case GGML_TYPE_Q5_K_HIFI_HYBRID:
+            {
+                VALIDATE_ROW_DATA_D_F16_IMPL(block_q5_k_hifi_hybrid, data, nb);
+            } break;
+
         case GGML_TYPE_I8:
         case GGML_TYPE_I16:
         case GGML_TYPE_I32:
