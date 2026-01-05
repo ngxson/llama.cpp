@@ -2441,18 +2441,34 @@ void quantize_row_q6_k_hifi_res8_ref(const float * GGML_RESTRICT x, block_q6_k_h
     quantize_row_q6_k_hifi_res8_ref_ex(x, y, k, Q6_K_HIFI_RES8_MAX_OUTLIERS);
 }
 
-// imatrix-aware quantization implementation
-static void quantize_row_q6_k_hifi_res8_impl(const float * GGML_RESTRICT x, block_q6_k_hifi_res8 * GGML_RESTRICT y, int64_t k, const float * GGML_RESTRICT quant_weights, int outlier_count) {
+// imatrix-aware quantization implementation with per-block adaptive outliers (Strategy 1)
+static void quantize_row_q6_k_hifi_res8_impl(const float * GGML_RESTRICT x, block_q6_k_hifi_res8 * GGML_RESTRICT y, int64_t k, const float * GGML_RESTRICT quant_weights, int base_outlier_count) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;
 
-    if (outlier_count < 1) outlier_count = 1;
-    if (outlier_count > Q6_K_HIFI_RES8_MAX_OUTLIERS) outlier_count = Q6_K_HIFI_RES8_MAX_OUTLIERS;
+    if (base_outlier_count < 1) base_outlier_count = 1;
+    if (base_outlier_count > Q6_K_HIFI_RES8_MAX_OUTLIERS) base_outlier_count = Q6_K_HIFI_RES8_MAX_OUTLIERS;
+
+    // Get model size from HIFI context for per-block adaptation
+    float model_params_b = 1.0f;  // Default to 1B for Q6_K (small models)
+    const ggml_hifi_quant_context * hifi_ctx = ggml_hifi_get_context();
+    if (hifi_ctx && hifi_ctx->is_active) {
+        model_params_b = hifi_ctx->model_params_b;
+    }
 
     for (int64_t ib = 0; ib < nb; ++ib) {
         const float * xb = x + ib * QK_K;
         const float * qw = quant_weights ? quant_weights + ib * QK_K : NULL;
         block_q6_k_hifi_res8 * block = &y[ib];
+
+        // Strategy 1: Compute per-block adaptive outlier count based on local imatrix variance
+        int outlier_count = base_outlier_count;
+        if (qw != NULL) {
+            // Compute block importance from local imatrix data
+            float block_importance = ggml_hifi_compute_block_importance(qw, QK_K);
+            // Adjust outlier count based on block importance
+            outlier_count = ggml_hifi_compute_block_outlier_count(block_importance, base_outlier_count, model_params_b);
+        }
 
         block->outlier_count = (uint8_t)outlier_count;
         block->_padding = 0;
@@ -2667,18 +2683,34 @@ void quantize_row_q5_k_hifi_res8_ref(const float * GGML_RESTRICT x, block_q5_k_h
     quantize_row_q5_k_hifi_res8_ref_ex(x, y, k, Q5_K_HIFI_RES8_MAX_OUTLIERS);
 }
 
-// imatrix-aware quantization implementation
-static void quantize_row_q5_k_hifi_res8_impl(const float * GGML_RESTRICT x, block_q5_k_hifi_res8 * GGML_RESTRICT y, int64_t k, const float * GGML_RESTRICT quant_weights, int outlier_count) {
+// imatrix-aware quantization implementation with per-block adaptive outliers (Strategy 1)
+static void quantize_row_q5_k_hifi_res8_impl(const float * GGML_RESTRICT x, block_q5_k_hifi_res8 * GGML_RESTRICT y, int64_t k, const float * GGML_RESTRICT quant_weights, int base_outlier_count) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;
 
-    if (outlier_count < 1) outlier_count = 1;
-    if (outlier_count > Q5_K_HIFI_RES8_MAX_OUTLIERS) outlier_count = Q5_K_HIFI_RES8_MAX_OUTLIERS;
+    if (base_outlier_count < 1) base_outlier_count = 1;
+    if (base_outlier_count > Q5_K_HIFI_RES8_MAX_OUTLIERS) base_outlier_count = Q5_K_HIFI_RES8_MAX_OUTLIERS;
+
+    // Get model size from HIFI context for per-block adaptation
+    float model_params_b = 4.0f;  // Default to 4B if no context
+    const ggml_hifi_quant_context * hifi_ctx = ggml_hifi_get_context();
+    if (hifi_ctx && hifi_ctx->is_active) {
+        model_params_b = hifi_ctx->model_params_b;
+    }
 
     for (int64_t ib = 0; ib < nb; ++ib) {
         const float * xb = x + ib * QK_K;
         const float * qw = quant_weights ? quant_weights + ib * QK_K : NULL;
         block_q5_k_hifi_res8 * block = &y[ib];
+
+        // Strategy 1: Compute per-block adaptive outlier count based on local imatrix variance
+        int outlier_count = base_outlier_count;
+        if (qw != NULL) {
+            // Compute block importance from local imatrix data
+            float block_importance = ggml_hifi_compute_block_importance(qw, QK_K);
+            // Adjust outlier count based on block importance
+            outlier_count = ggml_hifi_compute_block_outlier_count(block_importance, base_outlier_count, model_params_b);
+        }
 
         block->outlier_count = (uint8_t)outlier_count;
         memset(block->_padding, 0, sizeof(block->_padding));
