@@ -443,6 +443,37 @@ typedef struct {
 // Total: 200 bytes (176 + 24) - 14% smaller than Q6_K_HIFI_RES8
 static_assert(sizeof(block_q5_k_hifi_res8) == 200, "wrong q5_k_hifi_res8 block size/padding");
 
+// Q5_K_HIFI_HYBRID: Q5_K with FP16 extreme outliers + INT8 moderate outliers
+// Designed for small models (≤1.7B) where extreme outliers need full FP16 precision.
+// Key insight: Top ~20% outliers by magnitude encode critical semantic information
+// (numbers, operators, task tokens) that INT8 clips. FP16 preserves these exactly.
+// Size: 200 bytes (same as Q5_K_HIFI_RES8) with better quality on small models
+#define Q5_K_HIFI_HYBRID_MAX_EXTREME 4   // Max FP16 outliers (extreme values)
+#define Q5_K_HIFI_HYBRID_MAX_MODERATE 3  // Max INT8 outliers (moderate values)
+typedef struct {
+    // === Q5_K-COMPATIBLE REGION (176 bytes) - DO NOT REORDER ===
+    GGML_EXTENSION union {
+        struct {
+            ggml_half d;    // super-block scale for quantized scales
+            ggml_half dmin; // super-block scale for quantized mins
+        } GGML_COMMON_AGGR_S;
+        ggml_half2 dm;
+    } GGML_COMMON_AGGR_U;
+    uint8_t scales[K_SCALE_SIZE]; // 12 bytes: scales and mins, quantized with 6 bits
+    uint8_t qh[QK_K/8];           // 32 bytes: quants, high bit
+    uint8_t qs[QK_K/2];           // 128 bytes: quants, low 4 bits
+    // === HYBRID OUTLIER EXTENSION (24 bytes) ===
+    uint8_t extreme_count;                                   // 1 byte: FP16 outlier count (0-4)
+    uint8_t moderate_count;                                  // 1 byte: INT8 outlier count (0-3)
+    uint8_t extreme_idx[Q5_K_HIFI_HYBRID_MAX_EXTREME];       // 4 bytes: extreme positions
+    ggml_half extreme_vals[Q5_K_HIFI_HYBRID_MAX_EXTREME];    // 8 bytes: FP16 values (full precision)
+    uint8_t moderate_idx[Q5_K_HIFI_HYBRID_MAX_MODERATE];     // 3 bytes: moderate positions
+    int8_t  moderate_residuals[Q5_K_HIFI_HYBRID_MAX_MODERATE]; // 3 bytes: INT8 residuals
+    float   moderate_scale;                                  // 4 bytes: shared INT8 scale
+} block_q5_k_hifi_hybrid;
+// Total: 200 bytes (176 + 24) - same size as RES8, better quality on small models
+static_assert(sizeof(block_q5_k_hifi_hybrid) == 200, "wrong q5_k_hifi_hybrid block size/padding");
+
 // This is only used for intermediate quantization and dot products
 typedef struct {
     float   d;              // delta
