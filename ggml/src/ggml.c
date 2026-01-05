@@ -7581,6 +7581,7 @@ size_t ggml_quantize_chunk(
         case GGML_TYPE_Q6_K_HIFI: result = quantize_q6_k_hifi(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
         case GGML_TYPE_Q6_K_HIFI_DYNAMIC: result = quantize_q6_k_hifi_dynamic(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
         case GGML_TYPE_Q6_K_HIFI_RES8: result = quantize_q6_k_hifi_res8(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
+        case GGML_TYPE_Q5_K_HIFI_RES8: result = quantize_q5_k_hifi_res8(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
         case GGML_TYPE_F16:
             {
                 size_t elemsize = sizeof(ggml_fp16_t);
