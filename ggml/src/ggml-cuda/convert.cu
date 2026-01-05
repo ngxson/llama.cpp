@@ -457,6 +457,64 @@ static __global__ void dequantize_block_q5_k_hifi_res8(const void * __restrict__
     }
 }
 
+// Q5_K_HIFI_HYBRID: FP16 extreme outliers + INT8 moderate outliers for small models (≤1.7B)
+template<typename dst_t>
+static __global__ void dequantize_block_q5_k_hifi_hybrid(const void * __restrict__ vx, dst_t * __restrict__ yy) {
+    const block_q5_k_hifi_hybrid * x = (const block_q5_k_hifi_hybrid *) vx;
+
+    const int64_t i = blockIdx.x;
+
+    // Q5_K bulk dequantization (same as dequantize_block_q5_K)
+    const int64_t tid = threadIdx.x;
+    const int64_t il  = tid/16;   // il is in 0...3
+    const int64_t ir  = tid%16;   // ir is in 0...15
+    const int64_t is  = 2*il;     // is is in 0...6
+
+    dst_t * y = yy + i*QK_K + 64*il + 2*ir;
+
+    const float dall = __low2half(x[i].dm);
+    const float dmin = __high2half(x[i].dm);
+
+    const uint8_t * ql = x[i].qs + 32*il + 2*ir;
+    const uint8_t * qh = x[i].qh + 2*ir;
+
+    uint8_t sc, m;
+    get_scale_min_k4(is + 0, x[i].scales, sc, m);
+    const float d1 = dall * sc; const float m1 = dmin * m;
+    get_scale_min_k4(is + 1, x[i].scales, sc, m);
+    const float d2 = dall * sc; const float m2 = dmin * m;
+
+    uint8_t   hm  = 1 << (2*il);
+    y[ 0] = d1 * ((ql[ 0] & 0xF) + (qh[ 0] & hm ? 16 : 0)) - m1;
+    y[ 1] = d1 * ((ql[ 1] & 0xF) + (qh[ 1] & hm ? 16 : 0)) - m1;
+    hm <<= 1;
+    y[32] = d2 * ((ql[ 0] >>  4) + (qh[ 0] & hm ? 16 : 0)) - m2;
+    y[33] = d2 * ((ql[ 1] >>  4) + (qh[ 1] & hm ? 16 : 0)) - m2;
+
+    // Thread 0 handles hybrid outlier corrections
+    __syncthreads();
+    if (threadIdx.x == 0) {
+        dst_t * yb = yy + i*QK_K;
+
+        // FP16 extreme outliers: full replacement (maximum precision)
+        const int extreme_count = x[i].extreme_count;
+        for (int k = 0; k < extreme_count && k < Q5_K_HIFI_HYBRID_MAX_EXTREME; ++k) {
+            const int idx = x[i].extreme_idx[k];
+            yb[idx] = __half2float(x[i].extreme_vals[k]);
+        }
+
+        // INT8 moderate outliers: residual corrections
+        const int moderate_count = x[i].moderate_count;
+        const float res_scale = x[i].moderate_scale;
+        const float scale_factor = res_scale * (1.0f / 127.0f);
+        for (int k = 0; k < moderate_count && k < Q5_K_HIFI_HYBRID_MAX_MODERATE; ++k) {
+            const int idx = x[i].moderate_idx[k];
+            const float residual = x[i].moderate_residuals[k] * scale_factor;
+            yb[idx] += residual;
+        }
+    }
+}
+
 template<typename dst_t>
 static __global__ void dequantize_block_iq2_xxs(const void * __restrict__ vx, dst_t * __restrict__ yy) {
 
@@ -800,6 +858,12 @@ static void dequantize_row_q5_k_hifi_res8_cuda(const void * vx, dst_t * y, const
 }
 
 template<typename dst_t>
+static void dequantize_row_q5_k_hifi_hybrid_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
+    const int nb = k / QK_K;
+    dequantize_block_q5_k_hifi_hybrid<<<nb, 64, 0, stream>>>(vx, y);
+}
+
+template<typename dst_t>
 static void dequantize_row_iq2_xxs_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
     const int nb = k / QK_K;
     dequantize_block_iq2_xxs<<<nb, 32, 0, stream>>>(vx, y);
@@ -934,6 +998,8 @@ to_fp16_cuda_t ggml_get_to_fp16_cuda(ggml_type type) {
             return dequantize_row_q6_k_hifi_res8_cuda;
         case GGML_TYPE_Q5_K_HIFI_RES8:
             return dequantize_row_q5_k_hifi_res8_cuda;
+        case GGML_TYPE_Q5_K_HIFI_HYBRID:
+            return dequantize_row_q5_k_hifi_hybrid_cuda;
         case GGML_TYPE_Q4_K:
             return dequantize_row_q4_K_cuda;
         case GGML_TYPE_Q5_K:
@@ -995,6 +1061,8 @@ to_fp32_cuda_t ggml_get_to_fp32_cuda(ggml_type type) {
             return dequantize_row_q6_k_hifi_res8_cuda;
         case GGML_TYPE_Q5_K_HIFI_RES8:
             return dequantize_row_q5_k_hifi_res8_cuda;
+        case GGML_TYPE_Q5_K_HIFI_HYBRID:
+            return dequantize_row_q5_k_hifi_hybrid_cuda;
         case GGML_TYPE_Q4_K:
             return dequantize_row_q4_K_cuda;
         case GGML_TYPE_Q5_K:

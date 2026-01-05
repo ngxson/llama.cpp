@@ -26,6 +26,15 @@ extern "C" {
 #define Q5_K_HIFI_RES8_MAX_OUTLIERS 8
 #endif
 
+// Maximum outliers per block for Q5_K_HIFI_HYBRID format
+// Must match the values in ggml-common.h
+#ifndef Q5_K_HIFI_HYBRID_MAX_EXTREME
+#define Q5_K_HIFI_HYBRID_MAX_EXTREME 4   // Max FP16 outliers
+#endif
+#ifndef Q5_K_HIFI_HYBRID_MAX_MODERATE
+#define Q5_K_HIFI_HYBRID_MAX_MODERATE 3  // Max INT8 outliers
+#endif
+
 // Layer-adaptive quantization context
 // Used to pass dynamic parameters to Q6_K_HIFI_RES8 quantization
 typedef struct {

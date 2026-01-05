@@ -130,6 +130,13 @@ GGML_API void quantize_row_q5_k_hifi_res8_ref_ex(const float * GGML_RESTRICT x, 
 GGML_API void dequantize_row_q5_k_hifi_res8(const block_q5_k_hifi_res8 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 GGML_API size_t quantize_q5_k_hifi_res8(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
 
+// Q5_K_HIFI_HYBRID: FP16 extreme outliers + INT8 moderate outliers for small models (≤1.7B)
+// Preserves full precision on extreme outliers (critical for math/code tokens in small models)
+// INT8 handles moderate outliers efficiently
+GGML_API void quantize_row_q5_k_hifi_hybrid_ref(const float * GGML_RESTRICT x, block_q5_k_hifi_hybrid * GGML_RESTRICT y, int64_t k);
+GGML_API void dequantize_row_q5_k_hifi_hybrid(const block_q5_k_hifi_hybrid * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API size_t quantize_q5_k_hifi_hybrid(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
+
 #ifdef __cplusplus
 }
 #endif
