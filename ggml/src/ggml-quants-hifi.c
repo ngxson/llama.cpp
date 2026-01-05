@@ -1,5 +1,5 @@
 // GGML HIFI Quantization Context Implementation
-// Layer-adaptive outlier allocation for Q4_HIFI quantization
+// Layer-adaptive outlier allocation for Q4_K_HIFI quantization
 
 #include "ggml-quants-hifi.h"
 #include <math.h>
@@ -149,5 +149,92 @@ float ggml_hifi_compute_tensor_importance(
     if (importance < 0.2f) importance = 0.2f;
 
     return importance;
+}
+
+// Strategy 1: Compute per-block importance from imatrix data
+// Uses coefficient of variation within the block as the importance metric
+float ggml_hifi_compute_block_importance(
+    const float * imatrix_block,
+    int block_size
+) {
+    if (imatrix_block == NULL || block_size <= 0) {
+        return 0.5f;  // Default to medium importance
+    }
+
+    // Compute statistics for this block
+    double sum = 0.0;
+    double sum_sq = 0.0;
+    double max_val = 0.0;
+    
+    for (int i = 0; i < block_size; ++i) {
+        double val = (double)imatrix_block[i];
+        sum += val;
+        sum_sq += val * val;
+        if (val > max_val) max_val = val;
+    }
+
+    double mean = sum / (double)block_size;
+    if (mean < 1e-10) {
+        return 0.3f;  // Low importance for near-zero blocks
+    }
+
+    double mean_sq = sum_sq / (double)block_size;
+    double variance = mean_sq - mean * mean;
+    if (variance < 0) variance = 0;
+
+    // Coefficient of variation (CV)
+    double stddev = sqrt(variance);
+    double cv = stddev / mean;
+
+    // Also consider the max/mean ratio (spikiness)
+    double spikiness = max_val / mean;
+
+    // Combine CV and spikiness for final importance
+    // High CV = high variance = some weights are outliers = need more outliers
+    // High spikiness = extreme values present = need more outliers
+    double combined = 0.6 * cv + 0.4 * (spikiness / 10.0);  // spikiness typically 1-20
+    
+    // Normalize to 0.2 - 0.9 range
+    float importance = 0.2f + 0.7f * (float)(combined / 2.0);  // combined typically 0-3
+    if (importance > 0.9f) importance = 0.9f;
+    if (importance < 0.2f) importance = 0.2f;
+
+    return importance;
+}
+
+// Strategy 1: Compute per-block outlier count based on local imatrix variance
+// Adjusts the base outlier count up or down based on block importance
+int ggml_hifi_compute_block_outlier_count(
+    float block_importance,
+    int base_outlier_count,
+    float model_params_b
+) {
+    // Scale factor based on block importance
+    // High importance (>0.7): boost outliers up to 1.5x
+    // Low importance (<0.3): reduce outliers down to 0.5x
+    // Medium importance: keep base count
+    float scale = 1.0f;
+    
+    if (block_importance > 0.7f) {
+        // High importance block - boost outliers
+        scale = 1.0f + 0.5f * (block_importance - 0.7f) / 0.3f;  // 1.0 to 1.5
+    } else if (block_importance < 0.3f) {
+        // Low importance block - reduce outliers
+        scale = 0.5f + 0.5f * (block_importance / 0.3f);  // 0.5 to 1.0
+    }
+    
+    // For larger models, be more aggressive with reduction on low-importance blocks
+    if (model_params_b >= 7.0f && block_importance < 0.4f) {
+        scale *= 0.8f;  // Additional 20% reduction for large models
+    }
+    
+    int adjusted_count = (int)roundf((float)base_outlier_count * scale);
+    
+    // Clamp to valid range [1, 8]
+    // Allow minimum of 1 for low-importance blocks (save more space)
+    if (adjusted_count < 1) adjusted_count = 1;
+    if (adjusted_count > 8) adjusted_count = 8;
+    
+    return adjusted_count;
 }
 

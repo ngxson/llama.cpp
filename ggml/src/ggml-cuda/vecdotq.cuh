@@ -1022,6 +1022,80 @@ static __device__ __forceinline__ float vec_dot_q6_k_hifi_res8_q8_1(
     return sum;
 }
 
+// Q5_K_HIFI_RES8: Q5_K layout + INT8 residuals + per-block scale
+// Efficient format for 4B-10B models with Q5_K base (176 bytes vs Q6_K's 210)
+#define VDR_Q5_K_HIFI_RES8_Q8_1_MMVQ VDR_Q5_K_Q8_1_MMVQ
+
+static __device__ __forceinline__ float vec_dot_q5_k_hifi_res8_q8_1(
+    const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
+
+    const block_q5_k_hifi_res8 * bq5_hifi = (const block_q5_k_hifi_res8 *) vbq + kbx;
+
+    // === Q5_K bulk dot product (same as vec_dot_q5_K_q8_1) ===
+    int   vl[2];
+    int   vh[2];
+    int    u[2*QR5_K];
+    float d8[QR5_K];
+
+    const int bq8_offset = QR5_K * ((iqs/2) / (QI8_1/2));
+    const int * ql = (const int *)(bq5_hifi->qs + 16 * bq8_offset + 4 * ((iqs/2)%4));
+    const int * qh = (const int *)(bq5_hifi->qh + 4 * ((iqs/2)%4));
+
+    vl[0] = ql[0];
+    vl[1] = ql[4];
+
+    vh[0] = qh[0] >> bq8_offset;
+    vh[1] = qh[4] >> bq8_offset;
+
+    const uint16_t * scales = (const uint16_t *)bq5_hifi->scales;
+    uint16_t aux[2];
+    const int j = bq8_offset/2;
+    if (j < 2) {
+        aux[0] = scales[j+0] & 0x3f3f;
+        aux[1] = scales[j+2] & 0x3f3f;
+    } else {
+        aux[0] = ((scales[j+2] >> 0) & 0x0f0f) | ((scales[j-2] & 0xc0c0) >> 2);
+        aux[1] = ((scales[j+2] >> 4) & 0x0f0f) | ((scales[j-0] & 0xc0c0) >> 2);
+    }
+    const uint8_t * sc = (const uint8_t *)aux;
+    const uint8_t * m  = sc + 2;
+
+#pragma unroll
+    for (int i = 0; i < QR5_K; ++i) {
+        const block_q8_1 * bq8i = bq8_1 + bq8_offset + i;
+        d8[i] = __low2float(bq8i->ds);
+
+        const int * q8 = (const int *)bq8i->qs + ((iqs/2)%4);
+        u[2*i+0] = q8[0];
+        u[2*i+1] = q8[4];
+    }
+
+    float sum = vec_dot_q5_K_q8_1_impl_vmmq(vl, vh, u, sc, m, bq5_hifi->dm, d8);
+
+    // === INT8 RESIDUAL CORRECTION ===
+    const int outlier_count = bq5_hifi->outlier_count;
+    
+    if (outlier_count > 0) {
+        const float res_scale = bq5_hifi->residual_scale * (1.0f / 127.0f);
+        
+        // Only thread 0 in the warp group for this block computes the residual correction
+        if (iqs == 0) {
+            for (int k = 0; k < outlier_count && k < 8; ++k) {
+                const int idx = bq5_hifi->outlier_idx[k];
+                const int idx_bq8 = idx / QK8_1;
+                const int idx_in_bq8 = idx % QK8_1;
+                
+                const int8_t q8_val = ((const int8_t*)bq8_1[idx_bq8].qs)[idx_in_bq8];
+                const float d8_val = __low2float(bq8_1[idx_bq8].ds);
+                const float residual = res_scale * bq5_hifi->residual_vals[k];
+                sum += residual * q8_val * d8_val;
+            }
+        }
+    }
+
+    return sum;
+}
+
 #define VDR_IQ2_XXS_Q8_1_MMVQ 2
 #define VDR_IQ2_XXS_Q8_1_MMQ  2
 

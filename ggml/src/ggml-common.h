@@ -415,6 +415,34 @@ typedef struct {
 // Total: 232 bytes (210 + 22) - saves 4 bytes/block vs Q6_K_HIFI_DYNAMIC
 static_assert(sizeof(block_q6_k_hifi_res8) == 232, "wrong q6_k_hifi_res8 block size/padding");
 
+// Q5_K_HIFI_RES8: Efficient Q5_K with INT8 residuals for 4B-10B models
+// This format is optimized for mid-scale models where Q6_K overhead is wasteful.
+// Q5_K base provides sufficient precision, outliers compensate for 1-bit loss.
+// Size: 200 bytes vs Q6_K_HIFI_RES8's 232 bytes (~14% smaller)
+// Expected results: matches Q6_K_HIFI_RES8 quality at better BPW efficiency
+#define Q5_K_HIFI_RES8_MAX_OUTLIERS 8
+typedef struct {
+    // === Q5_K-COMPATIBLE REGION (176 bytes) - DO NOT REORDER ===
+    GGML_EXTENSION union {
+        struct {
+            ggml_half d;    // super-block scale for quantized scales
+            ggml_half dmin; // super-block scale for quantized mins
+        } GGML_COMMON_AGGR_S;
+        ggml_half2 dm;
+    } GGML_COMMON_AGGR_U;
+    uint8_t scales[K_SCALE_SIZE]; // 12 bytes: scales and mins, quantized with 6 bits
+    uint8_t qh[QK_K/8];           // 32 bytes: quants, high bit
+    uint8_t qs[QK_K/2];           // 128 bytes: quants, low 4 bits
+    // === COMPACT INT8 RESIDUAL EXTENSION (24 bytes) ===
+    uint8_t outlier_count;                               // 1 byte: actual outlier count (1-8)
+    uint8_t outlier_idx[Q5_K_HIFI_RES8_MAX_OUTLIERS];    // 8 bytes: outlier positions (0-255)
+    int8_t  residual_vals[Q5_K_HIFI_RES8_MAX_OUTLIERS];  // 8 bytes: INT8 residuals (-127 to +127)
+    uint8_t _padding[3];                                 // 3 bytes: padding for float alignment
+    float   residual_scale;                              // 4 bytes: shared scale for residuals
+} block_q5_k_hifi_res8;
+// Total: 200 bytes (176 + 24) - 14% smaller than Q6_K_HIFI_RES8
+static_assert(sizeof(block_q5_k_hifi_res8) == 200, "wrong q5_k_hifi_res8 block size/padding");
+
 // This is only used for intermediate quantization and dot products
 typedef struct {
     float   d;              // delta

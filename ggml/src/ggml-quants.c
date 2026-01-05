@@ -2441,18 +2441,34 @@ void quantize_row_q6_k_hifi_res8_ref(const float * GGML_RESTRICT x, block_q6_k_h
     quantize_row_q6_k_hifi_res8_ref_ex(x, y, k, Q6_K_HIFI_RES8_MAX_OUTLIERS);
 }
 
-// imatrix-aware quantization implementation
-static void quantize_row_q6_k_hifi_res8_impl(const float * GGML_RESTRICT x, block_q6_k_hifi_res8 * GGML_RESTRICT y, int64_t k, const float * GGML_RESTRICT quant_weights, int outlier_count) {
+// imatrix-aware quantization implementation with per-block adaptive outliers (Strategy 1)
+static void quantize_row_q6_k_hifi_res8_impl(const float * GGML_RESTRICT x, block_q6_k_hifi_res8 * GGML_RESTRICT y, int64_t k, const float * GGML_RESTRICT quant_weights, int base_outlier_count) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;
 
-    if (outlier_count < 1) outlier_count = 1;
-    if (outlier_count > Q6_K_HIFI_RES8_MAX_OUTLIERS) outlier_count = Q6_K_HIFI_RES8_MAX_OUTLIERS;
+    if (base_outlier_count < 1) base_outlier_count = 1;
+    if (base_outlier_count > Q6_K_HIFI_RES8_MAX_OUTLIERS) base_outlier_count = Q6_K_HIFI_RES8_MAX_OUTLIERS;
+
+    // Get model size from HIFI context for per-block adaptation
+    float model_params_b = 1.0f;  // Default to 1B for Q6_K (small models)
+    const ggml_hifi_quant_context * hifi_ctx = ggml_hifi_get_context();
+    if (hifi_ctx && hifi_ctx->is_active) {
+        model_params_b = hifi_ctx->model_params_b;
+    }
 
     for (int64_t ib = 0; ib < nb; ++ib) {
         const float * xb = x + ib * QK_K;
         const float * qw = quant_weights ? quant_weights + ib * QK_K : NULL;
         block_q6_k_hifi_res8 * block = &y[ib];
+
+        // Strategy 1: Compute per-block adaptive outlier count based on local imatrix variance
+        int outlier_count = base_outlier_count;
+        if (qw != NULL) {
+            // Compute block importance from local imatrix data
+            float block_importance = ggml_hifi_compute_block_importance(qw, QK_K);
+            // Adjust outlier count based on block importance
+            outlier_count = ggml_hifi_compute_block_outlier_count(block_importance, base_outlier_count, model_params_b);
+        }
 
         block->outlier_count = (uint8_t)outlier_count;
         block->_padding = 0;
@@ -2570,6 +2586,240 @@ size_t quantize_q6_k_hifi_res8(const float * GGML_RESTRICT src, void * GGML_REST
         char * qrow = (char *)dst;
         for (int64_t row = 0; row < nrow; ++row) {
             quantize_row_q6_k_hifi_res8_impl(src, (block_q6_k_hifi_res8*)qrow, n_per_row, quant_weights, outlier_count);
+            src += n_per_row;
+            qrow += row_size;
+        }
+    }
+    return nrow * row_size;
+}
+
+// =====================================================================
+// Q5_K_HIFI_RES8: Efficient Q5_K with INT8 residuals for 4B-10B models
+// Uses Q5_K base (176 bytes) instead of Q6_K (210 bytes) for better BPW
+// =====================================================================
+
+// Extended quantization function with explicit outlier count
+void quantize_row_q5_k_hifi_res8_ref_ex(const float * GGML_RESTRICT x, block_q5_k_hifi_res8 * GGML_RESTRICT y, int64_t k, int outlier_count) {
+    assert(k % QK_K == 0);
+    const int64_t nb = k / QK_K;
+
+    // Clamp outlier count to valid range
+    if (outlier_count < 1) outlier_count = 1;
+    if (outlier_count > Q5_K_HIFI_RES8_MAX_OUTLIERS) outlier_count = Q5_K_HIFI_RES8_MAX_OUTLIERS;
+
+    for (int64_t ib = 0; ib < nb; ++ib) {
+        const float * xb = x + ib * QK_K;
+        block_q5_k_hifi_res8 * block = &y[ib];
+
+        // Initialize extension fields
+        block->outlier_count = (uint8_t)outlier_count;
+        memset(block->_padding, 0, sizeof(block->_padding));
+
+        // Step 1: Find top-k outliers by magnitude
+        float mag[QK_K];
+        for (int i = 0; i < QK_K; ++i) {
+            mag[i] = fabsf(xb[i]);
+        }
+
+        // Simple selection sort for top-k (k <= 8, so O(n*k) is fine)
+        int outlier_indices[Q5_K_HIFI_RES8_MAX_OUTLIERS];
+        for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
+            int max_idx = 0;
+            float max_val = mag[0];
+            for (int i = 1; i < QK_K; ++i) {
+                if (mag[i] > max_val) {
+                    max_val = mag[i];
+                    max_idx = i;
+                }
+            }
+            outlier_indices[k_idx] = max_idx;
+            mag[max_idx] = -1.0f;  // Mark as used
+        }
+
+        // Step 2: Zero outliers temporarily and quantize as Q5_K
+        float tmp[QK_K];
+        memcpy(tmp, xb, QK_K * sizeof(float));
+        for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
+            tmp[outlier_indices[k_idx]] = 0.0f;
+        }
+        
+        // Quantize the Q5_K base (this fills dm, scales, qh, qs)
+        quantize_row_q5_K_ref(tmp, (block_q5_K *)block, QK_K);
+
+        // Step 3: Compute residuals from Q5_K reconstruction
+        float dequant[QK_K];
+        dequantize_row_q5_K((const block_q5_K *)block, dequant, QK_K);
+
+        float max_residual = 0.0f;
+        float residuals[Q5_K_HIFI_RES8_MAX_OUTLIERS];
+        for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
+            const int idx = outlier_indices[k_idx];
+            residuals[k_idx] = xb[idx] - dequant[idx];
+            if (fabsf(residuals[k_idx]) > max_residual) {
+                max_residual = fabsf(residuals[k_idx]);
+            }
+        }
+
+        // Handle zero case
+        if (max_residual == 0.0f) max_residual = 1e-8f;
+        block->residual_scale = max_residual;
+
+        // Step 4: Store indices and INT8-quantized residuals
+        for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
+            block->outlier_idx[k_idx] = (uint8_t)outlier_indices[k_idx];
+            float norm_res = residuals[k_idx] / max_residual;
+            block->residual_vals[k_idx] = (int8_t)roundf(norm_res * 127.0f);
+        }
+        // Zero-fill remaining slots
+        for (int k_idx = outlier_count; k_idx < Q5_K_HIFI_RES8_MAX_OUTLIERS; ++k_idx) {
+            block->outlier_idx[k_idx] = 0;
+            block->residual_vals[k_idx] = 0;
+        }
+    }
+}
+
+// 3-argument wrapper for ggml_from_float_t compatibility
+void quantize_row_q5_k_hifi_res8_ref(const float * GGML_RESTRICT x, block_q5_k_hifi_res8 * GGML_RESTRICT y, int64_t k) {
+    quantize_row_q5_k_hifi_res8_ref_ex(x, y, k, Q5_K_HIFI_RES8_MAX_OUTLIERS);
+}
+
+// imatrix-aware quantization implementation with per-block adaptive outliers (Strategy 1)
+static void quantize_row_q5_k_hifi_res8_impl(const float * GGML_RESTRICT x, block_q5_k_hifi_res8 * GGML_RESTRICT y, int64_t k, const float * GGML_RESTRICT quant_weights, int base_outlier_count) {
+    assert(k % QK_K == 0);
+    const int64_t nb = k / QK_K;
+
+    if (base_outlier_count < 1) base_outlier_count = 1;
+    if (base_outlier_count > Q5_K_HIFI_RES8_MAX_OUTLIERS) base_outlier_count = Q5_K_HIFI_RES8_MAX_OUTLIERS;
+
+    // Get model size from HIFI context for per-block adaptation
+    float model_params_b = 4.0f;  // Default to 4B if no context
+    const ggml_hifi_quant_context * hifi_ctx = ggml_hifi_get_context();
+    if (hifi_ctx && hifi_ctx->is_active) {
+        model_params_b = hifi_ctx->model_params_b;
+    }
+
+    for (int64_t ib = 0; ib < nb; ++ib) {
+        const float * xb = x + ib * QK_K;
+        const float * qw = quant_weights ? quant_weights + ib * QK_K : NULL;
+        block_q5_k_hifi_res8 * block = &y[ib];
+
+        // Strategy 1: Compute per-block adaptive outlier count based on local imatrix variance
+        int outlier_count = base_outlier_count;
+        if (qw != NULL) {
+            // Compute block importance from local imatrix data
+            float block_importance = ggml_hifi_compute_block_importance(qw, QK_K);
+            // Adjust outlier count based on block importance
+            outlier_count = ggml_hifi_compute_block_outlier_count(block_importance, base_outlier_count, model_params_b);
+        }
+
+        block->outlier_count = (uint8_t)outlier_count;
+        memset(block->_padding, 0, sizeof(block->_padding));
+
+        // Find top-k outliers using imatrix-weighted importance
+        float importance[QK_K];
+        for (int i = 0; i < QK_K; ++i) {
+            float weight = qw ? qw[i] : 1.0f;
+            importance[i] = fabsf(xb[i]) * weight;
+        }
+
+        int outlier_indices[Q5_K_HIFI_RES8_MAX_OUTLIERS];
+        for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
+            int max_idx = 0;
+            float max_val = importance[0];
+            for (int i = 1; i < QK_K; ++i) {
+                if (importance[i] > max_val) {
+                    max_val = importance[i];
+                    max_idx = i;
+                }
+            }
+            outlier_indices[k_idx] = max_idx;
+            importance[max_idx] = -1.0f;
+        }
+
+        // Zero outliers and quantize Q5_K base
+        float tmp[QK_K];
+        memcpy(tmp, xb, QK_K * sizeof(float));
+        for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
+            tmp[outlier_indices[k_idx]] = 0.0f;
+        }
+        quantize_row_q5_K_ref(tmp, (block_q5_K *)block, QK_K);
+
+        // Compute residuals
+        float dequant[QK_K];
+        dequantize_row_q5_K((const block_q5_K *)block, dequant, QK_K);
+
+        float max_residual = 0.0f;
+        float residuals[Q5_K_HIFI_RES8_MAX_OUTLIERS];
+        for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
+            const int idx = outlier_indices[k_idx];
+            residuals[k_idx] = xb[idx] - dequant[idx];
+            if (fabsf(residuals[k_idx]) > max_residual) {
+                max_residual = fabsf(residuals[k_idx]);
+            }
+        }
+
+        if (max_residual == 0.0f) max_residual = 1e-8f;
+        block->residual_scale = max_residual;
+
+        for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
+            block->outlier_idx[k_idx] = (uint8_t)outlier_indices[k_idx];
+            float norm_res = residuals[k_idx] / max_residual;
+            block->residual_vals[k_idx] = (int8_t)roundf(norm_res * 127.0f);
+        }
+        for (int k_idx = outlier_count; k_idx < Q5_K_HIFI_RES8_MAX_OUTLIERS; ++k_idx) {
+            block->outlier_idx[k_idx] = 0;
+            block->residual_vals[k_idx] = 0;
+        }
+    }
+}
+
+// Dequantization: Q5_K base + INT8 residual corrections
+void dequantize_row_q5_k_hifi_res8(const block_q5_k_hifi_res8 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % QK_K == 0);
+    const int64_t nb = k / QK_K;
+
+    for (int64_t ib = 0; ib < nb; ++ib) {
+        const block_q5_k_hifi_res8 * block = &x[ib];
+        float * yb = y + ib * QK_K;
+
+        // Dequantize Q5_K base
+        dequantize_row_q5_K((const block_q5_K *)block, yb, QK_K);
+
+        // Add residual corrections at outlier positions
+        const int outlier_count = block->outlier_count;
+        const float scale = block->residual_scale;
+        for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
+            const int idx = block->outlier_idx[k_idx];
+            const float residual = scale * (block->residual_vals[k_idx] / 127.0f);
+            yb[idx] += residual;
+        }
+    }
+}
+
+// Public quantization function with imatrix support
+size_t quantize_q5_k_hifi_res8(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrow, int64_t n_per_row, const float * quant_weights) {
+    size_t row_size = ggml_row_size(GGML_TYPE_Q5_K_HIFI_RES8, n_per_row);
+
+    // Get adaptive outlier count from HIFI context if available
+    int outlier_count = Q5_K_HIFI_RES8_MAX_OUTLIERS;
+    const ggml_hifi_quant_context * hifi_ctx = ggml_hifi_get_context();
+    if (hifi_ctx && hifi_ctx->is_active) {
+        outlier_count = hifi_ctx->outlier_count;
+        if (outlier_count < 1) outlier_count = 1;
+        if (outlier_count > Q5_K_HIFI_RES8_MAX_OUTLIERS) outlier_count = Q5_K_HIFI_RES8_MAX_OUTLIERS;
+    }
+
+    if (!quant_weights) {
+        char * qrow = (char *)dst;
+        for (int64_t row = 0; row < nrow; ++row) {
+            quantize_row_q5_k_hifi_res8_ref_ex(src, (block_q5_k_hifi_res8*)qrow, n_per_row, outlier_count);
+            src += n_per_row;
+            qrow += row_size;
+        }
+    } else {
+        char * qrow = (char *)dst;
+        for (int64_t row = 0; row < nrow; ++row) {
+            quantize_row_q5_k_hifi_res8_impl(src, (block_q5_k_hifi_res8*)qrow, n_per_row, quant_weights, outlier_count);
             src += n_per_row;
             qrow += row_size;
         }
@@ -6017,6 +6267,11 @@ bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbyte
         case GGML_TYPE_Q6_K_HIFI_RES8:
             {
                 VALIDATE_ROW_DATA_D_F16_IMPL(block_q6_k_hifi_res8, data, nb);
+            } break;
+
+        case GGML_TYPE_Q5_K_HIFI_RES8:
+            {
+                VALIDATE_ROW_DATA_D_F16_IMPL(block_q5_k_hifi_res8, data, nb);
             } break;
 
         case GGML_TYPE_I8:
