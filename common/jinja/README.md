@@ -1,6 +1,6 @@
 # llama.cpp Jinja Engine
 
-A high-performance Jinja template engine implementation in C++, originally inspired by [huggingface.js's jinja package](https://github.com/huggingface/huggingface.js). Introduced in [PR#18462](https://github.com/ggml-org/llama.cpp/pull/18462).
+A Jinja template engine implementation in C++, originally inspired by [huggingface.js's jinja package](https://github.com/huggingface/huggingface.js). Introduced in [PR#18462](https://github.com/ggml-org/llama.cpp/pull/18462).
 
 ## Key Features
 

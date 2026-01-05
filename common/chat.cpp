@@ -698,7 +698,7 @@ common_chat_templates_ptr common_chat_templates_init(
     } catch (const std::exception & e) {
         LOG_ERR("%s: error: %s\n", __func__, e.what());
         LOG_ERR("%s: failed to initialize chat template\n", __func__);
-        LOG_ERR("%s: please consider disabling jinja via --no-jinja\n", __func__);
+        LOG_ERR("%s: please consider disabling jinja via --no-jinja, or using another chat template\n", __func__);
         throw e;
     }
     if (!template_tool_use_src.empty()) {
