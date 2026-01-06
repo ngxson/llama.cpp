@@ -50,13 +50,13 @@ static float compute_model_params_b(const llama_hparams & hparams, int64_t n_voc
 
 // Get the appropriate HIFI type based on model size
 // Small models (≤5B): Q5_K_HIFI_RES8 - size-efficient, proven at 4B scale
-// Large models (>5B): Q6_K_HIFI_RES8 - precision-focused, needed for 8B+ quality
+// Large models (>5B): Q6_K_HIFI_RES8 - precision-focused, needed for 8B/14B+ quality
 static ggml_type get_hifi_enhanced_type(float model_params_b) {
     if (model_params_b <= 5.0f) {
         // 0.6B–5B: Q5_K_HIFI_RES8 (size-efficient)
         return GGML_TYPE_Q5_K_HIFI_RES8;
     } else {
-        // 8B+: Q6_K_HIFI_RES8 (precision-focused)
+        // 8B/14B+: Q6_K_HIFI_RES8 (precision-focused)
         return GGML_TYPE_Q6_K_HIFI_RES8;
     }
 }
@@ -75,11 +75,13 @@ static float get_hifi_enhancement_threshold(float model_params_b) {
     } else if (model_params_b <= 5.0f) {
         // Medium-small models (2-5B): enhance 20% of layers
         return 0.20f;
-    } else if (model_params_b <= 10.0f) {
-        // Medium-large models (5-10B): enhance 20% of layers (match 4B success)
+    } else if (model_params_b <= 15.0f) {
+        // Medium-large models (5-15B): enhance 20% of layers
+        // Includes 8B and 14B models - matching 8B success case
+        // Results in ~8-12 enhanced tensors (token_embd, output.weight, attn_v layers 0-N)
         return 0.20f;
     } else {
-        // Very large models (>10B): Skip ALL attn_v enhancement
+        // Very large models (>15B): Skip ALL attn_v enhancement
         // Only token_embd and output.weight are enhanced (reduces overhead significantly)
         return 0.0f;
     }
@@ -382,11 +384,11 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
             // Q4_K_HIFI: Model-size-aware enhancement to optimize size vs quality tradeoff
-            // - Small models (≤2B): Q6_K_HIFI_RES8, enhance 50% of attn_v layers (high ROI)
-            // - Medium models (4B-10B): Q5_K_HIFI_RES8, enhance 30% of layers (optimal BPW)
-            // - Large models (>10B): Q5_K_HIFI_RES8, enhance 15% of layers (diminishing returns)
-            // This reduces enhanced tensor count significantly for large models while
-            // preserving quality where it matters (early layers + embeddings)
+            // - Tiny models (≤1B): Q5_K_HIFI_RES8, enhance 32% of attn_v layers
+            // - Small models (1-5B): Q5_K_HIFI_RES8, enhance 20-25% of layers
+            // - Large models (5-15B): Q6_K_HIFI_RES8, enhance 20% of layers (~8-12 tensors)
+            // - Very large models (>15B): Only token_embd and output.weight enhanced
+            // This provides optimal quality/size tradeoff at each model scale
             const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
             const float enhancement_threshold = get_hifi_enhancement_threshold(model_params_b);
             const ggml_type hifi_type = get_hifi_enhanced_type(model_params_b);
