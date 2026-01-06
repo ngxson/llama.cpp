@@ -74,8 +74,8 @@ static float get_hifi_enhancement_threshold(float model_params_b) {
         // Medium-small models (2-5B): enhance 20% of layers
         return 0.20f;
     } else if (model_params_b <= 10.0f) {
-        // Medium-large models (5-10B): enhance 15% of layers
-        return 0.15f;
+        // Medium-large models (5-10B): enhance 20% of layers (match 4B success)
+        return 0.20f;
     } else {
         // Very large models (>10B): Skip ALL attn_v enhancement
         // Only token_embd and output.weight are enhanced (reduces overhead significantly)
