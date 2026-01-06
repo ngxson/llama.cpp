@@ -296,6 +296,7 @@ static bool common_params_handle_remote_preset(common_params & params, llama_exa
         auto remote_presets = ctx.load_from_ini(preset_path, global);
         if (remote_presets.find(COMMON_PRESET_DEFAULT_NAME) != remote_presets.end()) {
             common_preset & preset = remote_presets.at(COMMON_PRESET_DEFAULT_NAME);
+            LOG_INF("\n%s", preset.to_ini().c_str()); // to_ini already added trailing newline
             preset.apply_to_params(params);
         } else {
             throw std::runtime_error("Remote preset.ini does not contain [" + std::string(COMMON_PRESET_DEFAULT_NAME) + "] section");
@@ -525,10 +526,22 @@ static bool common_params_parse_ex(int argc, char ** argv, common_params_context
 
     // maybe handle remote preset
     if (!params.model.hf_repo.empty()) {
+        std::string cli_hf_repo = params.model.hf_repo;
         bool has_preset = common_params_handle_remote_preset(params, ctx_arg.ex);
+
+        // special case: if hf_repo explicitly set by preset, we need to preserve it (ignore CLI value)
+        // this is useful when we have one HF repo pointing to other HF repos (one model - multiple GGUFs)
+        std::string preset_hf_repo = params.model.hf_repo;
+        bool preset_has_hf_repo = preset_hf_repo != cli_hf_repo;
+
         if (has_preset) {
             // re-parse CLI args to override preset values
             parse_cli_args();
+        }
+
+        // preserve hf_repo from preset if needed
+        if (preset_has_hf_repo) {
+            params.model.hf_repo = preset_hf_repo;
         }
     }
 

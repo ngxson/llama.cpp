@@ -19,7 +19,7 @@ static std::string rm_leading_dashes(const std::string & str) {
 // only allow a subset of args for remote presets for security reasons
 // do not add more args unless absolutely necessary
 // args that output to files are strictly prohibited
-static std::set<std::string> get_remote_preset_whitelist(std::map<std::string, common_arg> & key_to_opt) {
+static std::set<std::string> get_remote_preset_whitelist(const std::map<std::string, common_arg> & key_to_opt) {
     static const std::set<std::string> allowed_options = {
         "model-url",
         "hf-repo",

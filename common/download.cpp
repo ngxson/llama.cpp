@@ -952,7 +952,7 @@ common_hf_file_res common_get_hf_file(const std::string & hf_repo_with_tag, cons
     } else if (res_code == 401) {
         throw std::runtime_error("error: model is private or does not exist; if you are accessing a gated model, please provide a valid HF token");
     } else {
-        throw std::runtime_error(string_format("error from HF API, response code: %ld, data: %s", res_code, res_str.c_str()));
+        throw std::runtime_error(string_format("error from HF API (%s), response code: %ld, data: %s", url.c_str(), res_code, res_str.c_str()));
     }
 
     // check response
