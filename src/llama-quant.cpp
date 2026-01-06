@@ -49,14 +49,16 @@ static float compute_model_params_b(const llama_hparams & hparams, int64_t n_voc
 }
 
 // Get the appropriate HIFI type based on model size
-// Q5_K_HIFI_RES8 is now used for ALL models - proven winner across all sizes:
-// - 34 bytes/block smaller than Q6_K_HIFI_RES8 (200 vs 232 bytes)
-// - 15% less memory bandwidth → faster on CPU-bound small models
-// - Q5_K + INT8 outliers achieves near-Q6_K quality with better speed
-// - Testing showed Q5_K_HIFI_HYBRID didn't outperform Q4_K_M+imatrix on small models
+// Small models (≤5B): Q5_K_HIFI_RES8 - size-efficient, proven at 4B scale
+// Large models (>5B): Q6_K_HIFI_RES8 - precision-focused, needed for 8B+ quality
 static ggml_type get_hifi_enhanced_type(float model_params_b) {
-    (void)model_params_b;  // Q5_K_HIFI_RES8 for all model sizes
-    return GGML_TYPE_Q5_K_HIFI_RES8;
+    if (model_params_b <= 5.0f) {
+        // 0.6B–5B: Q5_K_HIFI_RES8 (size-efficient)
+        return GGML_TYPE_Q5_K_HIFI_RES8;
+    } else {
+        // 8B+: Q6_K_HIFI_RES8 (precision-focused)
+        return GGML_TYPE_Q6_K_HIFI_RES8;
+    }
 }
 
 // Get the percentage of attn_v layers to enhance based on model size
