@@ -48,3 +48,13 @@ You can also override preset arguments by specifying them on the command line:
 # Force temp = 0.1, overriding the preset value
 llama-cli -hf username/my-model-with-preset --temp 0.1
 ```
+
+If you want to define multiple preset configurations for one or more GGUF models, you can create a blank HF repo for each preset. Each HF repo should contain a `preset.ini` file that references the actual model(s):
+
+```ini
+hf-repo = user/my-model-main
+hf-repo-draft = user/my-model-draft
+temp = 0.8
+ctx-size = 1024
+; (and other configurations)
+```
