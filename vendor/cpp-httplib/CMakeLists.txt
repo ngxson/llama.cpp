@@ -29,7 +29,11 @@ target_compile_definitions(${TARGET} PRIVATE
 
 set(OPENSSL_NO_ASM ON CACHE BOOL "Disable OpenSSL ASM code when building BoringSSL or LibreSSL")
 
-if (LLAMA_BORINGSSL)
+if (NOT LLAMA_HTTPLIB_SSL)
+    message(STATUS "Building cpp-httplib without SSL support")
+    set(CPPHTTPLIB_OPENSSL_SUPPORT FALSE)
+
+elseif (LLAMA_BORINGSSL)
     set(FIPS OFF CACHE BOOL "Enable FIPS (BoringSSL)")
 
     set(BORINGSSL_GIT "https://boringssl.googlesource.com/boringssl" CACHE STRING "BoringSSL git repository")
@@ -53,6 +57,8 @@ if (LLAMA_BORINGSSL)
 
     set(BUILD_SHARED_LIBS OFF)
     set(BUILD_TESTING OFF)
+
+    message("NOTE: If this fails, set -LLAMA_HTTPLIB_SSL=OFF to disable SSL support in cpp-httplib")
 
     if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.28)
         FetchContent_MakeAvailable(boringssl)
@@ -94,6 +100,8 @@ elseif (LLAMA_LIBRESSL)
 
     set(BUILD_SHARED_LIBS OFF)
     set(BUILD_TESTING OFF)
+
+    message("NOTE: If this fails, set -LLAMA_HTTPLIB_SSL=OFF to disable SSL support in cpp-httplib")
 
     if(CMAKE_VERSION VERSION_GREATER_EQUAL 3.28)
         FetchContent_MakeAvailable(libressl)
@@ -139,6 +147,10 @@ elseif (LLAMA_OPENSSL)
     else()
         message(STATUS "OpenSSL not found, SSL support disabled")
     endif()
+
+else()
+    message(FATAL_ERROR "No SSL backend selected for cpp-httplib")
+
 endif()
 
 if (CPPHTTPLIB_OPENSSL_SUPPORT)
