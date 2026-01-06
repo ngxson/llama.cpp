@@ -3,6 +3,7 @@
 #include "llama-batch.h"
 #include "llama-graph.h"
 #include "llama-kv-cache.h"
+#include "llama-kv-cache-iswa.h"
 #include "llama-memory.h"
 #include "llama-memory-recurrent.h"
 
@@ -28,6 +29,7 @@ public:
                  uint32_t   n_pad,
                  uint32_t   n_swa,
            llama_swa_type   swa_type,
+                    bool    is_iswa,
                             /* recurrent */
                 ggml_type   type_r,
                 ggml_type   type_s,
@@ -80,12 +82,14 @@ public:
     //
 
     llama_kv_cache * get_mem_attn() const;
+    llama_kv_cache_iswa * get_mem_attn_iswa() const;
     llama_memory_recurrent * get_mem_recr() const;
 
 private:
+    const bool is_iswa;
     const llama_hparams & hparams;
 
-    const std::unique_ptr<llama_kv_cache> mem_attn;
+    const std::unique_ptr<llama_memory_i> mem_attn;
     const std::unique_ptr<llama_memory_recurrent> mem_recr;
 };
 
@@ -111,6 +115,12 @@ public:
                   slot_info_vec_t   sinfos_attn,
         std::vector<llama_ubatch>   ubatches);
 
+    llama_memory_hybrid_context(
+              llama_memory_hybrid * mem,
+                  slot_info_vec_t   sinfos_attn,
+                  slot_info_vec_t   sinfos_attn_iswa,
+        std::vector<llama_ubatch>   ubatches);
+
     ~llama_memory_hybrid_context() = default;
 
     bool next()  override;
@@ -124,9 +134,12 @@ public:
     //
 
     const llama_kv_cache_context * get_attn() const;
+    const llama_kv_cache_iswa_context * get_attn_iswa() const;
     const llama_memory_recurrent_context * get_recr() const;
 
 private:
+    const bool is_iswa = false;
+
     // the index of the next ubatch to process
     size_t i_next = 0;
 
