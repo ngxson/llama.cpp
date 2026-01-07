@@ -2527,8 +2527,39 @@ private:
             }
         }
 
+        // to be called after decoding (or skipped decoding) a batch
+        auto update_child_slots = [&]() {
+            for (auto & slot : slots) {
+                // may need to copy state to other slots
+                if (slot.state == SLOT_STATE_DONE_PROMPT && slot.is_parent()) {
+                    std::vector<server_slot *> child_slots;
+                    for (auto & other : slots) {
+                        if (other.state == SLOT_STATE_WAIT_OTHER && slot.task->id == other.task->id_parent) {
+                            child_slots.push_back(&other);
+                        }
+                    }
+
+                    // we can only proceed if all child slots are having the correct tasks
+                    if (child_slots.size() == slot.task->n_children) {
+                        // copy state to the child slots
+                        for (auto & child : child_slots) {
+                            SLT_INF(slot, "copying state to child %d\n", child->id);
+                            slot.copy_state_to(*child);
+                            child->state = SLOT_STATE_DONE_PROMPT;
+                        }
+                    }
+                }
+            }
+        };
+
         if (batch.n_tokens == 0) {
             SRV_WRN("%s", "no tokens to decode\n");
+
+            // parent slot may have 0 tokens to process,
+            // we need to make sure all child slots are updated before continuing
+            SRV_DBG("%s", "input batch is empty, updating child slots\n");
+            update_child_slots();
+
             return;
         }
 
@@ -2629,24 +2660,7 @@ private:
 
             for (auto & slot : slots) {
                 // may need to copy state to other slots
-                if (slot.state == SLOT_STATE_DONE_PROMPT && slot.is_parent()) {
-                    std::vector<server_slot *> child_slots;
-                    for (auto & other : slots) {
-                        if (other.state == SLOT_STATE_WAIT_OTHER && slot.task->id == other.task->id_parent) {
-                            child_slots.push_back(&other);
-                        }
-                    }
-
-                    // we can only proceed if all child slots are having the correct tasks
-                    if (child_slots.size() == slot.task->n_children) {
-                        // copy state to the child slots
-                        for (auto & child : child_slots) {
-                            SLT_INF(slot, "copying state to child %d\n", child->id);
-                            slot.copy_state_to(*child);
-                            child->state = SLOT_STATE_DONE_PROMPT;
-                        }
-                    }
-                }
+                update_child_slots();
 
                 // optionally send prompt processing progress
                 if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_DONE_PROMPT) {
