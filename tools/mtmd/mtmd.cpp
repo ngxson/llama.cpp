@@ -420,6 +420,17 @@ mtmd_context * mtmd_init_from_file(const char * mmproj_fname,
     }
 }
 
+int mtmd_load_vocoder(mtmd_context * ctx, const char * vocoder_fname) {
+    // stub implementation
+    // TODO: call llama_model_load_from_file and llama_init_from_model
+    return -1;
+}
+
+bool mtmd_support_audio_gen(mtmd_context * ctx) {
+    // stub implementation
+    return false;
+}
+
 void mtmd_free(mtmd_context * ctx) {
     delete ctx;
 }
@@ -1124,4 +1135,24 @@ mtmd_input_chunks * mtmd_test_create_input_chunks() {
 void mtmd_log_set(ggml_log_callback log_callback, void * user_data) {
     g_logger_state.log_callback = log_callback ? log_callback : clip_log_callback_default;
     g_logger_state.log_callback_user_data = user_data;
+}
+
+llama_token mtmd_audio_gen_token_start(mtmd_context * ctx) {
+    GGML_UNUSED(ctx);
+    return LLAMA_TOKEN_NULL; // stub implementation
+}
+
+llama_token mtmd_audio_gen_token_end(mtmd_context * ctx) {
+    GGML_UNUSED(ctx);
+    return LLAMA_TOKEN_NULL; // stub implementation
+}
+
+llama_token mtmd_audio_gen_code_upper(mtmd_context * ctx) {
+    GGML_UNUSED(ctx);
+    return LLAMA_TOKEN_NULL; // stub implementation
+}
+
+llama_token mtmd_audio_gen_code_lower(mtmd_context * ctx) {
+    GGML_UNUSED(ctx);
+    return LLAMA_TOKEN_NULL; // stub implementation
 }
