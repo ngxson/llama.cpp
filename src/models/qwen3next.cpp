@@ -571,18 +571,18 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_qwen3next::build_qkvz(
 
         ggml_tensor * key = ggml_view_4d(ctx0, mixed_qkvz_reshaped, split_sizes_qkvz[1], num_k_heads, n_seq_tokens, n_seqs,
                                         mixed_qkvz_reshaped->nb[1], mixed_qkvz_reshaped->nb[2], mixed_qkvz_reshaped->nb[3],
-                                        split_sizes_qkvz[0] * sizeof(float));
+                                        split_sizes_qkvz[0] * ggml_element_size(mixed_qkvz_reshaped));
         cb(key, "k", il);
 
         ggml_tensor * value =
             ggml_view_4d(ctx0, mixed_qkvz_reshaped, split_sizes_qkvz[2], num_k_heads, n_seq_tokens, n_seqs,
                         mixed_qkvz_reshaped->nb[1], mixed_qkvz_reshaped->nb[2], mixed_qkvz_reshaped->nb[3],
-                        (split_sizes_qkvz[0] + split_sizes_qkvz[1]) * sizeof(float));
+                        (split_sizes_qkvz[0] + split_sizes_qkvz[1]) * ggml_element_size(mixed_qkvz_reshaped));
         cb(value, "v", il);
 
         ggml_tensor * z = ggml_view_4d(ctx0, mixed_qkvz_reshaped, split_sizes_qkvz[3], num_k_heads, n_seq_tokens, n_seqs,
                                     mixed_qkvz_reshaped->nb[1], mixed_qkvz_reshaped->nb[2], mixed_qkvz_reshaped->nb[3],
-                                    (split_sizes_qkvz[0] + split_sizes_qkvz[1] + split_sizes_qkvz[2]) * sizeof(float));
+                                    (split_sizes_qkvz[0] + split_sizes_qkvz[1] + split_sizes_qkvz[2]) * ggml_element_size(mixed_qkvz_reshaped));
         cb(z, "z", il);
 
         // After creating query, key, and value_reshaped, reshape each to flatten the head dimensions
@@ -859,19 +859,14 @@ ggml_tensor * llm_build_qwen3next::build_layer_ffn(ggml_tensor * cur, const int 
             ggml_tensor * shared_gate = build_lora_mm(model.layers[il].ffn_gate_inp_shexp, cur);
             cb(shared_gate, "shared_expert_gate", il);
 
-            // Apply sigmoid to the gate
-            shared_gate = ggml_sigmoid(ctx0, shared_gate);
-            cb(shared_gate, "shared_expert_gate_sigmoid", il);
-
             // The gate needs to be broadcast to match the dimensions of ffn_shexp
             // ffn_shexp is [n_embd, n_tokens, 1, 1] and shared_gate is [1, n_tokens, 1, 1]
             // We need to repeat the gate along the feature dimension
             shared_gate = ggml_repeat(ctx0, shared_gate, ffn_shexp);
             cb(shared_gate, "shared_expert_gate_broadcast", il);
 
-            // Apply the gate to the shared expert output
-            ffn_shexp = ggml_mul(ctx0, ffn_shexp, shared_gate);
-            cb(ffn_shexp, "ffn_shexp_gated", il);
+            // sigmoid gating
+            ffn_shexp = ggml_swiglu_split(ctx0, ffn_shexp, shared_gate);
 
             cur = ggml_add(ctx0, moe_out, ffn_shexp);
             cb(cur, "ffn_out", il);
