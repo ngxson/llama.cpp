@@ -493,6 +493,11 @@ private:
                 ggml_tensor * gate,
                         int   layer);
 
+    // returns pair of qkv, z
+    std::pair<ggml_tensor *, ggml_tensor *> build_qkvz(
+                ggml_tensor * input,
+                        int   il);
+
     const llama_model & model;
 };
 
