@@ -859,14 +859,13 @@ ggml_tensor * llm_build_qwen3next::build_layer_ffn(ggml_tensor * cur, const int 
             ggml_tensor * shared_gate = build_lora_mm(model.layers[il].ffn_gate_inp_shexp, cur);
             cb(shared_gate, "shared_expert_gate", il);
 
-            // The gate needs to be broadcast to match the dimensions of ffn_shexp
-            // ffn_shexp is [n_embd, n_tokens, 1, 1] and shared_gate is [1, n_tokens, 1, 1]
-            // We need to repeat the gate along the feature dimension
-            shared_gate = ggml_repeat(ctx0, shared_gate, ffn_shexp);
-            cb(shared_gate, "shared_expert_gate_broadcast", il);
+            // Apply sigmoid to the gate
+            shared_gate = ggml_sigmoid(ctx0, shared_gate);
+            cb(shared_gate, "shared_expert_gate_sigmoid", il);
 
-            // sigmoid gating
-            ffn_shexp = ggml_swiglu_split(ctx0, ffn_shexp, shared_gate);
+            // Apply the gate to the shared expert output
+            ffn_shexp = ggml_mul(ctx0, ffn_shexp, shared_gate);
+            cb(ffn_shexp, "ffn_shexp_gated", il);
 
             cur = ggml_add(ctx0, moe_out, ffn_shexp);
             cb(cur, "ffn_out", il);
