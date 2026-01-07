@@ -294,7 +294,7 @@ struct server_slot {
     }
 
     bool is_child() const {
-        return is_processing() && task->id_parent >= 0;
+        return task->id_parent >= 0;
     }
 
     void release() {
@@ -2052,6 +2052,12 @@ private:
 
                 // check if we can batch this slot with the previous one
                 if (slot_batched && !slot_batched->can_batch_with(slot)) {
+                    continue;
+                }
+
+                // check if this is a child slot
+                if (slot.state == SLOT_STATE_WAIT_OTHER) {
+                    SLT_DBG(slot, "%s", "waiting for parent slot to complete\n");
                     continue;
                 }
 
