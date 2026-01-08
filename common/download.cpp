@@ -806,7 +806,7 @@ int common_download_file_single(const std::string & url,
     }
 
     LOG_INF("%s: using cached file (offline mode): %s\n", __func__, path.c_str());
-    return -1;
+    return 304; // Not Modified - fake cached response
 }
 
 // download multiple files from remote URLs to local paths
