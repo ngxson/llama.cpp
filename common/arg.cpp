@@ -271,8 +271,8 @@ static void parse_tensor_buffer_overrides(const std::string & value, std::vector
 
 static std::string clean_file_name(const std::string & fname) {
     std::string clean_fname = fname;
-    string_replace_all(clean_fname, "\\", "/");
-    string_replace_all(clean_fname, "/", "");
+    string_replace_all(clean_fname, "\\", "_");
+    string_replace_all(clean_fname, "/", "_");
     return clean_fname;
 }
 
