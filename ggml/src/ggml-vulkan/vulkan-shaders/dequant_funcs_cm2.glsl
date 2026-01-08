@@ -167,17 +167,17 @@ float16_t dequantFuncQ3_K(const in decodeBufQ3_K bl, const in uint blockCoords[2
     return ret;
 }
 
-// Q3_HIFI: Q3_K-compatible layout with 6 FP16 outliers
-layout(buffer_reference, std430, buffer_reference_align = 2) buffer decodeBufQ3_HIFI {
-   block_q3_hifi block;
+// Q3_K_HIFI: Q3_K-compatible layout with 6 FP16 outliers
+layout(buffer_reference, std430, buffer_reference_align = 2) buffer decodeBufQ3_K_HIFI {
+   block_q3_k_hifi block;
 };
 
-float16_t dequantFuncQ3_HIFI(const in decodeBufQ3_HIFI bl, const in uint blockCoords[2], const in uint coordInBlock[2])
+float16_t dequantFuncQ3_K_HIFI(const in decodeBufQ3_K_HIFI bl, const in uint blockCoords[2], const in uint coordInBlock[2])
 {
     const uint idx = coordInBlock[1];
 
     // First check if this is an outlier position
-    for (uint k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
+    for (uint k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
         if (uint(bl.block.outlier_idx[k]) == idx) {
             return bl.block.outlier_vals[k];
         }
@@ -738,8 +738,8 @@ float16_t dequantFuncMXFP4(const in decodeBufMXFP4 bl, const in uint blockCoords
 #define dequantFuncA dequantFuncQ2_K
 #elif defined(DATA_A_Q3_K)
 #define dequantFuncA dequantFuncQ3_K
-#elif defined(DATA_A_Q3_HIFI)
-#define dequantFuncA dequantFuncQ3_HIFI
+#elif defined(DATA_A_Q3_K_HIFI)
+#define dequantFuncA dequantFuncQ3_K_HIFI
 #elif defined(DATA_A_Q4_K)
 #define dequantFuncA dequantFuncQ4_K
 #define fetch_scales fetch_scalesQ4_K

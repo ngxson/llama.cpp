@@ -514,9 +514,9 @@ vec2 get_dm(uint ib, uint a_offset) {
 }
 #endif
 
-#if defined(DATA_A_Q3_HIFI)
+#if defined(DATA_A_Q3_K_HIFI)
 vec2 dequantize(uint ib, uint iqs, uint a_offset) {
-    // Q3_HIFI uses same layout as Q3_K with outliers appended
+    // Q3_K_HIFI uses same layout as Q3_K with outliers appended
     iqs /= 2;
     const uint n = iqs / 64;                     // 0,1
     const uint qsi = n * 32 + (iqs % 16) * 2;    // 0,2,4..62
@@ -540,7 +540,7 @@ vec2 dequantize(uint ib, uint iqs, uint a_offset) {
     float v1 = dl * float(int8_t((data_a[a_offset + ib].qs[qsi + 1] >> qsshift) & 3) - (((data_a[a_offset + ib].hmask[hmi + 1] & m) != 0) ? 0 : 4));
 
     // Check for outliers and replace with FP16 values
-    [[unroll]] for (uint k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
+    [[unroll]] for (uint k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
         if (data_a[a_offset + ib].outlier_idx[k] == local_idx0) {
             v0 = float(data_a[a_offset + ib].outlier_vals[k]);
         }

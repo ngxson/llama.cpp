@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Test Q3_HIFI quantization format
+# Test Q3_K_HIFI quantization format
 # This test:
-#   1. Uses a pre-quantized Q3_HIFI model
+#   1. Uses a pre-quantized Q3_K_HIFI model
 #   2. Runs perplexity test
 #   3. Asserts PPL is reasonable (<25)
 #
 # Usage:
 #   ./tests/test-q3-hifi.sh <model_path>
 #
-# Note: Q3_HIFI requires tensor dimensions divisible by 256.
+# Note: Q3_K_HIFI requires tensor dimensions divisible by 256.
 #       Small models like stories15M (288 dims) are not compatible.
 
 set -e
@@ -19,8 +19,8 @@ TEST_TEXT="tests/test-q3-hifi-text.txt"
 
 # Check arguments
 if [ -z "$1" ]; then
-    echo "Usage: $0 <q3_hifi_model_path>"
-    echo "Example: $0 models/Qwen3-1.7B-Q3_HIFI.gguf"
+    echo "Usage: $0 <q3_k_hifi_model_path>"
+    echo "Example: $0 models/Qwen3-1.7B-Q3_K_HIFI.gguf"
     exit 1
 fi
 
@@ -31,7 +31,7 @@ if [ ! -f "$MODEL_PATH" ]; then
     exit 1
 fi
 
-echo "Testing Q3_HIFI model: $MODEL_PATH"
+echo "Testing Q3_K_HIFI model: $MODEL_PATH"
 
 # Create test text file if not present
 if [ ! -f "$TEST_TEXT" ]; then

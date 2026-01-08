@@ -114,9 +114,9 @@ static void dequantize_row_q3_K_sycl(const void *vx, dst_t *y, const int64_t k,
 #endif
 }
 
-// Q3_HIFI: Q3_K-compatible layout with 6 FP16 outliers
+// Q3_K_HIFI: Q3_K-compatible layout with 6 FP16 outliers
 template <typename dst_t>
-static void dequantize_row_q3_hifi_sycl(const void *vx, dst_t *y, const int64_t k,
+static void dequantize_row_q3_k_hifi_sycl(const void *vx, dst_t *y, const int64_t k,
                                         dpct::queue_ptr stream) {
     const int64_t nb = k / QK_K;
 #if QK_K == 256
@@ -128,7 +128,7 @@ static void dequantize_row_q3_hifi_sycl(const void *vx, dst_t *y, const int64_t 
                                                    sycl::range<3>(1, 1, 64),
                                                sycl::range<3>(1, 1, 64)),
                              [=](sycl::nd_item<3> item_ct1) {
-                                 dequantize_block_q3_hifi(vx, y, item_ct1);
+                                 dequantize_block_q3_k_hifi(vx, y, item_ct1);
                              });
     }
 #else
@@ -140,7 +140,7 @@ static void dequantize_row_q3_hifi_sycl(const void *vx, dst_t *y, const int64_t 
                                                    sycl::range<3>(1, 1, 32),
                                                sycl::range<3>(1, 1, 32)),
                              [=](sycl::nd_item<3> item_ct1) {
-                                 dequantize_block_q3_hifi(vx, y, item_ct1);
+                                 dequantize_block_q3_k_hifi(vx, y, item_ct1);
                              });
     }
 #endif
@@ -571,8 +571,8 @@ to_fp16_sycl_t ggml_get_to_fp16_sycl(ggml_type type, ggml_tensor * dst) {
             return dequantize_row_q2_K_sycl;
         case GGML_TYPE_Q3_K:
             return dequantize_row_q3_K_sycl;
-        case GGML_TYPE_Q3_HIFI:
-            return dequantize_row_q3_hifi_sycl;
+        case GGML_TYPE_Q3_K_HIFI:
+            return dequantize_row_q3_k_hifi_sycl;
         case GGML_TYPE_Q4_K:
             if (dst->src[0]->extra && ((ggml_tensor_extra_gpu *) dst->src[0]->extra)->optimized_feature.reorder) {
                 return dequantize_row_q4_K_sycl_reorder;
@@ -637,8 +637,8 @@ to_fp32_sycl_t ggml_get_to_fp32_sycl(ggml_type type, ggml_tensor *dst) {
             return dequantize_row_q2_K_sycl;
         case GGML_TYPE_Q3_K:
             return dequantize_row_q3_K_sycl;
-        case GGML_TYPE_Q3_HIFI:
-            return dequantize_row_q3_hifi_sycl;
+        case GGML_TYPE_Q3_K_HIFI:
+            return dequantize_row_q3_k_hifi_sycl;
         case GGML_TYPE_Q4_K:
             if (dst->src[0]->extra &&
                 ((ggml_tensor_extra_gpu*)dst->src[0]->extra)->optimized_feature.reorder) {

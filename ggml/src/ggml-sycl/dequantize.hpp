@@ -345,13 +345,13 @@ static void dequantize_block_q3_K(const void * __restrict__ vx, dst_t * __restri
 
 }
 
-// Q3_HIFI: Q3_K-compatible layout with 6 FP16 outliers
+// Q3_K_HIFI: Q3_K-compatible layout with 6 FP16 outliers
 template<typename dst_t>
-static void dequantize_block_q3_hifi(const void * __restrict__ vx, dst_t * __restrict__ yy,
+static void dequantize_block_q3_k_hifi(const void * __restrict__ vx, dst_t * __restrict__ yy,
                                      const sycl::nd_item<3> &item_ct1) {
 
     const int64_t i = item_ct1.get_group(2);
-    const block_q3_hifi * x = (const block_q3_hifi *) vx;
+    const block_q3_k_hifi * x = (const block_q3_k_hifi *) vx;
 
 #if QK_K == 256
     const int64_t r = item_ct1.get_local_id(2) / 4;
@@ -380,7 +380,7 @@ static void dequantize_block_q3_hifi(const void * __restrict__ vx, dst_t * __res
         int idx = 128*n + 32*j + l;
         dst_t val = dl * ((int8_t)((q[l] >> shift) & 3) - ((hm[l] & m) ? 0 : 4));
         // Check if this is an outlier position and restore FP16 value
-        for (int k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
+        for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
             if (x[i].outlier_idx[k] == idx) {
                 val = x[i].outlier_vals[k];
                 break;
@@ -412,7 +412,7 @@ static void dequantize_block_q3_hifi(const void * __restrict__ vx, dst_t * __res
     // Check for outliers
     int idx0 = 16*is + il;
     int idx1 = 16*is + il + 32;
-    for (int k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
+    for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
         if (x[i].outlier_idx[k] == idx0) val0 = x[i].outlier_vals[k];
         if (x[i].outlier_idx[k] == idx1) val1 = x[i].outlier_vals[k];
     }

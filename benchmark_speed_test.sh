@@ -55,11 +55,11 @@ done
 
 # Configuration
 LLAMA_BENCH="./build/bin/llama-bench"
-declare -a MODEL_NAMES=("Q3_K_S" "Q3_K_M" "Q3_HIFI")
+declare -a MODEL_NAMES=("Q3_K_S" "Q3_K_M" "Q3_K_HIFI")
 declare -a MODEL_PATHS=(
     "./Qwen3-0.6B-f16:Q3_K_S.gguf"
     "./Qwen3-0.6B-f16:Q3_K_M.gguf"
-    "./Qwen3-0.6B-f16:Q3_HIFI.gguf"
+    "./Qwen3-0.6B-f16:Q3_K_HIFI.gguf"
 )
 
 # Colors

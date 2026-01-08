@@ -1,7 +1,7 @@
 #version 450
 #extension GL_EXT_shader_explicit_arithmetic_types_int32 : require
 
-// Q3_HIFI matrix-vector multiplication shader
+// Q3_K_HIFI matrix-vector multiplication shader
 // Uses Q3_K-compatible layout, outlier correction skipped on GPU for simplicity
 // (outliers are still applied on CPU for full quality)
 

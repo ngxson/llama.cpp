@@ -17,7 +17,7 @@ static constexpr __device__ vec_dot_q_cuda_t get_vec_dot_q_cuda(ggml_type type) 
         case GGML_TYPE_MXFP4:   return vec_dot_mxfp4_q8_1;
         case GGML_TYPE_Q2_K:    return vec_dot_q2_K_q8_1;
         case GGML_TYPE_Q3_K:    return vec_dot_q3_K_q8_1;
-        case GGML_TYPE_Q3_HIFI: return vec_dot_q3_hifi_q8_1;
+        case GGML_TYPE_Q3_K_HIFI: return vec_dot_q3_k_hifi_q8_1;
         case GGML_TYPE_Q6_K_HIFI: return vec_dot_q6_K_q8_1;  // Reuse Q6_K kernel
         case GGML_TYPE_Q6_K_HIFI_DYNAMIC: return vec_dot_q6_K_q8_1;  // Reuse Q6_K kernel
         case GGML_TYPE_Q6_K_HIFI_RES8: return vec_dot_q6_k_hifi_res8_q8_1;  // HIFI kernel with residual corrections
@@ -48,7 +48,7 @@ static constexpr __device__ int get_vdr_mmvq(ggml_type type) {
         case GGML_TYPE_MXFP4:   return VDR_MXFP4_Q8_1_MMVQ;
         case GGML_TYPE_Q2_K:    return VDR_Q2_K_Q8_1_MMVQ;
         case GGML_TYPE_Q3_K:    return VDR_Q3_K_Q8_1_MMVQ;
-        case GGML_TYPE_Q3_HIFI: return VDR_Q3_K_Q8_1_MMVQ;  // Same as Q3_K
+        case GGML_TYPE_Q3_K_HIFI: return VDR_Q3_K_Q8_1_MMVQ;  // Same as Q3_K
         case GGML_TYPE_Q6_K_HIFI: return VDR_Q6_K_Q8_1_MMVQ;  // Same as Q6_K
         case GGML_TYPE_Q6_K_HIFI_DYNAMIC: return VDR_Q6_K_Q8_1_MMVQ;  // Same as Q6_K
         case GGML_TYPE_Q6_K_HIFI_RES8: return VDR_Q6_K_Q8_1_MMVQ;  // Same as Q6_K
@@ -534,8 +534,8 @@ static void mul_mat_vec_q_switch_type(
                  nchannels_x, nchannels_y, nchannels_dst, stride_channel_x, stride_channel_y, stride_channel_dst,
                  nsamples_x, nsamples_dst, stride_sample_x, stride_sample_y, stride_sample_dst, stream);
             break;
-        case GGML_TYPE_Q3_HIFI:
-            mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_Q3_HIFI>
+        case GGML_TYPE_Q3_K_HIFI:
+            mul_mat_vec_q_switch_ncols_dst<GGML_TYPE_Q3_K_HIFI>
                 (vx, vy, ids, fusion, dst, ncols_x, nrows_x, ncols_dst, stride_row_x, stride_col_y, stride_col_dst,
                  nchannels_x, nchannels_y, nchannels_dst, stride_channel_x, stride_channel_y, stride_channel_dst,
                  nsamples_x, nsamples_dst, stride_sample_x, stride_sample_y, stride_sample_dst, stream);
