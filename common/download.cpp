@@ -670,7 +670,7 @@ static int common_download_file_single_online(const std::string & url,
             LOG_WRN("%s: HEAD invalid http status code received: %d\n", __func__, head ? head->status : -1);
             if (file_exists) {
                 LOG_INF("%s: Using cached file (HEAD failed): %s\n", __func__, path.c_str());
-                return head->status;
+                return 304; // 304 Not Modified - fake cached response
             }
             return head->status; // cannot use cached file, return raw status code
             // TODO: maybe retry only on certain codes
