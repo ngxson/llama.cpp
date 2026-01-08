@@ -66,10 +66,12 @@ bool common_download_model(
 std::vector<common_cached_model_info> common_list_cached_models();
 
 // download single file from url to local path
-bool common_download_file_single(const std::string & url,
-                                 const std::string & path,
-                                 const std::string & bearer_token,
-                                 const common_header_list & headers = {});
+// returns status code or -1 on error
+int common_download_file_single(const std::string & url,
+                                const std::string & path,
+                                const std::string & bearer_token,
+                                bool offline,
+                                const common_header_list & headers = {});
 
 // resolve and download model from Docker registry
 // return local path to downloaded model file

@@ -286,7 +286,8 @@ static bool common_params_handle_remote_preset(common_params & params, llama_exa
     // prepare local path for caching
     auto preset_fname = clean_file_name(params.model.hf_repo + "_preset.ini");
     auto preset_path = fs_get_cache_file(preset_fname);
-    bool has_preset = common_download_file_single(preset_url, preset_path, params.hf_token, offline);
+    const int status = common_download_file_single(preset_url, preset_path, params.hf_token, offline);
+    const bool has_preset = status >= 200 && status < 400;
 
     // remote preset is optional, so we don't error out if not found
     if (has_preset) {
@@ -301,6 +302,8 @@ static bool common_params_handle_remote_preset(common_params & params, llama_exa
         } else {
             throw std::runtime_error("Remote preset.ini does not contain [" + std::string(COMMON_PRESET_DEFAULT_NAME) + "] section");
         }
+    } else {
+        LOG_INF("%s", "no remote preset found, skipping\n");
     }
 
     return has_preset;
