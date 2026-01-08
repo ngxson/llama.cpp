@@ -4362,7 +4362,7 @@ class Qwen3NextModel(Qwen2MoeModel):
             data_torch = data_torch.squeeze()
         elif name.endswith("norm.weight") and not name.endswith("linear_attn.norm.weight"):
             data_torch = data_torch + 1
-        
+
         if "in_proj_qkvz.weight" in name:
             # original order:  [q, k, v, z] * head_count
             # corrected order: [q * head_count, k * head_count, v * head_count, z * head_count]
