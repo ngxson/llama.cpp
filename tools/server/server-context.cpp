@@ -2095,23 +2095,23 @@ private:
                     continue;
                 }
 
-                // wait for all children to be launched
-                if (slot.is_parent()) {
-                    int n_launched = 0;
-                    for (auto & other : slots) {
-                        if (other.is_processing() && other.is_child() && other.task->id_parent == slot.task->id) {
-                            ++n_launched;
+                // this slot still has a prompt to be processed
+                if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_STARTED) {
+                    // wait for all children to be launched
+                    if (slot.is_parent()) {
+                        int n_launched = 0;
+                        for (auto & other : slots) {
+                            if (other.is_processing() && other.is_child() && other.task->id_parent == slot.task->id) {
+                                ++n_launched;
+                            }
+                        }
+
+                        if (n_launched < slot.task->n_children) {
+                            SLT_DBG(slot, "waiting for children to be launched, n_children = %d, n_launched = %d\n", slot.task->n_children, n_launched);
+                            continue;
                         }
                     }
 
-                    if (n_launched < slot.task->n_children) {
-                        SLT_DBG(slot, "waiting for children to be launched, n_children = %d, n_launched = %d\n", slot.task->n_children, n_launched);
-                        continue;
-                    }
-                }
-
-                // this slot still has a prompt to be processed
-                if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_STARTED) {
                     const auto & input_tokens = slot.task->tokens;
 
                     // TODO: maybe move branch to outside of this loop in the future
