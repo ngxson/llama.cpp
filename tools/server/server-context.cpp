@@ -153,7 +153,7 @@ struct server_slot {
 
     common_sampler_ptr smpl;
 
-    llama_token sampled; // in speculative mode, this is the last accepted token
+    llama_token  sampled; // in speculative mode, this is the last accepted token
     llama_tokens drafted;
 
     // stats
@@ -199,6 +199,11 @@ struct server_slot {
 
         // clear alora start
         alora_invocation_start = -1;
+    }
+
+    void clear() {
+        llama_memory_seq_rm(llama_get_memory(ctx), id, -1, -1);
+        prompt.tokens.clear();
     }
 
     void init_sampler() const {
@@ -321,9 +326,17 @@ struct server_slot {
 
             SLT_INF(*this, "stop processing: n_tokens = %d, truncated = %d\n", prompt.n_tokens(), truncated);
 
-            t_last_used = ggml_time_us();
+            t_last_used        =  ggml_time_us();
             t_token_generation = (ggml_time_us() - t_start_generation) / 1e3;
+
             state = SLOT_STATE_IDLE;
+
+            // do not keep context of the child slots - the parent's context is enough
+            if (is_child()) {
+                SLT_INF(*this, "clearing child slot with %zu tokens\n", prompt.tokens.size());
+
+                clear();
+            }
 
             task_prev = std::move(task);
             task.reset();
@@ -447,8 +460,8 @@ struct server_slot {
     void copy_state_to(server_slot & other) const {
         GGML_ASSERT(state == SLOT_STATE_DONE_PROMPT);
 
-        llama_memory_seq_rm(llama_get_memory(ctx), other.id,     0, -1);
-        llama_memory_seq_cp(llama_get_memory(ctx), id, other.id, 0, -1);
+        llama_memory_seq_rm(llama_get_memory(ctx), other.id,     -1, -1);
+        llama_memory_seq_cp(llama_get_memory(ctx), id, other.id, -1, -1);
 
         other.n_decoded   = n_decoded;
         other.n_remaining = n_remaining;
@@ -1033,15 +1046,14 @@ private:
         return ret;
     }
 
-    void clear_slot(server_slot & slot, bool allow_processing = false) const {
+    static void clear_slot(server_slot & slot, bool allow_processing = false) {
         if (!allow_processing) {
             GGML_ASSERT(!slot.is_processing());
         }
 
         SLT_WRN(slot, "clearing slot with %zu tokens\n", slot.prompt.tokens.size());
 
-        llama_memory_seq_rm(llama_get_memory(ctx), slot.id, -1, -1);
-        slot.prompt.tokens.clear();
+        slot.clear();
     }
 
     // return true if at least one slot has been cleared
@@ -2087,6 +2099,21 @@ private:
                     continue;
                 }
 
+                // wait for all children to be launched
+                if (slot.is_parent()) {
+                    int n_launched = 0;
+                    for (auto & other : slots) {
+                        if (other.is_processing() && other.is_child() && other.task->id_parent == slot.task->id) {
+                            ++n_launched;
+                        }
+                    }
+
+                    if (n_launched < slot.task->n_children) {
+                        SLT_DBG(slot, "waiting for children to be launched, n_children = %d, n_launched = %d\n", slot.task->n_children, n_launched);
+                        continue;
+                    }
+                }
+
                 // this slot still has a prompt to be processed
                 if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_STARTED) {
                     const auto & input_tokens = slot.task->tokens;
@@ -2955,8 +2982,10 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
             task.params.oaicompat_cmpl_id = completion_id;
             task.params.oaicompat_model   = meta->model_name;
 
+            // prepare child tasks
             if (task.params.n_cmpl > 1) {
                 task.n_children = task.params.n_cmpl - 1;
+
                 for (int j = 0; j < task.n_children; j++) {
                     server_task child = task.create_child(task.id, rd.get_new_id());
 
@@ -2970,7 +2999,8 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
                 }
             }
 
-            tasks.push_back(std::move(task));
+            // note: the parent task always launches first
+            tasks.insert(tasks.begin(), std::move(task));
         }
 
         rd.post_tasks(std::move(tasks));

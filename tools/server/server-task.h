@@ -173,11 +173,13 @@ struct server_task {
 
     server_task create_child(int id_parent, int id_child) const {
         server_task copy;
+
         copy.id        = id_child;
         copy.id_parent = id_parent;
         copy.params    = params;
         copy.type      = type;
         copy.tokens    = tokens.clone();
+
         return copy;
     }
 
