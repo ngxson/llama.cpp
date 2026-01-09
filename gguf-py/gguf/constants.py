@@ -712,26 +712,37 @@ class MODEL_TENSOR(IntEnum):
     A_ENC_EMBD_NORM      = auto()
     A_ENC_EMBD_TO_LOGITS = auto()
     A_ENC_CONV1D         = auto()
+    A_ENC_CONV1D_NORM    = auto() # gemma3n
     A_PRE_NORM           = auto()
     A_POST_NORM          = auto()
+    A_ENC_LAYER_PRE_NORM = auto() # gemma3n
     A_ENC_ATTN_Q         = auto()
     A_ENC_ATTN_K         = auto()
     A_ENC_ATTN_V         = auto()
+    A_ENC_PER_DIM_SCALE  = auto() # gemma3n
     A_ENC_INPUT_NORM     = auto()
     A_ENC_OUTPUT         = auto()
     A_ENC_OUTPUT_NORM    = auto()
     A_ENC_FFN_UP         = auto()
     A_ENC_FFN_NORM       = auto()
+    A_ENC_FFN_POST_NORM  = auto() # gemma3n
+    A_ENC_FFN_SCALE      = auto() # gemma3n
     A_ENC_FFN_GATE       = auto()
     A_ENC_FFN_DOWN       = auto()
     A_ENC_FFN_UP_1       = auto()
     A_ENC_FFN_NORM_1     = auto()
+    A_ENC_FFN_POST_NORM_1 = auto() # gemma3n
+    A_ENC_FFN_SCALE_1    = auto() # gemma3n
     A_ENC_FFN_GATE_1     = auto()
     A_ENC_FFN_DOWN_1     = auto()
     A_MMPROJ             = auto()
     A_MMPROJ_FC          = auto()
     A_MM_NORM_PRE        = auto()
     A_MM_NORM_MID        = auto()
+    A_MM_EMBEDDING       = auto() # gemma3n
+    A_MM_HARD_EMB_NORM   = auto() # gemma3n
+    A_MM_SOFT_EMB_NORM   = auto() # gemma3n
+    A_MM_INP_PROJ        = auto() # gemma3n
     # nextn/mtp
     NEXTN_EH_PROJ        = auto()
     NEXTN_EMBED_TOKENS   = auto()
@@ -1081,9 +1092,9 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.V_MM_POST_NORM:            "mm.post_norm",
     MODEL_TENSOR.V_MM_INP_PROJ:             "mm.input_projection",
     MODEL_TENSOR.V_MM_INP_NORM:             "mm.input_norm",
-    MODEL_TENSOR.V_MM_SOFT_EMB_NORM:        "mm.soft_emb_norm",             # gemma3n
-    MODEL_TENSOR.V_MM_EMBEDDING:            "mm.embedding",                 # gemma3n
-    MODEL_TENSOR.V_MM_HARD_EMB_NORM:        "mm.hard_emb_norm",             # gemma3n
+    MODEL_TENSOR.V_MM_SOFT_EMB_NORM:        "mm.soft_emb_norm",         # gemma3n
+    MODEL_TENSOR.V_MM_EMBEDDING:            "mm.embedding",             # gemma3n
+    MODEL_TENSOR.V_MM_HARD_EMB_NORM:        "mm.hard_emb_norm",         # gemma3n
     MODEL_TENSOR.V_ENC_CONV_STEM:           "v.conv_stem.conv",         # gemma3n
     MODEL_TENSOR.V_ENC_CONV_STEM_NORM:      "v.conv_stem.bn",           # gemma3n
     MODEL_TENSOR.V_ENC_MSFA_EXP:            "v.msfa.ffn.pw_exp.conv",   # gemma3n
@@ -1119,19 +1130,26 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.A_ENC_EMBD_NORM:           "a.position_embd_norm",
     MODEL_TENSOR.A_ENC_EMBD_TO_LOGITS:      "a.embd_to_logits",
     MODEL_TENSOR.A_ENC_CONV1D:              "a.conv1d.{bid}",
+    MODEL_TENSOR.A_ENC_CONV1D_NORM:         "a.conv1d.{bid}.norm",
     MODEL_TENSOR.A_PRE_NORM:                "a.pre_ln",
     MODEL_TENSOR.A_POST_NORM:               "a.post_ln",
+    MODEL_TENSOR.A_ENC_LAYER_PRE_NORM:      "a.blk.{bid}.layer_pre_norm",
     MODEL_TENSOR.A_ENC_ATTN_Q:              "a.blk.{bid}.attn_q",
     MODEL_TENSOR.A_ENC_ATTN_K:              "a.blk.{bid}.attn_k",
     MODEL_TENSOR.A_ENC_ATTN_V:              "a.blk.{bid}.attn_v",
+    MODEL_TENSOR.A_ENC_PER_DIM_SCALE:       "a.blk.{bid}.per_dim_scale",
     MODEL_TENSOR.A_ENC_INPUT_NORM:          "a.blk.{bid}.ln1",
     MODEL_TENSOR.A_ENC_OUTPUT:              "a.blk.{bid}.attn_out",
     MODEL_TENSOR.A_ENC_OUTPUT_NORM:         "a.blk.{bid}.ln2",
     MODEL_TENSOR.A_ENC_FFN_NORM:            "a.blk.{bid}.ffn_norm",
+    MODEL_TENSOR.A_ENC_FFN_POST_NORM:       "a.blk.{bid}.ffn_post_norm",
+    MODEL_TENSOR.A_ENC_FFN_SCALE:           "a.blk.{bid}.ffn_scale",
     MODEL_TENSOR.A_ENC_FFN_UP:              "a.blk.{bid}.ffn_up",
     MODEL_TENSOR.A_ENC_FFN_GATE:            "a.blk.{bid}.ffn_gate",
     MODEL_TENSOR.A_ENC_FFN_DOWN:            "a.blk.{bid}.ffn_down",
     MODEL_TENSOR.A_ENC_FFN_NORM_1:          "a.blk.{bid}.ffn_norm_1",
+    MODEL_TENSOR.A_ENC_FFN_POST_NORM_1:     "a.blk.{bid}.ffn_post_norm_1",
+    MODEL_TENSOR.A_ENC_FFN_SCALE_1:         "a.blk.{bid}.ffn_scale_1",
     MODEL_TENSOR.A_ENC_FFN_UP_1:            "a.blk.{bid}.ffn_up_1",
     MODEL_TENSOR.A_ENC_FFN_GATE_1:          "a.blk.{bid}.ffn_gate_1",
     MODEL_TENSOR.A_ENC_FFN_DOWN_1:          "a.blk.{bid}.ffn_down_1",
@@ -1139,6 +1157,10 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.A_MMPROJ_FC:               "mm.a.fc",
     MODEL_TENSOR.A_MM_NORM_PRE:             "mm.a.norm_pre",
     MODEL_TENSOR.A_MM_NORM_MID:             "mm.a.norm_mid",
+    MODEL_TENSOR.A_MM_INP_PROJ:             "mm.a.input_projection",      # gemma3n
+    MODEL_TENSOR.A_MM_SOFT_EMB_NORM:        "mm.a.soft_emb_norm",         # gemma3n
+    MODEL_TENSOR.A_MM_EMBEDDING:            "mm.a.embedding",             # gemma3n
+    MODEL_TENSOR.A_MM_HARD_EMB_NORM:        "mm.a.hard_emb_norm",         # gemma3n
     # lfm2 audio
     MODEL_TENSOR.A_ENC_NORM_CONV:           "a.blk.{bid}.norm_conv",
     MODEL_TENSOR.A_ENC_LINEAR_POS:          "a.blk.{bid}.linear_pos",
@@ -1225,19 +1247,26 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.A_ENC_EMBD_NORM,
         MODEL_TENSOR.A_ENC_EMBD_TO_LOGITS,
         MODEL_TENSOR.A_ENC_CONV1D,
+        MODEL_TENSOR.A_ENC_CONV1D_NORM,
         MODEL_TENSOR.A_PRE_NORM,
         MODEL_TENSOR.A_POST_NORM,
+        MODEL_TENSOR.A_ENC_LAYER_PRE_NORM,
         MODEL_TENSOR.A_ENC_ATTN_Q,
         MODEL_TENSOR.A_ENC_ATTN_K,
         MODEL_TENSOR.A_ENC_ATTN_V,
+        MODEL_TENSOR.A_ENC_PER_DIM_SCALE,
         MODEL_TENSOR.A_ENC_INPUT_NORM,
         MODEL_TENSOR.A_ENC_OUTPUT,
         MODEL_TENSOR.A_ENC_OUTPUT_NORM,
         MODEL_TENSOR.A_ENC_FFN_NORM,
+        MODEL_TENSOR.A_ENC_FFN_POST_NORM,
+        MODEL_TENSOR.A_ENC_FFN_SCALE,
         MODEL_TENSOR.A_ENC_FFN_UP,
         MODEL_TENSOR.A_ENC_FFN_GATE,
         MODEL_TENSOR.A_ENC_FFN_DOWN,
         MODEL_TENSOR.A_ENC_FFN_NORM_1,
+        MODEL_TENSOR.A_ENC_FFN_POST_NORM_1,
+        MODEL_TENSOR.A_ENC_FFN_SCALE_1,
         MODEL_TENSOR.A_ENC_FFN_UP_1,
         MODEL_TENSOR.A_ENC_FFN_GATE_1,
         MODEL_TENSOR.A_ENC_FFN_DOWN_1,
@@ -1254,6 +1283,10 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.A_ENC_CONV_NORM,
         MODEL_TENSOR.A_ENC_CONV_PW1,
         MODEL_TENSOR.A_ENC_CONV_PW2,
+        MODEL_TENSOR.A_MM_INP_PROJ,
+        MODEL_TENSOR.A_MM_SOFT_EMB_NORM,
+        MODEL_TENSOR.A_MM_EMBEDDING,
+        MODEL_TENSOR.A_MM_HARD_EMB_NORM,
     ],
     MODEL_ARCH.LLAMA: [
         MODEL_TENSOR.TOKEN_EMBD,

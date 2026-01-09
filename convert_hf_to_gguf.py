@@ -6042,9 +6042,72 @@ class Gemma3VisionModel(MmprojModel):
         return [] # skip other tensors
 
 
-@ModelBase.register("Gemma3nForConditionalGeneration", "Gemma3nVisionModel")
-class Gemma3nVisionModel(MmprojModel):
-    """Vision encoder converter for Gemma3n using MobileNetV5 architecture"""
+class ConformerAudioModel(MmprojModel):
+    _batch_norm_tensors: list[dict[str, Tensor]] | None = None
+
+    @staticmethod
+    def is_audio_tensor(name: str):
+        return any(p in name for p in ["audio", "codebook", "conformer", "depth_embedding", "depthformer", "depth_linear"])
+
+    def tensor_force_quant(self, name, new_name, bid, n_dims):
+        if ConformerAudioModel.is_audio_tensor(name):
+            if ".conv" in name or "_conv" in name and ".weight" in name:
+                return gguf.GGMLQuantizationType.F32
+        return super().tensor_force_quant(name, new_name, bid, n_dims)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        # skip language model tensors
+        if name.startswith("lfm."):
+            return []
+
+        # for training only
+        if any(p in name for p in ["audio_loss_weight"]):
+            return []
+
+        # for audio output
+        if any(p in name for p in ["codebook_offsets", "depth_embeddings", "depth_linear", "depthformer"]):
+            return []
+
+        # fold running_mean, running_var and eps into weight and bias for batch_norm
+        if "batch_norm" in name:
+            if self._batch_norm_tensors is None:
+                self._batch_norm_tensors = [{} for _ in range(self.block_count)]
+            assert bid is not None
+            self._batch_norm_tensors[bid][name] = data_torch
+
+            if len(self._batch_norm_tensors[bid]) < 5:
+                return []
+
+            weight = self._batch_norm_tensors[bid][f"conformer.layers.{bid}.conv.batch_norm.weight"]
+            bias = self._batch_norm_tensors[bid][f"conformer.layers.{bid}.conv.batch_norm.bias"]
+            running_mean = self._batch_norm_tensors[bid][f"conformer.layers.{bid}.conv.batch_norm.running_mean"]
+            running_var = self._batch_norm_tensors[bid][f"conformer.layers.{bid}.conv.batch_norm.running_var"]
+            eps = 1e-5 # default value
+
+            a = weight / torch.sqrt(running_var + eps)
+            b = bias - running_mean * a
+            return [
+                (self.map_tensor_name(f"conformer.layers.{bid}.conv.batch_norm.weight"), a),
+                (self.map_tensor_name(f"conformer.layers.{bid}.conv.batch_norm.bias"), b),
+            ]
+
+        # reshape conv weights
+        if name.startswith("conformer.pre_encode.conv.") and name.endswith(".bias"):
+            data_torch = data_torch[:, None, None]
+        if "conv.depthwise_conv" in name and name.endswith(".weight"):
+            assert data_torch.shape[1] == 1
+            data_torch = data_torch.reshape(data_torch.shape[0], data_torch.shape[2])
+        if "conv.pointwise_conv" in name and name.endswith(".weight"):
+            assert data_torch.shape[2] == 1
+            data_torch = data_torch.reshape(data_torch.shape[0], data_torch.shape[1])
+
+        return [(self.map_tensor_name(name), data_torch)]
+
+
+@ModelBase.register("Gemma3nForConditionalGeneration")
+class Gemma3nVisionAudioModel(ConformerAudioModel):
+    has_audio_encoder = True
+    has_vision_encoder = True
 
     # Double indexed mapping for MobileNetV5 blocks (not supported by tensor_mapping.py)
     # This is the only known model having this, so we prefer implementing it outside of tensor_mapping.py
@@ -6073,19 +6136,12 @@ class Gemma3nVisionModel(MmprojModel):
         "model.vision_tower.timm_model.blocks.{bid}.{sid}.norm.weight":                 "v.blk.{bid}.{sid}.norm.weight",
     }
 
-    def find_hparam(self, keys: Iterable[str], optional: bool = False) -> Any:
-        # force n_layers to 0 in __init__()
-        # we have to do this because self.hparams_vision is not yet accessible for modification inside __init__()
-        if "n_layers" in list(keys):
-            return 0
-        return super().find_hparam(keys, optional)
-
     def __init__(self, *args, **kwargs):
         # Parent init will call find_hparam which now returns 0 for empty keys
         super().__init__(*args, **kwargs)
         assert self.hparams_vision is not None
-        self.hparams_vision["n_layers"] = 0
-        self.hparams_vision["intermediate_size"] = self.hparams_vision.get("hidden_size", 2048) * 4
+        self.hparams_vision["n_layers"] = 128 # fake value for audio encoder, vision encoder doesn't use it
+        self.hparams_vision["intermediate_size"] = self.hparams_vision.get("intermediate_size", 2048) * 4
         self.hparams_vision["num_attention_heads"] = self.hparams_vision.get("num_attention_heads", 8)
 
         # MobileNetV5 does not use image_mean/std
@@ -6100,10 +6156,24 @@ class Gemma3nVisionModel(MmprojModel):
         image_size = self.hparams_vision["image_size"]
         self.hparams_vision["patch_size"] = image_size // image_seq_length
 
+        # remap audio hparams
+        assert self.hparams_audio is not None
+        self.hparams_audio["n_layers"] = self.hparams_audio["conf_num_hidden_layers"]
+        self.hparams_audio["num_attention_heads"] = self.hparams_audio["conf_num_attention_heads"]
+        self.hparams_audio["feat_in"] = self.hparams_audio["input_feat_size"]
+        self.hparams_audio["intermediate_size"] = self.hparams_audio.get("intermediate_size", 6144)
+
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
         self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.GEMMA3N)
+
+        # vision params
         self.gguf_writer.add_vision_attention_layernorm_eps(self.hparams.get("layer_norm_eps", 1e-6))
+
+        # audio params
+        assert self.hparams_audio is not None
+        self.gguf_writer.add_audio_num_mel_bins(self.hparams_audio["feat_in"])
+        self.gguf_writer.add_audio_attention_layernorm_eps(1e-5)
 
     def tensor_force_quant(self, name, new_name, bid, n_dims):
         # Force quantization settings for specific tensor types
@@ -6127,7 +6197,9 @@ class Gemma3nVisionModel(MmprojModel):
         raise ValueError(f"Unknown name: {name}")
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
-        del bid  # unused
+        if (ConformerAudioModel.is_audio_tensor(name)):
+            name = name.replace("model.audio_tower.conformer.", "conformer.layers.")
+            return super().modify_tensors(data_torch, name, bid)
 
         # Gemma3n uses
         # - model.embed_vision.* for projection layers
@@ -6146,7 +6218,7 @@ class Gemma3nVisionModel(MmprojModel):
         if new_name.endswith("conv_stem.conv.bias") or new_name.endswith("layer_scale.gamma"):
             data_torch = data_torch.unsqueeze(0).unsqueeze(-1).unsqueeze(-1) # [1, C, 1, 1]
 
-        yield (new_name, data_torch)
+        return [(new_name, data_torch)]
 
 
 @ModelBase.register("Gemma3nForCausalLM", "Gemma3nForConditionalGeneration")
@@ -10088,7 +10160,7 @@ class LFM2Model(TextModel):
         self._add_feed_forward_length()
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
-        if self._is_vision_tensor(name) or self._is_audio_tensor(name):
+        if self._is_vision_tensor(name) or ConformerAudioModel.is_audio_tensor(name):
             # skip multimodal tensors
             return []
 
@@ -10103,9 +10175,6 @@ class LFM2Model(TextModel):
 
     def _is_vision_tensor(self, name: str) -> bool:
         return "vision_tower" in name or "multi_modal_projector" in name
-
-    def _is_audio_tensor(self, name: str):
-        return any(p in name for p in ["audio", "codebook", "conformer", "depth_embedding", "depthformer", "depth_linear"])
 
 
 @ModelBase.register("Lfm2Model")
@@ -10234,12 +10303,10 @@ class LFM2VLModel(MmprojModel):
 
 
 @ModelBase.register("Lfm2AudioForConditionalGeneration")
-class LFM2AudioModel(MmprojModel):
+class LFM2AudioModel(ConformerAudioModel):
     has_vision_encoder = False
     has_audio_encoder = True
     model_name = "Lfm2AudioEncoder"
-
-    _batch_norm_tensors: list[dict[str, Tensor]] | None = None
 
     def get_audio_config(self) -> dict[str, Any] | None:
         return self.global_config.get("encoder")
@@ -10253,59 +10320,6 @@ class LFM2AudioModel(MmprojModel):
         self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.LFM2A)
         self.gguf_writer.add_audio_num_mel_bins(self.hparams_audio["feat_in"])
         self.gguf_writer.add_audio_attention_layernorm_eps(1e-5)
-
-    def tensor_force_quant(self, name, new_name, bid, n_dims):
-        if ".conv" in name and ".weight" in name:
-            return gguf.GGMLQuantizationType.F32
-        return super().tensor_force_quant(name, new_name, bid, n_dims)
-
-    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
-        # skip language model tensors
-        if name.startswith("lfm."):
-            return []
-
-        # for training only
-        if any(p in name for p in ["audio_loss_weight"]):
-            return []
-
-        # for audio output
-        if any(p in name for p in ["codebook_offsets", "depth_embeddings", "depth_linear", "depthformer"]):
-            return []
-
-        # fold running_mean, running_var and eps into weight and bias for batch_norm
-        if "batch_norm" in name:
-            if self._batch_norm_tensors is None:
-                self._batch_norm_tensors = [{} for _ in range(self.block_count)]
-            assert bid is not None
-            self._batch_norm_tensors[bid][name] = data_torch
-
-            if len(self._batch_norm_tensors[bid]) < 5:
-                return []
-
-            weight = self._batch_norm_tensors[bid][f"conformer.layers.{bid}.conv.batch_norm.weight"]
-            bias = self._batch_norm_tensors[bid][f"conformer.layers.{bid}.conv.batch_norm.bias"]
-            running_mean = self._batch_norm_tensors[bid][f"conformer.layers.{bid}.conv.batch_norm.running_mean"]
-            running_var = self._batch_norm_tensors[bid][f"conformer.layers.{bid}.conv.batch_norm.running_var"]
-            eps = 1e-5 # default value
-
-            a = weight / torch.sqrt(running_var + eps)
-            b = bias - running_mean * a
-            return [
-                (self.map_tensor_name(f"conformer.layers.{bid}.conv.batch_norm.weight"), a),
-                (self.map_tensor_name(f"conformer.layers.{bid}.conv.batch_norm.bias"), b),
-            ]
-
-        # reshape conv weights
-        if name.startswith("conformer.pre_encode.conv.") and name.endswith(".bias"):
-            data_torch = data_torch[:, None, None]
-        if "conv.depthwise_conv" in name and name.endswith(".weight"):
-            assert data_torch.shape[1] == 1
-            data_torch = data_torch.reshape(data_torch.shape[0], data_torch.shape[2])
-        if "conv.pointwise_conv" in name and name.endswith(".weight"):
-            assert data_torch.shape[2] == 1
-            data_torch = data_torch.reshape(data_torch.shape[0], data_torch.shape[1])
-
-        return [(self.map_tensor_name(name), data_torch)]
 
 
 @ModelBase.register("SmallThinkerForCausalLM")

@@ -1346,6 +1346,10 @@ struct clip_model_loader {
 
         model.position_embeddings = get_tensor(string_format(TN_POS_EMBD, prefix), false);
 
+        if (model.proj_type == PROJECTOR_TYPE_GEMMA3N) {
+            hparams.n_layer = 0; // gemma3n does not use normal layer structure
+        }
+
         // layers
         model.layers.resize(hparams.n_layer);
         for (int il = 0; il < hparams.n_layer; ++il) {
@@ -2108,6 +2112,7 @@ struct clip_init_result clip_init(const char * fname, struct clip_context_params
 
     try {
         clip_model_loader loader(fname);
+        bool skip_audio = false;
 
         if (loader.has_vision) {
             ctx_vision = new clip_ctx(ctx_params);
@@ -2116,11 +2121,15 @@ struct clip_init_result clip_init(const char * fname, struct clip_context_params
             if (ctx_params.warmup) {
                 loader.warmup(*ctx_vision);
             }
+        
+            // TODO: we don't support audio for Gemma 3N, but GGUF contains audio tensors
+            // we can remove this check when we implement audio support for Gemma 3N
+            skip_audio = ctx_vision->model.proj_type == PROJECTOR_TYPE_GEMMA3N;
 
             // clip_debug_encode(ctx_vision, 24*14, 24*14, 0.5f);
         }
 
-        if (loader.has_audio) {
+        if (loader.has_audio && !skip_audio) {
             ctx_audio = new clip_ctx(ctx_params);
             loader.load_hparams(ctx_audio->model, CLIP_MODALITY_AUDIO);
             loader.load_tensors(*ctx_audio);
