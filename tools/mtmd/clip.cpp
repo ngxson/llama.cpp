@@ -3796,6 +3796,7 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
 }
 
 int clip_is_minicpmv(const struct clip_ctx * ctx) {
+    // TODO: remove this function
     if (ctx->proj_type() == PROJECTOR_TYPE_MINICPMV) {
         return ctx->model.hparams.minicpmv_version;
     }
@@ -3803,22 +3804,24 @@ int clip_is_minicpmv(const struct clip_ctx * ctx) {
 }
 
 bool clip_is_glm(const struct clip_ctx * ctx) {
+    // TODO: remove this function
     return ctx->proj_type() == PROJECTOR_TYPE_GLM_EDGE;
 }
 
 bool clip_is_mrope(const struct clip_ctx * ctx) {
-    return ctx->proj_type() == PROJECTOR_TYPE_QWEN2VL
-        || ctx->proj_type() == PROJECTOR_TYPE_QWEN25VL
-        || ctx->proj_type() == PROJECTOR_TYPE_QWEN3VL
-        || ctx->proj_type() == PROJECTOR_TYPE_GLM4V;
+    switch (ctx->proj_type()) {
+        case PROJECTOR_TYPE_QWEN2VL:
+        case PROJECTOR_TYPE_QWEN25VL:
+        case PROJECTOR_TYPE_QWEN3VL:
+        case PROJECTOR_TYPE_GLM4V:
+            return true;
+        default:
+            return false;
+    }
 }
 
 bool clip_is_llava(const struct clip_ctx * ctx) {
     return ctx->model.hparams.has_llava_projector;
-}
-
-bool clip_is_gemma3(const struct clip_ctx * ctx) {
-    return ctx->proj_type() == PROJECTOR_TYPE_GEMMA3;
 }
 
 bool clip_has_vision_encoder(const struct clip_ctx * ctx) {
@@ -3830,11 +3833,16 @@ bool clip_has_audio_encoder(const struct clip_ctx * ctx) {
 }
 
 bool clip_has_whisper_encoder(const struct clip_ctx * ctx) {
-    return ctx->proj_type() == PROJECTOR_TYPE_ULTRAVOX
-        || ctx->proj_type() == PROJECTOR_TYPE_QWEN2A
-        || ctx->proj_type() == PROJECTOR_TYPE_GLMA
-        || ctx->proj_type() == PROJECTOR_TYPE_VOXTRAL
-        || ctx->proj_type() == PROJECTOR_TYPE_MUSIC_FLAMINGO;
+    switch (ctx->proj_type()) {
+        case PROJECTOR_TYPE_ULTRAVOX:
+        case PROJECTOR_TYPE_QWEN2A:
+        case PROJECTOR_TYPE_GLMA:
+        case PROJECTOR_TYPE_VOXTRAL:
+        case PROJECTOR_TYPE_MUSIC_FLAMINGO:
+            return true;
+        default:
+            return false;
+    }
 }
 
 bool clip_encode_float_image (struct clip_ctx * ctx, int n_threads, float * img, int h, int w, float * vec) {
