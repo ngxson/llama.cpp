@@ -8,7 +8,7 @@ ggml_tensor * clip_graph_mobilenetv5::rms_norm_2d(ggml_tensor * inp, ggml_tensor
     ggml_tensor * cur = ggml_permute(ctx0, inp, 2, 1, 0, 3);
     cur = ggml_cont(ctx0, cur);
     cur = ggml_rms_norm(ctx0, cur, eps);
- 
+
     if (weight) {
         cur = ggml_mul(ctx0, cur, weight);
     }
@@ -61,7 +61,7 @@ ggml_tensor * clip_graph_mobilenetv5::build_edge_residual(ggml_tensor * inp, con
     if (stride == 2) {
         // Case: Downsampling (Block 0)
         // Replicates Conv2dSame(kernel=3, stride=2)
-        cur = pad_same_2d(cur, 3, 3, stride, stride); 
+        cur = pad_same_2d(cur, 3, 3, stride, stride);
         cur = ggml_conv_2d_direct(ctx0, block.s0_conv_exp_w, cur, stride, stride, 0, 0, 1, 1);
     } else {
         // Case: Normal 3x3 Block (Block 1, 2)
@@ -112,7 +112,7 @@ ggml_tensor * clip_graph_mobilenetv5::build_inverted_residual(ggml_tensor * inp,
     // NOTE: dw_mid is where downsampling happens (stride=2 for first block of stage)
     if (block.dw_mid_w) {
         int k = block.dw_mid_w->ne[0]; // 3 or 5
-        
+
         if (stride > 1) {
             // Case: Stride 2 (Downsample) -> Use Asymmetric "Same" Padding
             cur = pad_same_2d(cur, k, k, stride, stride);
@@ -134,7 +134,7 @@ ggml_tensor * clip_graph_mobilenetv5::build_inverted_residual(ggml_tensor * inp,
     }
 
     // Apply Layer Scaling if present
-    if (block.layer_scale_w) {        
+    if (block.layer_scale_w) {
         cur = ggml_mul(ctx0, cur, block.layer_scale_w);
     }
 
@@ -148,7 +148,7 @@ ggml_tensor * clip_graph_mobilenetv5::build_inverted_residual(ggml_tensor * inp,
     return cur;
 }
 
-// Attention Block (MQA) 
+// Attention Block (MQA)
 ggml_tensor * clip_graph_mobilenetv5::build_mobilenet_attn(ggml_tensor * inp, const mobilenetv5_block & block) {
     ggml_tensor * cur = inp;
 
@@ -198,7 +198,7 @@ ggml_tensor * clip_graph_mobilenetv5::build_mobilenet_attn(ggml_tensor * inp, co
     q = ggml_cont(ctx0, q);
 
     const int Wk = k->ne[0]; const int Hk = k->ne[1];
-    const int M = Wk * Hk; 
+    const int M = Wk * Hk;
 
     // Process K: [Wk, Hk, D, B] -> [D, M, 1, B]
     k = ggml_reshape_3d(ctx0, k, M, D, B);
@@ -225,7 +225,7 @@ ggml_tensor * clip_graph_mobilenetv5::build_mobilenet_attn(ggml_tensor * inp, co
 
     kqv = ggml_permute(ctx0, kqv, 1, 0, 2, 3);
     kqv = ggml_cont(ctx0, kqv);
-    
+
 
     kqv = ggml_reshape_3d(ctx0, kqv, N, D * n_head, B);
     kqv = ggml_reshape_4d(ctx0, kqv, W, H, D * n_head, B);
@@ -262,7 +262,7 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
     // 2. Blocks
     std::vector<ggml_tensor*> intermediate_features;
     const int total_blocks = model.mobilenet_blocks.size();
-    
+
     auto is_stage_start = [&](int i) {
         if (i == 0) return true;
         for (int end_idx : model.mobilenet_stage_ends) {
@@ -297,7 +297,7 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
 
     // 3. Multi-Scale Fusion Adapter (MSFA)
     if (!intermediate_features.empty()) {
-        
+
         // A. Reference Resolution: PyTorch implementation uses inputs[0]
         // We assume intermediate_features[0] is the "High Resolution" target.
         // In MobileNet designs, this is typically the feature map with the smallest stride (e.g. 32x32).
@@ -314,21 +314,21 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
 
             // PyTorch: if feat_size < high_resolution: interpolate
             if (feat_w < high_res_w || feat_h < high_res_h) {
-                // Calculate scale factor. 
-                // Note: PyTorch 'nearest' works on arbitrary float scales. 
+                // Calculate scale factor.
+                // Note: PyTorch 'nearest' works on arbitrary float scales.
                 // ggml_upscale generally takes integer factors or target sizes depending on helper.
                 // Assuming standard power-of-2 scaling (e.g. 16 -> 32 means scale=2).
                 int scale_w = high_res_w / feat_w;
                 // int scale_h = high_res_h / feat_h;
-                
+
                 // Safety check for non-integer scaling if strictly replicating
-                if (high_res_w % feat_w != 0) { 
+                if (high_res_w % feat_w != 0) {
                     LOG_WRN("%s: non-integer scaling detected\n", __func__);
                 }
 
                 // Upsample (Nearest Neighbor)
                 // 2 is the scale factor
-                feat = ggml_upscale(ctx0, feat, scale_w, ggml_scale_mode::GGML_SCALE_MODE_NEAREST); 
+                feat = ggml_upscale(ctx0, feat, scale_w, ggml_scale_mode::GGML_SCALE_MODE_NEAREST);
             }
             resized_feats.push_back(feat);
         }
@@ -341,16 +341,16 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
 
         // D. FFN (UniversalInvertedResidual)
         // Structure: Expand Conv -> Norm -> GELU -> Project Conv -> Norm
-        
+
         // 1. Expansion
         if (model.msfa_ffn_expand_w) {
             // 1x1 Conv
             cur = ggml_conv_2d_direct(ctx0, model.msfa_ffn_expand_w, cur, 1, 1, 0, 0, 1, 1);
-            
+
             if (model.msfa_ffn_expand_bn) {
                 cur = rms_norm_2d(cur, model.msfa_ffn_expand_bn);
             }
-            
+
             cur = ggml_gelu(ctx0, cur);
 
         }
@@ -359,7 +359,7 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
         if (model.msfa_ffn_project_w) {
             // 1x1 Conv
             cur = ggml_conv_2d_direct(ctx0, model.msfa_ffn_project_w, cur, 1, 1, 0, 0, 1, 1);
-            
+
             // UniversalInvertedResidual typically has a norm after projection
             if (model.msfa_ffn_project_bn) {
                 cur = rms_norm_2d(cur, model.msfa_ffn_project_bn);
@@ -369,7 +369,7 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
 
         // E. Final Downsample to Target Resolution (Output Resolution)
         // PyTorch: matches self.output_resolution (e.g. 16x16)
-        const int target_out_res = 16; 
+        const int target_out_res = 16;
         int current_w = cur->ne[0];
 
         if (current_w > target_out_res) {
@@ -418,8 +418,8 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
     // We must normalize regardless, then multiply if weight exists.
     {
         const float eps = 1e-6f; // Gemma3n uses 1e-6
-        cur = ggml_rms_norm(ctx0, cur, eps); 
-        
+        cur = ggml_rms_norm(ctx0, cur, eps);
+
         if (model.mm_soft_emb_norm_w) {
             // Weight shape is (2048,) -> Element-wise broadcast multiply
             cur = ggml_mul(ctx0, cur, model.mm_soft_emb_norm_w);
@@ -431,7 +431,7 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
     // PyTorch: embedding_projection = nn.Linear(vision_hidden, text_hidden, bias=False)
     // Weight stored as [out_features, in_features] = [text_hidden_size, vision_hidden_size]
     if (model.mm_input_proj_w) {
-        cur = ggml_mul_mat(ctx0, model.mm_input_proj_w, cur);         
+        cur = ggml_mul_mat(ctx0, model.mm_input_proj_w, cur);
     }
 
     // 5. POST PROJECTION NORM

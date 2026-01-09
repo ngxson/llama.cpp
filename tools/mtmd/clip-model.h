@@ -184,7 +184,7 @@ struct mobilenetv5_block {
     // Stage 1+ (Universal Inverted Residual)
     ggml_tensor * dw_start_w    = nullptr;
     ggml_tensor * dw_start_bn_w = nullptr;
-    
+
     ggml_tensor * pw_exp_w      = nullptr;
     ggml_tensor * pw_exp_bn_w   = nullptr;
 
@@ -201,13 +201,13 @@ struct mobilenetv5_block {
     ggml_tensor * attn_k_w = nullptr;
     ggml_tensor * attn_v_w = nullptr;
     ggml_tensor * attn_o_w = nullptr;
-    
+
     // Optional downsampling/norm in attention
     ggml_tensor * attn_k_dw_w   = nullptr;
     ggml_tensor * attn_k_norm_w = nullptr;
     ggml_tensor * attn_v_dw_w   = nullptr;
     ggml_tensor * attn_v_norm_w = nullptr;
-    
+
     // Block norm (often present in attention blocks)
     ggml_tensor * attn_norm_w   = nullptr;
 };
@@ -342,7 +342,7 @@ struct clip_model {
     ggml_tensor * msfa_ffn_expand_w = nullptr;
     ggml_tensor * msfa_ffn_project_w = nullptr;
     ggml_tensor * msfa_ffn_expand_bn = nullptr;
-    ggml_tensor * msfa_ffn_project_bn = nullptr; 
+    ggml_tensor * msfa_ffn_project_bn = nullptr;
 
 
     // pixtral, glm4v

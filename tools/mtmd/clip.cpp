@@ -1570,13 +1570,13 @@ struct clip_model_loader {
                     model.msfa_ffn_expand_bn = get_tensor(TN_MNV5_MSFA_FFN_EXP_BN, false); // Consume BN if present but likely folded
                     model.msfa_ffn_project_w = get_tensor(TN_MNV5_MSFA_FFN_PROJ_W, false);
                     model.msfa_ffn_project_bn = get_tensor(TN_MNV5_MSFA_FFN_PROJ_BN, false);
-                    
+
                     model.msfa_concat_norm_w = get_tensor(TN_MNV5_MSFA_NORM, false);
 
                     // Dynamically load blocks stage by stage
                     for (int stage = 0; stage < 4; ++stage) {
                         int blocks_found_in_stage = 0;
-                        
+
                         for (int blk_idx = 0; ; ++blk_idx) {
                             bool found_block = false;
                             mobilenetv5_block block;
@@ -1588,7 +1588,7 @@ struct clip_model_loader {
                                 block.s0_bn1_w      = get_tensor(string_format(TN_MNV5_BLK_S0_BN1_W, stage, blk_idx), false);
                                 block.s0_conv_pwl_w = get_tensor(string_format(TN_MNV5_BLK_S0_PWL_W, stage, blk_idx), false);
                                 block.s0_bn2_w      = get_tensor(string_format(TN_MNV5_BLK_S0_BN2_W, stage, blk_idx), false);
-                            } 
+                            }
                             // 2. Check for UIR (Universal Inverted Residual)
                             else {
                                 // Check for dw_start OR pw_exp (some UIR blocks skip dw_start)
@@ -1643,7 +1643,7 @@ struct clip_model_loader {
                                 break;
                             }
                         }
-                        
+
                         // Track where this stage ends in the flat vector
                         if (blocks_found_in_stage > 0) {
                             model.mobilenet_stage_ends.push_back(model.mobilenet_blocks.size() - 1);

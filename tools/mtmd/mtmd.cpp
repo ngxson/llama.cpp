@@ -862,7 +862,7 @@ float * mtmd_get_output_embd(mtmd_context * ctx) {
 }
 
 bool mtmd_decode_use_non_causal(mtmd_context * ctx) {
-    if (ctx->ctx_v && 
+    if (ctx->ctx_v &&
         (clip_get_projector_type(ctx->ctx_v) == PROJECTOR_TYPE_GEMMA3 || clip_get_projector_type(ctx->ctx_v) == PROJECTOR_TYPE_GEMMA3N)) {
         return true;
     }
