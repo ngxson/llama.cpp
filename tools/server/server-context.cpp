@@ -201,7 +201,14 @@ struct server_slot {
         alora_invocation_start = -1;
     }
 
-    void clear() {
+    // remove cached prompt + tokens
+    void clear(bool allow_processing) {
+        if (!allow_processing) {
+            GGML_ASSERT(!is_processing());
+        }
+
+        SLT_INF(*this, "clearing slot with %zu tokens, is_child = %d\n", prompt.tokens.size(), is_child());
+
         llama_memory_seq_rm(llama_get_memory(ctx), id, -1, -1);
         prompt.tokens.clear();
     }
@@ -333,9 +340,7 @@ struct server_slot {
 
             // do not keep context of the child slots - the parent's context is enough
             if (is_child()) {
-                SLT_INF(*this, "clearing child slot with %zu tokens\n", prompt.tokens.size());
-
-                clear();
+                clear(false);
             }
 
             task_prev = std::move(task);
@@ -786,6 +791,7 @@ private:
         }
 
         slots.clear();
+
         for (int i = 0; i < params_base.n_parallel; i++) {
             server_slot slot;
 
@@ -1034,7 +1040,7 @@ private:
                 ret->prompt_save(*prompt_cache);
 
                 if (!ret->prompt_load(*prompt_cache, task.tokens)) {
-                    clear_slot(*ret);
+                    ret->clear(false);
                 }
 
                 prompt_cache->update();
@@ -1044,16 +1050,6 @@ private:
         }
 
         return ret;
-    }
-
-    static void clear_slot(server_slot & slot, bool allow_processing = false) {
-        if (!allow_processing) {
-            GGML_ASSERT(!slot.is_processing());
-        }
-
-        SLT_WRN(slot, "clearing slot with %zu tokens\n", slot.prompt.tokens.size());
-
-        slot.clear();
     }
 
     // return true if at least one slot has been cleared
@@ -1076,7 +1072,7 @@ private:
             if (slot.prompt.n_tokens() > 0) {
                 SRV_WRN("purging slot %d with %zu tokens\n", slot.id, slot.prompt.tokens.size());
 
-                clear_slot(slot);
+                slot.clear(false);
 
                 res = true;
 
@@ -1859,7 +1855,7 @@ private:
                     // Erase token cache
                     const size_t n_erased = slot->prompt.tokens.size();
 
-                    clear_slot(*slot);
+                    slot->clear(false);
 
                     auto res = std::make_unique<server_task_result_slot_erase>();
                     res->id       = task.id;
@@ -2416,7 +2412,7 @@ private:
                     if (!llama_memory_seq_rm(llama_get_memory(ctx), slot.id, p0, -1)) {
                         SLT_WRN(slot, "failed to truncate tokens with position >= %d - clearing the memory\n", p0);
 
-                        clear_slot(slot, /*allow_processing=*/true);
+                        slot.clear(true);
 
                         // there is no common part left
                         slot.n_prompt_tokens_cache = 0;
@@ -2643,7 +2639,7 @@ private:
 
                                 // note: it's complicated to keep track of how much of the current batch has been
                                 //       processed before the error occurred, so we simply clear the entire context
-                                clear_slot(slot);
+                                slot.clear(false);
                             }
                         }
 
