@@ -6056,18 +6056,6 @@ class ConformerAudioModel(MmprojModel):
         return super().tensor_force_quant(name, new_name, bid, n_dims)
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
-        # skip language model tensors
-        if name.startswith("lfm."):
-            return []
-
-        # for training only
-        if any(p in name for p in ["audio_loss_weight"]):
-            return []
-
-        # for audio output
-        if any(p in name for p in ["codebook_offsets", "depth_embeddings", "depth_linear", "depthformer"]):
-            return []
-
         # fold running_mean, running_var and eps into weight and bias for batch_norm
         if "batch_norm" in name:
             if self._batch_norm_tensors is None:
@@ -6165,13 +6153,14 @@ class Gemma3nVisionAudioModel(ConformerAudioModel):
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
-        self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.GEMMA3N)
 
         # vision params
+        self.gguf_writer.add_clip_vision_projector_type(gguf.VisionProjectorType.GEMMA3NV)
         self.gguf_writer.add_vision_attention_layernorm_eps(self.hparams.get("layer_norm_eps", 1e-6))
 
         # audio params
         assert self.hparams_audio is not None
+        self.gguf_writer.add_clip_audio_projector_type(gguf.VisionProjectorType.GEMMA3NA)
         self.gguf_writer.add_audio_num_mel_bins(self.hparams_audio["feat_in"])
         self.gguf_writer.add_audio_attention_layernorm_eps(1e-5)
 
@@ -10320,6 +10309,21 @@ class LFM2AudioModel(ConformerAudioModel):
         self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.LFM2A)
         self.gguf_writer.add_audio_num_mel_bins(self.hparams_audio["feat_in"])
         self.gguf_writer.add_audio_attention_layernorm_eps(1e-5)
+
+    def modify_tensors(self, data_torch, name, bid):
+        # skip language model tensors
+        if name.startswith("lfm."):
+            return []
+
+        # for training only
+        if any(p in name for p in ["audio_loss_weight"]):
+            return []
+
+        # for audio output
+        if any(p in name for p in ["codebook_offsets", "depth_embeddings", "depth_linear", "depthformer"]):
+            return []
+
+        return super().modify_tensors(data_torch, name, bid)
 
 
 @ModelBase.register("SmallThinkerForCausalLM")

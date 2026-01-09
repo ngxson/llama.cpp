@@ -788,7 +788,7 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
             {
                 builder = std::make_unique<clip_graph_siglip>(ctx, img);
             } break;
-        case PROJECTOR_TYPE_GEMMA3N:
+        case PROJECTOR_TYPE_GEMMA3NV:
             {
                 builder = std::make_unique<clip_graph_mobilenetv5>(ctx, img);
             } break;
@@ -1151,7 +1151,7 @@ struct clip_model_loader {
                         get_u32(KEY_PROJ_SCALE_FACTOR, hparams.n_merge, false);
                     } break;
 
-                case PROJECTOR_TYPE_GEMMA3N:
+                case PROJECTOR_TYPE_GEMMA3NV:
                     {
                         // Gemma3n uses MobileNetV5 which produces 256 tokens (16x16)
                         // Similar configuration to Gemma3
@@ -1346,7 +1346,7 @@ struct clip_model_loader {
 
         model.position_embeddings = get_tensor(string_format(TN_POS_EMBD, prefix), false);
 
-        if (model.proj_type == PROJECTOR_TYPE_GEMMA3N) {
+        if (model.proj_type == PROJECTOR_TYPE_GEMMA3NV) {
             hparams.n_layer = 0; // gemma3n does not use normal layer structure
         }
 
@@ -1564,7 +1564,7 @@ struct clip_model_loader {
                     model.mm_input_proj_w = get_tensor(TN_MM_INP_PROJ);
                     model.mm_soft_emb_norm_w = get_tensor(TN_MM_SOFT_EMB_N);
                 } break;
-            case PROJECTOR_TYPE_GEMMA3N:
+            case PROJECTOR_TYPE_GEMMA3NV:
                 {
                     model.mobilenet_stem_conv_w = get_tensor(TN_MNV5_STEM_CONV, false);
                     model.mobilenet_stem_conv_b = get_tensor(TN_MNV5_STEM_BIAS, false);
@@ -2124,7 +2124,7 @@ struct clip_init_result clip_init(const char * fname, struct clip_context_params
 
             // TODO: we don't support audio for Gemma 3N, but GGUF contains audio tensors
             // we can remove this check when we implement audio support for Gemma 3N
-            skip_audio = ctx_vision->model.proj_type == PROJECTOR_TYPE_GEMMA3N;
+            skip_audio = ctx_vision->model.proj_type == PROJECTOR_TYPE_GEMMA3NV;
 
             // clip_debug_encode(ctx_vision, 24*14, 24*14, 0.5f);
         }
@@ -2967,7 +2967,7 @@ bool clip_image_preprocess(struct clip_ctx * ctx, const clip_image_u8 * img, str
                 res_imgs->entries.push_back(std::move(img_f32));
             } break;
 
-        case PROJECTOR_TYPE_GEMMA3N:
+        case PROJECTOR_TYPE_GEMMA3NV:
             {
                 clip_image_u8 resized_image;
                 int sz = params.image_size;
@@ -3239,7 +3239,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
                 int scale_factor = ctx->model.hparams.n_merge;
                 n_patches /= (scale_factor * scale_factor);
             } break;
-        case PROJECTOR_TYPE_GEMMA3N:
+        case PROJECTOR_TYPE_GEMMA3NV:
             {
                 // MobileNetV5 MSFA adapter always outputs fixed 16x16 resolution
                 // regardless of input size (see architecture description)
@@ -3637,7 +3637,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 set_input_i32("patches", patches);
             } break;
         case PROJECTOR_TYPE_GEMMA3:
-        case PROJECTOR_TYPE_GEMMA3N:
+        case PROJECTOR_TYPE_GEMMA3NV:
         case PROJECTOR_TYPE_IDEFICS3:
         case PROJECTOR_TYPE_INTERNVL:
         case PROJECTOR_TYPE_QWEN2A:
@@ -3765,7 +3765,7 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
             // main path + deepstack paths
             return ctx->model.mm_1_b->ne[0] * (1 + ctx->model.n_deepstack_layers);
         case PROJECTOR_TYPE_GEMMA3:
-        case PROJECTOR_TYPE_GEMMA3N:
+        case PROJECTOR_TYPE_GEMMA3NV:
             return ctx->model.mm_input_proj_w->ne[0];
         case PROJECTOR_TYPE_IDEFICS3:
             return ctx->model.projection->ne[1];

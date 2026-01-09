@@ -276,12 +276,13 @@ class Keys:
         DATASETS    = "imatrix.datasets"
 
     class Clip:
-        PROJECTOR_TYPE      = "clip.projector_type"
-        HAS_VISION_ENCODER  = "clip.has_vision_encoder"
-        HAS_AUDIO_ENCODER   = "clip.has_audio_encoder"
-        HAS_LLAVA_PROJECTOR = "clip.has_llava_projector"
+        PROJECTOR_TYPE        = "clip.projector_type"
+        HAS_VISION_ENCODER    = "clip.has_vision_encoder"
+        HAS_AUDIO_ENCODER     = "clip.has_audio_encoder"
+        HAS_LLAVA_PROJECTOR   = "clip.has_llava_projector"
 
     class ClipVision:
+        PROJECTOR_TYPE      = "clip.vision.projector_type" # for mixed modality models
         IMAGE_SIZE          = "clip.vision.image_size"
         PREPROC_IMAGE_SIZE  = "clip.vision.preproc_image_size"
         PATCH_SIZE          = "clip.vision.patch_size"
@@ -307,6 +308,7 @@ class Keys:
             SCALE_FACTOR    = "clip.vision.projector.scale_factor"
 
     class ClipAudio:
+        PROJECTOR_TYPE      = "clip.audio.projector_type" # for mixed modality models
         NUM_MEL_BINS        = "clip.audio.num_mel_bins"
         EMBEDDING_LENGTH    = "clip.audio.embedding_length"
         FEED_FORWARD_LENGTH = "clip.audio.feed_forward_length"
@@ -3557,7 +3559,8 @@ class GGUFValueType(IntEnum):
 
 class VisionProjectorType:
     GEMMA3 = "gemma3"
-    GEMMA3N = "gemma3n"
+    GEMMA3NV = "gemma3nv"
+    GEMMA3NA = "gemma3na"
     IDEFICS3 = "idefics3"
     PIXTRAL = "pixtral"
     LLAMA4 = "llama4"

@@ -322,9 +322,7 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
                 // int scale_h = high_res_h / feat_h;
 
                 // Safety check for non-integer scaling if strictly replicating
-                if (high_res_w % feat_w != 0) {
-                    LOG_WRN("%s: non-integer scaling detected\n", __func__);
-                }
+                GGML_ASSERT(high_res_w % feat_w == 0);
 
                 // Upsample (Nearest Neighbor)
                 // 2 is the scale factor
@@ -375,12 +373,10 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
         if (current_w > target_out_res) {
             int s = current_w / target_out_res;
 
-            if (current_w % target_out_res == 0) {
-                // Avg Pool: Kernel=s, Stride=s
-                cur = ggml_pool_2d(ctx0, cur, GGML_OP_POOL_AVG, s, s, s, s, 0, 0);
-            } else {
-                LOG_ERR("%s: irregular downsampling stride required\n", __func__);
-            }
+            GGML_ASSERT(current_w % target_out_res == 0);
+
+            // Avg Pool: Kernel=s, Stride=s
+            cur = ggml_pool_2d(ctx0, cur, GGML_OP_POOL_AVG, s, s, s, s, 0, 0);
 
         }
 
@@ -395,8 +391,10 @@ ggml_cgraph * clip_graph_mobilenetv5::build() {
     // Input: 'cur' is [Width, Height, Channels, Batch]
     int W = cur->ne[0];
     int H = cur->ne[1];
-    int C = cur->ne[2]; // Should be 2048
+    int C = cur->ne[2];
     int B = cur->ne[3];
+
+    GGML_ASSERT(C == hparams.n_embd);
 
     // 1. Permute and Flatten to [Channels, Tokens, Batch]
     // PyTorch expects (Batch, Seq, Hidden), GGML usually processes (Hidden, Seq, Batch)
