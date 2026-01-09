@@ -88,4 +88,10 @@ temp        = 1.0
 chat-template-kwargs = {"reasoning_effort": "high"}
 ```
 
+You can then use it via `llama-cli` or `llama-server`, example:
+
+```sh
+llama-server -hf user/repo:gpt-oss-120b-hf
+```
+
 Please make sure to provide the correct `hf-repo` for each child preset. Otherwise, you may get error: `The specified tag is not a valid quantization scheme.`
