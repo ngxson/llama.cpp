@@ -70,7 +70,7 @@ mmap = 1
 [gpt-oss-20b-hf]
 hf          = ggml-org/gpt-oss-20b-GGUF
 batch-size  = 2048
-ubatch      = 2048
+ubatch-size = 2048
 top-p       = 1.0
 top-k       = 0
 min-p       = 0.01
