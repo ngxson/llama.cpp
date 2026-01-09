@@ -154,6 +154,7 @@ extern "C" {
         LLAMA_FTYPE_MOSTLY_MXFP4_MOE     = 38, // except 1d tensors
         // Legacy HIFI types (39-43) removed - consolidated into Q4_K_HIFI (44)
         LLAMA_FTYPE_MOSTLY_Q4_K_HIFI     = 44, // Q4_K_M + 2-8 dynamic outliers + early exit (best quality/size ratio)
+        LLAMA_FTYPE_MOSTLY_Q3_K_HIFI     = 45, // Q3_K_M base + Q6_K_HIFI on critical tensors
 
         LLAMA_FTYPE_GUESSED = 1024, // not specified in the model file
     };
