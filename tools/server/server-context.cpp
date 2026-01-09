@@ -79,6 +79,8 @@ struct server_slot {
 
     common_speculative * spec = nullptr;
 
+    // TODO: move members that belong to the task (such as `generated_text`, `has_new_line`) to task_results_state
+    //       see https://github.com/ggml-org/llama.cpp/pull/18283#issuecomment-3710175837
     std::unique_ptr<const server_task> task;
     std::unique_ptr<const server_task> task_prev; // used for debugging
 
@@ -207,7 +209,7 @@ struct server_slot {
             GGML_ASSERT(!is_processing());
         }
 
-        SLT_INF(*this, "clearing slot with %zu tokens, is_child = %d\n", prompt.tokens.size(), is_child());
+        SLT_INF(*this, "clearing slot with %zu tokens\n", prompt.tokens.size());
 
         llama_memory_seq_rm(llama_get_memory(ctx), id, -1, -1);
         prompt.tokens.clear();
@@ -233,12 +235,14 @@ struct server_slot {
                 (ggml_time_us() - t_start) / 1000.0, n_text, (int) prompt.tokens.size());
     }
 
+    // TODO: move to server_task
     bool need_embd() const {
         GGML_ASSERT(task);
 
         return server_task_type_need_embd(task->type);
     }
 
+    // TODO: move to server_task
     bool need_logits() const {
         GGML_ASSERT(task);
 
@@ -290,10 +294,13 @@ struct server_slot {
             SLT_WRN(*this, "%s", "slot is not processing\n");
             return;
         }
+
         generated_token_probs.push_back(token);
     }
 
     int get_n_draft_max() const {
+        GGML_ASSERT(task);
+
         if (!can_speculate()) {
             return 0;
         }
@@ -319,10 +326,12 @@ struct server_slot {
     }
 
     // note: a slot can also be either a parent or a child
+    // TODO: move to server_task
     bool is_parent() const {
         return task->n_children > 0;
     }
 
+    // TODO: move to server_task
     bool is_child() const {
         return task->id_parent >= 0;
     }
