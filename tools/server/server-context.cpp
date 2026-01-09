@@ -201,6 +201,26 @@ struct server_slot {
         alora_invocation_start = -1;
     }
 
+    void init_sampler() const {
+        const int64_t t_start = ggml_time_us();
+
+        common_sampler_reset(smpl.get());
+
+        int n_text = 0;
+
+        for (int i = 0; i < (int) prompt.tokens.size(); i++) {
+            const llama_token id = prompt.tokens[i];
+
+            if (id != LLAMA_TOKEN_NULL) {
+                common_sampler_accept(smpl.get(), id, false);
+                n_text++;
+            }
+        }
+
+        SLT_INF(*this, "init sampler, took %0.2f ms, tokens: text = %d, total = %d\n",
+                (ggml_time_us() - t_start) / 1000.0, n_text, (int) prompt.tokens.size());
+    }
+
     bool need_embd() const {
         GGML_ASSERT(task);
 
@@ -425,14 +445,21 @@ struct server_slot {
     }
 
     void copy_state_to(server_slot & other) const {
-        llama_memory_seq_rm(llama_get_memory(ctx), other.id, 0, -1);
+        GGML_ASSERT(state == SLOT_STATE_DONE_PROMPT);
+
+        llama_memory_seq_rm(llama_get_memory(ctx), other.id,     0, -1);
         llama_memory_seq_cp(llama_get_memory(ctx), id, other.id, 0, -1);
+
         other.n_decoded   = n_decoded;
         other.n_remaining = n_remaining;
         other.i_batch     = i_batch;
+
+        other.t_prompt_processing       = t_prompt_processing;
         other.n_prompt_tokens_cache     = n_prompt_tokens_cache;
         other.n_prompt_tokens_processed = n_prompt_tokens_processed;
+
         other.prompt = prompt.clone();
+        other.init_sampler();
     }
 };
 
@@ -1182,7 +1209,7 @@ private:
             ? SLOT_STATE_WAIT_OTHER // wait for the parent to process prompt
             : SLOT_STATE_STARTED;
 
-        SLT_INF(slot, "%s", "processing task\n");
+        SLT_INF(slot, "processing task, is_child = %d\n", slot.is_child());
 
         return true;
     }
@@ -2461,16 +2488,6 @@ private:
 
                         GGML_ASSERT(batch.n_tokens > 0);
 
-                        common_sampler_reset(slot.smpl.get());
-
-                        // Process all prompt tokens through sampler system
-                        for (int i = 0; i < slot.task->n_tokens(); ++i) {
-                            llama_token id = input_tokens[i];
-                            if (id != LLAMA_TOKEN_NULL) {
-                                common_sampler_accept(slot.smpl.get(), id, false);
-                            }
-                        }
-
                         // extract the logits only for the last token
                         batch.logits[batch.n_tokens - 1] = true;
 
@@ -2478,6 +2495,8 @@ private:
                         slot.i_batch   = batch.n_tokens - 1;
 
                         SLT_INF(slot, "prompt done, n_tokens = %d, batch.n_tokens = %d\n", slot.prompt.n_tokens(), batch.n_tokens);
+
+                        slot.init_sampler();
 
                         const auto pos_min = llama_memory_seq_pos_min(llama_get_memory(ctx), slot.id);
                         const auto pos_max = llama_memory_seq_pos_max(llama_get_memory(ctx), slot.id);
@@ -2525,42 +2544,6 @@ private:
             }
         }
 
-        // to be called after decoding (or skipped decoding) a batch
-        auto update_child_slots = [&]() {
-            for (auto & slot : slots) {
-                // may need to copy state to other slots
-                if (slot.state == SLOT_STATE_DONE_PROMPT && slot.is_parent()) {
-                    std::vector<server_slot *> child_slots;
-                    for (auto & other : slots) {
-                        if (other.state == SLOT_STATE_WAIT_OTHER && slot.task->id == other.task->id_parent) {
-                            child_slots.push_back(&other);
-                        }
-                    }
-
-                    // we can only proceed if all child slots are having the correct tasks
-                    if (child_slots.size() == slot.task->n_children) {
-                        // copy state to the child slots
-                        for (auto & child : child_slots) {
-                            SLT_INF(slot, "copying state to child %d\n", child->id);
-                            slot.copy_state_to(*child);
-                            child->state = SLOT_STATE_DONE_PROMPT;
-                        }
-                    }
-                }
-            }
-        };
-
-        if (batch.n_tokens == 0) {
-            SRV_WRN("%s", "no tokens to decode\n");
-
-            // parent slot may have 0 tokens to process,
-            // we need to make sure all child slots are updated before continuing
-            SRV_DBG("%s", "input batch is empty, updating child slots\n");
-            update_child_slots();
-
-            return;
-        }
-
         SRV_DBG("decoding batch, n_tokens = %d\n", batch.n_tokens);
 
         if (slot_batched) {
@@ -2575,6 +2558,10 @@ private:
             }
 
             llama_set_embeddings(ctx, slot_batched->need_embd());
+        }
+
+        if (batch.n_tokens == 0) {
+            SRV_WRN("%s", "no tokens to decode\n");
         }
 
         int32_t i_next = 0;
@@ -2658,8 +2645,27 @@ private:
 
             for (auto & slot : slots) {
                 // may need to copy state to other slots
-                update_child_slots();
+                if (slot.state == SLOT_STATE_DONE_PROMPT && slot.is_parent()) {
+                    std::vector<server_slot *> child_slots;
+                    for (auto & other : slots) {
+                        if (other.state == SLOT_STATE_WAIT_OTHER && slot.task->id == other.task->id_parent) {
+                            child_slots.push_back(&other);
+                        }
+                    }
 
+                    // we can only proceed if all child slots are having the correct tasks
+                    if (child_slots.size() == slot.task->n_children) {
+                        // copy state to the child slots
+                        for (auto & child : child_slots) {
+                            SLT_INF(slot, "copying state to child %d\n", child->id);
+                            slot.copy_state_to(*child);
+                            child->state = SLOT_STATE_DONE_PROMPT;
+                        }
+                    }
+                }
+            }
+
+            for (auto & slot : slots) {
                 // optionally send prompt processing progress
                 if (slot.state == SLOT_STATE_PROCESSING_PROMPT || slot.state == SLOT_STATE_DONE_PROMPT) {
                     if (slot.task->params.stream && slot.task->params.return_progress) {
@@ -2741,7 +2747,7 @@ private:
                     continue;
                 }
 
-                size_t n_draft = slot.drafted.size();
+                const size_t n_draft = slot.drafted.size();
 
                 // the accepted tokens from the speculation
                 const auto ids = common_sampler_sample_and_accept_n(slot.smpl.get(), ctx, slot.i_batch_dft, slot.drafted);
