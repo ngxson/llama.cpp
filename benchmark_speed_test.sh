@@ -63,7 +63,7 @@ declare -a MODEL_PATHS=(
     "./Qwen3-0.6B-f16-imatrix:Q3_K_S.gguf"
     "./Qwen3-0.6B-f16-imatrix:Q3_K_M.gguf"
     "./Qwen3-0.6B-f16-imatrix:Q3_K_HIFI.gguf"
-))
+)
 
 # Colors
 RED='\033[0;31m'
@@ -152,7 +152,8 @@ show_progress() {
         bar="${bar}$(printf ' %.0s' $(seq 1 $empty))"
     fi
     
-    printf "\r[%-50s] %3d%% - %s iter %d/%d" "$bar" "$percent" "$model" "$iteration" "$ITERATIONS"
+    # \033[K clears from cursor to end of line, preventing leftover characters
+    printf "\r[%-50s] %3d%% - %-20s iter %3d/%d\033[K" "$bar" "$percent" "$model" "$iteration" "$ITERATIONS"
 }
 
 # Main benchmark loop
