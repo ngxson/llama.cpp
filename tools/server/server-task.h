@@ -121,8 +121,8 @@ struct server_task {
     int id_slot   = -1;
 
     // used by parallel sampling (multiple completions from same prompt)
-    size_t n_children =  0; // number of tasks reusing this prompt
-    int    id_parent  = -1;
+    int n_children =  0; // number of tasks reusing this prompt
+    int id_parent  = -1;
 
     // used by SERVER_TASK_TYPE_INFERENCE
     task_params   params;

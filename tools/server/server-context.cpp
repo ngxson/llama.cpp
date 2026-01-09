@@ -308,7 +308,7 @@ struct server_slot {
 
     // note: a slot can also be either a parent or a child
     bool is_parent() const {
-        return is_processing() && task->n_children > 0;
+        return task->n_children > 0;
     }
 
     bool is_child() const {
@@ -454,6 +454,7 @@ struct server_slot {
         other.n_remaining = n_remaining;
         other.i_batch     = i_batch;
 
+        other.t_start_process_prompt    = t_start_process_prompt;
         other.t_prompt_processing       = t_prompt_processing;
         other.n_prompt_tokens_cache     = n_prompt_tokens_cache;
         other.n_prompt_tokens_processed = n_prompt_tokens_processed;
@@ -2639,21 +2640,26 @@ private:
             // on successful decode, restore the original batch size
             n_batch = llama_n_batch(ctx);
 
+            // handle `n_cmpl > 1` tasks - when the main prompt is processed, activate all child tasks too
             for (auto & slot : slots) {
-                // may need to copy state to other slots
                 if (slot.state == SLOT_STATE_DONE_PROMPT && slot.is_parent()) {
-                    std::vector<server_slot *> child_slots;
+                    SLT_INF(slot, "parent task prompt done, n_children = %d\n", slot.task->n_children);
+
+                    std::vector<server_slot *> children;
                     for (auto & other : slots) {
                         if (other.state == SLOT_STATE_WAIT_OTHER && slot.task->id == other.task->id_parent) {
-                            child_slots.push_back(&other);
+                            children.push_back(&other);
                         }
                     }
 
                     // we can only proceed if all child slots are having the correct tasks
-                    if (child_slots.size() == slot.task->n_children) {
+                    if (slot.task->n_children == (int) children.size()) {
                         // copy state to the child slots
-                        for (auto & child : child_slots) {
-                            SLT_INF(slot, "copying state to child %d\n", child->id);
+                        for (auto & child : children) {
+                            SLT_INF(slot, " - copying state to child %d\n", child->id);
+
+                            GGML_ASSERT(child->state == SLOT_STATE_WAIT_OTHER);
+
                             slot.copy_state_to(*child);
                             child->state = SLOT_STATE_DONE_PROMPT;
                         }
@@ -2951,7 +2957,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
 
             if (task.params.n_cmpl > 1) {
                 task.n_children = task.params.n_cmpl - 1;
-                for (size_t j = 0; j < task.n_children; j++) {
+                for (int j = 0; j < task.n_children; j++) {
                     server_task child = task.create_child(task.id, rd.get_new_id());
 
                     // use different sampling seed for each child
