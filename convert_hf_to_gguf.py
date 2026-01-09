@@ -6041,12 +6041,13 @@ class Gemma3VisionModel(MmprojModel):
 
         return [] # skip other tensors
 
+
 @ModelBase.register("Gemma3nForConditionalGeneration", "Gemma3nVisionModel")
 class Gemma3nVisionModel(MmprojModel):
     """Vision encoder converter for Gemma3n using MobileNetV5 architecture"""
-    n_block_keys = []
 
-    # Double indexed mapping for MobileNetV5 blocks
+    # Double indexed mapping for MobileNetV5 blocks (not supported by tensor_mapping.py)
+    # This is the only known model having this, so we prefer implementing it outside of tensor_mapping.py
     block_tensor_mapping = {
         "model.vision_tower.timm_model.blocks.{bid}.{sid}.conv_exp.weight":             "v.blk.{bid}.{sid}.conv_exp.weight",
         "model.vision_tower.timm_model.blocks.{bid}.{sid}.bn1.weight":                  "v.blk.{bid}.{sid}.bn1.weight",
@@ -6072,39 +6073,24 @@ class Gemma3nVisionModel(MmprojModel):
         "model.vision_tower.timm_model.blocks.{bid}.{sid}.norm.weight":                 "v.blk.{bid}.{sid}.norm.weight",
     }
 
-    def find_hparam(self, keys: list[str], optional: bool = False) -> Any:
-        """Override to return 0 for block count since MobileNetV5 is CNN-based"""
-        if not keys:  # If n_block_keys is empty (our case)
+    def find_hparam(self, keys: Iterable[str], optional: bool = False) -> Any:
+        # force n_layers to 0 in __init__()
+        # we have to do this because self.hparams_vision is not yet accessible for modification inside __init__()
+        if "n_layers" in list(keys):
             return 0
-        # Otherwise use parent implementation
         return super().find_hparam(keys, optional)
 
     def __init__(self, *args, **kwargs):
         # Parent init will call find_hparam which now returns 0 for empty keys
         super().__init__(*args, **kwargs)
+        assert self.hparams_vision is not None
+        self.hparams_vision["n_layers"] = 0
+        self.hparams_vision["intermediate_size"] = self.hparams_vision.get("hidden_size", 2048) * 4
+        self.hparams_vision["num_attention_heads"] = self.hparams_vision.get("num_attention_heads", 8)
 
-    def find_vparam(self, keys: list[str], optional: bool = False) -> Any:
-        """Override to provide hardcoded MobileNetV5 parameters that aren't in config"""
-        # Handle empty keys list (n_block_keys) - return 0 for CNN architecture
-        if not keys:
-            return 0
-
-        if "intermediate_size" in keys:
-            # Typical expansion is 4x the embedding dimension
-            hidden_size = self.hparams_vision.get("hidden_size", 2048)
-            return hidden_size * 4
-
-        if "num_attention_heads" in keys or "num_heads" in keys:
-            # Multi-Query Attention with 8 heads
-            return 8
-
-        # For other parameters, use parent implementation
-        return super().find_vparam(keys, optional)
-
-    def set_gguf_parameters(self):
-        # MobileNetV5 does not use normalisation at all
-        self.preprocessor_config["image_mean"] = [0.0 , 0.0 , 0.0 ]
-        self.preprocessor_config["image_std"] = [1.0 , 1.0 , 1.0 ]
+        # MobileNetV5 does not use image_mean/std
+        self.preprocessor_config["image_mean"] = [0.0 ,0.0 , 0.0]
+        self.preprocessor_config["image_std"] = [1.0 ,1.0 ,1.0]
         self.hparams_vision["image_size"] = self.preprocessor_config.get(
             "size", {"height": 768, "width": 768}
         )["height"]
@@ -6114,13 +6100,9 @@ class Gemma3nVisionModel(MmprojModel):
         image_size = self.hparams_vision["image_size"]
         self.hparams_vision["patch_size"] = image_size // image_seq_length
 
-        # Now call parent which will use the corrected values
+    def set_gguf_parameters(self):
         super().set_gguf_parameters()
-
-        # Set projector type to GEMMA3N
         self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.GEMMA3N)
-
-        # MobileNetV5 specific parameters
         self.gguf_writer.add_vision_attention_layernorm_eps(self.hparams.get("layer_norm_eps", 1e-6))
 
     def tensor_force_quant(self, name, new_name, bid, n_dims):
@@ -6151,8 +6133,7 @@ class Gemma3nVisionModel(MmprojModel):
         # - model.embed_vision.* for projection layers
         # - model.vision_tower.* for vision encoder
         # Skip non-vision tensors
-        if not (name.startswith("model.embed_vision.") or
-                name.startswith("model.vision_tower.")):
+        if not (name.startswith("model.embed_vision.") or name.startswith("model.vision_tower.")):
             return []
 
         if name.startswith("model.vision_tower.timm_model.blocks."):
@@ -6161,7 +6142,7 @@ class Gemma3nVisionModel(MmprojModel):
         else:
             # Route non-repeating (conv_stem, msfa, embedding, etc.) and un-catched through tensor_mapping.py
             new_name = self.map_tensor_name(name)
-        
+
         if new_name.endswith("conv_stem.conv.bias") or new_name.endswith("layer_scale.gamma"):
             data_torch = data_torch.unsqueeze(0).unsqueeze(-1).unsqueeze(-1) # [1, C, 1, 1]
 
