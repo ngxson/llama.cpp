@@ -125,6 +125,17 @@ MTMD_API bool mtmd_support_audio(mtmd_context * ctx);
 // return -1 if audio is not supported
 MTMD_API int mtmd_get_audio_bitrate(mtmd_context * ctx);
 
+// mtmd_gen
+
+// load and attach a vocoder to an existing mtmd_context
+// used for audio generation
+// return 0 on success
+MTMD_API int mtmd_load_vocoder(mtmd_context * ctx,
+                               const char * vocoder_fname);
+
+// whether the current model supports audio generation
+MTMD_API bool mtmd_support_audio_gen(mtmd_context * ctx);
+
 // mtmd_bitmap
 //
 // if bitmap is image:
@@ -226,6 +237,16 @@ MTMD_API float * mtmd_get_output_embd(mtmd_context * ctx);
 // Set callback for all future logging events.
 // If this is not called, or NULL is supplied, everything is output on stderr.
 MTMD_API void mtmd_log_set(ggml_log_callback log_callback, void * user_data);
+
+// token ID that indicates the start of audio/end generation
+MTMD_API llama_token mtmd_audio_gen_token_start(mtmd_context * ctx);
+MTMD_API llama_token mtmd_audio_gen_token_end  (mtmd_context * ctx);
+
+// token ID of the upper/lower bound of audio codes
+// example, <|0|> (token ID = 50000) to <|255|> (token ID = 50255)
+//          means lower = 50000, upper = 50255 (inclusive)
+MTMD_API llama_token mtmd_audio_gen_code_upper(mtmd_context * ctx);
+MTMD_API llama_token mtmd_audio_gen_code_lower(mtmd_context * ctx);
 
 /////////////////////////////////////////
 
