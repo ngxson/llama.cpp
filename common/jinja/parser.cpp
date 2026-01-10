@@ -39,6 +39,7 @@ public:
     template<typename T, typename... Args>
     std::unique_ptr<T> mk_stmt(size_t start_pos, Args&&... args) {
         auto ptr = std::make_unique<T>(std::forward<Args>(args)...);
+        assert(start_pos < tokens.size());
         ptr->pos = tokens[start_pos].pos;
         return ptr;
     }
@@ -52,19 +53,19 @@ private:
         return tokens[current + offset];
     }
 
-    token expect(token::type type, const std::string& error) {
+    token expect(token::type type, const std::string&  error) {
         const auto & t = peek();
         if (t.t != type) {
-            throw std::runtime_error("Parser Error: " + error + " (Got " + t.value + ")");
+            throw parser_exception("Parser Error: " + error + " (Got " + t.value + ")", source, t.pos);
         }
         current++;
         return t;
     }
 
-    void expect_identifier(const std::string& name) {
+    void expect_identifier(const std::string & name) {
         const auto & t = peek();
         if (t.t != token::identifier || t.value != name) {
-            throw std::runtime_error("Expected identifier: " + name);
+            throw parser_exception("Expected identifier: " + name, source, t.pos);
         }
         current++;
     }
@@ -73,11 +74,11 @@ private:
         return peek().t == type;
     }
 
-    bool is_identifier(const std::string& name) const {
+    bool is_identifier(const std::string & name) const {
         return peek().t == token::identifier && peek().value == name;
     }
 
-    bool is_statement(const std::vector<std::string>& names) const {
+    bool is_statement(const std::vector<std::string> & names) const {
         if (peek(0).t != token::open_statement || peek(1).t != token::identifier) {
             return false;
         }
@@ -581,10 +582,6 @@ private:
         }
     }
 };
-
-program parse_from_tokens(const std::vector<token> & tokens) {
-    return parser(tokens, "").parse();
-}
 
 program parse_from_tokens(const lexer_result & lexer_res) {
     return parser(lexer_res.tokens, lexer_res.source).parse();

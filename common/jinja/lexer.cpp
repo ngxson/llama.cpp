@@ -63,12 +63,12 @@ lexer_result lexer::tokenize(const std::string & source) {
                 ++pos;
                 // check for end of input
                 if (pos >= src.size()) {
-                    throw std::runtime_error("lexer: unexpected end of input after escape character");
+                    throw lexer_exception("unexpected end of input after escape character", source, pos);
                 }
                 // add escaped char
                 char escaped_char = src[pos++];
                 if (escape_chars.find(escaped_char) == escape_chars.end()) {
-                    throw std::runtime_error(std::string("lexer: unknown escape character \\") + escaped_char);
+                    throw lexer_exception(std::string("unknown escape character \\") + escaped_char, source, pos);
                 }
                 char unescaped_char = escape_chars.at(escaped_char);
                 str += unescaped_char;
@@ -77,7 +77,7 @@ lexer_result lexer::tokenize(const std::string & source) {
 
             str += src[pos++];
             if (pos > src.size()) {
-                throw std::runtime_error("lexer: unexpected end of input during consume_while");
+                throw lexer_exception("unexpected end of input during consume_while", source, pos);
             }
         }
         return str;
@@ -199,7 +199,7 @@ lexer_result lexer::tokenize(const std::string & source) {
             std::string comment;
             while (!(src[pos] == '#' && next_pos_is( {'}'} ))) {
                 if (pos + 2 >= src.size()) {
-                    throw std::runtime_error("lexer: missing end of comment tag");
+                    throw lexer_exception("missing end of comment tag", source, pos);
                 }
                 comment += src[pos++];
             }
@@ -232,7 +232,7 @@ lexer_result lexer::tokenize(const std::string & source) {
             start_pos = pos;
             token::type last_token_type = tokens.empty() ? token::eof : tokens.back().t;
             if (last_token_type == token::text || last_token_type == token::eof) {
-                throw std::runtime_error(std::string("lexer: unexpected character: ") + ch);
+                throw lexer_exception(std::string("unexpected character: ") + ch, source, pos);
             }
             switch (last_token_type) {
                 case token::identifier:
@@ -319,7 +319,7 @@ lexer_result lexer::tokenize(const std::string & source) {
             continue;
         }
 
-        throw std::runtime_error(std::string("lexer: unexpected character: ") + ch);
+        throw lexer_exception(std::string("unexpected character: ") + ch, source, pos);
     }
 
     return {std::move(tokens), src};

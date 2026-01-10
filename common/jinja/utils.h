@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <sstream>
 #include <algorithm>
 #include <vector>
 
@@ -37,6 +38,13 @@ static std::string peak_source(const std::string & source, size_t pos, size_t ma
     std::string spaces(pos - start + 3, ' ');
     output += spaces + "^";
     return output;
+}
+
+static std::string fmt_error_with_source(const std::string & tag, const std::string & msg, const std::string & source, size_t pos) {
+    std::ostringstream oss;
+    oss << tag << ": " << msg << "\n";
+    oss << peak_source(source, pos);
+    return oss.str();
 }
 
 } // namespace jinja

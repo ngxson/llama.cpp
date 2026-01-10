@@ -1,5 +1,7 @@
 #pragma once
 
+#include "utils.h"
+
 #include <vector>
 #include <string>
 #include <map>
@@ -144,7 +146,14 @@ struct lexer {
         {"=", token::equals},
     };
 
+    // tokenize the source string into a list of tokens
+    // may throw lexer_exception on error
     lexer_result tokenize(const std::string & source);
+};
+
+struct lexer_exception : public std::runtime_error {
+    lexer_exception(const std::string & msg, const std::string & source, size_t pos)
+        : std::runtime_error(fmt_error_with_source("lexer", msg, source, pos)) {}
 };
 
 } // namespace jinja
