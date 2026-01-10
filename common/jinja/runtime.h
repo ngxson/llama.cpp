@@ -54,20 +54,20 @@ struct context {
 
     // src is optional, used for error reporting
     context(std::string src = "") : src(std::make_shared<std::string>(std::move(src))) {
-        global = mk_val<value_object>();
-        global->insert("true",  mk_val<value_bool>(true));
-        global->insert("True",  mk_val<value_bool>(true));
-        global->insert("false", mk_val<value_bool>(false));
-        global->insert("False", mk_val<value_bool>(false));
-        global->insert("none",  mk_val<value_none>());
-        global->insert("None",  mk_val<value_none>());
+        env = mk_val<value_object>();
+        env->insert("true",  mk_val<value_bool>(true));
+        env->insert("True",  mk_val<value_bool>(true));
+        env->insert("false", mk_val<value_bool>(false));
+        env->insert("False", mk_val<value_bool>(false));
+        env->insert("none",  mk_val<value_none>());
+        env->insert("None",  mk_val<value_none>());
         current_time = std::time(nullptr);
     }
     ~context() = default;
 
     context(const context & parent) : context() {
         // inherit variables (for example, when entering a new scope)
-        auto & pvar = parent.global->as_object();
+        auto & pvar = parent.env->as_object();
         for (const auto & pair : pvar) {
             set_val(pair.first, pair.second);
         }
@@ -77,8 +77,8 @@ struct context {
     }
 
     value get_val(const std::string & name) {
-        auto it = global->val_obj.unordered.find(name);
-        if (it != global->val_obj.unordered.end()) {
+        auto it = env->val_obj.unordered.find(name);
+        if (it != env->val_obj.unordered.end()) {
             return it->second;
         } else {
             return mk_val<value_undefined>(name);
@@ -86,15 +86,15 @@ struct context {
     }
 
     void set_val(const std::string & name, const value & val) {
-        global->insert(name, val);
+        env->insert(name, val);
     }
 
     void print_vars() const {
-        printf("Context Variables:\n%s\n", value_to_json(global, 2).c_str());
+        printf("Context Variables:\n%s\n", value_to_json(env, 2).c_str());
     }
 
 private:
-    value_object global;
+    value_object env;
 };
 
 /**
