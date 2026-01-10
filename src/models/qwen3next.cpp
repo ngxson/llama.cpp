@@ -246,8 +246,9 @@ ggml_tensor * llm_build_qwen3next::build_delta_net_chunking(
 
     for (int64_t chunk = 0; chunk < n_chunks; chunk++) {
         static auto chunkify = [](ggml_context * ctx0, ggml_tensor * t, int64_t chunk) {
-            return ggml_cont(ctx0, ggml_view_4d(ctx0, t, t->ne[0], chunk_size, 1, t->ne[3],
-                t->nb[1], t->nb[2], t->nb[3], t->nb[2] * chunk));
+            // dim 1 is always contiguous, we don't need ggml_cont
+            return ggml_view_4d(ctx0, t, t->ne[0], chunk_size, 1, t->ne[3],
+                t->nb[1], t->nb[2], t->nb[3], t->nb[2] * chunk);
         };
 
         static auto chunkify_g = [](ggml_context * ctx0, ggml_tensor * t, int64_t chunk) {
