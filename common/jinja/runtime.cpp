@@ -135,8 +135,8 @@ value binary_expression::execute_impl(context & ctx) {
     }
 
     auto workaround_concat_null_with_str = [&](value & res) -> bool {
-        bool is_left_null  = left_val->is_null()  || left_val->is_undefined();
-        bool is_right_null = right_val->is_null() || right_val->is_undefined();
+        bool is_left_null  = left_val->is_none()  || left_val->is_undefined();
+        bool is_right_null = right_val->is_none() || right_val->is_undefined();
         bool is_left_str   = is_val<value_string>(left_val);
         bool is_right_str  = is_val<value_string>(right_val);
         if ((is_left_null && is_right_str) || (is_right_null && is_left_str)) {

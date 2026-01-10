@@ -282,7 +282,6 @@ private:
         while (is(token::comma)) {
             current++; // consume comma
             exprs.push_back(primary ? parse_primary_expression() : parse_expression());
-            if (!is(token::comma)) break;
         }
         return is_tuple ? mk_stmt<tuple_literal>(start_pos, std::move(exprs)) : std::move(exprs[0]);
     }
@@ -368,8 +367,7 @@ private:
         // Try parse unary operators
         if (is_identifier("not")) {
             size_t start_pos = current;
-            auto op = tokens[current];
-            ++current; // consume 'not'
+            auto op = tokens[current++];
             return mk_stmt<unary_expression>(start_pos, op, parse_logical_negation_expression());
         }
         return parse_comparison_expression();

@@ -208,7 +208,7 @@ static value default_value(const func_args & args) {
     }
     bool no_value = check_bool
         ? (!args.args[0]->as_bool())
-        : (args.args[0]->is_undefined() || args.args[0]->is_null());
+        : (args.args[0]->is_undefined() || args.args[0]->is_none());
     return no_value ? args.args[1] : args.args[0];
 }
 

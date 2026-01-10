@@ -147,7 +147,7 @@ struct value_t {
     virtual const std::vector<value> & as_array() const { throw std::runtime_error(type() + " is not an array value"); }
     virtual const std::map<std::string, value> & as_object() const { throw std::runtime_error(type() + " is not an object value"); }
     virtual value invoke(const func_args &) const { throw std::runtime_error(type() + " is not a function value"); }
-    virtual bool is_null() const { return false; }
+    virtual bool is_none() const { return false; }
     virtual bool is_undefined() const { return false; }
     virtual const func_builtins & get_builtins() const {
         throw std::runtime_error("No builtins available for type " + type());
@@ -310,8 +310,8 @@ using value_object = std::shared_ptr<value_object_t>;
 //
 
 struct value_none_t : public value_t {
-    virtual std::string type() const override { return "Null"; }
-    virtual bool is_null() const override { return true; }
+    virtual std::string type() const override { return "None"; }
+    virtual bool is_none() const override { return true; }
     virtual bool as_bool() const override { return false; }
     virtual std::string as_repr() const override { return type(); }
     virtual const func_builtins & get_builtins() const override;
