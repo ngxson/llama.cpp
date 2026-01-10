@@ -235,7 +235,7 @@ ggml_tensor * llm_build_qwen3next::build_delta_net_chunking(
     cb(k_cumdecay, "k_cumdecay", il);
 
     ggml_tensor * core_attn_out = nullptr;
-    ggml_tensor * new_state = ggml_dup(ctx0, state);
+    ggml_tensor * new_state = state; // ggml_dup(ctx0, state);
 
     cb(new_state, "new_state", il);
 
@@ -246,26 +246,19 @@ ggml_tensor * llm_build_qwen3next::build_delta_net_chunking(
 
     for (int64_t chunk = 0; chunk < n_chunks; chunk++) {
         static auto chunkify = [](ggml_context * ctx0, ggml_tensor * t, int64_t chunk) {
-            // dim 1 is always contiguous, we don't need ggml_cont
             return ggml_view_4d(ctx0, t, t->ne[0], chunk_size, 1, t->ne[3],
                 t->nb[1], t->nb[2], t->nb[3], t->nb[2] * chunk);
-        };
-
-        static auto chunkify_g = [](ggml_context * ctx0, ggml_tensor * t, int64_t chunk) {
-            return ggml_cont(ctx0, ggml_view_4d(ctx0, t, chunk_size, t->ne[1], 1, t->ne[3],
-                t->nb[1], t->nb[2], t->nb[3], t->nb[2] * chunk));
         };
 
         ggml_tensor * k_chunk = chunkify(ctx0, k, chunk);
         ggml_tensor * q_chunk = chunkify(ctx0, q, chunk);
         ggml_tensor * v_chunk = chunkify(ctx0, v, chunk);
 
-        ggml_tensor * g_cs_chunk = chunkify_g(ctx0, g_cumsum, chunk);
-        ggml_tensor * g_cs_chunk_t = ggml_cont(ctx0, ggml_transpose(ctx0, g_cs_chunk));
+        ggml_tensor * g_cs_chunk_t = chunkify(ctx0, g_cumsum_t, chunk);
+        ggml_tensor * g_cs_chunk   = ggml_cont(ctx0, ggml_transpose(ctx0, g_cs_chunk_t));
+        ggml_tensor * gexp_chunk   = chunkify(ctx0, gexp, chunk);
 
         ggml_tensor * k_cumdecay_chunk = chunkify(ctx0, k_cumdecay, chunk);
-
-        ggml_tensor * gexp_chunk = ggml_exp(ctx0, g_cs_chunk_t);
 
         // attn = (q_i @ k_i.transpose(-1, -2) * decay_mask[:, :, i]).masked_fill_(mask, 0)
         // replaced by precomputed attn_kq
@@ -338,7 +331,7 @@ ggml_tensor * llm_build_qwen3next::build_delta_net_chunking(
     ggml_tensor * flat_output =
         ggml_cont_1d(ctx0, ggml_permute(ctx0, output_tokens, 0, 2, 1, 3), S_v * H_v * n_tokens * n_seqs);
 
-    ggml_tensor * flat_state = ggml_cont_1d(ctx0, new_state, S_v * S_v * H_v * n_seqs);
+    ggml_tensor * flat_state = ggml_view_1d(ctx0, new_state, S_v * S_v * H_v * n_seqs, 0);
 
     return ggml_concat(ctx0, flat_output, flat_state, 0);
 }
