@@ -280,9 +280,6 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_qwen3next::build_delta_net_chu
         // shape: (S_v, chunk_size, 1, H_v * n_seqs)
         ggml_tensor * v_chunk = chunkify(ctx0, v, chunk); // (no cont), next op: ggml_repeat
 
-        // shape: (1, chunk_size, n_chunks, H_v * n_seqs)
-        ggml_tensor * g_cs_chunk_t = chunkify(ctx0, g_cumsum_t, chunk); // (no cont), next op: ggml_view_4d
-
         // shape: (chunk_size, 1, n_chunks, H_v * n_seqs)
         ggml_tensor * gexp_chunk = chunkify(ctx0, gexp, chunk); // (no cont), next op: ggml_mul
 
