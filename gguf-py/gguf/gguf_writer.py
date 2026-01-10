@@ -681,6 +681,9 @@ class GGUFWriter:
     def add_embedding_length(self, length: int) -> None:
         self.add_uint32(Keys.LLM.EMBEDDING_LENGTH.format(arch=self.arch), length)
 
+    def add_embedding_length_out(self, length: int) -> None:
+        self.add_uint32(Keys.LLM.EMBEDDING_LENGTH_OUT.format(arch=self.arch), length)
+
     def add_features_length(self, length: int) -> None:
         self.add_uint32(Keys.LLM.FEATURES_LENGTH.format(arch=self.arch), length)
 
@@ -1083,6 +1086,9 @@ class GGUFWriter:
     def add_clip_projector_type(self, value: str) -> None:
         self.add_string(Keys.Clip.PROJECTOR_TYPE, value)
 
+    def add_clip_vision_projector_type(self, value: str) -> None:
+        self.add_string(Keys.ClipVision.PROJECTOR_TYPE, value)
+
     def add_vision_projection_dim(self, value: int) -> None:
         self.add_uint32(Keys.ClipVision.PROJECTION_DIM, value)
 
@@ -1164,6 +1170,9 @@ class GGUFWriter:
         self.add_uint32(Keys.ClipVision.WINDOW_SIZE, value)
 
     # audio models
+
+    def add_clip_audio_projector_type(self, value: str) -> None:
+        self.add_string(Keys.ClipAudio.PROJECTOR_TYPE, value)
 
     def add_audio_projection_dim(self, value: int) -> None:
         self.add_uint32(Keys.ClipAudio.PROJECTION_DIM, value)
