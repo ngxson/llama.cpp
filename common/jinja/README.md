@@ -82,3 +82,7 @@ is_input=false   <|end|>\n<|assistant|>
 ```
 
 Downstream applications like `llama-server` can then make informed decisions about special token parsing based on the `is_input` flag.
+
+**Caveats:**
+- Special tokens dynamically constructed from user input will not function as intended, as they are treated as user input. For example: `'<|' + message['role'] + '|>'`.
+- Added spaces are treated as standalone tokens. For instance, some models prepend a space like `' ' + message['content']` to ensure the first word can have a leading space, allowing the tokenizer to combine the word and space into a single token. However, since the space is now part of the template, it gets tokenized separately.
