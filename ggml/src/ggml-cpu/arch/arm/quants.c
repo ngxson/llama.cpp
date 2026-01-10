@@ -4248,7 +4248,7 @@ void dequantize_row_q3_k_hifi(const block_q3_k_hifi * GGML_RESTRICT x, float * G
         }
 
         // Restore outliers (still sequential, but less overhead)
-        for (int k_idx = 0; k_idx < Q3_K_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
+        for (int k_idx = 0; k_idx < Q3_K_HIFI_OUTLIERS; ++k_idx) {
             const int idx = block->outlier_idx[k_idx];
             yb[idx] = GGML_FP16_TO_FP32(block->outlier_vals[k_idx]);
         }
