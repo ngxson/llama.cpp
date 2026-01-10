@@ -425,20 +425,46 @@ const func_builtins & value_string_t::get_builtins() const {
             return mk_val<value_bool>(string_endswith(str, suffix));
         }},
         {"split", [](const func_args & args) -> value {
+            args.ensure_count(1, 3);
             args.ensure_vals<value_string>();
             std::string str = args.args[0]->as_string().str();
+            // FIXME: Support non-specified delimiter (split on consecutive (no leading or trailing) whitespace)
             std::string delim = (args.args.size() > 1) ? args.args[1]->as_string().str() : " ";
+            int64_t maxsplit = -((args.args.size() > 2) ? args.args[2]->as_int() : -1);
             auto result = mk_val<value_array>();
             size_t pos = 0;
             std::string token;
-            while ((pos = str.find(delim)) != std::string::npos) {
+            while ((pos = str.find(delim)) != std::string::npos && maxsplit != 0) {
                 token = str.substr(0, pos);
                 result->push_back(mk_val<value_string>(token));
                 str.erase(0, pos + delim.length());
+                maxsplit++;
             }
             auto res = mk_val<value_string>(str);
             res->val_str.mark_input_based_on(args.args[0]->val_str);
             result->push_back(std::move(res));
+            return result;
+        }},
+        {"rsplit", [](const func_args & args) -> value {
+            args.ensure_count(1, 3);
+            args.ensure_vals<value_string>();
+            std::string str = args.args[0]->as_string().str();
+            // FIXME: Support non-specified delimiter (split on consecutive (no leading or trailing) whitespace)
+            std::string delim = (args.args.size() > 1) ? args.args[1]->as_string().str() : " ";
+            int64_t maxsplit = -((args.args.size() > 2) ? args.args[2]->as_int() : -1);
+            auto result = mk_val<value_array>();
+            size_t pos = 0;
+            std::string token;
+            while ((pos = str.rfind(delim)) != std::string::npos && maxsplit != 0) {
+                token = str.substr(pos + delim.length());
+                result->push_back(mk_val<value_string>(token));
+                str.erase(pos);
+                maxsplit++;
+            }
+            auto res = mk_val<value_string>(str);
+            res->val_str.mark_input_based_on(args.args[0]->val_str);
+            result->push_back(std::move(res));
+            result->reverse();
             return result;
         }},
         {"replace", [](const func_args & args) -> value {

@@ -250,6 +250,7 @@ struct value_array_t : public value_t {
     value_array_t(const std::vector<value> & arr) {
         val_arr = arr;
     }
+    void reverse() { std::reverse(val_arr.begin(), val_arr.end()); }
     void push_back(const value & val) { val_arr.push_back(val); }
     value pop_at(int64_t index) {
         if (index < 0) {

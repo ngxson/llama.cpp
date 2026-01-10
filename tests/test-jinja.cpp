@@ -631,6 +631,23 @@ static void test_string_methods(testing & t) {
         "a-b-c"
     );
 
+    test_template(t, "string.split() with maxsplit",
+        "{{ s.split(',', 1)|join('-') }}",
+        {{"s", "a,b,c"}},
+        "a-b,c"
+    );
+
+    test_template(t, "string.rsplit() with sep",
+        "{{ s.rsplit(',')|join('-') }}",
+        {{"s", "a,b,c"}},
+        "a-b-c"
+    );
+
+    test_template(t, "string.rsplit() with maxsplit",
+        "{{ s.rsplit(',', 1)|join('-') }}",
+        {{"s", "a,b,c"}},
+        "a,b-c"
+    );
     test_template(t, "string.replace() basic",
         "{{ s.replace('world', 'jinja') }}",
         {{"s", "hello world"}},
