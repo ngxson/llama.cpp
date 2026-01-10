@@ -50,14 +50,14 @@ static std::string get_line_col(const std::string & source, size_t pos) {
 value statement::execute(context & ctx) {
     try {
         return execute_impl(ctx);
-    } catch (const continue_statement::signal & ex) {
-        throw ex;
-    } catch (const break_statement::signal & ex) {
-        throw ex;
-    } catch (const rethrown_exception & ex) {
-        throw ex;
-    } catch (const not_implemented_exception & ex) {
-        throw ex;
+    } catch (const continue_statement::signal & /* ex */) {
+        throw;
+    } catch (const break_statement::signal & /* ex */) {
+        throw;
+    } catch (const rethrown_exception & /* ex */) {
+        throw;
+    } catch (const not_implemented_exception & /* ex */) {
+        throw;
     } catch (const std::exception & e) {
         const std::string & source = *ctx.src;
         if (source.empty()) {
@@ -66,17 +66,11 @@ value statement::execute(context & ctx) {
             throw rethrown_exception(oss.str());
         } else {
             std::ostringstream oss;
-            constexpr int max_peak_chars = 40;
             oss << "\n------------\n";
             oss << "While executing " << type() << " at " << get_line_col(source, pos) << " in source:\n";
-            size_t start = (pos >= max_peak_chars) ? (pos - max_peak_chars) : 0;
-            size_t end = std::min(pos + max_peak_chars, source.length());
-            std::string substr = source.substr(start, end - start);
-            string_replace_all(substr, "\n", "↵");
-            oss << "..." << substr << "...\n";
-            std::string spaces(pos - start + 3, ' ');
-            oss << spaces << "^\n";
+            oss << peak_source(source, pos) << "\n";
             oss << "Error: " << e.what();
+            // throw as another exception to avoid repeated formatting
             throw rethrown_exception(oss.str());
         }
     }

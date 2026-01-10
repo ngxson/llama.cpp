@@ -876,6 +876,7 @@ static void test_template(testing & t, const std::string & name, const std::stri
                 t.log("Actual  : " + json(rendered).dump());
             }
         } catch (const jinja::not_implemented_exception & e) {
+            // TODO @ngxson : remove this when the test framework supports skipping tests
             t.log("Skipped: " + std::string(e.what()));
         }
     });

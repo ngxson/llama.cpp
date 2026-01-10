@@ -4,6 +4,8 @@
 #include "runtime.h"
 #include "caps.h"
 
+// note: the json dependency is only for defining input in a convenient way
+// we can remove it in the future when we figure out a better way to define inputs using jinja::value
 #include <nlohmann/json.hpp>
 
 #define FILENAME "jinja-caps"

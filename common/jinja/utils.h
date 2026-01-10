@@ -23,4 +23,20 @@ static void string_replace_all(std::string & s, const std::string & search, cons
     s = std::move(builder);
 }
 
+// for displaying source code around error position
+static std::string peak_source(const std::string & source, size_t pos, size_t max_peak_chars = 40) {
+    if (source.empty()) {
+        return "(no source available)";
+    }
+    std::string output;
+    size_t start = (pos >= max_peak_chars) ? (pos - max_peak_chars) : 0;
+    size_t end = std::min(pos + max_peak_chars, source.length());
+    std::string substr = source.substr(start, end - start);
+    string_replace_all(substr, "\n", "↵");
+    output += "..." + substr + "...\n";
+    std::string spaces(pos - start + 3, ' ');
+    output += spaces + "^";
+    return output;
+}
+
 } // namespace jinja
