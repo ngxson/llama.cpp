@@ -86,7 +86,7 @@ llm_build_qwen3next::llm_build_qwen3next(const llama_model & model, const llm_gr
     ggml_build_forward_expand(gf, cur);
 }
 
-ggml_tensor * llm_build_qwen3next::build_delta_net_chunking(
+std::pair<ggml_tensor *, ggml_tensor *> llm_build_qwen3next::build_delta_net_chunking(
         ggml_tensor * q,
         ggml_tensor * k,
         ggml_tensor * v,
@@ -333,10 +333,10 @@ ggml_tensor * llm_build_qwen3next::build_delta_net_chunking(
 
     ggml_tensor * flat_state = ggml_view_1d(ctx0, new_state, S_v * S_v * H_v * n_seqs, 0);
 
-    return ggml_concat(ctx0, flat_output, flat_state, 0);
+    return {flat_output, flat_state};
 }
 
-ggml_tensor * llm_build_qwen3next::build_delta_net_autoregressive(
+std::pair<ggml_tensor *, ggml_tensor *> llm_build_qwen3next::build_delta_net_autoregressive(
         ggml_tensor * q,
         ggml_tensor * k,
         ggml_tensor * v,
@@ -424,7 +424,7 @@ ggml_tensor * llm_build_qwen3next::build_delta_net_autoregressive(
     ggml_tensor * flat_output = ggml_reshape_1d(ctx0, core_attn_out, S_v * H_v * n_tokens * n_seqs);
     ggml_tensor * flat_state  = ggml_reshape_1d(ctx0, state, S_v * S_v * H_v * n_seqs);
 
-    return ggml_concat(ctx0, flat_output, flat_state, 0);
+    return {flat_output, flat_state};
 }
 
 ggml_tensor * llm_build_qwen3next::build_norm_gated(
@@ -767,45 +767,29 @@ ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
     cb(v_conv, "v_conv_predelta", il);
 
     // Choose between build_delta_net_chunking, build_delta_net_recurrent, and build_delta_net_autoregressive based on n_tokens
-    ggml_tensor * attn_out;
+    std::pair<ggml_tensor *, ggml_tensor *> attn_out; // pair of (output, new_state)
     if (n_seq_tokens == 1) {
         attn_out = build_delta_net_autoregressive(q_conv, k_conv, v_conv, gate, beta, state, il);
     } else {
         attn_out = build_delta_net_chunking(q_conv, k_conv, v_conv, gate, beta, state, causal_mask, identity, diag_mask, il);
     }
-    cb(attn_out, "attn_out", il);
-
-    // The tensors were concatenated 1d, so we need to extract them 1d as well
-    const int64_t output_flat_size = head_v_dim * num_v_heads * n_seq_tokens * n_seqs;
-    ggml_tensor * attn_out_1d      = ggml_view_1d(ctx0, attn_out, output_flat_size, 0);
-    cb(attn_out_1d, "attn_out_1d", il);
-
-    ggml_tensor * attn_out_final = ggml_cont_4d(ctx0, attn_out_1d, head_v_dim, num_v_heads, n_seq_tokens, n_seqs);
-    cb(attn_out_final, "attn_out_reshaped", il);
-
-    // Extract the state part (second part of the concatenated tensor)
-    // State starts after n_tokens elements along dimension 1
-    const int64_t state_flat_size = head_v_dim * head_v_dim * num_v_heads * n_seqs;
-
-    ggml_tensor * state_1d =
-        ggml_view_1d(ctx0, attn_out, state_flat_size, output_flat_size * ggml_element_size(attn_out));
-    cb(state_1d, "state_1d", il);
+    ggml_tensor * output    = attn_out.first;
+    ggml_tensor * new_state = attn_out.second;
+    cb(output, "attn_output", il);
+    cb(new_state, "new_state", il);
 
     // Update the recurrent states
     ggml_build_forward_expand(gf,
-                              ggml_cpy(ctx0, state_1d,
+                              ggml_cpy(ctx0, new_state,
                                        ggml_view_1d(ctx0, ssm_states_all, hparams.n_embd_s() * n_seqs,
                                                     kv_head * hparams.n_embd_s() * ggml_element_size(ssm_states_all))));
 
-    GGML_ASSERT(ggml_nelements(attn_out_1d) + ggml_nelements(state_1d) == ggml_nelements(attn_out));
-
     // Reshape both attn_out_final and z to 2D tensors for normalization
     // attn_out_final: [head_dim, n_heads, n_tokens, n_seqs] -> [n_heads * n_tokens * n_seqs, head_dim]
-    ggml_tensor * attn_out_2d_final =
-        ggml_cont_2d(ctx0, attn_out_final, head_v_dim, num_v_heads * n_seq_tokens * n_seqs);
+    ggml_tensor * attn_out_2d_final = ggml_reshape_2d(ctx0, output, head_v_dim, num_v_heads * n_seq_tokens * n_seqs);
 
     // z: [head_dim, n_heads, n_tokens, n_seqs] -> [n_heads * n_tokens * n_seqs, head_dim]
-    ggml_tensor * z_2d = ggml_cont_2d(ctx0, z, head_v_dim, num_v_heads * n_seq_tokens * n_seqs);
+    ggml_tensor * z_2d = ggml_reshape_2d(ctx0, z, head_v_dim, num_v_heads * n_seq_tokens * n_seqs);
 
     // Apply gated normalization: self.norm(core_attn_out, z)
     ggml_tensor * attn_out_norm = build_norm_gated(attn_out_2d_final, model.layers[il].ssm_norm, z_2d, il);
