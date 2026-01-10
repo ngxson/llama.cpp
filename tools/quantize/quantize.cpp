@@ -45,6 +45,7 @@ static const std::vector<quant_option> QUANT_OPTIONS = {
     { "Q3_K_L",   LLAMA_FTYPE_MOSTLY_Q3_K_L,   " 4.03G, +0.5562 ppl @ Llama-3-8B",  },
     { "Q3_K_HIFI",  LLAMA_FTYPE_MOSTLY_Q3_K_HIFI,  " ~3.74G same as Q3_K_M (placeholder for future enhancement)", },
     { "Q4_K_HIFI",  LLAMA_FTYPE_MOSTLY_Q4_K_HIFI,  " ~4.95 bpw Q4_K_M + INT8 residuals (best quality-per-byte)", },
+    { "Q5_K_HIFI",  LLAMA_FTYPE_MOSTLY_Q5_K_HIFI,  " ~5.4 bpw Q5_K_M base + Q6_K_HIFI_RES8 on critical tensors", },
     { "IQ4_NL",   LLAMA_FTYPE_MOSTLY_IQ4_NL,   " 4.50 bpw non-linear quantization", },
     { "IQ4_XS",   LLAMA_FTYPE_MOSTLY_IQ4_XS,   " 4.25 bpw non-linear quantization", },
     { "Q4_K",     LLAMA_FTYPE_MOSTLY_Q4_K_M,   "alias for Q4_K_M",                  },

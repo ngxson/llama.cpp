@@ -303,6 +303,10 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
                 new_type = get_hifi_enhanced_type(model_params_b);
             }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_HIFI) {
+                // Q5_K_HIFI: Always use Q6_K_HIFI_RES8 on output.weight - critical for quality
+                new_type = GGML_TYPE_Q6_K_HIFI_RES8;
+            }
             else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI) {
                 // Q3_K_HIFI: Use Q6_K on output (same as Q3_K_M)
                 new_type = GGML_TYPE_Q6_K;
@@ -341,6 +345,10 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 // Q5_K_HIFI_RES8 for 4B-10B, Q6_K_HIFI_RES8 for smaller models
                 const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
                 new_type = get_hifi_enhanced_type(model_params_b);
+            }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_HIFI) {
+                // Q5_K_HIFI: Always use Q6_K_HIFI_RES8 on token_embd - critical for quality
+                new_type = GGML_TYPE_Q6_K_HIFI_RES8;
             }
             else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI) {
                 // Q3_K_HIFI: Use Q6_K on token_embd (same as Q3_K_M behavior)
@@ -416,6 +424,26 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         else if ((ftype == LLAMA_FTYPE_MOSTLY_IQ4_NL || ftype == LLAMA_FTYPE_MOSTLY_IQ4_XS) && qs.model.hparams.n_gqa() >= 4) {
             new_type = GGML_TYPE_Q5_K;
         }
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_HIFI) {
+            // Q5_K_HIFI: Promote top 10-15% of attn_v layers to Q6_K_HIFI_RES8
+            // Smaller models get broader coverage, larger models get focused enhancement
+            const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+            float enhancement_threshold;
+            if (model_params_b <= 2.0f) {
+                enhancement_threshold = 0.15f;  // 15% for small models (0.6B-2B)
+            } else if (model_params_b <= 8.0f) {
+                enhancement_threshold = 0.12f;  // 12% for medium models (3B-8B)
+            } else {
+                enhancement_threshold = 0.10f;  // 10% for large models (14B+)
+            }
+            
+            if (qs.i_attention_wv <= qs.n_attention_wv * enhancement_threshold) {
+                new_type = GGML_TYPE_Q6_K_HIFI_RES8;  // Enhanced type for early layers
+            } else if (use_more_bits(qs.i_attention_wv, qs.n_attention_wv)) {
+                new_type = GGML_TYPE_Q6_K;  // Follow Q5_K_M behavior for critical late layers
+            }
+            // else: use default Q5_K for non-critical middle/late layers
+        }
         else if ((ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q5_K_M) &&
                 use_more_bits(qs.i_attention_wv, qs.n_attention_wv)) new_type = GGML_TYPE_Q6_K;
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_S && qs.i_attention_wv < 4) new_type = GGML_TYPE_Q5_K;
@@ -490,7 +518,10 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         else if (i_layer < n_layer/8 && (ftype == LLAMA_FTYPE_MOSTLY_IQ4_NL || ftype == LLAMA_FTYPE_MOSTLY_IQ4_XS) && !qs.has_imatrix) {
             new_type = GGML_TYPE_Q5_K;
         }
-        else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_M && use_more_bits(i_layer, n_layer)) new_type = GGML_TYPE_Q6_K;
+        else if ((ftype == LLAMA_FTYPE_MOSTLY_Q5_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q5_K_HIFI) && use_more_bits(i_layer, n_layer)) {
+            // Q5_K_HIFI follows Q5_K_M behavior for ffn_down - Q6_K for critical layers
+            new_type = GGML_TYPE_Q6_K;
+        }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_S && arch != LLM_ARCH_FALCON && i_layer < n_layer/8) {
             new_type = GGML_TYPE_Q5_K;
         }
@@ -527,7 +558,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             new_type = GGML_TYPE_Q4_K;
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) new_type = GGML_TYPE_Q5_K;
-        else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_M) new_type = GGML_TYPE_Q6_K;
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q5_K_HIFI) new_type = GGML_TYPE_Q6_K;
     }
     else if (name.find("ffn_gate") != std::string::npos) {
         auto info = layer_info(qs.i_ffn_gate, qs.n_ffn_gate, name.c_str());
@@ -726,6 +757,7 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
         case LLAMA_FTYPE_MOSTLY_IQ3_S:   default_type = GGML_TYPE_IQ3_S;   break;
         case LLAMA_FTYPE_MOSTLY_IQ3_M:   default_type = GGML_TYPE_IQ3_S;   break;
         case LLAMA_FTYPE_MOSTLY_Q4_K_HIFI: default_type = GGML_TYPE_Q4_K; break; // Q4_K_M + dynamic outliers + early exit
+        case LLAMA_FTYPE_MOSTLY_Q5_K_HIFI: default_type = GGML_TYPE_Q5_K; break; // Q5_K_M base + Q6_K_HIFI_RES8 on critical tensors
 
         default: throw std::runtime_error(format("invalid output file type %d\n", ftype));
     }
@@ -798,6 +830,8 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
     // Set quantization type string for Hugging Face model card display
     if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
         gguf_set_val_str(ctx_out.get(), "general.quantization_type", "Q4_K_HIFI");
+    } else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_HIFI) {
+        gguf_set_val_str(ctx_out.get(), "general.quantization_type", "Q5_K_HIFI");
     }
 
     // Remove split metadata
@@ -1145,7 +1179,8 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
 
             // Handle both Q6_K_HIFI_RES8 and Q5_K_HIFI_RES8 HIFI types
             const bool is_hifi_type = (new_type == GGML_TYPE_Q6_K_HIFI_RES8 || new_type == GGML_TYPE_Q5_K_HIFI_RES8);
-            if (is_hifi_type && ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
+            const bool is_hifi_ftype = (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI || ftype == LLAMA_FTYPE_MOSTLY_Q5_K_HIFI);
+            if (is_hifi_type && is_hifi_ftype) {
                 // Extract layer index from tensor name (e.g., "blk.5.attn_v.weight" -> 5)
                 int layer_idx = -1;
                 if (sscanf(name.c_str(), "blk.%d.", &layer_idx) != 1) {
