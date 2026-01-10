@@ -250,13 +250,13 @@ ggml_tensor * llm_build_qwen3next::build_delta_net_chunking(
                 t->nb[1], t->nb[2], t->nb[3], t->nb[2] * chunk);
         };
 
-        ggml_tensor * k_chunk = chunkify(ctx0, k, chunk);
-        ggml_tensor * q_chunk = chunkify(ctx0, q, chunk);
-        ggml_tensor * v_chunk = chunkify(ctx0, v, chunk);
+        ggml_tensor * k_chunk = chunkify(ctx0, k, chunk); // (no cont), next op: ggml_mul
+        ggml_tensor * q_chunk = chunkify(ctx0, q, chunk); // (no cont), next op: ggml_mul
+        ggml_tensor * v_chunk = chunkify(ctx0, v, chunk); // (no cont), next op: ggml_repeat
 
-        ggml_tensor * g_cs_chunk_t = chunkify(ctx0, g_cumsum_t, chunk);
+        ggml_tensor * g_cs_chunk_t = chunkify(ctx0, g_cumsum_t, chunk); // (no cont), next op: ggml_view_4d
         ggml_tensor * g_cs_chunk   = ggml_cont(ctx0, ggml_transpose(ctx0, g_cs_chunk_t));
-        ggml_tensor * gexp_chunk   = chunkify(ctx0, gexp, chunk);
+        ggml_tensor * gexp_chunk   = chunkify(ctx0, gexp, chunk); // (no cont), next op: ggml_mul
 
         ggml_tensor * k_cumdecay_chunk = chunkify(ctx0, k_cumdecay, chunk);
 
