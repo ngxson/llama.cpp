@@ -314,7 +314,7 @@ static void test_filters(testing & t) {
     );
 
     test_template(t, "capitalize",
-        "{{ 'hello world'|capitalize }}",
+        "{{ 'heLlo World'|capitalize }}",
         json::object(),
         "Hello world"
     );
@@ -326,7 +326,7 @@ static void test_filters(testing & t) {
     );
 
     test_template(t, "trim",
-        "{{ '  hello  '|trim }}",
+        "{{ '  \r\n\thello\t\n\r  '|trim }}",
         json::object(),
         "hello"
     );
@@ -597,7 +597,7 @@ static void test_string_methods(testing & t) {
 
     test_template(t, "string.capitalize()",
         "{{ s.capitalize() }}",
-        {{"s", "hello world"}},
+        {{"s", "heLlo World"}},
         "Hello world"
     );
 
