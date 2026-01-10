@@ -262,9 +262,12 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_qwen3next::build_delta_net_chu
 
 
     // state to be updated per chunk
-    ggml_tensor * core_attn_out = nullptr;
     ggml_tensor * new_state = state; // ggml_dup(ctx0, state);
     cb(new_state, "new_state", il); // shape: (S_v, S_v, H_v, n_seqs)
+
+    // output "buffer" to be filled per chunk
+    // we allocate it once to avoid re-allocations
+    ggml_tensor * core_attn_out = ggml_dup(ctx0, v); // shape: (S_v, chunk_size, n_chunks, H_v * n_seqs)
 
     for (int64_t chunk = 0; chunk < n_chunks; chunk++) {
         // utility to get a slice from the n_chunks dimension
@@ -283,7 +286,8 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_qwen3next::build_delta_net_chu
         // shape: (chunk_size, 1, n_chunks, H_v * n_seqs)
         ggml_tensor * gexp_chunk = chunkify(ctx0, gexp, chunk); // (no cont), next op: ggml_mul
 
-        ggml_tensor * k_cumdecay_chunk = chunkify(ctx0, k_cumdecay, chunk);
+        // shape: (chunk_size, 1, H_v * n_seqs)
+        ggml_tensor * k_cumdecay_chunk = chunkify(ctx0, k_cumdecay, chunk); // (no cont), next op: ggml_mul_mat
 
         // attn = (q_i @ k_i.transpose(-1, -2) * decay_mask[:, :, i]).masked_fill_(mask, 0)
         // replaced by precomputed attn_kq
@@ -311,9 +315,11 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_qwen3next::build_delta_net_chu
         cb(v_attn, "v_attn_chunk", il);
 
         ggml_tensor * core_attn_out_chunk = ggml_add(ctx0, attn_inter, v_attn);
-        cb(core_attn_out_chunk, "core_attn_out_chunk", il);
+        cb(core_attn_out_chunk, "core_attn_out_chunk", il); // shape: (S_v, chunk_size, 1, H_v * n_seqs)
 
-        core_attn_out = core_attn_out == nullptr ? core_attn_out_chunk : ggml_concat(ctx0, core_attn_out, core_attn_out_chunk, 1);
+        // copy chunk output to the output "buffer"
+        ggml_tensor * out_buf_view = chunkify(ctx0, core_attn_out, chunk);
+        ggml_build_forward_expand(gf, ggml_cpy(ctx0, core_attn_out_chunk, out_buf_view));
 
         // kgdmulvnew = (key_gdiff).transpose(-1, -2) @ v_new
         ggml_tensor * k_gdiff = ggml_cont(ctx0, chunkify(ctx0, key_gdiff, chunk));
@@ -327,18 +333,20 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_qwen3next::build_delta_net_chu
             ggml_reshape_4d(ctx0, kgdmulvnew, kgdmulvnew->ne[0], kgdmulvnew->ne[1], H_v, n_seqs));
     }
 
-    core_attn_out = ggml_cont_4d(ctx0, core_attn_out, S_v, chunk_size * n_chunks, H_v, n_seqs);
-
-    ggml_tensor * output_tokens = ggml_view_4d(ctx0, core_attn_out, S_v, n_tokens, H_v, n_seqs, core_attn_out->nb[1], core_attn_out->nb[2], core_attn_out->nb[3], 0);
+    // truncate padded tokens
+    ggml_tensor * output_tokens = ggml_view_4d(ctx0, core_attn_out,
+            S_v, n_tokens, H_v, n_seqs,
+            ggml_row_size(core_attn_out->type, S_v),
+            ggml_row_size(core_attn_out->type, S_v * chunk_size * n_chunks),
+            ggml_row_size(core_attn_out->type, S_v * chunk_size * n_chunks * H_v), 0);
+    output_tokens = ggml_cont(ctx0, output_tokens);
     cb(output_tokens, "output_tokens", il);
 
-    // flatten output
-    ggml_tensor * flat_output =
-        ggml_cont_1d(ctx0, ggml_permute(ctx0, output_tokens, 0, 2, 1, 3), S_v * H_v * n_tokens * n_seqs);
+    // permute back to (S_v, H_v, n_tokens, n_seqs)
+    output_tokens = ggml_permute(ctx0, output_tokens, 0, 2, 1, 3);
+    output_tokens = ggml_cont(ctx0, output_tokens);
 
-    ggml_tensor * flat_state = ggml_view_1d(ctx0, new_state, S_v * S_v * H_v * n_seqs, 0);
-
-    return {flat_output, flat_state};
+    return {output_tokens, new_state};
 }
 
 std::pair<ggml_tensor *, ggml_tensor *> llm_build_qwen3next::build_delta_net_autoregressive(
@@ -425,11 +433,7 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_qwen3next::build_delta_net_aut
     cb(core_attn_out, "output_tokens", il);
     cb(state, "new_state", il);
 
-    // flatten output, no need to permute since n_tokens is 1 so [S_v, 1, H_v, n_seqs] and [S_v, H_v, 1, n_seqs] are equivalent memory-layout wise
-    ggml_tensor * flat_output = ggml_reshape_1d(ctx0, core_attn_out, S_v * H_v * n_tokens * n_seqs);
-    ggml_tensor * flat_state  = ggml_reshape_1d(ctx0, state, S_v * S_v * H_v * n_seqs);
-
-    return {flat_output, flat_state};
+    return {core_attn_out, state};
 }
 
 ggml_tensor * llm_build_qwen3next::build_norm_gated(
@@ -660,8 +664,9 @@ ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
                                    split_sizes_ba[0] * ggml_element_size(mixed_ba_reshaped));
     cb(a, "a", il);
 
-    // Reshape b and a to merge head dimensions: [batch, seq_len, num_k_heads, num_v_heads/num_k_heads] -> [batch, seq_len, num_v_heads]
-    ggml_tensor * beta  = ggml_cont_3d(ctx0, b, num_v_heads, n_seq_tokens, n_seqs);
+    ggml_tensor * beta  = ggml_cont_4d(ctx0, b, num_v_heads, 1, n_seq_tokens, n_seqs);
+
+    // Reshape a to merge head dimensions: [batch, seq_len, num_k_heads, num_v_heads/num_k_heads] -> [batch, seq_len, num_v_heads]
     ggml_tensor * alpha = ggml_cont_3d(ctx0, a, num_v_heads, n_seq_tokens, n_seqs);
 
     ggml_tensor * alpha_biased   = ggml_add(ctx0, alpha, model.layers[il].ssm_dt);
@@ -738,8 +743,6 @@ ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
     q_conv = ggml_cont_4d(ctx0, q_conv, head_k_dim, num_k_heads, n_seq_tokens, n_seqs);
     k_conv = ggml_cont_4d(ctx0, k_conv, head_k_dim, num_k_heads, n_seq_tokens, n_seqs);
     v_conv = ggml_cont_4d(ctx0, v_conv, head_v_dim, num_v_heads, n_seq_tokens, n_seqs);
-
-    beta = ggml_cont_4d(ctx0, b, num_v_heads, 1, n_seq_tokens, n_seqs);
 
     ggml_tensor * state = build_rs(inp, ssm_states_all, hparams.n_embd_s(), n_seqs);
     state               = ggml_reshape_4d(ctx0, state, head_v_dim, head_v_dim * num_v_heads, 1, n_seqs);
