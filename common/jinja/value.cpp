@@ -320,7 +320,7 @@ const func_builtins & global_builtins() {
             args.ensure_vals<value_string>();
             return mk_val<value_bool>(args.args[0]->val_str.is_uppercase());
         }},
-        {"test_is_none", test_type_fn<value_null>},
+        {"test_is_none", test_type_fn<value_none>},
         {"test_is_defined", [](const func_args & args) -> value {
             args.ensure_count(1);
             bool res = !args.args[0]->is_undefined();
@@ -799,7 +799,7 @@ const func_builtins & value_object_t::get_builtins() const {
             if (!is_val<value_string>(args.args[1])) {
                 throw raised_exception("get: second argument must be a string (key)");
             }
-            value default_val = mk_val<value_null>();
+            value default_val = mk_val<value_none>();
             if (args.args.size() == 3) {
                 default_val = args.args[2];
             }
@@ -875,7 +875,7 @@ const func_builtins & value_object_t::get_builtins() const {
     return builtins;
 }
 
-const func_builtins & value_null_t::get_builtins() const {
+const func_builtins & value_none_t::get_builtins() const {
     static const func_builtins builtins = {
         {"default", default_value},
         {"tojson", tojson},
@@ -901,7 +901,7 @@ const func_builtins & value_undefined_t::get_builtins() const {
 
 static value from_json(const nlohmann::ordered_json & j, bool mark_input) {
     if (j.is_null()) {
-        return mk_val<value_null>();
+        return mk_val<value_none>();
     } else if (j.is_boolean()) {
         return mk_val<value_bool>(j.get<bool>());
     } else if (j.is_number_integer()) {
@@ -1001,7 +1001,7 @@ static void value_to_json_internal(std::ostringstream & oss, const value & val, 
         return (indent >= 0) ? "\n" : "";
     };
 
-    if (is_val<value_null>(val) || val->is_undefined()) {
+    if (is_val<value_none>(val) || val->is_undefined()) {
         oss << "null";
     } else if (is_val<value_bool>(val)) {
         oss << (val->as_bool() ? "true" : "false");

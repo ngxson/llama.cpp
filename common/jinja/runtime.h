@@ -59,8 +59,8 @@ struct context {
         global->insert("True",  mk_val<value_bool>(true));
         global->insert("false", mk_val<value_bool>(false));
         global->insert("False", mk_val<value_bool>(false));
-        global->insert("none",  mk_val<value_null>());
-        global->insert("None",  mk_val<value_null>());
+        global->insert("none",  mk_val<value_none>());
+        global->insert("None",  mk_val<value_none>());
         current_time = std::time(nullptr);
     }
     ~context() = default;
@@ -570,7 +570,7 @@ struct rethrown_exception : public std::exception {
 //////////////////////
 
 static void gather_string_parts_recursive(const value & val, value_string & parts) {
-    // TODO: probably allow print value_null as "None" string? currently this breaks some templates
+    // TODO: probably allow print value_none as "None" string? currently this breaks some templates
     if (is_val<value_string>(val)) {
         const auto & str_val = cast_val<value_string>(val)->val_str;
         parts->val_str.append(str_val);

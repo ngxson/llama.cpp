@@ -309,14 +309,14 @@ using value_object = std::shared_ptr<value_object_t>;
 // null and undefined types
 //
 
-struct value_null_t : public value_t {
+struct value_none_t : public value_t {
     virtual std::string type() const override { return "Null"; }
     virtual bool is_null() const override { return true; }
     virtual bool as_bool() const override { return false; }
     virtual std::string as_repr() const override { return type(); }
     virtual const func_builtins & get_builtins() const override;
 };
-using value_null = std::shared_ptr<value_null_t>;
+using value_none = std::shared_ptr<value_none_t>;
 
 
 struct value_undefined_t : public value_t {
