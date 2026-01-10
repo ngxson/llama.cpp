@@ -3,9 +3,9 @@
 
 #include <nlohmann/json.hpp>
 
-#include "jinja/jinja-runtime.h"
-#include "jinja/jinja-parser.h"
-#include "jinja/jinja-lexer.h"
+#include "jinja/runtime.h"
+#include "jinja/parser.h"
+#include "jinja/lexer.h"
 
 #include "testing.h"
 

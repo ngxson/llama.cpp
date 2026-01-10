@@ -1,6 +1,6 @@
-#include "jinja-lexer.h"
-#include "jinja-runtime.h"
-#include "jinja-parser.h"
+#include "lexer.h"
+#include "runtime.h"
+#include "parser.h"
 
 #include <string>
 #include <vector>

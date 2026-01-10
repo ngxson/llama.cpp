@@ -14,10 +14,10 @@
 #include "llama.h"
 #include "common.h"
 #include "chat.h"
-#include "jinja/jinja-runtime.h"
-#include "jinja/jinja-parser.h"
-#include "jinja/jinja-lexer.h"
-#include "jinja/jinja-caps.h"
+#include "jinja/runtime.h"
+#include "jinja/parser.h"
+#include "jinja/lexer.h"
+#include "jinja/caps.h"
 
 using json = nlohmann::ordered_json;
 

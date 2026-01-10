@@ -9,7 +9,7 @@
 #include <set>
 #include <cstdint>
 
-#include "jinja-string.h"
+#include "string.h"
 
 namespace jinja {
 

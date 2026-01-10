@@ -1,7 +1,7 @@
 #pragma once
 
-#include "jinja-lexer.h"
-#include "jinja-value.h"
+#include "lexer.h"
+#include "value.h"
 
 #include <string>
 #include <vector>

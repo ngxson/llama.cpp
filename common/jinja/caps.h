@@ -4,8 +4,8 @@
 #include <string>
 #include <sstream>
 
-#include "jinja-value.h"
-#include "jinja-runtime.h"
+#include "value.h"
+#include "runtime.h"
 
 namespace jinja {
 

@@ -10,10 +10,10 @@
 // #include <minja/chat-template.hpp>
 // #include <minja/minja.hpp>
 
-#include "jinja/jinja-parser.h"
-#include "jinja/jinja-value.h"
-#include "jinja/jinja-runtime.h"
-#include "jinja/jinja-caps.h"
+#include "jinja/parser.h"
+#include "jinja/value.h"
+#include "jinja/runtime.h"
+#include "jinja/caps.h"
 
 #include <algorithm>
 #include <cstdio>

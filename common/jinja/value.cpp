@@ -1,7 +1,7 @@
-#include "jinja-lexer.h"
-#include "jinja-runtime.h"
-#include "jinja-parser.h"
-#include "jinja-value.h"
+#include "lexer.h"
+#include "runtime.h"
+#include "parser.h"
+#include "value.h"
 
 // for converting from JSON to jinja values
 #include <nlohmann/json.hpp>

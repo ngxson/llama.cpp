@@ -1,8 +1,8 @@
 #include <vector>
 
-#include "jinja-value.h"
-#include "jinja-runtime.h"
-#include "jinja-caps.h"
+#include "value.h"
+#include "runtime.h"
+#include "caps.h"
 
 #include <nlohmann/json.hpp>
 
