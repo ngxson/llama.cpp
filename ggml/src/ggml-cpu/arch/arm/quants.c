@@ -2044,9 +2044,9 @@ void ggml_vec_dot_q3_K_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const voi
 
 }
 
-// Q3_HIFI: ARM NEON optimized vec_dot
-// Copied from Q3_K and adapted for block_q3_hifi (128-byte blocks) + outlier correction
-void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+// Q3_K_HIFI: ARM NEON optimized vec_dot
+// Copied from Q3_K and adapted for block_q3_k_hifi (128-byte blocks) + outlier correction
+void ggml_vec_dot_q3_k_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);
     assert(nrc == 1);
     UNUSED(nrc);
@@ -2057,8 +2057,8 @@ void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const 
     const uint32_t kmask1 = 0x03030303;
     const uint32_t kmask2 = 0x0f0f0f0f;
 
-    // CRITICAL: Use block_q3_hifi for correct 128-byte stride
-    const block_q3_hifi * GGML_RESTRICT x = (const block_q3_hifi *)vx;
+    // CRITICAL: Use block_q3_k_hifi for correct 128-byte stride
+    const block_q3_k_hifi * GGML_RESTRICT x = (const block_q3_k_hifi *)vx;
     const block_q8_K * GGML_RESTRICT y = vy;
 
     const int nb = n / QK_K;
@@ -2155,7 +2155,7 @@ void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const 
 
     }
 
-    // Q3_HIFI: Add outlier corrections - fully unrolled for 6 outliers
+    // Q3_K_HIFI: Add outlier corrections - fully unrolled for 6 outliers
     for (int i = 0; i < nb; ++i) {
         const float d_y = y[i].d;
         const int8_t * GGML_RESTRICT q8 = y[i].qs;
@@ -2181,7 +2181,7 @@ void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const 
     UNUSED(x);
     UNUSED(y);
     UNUSED(nb);
-    ggml_vec_dot_q3_hifi_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+    ggml_vec_dot_q3_k_hifi_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
 #endif
 
 }
@@ -4193,21 +4193,21 @@ void ggml_vec_dot_iq4_xs_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const v
 }
 
 #if defined(__ARM_NEON)
-// NEON-optimized dequantization for Q3_HIFI
-void dequantize_row_q3_hifi(const block_q3_hifi * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
-    assert(k % Q3_HIFI_BLOCK_SIZE == 0);
-    const int64_t nb = k / Q3_HIFI_BLOCK_SIZE;
+// NEON-optimized dequantization for Q3_K_HIFI
+void dequantize_row_q3_k_hifi(const block_q3_k_hifi * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % Q3_K_HIFI_BLOCK_SIZE == 0);
+    const int64_t nb = k / Q3_K_HIFI_BLOCK_SIZE;
 
     for (int ib = 0; ib < nb; ++ib) {
-        const block_q3_hifi * block = &x[ib];
+        const block_q3_k_hifi * block = &x[ib];
         const float d = block->d;
         const uint8_t * qs = block->qs;
-        float * yb = y + ib * Q3_HIFI_BLOCK_SIZE;
+        float * yb = y + ib * Q3_K_HIFI_BLOCK_SIZE;
 
         // Process 4 values at a time with NEON
-        // Q3_HIFI_BLOCK_SIZE is 256, which is a multiple of 4
+        // Q3_K_HIFI_BLOCK_SIZE is 256, which is a multiple of 4
         int i = 0;
-        for (; i < Q3_HIFI_BLOCK_SIZE - 3; i += 4) {
+        for (; i < Q3_K_HIFI_BLOCK_SIZE - 3; i += 4) {
             // Extract 4 3-bit values (12 bits = 1.5 bytes)
             int32_t quant_vals[4];
 
@@ -4236,7 +4236,7 @@ void dequantize_row_q3_hifi(const block_q3_hifi * GGML_RESTRICT x, float * GGML_
         }
 
         // Handle remaining values (scalar fallback)
-        for (; i < Q3_HIFI_BLOCK_SIZE; ++i) {
+        for (; i < Q3_K_HIFI_BLOCK_SIZE; ++i) {
             const int byte_idx = (i * 3) / 8;
             const int bit_offset = (i * 3) % 8;
             uint8_t bits = (qs[byte_idx] >> bit_offset) & 7;
@@ -4248,7 +4248,7 @@ void dequantize_row_q3_hifi(const block_q3_hifi * GGML_RESTRICT x, float * GGML_
         }
 
         // Restore outliers (still sequential, but less overhead)
-        for (int k_idx = 0; k_idx < Q3_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
+        for (int k_idx = 0; k_idx < Q3_K_HIFI_OUTFIERS_PER_BLOCK; ++k_idx) {
             const int idx = block->outlier_idx[k_idx];
             yb[idx] = GGML_FP16_TO_FP32(block->outlier_vals[k_idx]);
         }

@@ -689,12 +689,12 @@ static void dequantize_row_q3_K_cuda(const void * vx, dst_t * y, const int64_t k
     dequantize_block_q3_K<<<nb, 64, 0, stream>>>(vx, y);
 }
 
-// Q3_HIFI: Q3_K-compatible layout with 6 FP16 outliers per block
+// Q3_K_HIFI: Q3_K-compatible layout with 6 FP16 outliers per block
 // Uses Q3_K dequantization for bulk, then overwrites outlier positions
 template<typename dst_t>
-static __global__ void dequantize_block_q3_hifi(const void * __restrict__ vx, dst_t * __restrict__ yy) {
+static __global__ void dequantize_block_q3_k_hifi(const void * __restrict__ vx, dst_t * __restrict__ yy) {
     const int64_t i = blockIdx.x;
-    const block_q3_hifi * x = (const block_q3_hifi *) vx;
+    const block_q3_k_hifi * x = (const block_q3_k_hifi *) vx;
 
     // First, do Q3_K-style dequantization for the bulk
     const int64_t r = threadIdx.x/4;
@@ -730,7 +730,7 @@ static __global__ void dequantize_block_q3_hifi(const void * __restrict__ vx, ds
     if (threadIdx.x == 0) {
         dst_t * yb = yy + i*QK_K;
         #pragma unroll
-        for (int k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
+        for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
             const int idx = x[i].outlier_idx[k];
             yb[idx] = __half2float(x[i].outlier_vals[k]);
         }
@@ -738,9 +738,9 @@ static __global__ void dequantize_block_q3_hifi(const void * __restrict__ vx, ds
 }
 
 template<typename dst_t>
-static void dequantize_row_q3_hifi_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
+static void dequantize_row_q3_k_hifi_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
     const int nb = k / QK_K;
-    dequantize_block_q3_hifi<<<nb, 64, 0, stream>>>(vx, y);
+    dequantize_block_q3_k_hifi<<<nb, 64, 0, stream>>>(vx, y);
 }
 
 template<typename dst_t>
@@ -924,8 +924,8 @@ to_fp16_cuda_t ggml_get_to_fp16_cuda(ggml_type type) {
             return dequantize_row_q2_K_cuda;
         case GGML_TYPE_Q3_K:
             return dequantize_row_q3_K_cuda;
-        case GGML_TYPE_Q3_HIFI:
-            return dequantize_row_q3_hifi_cuda;
+        case GGML_TYPE_Q3_K_HIFI:
+            return dequantize_row_q3_k_hifi_cuda;
         case GGML_TYPE_Q6_K_HIFI:
             return dequantize_row_q6_k_hifi_cuda;
         case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
@@ -985,8 +985,8 @@ to_fp32_cuda_t ggml_get_to_fp32_cuda(ggml_type type) {
             return dequantize_row_q2_K_cuda;
         case GGML_TYPE_Q3_K:
             return dequantize_row_q3_K_cuda;
-        case GGML_TYPE_Q3_HIFI:
-            return dequantize_row_q3_hifi_cuda;
+        case GGML_TYPE_Q3_K_HIFI:
+            return dequantize_row_q3_k_hifi_cuda;
         case GGML_TYPE_Q6_K_HIFI:
             return dequantize_row_q6_k_hifi_cuda;
         case GGML_TYPE_Q6_K_HIFI_DYNAMIC:

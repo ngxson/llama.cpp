@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
 """
-Test Q3_HIFI quantization format.
+Test Q3_K_HIFI quantization format.
 
 This test:
-  1. Uses a pre-quantized Q3_HIFI model (or quantizes a compatible model)
+  1. Uses a pre-quantized Q3_K_HIFI model (or quantizes a compatible model)
   2. Runs perplexity test
   3. Asserts PPL is reasonable (<25)
 
 Usage:
     python tests/test-q3-hifi.py [--build-dir BUILD_DIR] [--model MODEL_PATH]
 
-Note: Q3_HIFI requires tensor dimensions divisible by 256.
+Note: Q3_K_HIFI requires tensor dimensions divisible by 256.
       Small models like stories15M (288 dims) are not compatible.
       Use a model with compatible dimensions (e.g., Qwen, Llama, Mistral).
 """
@@ -123,11 +123,11 @@ def extract_ppl(output: str) -> float:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Test Q3_HIFI quantization")
+    parser = argparse.ArgumentParser(description="Test Q3_K_HIFI quantization")
     parser.add_argument("--build-dir", type=Path, default=Path("build"),
                         help="Build directory containing llama binaries")
     parser.add_argument("--model", type=Path, required=True,
-                        help="Path to a Q3_HIFI quantized model (must have dims divisible by 256)")
+                        help="Path to a Q3_K_HIFI quantized model (must have dims divisible by 256)")
     parser.add_argument("--threshold", type=float, default=PPL_THRESHOLD,
                         help=f"Maximum acceptable perplexity (default: {PPL_THRESHOLD})")
     args = parser.parse_args()

@@ -826,7 +826,7 @@ struct ggml_cuda_type_traits<GGML_TYPE_Q3_K> {
 };
 
 template<>
-struct ggml_cuda_type_traits<GGML_TYPE_Q3_HIFI> {
+struct ggml_cuda_type_traits<GGML_TYPE_Q3_K_HIFI> {
     static constexpr int qk = QK_K;
     static constexpr int qr = QR3_K;
     static constexpr int qi = QI3_K;

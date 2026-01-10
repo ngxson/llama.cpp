@@ -151,7 +151,7 @@ show_progress() {
     if [[ $empty -gt 0 ]]; then
         bar="${bar}$(printf ' %.0s' $(seq 1 $empty))"
     fi
-   
+    
     # \033[K clears from cursor to end of line, preventing leftover characters
     printf "\r[%-50s] %3d%% - %-20s iter %3d/%d\033[K" "$bar" "$percent" "$model" "$iteration" "$ITERATIONS"
 }
@@ -169,7 +169,7 @@ for ((i = 1; i <= ITERATIONS; i++)); do
        
         # Run benchmark and capture output
         output=$("$LLAMA_BENCH" -m "$path" -t "$THREADS" -r "$REPEATS" -p "$PROMPT_TOKENS" -n "$GENERATE_TOKENS" 2>&1) || true
-       
+        
         # Parse output - look for tg (token generation) speed and memory size
         # Format: | model | size | params | backend | threads | test | t/s |
         # Example: | qwen3 4B Q3_K - Small | 948.91 MiB | 2.03 B | CPU | 4 | tg20 | 28.87 ± 1.45 |
@@ -181,7 +181,7 @@ for ((i = 1; i <= ITERATIONS; i++)); do
                 speed="${BASH_REMATCH[1]}"
                 echo "$speed" >> "$TEMP_DIR/${name}_speeds.txt"
                 found=true
-               
+                
                 # Also extract memory size from the same line (format: XXX.XX MiB or X.XX GiB)
                 if [[ $line =~ \|[[:space:]]*([0-9.]+)[[:space:]]*(MiB|GiB)[[:space:]]*\| ]]; then
                     mem_value="${BASH_REMATCH[1]}"
@@ -198,7 +198,7 @@ for ((i = 1; i <= ITERATIONS; i++)); do
                 speed="${BASH_REMATCH[1]}"
                 echo "$speed" >> "$TEMP_DIR/${name}_speeds.txt"
                 found=true
-               
+                
                 # Also extract memory size
                 if [[ $line =~ \|[[:space:]]*([0-9.]+)[[:space:]]*(MiB|GiB)[[:space:]]*\| ]]; then
                     mem_value="${BASH_REMATCH[1]}"
@@ -350,7 +350,7 @@ for name in "${MODEL_NAMES[@]}"; do
         vs_best="-${diff_pct}%"
         color="${NC}"
     fi
-   
+    
     printf "${color}%-18s %10.2f %10.2f %10.2f %10.2f %10.2f %10s${NC}\n" \
         "$name" "$mean" "$stddev" "$median" "$min" "$max" "$vs_best"
 done
@@ -384,7 +384,7 @@ for name in "${MODEL_NAMES[@]}"; do
     mem="${MEMORY[$name]}"
     if [[ "$mem" != "N/A" && -n "$mem" ]]; then
         mem_gib=$(echo "scale=2; $mem / 1024" | bc)
-       
+        
         if (( $(echo "$mem == $SMALLEST_MEM" | bc -l) )); then
             color="${GREEN}"
             suffix=" (smallest)"
@@ -393,7 +393,7 @@ for name in "${MODEL_NAMES[@]}"; do
             color="${NC}"
             suffix=" (+${diff_pct}%)"
         fi
-       
+        
         printf "${color}%-18s %12.2f %12.2f%s${NC}\n" "$name" "$mem" "$mem_gib" "$suffix"
     else
         printf "%-18s %12s %12s\n" "$name" "N/A" "N/A"
@@ -412,7 +412,7 @@ print_dash
 for name in "${MODEL_NAMES[@]}"; do
     read -r mean stddev median min max p5 p95 count <<< "${STATS[$name]}"
     errors=$(cat "$TEMP_DIR/${name}_errors.txt")
-   
+    
     printf "%-18s %12.2f %12.2f %12.2f %10s\n" \
         "$name" "$p5" "$median" "$p95" "$count/$ITERATIONS"
 done
@@ -443,7 +443,7 @@ for entry in "${SORTED_RANKING[@]}"; do
     name=$(echo "$entry" | cut -d'|' -f2)
     stddev=$(echo "${STATS[$name]}" | awk '{print $2}')
     mem="${MEMORY[$name]:-N/A}"
-   
+    
     if [[ $RANK -eq 1 ]]; then
         FIRST_MEAN=$mean
         speed_diff=""
@@ -462,13 +462,13 @@ for entry in "${SORTED_RANKING[@]}"; do
    
     mean_fmt=$(printf "%.2f" "$mean")
     stddev_fmt=$(printf "%.2f" "$stddev")
-   
+    
     if [[ "$mem" != "N/A" && -n "$mem" ]]; then
         mem_fmt=$(printf "%.1f MiB" "$mem")
     else
         mem_fmt="N/A"
     fi
-   
+    
     echo "$medal #$RANK $name: $mean_fmt ± $stddev_fmt t/s | $mem_fmt $speed_diff"
     RANK=$((RANK + 1))
 done
@@ -499,7 +499,7 @@ for entry in "${SORTED_MEM_RANKING[@]}"; do
     mem=$(echo "$entry" | cut -d'|' -f1)
     name=$(echo "$entry" | cut -d'|' -f2)
     mean=$(echo "${STATS[$name]}" | awk '{print $1}')
-   
+    
     if [[ $RANK -eq 1 ]]; then
         FIRST_MEM=$mem
         mem_diff=""
@@ -508,18 +508,18 @@ for entry in "${SORTED_MEM_RANKING[@]}"; do
         diff_pct=$(echo "scale=1; ($diff_mib / $FIRST_MEM) * 100" | bc)
         mem_diff="(+$diff_mib MiB, +${diff_pct}%)"
     fi
-   
+    
     case $RANK in
         1) medal="🥇" ;;
         2) medal="🥈" ;;
         3) medal="🥉" ;;
         *) medal="  " ;;
     esac
-   
+    
     mem_fmt=$(printf "%.2f" "$mem")
     mem_gib=$(echo "scale=2; $mem / 1024" | bc)
     mean_fmt=$(printf "%.2f" "$mean")
-   
+    
     echo "$medal #$RANK $name: $mem_fmt MiB ($mem_gib GiB) | $mean_fmt t/s $mem_diff"
     RANK=$((RANK + 1))
 done
@@ -551,19 +551,19 @@ for name in "${MODEL_NAMES[@]}"; do
     else
         echo "," >> "$RAW_PATH"
     fi
-   
+    
     mem="${MEMORY[$name]:-null}"
     if [[ "$mem" == "N/A" ]]; then
         mem="null"
     fi
-   
+    
     printf '  "%s": {\n    "memory_mib": %s,\n    "speeds": [' "$name" "$mem" >> "$RAW_PATH"
-   
+    
     # Read speeds and format as JSON array
     if [[ -s "$TEMP_DIR/${name}_speeds.txt" ]]; then
         paste -sd, "$TEMP_DIR/${name}_speeds.txt" >> "$RAW_PATH"
     fi
-   
+    
     printf ']\n  }' >> "$RAW_PATH"
 done
 echo "" >> "$RAW_PATH"

@@ -16,7 +16,7 @@ $LlamaBench = ".\build\bin\Release\llama-bench.exe"
 $Models = @(
     @{ Name = "Q3_K_S"; Path = ".\Qwen3-1.7B-f16-Q3_K_S.gguf" },
     @{ Name = "Q3_K_M"; Path = ".\Qwen3-1.7B-f16-Q3_K_M.gguf" },
-    @{ Name = "Q3_HIFI"; Path = ".\Qwen3-1.7B-f16-Q3_HIFI.gguf" }
+    @{ Name = "Q3_K_HIFI"; Path = ".\Qwen3-1.7B-f16-Q3_K_HIFI.gguf" }
 )
 
 # Verify files exist

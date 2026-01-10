@@ -732,13 +732,13 @@ static const struct ggml_type_traits type_traits[GGML_TYPE_COUNT] = {
         .to_float                 = (ggml_to_float_t) dequantize_row_q3_K,
         .from_float_ref           = (ggml_from_float_t) quantize_row_q3_K_ref,
     },
-    [GGML_TYPE_Q3_HIFI] = {
-        .type_name                = "Q3_HIFI",
-        .blck_size                = Q3_HIFI_BLOCK_SIZE,
-        .type_size                = sizeof(block_q3_hifi),
+    [GGML_TYPE_Q3_K_HIFI] = {
+        .type_name                = "Q3_K_HIFI",
+        .blck_size                = Q3_K_HIFI_BLOCK_SIZE,
+        .type_size                = sizeof(block_q3_k_hifi),
         .is_quantized             = true,
-        .to_float                 = (ggml_to_float_t) dequantize_row_q3_hifi,
-        .from_float_ref           = (ggml_from_float_t) quantize_row_q3_hifi_ref,
+        .to_float                 = (ggml_to_float_t) dequantize_row_q3_k_hifi,
+        .from_float_ref           = (ggml_from_float_t) quantize_row_q3_k_hifi_ref,
     },
     [GGML_TYPE_Q6_K_HIFI] = {
         .type_name                = "Q6_K_HIFI",
@@ -7577,7 +7577,7 @@ size_t ggml_quantize_chunk(
         case GGML_TYPE_IQ1_M:   result = quantize_iq1_m  (src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
         case GGML_TYPE_IQ4_NL:  result = quantize_iq4_nl (src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
         case GGML_TYPE_IQ4_XS:  result = quantize_iq4_xs (src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
-        case GGML_TYPE_Q3_HIFI: result = quantize_q3_hifi(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
+        case GGML_TYPE_Q3_K_HIFI: result = quantize_q3_k_hifi(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
         case GGML_TYPE_Q6_K_HIFI: result = quantize_q6_k_hifi(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
         case GGML_TYPE_Q6_K_HIFI_DYNAMIC: result = quantize_q6_k_hifi_dynamic(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
         case GGML_TYPE_Q6_K_HIFI_RES8: result = quantize_q6_k_hifi_res8(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;

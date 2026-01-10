@@ -12,7 +12,7 @@ Geoff Munn​
 
 | Finding | Strategic Implication |
 |--------|------------------------|
-| ✅ **Q3_HIFI excels on ≤2B models** | Outlier preservation + Q3_K base = optimal for small models |
+| ✅ **Q3_K_HIFI excels on ≤2B models** | Outlier preservation + Q3_K base = optimal for small models |
 | ❌ **Q4_K_HIFI fails on ≥4B models** | Sparse outliers can't fix aggressive 4-bit base quantization |
 | ✅ **Q4_K_M wins via Q6_K on key tensors** | Uniform higher precision > sparse outliers at scale |
 | ✅ **Early layers & embeddings matter most** | Precision should focus on `attn_v`, `ffn_gate`, `token_embd` |
@@ -24,20 +24,20 @@ Geoff Munn​
 
 | Format | Model Size | Strategy | Base Precision | Enhancement |
 |--------|------------|----------|----------------|-------------|
-| **Q3_HIFI** | **≤2B** | Outlier preservation | Q3_K | 8 FP16 outliers on early layers |
+| **Q3_K_HIFI** | **≤2B** | Outlier preservation | Q3_K | 8 FP16 outliers on early layers |
 | **Q4_K_HIFI_M** | **3–10B** | Smart Q5_K allocation | Q4_K + Q5_K | Q5_K on sensitive tensors |
 | **Q4_K_HIFI_L** | **>10B** | Q4_K_M + precision refinement | Q4_K + Q6_K | 6 FP16 outliers on Q6_K tensors |
 
 ---
 
-## 🚀 **Phase 1: Q3_HIFI Revival (≤2B Models)**
+## 🚀 **Phase 1: Q3_K_HIFI Revival (≤2B Models)**
 
 ### 🎯 **Objective**: Restore your **proven winning format** for small models.
 
 ### ✅ **Implementation**
 ```cpp
 // In src/llama-quant.cpp
-static bool is_q3_hifi_tensor(const char* name, int layer_idx) {
+static bool is_q3_k_hifi_tensor(const char* name, int layer_idx) {
     // Only early layers (0–10) + lm_head
     if (layer_idx > 10 && !strstr(name, "lm_head")) return false;
     return strstr(name, "attn_v") || strstr(name, "ffn_down");
@@ -45,7 +45,7 @@ static bool is_q3_hifi_tensor(const char* name, int layer_idx) {
 ```
 
 ### 📊 **Expected Results (Qwen3-1.7B)**
-| Metric | Q3_K_M | **Q3_HIFI** |
+| Metric | Q3_K_M | **Q3_K_HIFI** |
 |--------|--------|-------------|
 | **PPL** | 18.88 | **17.96** ✅ |
 | **Speed** | 389 t/s | **385 t/s** ✅ |
@@ -139,7 +139,7 @@ hifi_scale detect_scale(int64_t params) {
 
 void quantize_hifi_family(...) {
     switch (detect_scale(total_params)) {
-        case SMALL:  quantize_q3_hifi(...); break;
+        case SMALL:  quantize_q3_k_hifi(...); break;
         case MEDIUM: quantize_q4_hifi_m(...); break;
         case LARGE:  quantize_q4_hifi_l(...); break;
     }
@@ -172,8 +172,8 @@ void quantize_hifi_family(...) {
 
 | Model | Best Format | PPL | Speed | Size |
 |-------|-------------|-----|-------|------|
-| **Qwen3-0.6B** | **Q3_HIFI** | **23.42** | 593 t/s | 469 MiB |
-| **Qwen3-1.7B** | **Q3_HIFI** | **17.96** | 385 t/s | 1.22 GiB |
+| **Qwen3-0.6B** | **Q3_K_HIFI** | **23.42** | 593 t/s | 469 MiB |
+| **Qwen3-1.7B** | **Q3_K_HIFI** | **17.96** | 385 t/s | 1.22 GiB |
 | **Qwen3-4B** | **Q4_K_HIFI_M** | **14.60** | 197 t/s | 2.36 GiB |
 | **Devstral-123B** | **Q4_K_HIFI_L** | **11.12** | 9.65 t/s | 66.7 GiB |
 
@@ -182,7 +182,7 @@ void quantize_hifi_family(...) {
 ## 💡 **Why This Will Succeed**
 
 1. **No more forcing one format to scale** — each size gets its optimal strategy 
-2. **Builds on proven wins** — Q3_HIFI works, Q4_K_M works, now combine intelligently 
+2. **Builds on proven wins** — Q3_K_HIFI works, Q4_K_M works, now combine intelligently 
 3. **Minimal complexity** — no residual quantization, no INT8 experiments 
 4. **Clear user guidance** — "Use HIFI, we'll pick the right variant"
 
@@ -192,7 +192,7 @@ void quantize_hifi_family(...) {
 
 | Phase | Task | Timeline |
 |-------|------|----------|
-| **1** | Q3_HIFI revival (reset + validate) | 3 days |
+| **1** | Q3_K_HIFI revival (reset + validate) | 3 days |
 | **2** | Q4_K_HIFI_M implementation | 3 days |
 | **3** | Q4_K_HIFI_L implementation | 4 days |
 | **4** | Unified CLI + documentation | 2 days |

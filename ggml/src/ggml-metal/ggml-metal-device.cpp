@@ -639,10 +639,10 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv(ggml_meta
                 nsg = N_SG_Q3_K;
                 nr0 = N_R0_Q3_K;
             } break;
-        case GGML_TYPE_Q3_HIFI:
+        case GGML_TYPE_Q3_K_HIFI:
             {
-                nsg = N_SG_Q3_HIFI;
-                nr0 = N_R0_Q3_HIFI;
+                nsg = N_SG_Q3_K_HIFI;
+                nr0 = N_R0_Q3_K_HIFI;
             } break;
         case GGML_TYPE_Q4_K:
             {
@@ -856,10 +856,10 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv_id(ggml_m
                 nsg = N_SG_Q3_K;
                 nr0 = N_R0_Q3_K;
             } break;
-        case GGML_TYPE_Q3_HIFI:
+        case GGML_TYPE_Q3_K_HIFI:
             {
-                nsg = N_SG_Q3_HIFI;
-                nr0 = N_R0_Q3_HIFI;
+                nsg = N_SG_Q3_K_HIFI;
+                nr0 = N_R0_Q3_K_HIFI;
             } break;
         case GGML_TYPE_Q4_K:
             {

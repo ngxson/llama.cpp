@@ -672,7 +672,7 @@ void ggml_compute_forward_add(
         case GGML_TYPE_MXFP4:
         case GGML_TYPE_Q2_K:
         case GGML_TYPE_Q3_K:
-        case GGML_TYPE_Q3_HIFI:
+        case GGML_TYPE_Q3_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
         case GGML_TYPE_Q6_K_HIFI_RES8:
@@ -1126,7 +1126,7 @@ void ggml_compute_forward_add1(
         case GGML_TYPE_MXFP4:
         case GGML_TYPE_Q2_K:
         case GGML_TYPE_Q3_K:
-        case GGML_TYPE_Q3_HIFI:
+        case GGML_TYPE_Q3_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
         case GGML_TYPE_Q6_K_HIFI_RES8:
@@ -1259,7 +1259,7 @@ void ggml_compute_forward_acc(
         case GGML_TYPE_MXFP4:
         case GGML_TYPE_Q2_K:
         case GGML_TYPE_Q3_K:
-        case GGML_TYPE_Q3_HIFI:
+        case GGML_TYPE_Q3_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
         case GGML_TYPE_Q6_K_HIFI_RES8:
@@ -4287,7 +4287,7 @@ void ggml_compute_forward_out_prod(
         case GGML_TYPE_MXFP4:
         case GGML_TYPE_Q2_K:
         case GGML_TYPE_Q3_K:
-        case GGML_TYPE_Q3_HIFI:
+        case GGML_TYPE_Q3_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
         case GGML_TYPE_Q6_K_HIFI_RES8:
@@ -4567,7 +4567,7 @@ void ggml_compute_forward_set(
         case GGML_TYPE_MXFP4:
         case GGML_TYPE_Q2_K:
         case GGML_TYPE_Q3_K:
-        case GGML_TYPE_Q3_HIFI:
+        case GGML_TYPE_Q3_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
         case GGML_TYPE_Q6_K_HIFI_RES8:
@@ -4794,7 +4794,7 @@ void ggml_compute_forward_get_rows(
         case GGML_TYPE_MXFP4:
         case GGML_TYPE_Q2_K:
         case GGML_TYPE_Q3_K:
-        case GGML_TYPE_Q3_HIFI:
+        case GGML_TYPE_Q3_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
         case GGML_TYPE_Q6_K_HIFI_RES8:
@@ -5523,7 +5523,7 @@ void ggml_compute_forward_clamp(
         case GGML_TYPE_MXFP4:
         case GGML_TYPE_Q2_K:
         case GGML_TYPE_Q3_K:
-        case GGML_TYPE_Q3_HIFI:
+        case GGML_TYPE_Q3_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
         case GGML_TYPE_Q6_K_HIFI_RES8:

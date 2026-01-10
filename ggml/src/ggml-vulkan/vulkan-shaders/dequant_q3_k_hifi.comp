@@ -1,6 +1,6 @@
 #version 450
 
-// Q3_HIFI dequantization shader
+// Q3_K_HIFI dequantization shader
 // Uses Q3_K-compatible layout (hmask + qs + scales) with 6 FP16 outliers
 
 #include "dequant_head.glsl"
@@ -45,8 +45,8 @@ void main() {
             // Standard Q3_K dequantization
             FLOAT_TYPE val = dl * FLOAT_TYPE(int8_t((data_a[i].qs[qs_idx + l] >> shift) & 3) - (((data_a[i].hmask[l] & m) != 0) ? 0 : 4));
 
-            // Q3_HIFI extension: Check if this is an outlier and replace with FP16 value
-            [[unroll]] for (uint k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
+            // Q3_K_HIFI extension: Check if this is an outlier and replace with FP16 value
+            [[unroll]] for (uint k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
                 if (data_a[i].outlier_idx[k] == local_idx) {
                     val = FLOAT_TYPE(data_a[i].outlier_vals[k]);
                 }

@@ -66,10 +66,10 @@ void quantize_row_q3_K(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, i
     quantize_row_q3_K_ref(x, vy, k);
 }
 
-void quantize_row_q3_hifi(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
-    assert(k % Q3_HIFI_BLOCK_SIZE == 0);
-    block_q3_hifi * GGML_RESTRICT y = vy;
-    quantize_row_q3_hifi_ref(x, y, k);
+void quantize_row_q3_k_hifi(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
+    assert(k % Q3_K_HIFI_BLOCK_SIZE == 0);
+    block_q3_k_hifi * GGML_RESTRICT y = vy;
+    quantize_row_q3_k_hifi_ref(x, y, k);
 }
 
 // ====================== 4-bit (de)-quantization
@@ -572,19 +572,19 @@ void ggml_vec_dot_q3_K_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, c
     *s = sumf;
 }
 
-// Q3_HIFI vec_dot: Generic implementation
+// Q3_K_HIFI vec_dot: Generic implementation
 // Uses Q3_K format for bulk, adds outlier corrections
-void ggml_vec_dot_q3_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
-    assert(n % Q3_HIFI_BLOCK_SIZE == 0);
+void ggml_vec_dot_q3_k_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % Q3_K_HIFI_BLOCK_SIZE == 0);
     assert(nrc == 1);
     UNUSED(nrc);
     UNUSED(bx);
     UNUSED(by);
     UNUSED(bs);
 
-    const block_q3_hifi * GGML_RESTRICT x = vx;
+    const block_q3_k_hifi * GGML_RESTRICT x = vx;
     const block_q8_K * GGML_RESTRICT y = vy;
-    const int nb = n / Q3_HIFI_BLOCK_SIZE;
+    const int nb = n / Q3_K_HIFI_BLOCK_SIZE;
 
     static const uint32_t kmask1 = 0x03030303;
     static const uint32_t kmask2 = 0x0f0f0f0f;
@@ -595,7 +595,7 @@ void ggml_vec_dot_q3_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs
     float total_sum = 0.0f;
 
     for (int i = 0; i < nb; ++i) {
-        const block_q3_hifi * xb = &x[i];
+        const block_q3_k_hifi * xb = &x[i];
         const block_q8_K * yb = &y[i];
 
         const float d = GGML_FP16_TO_FP32(xb->d) * yb->d;
@@ -660,7 +660,7 @@ void ggml_vec_dot_q3_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs
     *s = total_sum;
 }
 
-// Note: ggml_vec_dot_q3_hifi_q8_K is defined in arch-specific files (x86/quants.c etc.)
+// Note: ggml_vec_dot_q3_k_hifi_q8_K is defined in arch-specific files (x86/quants.c etc.)
 
 void ggml_vec_dot_q4_K_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);

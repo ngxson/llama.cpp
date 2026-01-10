@@ -2331,9 +2331,9 @@ void ggml_vec_dot_q6_K_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const voi
 #endif
 }
 
-// Q3_HIFI vec_dot - AVX2 optimized implementation
-// Copied from Q3_K AVX2 kernel and adapted for block_q3_hifi + outlier correction
-void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+// Q3_K_HIFI vec_dot - AVX2 optimized implementation
+// Copied from Q3_K AVX2 kernel and adapted for block_q3_k_hifi + outlier correction
+void ggml_vec_dot_q3_k_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);
     assert(nrc == 1);
     UNUSED(nrc);
@@ -2344,8 +2344,8 @@ void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const 
     const uint32_t kmask1 = 0x03030303;
     const uint32_t kmask2 = 0x0f0f0f0f;
 
-    // CRITICAL: Use block_q3_hifi instead of block_q3_K for correct stride (128 bytes vs 110 bytes)
-    const block_q3_hifi * GGML_RESTRICT x = (const block_q3_hifi *)vx;
+    // CRITICAL: Use block_q3_k_hifi instead of block_q3_K for correct stride (128 bytes vs 110 bytes)
+    const block_q3_k_hifi * GGML_RESTRICT x = (const block_q3_k_hifi *)vx;
     const block_q8_K * GGML_RESTRICT y = (const block_q8_K *)vy;
 
     const int nb = n / QK_K;
@@ -2454,7 +2454,7 @@ void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const 
 
     float sumf = hsum_float_8(acc);
 
-    // Q3_HIFI: Add outlier corrections
+    // Q3_K_HIFI: Add outlier corrections
     // Fully unrolled loop for 6 outliers - eliminates loop overhead
     // Note: We tried branchless masking but the computation cost outweighs
     // any branch misprediction savings for only 6 outliers per block.
@@ -2480,7 +2480,7 @@ void ggml_vec_dot_q3_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const 
 
 #else
     // Fallback to generic implementation for non-AVX2
-    ggml_vec_dot_q3_hifi_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+    ggml_vec_dot_q3_k_hifi_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
 #endif
 }
 
@@ -3971,5 +3971,5 @@ void ggml_vec_dot_iq4_xs_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const v
 #endif
 }
 
-// Note: dequantize_row_q3_hifi is defined in ggml-quants.c using Q3_K's dequantize
+// Note: dequantize_row_q3_k_hifi is defined in ggml-quants.c using Q3_K's dequantize
 

@@ -21,12 +21,12 @@ When quantizing a model, you're reducing precision from 16-bit or 32-bit floats 
 2. **Guiding Quantization**: Allows the quantizer to:
    - Preserve precision for important weights
    - Use more aggressive quantization for less important weights
-   - Make smarter decisions about outlier selection (especially for Q3_HIFI)
+   - Make smarter decisions about outlier selection (especially for Q3_K_HIFI)
 3. **Improving Quality**: Can significantly reduce perplexity increase compared to quantization without imatrix
 
 ### Example Impact
 
-For Q3_HIFI specifically, the imatrix is used to:
+For Q3_K_HIFI specifically, the imatrix is used to:
 - Weight the magnitude calculation when selecting outliers: `mag[i] = fabsf(xb[i]) * quant_weights[i]`
 - Prioritize important weights as outliers (stored in FP16)
 - Improve overall quantization quality
@@ -135,8 +135,8 @@ Once you have an imatrix file, use it during quantization:
 ./llama-quantize \
     --imatrix imatrix.gguf \
     input-model-f16.gguf \
-    output-model-q3_hifi.gguf \
-    Q3_HIFI
+    output-model-q3_k_hifi.gguf \
+    Q3_K_HIFI
 ```
 
 ### With Specific Tensor Types
@@ -150,8 +150,8 @@ You can target specific tensors:
     --include-weights attn_v \
     --include-weights ffn_down \
     input-model-f16.gguf \
-    output-model-q3_hifi.gguf \
-    Q3_HIFI
+    output-model-q3_k_hifi.gguf \
+    Q3_K_HIFI
 ```
 
 ### Advanced Usage
@@ -161,10 +161,10 @@ You can target specific tensors:
 ./llama-quantize \
     --imatrix imatrix.gguf \
     --output-tensor-type q5_k \
-    --token-embedding-type q3_hifi \
+    --token-embedding-type q3_k_hifi \
     input-model-f16.gguf \
-    output-model-q3_hifi.gguf \
-    Q3_HIFI
+    output-model-q3_k_hifi.gguf \
+    Q3_K_HIFI
 ```
 
 ---
@@ -277,7 +277,7 @@ This displays:
 ### 3. Quantization Usage
 
 ✅ **Do:**
-- Always use imatrix for Q3_HIFI (it significantly improves outlier selection)
+- Always use imatrix for Q3_K_HIFI (it significantly improves outlier selection)
 - Use imatrix for aggressive quantizations (Q2_K, Q3_K_S)
 - Include attention and feed-forward weights
 - Test quality after quantization
@@ -291,7 +291,7 @@ This displays:
 
 ## Complete Workflow Example
 
-Here's a complete example for quantizing a model with Q3_HIFI using an imatrix:
+Here's a complete example for quantizing a model with Q3_K_HIFI using an imatrix:
 
 ```bash
 # Step 1: Generate importance matrix
@@ -310,20 +310,20 @@ Here's a complete example for quantizing a model with Q3_HIFI using an imatrix:
 ./llama-quantize \
     --imatrix ./imatrix.gguf \
     ./models/llama-3-8b-f16.gguf \
-    ./models/llama-3-8b-q3_hifi.gguf \
-    Q3_HIFI
+    ./models/llama-3-8b-q3_k_hifi.gguf \
+    Q3_K_HIFI
 
 # Step 4: Test the quantized model
 ./llama-cli \
-    -m ./models/llama-3-8b-q3_hifi.gguf \
+    -m ./models/llama-3-8b-q3_k_hifi.gguf \
     -p "Hello, how are you?"
 ```
 
 ---
 
-## How IMatrix Works with Q3_HIFI
+## How IMatrix Works with Q3_K_HIFI
 
-For Q3_HIFI specifically, the imatrix is particularly valuable:
+For Q3_K_HIFI specifically, the imatrix is particularly valuable:
 
 1. **Outlier Selection**: The imatrix weights the magnitude calculation:
    ```c
@@ -398,7 +398,7 @@ During quantization:
 2. For each weight block, importance scores are retrieved
 3. Quantization algorithms use these scores to:
    - Weight magnitude calculations
-   - Select outliers (Q3_HIFI)
+   - Select outliers (Q3_K_HIFI)
    - Choose quantization scales
    - Determine precision levels
 
@@ -413,14 +413,14 @@ GGUF format imatrix contains:
 
 ## Summary
 
-**IMatrix files are essential for high-quality quantization**, especially for formats like Q3_HIFI that benefit from intelligent outlier selection.
+**IMatrix files are essential for high-quality quantization**, especially for formats like Q3_K_HIFI that benefit from intelligent outlier selection.
 
 **Key Takeaways:**
 1. Generate imatrix using representative calibration data
 2. Use GPU acceleration for faster generation
-3. Always use imatrix when quantizing to Q3_HIFI
+3. Always use imatrix when quantizing to Q3_K_HIFI
 4. Combine multiple imatrix files for better coverage
 5. Analyze statistics to understand your model's weight importance
 
-**For Q3_HIFI specifically**: The imatrix directly improves outlier selection, making it one of the most impactful uses of importance matrices in quantization.
+**For Q3_K_HIFI specifically**: The imatrix directly improves outlier selection, making it one of the most impactful uses of importance matrices in quantization.
 

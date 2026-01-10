@@ -76,10 +76,10 @@ static __device__ __forceinline__ void dequantize_q8_0(const void * vx, const in
     v.y *= d;
 }
 
-// Q3_HIFI: Q3_K-compatible layout with 6 FP16 outliers
+// Q3_K_HIFI: Q3_K-compatible layout with 6 FP16 outliers
 // Uses same hmask/qs/scales layout as Q3_K for the first 110 bytes
-static __device__ __forceinline__ void dequantize_q3_hifi(const void * vx, const int64_t ib, const int iqs, float2 & v){
-    const block_q3_hifi * x = (const block_q3_hifi *) vx;
+static __device__ __forceinline__ void dequantize_q3_k_hifi(const void * vx, const int64_t ib, const int iqs, float2 & v){
+    const block_q3_k_hifi * x = (const block_q3_k_hifi *) vx;
 
     // Use Q3_K-style extraction
     const float d = __half2float(x[ib].d);
@@ -119,7 +119,7 @@ static __device__ __forceinline__ void dequantize_q3_hifi(const void * vx, const
     // Check if either index is an outlier and restore if so
     // Outliers are sparse (only 8 per 256 weights), so this loop is cheap
     #pragma unroll
-    for (int k = 0; k < Q3_HIFI_OUTLIERS; ++k) {
+    for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
         if (x[ib].outlier_idx[k] == idx0) {
             v.x = __half2float(x[ib].outlier_vals[k]);
         }
