@@ -299,9 +299,9 @@ typedef struct {
     uint8_t qs[QK_K/4];            // 64 bytes: low 2 bits
     uint8_t scales[12];            // 12 bytes: 16 sub-group scales (6-bit each)
     ggml_half d;                   // 2 bytes: super-block scale
-    // === OUTLIER EXTENSION (18 bytes) ===
-    uint8_t outlier_idx[Q3_K_HIFI_OUTLIERS];   // 6 bytes: outlier positions (0-255)
-    ggml_half outlier_vals[Q3_K_HIFI_OUTLIERS]; // 12 bytes: FP16 outlier values
+    // === OUTLIER EXTENSION (24 bytes) ===
+    uint8_t outlier_idx[Q3_K_HIFI_OUTLIERS];   // 8 bytes: outlier positions (0-255)
+    ggml_half outlier_vals[Q3_K_HIFI_OUTLIERS]; // 16 bytes: FP16 outlier values
 } block_q3_k_hifi;
 static_assert(sizeof(block_q3_k_hifi) == sizeof(block_q3_K) + Q3_K_HIFI_OUTLIERS + Q3_K_HIFI_OUTLIERS*sizeof(ggml_half), "wrong q3_k_hifi block size/padding");
 
