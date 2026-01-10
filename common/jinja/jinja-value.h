@@ -340,6 +340,7 @@ struct func_args {
     context & ctx;
     func_args(context & ctx) : ctx(ctx) {}
     value get_kwarg(const std::string & key) const;
+    value get_kwarg_or_pos(const std::string & key, size_t pos) const;
     void ensure_count(size_t min, size_t max = 999) const {
         size_t n = args.size();
         if (n < min || n > max) {
@@ -407,7 +408,7 @@ using value_kwarg = std::shared_ptr<value_kwarg_t>;
 // utils
 
 const func_builtins & global_builtins();
-std::string value_to_json(const value & val, int indent = 0);
+std::string value_to_json(const value & val, int indent = -1, const std::string_view item_sep = ", ", const std::string_view key_sep = ": ");
 
 struct not_implemented_exception : public std::runtime_error {
     not_implemented_exception(const std::string & msg) : std::runtime_error("NotImplemented: " + msg) {}

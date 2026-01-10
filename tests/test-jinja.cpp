@@ -421,6 +421,24 @@ static void test_filters(testing & t) {
         "{\"a\": 1, \"b\": [1, 2]}"
     );
 
+    test_template(t, "tojson indent=4",
+        "{{ data|tojson(indent=4) }}",
+        {{"data", {{"a", 1}, {"b", json::array({1, 2})}}}},
+        "{\n    \"a\": 1,\n    \"b\": [\n        1,\n        2\n    ]\n}"
+    );
+
+    test_template(t, "tojson separators=(',',':')",
+        "{{ data|tojson(separators=(',',':')) }}",
+        {{"data", {{"a", 1}, {"b", json::array({1, 2})}}}},
+        "{\"a\":1,\"b\":[1,2]}"
+    );
+
+    test_template(t, "tojson separators=(',',': ') indent=2",
+        "{{ data|tojson(separators=(',',': '), indent=2) }}",
+        {{"data", {{"a", 1}, {"b", json::array({1, 2})}}}},
+        "{\n  \"a\": 1,\n  \"b\": [\n    1,\n    2\n  ]\n}"
+    );
+
     test_template(t, "chained filters",
         "{{ '  HELLO  '|trim|lower }}",
         json::object(),
@@ -648,6 +666,7 @@ static void test_string_methods(testing & t) {
         {{"s", "a,b,c"}},
         "a,b-c"
     );
+
     test_template(t, "string.replace() basic",
         "{{ s.replace('world', 'jinja') }}",
         {{"s", "hello world"}},

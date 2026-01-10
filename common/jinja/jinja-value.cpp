@@ -30,6 +30,16 @@ value func_args::get_kwarg(const std::string & key) const  {
     return mk_val<value_undefined>();
 }
 
+value func_args::get_kwarg_or_pos(const std::string & key, size_t pos) const {
+    value val = get_kwarg(key);
+
+    if (val->is_undefined() && args.size() > pos) {
+        val = args[pos];
+    }
+
+    return val;
+}
+
 /**
  * Function that mimics Python's array slicing.
  */
@@ -96,12 +106,20 @@ static value test_type_fn(const func_args & args) {
 }
 
 static value tojson(const func_args & args) {
-    args.ensure_count(1, 2);
-    int indent = 0;
-    if (args.args.size() == 2 && is_val<value_int>(args.args[1])) {
-        indent = static_cast<int>(args.args[1]->as_int());
+    args.ensure_count(1, 5);
+    value val_ascii      = args.get_kwarg_or_pos("ensure_ascii", 1);
+    value val_indent     = args.get_kwarg_or_pos("indent",       2);
+    value val_separators = args.get_kwarg_or_pos("separators",   3);
+    value val_sort       = args.get_kwarg_or_pos("sort_keys",    4);
+    int indent = -1;
+    if (is_val<value_int>(val_indent)) {
+        indent = static_cast<int>(val_indent->as_int());
     }
-    std::string json_str = value_to_json(args.args[0], indent);
+    // TODO: Implement ensure_ascii and sort_keys
+    auto separators = (is_val<value_array>(val_separators) ? val_separators : mk_val<value_array>())->as_array();
+    std::string item_sep = separators.size() > 0 ? separators[0]->as_string().str() : (indent < 0 ? ", " : ",");
+    std::string key_sep = separators.size() > 1 ? separators[1]->as_string().str() : ": ";
+    std::string json_str = value_to_json(args.args[0], indent, item_sep, key_sep);
     return mk_val<value_string>(json_str);
 }
 
@@ -975,12 +993,12 @@ void global_from_json(context & ctx, const nlohmann::ordered_json & json_obj, bo
     }
 }
 
-static void value_to_json_internal(std::ostringstream & oss, const value & val, int curr_lvl, int indent) {
+static void value_to_json_internal(std::ostringstream & oss, const value & val, int curr_lvl, int indent, const std::string_view item_sep, const std::string_view key_sep) {
     auto indent_str = [indent, curr_lvl]() -> std::string {
         return (indent > 0) ? std::string(curr_lvl * indent, ' ') : "";
     };
     auto newline = [indent]() -> std::string {
-        return (indent > 0) ? "\n" : "";
+        return (indent >= 0) ? "\n" : "";
     };
 
     if (is_val<value_null>(val) || val->is_undefined()) {
@@ -1019,11 +1037,10 @@ static void value_to_json_internal(std::ostringstream & oss, const value & val, 
         if (!arr.empty()) {
             oss << newline();
             for (size_t i = 0; i < arr.size(); ++i) {
-                oss << indent_str() << std::string(indent, ' ');
-                value_to_json_internal(oss, arr[i], curr_lvl + 1, indent);
+                oss << indent_str() << (indent > 0 ? std::string(indent, ' ') : "");
+                value_to_json_internal(oss, arr[i], curr_lvl + 1, indent, item_sep, key_sep);
                 if (i < arr.size() - 1) {
-                    oss << ",";
-                    if (indent == 0) oss << " ";
+                    oss << item_sep;
                 }
                 oss << newline();
             }
@@ -1037,14 +1054,11 @@ static void value_to_json_internal(std::ostringstream & oss, const value & val, 
             oss << newline();
             size_t i = 0;
             for (const auto & pair : obj) {
-                oss << indent_str() << std::string(indent, ' ');
-                oss << "\"" << pair.first << "\":";
-                if (indent > 0) oss << " ";
-                else oss << " ";
-                value_to_json_internal(oss, pair.second, curr_lvl + 1, indent);
+                oss << indent_str() << (indent > 0 ? std::string(indent, ' ') : "");
+                oss << "\"" << pair.first << "\"" << key_sep;
+                value_to_json_internal(oss, pair.second, curr_lvl + 1, indent, item_sep, key_sep);
                 if (i < obj.size() - 1) {
-                    oss << ",";
-                    if (indent == 0) oss << " ";
+                    oss << item_sep;
                 }
                 oss << newline();
                 ++i;
@@ -1057,9 +1071,9 @@ static void value_to_json_internal(std::ostringstream & oss, const value & val, 
     }
 }
 
-std::string value_to_json(const value & val, int indent) {
+std::string value_to_json(const value & val, int indent, const std::string_view item_sep, const std::string_view key_sep) {
     std::ostringstream oss;
-    value_to_json_internal(oss, val, 0, indent);
+    value_to_json_internal(oss, val, 0, indent, item_sep, key_sep);
     JJ_DEBUG("value_to_json: result=%s", oss.str().c_str());
     return oss.str();
 }
