@@ -109,10 +109,9 @@ lexer_result lexer::tokenize(const std::string & source) {
 
         // First, consume all text that is outside of a Jinja statement or expression
         token::type last_token_type = tokens.empty()
-                                            ? token::undefined
+                                            ? token::close_statement // initial state
                                             : tokens.back().t;
-        if (last_token_type == token::undefined ||
-            last_token_type == token::close_statement ||
+        if (last_token_type == token::close_statement ||
             last_token_type == token::close_expression ||
             last_token_type == token::comment) {
 
@@ -231,8 +230,8 @@ lexer_result lexer::tokenize(const std::string & source) {
         // Check for unary operators
         if (!is_closing_block && (ch == '-' || ch == '+')) {
             start_pos = pos;
-            token::type last_token_type = tokens.empty() ? token::undefined : tokens.back().t;
-            if (last_token_type == token::text || last_token_type == token::undefined) {
+            token::type last_token_type = tokens.empty() ? token::eof : tokens.back().t;
+            if (last_token_type == token::text || last_token_type == token::eof) {
                 throw std::runtime_error(std::string("lexer: unexpected character: ") + ch);
             }
             switch (last_token_type) {

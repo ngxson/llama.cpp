@@ -22,18 +22,10 @@ class parser {
     const std::vector<token> & tokens;
     size_t current = 0;
 
-    // for debugging; a token can be multiple chars in source
-    std::vector<size_t> tok_pos_to_src_pos;
-
     std::string source; // for error reporting
 
 public:
-    parser(const std::vector<token> & t, const std::string & src) : tokens(t), source(src) {
-        tok_pos_to_src_pos.resize(tokens.size());
-        for (size_t i = 0; i < tokens.size(); i++) {
-            tok_pos_to_src_pos[i] = tokens[i].pos;
-        }
-    }
+    parser(const std::vector<token> & t, const std::string & src) : tokens(t), source(src) {}
 
     program parse() {
         statements body;
@@ -47,24 +39,14 @@ public:
     template<typename T, typename... Args>
     std::unique_ptr<T> mk_stmt(size_t start_pos, Args&&... args) {
         auto ptr = std::make_unique<T>(std::forward<Args>(args)...);
-        ptr->pos = tok_pos_to_src_pos[start_pos];
-
-        std::string snippet = "no source";
-        if (!source.empty()) {
-            size_t start_pos = ptr->pos;
-            size_t end_pos = start_pos + 20;
-            if (end_pos > source.size()) end_pos = source.size();
-            snippet = source.substr(start_pos, end_pos - start_pos);
-        }
-        // JJ_DEBUG("Created %-20s statement at src pos %-4zu (%s)", ptr->type().c_str(), ptr->pos, snippet.c_str());
-
+        ptr->pos = tokens[start_pos].pos;
         return ptr;
     }
 
 private:
     const token & peek(size_t offset = 0) const {
         if (current + offset >= tokens.size()) {
-            static const token end_token{token::undefined, "", 0};
+            static const token end_token{token::eof, "", 0};
             return end_token;
         }
         return tokens[current + offset];

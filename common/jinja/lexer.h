@@ -12,7 +12,7 @@ namespace jinja {
 
 struct token {
     enum type {
-        undefined,
+        eof, // end of source
         text, // The text between Jinja statements or expressions
 
         numeric_literal, // e.g., 123, 1.0
@@ -48,7 +48,7 @@ struct token {
 
 static std::string type_to_string(token::type t) {
     switch (t) {
-        case token::undefined: return "undefined";
+        case token::eof: return "eof";
         case token::text: return "text";
         case token::numeric_literal: return "numeric_literal";
         case token::string_literal: return "string_literal";
