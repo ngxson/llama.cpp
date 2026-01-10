@@ -1,37 +1,32 @@
 # llama.cpp Jinja Engine
 
-A Jinja template engine implementation in C++, originally inspired by [huggingface.js's jinja package](https://github.com/huggingface/huggingface.js). Introduced in [PR#18462](https://github.com/ggml-org/llama.cpp/pull/18462).
+A Jinja template engine implementation in C++, originally inspired by [huggingface.js's jinja package](https://github.com/huggingface/huggingface.js). The engine was introduced in [PR#18462](https://github.com/ggml-org/llama.cpp/pull/18462).
+
+The implementation can be found in the `common/jinja` directory.
 
 ## Key Features
 
-- **Input marking** for security against special token injection
-- **Decoupled from `nlohmann::json`** - this dependency is only used for JSON-to-internal type translation and is completely optional
-- **Minimal primitive types**: int, float, bool, string, array, object, null, undefined
-- **Detailed logging** for simplified debugging
-- **Clean architecture** - workarounds are applied to input data before entering the runtime (see `common/chat.cpp`)
+- Input marking: security against special token injection
+- Decoupled from `nlohmann::json`: this dependency is only used for JSON-to-internal type translation and is completely optional
+- Minimal primitive types: int, float, bool, string, array, object, none, undefined
+- Detailed logging: allow source tracing on error
+- Clean architecture: workarounds are applied to input data before entering the runtime (see `common/chat.cpp`)
 
 ## Architecture
 
-### `jinja-lexer`
-Processes Jinja source code and converts it into a token stream.
-- Uses a predictive parser
-- Unlike huggingface.js, input is **not** pre-processed - the parser processes source as-is, enabling precise error tracing
+- `jinja::lexer`: Processes Jinja source code and converts it into a list of tokens
+    - Uses a predictive parser
+    - Unlike huggingface.js, input is **not** pre-processed - the parser processes source as-is, allowing source tracing on error
+- `jinja::parser`: Consumes tokens and compiles them into a `jinja::program` (effectively an AST)
+- `jinja::runtime` Executes the compiled program with a given context
+    - Each `statement` or `expression` recursively calls `execute(ctx)` to traverse the AST
+- `jinja::value`: Defines primitive types and built-in functions
+    - Uses `shared_ptr` to wrap values, allowing sharing between AST nodes and referencing via Object and Array types
+    - Avoids C++ operator overloading for code clarity and explicitness
 
-### `jinja-parser`
-Consumes tokens and compiles them into a `jinja::program` (effectively an AST).
-
-### `jinja-runtime`
-Executes the compiled program with a given context.
-- Each `statement` or `expression` recursively calls `execute(ctx)` to traverse the AST
-
-### `jinja-value`
-Defines primitive types and built-in functions.
-- Uses `shared_ptr` to wrap values, enabling safe passing between AST nodes and referencing via Object and Array types
-- Avoids C++ operator overloading for code clarity and explicitness
-
-**Getting Started:**
+**For maintainers and contributors:**
 - See `tests/test-chat-template.cpp` for usage examples
-- To add new built-ins, modify `jinja-value.cpp` and add corresponding tests in `tests/test-jinja.cpp`
+- To add new built-ins, modify `jinja/value.cpp` and add corresponding tests in `tests/test-jinja.cpp`
 
 ## Input Marking
 
@@ -59,14 +54,16 @@ Since template output is a plain string, distinguishing legitimate special token
 
 ### Solution
 
-The llama.cpp Jinja engine introduces `jinja::string` (see `jinja-string.h`), which wraps `std::string` and preserves origin metadata.
+The llama.cpp Jinja engine introduces `jinja::string` (see `jinja/string.h`), which wraps `std::string` and preserves origin metadata.
 
 **Implementation:**
 - Strings originating from user input are marked with `is_input = true`
 - String transformations preserve this flag according to:
   - **One-to-one** (e.g., uppercase, lowercase): preserve `is_input` flag
-  - **One-to-many** (e.g., strip): if input is marked `is_input`, all resulting parts inherit the flag
-  - **Many-to-one** (e.g., concatenation): result is marked `is_input` **only if ALL** input parts are marked `is_input`
+  - **One-to-many** (e.g., split): result is marked `is_input` **only if ALL** input parts are marked `is_input`
+  - **Many-to-one** (e.g., join): same as one-to-many
+
+For string concatenation, string parts will be appended to the new string as-is, while perserving the `is_input` flag.
 
 **Enabling Input Marking:**
 
