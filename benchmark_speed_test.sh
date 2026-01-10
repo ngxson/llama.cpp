@@ -142,7 +142,7 @@ show_progress() {
     local percent=$((current * 100 / total))
     local filled=$((percent / 2))
     local empty=$((50 - filled))
-    
+   
     # Build progress bar string (handle edge cases where filled or empty is 0)
     local bar=""
     if [[ $filled -gt 0 ]]; then
@@ -161,12 +161,12 @@ for ((i = 1; i <= ITERATIONS; i++)); do
     for idx in "${!MODEL_NAMES[@]}"; do
         name="${MODEL_NAMES[$idx]}"
         path="${MODEL_PATHS[$idx]}"
-        
+       
         CURRENT_RUN=$((CURRENT_RUN + 1))
-        
+       
         # Show progress
         show_progress $CURRENT_RUN $TOTAL_RUNS "$name" $i
-        
+       
         # Run benchmark and capture output
         output=$("$LLAMA_BENCH" -m "$path" -t "$THREADS" -r "$REPEATS" -p "$PROMPT_TOKENS" -n "$GENERATE_TOKENS" 2>&1) || true
         
@@ -174,7 +174,7 @@ for ((i = 1; i <= ITERATIONS; i++)); do
         # Format: | model | size | params | backend | threads | test | t/s |
         # Example: | qwen3 4B Q3_K - Small | 948.91 MiB | 2.03 B | CPU | 4 | tg20 | 28.87 ± 1.45 |
         found=false
-        
+       
         while IFS= read -r line; do
             # Match pattern: anything with tg followed by speed ± stddev
             if [[ $line =~ tg[0-9]+[[:space:]]*\|[[:space:]]*([0-9.]+)[[:space:]]*± ]]; then
@@ -211,7 +211,7 @@ for ((i = 1; i <= ITERATIONS; i++)); do
                 break
             fi
         done <<< "$output"
-        
+       
         if [[ $found == false ]]; then
             # Debug: show what we got if parsing failed on first iteration
             if [[ $i -eq 1 ]]; then
@@ -225,20 +225,20 @@ for ((i = 1; i <= ITERATIONS; i++)); do
             echo $((errors + 1)) > "$TEMP_DIR/${name}_errors.txt"
         fi
     done
-    
+   
     # Periodic status update every 10 iterations
     if ((i % 10 == 0)); then
         NOW=$(date +%s)
         ELAPSED=$((NOW - START_TIME))
         ELAPSED_FMT=$(printf '%02d:%02d:%02d' $((ELAPSED/3600)) $((ELAPSED%3600/60)) $((ELAPSED%60)))
-        
+       
         if [[ $CURRENT_RUN -gt 0 ]]; then
             REMAINING=$(( (ELAPSED * (TOTAL_RUNS - CURRENT_RUN)) / CURRENT_RUN ))
             REMAINING_FMT=$(printf '%02d:%02d:%02d' $((REMAINING/3600)) $((REMAINING%3600/60)) $((REMAINING%60)))
         else
             REMAINING_FMT="--:--:--"
         fi
-        
+       
         echo ""
         echo -e "${GRAY}  [$i/$ITERATIONS] Elapsed: $ELAPSED_FMT | ETA: $REMAINING_FMT${NC}"
     fi
@@ -255,21 +255,21 @@ DURATION_FMT=$(printf '%02d:%02d:%02d' $((DURATION/3600)) $((DURATION%3600/60)) 
 calc_stats() {
     local name=$1
     local file="$TEMP_DIR/${name}_speeds.txt"
-    
+   
     if [[ ! -s "$file" ]]; then
         echo "0 0 0 0 0 0 0 0"
         return
     fi
-    
+   
     # Sort the data
     sort -n "$file" > "$TEMP_DIR/${name}_sorted.txt"
     local count=$(wc -l < "$TEMP_DIR/${name}_sorted.txt")
-    
+   
     if [[ $count -eq 0 ]]; then
         echo "0 0 0 0 0 0 0 0"
         return
     fi
-    
+   
     # Calculate statistics using awk
     awk -v count="$count" '
     BEGIN { sum = 0; sumsq = 0 }
@@ -282,11 +282,11 @@ calc_stats() {
         mean = sum / count
         variance = (sumsq / count) - (mean * mean)
         stddev = sqrt(variance > 0 ? variance : 0)
-        
+       
         # Min and Max
         min = values[1]
         max = values[count]
-        
+       
         # Median
         mid = int(count / 2)
         if (count % 2 == 0) {
@@ -294,16 +294,16 @@ calc_stats() {
         } else {
             median = values[mid + 1]
         }
-        
+       
         # Percentiles
         p5_idx = int(count * 0.05) + 1
         p95_idx = int(count * 0.95)
         if (p95_idx < 1) p95_idx = 1
         if (p95_idx > count) p95_idx = count
-        
+       
         p5 = values[p5_idx]
         p95 = values[p95_idx]
-        
+       
         printf "%.4f %.4f %.4f %.4f %.4f %.4f %.4f %d\n", mean, stddev, median, min, max, p5, p95, count
     }' "$TEMP_DIR/${name}_sorted.txt"
 }
@@ -341,7 +341,7 @@ print_dash
 
 for name in "${MODEL_NAMES[@]}"; do
     read -r mean stddev median min max p5 p95 count <<< "${STATS[$name]}"
-    
+   
     if (( $(echo "$mean == $FASTEST_MEAN" | bc -l) )); then
         vs_best="FASTEST"
         color="${GREEN}"
@@ -452,14 +452,14 @@ for entry in "${SORTED_RANKING[@]}"; do
         diff_pct=$(echo "scale=1; ($diff_tps / $FIRST_MEAN) * 100" | bc)
         speed_diff="($diff_tps t/s slower, -${diff_pct}%)"
     fi
-    
+   
     case $RANK in
         1) medal="🥇" ;;
         2) medal="🥈" ;;
         3) medal="🥉" ;;
         *) medal="  " ;;
     esac
-    
+   
     mean_fmt=$(printf "%.2f" "$mean")
     stddev_fmt=$(printf "%.2f" "$stddev")
     
@@ -570,4 +570,3 @@ echo "" >> "$RAW_PATH"
 echo "}" >> "$RAW_PATH"
 
 echo -e "${GREEN}Raw data exported to: $RAW_PATH${NC}"
-
