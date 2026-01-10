@@ -239,34 +239,37 @@ ggml_tensor * llm_build_qwen3next::build_delta_net_chunking(
 
     cb(new_state, "new_state", il);
 
+    ggml_tensor * attn_kq = ggml_mul_mat(ctx0, k, q);
+    attn_kq = ggml_mul(ctx0, attn_kq, decay_mask);
+    attn_kq = ggml_mul(ctx0, attn_kq, diag_mask);
+    cb(attn_kq, "attn_kq", il);
+
     for (int64_t chunk = 0; chunk < n_chunks; chunk++) {
-        auto chunkify = [=](ggml_tensor * t) {
+        static auto chunkify = [](ggml_context * ctx0, ggml_tensor * t, int64_t chunk) {
             return ggml_cont(ctx0, ggml_view_4d(ctx0, t, t->ne[0], chunk_size, 1, t->ne[3],
                 t->nb[1], t->nb[2], t->nb[3], t->nb[2] * chunk));
         };
 
-        auto chunkify_g = [=](ggml_tensor * t) {
+        static auto chunkify_g = [](ggml_context * ctx0, ggml_tensor * t, int64_t chunk) {
             return ggml_cont(ctx0, ggml_view_4d(ctx0, t, chunk_size, t->ne[1], 1, t->ne[3],
                 t->nb[1], t->nb[2], t->nb[3], t->nb[2] * chunk));
         };
 
-        ggml_tensor * k_chunk = chunkify(k);
-        ggml_tensor * q_chunk = chunkify(q);
-        ggml_tensor * v_chunk = chunkify(v);
+        ggml_tensor * k_chunk = chunkify(ctx0, k, chunk);
+        ggml_tensor * q_chunk = chunkify(ctx0, q, chunk);
+        ggml_tensor * v_chunk = chunkify(ctx0, v, chunk);
 
-        ggml_tensor * g_cs_chunk = chunkify_g(g_cumsum);
+        ggml_tensor * g_cs_chunk = chunkify_g(ctx0, g_cumsum, chunk);
         ggml_tensor * g_cs_chunk_t = ggml_cont(ctx0, ggml_transpose(ctx0, g_cs_chunk));
 
-        ggml_tensor * decay_mask_chunk = chunkify(decay_mask);
-        ggml_tensor * k_cumdecay_chunk = chunkify(k_cumdecay);
+        ggml_tensor * k_cumdecay_chunk = chunkify(ctx0, k_cumdecay, chunk);
 
         ggml_tensor * gexp_chunk = ggml_exp(ctx0, g_cs_chunk_t);
 
         // attn = (q_i @ k_i.transpose(-1, -2) * decay_mask[:, :, i]).masked_fill_(mask, 0)
-        attn = ggml_mul_mat(ctx0, k_chunk, q_chunk);
-        attn = ggml_mul(ctx0, attn, decay_mask_chunk);
-        attn = ggml_mul(ctx0, attn, diag_mask);
-        cb(attn, "attn_chunk", il);
+        // replaced by precomputed attn_kq
+        ggml_tensor * attn_chunk = chunkify(ctx0, attn_kq, chunk);
+        cb(attn_chunk, "attn_chunk", il);
 
         ggml_tensor * state_t = ggml_cont_4d(ctx0, ggml_permute(ctx0, new_state, 1, 0, 2, 3), S_v, S_v, 1, H_v * n_seqs);
 
@@ -283,7 +286,7 @@ ggml_tensor * llm_build_qwen3next::build_delta_net_chunking(
         cb(attn_inter, "attn_inter_chunk", il);
 
         // core_attn_out[:, :, i] = attn_inter + attn @ v_new
-        ggml_tensor * v_attn = ggml_mul_mat(ctx0, v_new_t, attn);
+        ggml_tensor * v_attn = ggml_mul_mat(ctx0, v_new_t, attn_chunk);
         cb(v_attn, "v_attn_chunk", il);
 
         ggml_tensor * core_attn_out_chunk = ggml_add(ctx0, attn_inter, v_attn);
