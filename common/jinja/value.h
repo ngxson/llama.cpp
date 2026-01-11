@@ -95,7 +95,7 @@ struct func_args; // function argument values
 using func_handler = std::function<value(const func_args &)>;
 using func_builtins = std::map<std::string, func_handler>;
 
-enum value_compare_op { eq, gt };
+enum value_compare_op { eq, ge, gt, lt, ne };
 bool value_compare(const value & a, const value & b, value_compare_op op);
 
 struct value_t {

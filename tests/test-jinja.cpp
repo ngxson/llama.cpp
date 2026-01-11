@@ -167,10 +167,10 @@ static void test_conditionals(testing & t) {
         "yes"
     );
 
-    test_template(t, "is undefined",
-        "{% if y is defined %}yes{% else %}no{% endif %}",
+    test_template(t, "is not defined",
+        "{% if y is not defined %}yes{% else %}no{% endif %}",
         json::object(),
-        "no"
+        "yes"
     );
 }
 
@@ -541,6 +541,153 @@ static void test_tests(testing & t) {
 
     test_template(t, "is even",
         "{% if 4 is even %}yes{% endif %}",
+        json::object(),
+        "yes"
+    );
+
+    test_template(t, "is false",
+        "{{ 'yes' if x is false }}",
+        {{"x", false}},
+        "yes"
+    );
+
+    test_template(t, "is true",
+        "{{ 'yes' if x is true }}",
+        {{"x", true}},
+        "yes"
+    );
+
+    test_template(t, "string is false",
+        "{{ 'yes' if x is false else 'no' }}",
+        {{"x", ""}},
+        "no"
+    );
+
+    test_template(t, "is divisibleby",
+        "{{ 'yes' if x is divisibleby(2) }}",
+        {{"x", 2}},
+        "yes"
+    );
+
+    test_template(t, "is eq",
+        "{{ 'yes' if 3 is eq(3) }}",
+        json::object(),
+        "yes"
+    );
+
+    test_template(t, "is not equalto",
+        "{{ 'yes' if 3 is not equalto(4) }}",
+        json::object(),
+        "yes"
+    );
+
+    test_template(t, "is ge",
+        "{{ 'yes' if 3 is ge(3) }}",
+        json::object(),
+        "yes"
+    );
+
+    test_template(t, "is gt",
+        "{{ 'yes' if 3 is gt(2) }}",
+        json::object(),
+        "yes"
+    );
+
+    test_template(t, "is greaterthan",
+        "{{ 'yes' if 3 is greaterthan(2) }}",
+        json::object(),
+        "yes"
+    );
+
+    test_template(t, "is lt",
+        "{{ 'yes' if 2 is lt(3) }}",
+        json::object(),
+        "yes"
+    );
+
+    test_template(t, "is lessthan",
+        "{{ 'yes' if 2 is lessthan(3) }}",
+        json::object(),
+        "yes"
+    );
+
+    test_template(t, "is ne",
+        "{{ 'yes' if 2 is ne(3) }}",
+        json::object(),
+        "yes"
+    );
+
+    test_template(t, "is lower",
+        "{{ 'yes' if 'lowercase' is lower }}",
+        json::object(),
+        "yes"
+    );
+
+    test_template(t, "is upper",
+        "{{ 'yes' if 'UPPERCASE' is upper }}",
+        json::object(),
+        "yes"
+    );
+
+    // TODO: Check if an object points to the same memory address as another object
+    // test_template(t, "is sameas",
+    //     "{{ 'yes' if x is sameas false }}",
+    //     {{"x", false}},
+    //     "yes"
+    // );
+
+    test_template(t, "is boolean",
+        "{{ 'yes' if x is boolean }}",
+        {{"x", true}},
+        "yes"
+    );
+
+    test_template(t, "is callable",
+        "{{ 'yes' if ''.strip is callable }}",
+        json::object(),
+        "yes"
+    );
+
+    // TODO:
+    // test_template(t, "is escaped",
+    //     "{{ 'yes' if 'foo'|safe is escaped }}",
+    //     json::object(),
+    //     "yes"
+    // );
+
+    // TODO:
+    // test_template(t, "is filter",
+    //     "{{ 'yes' if 'trim' is filter }}",
+    //     json::object(),
+    //     "yes"
+    // );
+
+    test_template(t, "is float",
+        "{{ 'yes' if x is float }}",
+        {{"x", 1.1}},
+        "yes"
+    );
+
+    test_template(t, "is integer",
+        "{{ 'yes' if x is integer }}",
+        {{"x", 1}},
+        "yes"
+    );
+
+    test_template(t, "is sequence",
+        "{{ 'yes' if x is sequence }}",
+        {{"x", json::array({1, 2, 3})}},
+        "yes"
+    );
+
+    test_template(t, "is test",
+        "{{ 'yes' if 'sequence' is test }}",
+        json::object(),
+        "yes"
+    );
+
+    test_template(t, "is undefined",
+        "{{ 'yes' if x is undefined }}",
         json::object(),
         "yes"
     );

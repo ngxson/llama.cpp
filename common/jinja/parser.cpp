@@ -421,6 +421,8 @@ private:
             bool negate = false;
             if (is_identifier("not")) { current++; negate = true; }
             auto test_id = parse_primary_expression();
+            // FIXME: tests can also be expressed like this: if x is eq 3
+            if (is(token::open_paren)) test_id = parse_call_expression(std::move(test_id));
             operand = mk_stmt<test_expression>(start_pos, std::move(operand), negate, std::move(test_id));
         }
         return operand;

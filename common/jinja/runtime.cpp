@@ -357,21 +357,37 @@ value filter_statement::execute_impl(context & ctx) {
 value test_expression::execute_impl(context & ctx) {
     // NOTE: "value is something" translates to function call "test_is_something(value)"
     const auto & builtins = global_builtins();
-    if (!is_stmt<identifier>(test)) {
+
+    std::string test_id;
+    value input = operand->execute(ctx);
+
+    func_args args(ctx);
+    args.args.push_back(input);
+
+    if (is_stmt<identifier>(test)) {
+        test_id = cast_stmt<identifier>(test)->val;
+    } else if (is_stmt<call_expression>(test)) {
+        auto call = cast_stmt<call_expression>(test);
+        if (!is_stmt<identifier>(call->callee)) {
+            throw std::runtime_error("Test callee must be an identifier");
+        }
+        test_id = cast_stmt<identifier>(call->callee)->val;
+
+        JJ_DEBUG("Applying test '%s' with arguments to %s", test_id.c_str(), input->type().c_str());
+        for (const auto & arg_expr : call->args) {
+            args.args.push_back(arg_expr->execute(ctx));
+        }
+
+    } else {
         throw std::runtime_error("Invalid test expression");
     }
 
-    auto test_id = cast_stmt<identifier>(test)->val;
     auto it = builtins.find("test_is_" + test_id);
     JJ_DEBUG("Test expression %s '%s' %s (using function 'test_is_%s')", operand->type().c_str(), test_id.c_str(), negate ? "(negate)" : "", test_id.c_str());
     if (it == builtins.end()) {
         throw std::runtime_error("Unknown test '" + test_id + "'");
     }
 
-    value input = operand->execute(ctx);
-
-    func_args args(ctx);
-    args.args.push_back(input);
     auto res = it->second(args);
 
     if (negate) {

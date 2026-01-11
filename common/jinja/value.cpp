@@ -104,6 +104,11 @@ static value test_type_fn(const func_args & args) {
     JJ_DEBUG("test_type_fn: type=%s or %s result=%d", typeid(T).name(), typeid(U).name(), is_type ? 1 : 0);
     return mk_val<value_bool>(is_type);
 }
+template<value_compare_op op>
+static value test_compare_fn(const func_args & args) {
+    args.ensure_count(2, 2);
+    return mk_val<value_bool>(value_compare(args.args[0], args.args[1], op));
+}
 
 static value tojson(const func_args & args) {
     args.ensure_count(1, 5);
@@ -306,8 +311,14 @@ const func_builtins & global_builtins() {
             bool val = is_val<value_bool>(args.args[0]) && args.args[0]->as_bool();
             return mk_val<value_bool>(val);
         }},
+        {"test_is_divisibleby", [](const func_args & args) -> value {
+            args.ensure_vals<value_int, value_int>();
+            bool res = args.args[0]->val_int % args.args[1]->val_int == 0;
+            return mk_val<value_bool>(res);
+        }},
         {"test_is_string", test_type_fn<value_string>},
         {"test_is_integer", test_type_fn<value_int>},
+        {"test_is_float", test_type_fn<value_float>},
         {"test_is_number", test_type_fn<value_int, value_float>},
         {"test_is_iterable", test_type_fn<value_array, value_string>},
         {"test_is_sequence", test_type_fn<value_array, value_string>},
@@ -328,10 +339,20 @@ const func_builtins & global_builtins() {
             return mk_val<value_bool>(res);
         }},
         {"test_is_undefined", test_type_fn<value_undefined>},
-        {"test_is_equalto", [](const func_args & args) -> value {
-            // alias for is_eq
-            args.ensure_count(2);
-            return mk_val<value_bool>(value_compare(args.args[0], args.args[1], value_compare_op::eq));
+        {"test_is_eq", test_compare_fn<value_compare_op::eq>},
+        {"test_is_equalto", test_compare_fn<value_compare_op::eq>},
+        {"test_is_ge", test_compare_fn<value_compare_op::ge>},
+        {"test_is_gt", test_compare_fn<value_compare_op::gt>},
+        {"test_is_greaterthan", test_compare_fn<value_compare_op::gt>},
+        {"test_is_lt", test_compare_fn<value_compare_op::lt>},
+        {"test_is_lessthan", test_compare_fn<value_compare_op::lt>},
+        {"test_is_ne", test_compare_fn<value_compare_op::ne>},
+        {"test_is_test", [](const func_args & args) -> value {
+            args.ensure_vals<value_string>();
+            auto & builtins = global_builtins();
+            auto it = builtins.find(std::string("test_is_") + args.args[0]->val_str.str());
+            bool res = it != builtins.end();
+            return mk_val<value_bool>(res);
         }},
     };
     return builtins;
@@ -940,8 +961,14 @@ bool value_compare(const value & a, const value & b, value_compare_op op) {
             try {
                 if (op == value_compare_op::eq) {
                     return a->as_float() == b->as_float();
+                } else if (op == value_compare_op::ge) {
+                    return a->as_float() >= b->as_float();
                 } else if (op == value_compare_op::gt) {
                     return a->as_float() > b->as_float();
+                } else if (op == value_compare_op::lt) {
+                    return a->as_float() < b->as_float();
+                } else if (op == value_compare_op::ne) {
+                    return a->as_float() != b->as_float();
                 } else {
                     throw std::runtime_error("Unsupported comparison operator for numeric types");
                 }
@@ -955,8 +982,14 @@ bool value_compare(const value & a, const value & b, value_compare_op op) {
             try {
                 if (op == value_compare_op::eq) {
                     return a->as_string().str() == b->as_string().str();
+                } else if (op == value_compare_op::ge) {
+                    return a->as_string().str() >= b->as_string().str();
                 } else if (op == value_compare_op::gt) {
                     return a->as_string().str() > b->as_string().str();
+                } else if (op == value_compare_op::lt) {
+                    return a->as_string().str() < b->as_string().str();
+                } else if (op == value_compare_op::ne) {
+                    return a->as_string().str() != b->as_string().str();
                 } else {
                     throw std::runtime_error("Unsupported comparison operator for string/number types");
                 }
@@ -966,6 +999,8 @@ bool value_compare(const value & a, const value & b, value_compare_op op) {
         if (is_val<value_bool>(a) && is_val<value_bool>(b)) {
             if (op == value_compare_op::eq) {
                 return a->as_bool() == b->as_bool();
+            } else if (op == value_compare_op::ne) {
+                return a->as_bool() != b->as_bool();
             } else {
                 throw std::runtime_error("Unsupported comparison operator for bool type");
             }
