@@ -42,7 +42,7 @@ Only vulnerabilities that fall within these parts of the project are considered 
 
 Note that none of the topics under [Using llama.cpp securely](#using-llamacpp-securely) are considered vulnerabilities in LLaMA C++.
 
-For vulnerabilities that fall inside `vendor`, please report them directly to the thrid-party project.
+For vulnerabilities that fall within the `vendor` directory, please report them directly to the third-party project.
 
 ## Using llama.cpp securely
 
