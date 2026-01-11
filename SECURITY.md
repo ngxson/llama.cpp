@@ -38,7 +38,10 @@ Only vulnerabilities that fall within these parts of the project are considered 
 - `src/**/*`
 - `ggml/**/*`
 - `gguf-py/**/*`
-- `tools/server/*` (note: Web UI is not covered)
+- `tools/server/*`, excluding the following topics:
+    - Web UI
+    - Features marked as experimental
+    - Features not recommended for use in untrusted environments (e.g., router, MCP)
 
 Note that none of the topics under [Using llama.cpp securely](#using-llamacpp-securely) are considered vulnerabilities in LLaMA C++.
 
