@@ -456,7 +456,7 @@ struct test_expression : public expression {
     test_expression(statement_ptr && operand, bool negate, statement_ptr && test)
         : operand(std::move(operand)), negate(negate), test(std::move(test)) {
         chk_type<expression>(this->operand);
-        chk_type<identifier>(this->test);
+        chk_type<identifier, call_expression>(this->test);
     }
     std::string type() const override { return "TestExpression"; }
     value execute_impl(context & ctx) override;
