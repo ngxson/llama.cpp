@@ -3,6 +3,28 @@
 
 #define CHUNK_SIZE 64
 
+class llm_graph_input_set_chunk_row : public llm_graph_input_i {
+public:
+    llm_graph_input_set_chunk_row() {}
+    virtual ~llm_graph_input_set_chunk_row() = default;
+    ggml_tensor * idx = nullptr;
+    void set_input(const llama_ubatch * ubatch) override {
+        const int64_t n_tokens_padded = get_n_chunks(ubatch) * CHUNK_SIZE;
+        std::vector<int32_t> idx_data(n_tokens_padded);
+        for (int64_t i = 0; i < n_tokens_padded; i++) {
+            idx_data[i] = (int32_t)i;
+        }
+        ggml_backend_tensor_set(idx, idx_data.data(), 0, idx_data.size()*ggml_element_size(idx));
+    }
+    int64_t get_n_chunks(const llama_ubatch * ubatch) const {
+        const int64_t chunk_size = CHUNK_SIZE;
+        const int64_t n_tokens = ubatch->n_seq_tokens;
+        const int64_t pad = (chunk_size - n_tokens % chunk_size) % chunk_size;
+        const int64_t n_tokens_padded = n_tokens + pad;
+        return n_tokens_padded / chunk_size;
+    }
+};
+
 llm_build_qwen3next::llm_build_qwen3next(const llama_model & model, const llm_graph_params & params) :
     llm_graph_context_mamba(params), model(model) {
     ggml_tensor * cur;
@@ -15,6 +37,15 @@ llm_build_qwen3next::llm_build_qwen3next(const llama_model & model, const llm_gr
 
     ggml_tensor * inp_pos     = build_inp_pos();
     ggml_tensor * inp_out_ids = build_inp_out_ids();
+
+    ggml_tensor * inp_out_chunk_row_idx = nullptr;
+    {
+        auto inp = std::make_unique<llm_graph_input_set_chunk_row>();
+        inp_out_chunk_row_idx = ggml_new_tensor_3d(ctx0, GGML_TYPE_I32, CHUNK_SIZE, 1, inp->get_n_chunks(&ubatch));
+        ggml_set_input(inp_out_chunk_row_idx);
+        inp->idx = inp_out_chunk_row_idx;
+        res->add_input(std::move(inp));
+    }
 
     ggml_tensor * causal_mask =
         ggml_tri(ctx0, ggml_fill_inplace(ctx0, ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, CHUNK_SIZE, CHUNK_SIZE), 1.0f),
@@ -36,7 +67,7 @@ llm_build_qwen3next::llm_build_qwen3next(const llama_model & model, const llm_gr
         // Determine layer type and build appropriate attention mechanism
         if (hparams.is_recurrent(il)) {
             // Linear attention layer (gated delta net)
-            cur = build_layer_attn_linear(inp->get_recr(), cur, causal_mask, identity, diag_mask, il);
+            cur = build_layer_attn_linear(inp->get_recr(), cur, causal_mask, identity, diag_mask, inp_out_chunk_row_idx, il);
         } else {
             // Full attention layer
             cur = build_layer_attn(inp->get_attn(), cur, inp_pos, il);
@@ -104,6 +135,7 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_qwen3next::build_delta_net_chu
         ggml_tensor * causal_mask,
         ggml_tensor * identity,
         ggml_tensor * diag_mask,
+        ggml_tensor * out_chunk_row_idx,
         int           il) {
     const int64_t S_k      = q->ne[0];
     const int64_t H_k      = q->ne[1];
@@ -123,6 +155,8 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_qwen3next::build_delta_net_chu
     GGML_ASSERT(k->ne[0] == S_k && k->ne[1] == H_k && k->ne[2] == n_tokens && k->ne[3] == n_seqs);
 
     GGML_ASSERT(H_k == H_v);  // we did a repeat to make sure this is the case
+
+    GGML_ASSERT(out_chunk_row_idx->ne[0] == CHUNK_SIZE && out_chunk_row_idx->ne[1] == 1);
 
     const float eps_norm = hparams.f_norm_rms_eps;
 
@@ -273,8 +307,14 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_qwen3next::build_delta_net_chu
     ggml_tensor * new_state = state; // ggml_dup(ctx0, state);
     cb(new_state, "new_state", il); // shape: (S_v, S_v, H_v, n_seqs)
 
-    // shape after loop of chunks: (S_v, chunk_size, n_chunks, H_v * n_seqs)
-    ggml_tensor * core_attn_out = nullptr;
+    // trick: use ggml_set_rows instead of multiple calls to ggml_concat
+    ggml_tensor * core_attn_out = ggml_dup(ctx0, v); // shape: (S_v, chunk_size, n_chunks, H_v * n_seqs)
+    // flatten chunk_size and n_chunks dimensions
+    core_attn_out = ggml_view_4d(ctx0, core_attn_out, S_v, chunk_size * n_chunks, 1, H_v * n_seqs,
+                                 ggml_row_size(core_attn_out->type, S_v),
+                                 ggml_row_size(core_attn_out->type, S_v * chunk_size * n_chunks),
+                                 ggml_row_size(core_attn_out->type, S_v * chunk_size * n_chunks), 0);
+    GGML_ASSERT(out_chunk_row_idx->ne[2] == n_chunks);
 
     for (int64_t chunk = 0; chunk < n_chunks; chunk++) {
         // shape: (S_k, chunk_size, 1, H_k * n_seqs)
@@ -317,9 +357,10 @@ std::pair<ggml_tensor *, ggml_tensor *> llm_build_qwen3next::build_delta_net_chu
         ggml_tensor * core_attn_out_chunk = ggml_add(ctx0, attn_inter, v_attn);
         cb(core_attn_out_chunk, "core_attn_out_chunk", il); // shape: (S_v, chunk_size, 1, H_v * n_seqs)
 
-        core_attn_out = core_attn_out == nullptr
-            ? core_attn_out_chunk
-            : ggml_concat(ctx0, core_attn_out, core_attn_out_chunk, 2);
+        // set the rows in core_attn_out
+        ggml_tensor * out_row_idx = get_slice_2d(ctx0, out_chunk_row_idx, chunk);
+        cb(out_row_idx, "out_row_idx", il); // shape: (chunk_size, 1, 1, 1)
+        core_attn_out = ggml_set_rows(ctx0, core_attn_out, core_attn_out_chunk, out_row_idx);
 
         // kgdmulvnew = (key_gdiff).transpose(-1, -2) @ v_new
         ggml_tensor * k_gdiff = ggml_cont(ctx0, get_slice_2d(ctx0, key_gdiff, chunk));
@@ -620,6 +661,7 @@ ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
         ggml_tensor *        causal_mask,
         ggml_tensor *        identity,
         ggml_tensor *        diag_mask,
+        ggml_tensor *        out_chunk_row_idx,
         int                  il) {
     const auto * mctx_cur = inp->mctx;
 
@@ -779,7 +821,7 @@ ggml_tensor * llm_build_qwen3next::build_layer_attn_linear(
     if (n_seq_tokens == 1) {
         attn_out = build_delta_net_autoregressive(q_conv, k_conv, v_conv, gate, beta, state, il);
     } else {
-        attn_out = build_delta_net_chunking(q_conv, k_conv, v_conv, gate, beta, state, causal_mask, identity, diag_mask, il);
+        attn_out = build_delta_net_chunking(q_conv, k_conv, v_conv, gate, beta, state, causal_mask, identity, diag_mask, out_chunk_row_idx, il);
     }
     ggml_tensor * output    = attn_out.first;
     ggml_tensor * new_state = attn_out.second;

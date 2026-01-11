@@ -460,6 +460,7 @@ private:
                 ggml_tensor * causal_mask,
                 ggml_tensor * identity,
                 ggml_tensor * diag_mask,
+                ggml_tensor * out_chunk_row_idx,
                         int   il);
 
     ggml_tensor * build_layer_ffn(
@@ -477,6 +478,7 @@ private:
                 ggml_tensor * causal_mask,
                 ggml_tensor * identity,
                 ggml_tensor * diag_mask,
+                ggml_tensor * out_chunk_row_idx,
                         int   il);
 
     // returns pair of output and new state
