@@ -39,7 +39,7 @@ llm_build_qwen3next::llm_build_qwen3next(const llama_model & model, const llm_gr
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
     ggml_tensor * inp_out_chunk_row_idx = nullptr;
-    {
+    if (ubatch.n_seq_tokens > 1) {
         auto inp = std::make_unique<llm_graph_input_set_chunk_row>();
         inp_out_chunk_row_idx = ggml_new_tensor_3d(ctx0, GGML_TYPE_I32, CHUNK_SIZE, 1, inp->get_n_chunks(&ubatch));
         ggml_set_input(inp_out_chunk_row_idx);
