@@ -331,6 +331,12 @@ static void test_filters(testing & t) {
         "hello"
     );
 
+    test_template(t, "trim chars",
+        "{{ 'xyxhelloxyx'|trim('xy') }}",
+        json::object(),
+        "hello"
+    );
+
     test_template(t, "length string",
         "{{ 'hello'|length }}",
         json::object(),
@@ -397,6 +403,18 @@ static void test_filters(testing & t) {
         "42"
     );
 
+    test_template(t, "int from string with default",
+        "{{ ''|int(1) }}",
+        json::object(),
+        "1"
+    );
+
+    test_template(t, "int from string with base",
+        "{{ '11'|int(base=2) }}",
+        json::object(),
+        "3"
+    );
+
     test_template(t, "float from string",
         "{{ '3.14'|float }}",
         json::object(),
@@ -413,6 +431,24 @@ static void test_filters(testing & t) {
         "{{ y|default('fallback') }}",
         json::object(),
         "fallback"
+    );
+
+    test_template(t, "default with falsy value",
+        "{{ ''|default('fallback', true) }}",
+        json::object(),
+        "fallback"
+    );
+
+    test_template(t, "tojson ensure_ascii=true",
+        "{{ data|tojson(ensure_ascii=true) }}",
+        {{"data", "\u2713"}},
+        "\"\\u2713\""
+    );
+
+    test_template(t, "tojson sort_keys=true",
+        "{{ data|tojson(sort_keys=true) }}",
+        {{"data", {{"b", 2}, {"a", 1}}}},
+        "{\"a\": 1, \"b\": 2}"
     );
 
     test_template(t, "tojson",
@@ -629,12 +665,11 @@ static void test_tests(testing & t) {
         "yes"
     );
 
-    // TODO: Check if an object points to the same memory address as another object
-    // test_template(t, "is sameas",
-    //     "{{ 'yes' if x is sameas false }}",
-    //     {{"x", false}},
-    //     "yes"
-    // );
+    test_template(t, "is sameas",
+        "{{ 'yes' if x is sameas(false) }}",
+        {{"x", false}},
+        "yes"
+    );
 
     test_template(t, "is boolean",
         "{{ 'yes' if x is boolean }}",
@@ -648,19 +683,17 @@ static void test_tests(testing & t) {
         "yes"
     );
 
-    // TODO:
-    // test_template(t, "is escaped",
-    //     "{{ 'yes' if 'foo'|safe is escaped }}",
-    //     json::object(),
-    //     "yes"
-    // );
+    test_template(t, "is escaped",
+        "{{ 'yes' if 'foo'|safe is escaped }}",
+        json::object(),
+        "yes"
+    );
 
-    // TODO:
-    // test_template(t, "is filter",
-    //     "{{ 'yes' if 'trim' is filter }}",
-    //     json::object(),
-    //     "yes"
-    // );
+    test_template(t, "is filter",
+        "{{ 'yes' if 'trim' is filter }}",
+        json::object(),
+        "yes"
+    );
 
     test_template(t, "is float",
         "{{ 'yes' if x is float }}",
@@ -896,6 +929,12 @@ static void test_array_methods(testing & t) {
         "xyz"
     );
 
+    test_template(t, "array|join attribute",
+        "{{ arr|join(attribute=0) }}",
+        {{"arr", json::array({json::array({1}), json::array({2}), json::array({3})})}},
+        "123"
+    );
+
     test_template(t, "array.pop() last",
         "{{ arr.pop() }}-{{ arr|join(',') }}",
         {{"arr", json::array({"a", "b", "c"})}},
@@ -961,8 +1000,8 @@ static void test_object_methods(testing & t) {
 
     test_template(t, "dictsort ascending by key",
         "{% for k, v in obj|dictsort %}{{ k }}={{ v }} {% endfor %}",
-        {{"obj", {{"z", 3}, {"a", 1}, {"m", 2}}}},
-        "a=1 m=2 z=3 "
+        {{"obj", {{"z", 2}, {"a", 3}, {"m", 1}}}},
+        "a=3 m=1 z=2 "
     );
 
     test_template(t, "dictsort descending by key",
@@ -975,6 +1014,12 @@ static void test_object_methods(testing & t) {
         "{% for k, v in obj|dictsort(by='value') %}{{ k }}={{ v }} {% endfor %}",
         {{"obj", {{"a", 3}, {"b", 1}, {"c", 2}}}},
         "b=1 c=2 a=3 "
+    );
+
+    test_template(t, "dictsort case sensitive",
+        "{% for k, v in obj|dictsort(case_sensitive=true) %}{{ k }}={{ v }} {% endfor %}",
+        {{"obj", {{"a", 1}, {"A", 1}, {"b", 2}, {"B", 2}, {"c", 3}}}},
+        "A=1 B=2 a=1 b=2 c=3 "
     );
 
     test_template(t, "object|tojson",
