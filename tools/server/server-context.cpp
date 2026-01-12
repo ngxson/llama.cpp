@@ -1652,6 +1652,7 @@ private:
 
     // if N slots are reserved AND they are all available, return true
     // if not, leave them in the reserved state and return false
+    // ref: https://github.com/ggml-org/llama.cpp/pull/18789
     bool try_reserve_n_slots(const size_t n_required, const int task_id) {
         size_t n_reserved = 0;
         size_t n_available = 0;
