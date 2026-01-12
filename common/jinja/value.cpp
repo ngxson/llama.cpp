@@ -33,7 +33,7 @@ value func_args::get_kwarg(const std::string & key) const  {
 value func_args::get_kwarg_or_pos(const std::string & key, size_t pos) const {
     value val = get_kwarg(key);
 
-    if (val->is_undefined() && args.size() > pos) {
+    if (val->is_undefined() && args.size() > pos && !is_val<value_kwarg>(args[pos])) {
         val = args[pos];
     }
 
@@ -120,7 +120,12 @@ static value tojson(const func_args & args) {
     if (is_val<value_int>(val_indent)) {
         indent = static_cast<int>(val_indent->as_int());
     }
-    // TODO: Implement ensure_ascii and sort_keys
+    if (val_ascii->as_bool()) { // undefined == false
+        throw not_implemented_exception("tojson ensure_ascii=true not implemented");
+    }
+    if (val_sort->as_bool()) { // undefined == false
+        throw not_implemented_exception("tojson sort_keys=true not implemented");
+    }
     auto separators = (is_val<value_array>(val_separators) ? val_separators : mk_val<value_array>())->as_array();
     std::string item_sep = separators.size() > 0 ? separators[0]->as_string().str() : (indent < 0 ? ", " : ",");
     std::string key_sep = separators.size() > 1 ? separators[1]->as_string().str() : ": ";
@@ -207,10 +212,8 @@ static value selectattr(const func_args & args) {
 
 static value default_value(const func_args & args) {
     args.ensure_count(2, 3);
-    bool check_bool = false;
-    if (args.args.size() == 3) {
-        check_bool = args.args[2]->as_bool();
-    }
+    value val_check = args.get_kwarg_or_pos("boolean", 2);
+    bool check_bool = val_check->as_bool(); // undefined == false
     bool no_value = check_bool
         ? (!args.args[0]->as_bool())
         : (args.args[0]->is_undefined() || args.args[0]->is_none());
@@ -350,9 +353,23 @@ const func_builtins & global_builtins() {
         {"test_is_test", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
             auto & builtins = global_builtins();
-            auto it = builtins.find(std::string("test_is_") + args.args[0]->val_str.str());
+            std::string test_name = args.args[0]->val_str.str();
+            auto it = builtins.find("test_is_" + test_name);
             bool res = it != builtins.end();
             return mk_val<value_bool>(res);
+        }},
+        {"test_is_sameas", [](const func_args & args) -> value {
+            // Check if an object points to the same memory address as another object
+            (void)args;
+            throw not_implemented_exception("sameas test not implemented");
+        }},
+        {"test_is_escaped", [](const func_args & args) -> value {
+            (void)args;
+            throw not_implemented_exception("escaped test not implemented");
+        }},
+        {"test_is_filter", [](const func_args & args) -> value {
+            (void)args;
+            throw not_implemented_exception("filter test not implemented");
         }},
     };
     return builtins;
@@ -423,16 +440,28 @@ const func_builtins & value_string_t::get_builtins() const {
         }},
         {"strip", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
+            value val_chars = args.get_kwarg_or_pos("chars", 1);
+            if (!val_chars->is_undefined()) {
+                throw not_implemented_exception("strip chars not implemented");
+            }
             jinja::string str = args.args[0]->as_string().strip(true, true);
             return mk_val<value_string>(str);
         }},
         {"rstrip", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
+            value val_chars = args.get_kwarg_or_pos("chars", 1);
+            if (!val_chars->is_undefined()) {
+                throw not_implemented_exception("rstrip chars not implemented");
+            }
             jinja::string str = args.args[0]->as_string().strip(false, true);
             return mk_val<value_string>(str);
         }},
         {"lstrip", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
+            value val_chars = args.get_kwarg_or_pos("chars", 1);
+            if (!val_chars->is_undefined()) {
+                throw not_implemented_exception("lstrip chars not implemented");
+            }
             jinja::string str = args.args[0]->as_string().strip(true, false);
             return mk_val<value_string>(str);
         }},
@@ -526,11 +555,14 @@ const func_builtins & value_string_t::get_builtins() const {
         }},
         {"int", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
+            value val_default = args.get_kwarg_or_pos("default", 1);
+            value val_base    = args.get_kwarg_or_pos("base",    2);
+            const int base = val_base->is_undefined() ? 10 : val_base->as_int();
             std::string str = args.args[0]->as_string().str();
             try {
-                return mk_val<value_int>(std::stoi(str));
+                return mk_val<value_int>(std::stoi(str, nullptr, base));
             } catch (...) {
-                throw std::runtime_error("Cannot convert string '" + str + "' to int");
+                return mk_val<value_int>(val_default->is_undefined() ? 0 : val_default->as_int());
             }
         }},
         {"float", [](const func_args & args) -> value {
@@ -556,10 +588,7 @@ const func_builtins & value_string_t::get_builtins() const {
             if (args.args.size() > 1 && !args.args[1]->is_undefined()) {
                 default_val = args.args[1];
             }
-            value boolean_val = mk_val<value_bool>(false);
-            if (args.args.size() > 1) {
-                boolean_val = args.args[1];
-            }
+            value boolean_val = args.get_kwarg_or_pos("boolean", 2); // undefined == false
             if (input->is_undefined() || (boolean_val->as_bool() && !input->as_bool())) {
                 return default_val;
             } else {
@@ -705,14 +734,17 @@ const func_builtins & value_array_t::get_builtins() const {
         {"rejectattr", selectattr<true>},
         {"reject", selectattr<true>},
         {"join", [](const func_args & args) -> value {
-            if (args.args.size() < 1 || args.args.size() > 2) {
-                throw raised_exception("join() takes one or two arguments");
-            }
+            args.ensure_count(1, 3);
             if (!is_val<value_array>(args.args[0])) {
                 throw raised_exception("join() first argument must be an array");
             }
+            value val_delim     = args.get_kwarg_or_pos("d",         1);
+            value val_attribute = args.get_kwarg_or_pos("attribute", 2);
+            if (!val_attribute->is_undefined()) {
+                throw not_implemented_exception("array attribute join not implemented");
+            }
             const auto & arr = args.args[0]->as_array();
-            std::string delim = (args.args.size() > 1 && is_val<value_string>(args.args[1])) ? args.args[1]->as_string().str() : "";
+            std::string delim = is_val<value_string>(val_delim) ? val_delim->as_string().str() : "";
             std::string result;
             for (size_t i = 0; i < arr.size(); ++i) {
                 if (!is_val<value_string>(arr[i]) && !is_val<value_int>(arr[i]) && !is_val<value_float>(arr[i])) {
@@ -877,11 +909,16 @@ const func_builtins & value_object_t::get_builtins() const {
         }},
         {"dictsort", [](const func_args & args) -> value {
             args.ensure_vals<value_object>();
-            std::string by_key = "";
-            if (!args.get_kwarg("by")->is_undefined()) {
+            value val_case    = args.get_kwarg_or_pos("case_sensitive", 1);
+            value val_by      = args.get_kwarg_or_pos("by",             2);
+            value val_reverse = args.get_kwarg_or_pos("reverse",        3);
+            // FIXME: sorting is case sensitive
+            //const bool case_sensitive = val_case->as_bool(); // undefined == false
+            const bool reverse = val_reverse->as_bool(); // undefined == false
+            if (!val_by->is_undefined()) {
                 throw not_implemented_exception("dictsort by key not implemented");
             }
-            if (!args.get_kwarg("reverse")->is_undefined()) {
+            if (reverse) {
                 throw not_implemented_exception("dictsort reverse not implemented");
             }
             value_t::map obj = args.args[0]->val_obj; // copy
@@ -891,6 +928,9 @@ const func_builtins & value_object_t::get_builtins() const {
             auto result = mk_val<value_object>();
             result->val_obj = std::move(obj);
             return result;
+        }},
+        {"join", [](const func_args &) -> value {
+            throw not_implemented_exception("object join not implemented");
         }},
     };
     return builtins;
