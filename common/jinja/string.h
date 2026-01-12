@@ -6,6 +6,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cstdint>
+#include <optional>
 
 
 namespace jinja {
@@ -169,17 +170,20 @@ struct string {
             return res;
         });
     }
-    string strip(bool left, bool right) {
-        static auto strip_part = [](const std::string & s, bool left, bool right) -> std::string {
+    string strip(bool left, bool right, std::optional<const std::string_view> chars = std::nullopt) {
+        static auto strip_part = [](const std::string & s, bool left, bool right, std::optional<const std::string_view> chars) -> std::string {
             size_t start = 0;
             size_t end = s.length();
+            auto match_char = [&chars](unsigned char c) -> bool {
+                return chars ? (*chars).find(c) != std::string::npos : isspace(c);
+            };
             if (left) {
-                while (start < end && isspace(static_cast<unsigned char>(s[start]))) {
+                while (start < end && match_char(static_cast<unsigned char>(s[start]))) {
                     ++start;
                 }
             }
             if (right) {
-                while (end > start && isspace(static_cast<unsigned char>(s[end - 1]))) {
+                while (end > start && match_char(static_cast<unsigned char>(s[end - 1]))) {
                     --end;
                 }
             }
@@ -190,7 +194,7 @@ struct string {
         }
         if (left) {
             for (size_t i = 0; i < parts.size(); ++i) {
-                parts[i].val = strip_part(parts[i].val, true, false);
+                parts[i].val = strip_part(parts[i].val, true, false, chars);
                 if (parts[i].val.empty()) {
                     // remove empty part
                     parts.erase(parts.begin() + i);
@@ -203,7 +207,7 @@ struct string {
         }
         if (right) {
             for (size_t i = parts.size(); i-- > 0;) {
-                parts[i].val = strip_part(parts[i].val, false, true);
+                parts[i].val = strip_part(parts[i].val, false, true, chars);
                 if (parts[i].val.empty()) {
                     // remove empty part
                     parts.erase(parts.begin() + i);
