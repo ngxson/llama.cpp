@@ -1653,11 +1653,13 @@ private:
     // if N slots are reserved AND they are all available, return true
     // if not, leave them in the reserved state and return false
     // ref: https://github.com/ggml-org/llama.cpp/pull/18789
-    bool try_reserve_n_slots(const size_t n_required, const int task_id) {
+    bool try_reserve_child_slots(server_slot & cur_slot, const size_t n_required, const int task_id) {
         size_t n_reserved = 0;
         size_t n_available = 0;
         for (auto & slot : slots) {
-            if (n_reserved >= n_required) {
+            if (slot.id == cur_slot.id) {
+                continue; // skip the current slot
+            } else if (n_reserved >= n_required) {
                 break;
             } else if (slot.task_id_next == task_id || slot.task_id_next == -1) {
                 // already reserved to this task OR not reserved by any other tasks
@@ -1689,11 +1691,12 @@ private:
         int i_child = 0;
         for (auto & slot : slots) {
             if (slot.id == parent_slot.id) {
-                continue;
+                continue; // skip the parent slot
             }
             if (i_child >= parent_task.n_children) {
                 break;
             }
+            GGML_ASSERT(!slot.is_processing());
             int id_child = parent_task.child_tasks[i_child].id;
             if (!launch_slot_with_task(slot, std::move(parent_task.child_tasks[i_child]))) {
                 SRV_ERR("failed to launch slot with child task, id_task = %d\n", id_child);
@@ -1704,6 +1707,7 @@ private:
         parent_task.child_tasks.clear();
 
         // finally, launch the parent task
+        GGML_ASSERT(!parent_slot.is_processing());
         int id_parent = parent_task.id;
         if (!launch_slot_with_task(parent_slot, std::move(parent_task))) {
             SRV_ERR("failed to launch slot with task, id_task = %d\n", id_parent);
@@ -1767,7 +1771,7 @@ private:
                         slot->task_id_next = task.id;
 
                         // need to reserve n_children more slots
-                        if (try_reserve_n_slots(task.n_children, task.id)) {
+                        if (try_reserve_child_slots(*slot, task.n_children, task.id)) {
                             // all required slots have been reserved, safe to proceed
                             int task_id = task.id;
                             if (!launch_slots_with_child_tasks(*slot, std::move(task))) {
@@ -3073,7 +3077,6 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
             task.params.oaicompat_model   = meta->model_name;
 
             // prepare child tasks
-            std::vector<server_task> child_tasks;
             if (task.params.n_cmpl > 1) {
                 task.n_children = task.params.n_cmpl - 1;
 
