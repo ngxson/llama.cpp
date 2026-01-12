@@ -441,29 +441,29 @@ const func_builtins & value_string_t::get_builtins() const {
         {"strip", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
             value val_chars = args.get_kwarg_or_pos("chars", 1);
-            if (!val_chars->is_undefined()) {
-                throw not_implemented_exception("strip chars not implemented");
+            if (val_chars->is_undefined()) {
+                return mk_val<value_string>(args.args[0]->as_string().strip(true, true));
+            } else {
+                return mk_val<value_string>(args.args[0]->as_string().strip(true, true, val_chars->as_string().str()));
             }
-            jinja::string str = args.args[0]->as_string().strip(true, true);
-            return mk_val<value_string>(str);
         }},
         {"rstrip", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
             value val_chars = args.get_kwarg_or_pos("chars", 1);
-            if (!val_chars->is_undefined()) {
-                throw not_implemented_exception("rstrip chars not implemented");
+            if (val_chars->is_undefined()) {
+                return mk_val<value_string>(args.args[0]->as_string().strip(false, true));
+            } else {
+                return mk_val<value_string>(args.args[0]->as_string().strip(false, true, val_chars->as_string().str()));
             }
-            jinja::string str = args.args[0]->as_string().strip(false, true);
-            return mk_val<value_string>(str);
         }},
         {"lstrip", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
             value val_chars = args.get_kwarg_or_pos("chars", 1);
-            if (!val_chars->is_undefined()) {
-                throw not_implemented_exception("lstrip chars not implemented");
+            if (val_chars->is_undefined()) {
+                return mk_val<value_string>(args.args[0]->as_string().strip(true, false));
+            } else {
+                return mk_val<value_string>(args.args[0]->as_string().strip(true, false, val_chars->as_string().str()));
             }
-            jinja::string str = args.args[0]->as_string().strip(true, false);
-            return mk_val<value_string>(str);
         }},
         {"title", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
