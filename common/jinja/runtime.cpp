@@ -308,11 +308,6 @@ value filter_expression::execute_impl(context & ctx) {
     if (is_stmt<identifier>(filter)) {
         auto filter_id = cast_stmt<identifier>(filter)->val;
 
-        if (filter_id == "to_json") {
-            // TODO: Implement to_json filter
-            throw std::runtime_error("to_json filter not implemented");
-        }
-
         if (filter_id == "trim") {
             filter_id = "strip"; // alias
         }
@@ -326,6 +321,9 @@ value filter_expression::execute_impl(context & ctx) {
         }
         auto filter_id = cast_stmt<identifier>(call->callee)->val;
 
+        if (filter_id == "trim") {
+            filter_id = "strip"; // alias
+        }
         JJ_DEBUG("Applying filter '%s' with arguments to %s", filter_id.c_str(), input->type().c_str());
         func_args args(ctx);
         for (const auto & arg_expr : call->args) {
