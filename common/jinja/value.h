@@ -200,7 +200,7 @@ struct value_float_t : public value_t {
     virtual string as_string() const override {
         std::string out = std::to_string(val_flt);
         out.erase(out.find_last_not_of('0') + 1, std::string::npos); // remove trailing zeros
-        if (out.back() == '.') out.pop_back(); // remove trailing dot
+        if (out.back() == '.') out.push_back('0'); // leave one zero if no decimals
         return out;
     }
     virtual const func_builtins & get_builtins() const override;
