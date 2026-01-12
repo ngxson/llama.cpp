@@ -124,7 +124,7 @@ public:
     // add the id_task to the list of tasks waiting for response
     void add_waiting_task_id(int id_task);
 
-    void add_waiting_tasks(const std::vector<server_task> & tasks);
+    void add_waiting_task_ids(const std::unordered_set<int> & id_tasks);
 
     // when the request is finished, we can remove task associated with it
     void remove_waiting_task_id(int id_task);
