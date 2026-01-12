@@ -84,6 +84,10 @@ struct server_slot {
     std::unique_ptr<const server_task> task;
     std::unique_ptr<const server_task> task_prev; // used for debugging
 
+    // if set, we only accept this task next (in other words, the task reserves this slot)
+    // used for scheduling n_children tasks after the parent
+    int task_id_next = -1;
+
     // used to determine the slot that has been used the longest
     int64_t t_last_used = -1;
 
@@ -176,6 +180,7 @@ struct server_slot {
     void reset() {
         SLT_DBG(*this, "%s", "\n");
 
+        task_id_next          = -1;
         n_prompt_tokens_cache = 0;
 
         last_nl_pos    = 0;
@@ -325,17 +330,6 @@ struct server_slot {
         return n_draft_max;
     }
 
-    // note: a slot can also be either a parent or a child
-    // TODO: move to server_task
-    bool is_parent() const {
-        return task->n_children > 0;
-    }
-
-    // TODO: move to server_task
-    bool is_child() const {
-        return task->id_parent >= 0;
-    }
-
     void release() {
         if (is_processing()) {
             GGML_ASSERT(task);
@@ -348,7 +342,7 @@ struct server_slot {
             state = SLOT_STATE_IDLE;
 
             // do not keep context of the child slots - the parent's context is enough
-            if (is_child()) {
+            if (task->is_child()) {
                 clear(false);
             }
 
@@ -1223,12 +1217,11 @@ private:
 
         slot.task = std::make_unique<const server_task>(std::move(task));
 
-        slot.state = slot.is_child()
+        slot.state = slot.task->is_child()
             ? SLOT_STATE_WAIT_OTHER // wait for the parent to process prompt
             : SLOT_STATE_STARTED;
 
-        SLT_INF(slot, "processing task, is_child = %d\n", slot.is_child());
-
+        SLT_INF(slot, "processing task, is_child = %d\n", slot.task->is_child());
         return true;
     }
 
@@ -1623,9 +1616,7 @@ private:
 
     // tokenize the input if it's set by CLI, return false on error
     bool tokenize_cli_input(server_task & task) {
-        if (task.cli_input == nullptr) {
-            return true; // nothing to do
-        }
+        GGML_ASSERT(task.cli_input != nullptr);
         try {
             auto & opt = oai_parser_opt;
             common_chat_templates_inputs inputs;
@@ -1659,6 +1650,52 @@ private:
         return true;
     }
 
+    bool try_reserve_n_slots(const size_t n_required, const int task_id) {
+        size_t n_reserved = 0;
+        for (auto & slot : slots) {
+            if (n_reserved >= n_required) {
+                break;
+            } else if (slot.task_id_next == task_id) {
+                // already reserved to this task
+                n_reserved++;
+            } else if (slot.task_id_next == -1) {
+                // not reserved by any other tasks
+                slot.task_id_next = task_id;
+                n_reserved++;
+            }
+        }
+        return n_reserved >= n_required;
+    }
+
+    // launch multiple slots for parent + child tasks
+    bool launch_slots_with_child_tasks(server_slot & parent_slot, server_task && parent_task) {
+        GGML_ASSERT(parent_task.is_parent());
+
+        // launch all child tasks first
+        size_t i_child = 0;
+        for (auto & slot : slots) {
+            if (slot.id == parent_slot.id) {
+                continue;
+            }
+            server_task && child_task = std::move(parent_task.child_tasks[i_child]);
+            if (!launch_slot_with_task(slot, std::move(child_task))) {
+                SRV_ERR("failed to launch slot with child task, id_task = %d\n", child_task.id);
+                return false;
+            }
+            i_child++;
+        }
+        GGML_ASSERT(i_child == parent_task.n_children);
+        parent_task.child_tasks.clear();
+
+        // finally, launch the parent task
+        if (!launch_slot_with_task(parent_slot, std::move(parent_task))) {
+            SRV_ERR("failed to launch slot with task, id_task = %d\n", parent_task.id);
+            return false;
+        }
+
+        return true;
+    }
+
     void process_single_task(server_task && task) {
         switch (task.type) {
             case SERVER_TASK_TYPE_COMPLETION:
@@ -1666,17 +1703,32 @@ private:
             case SERVER_TASK_TYPE_EMBEDDING:
             case SERVER_TASK_TYPE_RERANK:
                 {
-                    if (!tokenize_cli_input(task)) {
-                        break;
+                    // special case: if input is provided via CLI, tokenize it first
+                    // otherwise, no need to tokenize as it's already done inside the HTTP thread
+                    if (task.cli_input != nullptr) {
+                        if (!tokenize_cli_input(task)) {
+                            break;
+                        }
                     }
 
                     const int id_slot = task.id_slot;
 
                     server_slot * slot = id_slot != -1 ? get_slot_by_id(id_slot) : get_available_slot(task);
 
+                    //
+                    // slot scheduling logic
+                    //
+
                     if (slot == nullptr) {
                         // if no slot is available, we defer this task for processing later
                         SRV_DBG("no slot is available, defer task, id_task = %d\n", task.id);
+                        queue_tasks.defer(std::move(task));
+                        break;
+                    }
+
+                    if (slot->task_id_next != -1 && slot->task_id_next != task.id) {
+                        // if the slot is reserved for another task, we defer this task for processing later
+                        SRV_DBG("requested slot is reserved for another task (task_id_next = %d), defer task, id_task = %d\n", slot->task_id_next, task.id);
                         queue_tasks.defer(std::move(task));
                         break;
                     }
@@ -1688,6 +1740,29 @@ private:
                         break;
                     }
 
+                    if (task.is_parent()) {
+                        // if this is a parent task, we want to make sure parent + all child tasks can be launched at the same time
+                        // the current slot must be either reserved for this task, or free
+                        GGML_ASSERT(slot->task_id_next == -1 || slot->task_id_next == task.id);
+                        slot->task_id_next = task.id;
+
+                        // need to reserve n_children more slots
+                        if (try_reserve_n_slots(task.n_children, task.id)) {
+                            // all required slots have been reserved, safe to proceed
+                            if (!launch_slots_with_child_tasks(*slot, std::move(task))) {
+                                SRV_ERR("failed to launch slots with child tasks, id_task = %d\n", task.id);
+                            }
+                            break;
+                        } else {
+                            // failed to reserve all required slots, we defer this task for processing later
+                            SRV_DBG("failed to reserve %d slots, defer task, id_task = %d\n", task.n_children + 1, task.id);
+                            // clear task_id_next for the current slot
+                            slot->task_id_next = -1;
+                            queue_tasks.defer(std::move(task));
+                            break;
+                        }
+                    }
+
                     if (!launch_slot_with_task(*slot, std::move(task))) {
                         SRV_ERR("failed to launch slot with task, id_task = %d\n", task.id);
                         break;
@@ -1695,11 +1770,14 @@ private:
                 } break;
             case SERVER_TASK_TYPE_CANCEL:
                 {
-                    // release slot linked with the task id
                     for (auto & slot : slots) {
+                        // release slot linked with the task id
                         if (slot.task && slot.task->id == task.id_target) {
                             slot.release();
-                            break;
+                        }
+                        // also clear task_id_next if needed
+                        if (slot.task_id_next == task.id_target) {
+                            slot.task_id_next = -1;
                         }
                     }
                 } break;
@@ -2968,7 +3046,9 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
             // Everything else, including multimodal completions.
             inputs = tokenize_input_prompts(ctx_server.vocab, ctx_server.mctx, prompt, true, true);
         }
-        tasks.reserve(inputs.size());
+
+        // tasks.reserve(inputs.size()); // TODO: this is inaccurate due to child tasks
+
         for (size_t i = 0; i < inputs.size(); i++) {
             server_task task = server_task(type);
 
@@ -2988,24 +3068,16 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
             task.params.oaicompat_model   = meta->model_name;
 
             // prepare child tasks
+            std::vector<server_task> child_tasks;
             if (task.params.n_cmpl > 1) {
                 task.n_children = task.params.n_cmpl - 1;
 
                 for (int j = 0; j < task.n_children; j++) {
-                    server_task child = task.create_child(task.id, rd.get_new_id());
-
-                    // use different sampling seed for each child
-                    // note: https://github.com/ggml-org/llama.cpp/pull/18700#discussion_r2675115723
-                    if (child.params.sampling.seed != LLAMA_DEFAULT_SEED) {
-                        child.params.sampling.seed += j + 1;
-                    }
-
-                    tasks.push_back(std::move(child));
+                    task.add_child(task.id, rd.get_new_id());
                 }
             }
 
-            // note: the parent task always launches first
-            tasks.insert(tasks.begin(), std::move(task));
+            tasks.push_back(std::move(task));
         }
 
         rd.post_tasks(std::move(tasks));
