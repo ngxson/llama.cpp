@@ -567,11 +567,12 @@ const func_builtins & value_string_t::get_builtins() const {
         }},
         {"float", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
+            value val_default = args.get_kwarg_or_pos("default", 1);
             std::string str = args.args[0]->as_string().str();
             try {
                 return mk_val<value_float>(std::stod(str));
             } catch (...) {
-                throw std::runtime_error("Cannot convert string '" + str + "' to float");
+                return mk_val<value_float>(val_default->is_undefined() ? 0.0 : val_default->as_float());
             }
         }},
         {"string", [](const func_args & args) -> value {
