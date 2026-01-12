@@ -863,10 +863,7 @@ float * mtmd_get_output_embd(mtmd_context * ctx) {
 
 bool mtmd_decode_use_non_causal(mtmd_context * ctx) {
     switch (ctx->proj_type_v()) {
-        case PROJECTOR_TYPE_QWEN2VL:
-        case PROJECTOR_TYPE_QWEN25VL:
-        case PROJECTOR_TYPE_QWEN3VL:
-        case PROJECTOR_TYPE_YOUTUVL:
+        case PROJECTOR_TYPE_GEMMA3:
             return true;
         default:
             return false;
@@ -874,6 +871,7 @@ bool mtmd_decode_use_non_causal(mtmd_context * ctx) {
 }
 
 bool mtmd_decode_use_mrope(mtmd_context * ctx) {
+    // TODO= use switch..case here
     return ctx->use_mrope;
 }
 
