@@ -941,10 +941,16 @@ private:
         return true;
     }
 
-    server_slot * get_slot_by_id(int id) {
+    server_slot * get_slot_by_id(int id_slot, int id_task) {
         for (server_slot & slot : slots) {
-            if (slot.id == id) {
-                return &slot;
+            if (slot.id == id_slot) {
+                if (slot.task_id_next == -1 || slot.task_id_next == id_task) {
+                    return &slot;
+                } else {
+                    SRV_DBG("slot %d is reserved for task %d, cannot assign task %d\n",
+                            id_slot, slot.task_id_next, id_task);
+                    return nullptr;
+                }
             }
         }
 
@@ -963,6 +969,11 @@ private:
             for (server_slot & slot : slots) {
                 // skip the slot if it is not available
                 if (slot.is_processing()) {
+                    continue;
+                }
+
+                // skip slot reserved for other tasks
+                if (slot.task_id_next != -1 && slot.task_id_next != task.id) {
                     continue;
                 }
 
@@ -1663,6 +1674,7 @@ private:
                 break;
             } else if (slot.task_id_next == task_id || slot.task_id_next == -1) {
                 // already reserved to this task OR not reserved by any other tasks
+                SRV_DBG("reserving slot %d for task %d\n", slot.id, task_id);
                 slot.task_id_next = task_id;
                 n_reserved++;
                 if (!slot.is_processing()) {
@@ -1753,7 +1765,9 @@ private:
 
                     const int id_slot = task.id_slot;
 
-                    server_slot * slot = id_slot != -1 ? get_slot_by_id(id_slot) : get_available_slot(task);
+                    server_slot * slot = id_slot != -1
+                                            ? get_slot_by_id(id_slot, task.id)
+                                            : get_available_slot(task);
 
                     //
                     // slot scheduling logic
@@ -1762,13 +1776,6 @@ private:
                     if (slot == nullptr) {
                         // if no slot is available, we defer this task for processing later
                         SRV_DBG("no slot is available, defer task, id_task = %d\n", task.id);
-                        queue_tasks.defer(std::move(task));
-                        break;
-                    }
-
-                    if (slot->task_id_next != -1 && slot->task_id_next != task.id) {
-                        // if the slot is reserved for another task, we defer this task for processing later
-                        SRV_DBG("requested slot is reserved for another task (task_id_next = %d), defer task, id_task = %d\n", slot->task_id_next, task.id);
                         queue_tasks.defer(std::move(task));
                         break;
                     }
@@ -1793,6 +1800,7 @@ private:
                             int task_id = task.id;
                             if (!launch_slots_with_child_tasks(*slot, std::move(task))) {
                                 SRV_ERR("failed to launch slots with child tasks, id_task = %d\n", task_id);
+                                // task must be dropped on error
                                 break;
                             }
                             break;
@@ -1880,7 +1888,7 @@ private:
                     }
 
                     int id_slot = task.slot_action.slot_id;
-                    server_slot * slot = get_slot_by_id(id_slot);
+                    server_slot * slot = get_slot_by_id(id_slot, task.id);
                     if (slot == nullptr) {
                         send_error(task, "Invalid slot ID", ERROR_TYPE_INVALID_REQUEST);
                         break;
@@ -1918,7 +1926,7 @@ private:
                 {
                     if (!check_no_mtmd(task.id)) break;
                     int id_slot = task.slot_action.slot_id;
-                    server_slot * slot = get_slot_by_id(id_slot);
+                    server_slot * slot = get_slot_by_id(id_slot, task.id);
                     if (slot == nullptr) {
                         send_error(task, "Invalid slot ID", ERROR_TYPE_INVALID_REQUEST);
                         break;
@@ -1967,7 +1975,7 @@ private:
                         break;
                     }
                     int id_slot = task.slot_action.slot_id;
-                    server_slot * slot = get_slot_by_id(id_slot);
+                    server_slot * slot = get_slot_by_id(id_slot, task.id);
                     if (slot == nullptr) {
                         send_error(task, "Invalid slot ID", ERROR_TYPE_INVALID_REQUEST);
                         break;

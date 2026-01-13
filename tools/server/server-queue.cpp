@@ -77,6 +77,7 @@ int server_queue::get_new_id() {
 void server_queue::pop_deferred_task() {
     std::unique_lock<std::mutex> lock(mutex_tasks);
     if (!queue_tasks_deferred.empty()) {
+        QUE_DBG("pop deferred task, id = %d\n", queue_tasks_deferred.front().id);
         queue_tasks.emplace_front(std::move(queue_tasks_deferred.front()));
         queue_tasks_deferred.pop_front();
     }
