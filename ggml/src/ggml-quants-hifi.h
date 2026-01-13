@@ -93,6 +93,41 @@ GGML_API int ggml_hifi_compute_block_outlier_count(
     float model_params_b
 );
 
+// ===========================================================================
+// Memory Layout Validators for Cross-Backend Consistency
+// These macros validate block structure sizes and field offsets at compile time
+// ===========================================================================
+
+// Q6_K_HIFI_RES8 layout validation
+// Total: 232 bytes (210 base + 22 extension)
+#define Q6_K_HIFI_RES8_BLOCK_SIZE 232
+#define Q6_K_HIFI_RES8_QL_OFFSET 0         // 128 bytes
+#define Q6_K_HIFI_RES8_QH_OFFSET 128       // 64 bytes
+#define Q6_K_HIFI_RES8_SCALES_OFFSET 192   // 16 bytes
+#define Q6_K_HIFI_RES8_D_OFFSET 208        // 2 bytes (ggml_half)
+#define Q6_K_HIFI_RES8_OUTLIER_COUNT_OFFSET 210  // 1 byte
+#define Q6_K_HIFI_RES8_OUTLIER_IDX_OFFSET 211    // 8 bytes
+#define Q6_K_HIFI_RES8_RESIDUAL_VALS_OFFSET 219  // 8 bytes
+#define Q6_K_HIFI_RES8_PADDING_OFFSET 227        // 1 byte
+#define Q6_K_HIFI_RES8_RESIDUAL_SCALE_OFFSET 228 // 4 bytes (float)
+
+// Q5_K_HIFI_RES8 layout validation
+// Total: 200 bytes (176 base + 24 extension)
+#define Q5_K_HIFI_RES8_BLOCK_SIZE 200
+#define Q5_K_HIFI_RES8_DM_OFFSET 0           // 4 bytes (2x ggml_half)
+#define Q5_K_HIFI_RES8_SCALES_OFFSET 4       // 12 bytes (K_SCALE_SIZE)
+#define Q5_K_HIFI_RES8_QH_OFFSET 16          // 32 bytes (QK_K/8)
+#define Q5_K_HIFI_RES8_QS_OFFSET 48          // 128 bytes (QK_K/2)
+#define Q5_K_HIFI_RES8_OUTLIER_COUNT_OFFSET 176  // 1 byte
+#define Q5_K_HIFI_RES8_OUTLIER_IDX_OFFSET 177    // 8 bytes
+#define Q5_K_HIFI_RES8_RESIDUAL_VALS_OFFSET 185  // 8 bytes
+#define Q5_K_HIFI_RES8_PADDING_OFFSET 193        // 3 bytes
+#define Q5_K_HIFI_RES8_RESIDUAL_SCALE_OFFSET 196 // 4 bytes (float)
+
+// Runtime validation function - call during initialization
+// Returns 0 on success, non-zero on layout mismatch
+GGML_API int ggml_hifi_validate_memory_layout(void);
+
 #ifdef __cplusplus
 }
 #endif

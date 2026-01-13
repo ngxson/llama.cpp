@@ -238,3 +238,62 @@ int ggml_hifi_compute_block_outlier_count(
     return adjusted_count;
 }
 
+// ===========================================================================
+// Memory Layout Validation
+// Validates block structure sizes and field offsets for cross-backend consistency
+// ===========================================================================
+#include "ggml-common.h"
+#include <stddef.h>
+
+int ggml_hifi_validate_memory_layout(void) {
+    int errors = 0;
+    
+    // Validate Q6_K_HIFI_RES8 layout
+    if (sizeof(block_q6_k_hifi_res8) != Q6_K_HIFI_RES8_BLOCK_SIZE) {
+        errors |= 1;
+    }
+    if (offsetof(block_q6_k_hifi_res8, ql) != Q6_K_HIFI_RES8_QL_OFFSET) {
+        errors |= 2;
+    }
+    if (offsetof(block_q6_k_hifi_res8, qh) != Q6_K_HIFI_RES8_QH_OFFSET) {
+        errors |= 4;
+    }
+    if (offsetof(block_q6_k_hifi_res8, scales) != Q6_K_HIFI_RES8_SCALES_OFFSET) {
+        errors |= 8;
+    }
+    if (offsetof(block_q6_k_hifi_res8, d) != Q6_K_HIFI_RES8_D_OFFSET) {
+        errors |= 16;
+    }
+    if (offsetof(block_q6_k_hifi_res8, outlier_count) != Q6_K_HIFI_RES8_OUTLIER_COUNT_OFFSET) {
+        errors |= 32;
+    }
+    if (offsetof(block_q6_k_hifi_res8, outlier_idx) != Q6_K_HIFI_RES8_OUTLIER_IDX_OFFSET) {
+        errors |= 64;
+    }
+    if (offsetof(block_q6_k_hifi_res8, residual_vals) != Q6_K_HIFI_RES8_RESIDUAL_VALS_OFFSET) {
+        errors |= 128;
+    }
+    if (offsetof(block_q6_k_hifi_res8, residual_scale) != Q6_K_HIFI_RES8_RESIDUAL_SCALE_OFFSET) {
+        errors |= 256;
+    }
+    
+    // Validate Q5_K_HIFI_RES8 layout
+    if (sizeof(block_q5_k_hifi_res8) != Q5_K_HIFI_RES8_BLOCK_SIZE) {
+        errors |= 512;
+    }
+    if (offsetof(block_q5_k_hifi_res8, outlier_count) != Q5_K_HIFI_RES8_OUTLIER_COUNT_OFFSET) {
+        errors |= 1024;
+    }
+    if (offsetof(block_q5_k_hifi_res8, outlier_idx) != Q5_K_HIFI_RES8_OUTLIER_IDX_OFFSET) {
+        errors |= 2048;
+    }
+    if (offsetof(block_q5_k_hifi_res8, residual_vals) != Q5_K_HIFI_RES8_RESIDUAL_VALS_OFFSET) {
+        errors |= 4096;
+    }
+    if (offsetof(block_q5_k_hifi_res8, residual_scale) != Q5_K_HIFI_RES8_RESIDUAL_SCALE_OFFSET) {
+        errors |= 8192;
+    }
+    
+    return errors;
+}
+
