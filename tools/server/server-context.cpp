@@ -171,7 +171,7 @@ struct server_slot {
     double t_prompt_processing; // ms
     double t_token_generation;  // ms
 
-    std::function<void(int)> callback_on_release;
+    std::function<void(int /* slot_id */, int /* task_id_next */)> callback_on_release;
 
     // Speculative decoding stats
     int32_t n_draft_total = 0;      // Total draft tokens generated
@@ -349,7 +349,7 @@ struct server_slot {
             task_prev = std::move(task);
             task.reset();
 
-            callback_on_release(id);
+            callback_on_release(id, task_id_next);
         }
     }
 
@@ -826,8 +826,9 @@ private:
 
             SLT_INF(slot, "new slot, n_ctx = %d\n", slot.n_ctx);
 
-            slot.callback_on_release = [this](int) {
-                queue_tasks.pop_deferred_task();
+            slot.callback_on_release = [this](int slot_id, int task_id_next) {
+                GGML_UNUSED(slot_id);
+                queue_tasks.pop_deferred_task(task_id_next);
             };
 
             slot.reset();

@@ -74,12 +74,23 @@ int server_queue::get_new_id() {
     return new_id;
 }
 
-void server_queue::pop_deferred_task() {
+void server_queue::pop_deferred_task(int id_task) {
     std::unique_lock<std::mutex> lock(mutex_tasks);
     if (!queue_tasks_deferred.empty()) {
-        QUE_DBG("pop deferred task, id = %d\n", queue_tasks_deferred.front().id);
-        queue_tasks.emplace_front(std::move(queue_tasks_deferred.front()));
-        queue_tasks_deferred.pop_front();
+        if (id_task == -1) {
+            QUE_DBG("pop deferred task, id = %d\n", queue_tasks_deferred.front().id);
+            queue_tasks.emplace_front(std::move(queue_tasks_deferred.front()));
+            queue_tasks_deferred.pop_front();
+        } else {
+            for (auto it = queue_tasks_deferred.begin(); it != queue_tasks_deferred.end(); ++it) {
+                if (it->id == id_task) {
+                    QUE_DBG("pop deferred task (specific id), id = %d\n", it->id);
+                    queue_tasks.emplace_front(std::move(*it));
+                    queue_tasks_deferred.erase(it);
+                    break;
+                }
+            }
+        }
     }
     time_last_task = ggml_time_ms();
     condition_tasks.notify_one();
