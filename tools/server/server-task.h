@@ -121,10 +121,9 @@ struct server_task {
     int id_slot   = -1;
 
     // used by parallel sampling (multiple completions from same prompt)
-    int n_children =  0; // number of tasks reusing this prompt
     int id_parent  = -1;
     // temporary store of child tasks for scheduling
-    // note: this vector is invalid after the task is moved to server_slot
+    // note: accessing to elements is invalid after the task is moved to server_slot
     std::vector<server_task> child_tasks;
 
     // used by SERVER_TASK_TYPE_INFERENCE
@@ -203,7 +202,7 @@ struct server_task {
     }
 
     bool is_parent() const {
-        return n_children > 0;
+        return child_tasks.size() > 0;
     }
 
     bool is_child() const {

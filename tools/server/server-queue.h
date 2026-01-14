@@ -44,9 +44,8 @@ public:
     int get_new_id();
 
     // Call when the state of one slot is changed, it will move one task from deferred to main queue
-    // if id_task != -1, only pop the deferred task with matching id
-    // pop nothing if no matching id is found
-    void pop_deferred_task(int id_task);
+    // prioritize tasks that use the specified slot (otherwise, pop the first deferred task)
+    void pop_deferred_task(int id_slot);
 
     // if sleeping, request exiting sleep state and wait until it is done
     // returns immediately if not sleeping

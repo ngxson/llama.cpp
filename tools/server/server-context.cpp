@@ -84,10 +84,6 @@ struct server_slot {
     std::unique_ptr<const server_task> task;
     std::unique_ptr<const server_task> task_prev; // used for debugging
 
-    // if set, we only accept this task next (in other words, the task reserves this slot)
-    // used for scheduling n_children tasks after the parent
-    int task_id_next = -1;
-
     // used to determine the slot that has been used the longest
     int64_t t_last_used = -1;
 
@@ -171,7 +167,7 @@ struct server_slot {
     double t_prompt_processing; // ms
     double t_token_generation;  // ms
 
-    std::function<void(int /* slot_id */, int /* task_id_next */)> callback_on_release;
+    std::function<void(int /* slot_id */)> callback_on_release;
 
     // Speculative decoding stats
     int32_t n_draft_total = 0;      // Total draft tokens generated
@@ -180,7 +176,6 @@ struct server_slot {
     void reset() {
         SLT_DBG(*this, "%s", "\n");
 
-        task_id_next          = -1;
         n_prompt_tokens_cache = 0;
 
         last_nl_pos    = 0;
@@ -349,7 +344,7 @@ struct server_slot {
             task_prev = std::move(task);
             task.reset();
 
-            callback_on_release(id, task_id_next);
+            callback_on_release(id);
         }
     }
 
@@ -826,9 +821,8 @@ private:
 
             SLT_INF(slot, "new slot, n_ctx = %d\n", slot.n_ctx);
 
-            slot.callback_on_release = [this](int slot_id, int task_id_next) {
-                GGML_UNUSED(slot_id);
-                queue_tasks.pop_deferred_task(task_id_next);
+            slot.callback_on_release = [this](int slot_id) {
+                queue_tasks.pop_deferred_task(slot_id);
             };
 
             slot.reset();
@@ -964,11 +958,6 @@ private:
             for (server_slot & slot : slots) {
                 // skip the slot if it is not available
                 if (slot.is_processing()) {
-                    continue;
-                }
-
-                // skip slot reserved for other tasks
-                if (slot.task_id_next != -1 && slot.task_id_next != task.id) {
                     continue;
                 }
 
@@ -1656,48 +1645,35 @@ private:
         return true;
     }
 
-    // if N slots are reserved AND they are all available, return true
-    // if not, leave them in the reserved state and return false
-    // ref: https://github.com/ggml-org/llama.cpp/pull/18789
-    bool try_reserve_child_slots(server_slot & cur_slot, const size_t n_required, const int task_id) {
-        size_t n_reserved = 0;
-        size_t n_available = 0;
-        for (auto & slot : slots) {
-            if (slot.id == cur_slot.id) {
-                continue; // skip the current slot
-            } else if (n_reserved >= n_required) {
-                break;
-            } else if (slot.task_id_next == task_id || slot.task_id_next == -1) {
-                // already reserved to this task OR not reserved by any other tasks
-                SRV_DBG("reserving slot %d for task %d\n", slot.id, task_id);
-                slot.task_id_next = task_id;
-                n_reserved++;
-                if (!slot.is_processing()) {
-                    n_available++;
-                }
-            }
-        }
-        return n_available >= n_required;
-    }
-
-    // unreserve all slots reserved for the given task id (must be parent id)
-    void unreserve_slots(const int id_parent) {
-        for (auto & slot : slots) {
-            if (slot.task_id_next == id_parent) {
-                slot.task_id_next = -1;
-            }
-        }
-    }
-
     // launch multiple slots for parent + child tasks
-    bool launch_slots_with_child_tasks(server_slot & parent_slot, server_task && parent_task) {
+    // return:
+    //   - 0: success
+    //   - 1: not enough slots can be allocated for all tasks
+    //   - 2: launching any of the slots fails
+    int launch_slots_with_parent_task(server_slot & parent_slot, server_task && parent_task) {
+        GGML_ASSERT(!parent_slot.is_processing());
         GGML_ASSERT(parent_task.is_parent());
+
         int id_parent = parent_task.id;
 
-        SRV_INF("launching slots for parent task id_task = %d with %d child tasks\n", id_parent, parent_task.n_children);
+        std::vector<server_slot *> child_slots;
+        for (auto & slot : slots) {
+            if (!slot.is_processing() && slot.id != parent_slot.id) {
+                child_slots.push_back(&slot);
+            }
+            if (child_slots.size() >= parent_task.child_tasks.size()) {
+                break;
+            }
+        }
+        if (child_slots.size() < parent_task.child_tasks.size()) {
+            SRV_DBG("not enough free slots to launch child tasks, n_free_slots = %zu, n_children = %zu\n",
+                    child_slots.size(), parent_task.child_tasks.size());
+            return 1;
+        }
+
+        SRV_INF("launching slots for parent task id_task = %d with %zu child tasks\n", id_parent, parent_task.child_tasks.size());
 
         // to be called in case of failure to release all launched slots
-        // this unreserves any remaning reserved slots for this parent task (prevent dangling reservations)
         auto release_slots = [this, id_parent]() {
             for (auto & slot : slots) {
                 if (slot.is_processing() && (
@@ -1710,37 +1686,26 @@ private:
         };
 
         // launch all child tasks first
-        // note: launch_slot_with_task will unreserve the task
-        int i_child = 0;
-        for (auto & slot : slots) {
-            if (slot.id == parent_slot.id) {
-                continue; // skip the parent slot
-            }
-            if (i_child >= parent_task.n_children) {
-                break;
-            }
-            GGML_ASSERT(!slot.is_processing());
-            int id_child = parent_task.child_tasks[i_child].id;
-            if (!launch_slot_with_task(slot, std::move(parent_task.child_tasks[i_child]))) {
+        size_t idx = 0;
+        GGML_ASSERT(child_slots.size() == parent_task.child_tasks.size());
+        for (auto * slot : child_slots) {
+            int id_child = parent_task.child_tasks[idx].id;
+            if (!launch_slot_with_task(*slot, std::move(parent_task.child_tasks[idx]))) {
                 SRV_ERR("failed to launch slot with child task, id_task = %d\n", id_child);
                 release_slots();
-                unreserve_slots(id_parent);
-                return false;
+                return 2;
             }
-            i_child++;
+            idx++;
         }
-        parent_task.child_tasks.clear();
 
         // finally, launch the parent task
-        GGML_ASSERT(!parent_slot.is_processing());
         if (!launch_slot_with_task(parent_slot, std::move(parent_task))) {
             SRV_ERR("failed to launch slot with task, id_task = %d\n", id_parent);
             release_slots();
-            unreserve_slots(id_parent);
-            return false;
+            return 2;
         }
 
-        return true;
+        return 0;
     }
 
     void process_single_task(server_task && task) {
@@ -1759,6 +1724,7 @@ private:
                     }
 
                     const int id_slot = task.id_slot;
+                    const int id_task = task.id;
 
                     server_slot * slot = id_slot != -1
                                             ? get_slot_by_id(id_slot)
@@ -1770,55 +1736,31 @@ private:
 
                     if (slot == nullptr) {
                         // if no slot is available, we defer this task for processing later
-                        SRV_DBG("no slot is available, defer task, id_task = %d\n", task.id);
-                        queue_tasks.defer(std::move(task));
-                        break;
-                    }
-
-                    if (slot->task_id_next != -1 && slot->task_id_next != task.id) {
-                        // slot is reserved for another task, we defer this task for processing later
-                        SRV_DBG("slot %d is reserved for task %d, defer task, id_task = %d\n", slot->id, slot->task_id_next, task.id);
+                        SRV_DBG("no slot is available, defer task, id_task = %d\n", id_task);
                         queue_tasks.defer(std::move(task));
                         break;
                     }
 
                     if (slot->is_processing()) {
                         // if requested slot is unavailable, we defer this task for processing later
-                        SRV_DBG("requested slot is unavailable, defer task, id_task = %d\n", task.id);
+                        SRV_DBG("requested slot is unavailable, defer task, id_task = %d\n", id_task);
                         queue_tasks.defer(std::move(task));
                         break;
                     }
 
                     if (task.is_parent()) {
-                        // if this is a parent task, we want to make sure parent + all child tasks can be launched at the same time
-
-                        // the current slot must be either reserved for this task, or free (checked above)
-                        GGML_ASSERT(slot->task_id_next == -1 || slot->task_id_next == task.id);
-                        slot->task_id_next = task.id;
-
-                        // need to reserve n_children more slots
-                        if (try_reserve_child_slots(*slot, task.n_children, task.id)) {
-                            // all required slots have been reserved, safe to proceed
-                            int task_id = task.id;
-                            if (!launch_slots_with_child_tasks(*slot, std::move(task))) {
-                                SRV_ERR("failed to launch slots with child tasks, id_task = %d\n", task_id);
-                                // task must be dropped on error
-                                break;
-                            }
-                            break;
-                        } else {
-                            // failed to reserve all required slots, we defer this task for processing later
-                            SRV_DBG("failed to reserve %d slots, defer task, id_task = %d\n", task.n_children + 1, task.id);
+                        int res = launch_slots_with_parent_task(*slot, std::move(task));
+                        if (res == 2) {
+                            SRV_ERR("failed to launch slots with parent task, id_task = %d\n", id_task);
+                            break; // drop the task
+                        } else if (res == 1) {
+                            SRV_DBG("not enough slots, defer task, id_task = %d\n", id_task);
                             queue_tasks.defer(std::move(task));
-                            // note: the current slot + child slots are already reserved for this task
                             break;
                         }
-                    }
-
-                    // note: launch_slot_with_task will unreserve the task
-                    if (!launch_slot_with_task(*slot, std::move(task))) {
-                        SRV_ERR("failed to launch slot with task, id_task = %d\n", task.id);
-                        break;
+                    } else if (!launch_slot_with_task(*slot, std::move(task))) {
+                        SRV_ERR("failed to launch slot with task, id_task = %d\n", id_task);
+                        break; // drop the task
                     }
                 } break;
             case SERVER_TASK_TYPE_CANCEL:
@@ -1830,7 +1772,6 @@ private:
                             break;
                         }
                     }
-                    unreserve_slots(task.id_target);
                 } break;
             case SERVER_TASK_TYPE_NEXT_RESPONSE:
                 {
@@ -2789,8 +2730,6 @@ private:
             // handle `n_cmpl > 1` tasks - when the main prompt is processed, activate all child tasks too
             for (auto & slot : slots) {
                 if (slot.state == SLOT_STATE_DONE_PROMPT && slot.task->is_parent()) {
-                    SLT_INF(slot, "parent task prompt done, n_children = %d\n", slot.task->n_children);
-
                     std::vector<server_slot *> children;
                     for (auto & other : slots) {
                         if (other.state == SLOT_STATE_WAIT_OTHER && slot.task->id == other.task->id_parent) {
@@ -2798,17 +2737,15 @@ private:
                         }
                     }
 
-                    // we can only proceed if all child slots are having the correct tasks
-                    if (slot.task->n_children == (int) children.size()) {
-                        // copy state to the child slots
-                        for (auto & child : children) {
-                            SLT_INF(slot, " - copying state to child %d\n", child->id);
+                    // all children slots should already launched by launch_slots_with_parent_task()
+                    // copy state to the child slots
+                    for (auto & child : children) {
+                        SLT_INF(slot, " - copying state to child %d\n", child->id);
 
-                            GGML_ASSERT(child->state == SLOT_STATE_WAIT_OTHER);
+                        GGML_ASSERT(child->state == SLOT_STATE_WAIT_OTHER);
 
-                            slot.copy_state_to(*child);
-                            child->state = SLOT_STATE_DONE_PROMPT;
-                        }
+                        slot.copy_state_to(*child);
+                        child->state = SLOT_STATE_DONE_PROMPT;
                     }
                 }
             }
@@ -3105,9 +3042,8 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
 
             // prepare child tasks
             if (task.params.n_cmpl > 1) {
-                task.n_children = task.params.n_cmpl - 1;
-
-                for (int j = 0; j < task.n_children; j++) {
+                int n_children = task.params.n_cmpl - 1;
+                for (int j = 0; j < n_children; j++) {
                     task.add_child(task.id, rd.get_new_id());
                 }
             }
