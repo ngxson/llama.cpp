@@ -1645,31 +1645,26 @@ private:
         return true;
     }
 
-    // launch multiple slots for parent + child tasks
-    // return:
-    //   - 0: success
-    //   - 1: not enough slots can be allocated for all tasks
-    //   - 2: launching any of the slots fails
-    int launch_slots_with_parent_task(server_slot & parent_slot, server_task && parent_task) {
-        GGML_ASSERT(!parent_slot.is_processing());
-        GGML_ASSERT(parent_task.is_parent());
-
-        int id_parent = parent_task.id;
-
-        std::vector<server_slot *> child_slots;
+    std::vector<server_slot *> get_free_slots(size_t n_slots_needed, int exclude_id_slot) {
+        std::vector<server_slot *> free_slots;
         for (auto & slot : slots) {
-            if (!slot.is_processing() && slot.id != parent_slot.id) {
-                child_slots.push_back(&slot);
+            if (!slot.is_processing() && slot.id != exclude_id_slot) {
+                free_slots.push_back(&slot);
             }
-            if (child_slots.size() >= parent_task.child_tasks.size()) {
+            if (free_slots.size() >= n_slots_needed) {
                 break;
             }
         }
-        if (child_slots.size() < parent_task.child_tasks.size()) {
-            SRV_DBG("not enough free slots to launch child tasks, n_free_slots = %zu, n_children = %zu\n",
-                    child_slots.size(), parent_task.child_tasks.size());
-            return 1;
-        }
+        return free_slots;
+    }
+
+    // launch multiple slots for parent + child tasks
+    bool launch_slots_with_parent_task(server_slot & parent_slot, std::vector<server_slot *> & child_slots, server_task && parent_task) {
+        GGML_ASSERT(!parent_slot.is_processing());
+        GGML_ASSERT(parent_task.is_parent());
+        GGML_ASSERT(child_slots.size() == parent_task.child_tasks.size());
+
+        int id_parent = parent_task.id;
 
         SRV_INF("launching slots for parent task id_task = %d with %zu child tasks\n", id_parent, parent_task.child_tasks.size());
 
@@ -1749,14 +1744,17 @@ private:
                     }
 
                     if (task.is_parent()) {
-                        int res = launch_slots_with_parent_task(*slot, std::move(task));
-                        if (res == 2) {
-                            SRV_ERR("failed to launch slots with parent task, id_task = %d\n", id_task);
-                            break; // drop the task
-                        } else if (res == 1) {
-                            SRV_DBG("not enough slots, defer task, id_task = %d\n", id_task);
+                        // try getting free slots for all child tasks
+                        size_t n_child_tasks = task.child_tasks.size();
+                        std::vector<server_slot *> child_slots = get_free_slots(n_child_tasks, slot->id);
+                        if (child_slots.size() < n_child_tasks) {
+                            SRV_DBG("not enough free slots for child tasks, n_free = %zu, n_children = %zu, defer task, id_task = %d\n", child_slots.size(), n_child_tasks, id_task);
                             queue_tasks.defer(std::move(task));
                             break;
+                        }
+                        if (!launch_slots_with_parent_task(*slot, child_slots, std::move(task))) {
+                            SRV_ERR("failed to launch slot with parent task, id_task = %d\n", id_task);
+                            break; // drop the task
                         }
                     } else if (!launch_slot_with_task(*slot, std::move(task))) {
                         SRV_ERR("failed to launch slot with task, id_task = %d\n", id_task);
