@@ -3221,6 +3221,7 @@ class GGMLQuantizationType(IntEnum):
     Q6_K_HIFI = 41            # Q6_K layout + 4 FP16 outliers
     Q6_K_HIFI_DYNAMIC = 42    # Q6_K + 2-8 dynamic outliers
     Q6_K_HIFI_RES8 = 43       # Q6_K + INT8 residuals (compact format)
+    Q5_K_HIFI_RES8 = 44       # Q5_K + INT8 residuals (efficient for 4B-10B models)
 
 
 class ExpertGatingFuncType(IntEnum):
@@ -3274,6 +3275,9 @@ class LlamaFileType(IntEnum):
     MOSTLY_TQ2_0         = 37  # except 1d tensors
     # MOSTLY_Q3_K_HIFI_UNIFORM = 40  # removed - uniform version, superseded by adaptive
     MOSTLY_Q3_K_HIFI       = 41  # Adaptive: Q3_K_HIFI on sensitive layers, Q3_K/Q4_K elsewhere
+    MOSTLY_Q4_K_HIFI       = 44  # Q4_K_M + INT8 residuals on critical tensors
+    MOSTLY_Q3_K_HIFI_NEW   = 45  # Q3_K_M base + Q6_K_HIFI on critical tensors
+    MOSTLY_Q5_K_HIFI       = 46  # Q5_K_M base + Q6_K_HIFI_RES8 on top 10-15% tensors
 
     GUESSED              = 1024  # not specified in the model file
 
@@ -3374,6 +3378,7 @@ GGML_QUANT_SIZES: dict[GGMLQuantizationType, tuple[int, int]] = {
     GGMLQuantizationType.Q6_K_HIFI: (256, 222),  # Q6_K (210) + idx[4] + vals[8]
     GGMLQuantizationType.Q6_K_HIFI_DYNAMIC: (256, 236),  # Q6_K (210) + dynamic outliers (26)
     GGMLQuantizationType.Q6_K_HIFI_RES8: (256, 232),  # Q6_K (210) + INT8 residuals (22)
+    GGMLQuantizationType.Q5_K_HIFI_RES8: (256, 200),  # Q5_K (176) + INT8 residuals (24)
 }
 
 

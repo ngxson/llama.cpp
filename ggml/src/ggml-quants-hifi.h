@@ -93,6 +93,23 @@ GGML_API int ggml_hifi_compute_block_outlier_count(
     float model_params_b
 );
 
+// ===========================================================================
+// Memory Layout Constants for Cross-Backend Consistency
+// Block sizes are validated at compile time via static_assert in ggml-common.h:
+//   static_assert(sizeof(block_q6_k_hifi_res8) == 232, ...)
+//   static_assert(sizeof(block_q5_k_hifi_res8) == 200, ...)
+// ===========================================================================
+
+// Q6_K_HIFI_RES8: 232 bytes total (210 base + 22 extension)
+// Layout: ql[128] + qh[64] + scales[16] + d[2] + outlier_count[1] + 
+//         outlier_idx[8] + residual_vals[8] + _padding[1] + residual_scale[4]
+#define Q6_K_HIFI_RES8_BLOCK_SIZE 232
+
+// Q5_K_HIFI_RES8: 200 bytes total (176 base + 24 extension)
+// Layout: dm[4] + scales[12] + qh[32] + qs[128] + outlier_count[1] +
+//         outlier_idx[8] + residual_vals[8] + _padding[3] + residual_scale[4]
+#define Q5_K_HIFI_RES8_BLOCK_SIZE 200
+
 #ifdef __cplusplus
 }
 #endif
