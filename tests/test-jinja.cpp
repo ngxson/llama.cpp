@@ -957,6 +957,16 @@ static void test_array_methods(testing & t) {
         "a,b,c,d"
     );
 
+    test_template(t, "array.map() with attribute",
+        "{% for v in arr.map('age') %}{{ v }} {% endfor %}",
+        {{"arr", json::array({
+            json({{"name", "a"}, {"age", 1}}),
+            json({{"name", "b"}, {"age", 2}}),
+            json({{"name", "c"}, {"age", 3}}),
+        })}},
+        "1 2 3 "
+    );
+
     // not used by any chat templates
     // test_template(t, "array.insert()",
     //     "{% set _ = arr.insert(1, 'x') %}{{ arr|join(',') }}",

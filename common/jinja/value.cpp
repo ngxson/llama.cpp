@@ -806,7 +806,11 @@ const func_builtins & value_array_t::get_builtins() const {
             if (!is_val<value_array>(args.get_pos(0))) {
                 throw raised_exception("map: first argument must be an array");
             }
-            std::string attribute = args.get_kwarg("attribute", mk_val<value_undefined>())->as_string().str();
+            value attribute = args.get_kwarg_or_pos("attribute", 1);
+            if (!is_val<value_string>(attribute)) {
+                throw raised_exception("map: attribute must be a string");
+            }
+            std::string attr_name = attribute->as_string().str();
             value default_val = args.get_kwarg("default", mk_val<value_undefined>());
             auto out = mk_val<value_array>();
             auto arr = args.get_pos(0)->as_array();
@@ -814,7 +818,7 @@ const func_builtins & value_array_t::get_builtins() const {
                 if (!is_val<value_object>(item)) {
                     throw raised_exception("map: item is not an object");
                 }
-                value attr_val = item->at(attribute, default_val);
+                value attr_val = item->at(attr_name, default_val);
                 out->push_back(attr_val);
             }
             return out;
@@ -851,7 +855,7 @@ const func_builtins & value_array_t::get_builtins() const {
             std::sort(arr.begin(), arr.end(),[&](const value & a, const value & b) {
                 value val_a = a;
                 value val_b = b;
-                if (!attr.empty()) {
+                if (!attribute->is_undefined()) {
                     if (!is_val<value_object>(a) || !is_val<value_object>(b)) {
                         throw raised_exception("sort: items are not objects");
                     }
