@@ -1101,6 +1101,7 @@ static std::string random_string(std::mt19937 & rng, size_t max_len) {
 // Helper to execute a fuzz test case - returns true if no crash occurred
 static bool fuzz_test_template(const std::string & tmpl, const json & vars) {
     try {
+        // printf("Fuzz testing template: %s\n", tmpl.c_str());
         jinja::lexer lexer;
         auto lexer_res = lexer.tokenize(tmpl);
         jinja::program ast = jinja::parse_from_tokens(lexer_res);
@@ -1395,6 +1396,94 @@ static void test_fuzzing(testing & t) {
                 {"bar", true}
             };
             t.assert_true("type coercion: " + tmpl, fuzz_test_template(tmpl, vars));
+        }
+    });
+
+    t.test("fuzz builtin functions", [&](testing & t) {
+        // pair of (type_name, builtin_name)
+        std::vector<std::pair<std::string, std::string>> builtins;
+        auto add_fns = [&](std::string type_name, const jinja::func_builtins & added) {
+            for (const auto & it : added) {
+                builtins.push_back({type_name, it.first});
+            }
+        };
+        add_fns("global", jinja::global_builtins());
+        add_fns("int",    jinja::value_int_t(0).get_builtins());
+        add_fns("float",  jinja::value_float_t(0.0f).get_builtins());
+        add_fns("string", jinja::value_string_t().get_builtins());
+        add_fns("array",  jinja::value_array_t().get_builtins());
+        add_fns("object", jinja::value_object_t().get_builtins());
+
+        const int max_args = 5;
+        const std::vector<std::string> kwarg_names = {
+            "base", "attribute", "default", "reverse", "case_sensitive", "by", "safe", "chars", "separators", "sort_keys", "indent", "ensure_ascii",
+        };
+
+        // Generate random argument values
+        auto gen_random_arg = [&]() -> std::string {
+            int type = choice_dist(rng) % 8;
+            switch (type) {
+                case 0: return std::to_string(int_dist(rng));           // int
+                case 1: return std::to_string(int_dist(rng)) + ".5";    // float
+                case 2: return "\"" + random_string(rng, 10) + "\"";    // string
+                case 3: return "true";                                   // bool true
+                case 4: return "false";                                  // bool false
+                case 5: return "none";                                   // none
+                case 6: return "[1, 2, 3]";                              // array
+                case 7: return "{\"a\": 1}";                             // object
+                default: return "0";
+            }
+        };
+
+        for (int i = 0; i < num_iterations; ++i) {
+            // Pick a random builtin
+            auto & [type_name, fn_name] = builtins[choice_dist(rng) % builtins.size()];
+
+            // Generate random number of args
+            int num_args = choice_dist(rng) % (max_args + 1);
+            std::string args_str;
+            for (int a = 0; a < num_args; ++a) {
+                if (a > 0) args_str += ", ";
+                // Sometimes use keyword args
+                if (choice_dist(rng) % 3 == 0 && !kwarg_names.empty()) {
+                    std::string kwarg = kwarg_names[choice_dist(rng) % kwarg_names.size()];
+                    args_str += kwarg + "=" + gen_random_arg();
+                } else {
+                    args_str += gen_random_arg();
+                }
+            }
+
+            std::string tmpl;
+            if (type_name == "global") {
+                // Global function call
+                tmpl = "{{ " + fn_name + "(" + args_str + ") }}";
+            } else {
+                // Method call on a value
+                std::string base_val;
+                if (type_name == "int") {
+                    base_val = std::to_string(int_dist(rng));
+                } else if (type_name == "float") {
+                    base_val = std::to_string(int_dist(rng)) + ".5";
+                } else if (type_name == "string") {
+                    base_val = "\"test_string\"";
+                } else if (type_name == "array") {
+                    base_val = "[1, 2, 3, \"a\", \"b\"]";
+                } else if (type_name == "object") {
+                    base_val = "{\"x\": 1, \"y\": 2}";
+                } else {
+                    base_val = "x";
+                }
+                tmpl = "{{ " + base_val + "." + fn_name + "(" + args_str + ") }}";
+            }
+
+            json vars = {
+                {"x", 42},
+                {"y", "hello"},
+                {"arr", json::array({1, 2, 3})},
+                {"obj", {{"a", 1}, {"b", 2}}}
+            };
+
+            t.assert_true("builtin " + type_name + "." + fn_name + " #" + std::to_string(i), fuzz_test_template(tmpl, vars));
         }
     });
 }

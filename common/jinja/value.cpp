@@ -16,7 +16,7 @@ namespace jinja {
 
 // func_args method implementations
 
-value func_args::get_kwarg(const std::string & key) const  {
+value func_args::get_kwarg(const std::string & key, value default_val) const {
     for (const auto & arg : args) {
         if (is_val<value_kwarg>(arg)) {
             auto * kwarg = cast_val<value_kwarg>(arg);
@@ -25,17 +25,43 @@ value func_args::get_kwarg(const std::string & key) const  {
             }
         }
     }
-    return mk_val<value_undefined>();
+    return default_val;
 }
 
 value func_args::get_kwarg_or_pos(const std::string & key, size_t pos) const {
-    value val = get_kwarg(key);
+    value val = get_kwarg(key, mk_val<value_undefined>());
 
-    if (val->is_undefined() && args.size() > pos && !is_val<value_kwarg>(args[pos])) {
-        val = args[pos];
+    if (val->is_undefined() && pos < count() && !is_val<value_kwarg>(args[pos])) {
+        return args[pos];
     }
 
     return val;
+}
+
+value func_args::get_pos(size_t pos) const {
+    if (count() > pos) {
+        return args[pos];
+    }
+    throw raised_exception("Function '" + func_name + "' expected at least " + std::to_string(pos + 1) + " arguments, got " + std::to_string(count()));
+}
+
+value func_args::get_pos(size_t pos, value default_val) const {
+    if (count() > pos) {
+        return args[pos];
+    }
+    return default_val;
+}
+
+void func_args::push_back(const value & val) {
+    args.push_back(val);
+}
+
+void func_args::push_front(const value & val) {
+    args.insert(args.begin(), val);
+}
+
+const std::vector<value> & func_args::get_args() const {
+    return args;
 }
 
 /**
@@ -91,21 +117,21 @@ static T slice(const T & array, int64_t start, int64_t stop, int64_t step = 1) {
 template<typename T>
 static value test_type_fn(const func_args & args) {
     args.ensure_count(1);
-    bool is_type = is_val<T>(args.args[0]);
+    bool is_type = is_val<T>(args.get_pos(0));
     JJ_DEBUG("test_type_fn: type=%s result=%d", typeid(T).name(), is_type ? 1 : 0);
     return mk_val<value_bool>(is_type);
 }
 template<typename T, typename U>
 static value test_type_fn(const func_args & args) {
     args.ensure_count(1);
-    bool is_type = is_val<T>(args.args[0]) || is_val<U>(args.args[0]);
+    bool is_type = is_val<T>(args.get_pos(0)) || is_val<U>(args.get_pos(0));
     JJ_DEBUG("test_type_fn: type=%s or %s result=%d", typeid(T).name(), typeid(U).name(), is_type ? 1 : 0);
     return mk_val<value_bool>(is_type);
 }
 template<value_compare_op op>
 static value test_compare_fn(const func_args & args) {
     args.ensure_count(2, 2);
-    return mk_val<value_bool>(value_compare(args.args[0], args.args[1], op));
+    return mk_val<value_bool>(value_compare(args.get_pos(0), args.get_pos(1), op));
 }
 
 static value tojson(const func_args & args) {
@@ -127,7 +153,7 @@ static value tojson(const func_args & args) {
     auto separators = (is_val<value_array>(val_separators) ? val_separators : mk_val<value_array>())->as_array();
     std::string item_sep = separators.size() > 0 ? separators[0]->as_string().str() : (indent < 0 ? ", " : ",");
     std::string key_sep = separators.size() > 1 ? separators[1]->as_string().str() : ": ";
-    std::string json_str = value_to_json(args.args[0], indent, item_sep, key_sep);
+    std::string json_str = value_to_json(args.get_pos(0), indent, item_sep, key_sep);
     return mk_val<value_string>(json_str);
 }
 
@@ -136,12 +162,12 @@ static value selectattr(const func_args & args) {
     args.ensure_count(2, 4);
     args.ensure_vals<value_array, value_string, value_string, value_string>(true, true, false, false);
 
-    auto arr = args.args[0]->as_array();
-    auto attr_name = args.args[1]->as_string().str();
+    auto arr = args.get_pos(0)->as_array();
+    auto attr_name = args.get_pos(1)->as_string().str();
     auto out = mk_val<value_array>();
     value val_default = mk_val<value_undefined>();
 
-    if (args.args.size() == 2) {
+    if (args.count() == 2) {
         // example: array | selectattr("active")
         for (const auto & item : arr) {
             if (!is_val<value_object>(item)) {
@@ -154,11 +180,11 @@ static value selectattr(const func_args & args) {
         }
         return out;
 
-    } else if (args.args.size() == 3) {
+    } else if (args.count() == 3) {
         // example: array | selectattr("equalto", "text")
         // translated to: test_is_equalto(item, "text")
-        std::string test_name = args.args[1]->as_string().str();
-        value test_val = args.args[2];
+        std::string test_name = args.get_pos(1)->as_string().str();
+        value test_val = args.get_pos(2);
         auto & builtins = global_builtins();
         auto it = builtins.find("test_is_" + test_name);
         if (it == builtins.end()) {
@@ -167,8 +193,8 @@ static value selectattr(const func_args & args) {
         auto test_fn = it->second;
         for (const auto & item : arr) {
             func_args test_args(args.ctx);
-            test_args.args.push_back(item); // current object
-            test_args.args.push_back(test_val); // extra argument
+            test_args.push_back(item); // current object
+            test_args.push_back(test_val); // extra argument
             value test_result = test_fn(test_args);
             bool is_selected = test_result->as_bool();
             if constexpr (is_reject) is_selected = !is_selected;
@@ -176,13 +202,11 @@ static value selectattr(const func_args & args) {
         }
         return out;
 
-    } else if (args.args.size() == 4) {
+    } else if (args.count() == 4) {
         // example: array | selectattr("status", "equalto", "active")
         // translated to: test_is_equalto(item.status, "active")
-        std::string test_name = args.args[2]->as_string().str();
-        func_args test_args(args.ctx);
-        test_args.args.push_back(val_default); // placeholder for current object
-        test_args.args.push_back(args.args[3]); // extra argument
+        std::string test_name = args.get_pos(2)->as_string().str();
+        auto extra_arg = args.get_pos(3);
         auto & builtins = global_builtins();
         auto it = builtins.find("test_is_" + test_name);
         if (it == builtins.end()) {
@@ -194,7 +218,9 @@ static value selectattr(const func_args & args) {
                 throw raised_exception("selectattr: item is not an object");
             }
             value attr_val = item->at(attr_name, val_default);
-            test_args.args[0] = attr_val;
+            func_args test_args(args.ctx);
+            test_args.push_back(attr_val); // attribute value
+            test_args.push_back(extra_arg); // extra argument
             value test_result = test_fn(test_args);
             bool is_selected = test_result->as_bool();
             if constexpr (is_reject) is_selected = !is_selected;
@@ -213,21 +239,21 @@ static value default_value(const func_args & args) {
     value val_check = args.get_kwarg_or_pos("boolean", 2);
     bool check_bool = val_check->as_bool(); // undefined == false
     bool no_value = check_bool
-        ? (!args.args[0]->as_bool())
-        : (args.args[0]->is_undefined() || args.args[0]->is_none());
-    return no_value ? args.args[1] : args.args[0];
+        ? (!args.get_pos(0)->as_bool())
+        : (args.get_pos(0)->is_undefined() || args.get_pos(0)->is_none());
+    return no_value ? args.get_pos(1) : args.get_pos(0);
 }
 
 const func_builtins & global_builtins() {
     static const func_builtins builtins = {
         {"raise_exception", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            std::string msg = args.args[0]->as_string().str();
+            std::string msg = args.get_pos(0)->as_string().str();
             throw raised_exception("Jinja Exception: " + msg);
         }},
         {"namespace", [](const func_args & args) -> value {
             auto out = mk_val<value_object>();
-            for (const auto & arg : args.args) {
+            for (const auto & arg : args.get_args()) {
                 if (!is_val<value_kwarg>(arg)) {
                     throw raised_exception("namespace() arguments must be kwargs");
                 }
@@ -239,7 +265,7 @@ const func_builtins & global_builtins() {
         }},
         {"strftime_now", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            std::string format = args.args[0]->as_string().str();
+            std::string format = args.get_pos(0)->as_string().str();
             // get current time
             // TODO: make sure this is the same behavior as Python's strftime
             char buf[100];
@@ -253,16 +279,16 @@ const func_builtins & global_builtins() {
             args.ensure_count(1, 3);
             args.ensure_vals<value_int, value_int, value_int>(true, false, false);
 
-            auto & arg0 = args.args[0];
-            auto & arg1 = args.args[1];
-            auto & arg2 = args.args[2];
+            auto arg0 = args.get_pos(0);
+            auto arg1 = args.get_pos(1, mk_val<value_undefined>());
+            auto arg2 = args.get_pos(2, mk_val<value_undefined>());
 
             int64_t start, stop, step;
-            if (args.args.size() == 1) {
+            if (args.count() == 1) {
                 start = 0;
                 stop = arg0->as_int();
                 step = 1;
-            } else if (args.args.size() == 2) {
+            } else if (args.count() == 2) {
                 start = arg0->as_int();
                 stop = arg1->as_int();
                 step = 1;
@@ -294,27 +320,27 @@ const func_builtins & global_builtins() {
         {"test_is_callable", test_type_fn<value_func>},
         {"test_is_odd", [](const func_args & args) -> value {
             args.ensure_vals<value_int>();
-            int64_t val = args.args[0]->as_int();
+            int64_t val = args.get_pos(0)->as_int();
             return mk_val<value_bool>(val % 2 != 0);
         }},
         {"test_is_even", [](const func_args & args) -> value {
             args.ensure_vals<value_int>();
-            int64_t val = args.args[0]->as_int();
+            int64_t val = args.get_pos(0)->as_int();
             return mk_val<value_bool>(val % 2 == 0);
         }},
         {"test_is_false", [](const func_args & args) -> value {
             args.ensure_count(1);
-            bool val = is_val<value_bool>(args.args[0]) && !args.args[0]->as_bool();
+            bool val = is_val<value_bool>(args.get_pos(0)) && !args.get_pos(0)->as_bool();
             return mk_val<value_bool>(val);
         }},
         {"test_is_true", [](const func_args & args) -> value {
             args.ensure_count(1);
-            bool val = is_val<value_bool>(args.args[0]) && args.args[0]->as_bool();
+            bool val = is_val<value_bool>(args.get_pos(0)) && args.get_pos(0)->as_bool();
             return mk_val<value_bool>(val);
         }},
         {"test_is_divisibleby", [](const func_args & args) -> value {
             args.ensure_vals<value_int, value_int>();
-            bool res = args.args[0]->val_int % args.args[1]->val_int == 0;
+            bool res = args.get_pos(0)->val_int % args.get_pos(1)->val_int == 0;
             return mk_val<value_bool>(res);
         }},
         {"test_is_string", test_type_fn<value_string>},
@@ -326,16 +352,16 @@ const func_builtins & global_builtins() {
         {"test_is_mapping", test_type_fn<value_object>},
         {"test_is_lower", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            return mk_val<value_bool>(args.args[0]->val_str.is_lowercase());
+            return mk_val<value_bool>(args.get_pos(0)->val_str.is_lowercase());
         }},
         {"test_is_upper", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            return mk_val<value_bool>(args.args[0]->val_str.is_uppercase());
+            return mk_val<value_bool>(args.get_pos(0)->val_str.is_uppercase());
         }},
         {"test_is_none", test_type_fn<value_none>},
         {"test_is_defined", [](const func_args & args) -> value {
             args.ensure_count(1);
-            bool res = !args.args[0]->is_undefined();
+            bool res = !args.get_pos(0)->is_undefined();
             JJ_DEBUG("test_is_defined: result=%d", res ? 1 : 0);
             return mk_val<value_bool>(res);
         }},
@@ -351,7 +377,7 @@ const func_builtins & global_builtins() {
         {"test_is_test", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
             auto & builtins = global_builtins();
-            std::string test_name = args.args[0]->val_str.str();
+            std::string test_name = args.get_pos(0)->val_str.str();
             auto it = builtins.find("test_is_" + test_name);
             bool res = it != builtins.end();
             return mk_val<value_bool>(res);
@@ -379,12 +405,12 @@ const func_builtins & value_int_t::get_builtins() const {
         {"default", default_value},
         {"abs", [](const func_args & args) -> value {
             args.ensure_vals<value_int>();
-            int64_t val = args.args[0]->as_int();
+            int64_t val = args.get_pos(0)->as_int();
             return mk_val<value_int>(val < 0 ? -val : val);
         }},
         {"float", [](const func_args & args) -> value {
             args.ensure_vals<value_int>();
-            double val = static_cast<double>(args.args[0]->as_int());
+            double val = static_cast<double>(args.get_pos(0)->as_int());
             return mk_val<value_float>(val);
         }},
         {"tojson", tojson},
@@ -399,12 +425,12 @@ const func_builtins & value_float_t::get_builtins() const {
         {"default", default_value},
         {"abs", [](const func_args & args) -> value {
             args.ensure_vals<value_float>();
-            double val = args.args[0]->as_float();
+            double val = args.get_pos(0)->as_float();
             return mk_val<value_float>(val < 0.0 ? -val : val);
         }},
         {"int", [](const func_args & args) -> value {
             args.ensure_vals<value_float>();
-            int64_t val = static_cast<int64_t>(args.args[0]->as_float());
+            int64_t val = static_cast<int64_t>(args.get_pos(0)->as_float());
             return mk_val<value_int>(val);
         }},
         {"tojson", tojson},
@@ -428,75 +454,81 @@ const func_builtins & value_string_t::get_builtins() const {
         {"default", default_value},
         {"upper", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            jinja::string str = args.args[0]->as_string().uppercase();
+            jinja::string str = args.get_pos(0)->as_string().uppercase();
             return mk_val<value_string>(str);
         }},
         {"lower", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            jinja::string str = args.args[0]->as_string().lowercase();
+            jinja::string str = args.get_pos(0)->as_string().lowercase();
             return mk_val<value_string>(str);
         }},
         {"strip", [](const func_args & args) -> value {
-            args.ensure_vals<value_string>();
+            value val_input = args.get_pos(0);
+            if (!is_val<value_string>(val_input)) {
+                throw raised_exception("strip() first argument must be a string");
+            }
             value val_chars = args.get_kwarg_or_pos("chars", 1);
             if (val_chars->is_undefined()) {
-                return mk_val<value_string>(args.args[0]->as_string().strip(true, true));
+                return mk_val<value_string>(args.get_pos(0)->as_string().strip(true, true));
             } else {
-                return mk_val<value_string>(args.args[0]->as_string().strip(true, true, val_chars->as_string().str()));
+                return mk_val<value_string>(args.get_pos(0)->as_string().strip(true, true, val_chars->as_string().str()));
             }
         }},
         {"rstrip", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
             value val_chars = args.get_kwarg_or_pos("chars", 1);
             if (val_chars->is_undefined()) {
-                return mk_val<value_string>(args.args[0]->as_string().strip(false, true));
+                return mk_val<value_string>(args.get_pos(0)->as_string().strip(false, true));
             } else {
-                return mk_val<value_string>(args.args[0]->as_string().strip(false, true, val_chars->as_string().str()));
+                return mk_val<value_string>(args.get_pos(0)->as_string().strip(false, true, val_chars->as_string().str()));
             }
         }},
         {"lstrip", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
             value val_chars = args.get_kwarg_or_pos("chars", 1);
             if (val_chars->is_undefined()) {
-                return mk_val<value_string>(args.args[0]->as_string().strip(true, false));
+                return mk_val<value_string>(args.get_pos(0)->as_string().strip(true, false));
             } else {
-                return mk_val<value_string>(args.args[0]->as_string().strip(true, false, val_chars->as_string().str()));
+                return mk_val<value_string>(args.get_pos(0)->as_string().strip(true, false, val_chars->as_string().str()));
             }
         }},
         {"title", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            jinja::string str = args.args[0]->as_string().titlecase();
+            jinja::string str = args.get_pos(0)->as_string().titlecase();
             return mk_val<value_string>(str);
         }},
         {"capitalize", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            jinja::string str = args.args[0]->as_string().capitalize();
+            jinja::string str = args.get_pos(0)->as_string().capitalize();
             return mk_val<value_string>(str);
         }},
         {"length", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
-            jinja::string str = args.args[0]->as_string();
+            jinja::string str = args.get_pos(0)->as_string();
             return mk_val<value_int>(str.length());
         }},
         {"startswith", [](const func_args & args) -> value {
             args.ensure_vals<value_string, value_string>();
-            std::string str = args.args[0]->as_string().str();
-            std::string prefix = args.args[1]->as_string().str();
+            std::string str = args.get_pos(0)->as_string().str();
+            std::string prefix = args.get_pos(1)->as_string().str();
             return mk_val<value_bool>(string_startswith(str, prefix));
         }},
         {"endswith", [](const func_args & args) -> value {
             args.ensure_vals<value_string, value_string>();
-            std::string str = args.args[0]->as_string().str();
-            std::string suffix = args.args[1]->as_string().str();
+            std::string str = args.get_pos(0)->as_string().str();
+            std::string suffix = args.get_pos(1)->as_string().str();
             return mk_val<value_bool>(string_endswith(str, suffix));
         }},
         {"split", [](const func_args & args) -> value {
             args.ensure_count(1, 3);
-            args.ensure_vals<value_string>();
-            std::string str = args.args[0]->as_string().str();
+            value val_input = args.get_pos(0);
+            if (!is_val<value_string>(val_input)) {
+                throw raised_exception("split() first argument must be a string");
+            }
+            std::string str = val_input->as_string().str();
             // FIXME: Support non-specified delimiter (split on consecutive (no leading or trailing) whitespace)
-            std::string delim = (args.args.size() > 1) ? args.args[1]->as_string().str() : " ";
-            int64_t maxsplit = (args.args.size() > 2) ? args.args[2]->as_int() : -1;
+            std::string delim = (args.count() > 1) ? args.get_pos(1)->as_string().str() : " ";
+            int64_t maxsplit = (args.count() > 2) ? args.get_pos(2)->as_int() : -1;
             auto result = mk_val<value_array>();
             size_t pos = 0;
             std::string token;
@@ -507,17 +539,20 @@ const func_builtins & value_string_t::get_builtins() const {
                 --maxsplit;
             }
             auto res = mk_val<value_string>(str);
-            res->val_str.mark_input_based_on(args.args[0]->val_str);
+            res->val_str.mark_input_based_on(args.get_pos(0)->val_str);
             result->push_back(std::move(res));
             return result;
         }},
         {"rsplit", [](const func_args & args) -> value {
             args.ensure_count(1, 3);
-            args.ensure_vals<value_string>();
-            std::string str = args.args[0]->as_string().str();
+            value val_input = args.get_pos(0);
+            if (!is_val<value_string>(val_input)) {
+                throw raised_exception("rsplit() first argument must be a string");
+            }
+            std::string str = val_input->as_string().str();
             // FIXME: Support non-specified delimiter (split on consecutive (no leading or trailing) whitespace)
-            std::string delim = (args.args.size() > 1) ? args.args[1]->as_string().str() : " ";
-            int64_t maxsplit = (args.args.size() > 2) ? args.args[2]->as_int() : -1;
+            std::string delim = (args.count() > 1) ? args.get_pos(1)->as_string().str() : " ";
+            int64_t maxsplit = (args.count() > 2) ? args.get_pos(2)->as_int() : -1;
             auto result = mk_val<value_array>();
             size_t pos = 0;
             std::string token;
@@ -528,17 +563,17 @@ const func_builtins & value_string_t::get_builtins() const {
                 --maxsplit;
             }
             auto res = mk_val<value_string>(str);
-            res->val_str.mark_input_based_on(args.args[0]->val_str);
+            res->val_str.mark_input_based_on(args.get_pos(0)->val_str);
             result->push_back(std::move(res));
             result->reverse();
             return result;
         }},
         {"replace", [](const func_args & args) -> value {
             args.ensure_vals<value_string, value_string, value_string, value_int>(true, true, true, false);
-            std::string str = args.args[0]->as_string().str();
-            std::string old_str = args.args[1]->as_string().str();
-            std::string new_str = args.args[2]->as_string().str();
-            int64_t count = args.args.size() > 3 ? args.args[3]->as_int() : -1;
+            std::string str = args.get_pos(0)->as_string().str();
+            std::string old_str = args.get_pos(1)->as_string().str();
+            std::string new_str = args.get_pos(2)->as_string().str();
+            int64_t count = args.count() > 3 ? args.get_pos(3)->as_int() : -1;
             if (count > 0) {
                 throw not_implemented_exception("String replace with count argument not implemented");
             }
@@ -548,15 +583,18 @@ const func_builtins & value_string_t::get_builtins() const {
                 pos += new_str.length();
             }
             auto res = mk_val<value_string>(str);
-            res->val_str.mark_input_based_on(args.args[0]->val_str);
+            res->val_str.mark_input_based_on(args.get_pos(0)->val_str);
             return res;
         }},
         {"int", [](const func_args & args) -> value {
-            args.ensure_vals<value_string>();
+            value val_input   = args.get_pos(0);
             value val_default = args.get_kwarg_or_pos("default", 1);
             value val_base    = args.get_kwarg_or_pos("base",    2);
             const int base = val_base->is_undefined() ? 10 : val_base->as_int();
-            std::string str = args.args[0]->as_string().str();
+            if (is_val<value_string>(val_input) == false) {
+                throw raised_exception("int() first argument must be a string");
+            }
+            std::string str = val_input->as_string().str();
             try {
                 return mk_val<value_int>(std::stoi(str, nullptr, base));
             } catch (...) {
@@ -566,7 +604,7 @@ const func_builtins & value_string_t::get_builtins() const {
         {"float", [](const func_args & args) -> value {
             args.ensure_vals<value_string>();
             value val_default = args.get_kwarg_or_pos("default", 1);
-            std::string str = args.args[0]->as_string().str();
+            std::string str = args.get_pos(0)->as_string().str();
             try {
                 return mk_val<value_float>(std::stod(str));
             } catch (...) {
@@ -576,16 +614,16 @@ const func_builtins & value_string_t::get_builtins() const {
         {"string", [](const func_args & args) -> value {
             // no-op
             args.ensure_vals<value_string>();
-            return mk_val<value_string>(args.args[0]->as_string());
+            return mk_val<value_string>(args.get_pos(0)->as_string());
         }},
         {"default", [](const func_args & args) -> value {
-            value input = args.args[0];
+            value input = args.get_pos(0);
             if (!is_val<value_string>(input)) {
                 throw raised_exception("default() first argument must be a string");
             }
             value default_val = mk_val<value_string>("");
-            if (args.args.size() > 1 && !args.args[1]->is_undefined()) {
-                default_val = args.args[1];
+            if (args.count() > 1 && !args.get_pos(1)->is_undefined()) {
+                default_val = args.get_pos(1);
             }
             value boolean_val = args.get_kwarg_or_pos("boolean", 2); // undefined == false
             if (input->is_undefined() || (boolean_val->as_bool() && !input->as_bool())) {
@@ -598,16 +636,16 @@ const func_builtins & value_string_t::get_builtins() const {
             args.ensure_count(1, 4);
             args.ensure_vals<value_string, value_int, value_int, value_int>(true, true, false, false);
 
-            auto & arg0 = args.args[1];
-            auto & arg1 = args.args[2];
-            auto & arg2 = args.args[3];
+            auto arg0 = args.get_pos(1);
+            auto arg1 = args.get_pos(2, mk_val<value_undefined>());
+            auto arg2 = args.get_pos(3, mk_val<value_undefined>());
 
             int64_t start, stop, step;
-            if (args.args.size() == 1) {
+            if (args.count() == 1) {
                 start = 0;
                 stop = arg0->as_int();
                 step = 1;
-            } else if (args.args.size() == 2) {
+            } else if (args.count() == 2) {
                 start = arg0->as_int();
                 stop = arg1->as_int();
                 step = 1;
@@ -619,7 +657,7 @@ const func_builtins & value_string_t::get_builtins() const {
             if (step == 0) {
                 throw raised_exception("slice step cannot be zero");
             }
-            auto & input = args.args[0];
+            auto input = args.get_pos(0);
             auto sliced = slice(input->as_string().str(), start, stop, step);
             auto res = mk_val<value_string>(sliced);
             res->val_str.mark_input_based_on(input->as_string());
@@ -628,7 +666,7 @@ const func_builtins & value_string_t::get_builtins() const {
         {"safe", [](const func_args & args) -> value {
             // no-op for now
             args.ensure_vals<value_string>();
-            return args.args[0];
+            return args.get_pos(0);
         }},
         {"tojson", tojson},
         {"indent", [](const func_args &) -> value {
@@ -647,17 +685,17 @@ const func_builtins & value_bool_t::get_builtins() const {
         {"default", default_value},
         {"int", [](const func_args & args) -> value {
             args.ensure_vals<value_bool>();
-            bool val = args.args[0]->as_bool();
+            bool val = args.get_pos(0)->as_bool();
             return mk_val<value_int>(val ? 1 : 0);
         }},
         {"float", [](const func_args & args) -> value {
             args.ensure_vals<value_bool>();
-            bool val = args.args[0]->as_bool();
+            bool val = args.get_pos(0)->as_bool();
             return mk_val<value_float>(val ? 1.0 : 0.0);
         }},
         {"string", [](const func_args & args) -> value {
             args.ensure_vals<value_bool>();
-            bool val = args.args[0]->as_bool();
+            bool val = args.get_pos(0)->as_bool();
             return mk_val<value_string>(val ? "True" : "False");
         }},
     };
@@ -670,7 +708,7 @@ const func_builtins & value_array_t::get_builtins() const {
         {"default", default_value},
         {"list", [](const func_args & args) -> value {
             args.ensure_vals<value_array>();
-            const auto & arr = args.args[0]->as_array();
+            const auto & arr = args.get_pos(0)->as_array();
             auto result = mk_val<value_array>();
             for (const auto& v : arr) {
                 result->push_back(v);
@@ -679,7 +717,7 @@ const func_builtins & value_array_t::get_builtins() const {
         }},
         {"first", [](const func_args & args) -> value {
             args.ensure_vals<value_array>();
-            const auto & arr = args.args[0]->as_array();
+            const auto & arr = args.get_pos(0)->as_array();
             if (arr.empty()) {
                 return mk_val<value_undefined>();
             }
@@ -687,7 +725,7 @@ const func_builtins & value_array_t::get_builtins() const {
         }},
         {"last", [](const func_args & args) -> value {
             args.ensure_vals<value_array>();
-            const auto & arr = args.args[0]->as_array();
+            const auto & arr = args.get_pos(0)->as_array();
             if (arr.empty()) {
                 return mk_val<value_undefined>();
             }
@@ -695,23 +733,23 @@ const func_builtins & value_array_t::get_builtins() const {
         }},
         {"length", [](const func_args & args) -> value {
             args.ensure_vals<value_array>();
-            const auto & arr = args.args[0]->as_array();
+            const auto & arr = args.get_pos(0)->as_array();
             return mk_val<value_int>(static_cast<int64_t>(arr.size()));
         }},
         {"slice", [](const func_args & args) -> value {
             args.ensure_count(1, 4);
             args.ensure_vals<value_array, value_int, value_int, value_int>(true, true, false, false);
 
-            auto & arg0 = args.args[1];
-            auto & arg1 = args.args[2];
-            auto & arg2 = args.args[3];
+            auto arg0 = args.get_pos(1);
+            auto arg1 = args.get_pos(2, mk_val<value_undefined>());
+            auto arg2 = args.get_pos(3, mk_val<value_undefined>());
 
             int64_t start, stop, step;
-            if (args.args.size() == 1) {
+            if (args.count() == 1) {
                 start = 0;
                 stop = arg0->as_int();
                 step = 1;
-            } else if (args.args.size() == 2) {
+            } else if (args.count() == 2) {
                 start = arg0->as_int();
                 stop = arg1->as_int();
                 step = 1;
@@ -723,7 +761,7 @@ const func_builtins & value_array_t::get_builtins() const {
             if (step == 0) {
                 throw raised_exception("slice step cannot be zero");
             }
-            auto arr = slice(args.args[0]->as_array(), start, stop, step);
+            auto arr = slice(args.get_pos(0)->as_array(), start, stop, step);
             auto res = mk_val<value_array>();
             res->val_arr = std::move(arr);
             return res;
@@ -734,7 +772,7 @@ const func_builtins & value_array_t::get_builtins() const {
         {"reject", selectattr<true>},
         {"join", [](const func_args & args) -> value {
             args.ensure_count(1, 3);
-            if (!is_val<value_array>(args.args[0])) {
+            if (!is_val<value_array>(args.get_pos(0))) {
                 throw raised_exception("join() first argument must be an array");
             }
             value val_delim     = args.get_kwarg_or_pos("d",         1);
@@ -742,7 +780,7 @@ const func_builtins & value_array_t::get_builtins() const {
             if (!val_attribute->is_undefined()) {
                 throw not_implemented_exception("array attribute join not implemented");
             }
-            const auto & arr = args.args[0]->as_array();
+            const auto & arr = args.get_pos(0)->as_array();
             std::string delim = is_val<value_string>(val_delim) ? val_delim->as_string().str() : "";
             std::string result;
             for (size_t i = 0; i < arr.size(); ++i) {
@@ -759,19 +797,19 @@ const func_builtins & value_array_t::get_builtins() const {
         {"string", [](const func_args & args) -> value {
             args.ensure_vals<value_array>();
             auto str = mk_val<value_string>();
-            gather_string_parts_recursive(args.args[0], str);
+            gather_string_parts_recursive(args.get_pos(0), str);
             return str;
         }},
         {"tojson", tojson},
         {"map", [](const func_args & args) -> value {
             args.ensure_count(2, 3);
-            if (!is_val<value_array>(args.args[0])) {
+            if (!is_val<value_array>(args.get_pos(0))) {
                 throw raised_exception("map: first argument must be an array");
             }
-            std::string attribute = args.get_kwarg("attribute")->as_string().str();
-            value default_val = args.get_kwarg("default");
+            std::string attribute = args.get_kwarg("attribute", mk_val<value_undefined>())->as_string().str();
+            value default_val = args.get_kwarg("default", mk_val<value_undefined>());
             auto out = mk_val<value_array>();
-            auto arr = args.args[0]->as_array();
+            auto arr = args.get_pos(0)->as_array();
             for (const auto & item : arr) {
                 if (!is_val<value_object>(item)) {
                     throw raised_exception("map: item is not an object");
@@ -783,31 +821,33 @@ const func_builtins & value_array_t::get_builtins() const {
         }},
         {"append", [](const func_args & args) -> value {
             args.ensure_count(2);
-            if (!is_val<value_array>(args.args[0])) {
+            if (!is_val<value_array>(args.get_pos(0))) {
                 throw raised_exception("append: first argument must be an array");
             }
-            auto & non_const_args = const_cast<func_args &>(args); // need to modify the array
-            auto arr = cast_val<value_array>(non_const_args.args[0]);
-            arr->push_back(non_const_args.args[1]);
-            return non_const_args.args[0];
+            const value_array_t * arr = cast_val<value_array>(args.get_pos(0));
+            // need to use const_cast here to modify the array
+            value_array_t * arr_editable = const_cast<value_array_t *>(arr);
+            arr_editable->push_back(args.get_pos(1));
+            return args.get_pos(0);
         }},
         {"pop", [](const func_args & args) -> value {
             args.ensure_count(1, 2);
             args.ensure_vals<value_array, value_int>(true, false);
-            int64_t index = args.args.size() == 2 ? args.args[1]->as_int() : -1;
-            auto & non_const_args = const_cast<func_args &>(args); // need to modify the array
-            auto arr = cast_val<value_array>(non_const_args.args[0]);
-            return arr->pop_at(index);
+            int64_t index = args.count() == 2 ? args.get_pos(1)->as_int() : -1;
+            const value_array_t * arr = cast_val<value_array>(args.get_pos(0));
+            // need to use const_cast here to modify the array
+            value_array_t * arr_editable = const_cast<value_array_t *>(arr);
+            return arr_editable->pop_at(index);
         }},
         {"sort", [](const func_args & args) -> value {
             args.ensure_count(1, 99);
-            if (!is_val<value_array>(args.args[0])) {
+            if (!is_val<value_array>(args.get_pos(0))) {
                 throw raised_exception("sort: first argument must be an array");
             }
-            bool reverse = args.get_kwarg("reverse")->as_bool();
-            value attribute = args.get_kwarg("attribute");
+            bool reverse = args.get_kwarg("reverse", mk_val<value_undefined>())->as_bool();
+            value attribute = args.get_kwarg("attribute", mk_val<value_undefined>());
             std::string attr = attribute->is_undefined() ? "" : attribute->as_string().str();
-            std::vector<value> arr = cast_val<value_array>(args.args[0])->as_array(); // copy
+            std::vector<value> arr = cast_val<value_array>(args.get_pos(0))->as_array(); // copy
             std::sort(arr.begin(), arr.end(),[&](const value & a, const value & b) {
                 value val_a = a;
                 value val_b = b;
@@ -828,7 +868,7 @@ const func_builtins & value_array_t::get_builtins() const {
         }},
         {"reverse", [](const func_args & args) -> value {
             args.ensure_vals<value_array>();
-            std::vector<value> arr = cast_val<value_array>(args.args[0])->as_array(); // copy
+            std::vector<value> arr = cast_val<value_array>(args.get_pos(0))->as_array(); // copy
             std::reverse(arr.begin(), arr.end());
             return mk_val<value_array>(arr);
         }},
@@ -845,18 +885,18 @@ const func_builtins & value_object_t::get_builtins() const {
         // {"default", default_value}, // cause issue with gpt-oss
         {"get", [](const func_args & args) -> value {
             args.ensure_count(2, 3);
-            if (!is_val<value_object>(args.args[0])) {
+            if (!is_val<value_object>(args.get_pos(0))) {
                 throw raised_exception("get: first argument must be an object");
             }
-            if (!is_val<value_string>(args.args[1])) {
+            if (!is_val<value_string>(args.get_pos(1))) {
                 throw raised_exception("get: second argument must be a string (key)");
             }
             value default_val = mk_val<value_none>();
-            if (args.args.size() == 3) {
-                default_val = args.args[2];
+            if (args.count() == 3) {
+                default_val = args.get_pos(2);
             }
-            const auto & obj = args.args[0]->as_object();
-            std::string key = args.args[1]->as_string().str();
+            const auto & obj = args.get_pos(0)->as_object();
+            std::string key = args.get_pos(1)->as_string().str();
             auto it = obj.find(key);
             if (it != obj.end()) {
                 return it->second;
@@ -866,7 +906,7 @@ const func_builtins & value_object_t::get_builtins() const {
         }},
         {"keys", [](const func_args & args) -> value {
             args.ensure_vals<value_object>();
-            const auto & obj = args.args[0]->as_object();
+            const auto & obj = args.get_pos(0)->as_object();
             auto result = mk_val<value_array>();
             for (const auto & pair : obj) {
                 result->push_back(mk_val<value_string>(pair.first));
@@ -875,7 +915,7 @@ const func_builtins & value_object_t::get_builtins() const {
         }},
         {"values", [](const func_args & args) -> value {
             args.ensure_vals<value_object>();
-            const auto & obj = args.args[0]->as_object();
+            const auto & obj = args.get_pos(0)->as_object();
             auto result = mk_val<value_array>();
             for (const auto & pair : obj) {
                 result->push_back(pair.second);
@@ -884,7 +924,7 @@ const func_builtins & value_object_t::get_builtins() const {
         }},
         {"items", [](const func_args & args) -> value {
             args.ensure_vals<value_object>();
-            const auto & obj = args.args[0]->as_object();
+            const auto & obj = args.get_pos(0)->as_object();
             auto result = mk_val<value_array>();
             for (const auto & pair : obj) {
                 auto item = mk_val<value_array>();
@@ -898,7 +938,7 @@ const func_builtins & value_object_t::get_builtins() const {
         {"string", tojson},
         {"length", [](const func_args & args) -> value {
             args.ensure_vals<value_object>();
-            const auto & obj = args.args[0]->as_object();
+            const auto & obj = args.get_pos(0)->as_object();
             return mk_val<value_int>(static_cast<int64_t>(obj.size()));
         }},
         {"tojson", [](const func_args & args) -> value {
@@ -907,7 +947,7 @@ const func_builtins & value_object_t::get_builtins() const {
             return global_builtins().at("tojson")(args);
         }},
         {"dictsort", [](const func_args & args) -> value {
-            args.ensure_vals<value_object>();
+            value val_input   = args.get_pos(0);
             value val_case    = args.get_kwarg_or_pos("case_sensitive", 1);
             value val_by      = args.get_kwarg_or_pos("by",             2);
             value val_reverse = args.get_kwarg_or_pos("reverse",        3);
@@ -920,7 +960,7 @@ const func_builtins & value_object_t::get_builtins() const {
             if (reverse) {
                 throw not_implemented_exception("dictsort reverse not implemented");
             }
-            value_t::map obj = args.args[0]->val_obj; // copy
+            value_t::map obj = val_input->val_obj; // copy
             std::sort(obj.ordered.begin(), obj.ordered.end(), [&](const auto & a, const auto & b) {
                 return a.first < b.first;
             });

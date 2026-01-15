@@ -337,12 +337,18 @@ using value_undefined = std::shared_ptr<value_undefined_t>;
 //
 
 struct func_args {
+public:
     std::string func_name; // for error messages
-    std::vector<value> args;
     context & ctx;
     func_args(context & ctx) : ctx(ctx) {}
-    value get_kwarg(const std::string & key) const;
+    value get_kwarg(const std::string & key, value default_val) const;
     value get_kwarg_or_pos(const std::string & key, size_t pos) const;
+    value get_pos(size_t pos) const;
+    value get_pos(size_t pos, value default_val) const;
+    const std::vector<value> & get_args() const;
+    size_t count() const { return args.size(); }
+    void push_back(const value & val);
+    void push_front(const value & val);
     void ensure_count(size_t min, size_t max = 999) const {
         size_t n = args.size();
         if (n < min || n > max) {
@@ -354,24 +360,35 @@ struct func_args {
             throw std::runtime_error("Function '" + func_name + "' expected value of type " + std::string(typeid(T).name()) + ", got " + ptr->type());
         }
     }
+    void ensure_count(size_t max, bool require0, bool require1, bool require2, bool require3) const {
+        static auto bool_to_int = [](bool b) { return b ? 1 : 0; };
+        size_t required = bool_to_int(require0) + bool_to_int(require1) + bool_to_int(require2) + bool_to_int(require3);
+        ensure_count(required, max);
+    }
     template<typename T0> void ensure_vals(bool required0 = true) const {
+        ensure_count(1, required0, false, false, false);
         if (required0 && args.size() > 0) ensure_val<T0>(args[0]);
     }
     template<typename T0, typename T1> void ensure_vals(bool required0 = true, bool required1 = true) const {
+        ensure_count(2, required0, required1, false, false);
         if (required0 && args.size() > 0) ensure_val<T0>(args[0]);
         if (required1 && args.size() > 1) ensure_val<T1>(args[1]);
     }
     template<typename T0, typename T1, typename T2> void ensure_vals(bool required0 = true, bool required1 = true, bool required2 = true) const {
+        ensure_count(3, required0, required1, required2, false);
         if (required0 && args.size() > 0) ensure_val<T0>(args[0]);
         if (required1 && args.size() > 1) ensure_val<T1>(args[1]);
         if (required2 && args.size() > 2) ensure_val<T2>(args[2]);
     }
     template<typename T0, typename T1, typename T2, typename T3> void ensure_vals(bool required0 = true, bool required1 = true, bool required2 = true, bool required3 = true) const {
+        ensure_count(4, required0, required1, required2, required3);
         if (required0 && args.size() > 0) ensure_val<T0>(args[0]);
         if (required1 && args.size() > 1) ensure_val<T1>(args[1]);
         if (required2 && args.size() > 2) ensure_val<T2>(args[2]);
         if (required3 && args.size() > 3) ensure_val<T3>(args[3]);
     }
+private:
+    std::vector<value> args;
 };
 
 struct value_func_t : public value_t {
@@ -387,7 +404,7 @@ struct value_func_t : public value_t {
         func_args new_args(args); // copy
         new_args.func_name = name;
         if (arg0) {
-            new_args.args.insert(new_args.args.begin(), arg0);
+            new_args.push_front(arg0);
         }
         return val_func(new_args);
     }

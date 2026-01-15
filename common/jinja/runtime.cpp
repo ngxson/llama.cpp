@@ -325,7 +325,7 @@ value filter_expression::execute_impl(context & ctx) {
         JJ_DEBUG("Applying filter '%s' with arguments to %s", filter_id.c_str(), input->type().c_str());
         func_args args(ctx);
         for (const auto & arg_expr : call->args) {
-            args.args.push_back(arg_expr->execute(ctx));
+            args.push_back(arg_expr->execute(ctx));
         }
 
         return try_builtin_func(ctx, filter_id, input)->invoke(args);
@@ -358,7 +358,7 @@ value test_expression::execute_impl(context & ctx) {
     value input = operand->execute(ctx);
 
     func_args args(ctx);
-    args.args.push_back(input);
+    args.push_back(input);
 
     if (is_stmt<identifier>(test)) {
         test_id = cast_stmt<identifier>(test)->val;
@@ -371,7 +371,7 @@ value test_expression::execute_impl(context & ctx) {
 
         JJ_DEBUG("Applying test '%s' with arguments to %s", test_id.c_str(), input->type().c_str());
         for (const auto & arg_expr : call->args) {
-            args.args.push_back(arg_expr->execute(ctx));
+            args.push_back(arg_expr->execute(ctx));
         }
 
     } else {
@@ -656,7 +656,7 @@ value macro_statement::execute_impl(context & ctx) {
 
     const func_handler func = [this, name, &ctx](const func_args & args) -> value {
         size_t expected_count = this->args.size();
-        size_t input_count = args.args.size();
+        size_t input_count = args.count();
 
         JJ_DEBUG("Invoking macro '%s' with %zu input arguments (expected %zu)", name.c_str(), input_count, expected_count);
         context macro_ctx(ctx); // new scope for macro execution
@@ -667,8 +667,8 @@ value macro_statement::execute_impl(context & ctx) {
                 if (is_stmt<identifier>(this->args[i])) {
                     // normal parameter
                     std::string param_name = cast_stmt<identifier>(this->args[i])->val;
-                    JJ_DEBUG("  Binding parameter '%s' to argument of type %s", param_name.c_str(), args.args[i]->type().c_str());
-                    macro_ctx.set_val(param_name, args.args[i]);
+                    JJ_DEBUG("  Binding parameter '%s' to argument of type %s", param_name.c_str(), args.get_pos(i)->type().c_str());
+                    macro_ctx.set_val(param_name, args.get_pos(i));
                 } else if (is_stmt<keyword_argument_expression>(this->args[i])) {
                     // default argument used as normal parameter
                     auto kwarg = cast_stmt<keyword_argument_expression>(this->args[i]);
@@ -676,8 +676,8 @@ value macro_statement::execute_impl(context & ctx) {
                         throw std::runtime_error("Keyword argument key must be an identifier in macro '" + name + "'");
                     }
                     std::string param_name = cast_stmt<identifier>(kwarg->key)->val;
-                    JJ_DEBUG("  Binding parameter '%s' to argument of type %s", param_name.c_str(), args.args[i]->type().c_str());
-                    macro_ctx.set_val(param_name, args.args[i]);
+                    JJ_DEBUG("  Binding parameter '%s' to argument of type %s", param_name.c_str(), args.get_pos(i)->type().c_str());
+                    macro_ctx.set_val(param_name, args.get_pos(i));
                 } else {
                     throw std::runtime_error("Invalid parameter type in macro '" + name + "'");
                 }
@@ -737,9 +737,9 @@ value member_expression::execute_impl(context & ctx) {
                      step_val->as_repr().c_str());
             auto slice_func = try_builtin_func(ctx, "slice", object);
             func_args args(ctx);
-            args.args.push_back(start_val);
-            args.args.push_back(stop_val);
-            args.args.push_back(step_val);
+            args.push_back(start_val);
+            args.push_back(stop_val);
+            args.push_back(step_val);
             return slice_func->invoke(args);
         } else {
             property = this->property->execute(ctx);
@@ -824,7 +824,7 @@ value call_expression::execute_impl(context & ctx) {
     for (auto & arg_stmt : this->args) {
         auto arg_val = arg_stmt->execute(ctx);
         JJ_DEBUG("  Argument type: %s", arg_val->type().c_str());
-        args.args.push_back(std::move(arg_val));
+        args.push_back(std::move(arg_val));
     }
     // execute callee
     value callee_val = callee->execute(ctx);
@@ -832,7 +832,7 @@ value call_expression::execute_impl(context & ctx) {
         throw std::runtime_error("Callee is not a function: got " + callee_val->type());
     }
     auto * callee_func = cast_val<value_func>(callee_val);
-    JJ_DEBUG("Calling function '%s' with %zu arguments", callee_func->name.c_str(), args.args.size());
+    JJ_DEBUG("Calling function '%s' with %zu arguments", callee_func->name.c_str(), args.count());
     return callee_func->invoke(args);
 }
 
