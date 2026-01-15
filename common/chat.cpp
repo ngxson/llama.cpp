@@ -815,8 +815,14 @@ static std::string apply(
         {"bos_token", tmpl.bos_token()},
         {"eos_token", tmpl.eos_token()},
     };
+    if (inputs.extra_context.is_object()) {
+        // TODO: do we need to merge, or replacing is fine?
+        for (const auto & [k, v] : inputs.extra_context.items()) {
+            inp[k] = v;
+        }
+    }
     if (additional_context.has_value()) {
-        // TODO: merge properly instead of overwriting
+        // TODO: merge properly instead of overwriting (matching old behavior)
         for (const auto & [k, v] : additional_context->items()) {
             inp[k] = v;
         }
