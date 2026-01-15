@@ -4,6 +4,7 @@
 #include "value.h"
 
 #include <cassert>
+#include <ctime>
 #include <memory>
 #include <sstream>
 #include <string>

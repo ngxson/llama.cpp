@@ -106,28 +106,30 @@ string string::append(const string & other) {
 
 // in-place transformation
 
-string string::apply_transform(const transform_fn & fn) {
-    for (auto & part : parts) {
+using transform_fn = std::function<std::string(const std::string&)>;
+static string apply_transform(string & self, const transform_fn & fn) {
+    for (auto & part : self.parts) {
         part.val = fn(part.val);
     }
-    return *this;
+    return self;
 }
+
 string string::uppercase() {
-    return apply_transform([](const std::string & s) {
+    return apply_transform(*this, [](const std::string & s) {
         std::string res = s;
         std::transform(res.begin(), res.end(), res.begin(), ::toupper);
         return res;
     });
 }
 string string::lowercase() {
-    return apply_transform([](const std::string & s) {
+    return apply_transform(*this, [](const std::string & s) {
         std::string res = s;
         std::transform(res.begin(), res.end(), res.begin(), ::tolower);
         return res;
     });
 }
 string string::capitalize() {
-    return apply_transform([](const std::string & s) {
+    return apply_transform(*this, [](const std::string & s) {
         if (s.empty()) return s;
         std::string res = s;
         res[0] = ::toupper(static_cast<unsigned char>(res[0]));
@@ -136,7 +138,7 @@ string string::capitalize() {
     });
 }
 string string::titlecase() {
-    return apply_transform([](const std::string & s) {
+    return apply_transform(*this, [](const std::string & s) {
         std::string res = s;
         bool capitalize_next = true;
         for (char &c : res) {

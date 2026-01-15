@@ -1,6 +1,5 @@
 #pragma once
 
-#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -21,8 +20,6 @@ struct string_part {
 };
 
 struct string {
-    using transform_fn = std::function<std::string(const std::string&)>;
-
     std::vector<string_part> parts;
     string() = default;
     string(const std::string & v, bool user_input = false) {
@@ -51,7 +48,6 @@ struct string {
 
     // in-place transformations
 
-    string apply_transform(const transform_fn & fn);
     string uppercase();
     string lowercase();
     string capitalize();
