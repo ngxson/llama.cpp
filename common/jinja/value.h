@@ -360,28 +360,28 @@ public:
             throw std::runtime_error("Function '" + func_name + "' expected value of type " + std::string(typeid(T).name()) + ", got " + ptr->type());
         }
     }
-    void ensure_count(size_t max, bool require0, bool require1, bool require2, bool require3) const {
+    void ensure_count(bool require0, bool require1, bool require2, bool require3) const {
         static auto bool_to_int = [](bool b) { return b ? 1 : 0; };
         size_t required = bool_to_int(require0) + bool_to_int(require1) + bool_to_int(require2) + bool_to_int(require3);
-        ensure_count(required, max);
+        ensure_count(required);
     }
     template<typename T0> void ensure_vals(bool required0 = true) const {
-        ensure_count(1, required0, false, false, false);
+        ensure_count(required0, false, false, false);
         if (required0 && args.size() > 0) ensure_val<T0>(args[0]);
     }
     template<typename T0, typename T1> void ensure_vals(bool required0 = true, bool required1 = true) const {
-        ensure_count(2, required0, required1, false, false);
+        ensure_count(required0, required1, false, false);
         if (required0 && args.size() > 0) ensure_val<T0>(args[0]);
         if (required1 && args.size() > 1) ensure_val<T1>(args[1]);
     }
     template<typename T0, typename T1, typename T2> void ensure_vals(bool required0 = true, bool required1 = true, bool required2 = true) const {
-        ensure_count(3, required0, required1, required2, false);
+        ensure_count(required0, required1, required2, false);
         if (required0 && args.size() > 0) ensure_val<T0>(args[0]);
         if (required1 && args.size() > 1) ensure_val<T1>(args[1]);
         if (required2 && args.size() > 2) ensure_val<T2>(args[2]);
     }
     template<typename T0, typename T1, typename T2, typename T3> void ensure_vals(bool required0 = true, bool required1 = true, bool required2 = true, bool required3 = true) const {
-        ensure_count(4, required0, required1, required2, required3);
+        ensure_count(required0, required1, required2, required3);
         if (required0 && args.size() > 0) ensure_val<T0>(args[0]);
         if (required1 && args.size() > 1) ensure_val<T1>(args[1]);
         if (required2 && args.size() > 2) ensure_val<T2>(args[2]);

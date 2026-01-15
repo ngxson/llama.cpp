@@ -807,8 +807,11 @@ const func_builtins & value_array_t::get_builtins() const {
                 throw raised_exception("map: first argument must be an array");
             }
             value attribute = args.get_kwarg_or_pos("attribute", 1);
+            if (is_val<value_int>(attribute)) {
+                throw not_implemented_exception("map: integer attribute not implemented");
+            }
             if (!is_val<value_string>(attribute)) {
-                throw raised_exception("map: attribute must be a string");
+                throw raised_exception("map: attribute must be string or integer");
             }
             std::string attr_name = attribute->as_string().str();
             value default_val = args.get_kwarg("default", mk_val<value_undefined>());
@@ -844,7 +847,7 @@ const func_builtins & value_array_t::get_builtins() const {
             return arr_editable->pop_at(index);
         }},
         {"sort", [](const func_args & args) -> value {
-            args.ensure_count(1, 99);
+            args.ensure_count(1, 3);
             if (!is_val<value_array>(args.get_pos(0))) {
                 throw raised_exception("sort: first argument must be an array");
             }

@@ -967,6 +967,16 @@ static void test_array_methods(testing & t) {
         "1 2 3 "
     );
 
+    test_template(t, "array.map() with numeric attribute",
+        "{% for v in arr.map(0) %}{{ v }} {% endfor %}",
+        {{"arr", json::array({
+            json::array({10, "x"}),
+            json::array({20, "y"}),
+            json::array({30, "z"}),
+        })}},
+        "10 20 30 "
+    );
+
     // not used by any chat templates
     // test_template(t, "array.insert()",
     //     "{% set _ = arr.insert(1, 'x') %}{{ arr|join(',') }}",
