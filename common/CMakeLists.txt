@@ -91,6 +91,7 @@ add_library(${TARGET} STATIC
     jinja/runtime.h
     jinja/value.cpp
     jinja/value.h
+    jinja/string.cpp
     jinja/string.h
     jinja/caps.cpp
     jinja/caps.h
