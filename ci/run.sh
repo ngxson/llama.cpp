@@ -45,7 +45,7 @@ sd=`dirname $0`
 cd $sd/../
 SRC=`pwd`
 
-CMAKE_EXTRA="-DLLAMA_FATAL_WARNINGS=${LLAMA_FATAL_WARNINGS:-ON} -DLLAMA_CURL=ON -DGGML_SCHED_NO_REALLOC=ON"
+CMAKE_EXTRA="-DLLAMA_FATAL_WARNINGS=${LLAMA_FATAL_WARNINGS:-ON} -DLLAMA_OPENSSL=OFF -DGGML_SCHED_NO_REALLOC=ON"
 
 if [ ! -z ${GG_BUILD_METAL} ]; then
     CMAKE_EXTRA="${CMAKE_EXTRA} -DGGML_METAL=ON"
@@ -297,7 +297,8 @@ function gg_sum_test_scripts {
 }
 
 function gg_get_model {
-    local gguf_0="$MNT/models/qwen3/0.6B/ggml-model-f16.gguf"
+    #local gguf_0="$MNT/models/qwen3/0.6B/ggml-model-f16.gguf"
+    local gguf_0="$MNT/models/qwen3/0.6B/ggml-model-q4_0.gguf"
     if [[ -s $gguf_0 ]]; then
         echo -n "$gguf_0"
     else

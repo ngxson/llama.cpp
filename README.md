@@ -200,6 +200,7 @@ Instructions for adding support for new models: [HOWTO-add-model.md](docs/develo
 *(to have a project listed here, it should clearly state that it depends on `llama.cpp`)*
 
 - [AI Sublime Text plugin](https://github.com/yaroslavyaroslav/OpenAI-sublime-text) (MIT)
+- [BonzAI App](https://apps.apple.com/us/app/bonzai-your-local-ai-agent/id6752847988) (proprietary)
 - [cztomsik/ava](https://github.com/cztomsik/ava) (MIT)
 - [Dot](https://github.com/alexpinel/Dot) (GPL)
 - [eva](https://github.com/ylsdamxssjxxdd/eva) (MIT)
@@ -584,6 +585,5 @@ $ echo "source ~/.llama-completion.bash" >> ~/.bashrc
 - [yhirose/cpp-httplib](https://github.com/yhirose/cpp-httplib) - Single-header HTTP server, used by `llama-server` - MIT license
 - [stb-image](https://github.com/nothings/stb) - Single-header image format decoder, used by multimodal subsystem - Public domain
 - [nlohmann/json](https://github.com/nlohmann/json) - Single-header JSON library, used by various tools/examples - MIT License
-- [curl](https://curl.se/) - Client-side URL transfer library, used by various tools/examples - [CURL License](https://curl.se/docs/copyright.html)
 - [miniaudio.h](https://github.com/mackron/miniaudio) - Single-header audio format decoder, used by multimodal subsystem - Public domain
 - [subprocess.h](https://github.com/sheredom/subprocess.h) - Single-header process launching solution for C and C++ - Public domain

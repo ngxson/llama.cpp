@@ -1252,6 +1252,9 @@ class TextModel(ModelBase):
         if chkhsh == "16389f0a1f51ee53e562ffd51c371dc508639ab0e4261502071836e50e223e91":
             # ref: https://huggingface.co/upstage/Solar-Open-100B
             res = "solar-open"
+        if chkhsh == "6c81ce329e0802883b22eabab0d3fa48357337ef1ecb45443828bf1f6254833f":
+            # ref: https://huggingface.co/LGAI-EXAONE/K-EXAONE-236B-A23B
+            res = "exaone-moe"
 
         if res is None:
             logger.warning("\n")
@@ -4367,7 +4370,37 @@ class Qwen3NextModel(Qwen2MoeModel):
         elif name.endswith("norm.weight") and not name.endswith("linear_attn.norm.weight"):
             data_torch = data_torch + 1
 
-        yield from super().modify_tensors(data_torch, name, bid)
+        if "in_proj_qkvz.weight" in name:
+            # original order:  [q, k, v, z] * head_count
+            # corrected order: [q * head_count, k * head_count, v * head_count, z * head_count]
+            head_k_dim = self.hparams["linear_key_head_dim"]
+            head_v_dim = self.hparams["linear_value_head_dim"]
+            num_v_heads = self.hparams["linear_num_value_heads"]
+            num_k_heads = self.hparams["linear_num_key_heads"]
+            hidden_size = self.hparams["hidden_size"]
+            split_arg_list_qkvz = [
+                head_k_dim, # q partition
+                head_k_dim, # k partition
+                (num_v_heads // num_k_heads * head_v_dim), # v partition
+                (num_v_heads // num_k_heads * head_v_dim), # z partition
+            ]
+            # view as (n_embd, head_count, [q+k+v+z])
+            data_torch = data_torch.permute(1, 0).contiguous()
+            data_torch = data_torch.view(-1, num_k_heads, sum(split_arg_list_qkvz))
+            # split into q, k, v, z
+            q, k, v, z = torch.split(data_torch, split_arg_list_qkvz, dim=-1)
+            # flatten dim + head_count
+            q = q.contiguous().view(hidden_size, -1)
+            k = k.contiguous().view(hidden_size, -1)
+            v = v.contiguous().view(hidden_size, -1)
+            z = z.contiguous().view(hidden_size, -1)
+            # stack back
+            qkv = torch.cat([q, k, v], dim=-1).permute(1, 0).contiguous()
+            z = z.permute(1, 0).contiguous()
+            yield (self.format_tensor_name(gguf.MODEL_TENSOR.ATTN_QKV,  bid, ".weight"), qkv)
+            yield (self.format_tensor_name(gguf.MODEL_TENSOR.ATTN_GATE, bid, ".weight"), z)
+        else:
+            yield from super().modify_tensors(data_torch, name, bid)
 
 
 @ModelBase.register("RND1")
@@ -8716,6 +8749,102 @@ class Exaone4Model(TextModel):
                         rope_factors.append(1 / ((1 - smooth) / factor + smooth))
 
                 yield (self.format_tensor_name(gguf.MODEL_TENSOR.ROPE_FREQS), torch.tensor(rope_factors, dtype=torch.float32))
+
+
+@ModelBase.register("ExaoneMoEForCausalLM")
+class ExaoneMoEModel(Exaone4Model):
+    model_arch = gguf.MODEL_ARCH.EXAONE_MOE
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.block_count = self.hparams["num_hidden_layers"] + self.hparams.get("num_nextn_predict_layers", 0)
+        self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        self.gguf_writer.add_expert_count(self.hparams["num_experts"])
+        moe_intermediate_size = self.hparams["moe_intermediate_size"]
+        num_shared_experts = self.hparams["num_shared_experts"]
+        self.gguf_writer.add_expert_feed_forward_length(moe_intermediate_size)
+        self.gguf_writer.add_expert_shared_count(num_shared_experts)
+        self.gguf_writer.add_expert_shared_feed_forward_length(moe_intermediate_size * num_shared_experts)
+        self.gguf_writer.add_expert_weights_scale(self.hparams["routed_scaling_factor"])
+        self.gguf_writer.add_expert_weights_norm(self.hparams["norm_topk_prob"])
+        n_dense_layer = self.hparams.get("first_k_dense_replace", self.hparams.get("first_last_k_dense_replace", 0))
+        self.gguf_writer.add_leading_dense_block_count(n_dense_layer)
+        self.gguf_writer.add_nextn_predict_layers(self.hparams.get("num_nextn_predict_layers", 0))
+
+        self.gguf_writer.add_rope_scaling_type(gguf.RopeScalingType.NONE)
+
+    _experts: list[dict[str, Tensor]] | None = None
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        if name.startswith("mtp."):
+            if name.find("layers.") != -1:
+                # `mtp.layers.0.[module_name]` format
+                name = name.replace(f"mtp.layers.{bid}", f"model.layers.{bid + self.hparams['num_hidden_layers']}")
+            else:
+                # mtp fc/norm weights
+                remapper = {
+                    "mtp.fc": "model.layers.{bid}.eh_proj",
+                    "mtp.pre_fc_norm_embedding": "model.layers.{bid}.enorm",
+                    "mtp.pre_fc_norm_hidden": "model.layers.{bid}.hnorm",
+                    "mtp.norm": "model.layers.{bid}.shared_head.norm",
+                }
+                _n = Path(name)
+                new_name = remapper[_n.stem] + _n.suffix
+
+                # set shared weights for all NextN/MTP layers
+                tensors = []
+                for bid in range(self.hparams['num_hidden_layers'], self.block_count):
+                    new_name = new_name.format(bid=bid)
+                    tensors.append((self.map_tensor_name(new_name), data_torch))
+                return tensors
+
+        if name.endswith("e_score_correction_bias"):
+            name = name.replace("e_score_correction_bias", "e_score_correction.bias")
+
+        if name.find("mlp.experts") != -1:
+            n_experts = self.hparams["num_experts"]
+            assert bid is not None
+
+            if self._experts is None:
+                self._experts = [{} for _ in range(self.block_count)]
+
+            self._experts[bid][name] = data_torch
+
+            if len(self._experts[bid]) >= n_experts * 3:
+                tensors: list[tuple[str, Tensor]] = []
+
+                # merge the experts into a single 3d tensor
+                for w_name in ["down_proj", "gate_proj", "up_proj"]:
+                    datas: list[Tensor] = []
+
+                    for xid in range(n_experts):
+                        ename = f"model.layers.{bid}.mlp.experts.{xid}.{w_name}.weight"
+                        datas.append(self._experts[bid][ename])
+                        del self._experts[bid][ename]
+
+                    data_torch = torch.stack(datas, dim=0)
+
+                    merged_name = f"model.layers.{bid}.mlp.experts.{w_name}.weight"
+
+                    new_name = self.map_tensor_name(merged_name)
+
+                    tensors.append((new_name, data_torch))
+                return tensors
+            else:
+                return []
+
+        return [(self.map_tensor_name(name), data_torch)]
+
+    def prepare_tensors(self):
+        super().prepare_tensors()
+        if self._experts is not None:
+            # flatten `list[dict[str, Tensor]]` into `list[str]`
+            experts = [k for d in self._experts for k in d.keys()]
+            if len(experts) > 0:
+                raise ValueError(f"Unprocessed experts: {experts}")
 
 
 @ModelBase.register("GraniteForCausalLM")
