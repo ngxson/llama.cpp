@@ -1,13 +1,11 @@
 #include "lexer.h"
 #include "runtime.h"
 
-#include <vector>
-#include <string>
-#include <map>
-#include <stdexcept>
 #include <cctype>
 #include <functional>
-#include <string_view>
+#include <map>
+#include <string>
+#include <vector>
 
 #define FILENAME "jinja-lexer"
 
@@ -54,7 +52,7 @@ lexer_result lexer::tokenize(const std::string & source) {
     size_t curly_bracket_depth = 0;
 
     using pred = std::function<bool(char)>;
-    auto consume_while = [&](pred predicate) -> std::string {
+    auto consume_while = [&](const pred & predicate) -> std::string {
         std::string str;
         while (predicate(src[pos])) {
             // check for escape char

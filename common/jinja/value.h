@@ -1,15 +1,15 @@
 #pragma once
 
-#include <vector>
-#include <string>
-#include <map>
-#include <functional>
-#include <memory>
-#include <sstream>
-#include <set>
-#include <cstdint>
-
 #include "string.h"
+
+#include <cstdint>
+#include <functional>
+#include <map>
+#include <memory>
+#include <set>
+#include <sstream>
+#include <string>
+#include <vector>
 
 namespace jinja {
 
@@ -252,6 +252,7 @@ struct value_array_t : public value_t {
     }
     void reverse() { std::reverse(val_arr.begin(), val_arr.end()); }
     void push_back(const value & val) { val_arr.push_back(val); }
+    void push_back(value && val) { val_arr.push_back(std::move(val)); }
     value pop_at(int64_t index) {
         if (index < 0) {
             index = static_cast<int64_t>(val_arr.size()) + index;

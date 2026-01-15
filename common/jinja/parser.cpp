@@ -2,11 +2,11 @@
 #include "runtime.h"
 #include "parser.h"
 
-#include <string>
-#include <vector>
+#include <algorithm>
 #include <memory>
 #include <stdexcept>
-#include <algorithm>
+#include <string>
+#include <vector>
 
 #define FILENAME "jinja-parser"
 
@@ -539,10 +539,11 @@ private:
         auto t = tokens[current++];
         switch (t.t) {
             case token::numeric_literal:
-                if (t.value.find('.') != std::string::npos)
+                if (t.value.find('.') != std::string::npos) {
                     return mk_stmt<float_literal>(start_pos, std::stod(t.value));
-                else
+                } else {
                     return mk_stmt<integer_literal>(start_pos, std::stoll(t.value));
+                }
             case token::string_literal: {
                 std::string val = t.value;
                 while (is(token::string_literal)) {

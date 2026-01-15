@@ -2,13 +2,11 @@
 
 #include "utils.h"
 
-#include <vector>
-#include <string>
-#include <map>
-#include <regex>
-#include <stdexcept>
 #include <cctype>
-#include <functional>
+#include <map>
+#include <stdexcept>
+#include <string>
+#include <vector>
 
 namespace jinja {
 

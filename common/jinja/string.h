@@ -1,13 +1,11 @@
 #pragma once
 
-#include <vector>
-#include <string>
-#include <functional>
-#include <sstream>
 #include <algorithm>
-#include <cstdint>
+#include <functional>
 #include <optional>
-
+#include <sstream>
+#include <string>
+#include <vector>
 
 namespace jinja {
 

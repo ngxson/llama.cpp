@@ -1,5 +1,3 @@
-#include <vector>
-
 #include "value.h"
 #include "runtime.h"
 #include "caps.h"
@@ -7,6 +5,9 @@
 // note: the json dependency is only for defining input in a convenient way
 // we can remove it in the future when we figure out a better way to define inputs using jinja::value
 #include <nlohmann/json.hpp>
+
+#include <functional>
+#include <sstream>
 
 #define FILENAME "jinja-caps"
 
@@ -16,10 +17,11 @@ namespace jinja {
 
 using caps_json_fn = std::function<json()>;
 using caps_analyze_fn = std::function<void(bool, value &, value &)>;
+
 static void caps_try_execute(jinja::program & prog,
-                                caps_json_fn messages_fn,
-                                caps_json_fn tools_fn,
-                                caps_analyze_fn analyze_fn) {
+                             const caps_json_fn & messages_fn,
+                             const caps_json_fn & tools_fn,
+                             const caps_analyze_fn & analyze_fn) {
     context ctx;
     ctx.is_get_stats = true;
     jinja::global_from_json(ctx, json{
@@ -43,11 +45,11 @@ static void caps_try_execute(jinja::program & prog,
         // ignore exceptions during capability analysis
     }
 
-    return analyze_fn(success, messages, tools);
+    analyze_fn(success, messages, tools);
 }
 
 // for debugging only
-static void caps_print_stats(value & v, std::string path) {
+static void caps_print_stats(value & v, const std::string & path) {
     std::string ops;
     for (const auto & name : v->stats.ops) {
         ops += name + " ";
@@ -57,6 +59,18 @@ static void caps_print_stats(value & v, std::string path) {
                 v->type().c_str(),
                 v->stats.used ? "(used)" : "",
                 ops.c_str());
+}
+
+std::string caps::to_string() const {
+    std::ostringstream ss;
+    ss << "Caps(\n";
+    ss << "  requires_typed_content=" << requires_typed_content << "\n";
+    ss << "  supports_tools=" << supports_tools << "\n";
+    ss << "  supports_tool_calls=" << supports_tool_calls << "\n";
+    ss << "  supports_parallel_tool_calls=" << supports_parallel_tool_calls << "\n";
+    ss << "  supports_system_role=" << supports_system_role << "\n";
+    ss << ")";
+    return ss.str();
 }
 
 caps caps_get(jinja::program & prog) {

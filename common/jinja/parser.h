@@ -5,11 +5,7 @@
 #include "utils.h"
 
 #include <string>
-#include <sstream>
-#include <vector>
-#include <memory>
 #include <stdexcept>
-#include <algorithm>
 
 namespace jinja {
 

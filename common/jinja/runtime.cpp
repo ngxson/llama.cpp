@@ -1,13 +1,11 @@
 #include "lexer.h"
 #include "runtime.h"
-#include "parser.h"
 #include "value.h"
 #include "utils.h"
 
 #include <string>
 #include <vector>
 #include <memory>
-#include <algorithm>
 #include <cmath>
 
 #define FILENAME "jinja-runtime"
@@ -760,7 +758,6 @@ value member_expression::execute_impl(context & ctx) {
     if (is_val<value_undefined>(object)) {
         JJ_DEBUG("%s", "Accessing property on undefined object, returning undefined");
         return val;
-
     } else if (is_val<value_object>(object)) {
         if (!is_val<value_string>(property)) {
             throw std::runtime_error("Cannot access object with non-string: got " + property->type());
@@ -774,7 +771,6 @@ value member_expression::execute_impl(context & ctx) {
             val = try_builtin_func(ctx, key, object, true);
         }
         JJ_DEBUG("Accessed property '%s' value, got type: %s", key.c_str(), val->type().c_str());
-
     } else if (is_val<value_array>(object) || is_val<value_string>(object)) {
         if (is_val<value_int>(property)) {
             int64_t index = property->as_int();
@@ -801,7 +797,6 @@ value member_expression::execute_impl(context & ctx) {
         } else {
             throw std::runtime_error("Cannot access property with non-string/non-number: got " + property->type());
         }
-
     } else {
         if (!is_val<value_string>(property)) {
             throw std::runtime_error("Cannot access property with non-string: got " + property->type());

@@ -3,11 +3,11 @@
 #include "lexer.h"
 #include "value.h"
 
-#include <string>
-#include <vector>
 #include <cassert>
 #include <memory>
 #include <sstream>
+#include <string>
+#include <vector>
 
 #define JJ_DEBUG(msg, ...)  do { if (g_jinja_debug) printf("%s:%-3d : " msg "\n", FILENAME, __LINE__, __VA_ARGS__); } while (0)
 
@@ -373,7 +373,7 @@ struct binary_expression : public expression {
     statement_ptr right;
 
     binary_expression(token op, statement_ptr && left, statement_ptr && right)
-        : op(op), left(std::move(left)), right(std::move(right)) {
+        : op(std::move(op)), left(std::move(left)), right(std::move(right)) {
         chk_type<expression>(this->left);
         chk_type<expression>(this->right);
     }
@@ -523,7 +523,7 @@ struct call_statement : public statement {
     call_statement(statement_ptr && call, statements && caller_args, statements && body)
         : call(std::move(call)), caller_args(std::move(caller_args)), body(std::move(body)) {
         chk_type<call_expression>(this->call);
-        for (const auto& arg : this->caller_args) chk_type<expression>(arg);
+        for (const auto & arg : this->caller_args) chk_type<expression>(arg);
     }
     std::string type() const override { return "CallStatement"; }
 };
@@ -599,14 +599,14 @@ struct runtime {
 
     value_array execute(const program & prog) {
         value_array results = mk_val<value_array>();
-        for (auto & stmt : prog.body) {
+        for (const auto & stmt : prog.body) {
             value res = stmt->execute(ctx);
             results->push_back(std::move(res));
         }
         return results;
     }
 
-    value_string gather_string_parts(const value & val) {
+    static value_string gather_string_parts(const value & val) {
         value_string parts = mk_val<value_string>();
         gather_string_parts_recursive(val, parts);
         // join consecutive parts with the same type
