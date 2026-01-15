@@ -45,6 +45,9 @@ lexer_result lexer::tokenize(const std::string & source) {
     //  - other whitespace (spaces, tabs, newlines etc.) is returned unchanged
     if (source.back() == '\n') {
         src.pop_back();
+        if (src.back() == '\r') {
+            src.pop_back();
+        }
     }
 
     size_t pos = 0;
@@ -162,7 +165,7 @@ lexer_result lexer::tokenize(const std::string & source) {
 
             // equivalent to hf.js code: template.replace(/([#%-]})\n/g, "$1");
             if (opt_trim_blocks && last_block_can_rm_newline) {
-                if (!text.empty() && text.front() == '\n') {
+                if (!text.empty() && (text.front() == '\n' || text.front() == '\r')) {
                     text.erase(text.begin());
                 }
             }
