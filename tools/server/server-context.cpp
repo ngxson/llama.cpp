@@ -1688,7 +1688,7 @@ private:
             if (!launch_slot_with_task(*slot, std::move(parent_task.child_tasks[idx]))) {
                 SRV_ERR("failed to launch slot with child task, id_task = %d\n", id_child);
                 release_slots();
-                return 2;
+                return false;
             }
             idx++;
         }
@@ -1697,10 +1697,10 @@ private:
         if (!launch_slot_with_task(parent_slot, std::move(parent_task))) {
             SRV_ERR("failed to launch slot with task, id_task = %d\n", id_parent);
             release_slots();
-            return 2;
+            return false;
         }
 
-        return 0;
+        return true;
     }
 
     void process_single_task(server_task && task) {
