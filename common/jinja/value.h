@@ -2,7 +2,6 @@
 
 #include "string.h"
 
-#include <algorithm>
 #include <cstdint>
 #include <functional>
 #include <map>
