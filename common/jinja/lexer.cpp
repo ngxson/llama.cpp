@@ -45,7 +45,7 @@ lexer_result lexer::tokenize(const std::string & source) {
     //  - other whitespace (spaces, tabs, newlines etc.) is returned unchanged
     if (source.back() == '\n') {
         src.pop_back();
-        if (src.back() == '\r') {
+        if (!src.empty() && src.back() == '\r') {
             src.pop_back();
         }
     }
