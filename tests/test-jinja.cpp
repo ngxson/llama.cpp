@@ -1,5 +1,7 @@
 #include <string>
 #include <iostream>
+#include <random>
+#include <cstdlib>
 
 #include <nlohmann/json.hpp>
 
@@ -27,6 +29,7 @@ static void test_tests(testing & t);
 static void test_string_methods(testing & t);
 static void test_array_methods(testing & t);
 static void test_object_methods(testing & t);
+static void test_fuzzing(testing & t);
 
 int main(int argc, char *argv[]) {
     testing t(std::cout);
@@ -50,6 +53,7 @@ int main(int argc, char *argv[]) {
     t.test("string methods", test_string_methods);
     t.test("array methods", test_array_methods);
     t.test("object methods", test_object_methods);
+    t.test("fuzzing", test_fuzzing);
 
     return t.summary();
 }
@@ -1070,6 +1074,327 @@ static void test_template(testing & t, const std::string & name, const std::stri
         } catch (const jinja::not_implemented_exception & e) {
             // TODO @ngxson : remove this when the test framework supports skipping tests
             t.log("Skipped: " + std::string(e.what()));
+        }
+    });
+}
+
+//
+// fuzz tests to ensure no crashes occur on malformed inputs
+//
+
+constexpr int JINJA_FUZZ_ITERATIONS = 100;
+
+// Helper to generate random string
+static std::string random_string(std::mt19937 & rng, size_t max_len) {
+    static const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_";
+    std::uniform_int_distribution<size_t> len_dist(0, max_len);
+    std::uniform_int_distribution<size_t> char_dist(0, sizeof(charset) - 2);
+    size_t len = len_dist(rng);
+    std::string result;
+    result.reserve(len);
+    for (size_t i = 0; i < len; ++i) {
+        result += charset[char_dist(rng)];
+    }
+    return result;
+}
+
+// Helper to execute a fuzz test case - returns true if no crash occurred
+static bool fuzz_test_template(const std::string & tmpl, const json & vars) {
+    try {
+        jinja::lexer lexer;
+        auto lexer_res = lexer.tokenize(tmpl);
+        jinja::program ast = jinja::parse_from_tokens(lexer_res);
+        jinja::context ctx(tmpl);
+        jinja::global_from_json(ctx, vars, true);
+        jinja::runtime runtime(ctx);
+        const jinja::value results = runtime.execute(ast);
+        runtime.gather_string_parts(results);
+        return true; // success
+    } catch (const std::exception &) {
+        return true; // exception is acceptable, not a crash
+    } catch (...) {
+        return true; // any exception is acceptable, not a crash
+    }
+}
+
+static void test_fuzzing(testing & t) {
+    const int num_iterations = JINJA_FUZZ_ITERATIONS;
+    const unsigned int seed = 42; // fixed seed for reproducibility
+    std::mt19937 rng(seed);
+
+    // Distribution helpers
+    std::uniform_int_distribution<int> choice_dist(0, 100);
+    std::uniform_int_distribution<int> int_dist(-1000, 1000);
+    std::uniform_int_distribution<size_t> idx_dist(0, 1000);
+
+    // Template fragments for fuzzing
+    const std::vector<std::string> var_names = {
+        "x", "y", "z", "arr", "obj", "items", "foo", "bar", "undefined_var",
+        "none", "true", "false", "None", "True", "False"
+    };
+    const std::vector<std::string> filters = {
+        "length", "first", "last", "reverse", "sort", "unique", "join", "upper", "lower",
+        "trim", "default", "tojson", "string", "int", "float", "abs", "list", "dictsort"
+    };
+    const std::vector<std::string> builtins = {
+        "range", "len", "dict", "list", "join", "str", "int", "float", "namespace"
+    };
+
+    t.test("out of bound array access", [&](testing & t) {
+        for (int i = 0; i < num_iterations; ++i) {
+            int idx = int_dist(rng);
+            std::string tmpl = "{{ arr[" + std::to_string(idx) + "] }}";
+            json vars = {{"arr", json::array({1, 2, 3})}};
+            t.assert_true("should not crash", fuzz_test_template(tmpl, vars));
+        }
+    });
+
+    t.test("non-existing variables", [&](testing & t) {
+        for (int i = 0; i < num_iterations; ++i) {
+            std::string var = random_string(rng, 20);
+            std::string tmpl = "{{ " + var + " }}";
+            json vars = json::object(); // empty context
+            t.assert_true("should not crash", fuzz_test_template(tmpl, vars));
+        }
+    });
+
+    t.test("non-existing nested attributes", [&](testing & t) {
+        for (int i = 0; i < num_iterations; ++i) {
+            std::string var1 = var_names[choice_dist(rng) % var_names.size()];
+            std::string var2 = random_string(rng, 10);
+            std::string var3 = random_string(rng, 10);
+            std::string tmpl = "{{ " + var1 + "." + var2 + "." + var3 + " }}";
+            json vars = {{var1, {{"other", 123}}}};
+            t.assert_true("should not crash", fuzz_test_template(tmpl, vars));
+        }
+    });
+
+    t.test("invalid filter arguments", [&](testing & t) {
+        for (int i = 0; i < num_iterations; ++i) {
+            std::string filter = filters[choice_dist(rng) % filters.size()];
+            int val = int_dist(rng);
+            std::string tmpl = "{{ " + std::to_string(val) + " | " + filter + " }}";
+            json vars = json::object();
+            t.assert_true("should not crash", fuzz_test_template(tmpl, vars));
+        }
+    });
+
+    t.test("chained filters on various types", [&](testing & t) {
+        for (int i = 0; i < num_iterations; ++i) {
+            std::string f1 = filters[choice_dist(rng) % filters.size()];
+            std::string f2 = filters[choice_dist(rng) % filters.size()];
+            std::string var = var_names[choice_dist(rng) % var_names.size()];
+            std::string tmpl = "{{ " + var + " | " + f1 + " | " + f2 + " }}";
+            json vars = {
+                {"x", 42},
+                {"y", "hello"},
+                {"arr", json::array({1, 2, 3})},
+                {"obj", {{"a", 1}, {"b", 2}}},
+                {"items", json::array({"a", "b", "c"})}
+            };
+            t.assert_true("should not crash", fuzz_test_template(tmpl, vars));
+        }
+    });
+
+    t.test("invalid builtin calls", [&](testing & t) {
+        for (int i = 0; i < num_iterations; ++i) {
+            std::string builtin = builtins[choice_dist(rng) % builtins.size()];
+            std::string arg;
+            int arg_type = choice_dist(rng) % 4;
+            switch (arg_type) {
+                case 0: arg = "\"not a number\""; break;
+                case 1: arg = "none"; break;
+                case 2: arg = std::to_string(int_dist(rng)); break;
+                case 3: arg = "[]"; break;
+            }
+            std::string tmpl = "{{ " + builtin + "(" + arg + ") }}";
+            json vars = json::object();
+            t.assert_true("should not crash", fuzz_test_template(tmpl, vars));
+        }
+    });
+
+    t.test("macro edge cases", [&](testing & t) {
+        // Macro with no args called with args
+        t.assert_true("macro no args with args", fuzz_test_template(
+            "{% macro foo() %}hello{% endmacro %}{{ foo(1, 2, 3) }}",
+            json::object()
+        ));
+
+        // Macro with args called with no args
+        t.assert_true("macro with args no args", fuzz_test_template(
+            "{% macro foo(a, b, c) %}{{ a }}{{ b }}{{ c }}{% endmacro %}{{ foo() }}",
+            json::object()
+        ));
+
+        // Recursive macro reference
+        t.assert_true("recursive macro", fuzz_test_template(
+            "{% macro foo(n) %}{% if n > 0 %}{{ foo(n - 1) }}{% endif %}{% endmacro %}{{ foo(5) }}",
+            json::object()
+        ));
+
+        // Nested macro definitions
+        for (int i = 0; i < num_iterations / 10; ++i) {
+            std::string tmpl = "{% macro outer() %}{% macro inner() %}x{% endmacro %}{{ inner() }}{% endmacro %}{{ outer() }}";
+            t.assert_true("nested macro", fuzz_test_template(tmpl, json::object()));
+        }
+    });
+
+    t.test("empty and none operations", [&](testing & t) {
+        const std::vector<std::string> empty_tests = {
+            "{{ \"\" | first }}",
+            "{{ \"\" | last }}",
+            "{{ [] | first }}",
+            "{{ [] | last }}",
+            "{{ none.attr }}",
+            "{{ none | length }}",
+            "{{ none | default('fallback') }}",
+            "{{ {} | first }}",
+            "{{ {} | dictsort }}",
+        };
+        for (const auto & tmpl : empty_tests) {
+            t.assert_true("empty/none: " + tmpl, fuzz_test_template(tmpl, json::object()));
+        }
+    });
+
+    t.test("arithmetic edge cases", [&](testing & t) {
+        const std::vector<std::string> arith_tests = {
+            "{{ 1 / 0 }}",
+            "{{ 1 // 0 }}",
+            "{{ 1 % 0 }}",
+            "{{ 999999999999999999 * 999999999999999999 }}",
+            "{{ -999999999999999999 - 999999999999999999 }}",
+            "{{ 1.0 / 0.0 }}",
+            "{{ 0.0 / 0.0 }}",
+        };
+        for (const auto & tmpl : arith_tests) {
+            t.assert_true("arith: " + tmpl, fuzz_test_template(tmpl, json::object()));
+        }
+    });
+
+    t.test("deeply nested structures", [&](testing & t) {
+        // Deeply nested loops
+        for (int depth = 1; depth <= 10; ++depth) {
+            std::string tmpl;
+            for (int d = 0; d < depth; ++d) {
+                tmpl += "{% for i" + std::to_string(d) + " in arr %}";
+            }
+            tmpl += "x";
+            for (int d = 0; d < depth; ++d) {
+                tmpl += "{% endfor %}";
+            }
+            json vars = {{"arr", json::array({1, 2})}};
+            t.assert_true("nested loops depth " + std::to_string(depth), fuzz_test_template(tmpl, vars));
+        }
+
+        // Deeply nested conditionals
+        for (int depth = 1; depth <= 10; ++depth) {
+            std::string tmpl;
+            for (int d = 0; d < depth; ++d) {
+                tmpl += "{% if true %}";
+            }
+            tmpl += "x";
+            for (int d = 0; d < depth; ++d) {
+                tmpl += "{% endif %}";
+            }
+            t.assert_true("nested ifs depth " + std::to_string(depth), fuzz_test_template(tmpl, json::object()));
+        }
+    });
+
+    t.test("special characters in strings", [&](testing & t) {
+        const std::vector<std::string> special_tests = {
+            "{{ \"}{%\" }}",
+            "{{ \"}}{{\" }}",
+            "{{ \"{%%}\" }}",
+            "{{ \"\\n\\t\\r\" }}",
+            "{{ \"'\\\"'\" }}",
+            "{{ \"hello\\x00world\" }}",
+        };
+        for (const auto & tmpl : special_tests) {
+            t.assert_true("special: " + tmpl, fuzz_test_template(tmpl, json::object()));
+        }
+    });
+
+    t.test("random template generation", [&](testing & t) {
+        const std::vector<std::string> fragments = {
+            "{{ x }}", "{{ y }}", "{{ arr }}", "{{ obj }}",
+            "{% if true %}a{% endif %}",
+            "{% if false %}b{% else %}c{% endif %}",
+            "{% for i in arr %}{{ i }}{% endfor %}",
+            "{{ x | length }}", "{{ x | first }}", "{{ x | default(0) }}",
+            "{{ x + y }}", "{{ x - y }}", "{{ x * y }}",
+            "{{ x == y }}", "{{ x != y }}", "{{ x > y }}",
+            "{{ range(3) }}", "{{ \"hello\" | upper }}",
+            "text", " ", "\n",
+        };
+
+        for (int i = 0; i < num_iterations; ++i) {
+            std::string tmpl;
+            int num_frags = choice_dist(rng) % 10 + 1;
+            for (int f = 0; f < num_frags; ++f) {
+                tmpl += fragments[choice_dist(rng) % fragments.size()];
+            }
+            json vars = {
+                {"x", int_dist(rng)},
+                {"y", int_dist(rng)},
+                {"arr", json::array({1, 2, 3})},
+                {"obj", {{"a", 1}, {"b", 2}}}
+            };
+            t.assert_true("random template #" + std::to_string(i), fuzz_test_template(tmpl, vars));
+        }
+    });
+
+    t.test("malformed templates (should error, not crash)", [&](testing & t) {
+        const std::vector<std::string> malformed = {
+            "{{ x",
+            "{% if %}",
+            "{% for %}",
+            "{% for x in %}",
+            "{% endfor %}",
+            "{% endif %}",
+            "{{ | filter }}",
+            "{% if x %}", // unclosed
+            "{% for i in x %}", // unclosed
+            "{{ x | }}",
+            "{% macro %}{% endmacro %}",
+            "{{{{",
+            "}}}}",
+            "{%%}",
+            "{% set %}",
+            "{% set x %}",
+        };
+        for (const auto & tmpl : malformed) {
+            t.assert_true("malformed: " + tmpl, fuzz_test_template(tmpl, json::object()));
+        }
+    });
+
+    t.test("type coercion edge cases", [&](testing & t) {
+        for (int i = 0; i < num_iterations; ++i) {
+            int op_choice = choice_dist(rng) % 6;
+            std::string op;
+            switch (op_choice) {
+                case 0: op = "+"; break;
+                case 1: op = "-"; break;
+                case 2: op = "*"; break;
+                case 3: op = "/"; break;
+                case 4: op = "=="; break;
+                case 5: op = "~"; break; // string concat
+            }
+
+            std::string left_var = var_names[choice_dist(rng) % var_names.size()];
+            std::string right_var = var_names[choice_dist(rng) % var_names.size()];
+            std::string tmpl = "{{ " + left_var + " " + op + " " + right_var + " }}";
+
+            json vars = {
+                {"x", 42},
+                {"y", "hello"},
+                {"z", 3.14},
+                {"arr", json::array({1, 2, 3})},
+                {"obj", {{"a", 1}}},
+                {"items", json::array()},
+                {"foo", nullptr},
+                {"bar", true}
+            };
+            t.assert_true("type coercion: " + tmpl, fuzz_test_template(tmpl, vars));
         }
     });
 }
