@@ -627,6 +627,12 @@ struct gguf_context * gguf_init_from_file_impl(FILE * file, struct gguf_init_par
             if (ti.offset != ctx->size) {
                 GGML_LOG_ERROR("%s: tensor '%s' has offset %" PRIu64 ", expected %zu\n",
                     __func__, ti.t.name, ti.offset, ctx->size);
+                GGML_LOG_ERROR("%s: tensor type: %s (%d), calculated size: %zu bytes\n",
+                    __func__, ggml_type_name(ti.t.type), (int)ti.t.type, ggml_nbytes(&ti.t));
+                if (ti.t.type == GGML_TYPE_Q3_K_HIFI) {
+                    GGML_LOG_ERROR("%s: Q3_K_HIFI tensor size mismatch detected. This file may have been created with incorrect size calculations.\n", __func__);
+                    GGML_LOG_ERROR("%s: Please re-quantize the model with the current version of llama.cpp.\n", __func__);
+                }
                 GGML_LOG_ERROR("%s: failed to read tensor data\n", __func__);
                 gguf_free(ctx);
                 return nullptr;
