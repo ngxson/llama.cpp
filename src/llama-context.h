@@ -131,7 +131,7 @@ struct llama_context {
                        ggml_status & ret);
 
     int encode(const llama_batch & batch_inp);
-    int decode(const llama_batch & batch_inp);
+    int decode(const llama_batch & batch_inp, bool is_mtp);
 
     //
     // state save/load

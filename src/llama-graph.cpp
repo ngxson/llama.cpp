@@ -1431,7 +1431,7 @@ ggml_tensor * llm_graph_context::build_inp_cross_embd() const {
 }
 
 ggml_tensor * llm_graph_context::build_inp_cross_mtp() const {
-    auto inp = std::make_unique<llm_graph_input_cross_mtp>(hparams.n_pos_per_embd());
+    auto inp = std::make_unique<llm_graph_input_cross_mtp>(cross);
 
     auto & cur = inp->cross_mtp;
 

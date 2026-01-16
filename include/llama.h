@@ -939,6 +939,14 @@ extern "C" {
             struct llama_context * ctx,
               struct llama_batch   batch);
 
+    // Process a batch of tokens using MTP (Multi-Token Prediction).
+    // The input token can be either from the last llama_decode() call,
+    // or from the previous llama_decode_mtp() call.
+    // Input token order must match the output token order from the previous call.
+    LLAMA_API int32_t llama_decode_mtp(
+            struct llama_context * ctx,
+              struct llama_batch   batch);
+
     // Set the number of threads used for decoding
     // n_threads is the number of threads used for generation (single token)
     // n_threads_batch is the number of threads used for prompt and batch processing (multiple tokens)

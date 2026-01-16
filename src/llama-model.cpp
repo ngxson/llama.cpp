@@ -7871,7 +7871,7 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
             } break;
         case LLM_ARCH_GLM4_MOE:
             {
-                if (params.is_mtp) {
+                if (params.gtype == LLM_GRAPH_TYPE_DECODER_MTP) {
                     llm = std::make_unique<llm_build_glm4_moe<true>>(*this, params);
                 } else {
                     llm = std::make_unique<llm_build_glm4_moe<false>>(*this, params);

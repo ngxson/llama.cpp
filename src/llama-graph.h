@@ -30,6 +30,7 @@ enum llm_graph_type {
     LLM_GRAPH_TYPE_DEFAULT,
     LLM_GRAPH_TYPE_ENCODER,
     LLM_GRAPH_TYPE_DECODER,
+    LLM_GRAPH_TYPE_DECODER_MTP,
 };
 
 enum llm_ffn_op_type {
@@ -444,7 +445,6 @@ class llm_graph_result;
 
 struct llm_graph_params {
     llm_arch arch = LLM_ARCH_UNKNOWN;
-    bool is_mtp = false;
 
     llama_hparams hparams;
     llama_cparams cparams;
