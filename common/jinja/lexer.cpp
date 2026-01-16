@@ -40,14 +40,21 @@ lexer_result lexer::tokenize(const std::string & source) {
         return {tokens, src};
     }
 
+    // Normalize \r\n or \r to \n
+    for (std::string::size_type pos = 0; (pos = src.find("\r\n", pos)) != std::string::npos; ) {
+        src.erase(pos, 1);
+        ++pos;
+    }
+    for (std::string::size_type pos = 0; (pos = src.find("\r", pos)) != std::string::npos; ) {
+        src.replace(pos, 1, 1, '\n');
+        ++pos;
+    }
+
     // In the default configuration:
     //  - a single trailing newline is stripped if present
     //  - other whitespace (spaces, tabs, newlines etc.) is returned unchanged
     if (source.back() == '\n') {
         src.pop_back();
-        if (!src.empty() && src.back() == '\r') {
-            src.pop_back();
-        }
     }
 
     size_t pos = 0;
@@ -150,7 +157,7 @@ lexer_result lexer::tokenize(const std::string & source) {
                         end = 0; // Trim from the start of the string
                         break;
                     }
-                    if (c == '\n' || c == '\r') {
+                    if (c == '\n') {
                         end = current; // Trim from the start of the line
                         break;
                     }
@@ -165,7 +172,7 @@ lexer_result lexer::tokenize(const std::string & source) {
 
             // equivalent to hf.js code: template.replace(/([#%-]})\n/g, "$1");
             if (opt_trim_blocks && last_block_can_rm_newline) {
-                if (!text.empty() && (text.front() == '\n' || text.front() == '\r')) {
+                if (!text.empty() && text.front() == '\n') {
                     text.erase(text.begin());
                 }
             }
