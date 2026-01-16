@@ -1128,7 +1128,7 @@ json convert_responses_to_chatcmpl(const json & response_body) {
                     item.at("role") == "developer")
             ) {
                 // #responses_create-input-input_item_list-item-input_message
-                json chatcmpl_content = json::array();
+                std::vector<json> chatcmpl_content;
 
                 for (const json & input_item : item.at("content")) {
                     const std::string type = json_value(input_item, "type", std::string());
@@ -1192,7 +1192,7 @@ json convert_responses_to_chatcmpl(const json & response_body) {
                 item.at("type") == "message"
             ) {
                 // #responses_create-input-input_item_list-item-output_message
-                json chatcmpl_content = json::array();
+                std::vector<json> chatcmpl_content;
 
                 for (const auto & output_text : item.at("content")) {
                     const std::string type = json_value(output_text, "type", std::string());
@@ -1305,7 +1305,7 @@ json convert_responses_to_chatcmpl(const json & response_body) {
         if (!response_body.at("tools").is_array()) {
             throw std::invalid_argument("'tools' must be an array of objects");
         }
-        json chatcmpl_tools = json::array();
+        std::vector<json> chatcmpl_tools;
         for (json resp_tool : response_body.at("tools")) {
             json chatcmpl_tool;
 

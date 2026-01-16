@@ -856,8 +856,8 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp() {
 }
 
 json server_task_result_cmpl_final::to_json_oaicompat_resp_stream() {
-    json server_sent_events = json::array();
-    json output = json::array();
+    std::vector<json> server_sent_events;
+    std::vector<json> output;
 
     if (oaicompat_msg.reasoning_content != "") {
         server_sent_events.push_back(json {
