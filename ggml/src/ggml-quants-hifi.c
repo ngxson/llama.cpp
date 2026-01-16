@@ -457,31 +457,29 @@ int ggml_q3_hifi_get_enhancement_type(float model_params_b, int is_embedding) {
 
 // Get percentage of attn_v layers to enhance
 // Based on model size - smaller models need broader coverage
+// Aligned with llama-quant.cpp for consistency
 float ggml_q3_hifi_get_attn_v_threshold(float model_params_b) {
-    ggml_q3_hifi_size_category cat = ggml_q3_hifi_get_size_category(model_params_b);
-    
-    switch (cat) {
-        case Q3_HIFI_SIZE_TINY:
-            // Skip attn_v enhancement for tiny models
-            // Just use Q3_K_M default behavior
-            return 0.0f;
-            
-        case Q3_HIFI_SIZE_MEDIUM:
-            // Full enhancement for medium models
-            if (model_params_b <= 5.0f) {
-                return 0.25f;  // Enhance 25% of layers for 2-5B
-            }
-            return 0.20f;  // 20% for 5-8B
-            
-        case Q3_HIFI_SIZE_LARGE:
-            // Minimal for large models
-            if (model_params_b >= 30.0f) {
-                return 0.05f;  // 5% for 32B+
-            }
-            return 0.10f;  // 10% for 14B
-            
-        default:
-            return 0.15f;
+    // Fine-grained thresholds matching llama-quant.cpp
+    if (model_params_b <= 1.0f) {
+        // 0.6B/1B: Skip attn_v HIFI entirely - matches Q3_K_M BPW
+        // This addresses the +2.2% PPL regression seen at 0.6B
+        return 0.0f;
+    } else if (model_params_b <= 1.7f) {
+        // 1.7B: Very minimal enhancement (2-3 layers only)
+        return 0.07f;
+    } else if (model_params_b <= 5.0f) {
+        // 2-5B: Full enhancement - this is the sweet spot
+        // 4B shows -2.9% PPL improvement with Q3_K_HIFI
+        return 0.25f;
+    } else if (model_params_b <= 10.0f) {
+        // 5-8B: Moderate enhancement
+        return 0.15f;
+    } else if (model_params_b <= 20.0f) {
+        // 14B: Reduced enhancement - addresses +0.24% PPL regression
+        return 0.08f;
+    } else {
+        // 32B+: Minimal enhancement - addresses +0.13% PPL regression
+        return 0.05f;
     }
 }
 

@@ -481,8 +481,14 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 new_type = get_q5_hifi_enhanced_type(model_params_b);
             }
             else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI) {
-                // Q3_K_HIFI: Use Q6_K on output (same as Q3_K_M)
+                // Q3_K_HIFI: Scale-aware output.weight handling
+                // Q3_K_M uses Q6_K via default else clause, so we match that for consistency
+                // However, for tiny models we could consider matching the lower overhead
+                const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+                // Q6_K for all sizes (matches Q3_K_M behavior)
+                // output.weight is critical for quality, so keep Q6_K even for tiny models
                 new_type = GGML_TYPE_Q6_K;
+                (void)model_params_b; // Suppress unused warning - kept for future tuning
             }
             else if (new_type != GGML_TYPE_Q8_0) {
                 new_type = GGML_TYPE_Q6_K;
@@ -528,8 +534,15 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 new_type = get_q5_hifi_enhanced_type(model_params_b);
             }
             else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI) {
-                // Q3_K_HIFI: Use Q6_K on token_embd (same as Q3_K_M behavior)
-                new_type = GGML_TYPE_Q6_K;
+                // Q3_K_HIFI: Scale-aware token_embd handling
+                // The key insight: Q3_K_M does NOT explicitly handle token_embd, so it uses default (Q3_K)
+                // For tiny models (≤1.7B): Match Q3_K_M → use default type (no explicit assignment)
+                // For larger models (>1.7B): Use Q6_K for better quality
+                const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+                if (model_params_b > 1.7f) {
+                    new_type = GGML_TYPE_Q6_K;
+                }
+                // else: tiny models skip - use default_type (Q3_K), matching Q3_K_M
             }
         }
     } else if (ftype == LLAMA_FTYPE_MOSTLY_IQ2_XXS || ftype == LLAMA_FTYPE_MOSTLY_IQ2_XS || ftype == LLAMA_FTYPE_MOSTLY_IQ1_S ||
@@ -733,13 +746,15 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 if (ftype == LLAMA_FTYPE_MOSTLY_Q2_K   || ftype == LLAMA_FTYPE_MOSTLY_IQ3_XS || ftype == LLAMA_FTYPE_MOSTLY_IQ3_XXS ||
                     ftype == LLAMA_FTYPE_MOSTLY_Q3_K_S || ftype == LLAMA_FTYPE_MOSTLY_Q3_K_M  || ftype == LLAMA_FTYPE_MOSTLY_IQ4_NL  ||
                     ftype == LLAMA_FTYPE_MOSTLY_Q4_K_S || ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M  || ftype == LLAMA_FTYPE_MOSTLY_IQ3_S  ||
-                    ftype == LLAMA_FTYPE_MOSTLY_IQ3_M  || ftype == LLAMA_FTYPE_MOSTLY_IQ4_XS) {
+                    ftype == LLAMA_FTYPE_MOSTLY_IQ3_M  || ftype == LLAMA_FTYPE_MOSTLY_IQ4_XS ||
+                    ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI) {  // Match Q3_K_M for MoE
                     new_type = GGML_TYPE_Q5_K;
                 }
             } else {
                 if      (ftype == LLAMA_FTYPE_MOSTLY_Q2_K   ) new_type = GGML_TYPE_Q3_K;
                 else if (ftype == LLAMA_FTYPE_MOSTLY_IQ3_XXS) new_type = GGML_TYPE_IQ3_S;
                 else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_M ) new_type = GGML_TYPE_Q4_K;
+                else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI) new_type = GGML_TYPE_Q4_K;  // Match Q3_K_M
                 else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L ) new_type = GGML_TYPE_Q5_K;
                 else if (ftype == LLAMA_FTYPE_MOSTLY_IQ3_M  ) new_type = GGML_TYPE_Q4_K;
             }
@@ -748,7 +763,8 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         }
     }
     else if (name.find("attn_qkv.weight") != std::string::npos) {
-        if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L || ftype == LLAMA_FTYPE_MOSTLY_IQ3_M) {
+        if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L || ftype == LLAMA_FTYPE_MOSTLY_IQ3_M ||
+            ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI) {  // Match Q3_K_M
             new_type = GGML_TYPE_Q4_K;
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) new_type = GGML_TYPE_Q5_K;
