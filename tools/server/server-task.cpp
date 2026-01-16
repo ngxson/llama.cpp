@@ -859,25 +859,22 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp_stream() {
     json server_sent_events = json::array();
     json output = json::array();
 
-    for (const common_chat_tool_call & tool_call : oaicompat_msg.tool_calls) {
+    if (oaicompat_msg.reasoning_content != "") {
         server_sent_events.push_back(json {
             {"event", "response.output_item.done"},
             {"data", json {
                 {"type", "response.output_item.done"},
                 {"item", json {
-                    {"type",      "function_call"},
-                    {"status",    "completed"},
-                    {"arguments", tool_call.arguments},
-                    {"call_id",   "call_dummy_id"},
-                    {"name",      tool_call.name}
+                    {"id",      "rs_id(response.output_item.done)"},
+                    {"summary", json::array()},
+                    {"type",    "reasoning"},
+                    {"content", json::array({json {
+                        {"text", oaicompat_msg.reasoning_content},
+                        {"type", "reasoning_text"},
+                    }})},
+                    {"encrypted_content", ""},
                 }}
             }}
-        });
-        output.push_back({
-            {"type",      "function_call"},
-            {"status",    "completed"},
-            {"arguments", tool_call.arguments},
-            {"name",      tool_call.name}
         });
     }
 
@@ -919,6 +916,28 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp_stream() {
             }}
         });
         output.push_back(item);
+    }
+
+    for (const common_chat_tool_call & tool_call : oaicompat_msg.tool_calls) {
+        server_sent_events.push_back(json {
+            {"event", "response.output_item.done"},
+            {"data", json {
+                {"type", "response.output_item.done"},
+                {"item", json {
+                    {"type",      "function_call"},
+                    {"status",    "completed"},
+                    {"arguments", tool_call.arguments},
+                    {"call_id",   "call_dummy_id"},
+                    {"name",      tool_call.name}
+                }}
+            }}
+        });
+        output.push_back({
+            {"type",      "function_call"},
+            {"status",    "completed"},
+            {"arguments", tool_call.arguments},
+            {"name",      tool_call.name}
+        });
     }
 
     std::time_t t = std::time(0);

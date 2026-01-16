@@ -1080,7 +1080,7 @@ json convert_responses_to_chatcmpl(const json & response_body) {
     const json input_value = response_body.at("input");
     json chatcmpl_body = response_body;
     chatcmpl_body.erase("input");
-    json chatcmpl_messages = json::array();
+    std::vector<json> chatcmpl_messages;
 
     const std::string instructions = json_value(response_body, "instructions", std::string());
     if (instructions != "") {
@@ -1183,10 +1183,11 @@ json convert_responses_to_chatcmpl(const json & response_body) {
             } else if (exists_and_is_array(item, "content") &&
                 exists_and_is_string(item, "role") &&
                 item.at("role") == "assistant" &&
-                exists_and_is_string(item, "status") &&
-                (item.at("status") == "in_progress" ||
-                    item.at("status") == "completed" ||
-                    item.at("status") == "incomplete") &&
+                // exists_and_is_string(item, "status") &&
+                // (item.at("status") == "in_progress" ||
+                //     item.at("status") == "completed" ||
+                //     item.at("status") == "incomplete") &&
+                // item["status"] not sent by codex-cli
                 exists_and_is_string(item, "type") &&
                 item.at("type") == "message"
             ) {
@@ -1219,7 +1220,7 @@ json convert_responses_to_chatcmpl(const json & response_body) {
                 item.at("type") == "function_call"
             ) {
                 // #responses_create-input-input_item_list-item-function_tool_call
-                chatcmpl_messages.push_back(json {
+                json msg = json {
                     {"role", "assistant"},
                     {"tool_calls", json::array({ json {
                         {"function", json {
@@ -1229,7 +1230,14 @@ json convert_responses_to_chatcmpl(const json & response_body) {
                         {"id",   item.at("call_id")},
                         {"type", "function"}
                     }})},
-                });
+                };
+
+                if (!chatcmpl_messages.empty() && chatcmpl_messages.back().contains("reasoning_content")) {
+                    // Move reasoning content from dummy message to tool call message
+                    msg["reasoning_content"] = chatcmpl_messages.back().at("reasoning_content");
+                    chatcmpl_messages.pop_back();
+                }
+                chatcmpl_messages.push_back(msg);
             } else if (exists_and_is_string(item, "call_id") &&
                 (exists_and_is_string(item, "output") || exists_and_is_array(item, "output")) &&
                 exists_and_is_string(item, "type") &&
@@ -1256,6 +1264,19 @@ json convert_responses_to_chatcmpl(const json & response_body) {
                         {"tool_call_id", item.at("call_id")}
                     });
                 }
+            } else if (// exists_and_is_string(item, "id") &&
+                // item["id"] not sent by codex-cli
+                exists_and_is_array(item, "summary") &&
+                exists_and_is_string(item, "type") &&
+                item.at("type") == "reasoning") {
+                // #responses_create-input-input_item_list-item-reasoning
+
+                // Pack reasoning content in dummy message
+                chatcmpl_messages.push_back(json {
+                    {"role", "assistant"},
+                    {"content", json::array()},
+                    {"reasoning_content", item.at("content")[0].at("text")}
+                });
             } else {
                 throw std::invalid_argument("Cannot determine type of 'item'");
             }
@@ -1263,6 +1284,20 @@ json convert_responses_to_chatcmpl(const json & response_body) {
     } else {
         throw std::invalid_argument("'input' must be a string or array of objects");
     }
+
+    // Remove unused dummy message
+    // (reasoning content not followed by tool calls)
+    chatcmpl_messages.erase(std::remove_if(
+        chatcmpl_messages.begin(),
+        chatcmpl_messages.end(),
+        [](const json & x){ return x.contains("role") &&
+            x.at("role") == "assistant" &&
+            x.contains("content") &&
+            x.at("content") == json::array() &&
+            x.contains("reasoning_content");
+        }),
+        chatcmpl_messages.end()
+    );
 
     chatcmpl_body["messages"] = chatcmpl_messages;
 
