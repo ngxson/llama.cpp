@@ -893,31 +893,36 @@ void dequantize_iq4_xs(device const block_iq4_xs * xb, short il, thread type4x4 
 template <typename type4x4>
 void dequantize_q3_k_hifi(device const block_q3_k_hifi * xb, short il, thread type4x4 & reg) {
     // Q3_K_HIFI uses Q3_K-compatible layout: hmask[32] + qs[64] + scales[12] + d + outliers
-    // il is 0...15 for 256 values => processes 16 values at a time
-    const float d_all = float(xb->d);
-    device const uint8_t * qs = xb->qs;        // low 2 bits
-    device const uint8_t * hmask = xb->hmask;  // high bit
+    // For template-based matmul kernels, we use simplified dequantization
+    // Outliers are handled at the kernel level (see kernel_mul_mv_q3_k_hifi_f32_impl)
+    // This matches Q3_K dequantization exactly since the base layout is identical
+    const half d_all = xb->d;
+    device const uint8_t * q = (device const uint8_t *)xb->qs;
+    device const uint8_t * h = (device const uint8_t *)xb->hmask;
+    device const int8_t * scales = (device const int8_t *)xb->scales;
 
-    // Process 16 values starting at il*16
+    q = q + 32 * (il/8) + 16 * (il&1);
+    h = h + 16 * (il&1);
+    uint8_t m = 1 << (il/2);
+    uint16_t kmask1 = (il/4)>1 ? ((il/4)>2 ? 192 : 48) : \
+                                 ((il/4)>0 ? 12  : 3);
+    uint16_t kmask2 = il/8 ? 0xF0 : 0x0F;
+    uint16_t scale_2 = scales[il%8], scale_1 = scales[8 + il%4];
+    int16_t  dl_int = (il/4)&1 ? (scale_2&kmask2) | ((scale_1&kmask1) << 2)
+                               : (scale_2&kmask2) | ((scale_1&kmask1) << 4);
+    float dl = il<8 ? d_all * (dl_int - 32.f) : d_all * (dl_int / 16.f - 32.f);
+    const float ml = 4.f * dl;
+
+    il = (il/2) & 3;
+    const half    coef = il>1 ? (il>2 ? 1/64.h : 1/16.h) : (il>0 ? 1/4.h : 1.h);
+    const uint8_t mask = il>1 ? (il>2 ? 192    : 48)     : (il>0 ? 12    : 3);
+    dl *= coef;
+
     for (int i = 0; i < 16; ++i) {
-        const int idx = il * 16 + i;
-
-        // Extract 3-bit value using Q3_K layout (qs + hmask)
-        const uint8_t lo2 = (qs[idx / 4] >> ((idx % 4) * 2)) & 0x03;
-        const uint8_t hi1 = (hmask[idx / 8] >> (idx % 8)) & 0x01;
-        const int quant_val = (int)(lo2 | (hi1 << 2)) - 4; // [0,7] → [-4,3]
-        float val = quant_val * d_all;
-
-        // Check if this index is an outlier and restore FP16 value
-        for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
-            if (xb->outlier_idx[k] == idx) {
-                val = float(xb->outlier_vals[k]);
-                break;
-            }
-        }
-
-        reg[i/4][i%4] = val;
+        reg[i/4][i%4] = dl * (q[i] & mask) - (h[i] & m ? 0 : ml);
     }
+    // Note: Outliers are handled separately in kernel_mul_mv_q3_k_hifi_f32_impl
+    // and in template-based matmul kernels via post-processing
 }
 
 enum ggml_sort_order {
