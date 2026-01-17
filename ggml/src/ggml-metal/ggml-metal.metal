@@ -894,7 +894,7 @@ template <typename type4x4>
 void dequantize_q3_k_hifi(device const block_q3_k_hifi * xb, short il, thread type4x4 & reg) {
     // Q3_K_HIFI uses Q3_K-compatible layout: hmask[32] + qs[64] + scales[12] + d + outliers
     // il is 0...15 for 256 values => processes 16 values at a time
-    const float d_all = half_to_float(xb->d);
+    const float d_all = float(xb->d);
     device const uint8_t * qs = xb->qs;        // low 2 bits
     device const uint8_t * hmask = xb->hmask;  // high bit
 
@@ -911,7 +911,7 @@ void dequantize_q3_k_hifi(device const block_q3_k_hifi * xb, short il, thread ty
         // Check if this index is an outlier and restore FP16 value
         for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
             if (xb->outlier_idx[k] == idx) {
-                val = half_to_float(xb->outlier_vals[k]);
+                val = float(xb->outlier_vals[k]);
                 break;
             }
         }
@@ -7381,7 +7381,7 @@ void kernel_mul_mv_q3_k_hifi_f32_impl(
 
             for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
                 const int idx = xb->outlier_idx[k];
-                const float outlier_val = half_to_float(xb->outlier_vals[k]);
+                const float outlier_val = float(xb->outlier_vals[k]);
                 // Only this thread handles if idx is in its range
                 if (idx >= y_offset && idx < y_offset + 32) {
                     sumf1[row] += outlier_val * y_block[idx];
