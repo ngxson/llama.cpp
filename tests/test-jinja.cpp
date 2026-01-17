@@ -1115,16 +1115,23 @@ static void test_template_cpp(testing & t, const std::string & name, const std::
 
 static std::string py_script = R"(
 import jinja2
+import jinja2.ext as jinja2_ext
 import json
 import sys
+from datetime import datetime
+from jinja2.sandbox import ImmutableSandboxedEnvironment
 
 tmpl = json.loads(sys.argv[1])
 vars_json = json.loads(sys.argv[2])
 
-env = jinja2.Environment(
+env = ImmutableSandboxedEnvironment(
     trim_blocks=True,
     lstrip_blocks=True,
+    extensions=[jinja2_ext.loopcontrols],
 )
+environment.filters["tojson"] = lambda x, ensure_ascii=False, indent=None, separators=None, sort_keys=False: json.dumps(x, ensure_ascii=ensure_ascii, indent=indent, separators=separators, sort_keys=sort_keys)
+environment.globals["strftime_now"] = lambda format: datetime.now().strftime(format)
+environment.globals["raise_exception"] = lambda message: raise jinja2.exceptions.TemplateError(message)
 template = env.from_string(tmpl)
 result = template.render(**vars_json)
 print(result, end='')
