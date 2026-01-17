@@ -3074,57 +3074,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
         if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
             res->data = format_anthropic_sse(first_result_json);
         } else if (res_type == TASK_RESPONSE_TYPE_OAI_RESP) {
-            const json created = {
-                {"event", "response.created"},
-                {"data", json {
-                    {"type", "response.created"},
-                    {"response", json {
-                        {"object", "response"},
-                        {"status", "in_progress"}
-                    }}
-                }}
-            };
-            const json in_progress = {
-                {"event", "response.in_progress"},
-                {"data", json {
-                    {"type", "response.in_progress"},
-                    {"response", json {
-                        {"object", "response"},
-                        {"status", "in_progress"}
-                    }}
-                }}
-            };
-            const json output_item_added = {
-                {"event", "response.output_item.added"},
-                {"data", json {
-                    {"type", "response.output_item.added"},
-                    {"item", json {
-                        {"type", "message"},
-                        {"status", "in_progress"},
-                        {"content", json::array()},
-                        {"role", "assistant"}
-                    }}
-                }}
-            };
-            const json content_part_added = {
-                {"event", "response.content_part.added"},
-                {"data", json {
-                    {"type", "response.content_part.added"},
-                    {"part", json {
-                        {"type", "output_text"},
-                        {"text", ""}
-                    }}
-                }}
-            };
-
-            const json initial_events = json::array({
-                created,
-                in_progress,
-                output_item_added,
-                content_part_added
-            });
-
-            res->data = format_oai_resp_sse(initial_events) + format_oai_resp_sse(first_result_json);
+            res->data = format_oai_resp_sse(first_result_json);
         } else {
             res->data = format_oai_sse(first_result_json);
         }

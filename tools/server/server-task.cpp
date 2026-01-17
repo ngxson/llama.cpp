@@ -1230,7 +1230,7 @@ json server_task_result_cmpl_partial::to_json() {
         case TASK_RESPONSE_TYPE_OAI_CHAT:
             return to_json_oaicompat_chat();
         case TASK_RESPONSE_TYPE_OAI_RESP:
-            return to_json_oaicompat_resp();
+            return openai_responses_current_events;
         case TASK_RESPONSE_TYPE_ANTHROPIC:
             return to_json_anthropic();
         default:
@@ -1298,57 +1298,6 @@ json server_task_result_cmpl_partial::to_json_oaicompat() {
     }
 
     return res;
-}
-
-json server_task_result_cmpl_partial::to_json_oaicompat_resp() {
-    std::vector<json> deltas;
-
-    for (const common_chat_msg_diff & diff : oaicompat_msg_diffs) {
-        if (!diff.reasoning_content_delta.empty()) {
-            deltas.push_back(json {
-                {"event", "response.reasoning_text.delta"},
-                {"data", json {
-                    {"type",  "response.reasoning_text.delta"},
-                    {"delta", diff.reasoning_content_delta}
-                }}
-            });
-        }
-        if (!diff.tool_call_delta.name.empty()) {
-            deltas.push_back(json {
-                {"event", "response.output_item.added"},
-                {"data", json {
-                    {"type",  "response.output_item.added"},
-                    {"item", json {
-                        {"arguments", ""},
-                        {"call_id",   "call_id_dummy"},
-                        {"name",      diff.tool_call_delta.name},
-                        {"type",      "function_call"},
-                        {"status",    "in_progress"}
-                    }}
-                }}
-            });
-        }
-        if (!diff.tool_call_delta.arguments.empty()) {
-            deltas.push_back(json {
-                {"event", "response.function_call_arguments.delta"},
-                {"data", json {
-                    {"type",  "response.function_call_arguments.delta"},
-                    {"delta", diff.tool_call_delta.arguments}
-                }}
-            });
-        }
-        if (!diff.content_delta.empty()) {
-            deltas.push_back(json {
-                {"event", "response.output_text.delta"},
-                {"data", json {
-                    {"type",  "response.output_text.delta"},
-                    {"delta", diff.content_delta}
-                }}
-            });
-        }
-    }
-
-    return deltas;
 }
 
 json server_task_result_cmpl_partial::to_json_oaicompat_chat() {
