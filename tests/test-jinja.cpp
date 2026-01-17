@@ -973,7 +973,7 @@ static void test_array_methods(testing & t) {
     );
 
     test_template(t, "array.map() with attribute",
-        "{% for v in arr.map('age') %}{{ v }} {% endfor %}",
+        "{% for v in arr|map(attribute='age') %}{{ v }} {% endfor %}",
         {{"arr", json::array({
             json({{"name", "a"}, {"age", 1}}),
             json({{"name", "b"}, {"age", 2}}),
@@ -983,7 +983,7 @@ static void test_array_methods(testing & t) {
     );
 
     test_template(t, "array.map() with numeric attribute",
-        "{% for v in arr.map(0) %}{{ v }} {% endfor %}",
+        "{% for v in arr|map(attribute=0) %}{{ v }} {% endfor %}",
         {{"arr", json::array({
             json::array({10, "x"}),
             json::array({20, "y"}),
