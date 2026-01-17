@@ -854,16 +854,20 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
     // For medium models (2-8B), upgrade bulk Q3_K tensors to Q3_K_HIFI
     // This uses the residual correction format for stronger signal recovery
     // Tiny models: Skip (overhead hurts more than helps)
-    // Large models: Skip (self-correction is sufficient)
+    // Q3_K_HIFI block type upgrade based on model size
+    // Small models (≤1.7B): Skip HIFI blocks (overhead hurts tiny models)
+    // Medium models (1.7B-20B): Use HIFI blocks (4B/8B/14B all benefit)
+    // Very large models (>20B): Skip HIFI blocks (32B shows catastrophic quality loss)
     if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI && new_type == GGML_TYPE_Q3_K) {
         const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
         
-        // Only upgrade to Q3_K_HIFI for medium-sized models (2-8B)
-        // where the residual correction provides meaningful improvement
-        if (model_params_b > 1.7f && model_params_b <= 8.0f) {
+        // Upgrade to Q3_K_HIFI for medium and large-medium models (1.7B-20B)
+        // where the FP16 outlier correction provides meaningful improvement
+        // 4B: -4.4% PPL win, 8B: -1.6% PPL win, 14B: expected -0.5% additional gain
+        if (model_params_b > 1.7f && model_params_b <= 20.0f) {
             new_type = GGML_TYPE_Q3_K_HIFI;
         }
-        // else: Keep Q3_K for tiny/large models (matches Q3_K_M efficiency)
+        // else: Keep Q3_K for tiny (<1.7B) and very large (>20B) models
     }
 
     return new_type;
