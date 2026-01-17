@@ -1114,18 +1114,19 @@ static void test_template_cpp(testing & t, const std::string & name, const std::
 }
 
 // keep this in-sync with https://github.com/huggingface/transformers/blob/main/src/transformers/utils/chat_template_utils.py
+// note: we use SandboxedEnvironment instead of ImmutableSandboxedEnvironment to allow usage of in-place array methods like append() and pop()
 static std::string py_script = R"(
 import jinja2
 import jinja2.ext as jinja2_ext
 import json
 import sys
 from datetime import datetime
-from jinja2.sandbox import ImmutableSandboxedEnvironment
+from jinja2.sandbox import SandboxedEnvironment
 
 tmpl = json.loads(sys.argv[1])
 vars_json = json.loads(sys.argv[2])
 
-env = ImmutableSandboxedEnvironment(
+env = SandboxedEnvironment(
     trim_blocks=True,
     lstrip_blocks=True,
     extensions=[jinja2_ext.loopcontrols],
