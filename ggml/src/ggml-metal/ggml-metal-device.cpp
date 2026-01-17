@@ -710,6 +710,26 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv(ggml_meta
                 nr0 = N_R0_IQ4_XS;
                 smem = 32*sizeof(float);
             } break;
+        case GGML_TYPE_Q6_K_HIFI:
+            {
+                nsg = N_SG_Q6_K;
+                nr0 = N_R0_Q6_K;
+            } break;
+        case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
+            {
+                nsg = N_SG_Q6_K;
+                nr0 = N_R0_Q6_K;
+            } break;
+        case GGML_TYPE_Q6_K_HIFI_RES8:
+            {
+                nsg = N_SG_Q6_K;
+                nr0 = N_R0_Q6_K;
+            } break;
+        case GGML_TYPE_Q5_K_HIFI_RES8:
+            {
+                nsg = N_SG_Q5_K;
+                nr0 = N_R0_Q5_K;
+            } break;
         default:
             {
                 GGML_LOG_ERROR("Asserting on type %d\n", (int) tsrc0);
@@ -926,6 +946,26 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv_id(ggml_m
                 nsg = N_SG_IQ4_XS;
                 nr0 = N_R0_IQ4_XS;
                 smem = 32*sizeof(float);
+            } break;
+        case GGML_TYPE_Q6_K_HIFI:
+            {
+                nsg = N_SG_Q6_K;
+                nr0 = N_R0_Q6_K;
+            } break;
+        case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
+            {
+                nsg = N_SG_Q6_K;
+                nr0 = N_R0_Q6_K;
+            } break;
+        case GGML_TYPE_Q6_K_HIFI_RES8:
+            {
+                nsg = N_SG_Q6_K;
+                nr0 = N_R0_Q6_K;
+            } break;
+        case GGML_TYPE_Q5_K_HIFI_RES8:
+            {
+                nsg = N_SG_Q5_K;
+                nr0 = N_R0_Q5_K;
             } break;
         default:
             {
