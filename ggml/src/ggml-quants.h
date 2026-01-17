@@ -5,6 +5,31 @@
 
 #include "ggml.h"
 
+// =============================================================================
+// Quantization block parameters
+// =============================================================================
+
+// Standard K-quants
+#define QK_K 256
+#define QR_K 16
+
+// HIFI variants: outlier counts per block
+// These must match the design of your block structures in ggml.h
+#define Q3_K_HIFI_OUTFIERS_PER_BLOCK     16
+#define Q4_K_HIFI_OUTFIERS_PER_BLOCK     16
+#define Q5_K_HIFI_OUTFIERS_PER_BLOCK      8
+#define Q6_K_HIFI_OUTFIERS_PER_BLOCK      4
+
+// For dynamic/residual variants, we define max possible outliers
+// (actual count may be lower per tensor/block)
+#define Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS    8
+#define Q6_K_HIFI_RES8_MAX_OUTLIERS       8
+#define Q5_K_HIFI_RES8_MAX_OUTLIERS       8
+
+// Optional: if you use packed index encoding (e.g., 4-bit indices),
+// you might also define index bit width — though usually implicit.
+// Not required unless used in kernels.
+
 // GGML internal header
 
 #ifdef __cplusplus
