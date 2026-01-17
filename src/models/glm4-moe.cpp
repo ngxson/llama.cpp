@@ -54,7 +54,6 @@ llm_build_glm4_moe<false>::llm_build_glm4_moe(const llama_model & model, const l
 template <>
 llm_build_glm4_moe<true>::llm_build_glm4_moe(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v;
-    const bool use_mrope = hparams.use_mrope();
 
     GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
 
@@ -72,6 +71,9 @@ llm_build_glm4_moe<true>::llm_build_glm4_moe(const llama_model & model, const ll
     ggml_tensor * inp_token_embd = build_inp_embd(mtp_layer.nextn.embed_tokens // can be nullptr on GLM-4.6
                                                 ? mtp_layer.nextn.embed_tokens : model.tok_embd);
     ggml_tensor * inp_state_embd = build_inp_cross_mtp();
+
+    // check number of input tokens
+    GGML_ASSERT(inp_state_embd->ne[1] == inp_token_embd->ne[1]);
 
     inp_token_embd = build_norm(inp_token_embd, mtp_layer.nextn.enorm, NULL, LLM_NORM_RMS, il);
     inp_state_embd = build_norm(inp_state_embd, mtp_layer.nextn.hnorm, NULL, LLM_NORM_RMS, il);

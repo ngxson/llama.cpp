@@ -370,6 +370,7 @@ extern "C" {
         bool kv_unified;  // use a unified buffer across the input sequences when computing the attention
                           // try to disable when n_seq_max > 1 for improved performance when the sequences do not share a large prefix
                           // ref: https://github.com/ggml-org/llama.cpp/pull/14363
+        bool is_mtp;      // create context for Multi-Token Prediction (MTP)
 
         // [EXPERIMENTAL]
         // backend sampler chain configuration (make sure the caller keeps the sampler chains alive)
@@ -939,14 +940,6 @@ extern "C" {
             struct llama_context * ctx,
               struct llama_batch   batch);
 
-    // Process a batch of tokens using MTP (Multi-Token Prediction).
-    // The input token can be either from the last llama_decode() call,
-    // or from the previous llama_decode_mtp() call.
-    // Input token order must match the output token order from the previous call.
-    LLAMA_API int32_t llama_decode_mtp(
-            struct llama_context * ctx,
-              struct llama_batch   batch);
-
     // Set the number of threads used for decoding
     // n_threads is the number of threads used for generation (single token)
     // n_threads_batch is the number of threads used for prompt and batch processing (multiple tokens)
@@ -1013,6 +1006,10 @@ extern "C" {
     // when pooling_type == LLAMA_POOLING_TYPE_RANK, returns float[n_cls_out] with the rank(s) of the sequence
     // otherwise: float[n_embd] (1-dimensional)
     LLAMA_API float * llama_get_embeddings_seq(struct llama_context * ctx, llama_seq_id seq_id);
+
+    // Copy the internal MTP state from ctx_llm to ctx_mtp, ready for MTP decoding.
+    // This must be done before calling llama_decode() on ctx_mtp
+    LLAMA_API int32_t llama_mtp_start(struct llama_context * ctx_llm, struct llama_context * ctx_mtp);
 
     //
     // backend sampling API [EXPERIMENTAL]
