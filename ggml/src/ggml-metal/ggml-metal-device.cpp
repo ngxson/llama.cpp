@@ -507,6 +507,21 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_rwkv(ggml_metal_
     return res;
 }
 
+// Map HIFI types to their base types for kernel name generation
+// Since HIFI types are based on Q6_K/Q5_K, they can use the same kernels
+static const char * ggml_metal_type_name_for_kernel(ggml_type type) {
+    switch (type) {
+        case GGML_TYPE_Q6_K_HIFI:
+        case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
+        case GGML_TYPE_Q6_K_HIFI_RES8:
+            return "q6_K";
+        case GGML_TYPE_Q5_K_HIFI_RES8:
+            return "q5_K";
+        default:
+            return ggml_type_name(type);
+    }
+}
+
 ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv_ext(ggml_metal_library_t lib, ggml_type tsrc0, ggml_type tsrc1, int nsg, int nxpsg, int r1ptg) {
     char base[256];
     char name[256];
@@ -527,21 +542,6 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv_ext(ggml_
     }
 
     return res;
-}
-
-// Map HIFI types to their base types for kernel name generation
-// Since HIFI types are based on Q6_K/Q5_K, they can use the same kernels
-static const char * ggml_metal_type_name_for_kernel(ggml_type type) {
-    switch (type) {
-        case GGML_TYPE_Q6_K_HIFI:
-        case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
-        case GGML_TYPE_Q6_K_HIFI_RES8:
-            return "q6_K";
-        case GGML_TYPE_Q5_K_HIFI_RES8:
-            return "q5_K";
-        default:
-            return ggml_type_name(type);
-    }
 }
 
 ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mm(ggml_metal_library_t lib, const ggml_tensor * op) {
