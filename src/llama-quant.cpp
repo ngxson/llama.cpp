@@ -850,6 +850,22 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         ++qs.n_fallback;
     }
 
+    // === Q3_K_HIFI: Model-size adaptive tensor upgrade ===
+    // For medium models (2-8B), upgrade bulk Q3_K tensors to Q3_K_HIFI
+    // This uses the residual correction format for stronger signal recovery
+    // Tiny models: Skip (overhead hurts more than helps)
+    // Large models: Skip (self-correction is sufficient)
+    if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI && new_type == GGML_TYPE_Q3_K) {
+        const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+        
+        // Only upgrade to Q3_K_HIFI for medium-sized models (2-8B)
+        // where the residual correction provides meaningful improvement
+        if (model_params_b > 1.7f && model_params_b <= 8.0f) {
+            new_type = GGML_TYPE_Q3_K_HIFI;
+        }
+        // else: Keep Q3_K for tiny/large models (matches Q3_K_M efficiency)
+    }
+
     return new_type;
 }
 
@@ -947,7 +963,7 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
         case LLAMA_FTYPE_MOSTLY_Q3_K_S:
         case LLAMA_FTYPE_MOSTLY_Q3_K_M:
         case LLAMA_FTYPE_MOSTLY_Q3_K_L:  default_type = GGML_TYPE_Q3_K;    break;
-        case LLAMA_FTYPE_MOSTLY_Q3_K_HIFI: default_type = GGML_TYPE_Q3_K;  break;  // Uses Q3_K_M's proven tensor selection strategy
+        case LLAMA_FTYPE_MOSTLY_Q3_K_HIFI: default_type = GGML_TYPE_Q3_K;  break;  // Upgraded to Q3_K_HIFI for 2-8B models in llama_tensor_get_type
         case LLAMA_FTYPE_MOSTLY_Q4_K_S:
         case LLAMA_FTYPE_MOSTLY_Q4_K_M:  default_type = GGML_TYPE_Q4_K;    break;
         case LLAMA_FTYPE_MOSTLY_Q5_K_S:

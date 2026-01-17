@@ -345,7 +345,7 @@ static void dequantize_block_q3_K(const void * __restrict__ vx, dst_t * __restri
 
 }
 
-// Q3_K_HIFI: Q3_K-compatible layout with 6 FP16 outliers
+// Q3_K_HIFI: Q3_K with 16 FP16 residual corrections
 template<typename dst_t>
 static void dequantize_block_q3_k_hifi(const void * __restrict__ vx, dst_t * __restrict__ yy,
                                      const sycl::nd_item<3> &item_ct1) {
@@ -376,13 +376,17 @@ static void dequantize_block_q3_k_hifi(const void * __restrict__ vx, dst_t * __r
     const uint8_t * q = x[i].qs + 32*n;
     const uint8_t * hm = x[i].hmask;
 
+    // Get outlier count (clamped to max)
+    const int n_outliers = (x[i].outlier_count <= Q3_K_HIFI_OUTLIERS) ? x[i].outlier_count : Q3_K_HIFI_OUTLIERS;
+
     for (int l = l0; l < l0+4; ++l) {
         int idx = 128*n + 32*j + l;
+        // Step 1: Standard Q3_K dequantization
         dst_t val = dl * ((int8_t)((q[l] >> shift) & 3) - ((hm[l] & m) ? 0 : 4));
-        // Check if this is an outlier position and restore FP16 value
-        for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
+        // Step 2: ADD residual correction if this position has one
+        for (int k = 0; k < n_outliers; ++k) {
             if (x[i].outlier_idx[k] == idx) {
-                val = x[i].outlier_vals[k];
+                val += x[i].outlier_vals[k];  // ADD correction, don't replace
                 break;
             }
         }

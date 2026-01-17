@@ -167,7 +167,7 @@ float16_t dequantFuncQ3_K(const in decodeBufQ3_K bl, const in uint blockCoords[2
     return ret;
 }
 
-// Q3_K_HIFI: Q3_K-compatible layout with 6 FP16 outliers
+// Q3_K_HIFI: Q3_K with 16 FP16 residual corrections
 layout(buffer_reference, std430, buffer_reference_align = 2) buffer decodeBufQ3_K_HIFI {
    block_q3_k_hifi block;
 };
@@ -176,14 +176,7 @@ float16_t dequantFuncQ3_K_HIFI(const in decodeBufQ3_K_HIFI bl, const in uint blo
 {
     const uint idx = coordInBlock[1];
 
-    // First check if this is an outlier position
-    for (uint k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
-        if (uint(bl.block.outlier_idx[k]) == idx) {
-            return bl.block.outlier_vals[k];
-        }
-    }
-
-    // Standard Q3_K dequantization
+    // Step 1: Standard Q3_K dequantization
     const uint iqs = idx;
     const uint n = iqs / 128;
     const uint qsi = n * 32 + (iqs % 32);
@@ -202,6 +195,15 @@ float16_t dequantFuncQ3_K_HIFI(const in decodeBufQ3_K_HIFI bl, const in uint blo
     const int8_t us = int8_t(((bl.block.scales[scaleidx0] >> scaleidx0shift) & 0xF) | (((bl.block.scales[scaleidx1] >> scaleidx1shift) & 3) << 4));
     const float16_t dl = bl.block.d * float16_t(us - 32);
     float16_t ret = dl * float16_t(int8_t((bl.block.qs[qsi] >> qsshift) & 3) - (((bl.block.hmask[hmi] & m) != 0) ? 0 : 4));
+
+    // Step 2: ADD residual correction if this position has one
+    const uint n_outliers = min(uint(bl.block.outlier_count), Q3_K_HIFI_OUTLIERS);
+    for (uint k = 0; k < n_outliers; ++k) {
+        if (uint(bl.block.outlier_idx[k]) == idx) {
+            ret += bl.block.outlier_vals[k];  // ADD correction, don't replace
+            break;
+        }
+    }
 
     return ret;
 }
