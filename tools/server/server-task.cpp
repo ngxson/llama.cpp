@@ -1220,6 +1220,174 @@ json server_task_result_cmpl_final::to_json_anthropic_stream() {
 //
 // server_task_result_cmpl_partial
 //
+void server_task_result_cmpl_partial::update(task_result_state & state) {
+    is_updated = true;
+    state.update_chat_msg(content, true, oaicompat_msg_diffs);
+
+    if (res_type == TASK_RESPONSE_TYPE_OAI_RESP) {
+        if (state.openai_responses_item_ids.empty()) {
+            // Create response object
+            const std::string response_id = "resp_" + random_string();
+            openai_responses_current_events.push_back(json {
+                {"event", "response.created"},
+                {"data", json {
+                    {"type", "response.created"},
+                    {"response", json {
+                        {"id",     response_id},
+                        {"object", "response"},
+                        {"status", "in_progress"},
+                    }},
+                }},
+            });
+            openai_responses_current_events.push_back(json {
+                {"event", "response.in_progress"},
+                {"data", json {
+                    {"type", "response.in_progress"},
+                    {"response", json {
+                        {"id",     response_id},
+                        {"object", "response"},
+                        {"status", "in_progress"},
+                    }},
+                }},
+            });
+            state.openai_responses_item_ids.push_back(response_id);
+        }
+
+        for (const common_chat_msg_diff & diff : oaicompat_msg_diffs) {
+            if (!diff.reasoning_content_delta.empty()) {
+                std::string resoning_id;
+                const std::string prev_item_id = state.openai_responses_item_ids.back();
+                if (string_starts_with(prev_item_id, "rs_")) {
+                    resoning_id = state.openai_responses_item_ids.back();
+                } else {
+                    // Add new reasoning output_item
+
+                    GGML_ASSERT(string_starts_with(prev_item_id, "resp_"));
+                    // Reasoning item should be generated right after the reposonse object is created
+
+                    resoning_id = "rs_" + random_string();
+                    openai_responses_current_events.push_back(json {
+                        {"event", "response.output_item.added"},
+                        {"data", json {
+                            {"type", "response.output_item.added"},
+                            {"item", json {
+                                {"id",                resoning_id},
+                                {"summary",           json::array()},
+                                {"type",              "reasoning"},
+                                {"content",           json::array()},
+                                {"encrypted_content", ""},
+                                {"status",            "in_progress"},
+                            }},
+                        }},
+                    });
+                    state.openai_responses_item_ids.push_back(resoning_id);
+                }
+                openai_responses_current_events.push_back(json {
+                    {"event", "response.reasoning_text.delta"},
+                    {"data", json {
+                        {"delta",   diff.reasoning_content_delta},
+                        {"item_id", resoning_id},
+                        {"type",    "response.reasoning_text.delta"},
+                    }},
+                });
+            }
+            if (!diff.content_delta.empty()) {
+                std::string message_id;
+                if (string_starts_with(state.openai_responses_item_ids.back(), "msg_")) {
+                    message_id = state.openai_responses_item_ids.back();
+                } else {
+                    message_id = "msg_" + random_string();
+                    openai_responses_current_events.push_back(json {
+                        {"event", "response.output_item.added"},
+                        {"data", json {
+                            {"type", "response.output_item.added"},
+                            {"item", json {
+                                {"content", json::array()},
+                                {"id",      message_id},
+                                {"role",    "assistant"},
+                                {"status",  "in_progress"},
+                                {"type",    "message"},
+                            }},
+                        }},
+                    });
+                    openai_responses_current_events.push_back(json {
+                        {"event", "response.content_part.added"},
+                        {"data", json {
+                            {"type",    "response.content_part.added"},
+                            {"item_id", message_id},
+                            {"part", json {
+                                {"type", "output_text"},
+                                {"text", ""},
+                            }},
+                        }},
+                    });
+                    state.openai_responses_item_ids.push_back(message_id);
+                }
+                openai_responses_current_events.push_back(json {
+                    {"event", "response.output_text.delta"},
+                    {"data", json {
+                        {"type",    "response.output_text.delta"},
+                        {"item_id", message_id},
+                        {"delta",   diff.content_delta},
+                    }},
+                });
+            }
+            if (!diff.tool_call_delta.name.empty()) {
+                // Add new function call output_item
+
+                const std::string function_call_id = "fc_" + state.generated_tool_call_ids.back();
+                state.generated_tool_call_ids.back() = function_call_id;
+                openai_responses_current_events.push_back(json {
+                    {"event", "response.output_item.added"},
+                    {"data", json {
+                        {"type",  "response.output_item.added"},
+                        {"item", json {
+                            {"arguments", ""},
+                            {"call_id",   function_call_id},
+                            {"name",      diff.tool_call_delta.name},
+                            {"type",      "function_call"},
+                            {"status",    "in_progress"},
+                        }},
+                    }},
+                });
+                state.openai_responses_item_ids.push_back(function_call_id);
+            }
+            if (!diff.tool_call_delta.arguments.empty()) {
+                const std::string prev_item_id = state.openai_responses_item_ids.back();
+                GGML_ASSERT(string_starts_with(prev_item_id, "fc_"));
+
+                openai_responses_current_events.push_back(json {
+                    {"event", "response.function_call_arguments.delta"},
+                    {"data", json {
+                        {"delta",   diff.tool_call_delta.arguments},
+                        {"item_id", prev_item_id},
+                        {"type",    "response.function_call_arguments.delta"},
+                    }},
+                });
+            }
+        }
+
+        return;
+    }
+
+    // track if the accumulated message has any reasoning content
+    anthropic_has_reasoning = !state.chat_msg.reasoning_content.empty();
+
+    // Copy current state for use in to_json_anthropic() (reflects state BEFORE this chunk)
+    anthropic_thinking_block_started = state.anthropic_thinking_block_started;
+    anthropic_text_block_started = state.anthropic_text_block_started;
+
+    // Pre-compute state updates based on diffs (for next chunk)
+    for (const auto & diff : oaicompat_msg_diffs) {
+        if (!diff.reasoning_content_delta.empty() && !state.anthropic_thinking_block_started) {
+            state.anthropic_thinking_block_started = true;
+        }
+        if (!diff.content_delta.empty() && !state.anthropic_text_block_started) {
+            state.anthropic_text_block_started = true;
+        }
+    }
+}
+
 json server_task_result_cmpl_partial::to_json() {
     GGML_ASSERT(is_updated && "update() must be called before to_json()");
     switch (res_type) {
