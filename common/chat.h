@@ -4,6 +4,8 @@
 
 #include "common.h"
 #include "peg-parser.h"
+#include "jinja/string.h"
+
 #include <functional>
 #include <chrono>
 #include <string>
@@ -151,11 +153,12 @@ struct common_chat_templates_inputs {
     std::map<std::string, std::string> chat_template_kwargs;
     bool add_bos = false;
     bool add_eos = false;
+    bool mark_input = false;
 };
 
 struct common_chat_params {
     common_chat_format                  format = COMMON_CHAT_FORMAT_CONTENT_ONLY;
-    std::string                         prompt;
+    jinja::string                       prompt;
     std::string                         grammar;
     bool                                grammar_lazy = false;
     bool                                thinking_forced_open = false;
@@ -193,12 +196,13 @@ common_chat_templates_ptr common_chat_templates_init(
 bool         common_chat_templates_was_explicit(const struct common_chat_templates * tmpls);
 const char * common_chat_templates_source(const struct common_chat_templates * tmpls, const char * variant = nullptr);
 
-
-struct common_chat_params      common_chat_templates_apply(
+// Format chat messages according to the specified template and inputs
+struct common_chat_params common_chat_templates_apply(
     const struct common_chat_templates * tmpls,
     const struct common_chat_templates_inputs & inputs);
 
 // Format single message, while taking into account the position of that message in chat history
+// TODO: deprecate this function in favor of using common_chat_templates_apply directly
 std::string common_chat_format_single(
         const struct common_chat_templates * tmpls,
         const std::vector<common_chat_msg> & past_msg,

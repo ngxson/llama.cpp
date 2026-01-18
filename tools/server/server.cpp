@@ -161,6 +161,8 @@ int main(int argc, char ** argv) {
         ctx_http.post("/models/unload", ex_wrapper(models_routes->post_router_models_unload));
     }
 
+    // note: the /v1/ prefix is not for llama-server versioning, it's just to match the third-party API style
+
     ctx_http.get ("/health",              ex_wrapper(routes.get_health)); // public endpoint (no API key check)
     ctx_http.get ("/v1/health",           ex_wrapper(routes.get_health)); // public endpoint (no API key check)
     ctx_http.get ("/metrics",             ex_wrapper(routes.get_metrics));
@@ -182,10 +184,10 @@ int main(int argc, char ** argv) {
     ctx_http.post("/embedding",           ex_wrapper(routes.post_embeddings)); // legacy
     ctx_http.post("/embeddings",          ex_wrapper(routes.post_embeddings));
     ctx_http.post("/v1/embeddings",       ex_wrapper(routes.post_embeddings_oai));
-    ctx_http.post("/rerank",              ex_wrapper(routes.post_rerank));
-    ctx_http.post("/reranking",           ex_wrapper(routes.post_rerank));
-    ctx_http.post("/v1/rerank",           ex_wrapper(routes.post_rerank));
-    ctx_http.post("/v1/reranking",        ex_wrapper(routes.post_rerank));
+    ctx_http.post("/rerank",              ex_wrapper(routes.post_rerank)); // JinaAI API compat
+    ctx_http.post("/reranking",           ex_wrapper(routes.post_rerank)); // JinaAI API compat
+    ctx_http.post("/v1/rerank",           ex_wrapper(routes.post_rerank)); // JinaAI API compat
+    ctx_http.post("/v1/reranking",        ex_wrapper(routes.post_rerank)); // JinaAI API compat
     ctx_http.post("/tokenize",            ex_wrapper(routes.post_tokenize));
     ctx_http.post("/detokenize",          ex_wrapper(routes.post_detokenize));
     ctx_http.post("/apply-template",      ex_wrapper(routes.post_apply_template));

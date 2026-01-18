@@ -674,7 +674,7 @@ server_tokens process_mtmd_prompt(mtmd_context * mctx, std::string prompt, std::
  * - "prompt": "string"
  * - "prompt": [12, 34, 56]
  * - "prompt": [12, 34, "string", 56, 78]
- * - "prompt": { "prompt_string": "string", "multimodal_data": [ "base64" ] }
+ * - "prompt": { "prompt_string": "my prompt <__media__>", "multimodal_data": [ "base64" ] }
  */
 static server_tokens tokenize_input_subprompt(const llama_vocab * vocab, mtmd_context * mctx, const json & json_prompt, bool add_special, bool parse_special) {
     constexpr char JSON_STRING_PROMPT_KEY[] = "prompt_string";
@@ -715,7 +715,7 @@ std::vector<server_tokens> tokenize_input_prompts(const llama_vocab * vocab, mtm
     if (json_prompt.is_array() && !json_is_array_and_contains_numbers(json_prompt)) {
         result.reserve(json_prompt.size());
         for (const auto & p : json_prompt) {
-            result.push_back(tokenize_input_subprompt(vocab, mctx, p,add_special, parse_special));
+            result.push_back(tokenize_input_subprompt(vocab, mctx, p, add_special, parse_special));
         }
     } else {
         result.push_back(tokenize_input_subprompt(vocab, mctx, json_prompt, add_special, parse_special));

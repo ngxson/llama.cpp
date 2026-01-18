@@ -801,7 +801,7 @@ static void foreach_parameter(const json & function, const std::function<void(co
     }
 }
 
-static std::string apply(
+static jinja::string apply(
     const common_chat_template & tmpl,
     const struct templates_params & inputs,
     const std::optional<json> & messages_override = std::nullopt,
@@ -1107,7 +1107,7 @@ static common_chat_params common_chat_params_init_lfm2(const common_chat_templat
     }
 
     data.prompt = apply(tmpl, inputs, /* messages_override= */ tweaked_messages);
-    LOG_DBG("%s: Prompt: %s\n", __func__, data.prompt.c_str());
+    LOG_DBG("%s: Prompt: %s\n", __func__, data.prompt.str().c_str());
 
     return data;
 }
@@ -1300,14 +1300,15 @@ static common_chat_params common_chat_params_init_command_r7b(const common_chat_
     }
     data.prompt = apply(tmpl, inputs, /* messages_override= */ adjusted_messages);
     data.format = COMMON_CHAT_FORMAT_COMMAND_R7B;
-    if (string_ends_with(data.prompt, "<|START_THINKING|>")) {
+    std::string prompt_str = data.prompt.str();
+    if (string_ends_with(prompt_str, "<|START_THINKING|>")) {
         if (!inputs.enable_thinking) {
-            data.prompt += "<|END_THINKING|>";
+            data.prompt.append(jinja::string("<|END_THINKING|>"));
         } else {
             data.thinking_forced_open = true;
         }
-    } else if (!inputs.enable_thinking && string_ends_with(data.prompt, "<|CHATBOT_TOKEN|>")) {
-        data.prompt += "<|START_THINKING|><|END_THINKING|>";
+    } else if (!inputs.enable_thinking && string_ends_with(prompt_str, "<|CHATBOT_TOKEN|>")) {
+        data.prompt.append(jinja::string("<|START_THINKING|><|END_THINKING|>"));
     }
 
     data.grammar_lazy = inputs.tool_choice != COMMON_CHAT_TOOL_CHOICE_REQUIRED;
@@ -1469,9 +1470,10 @@ static common_chat_params common_chat_params_init_nemotron_v2(const common_chat_
     data.format = COMMON_CHAT_FORMAT_NEMOTRON_V2;
 
     // Handle thinking tags appropriately based on inputs.enable_thinking
-    if (string_ends_with(data.prompt, "<think>\n")) {
+    std::string prompt_str = data.prompt.str();
+    if (string_ends_with(prompt_str, "<think>\n")) {
         if (!inputs.enable_thinking) {
-            data.prompt += "</think>";
+            data.prompt.append(jinja::string("</think>"));
         } else {
             data.thinking_forced_open = true;
         }
@@ -1529,9 +1531,10 @@ static common_chat_params common_chat_params_init_nemotron_v3(const common_chat_
     data.format = COMMON_CHAT_FORMAT_PEG_CONSTRUCTED;
 
     // Handle thinking tags appropriately based on inputs.enable_thinking
-    if (string_ends_with(data.prompt, "<think>\n")) {
+    std::string prompt_str = data.prompt.str();
+    if (string_ends_with(prompt_str, "<think>\n")) {
         if (!inputs.enable_thinking) {
-            data.prompt += "</think>";
+            data.prompt.append(jinja::string("</think>"));
         } else {
             data.thinking_forced_open = true;
         }
@@ -1647,9 +1650,10 @@ static common_chat_params common_chat_params_init_apertus(const common_chat_temp
     data.format = COMMON_CHAT_FORMAT_APERTUS;
 
     // Handle thinking tags appropriately based on inputs.enable_thinking
-    if (string_ends_with(data.prompt, "<|inner_prefix|>")) {
+    std::string prompt_str = data.prompt.str();
+    if (string_ends_with(prompt_str, "<|inner_prefix|>")) {
         if (!inputs.enable_thinking) {
-            data.prompt += "<|inner_suffix|>";
+            data.prompt.append(jinja::string("<|inner_suffix|>"));
         } else {
             data.thinking_forced_open = true;
         }
@@ -1711,29 +1715,31 @@ static common_chat_params common_chat_params_init_apertus(const common_chat_temp
 static common_chat_params common_chat_params_init_deepseek_r1(const common_chat_template & tmpl, const struct templates_params & inputs) {
     common_chat_params data;
     auto prompt = apply(tmpl, inputs);
+    std::string prompt_str = prompt.str();
 
     // Hacks to fix the official (broken) prompt.
     // It is advisable to use --chat-template-file models/templates/llama-cpp-deepseek-r1.jinja instead,
     // until the official template is fixed.
     if (tmpl.source().find("{% if ns.is_tool %}{{'<｜tool▁outputs▁end｜>'}}") != std::string::npos) {
         // Don't leave the chat dangling after tool results
-        if (string_ends_with(prompt, "<｜tool▁outputs▁end｜>")) {
-            prompt += "<｜end▁of▁sentence｜>";
+        if (string_ends_with(prompt_str, "<｜tool▁outputs▁end｜>")) {
+            prompt.append(jinja::string("<｜end▁of▁sentence｜>"));
             if (inputs.add_generation_prompt) {
-                prompt += "<｜Assistant｜>";
+                prompt.append(jinja::string("<｜Assistant｜>"));
             }
         }
         // Fix up tool call delta example added by Minja
-        prompt = std::regex_replace(
-            prompt,
-            std::regex("(<｜tool▁call▁end｜>)[\\s\\r\\n]*(<｜tool▁outputs▁begin｜>|<｜User｜>)"),
-            "$1<｜tool▁calls▁end｜><｜end▁of▁sentence｜>$2");
+        // TODO @ngxson : may need to fix it, or refactor via autoparser
+        // prompt = std::regex_replace(
+        //     prompt,
+        //     std::regex("(<｜tool▁call▁end｜>)[\\s\\r\\n]*(<｜tool▁outputs▁begin｜>|<｜User｜>)"),
+        //     "$1<｜tool▁calls▁end｜><｜end▁of▁sentence｜>$2");
     }
     data.prompt = prompt;
     data.format = COMMON_CHAT_FORMAT_DEEPSEEK_R1;
-    if (string_ends_with(data.prompt, "<think>\n")) {
+    if (string_ends_with(prompt_str, "<think>\n")) {
         if (!inputs.enable_thinking) {
-            data.prompt += "</think>";
+            data.prompt.append(jinja::string("</think>"));
         } else {
             data.thinking_forced_open = true;
         }
@@ -1796,9 +1802,10 @@ static common_chat_params common_chat_params_init_deepseek_v3_1(const common_cha
                        additional_context);
     data.prompt = prompt;
     data.format = COMMON_CHAT_FORMAT_DEEPSEEK_V3_1;
-    if (string_ends_with(data.prompt, "<think>")) {
+    std::string prompt_str = data.prompt.str();
+    if (string_ends_with(prompt_str, "<think>")) {
         if (!inputs.enable_thinking) {
-            data.prompt += "</think>";
+            data.prompt.append(jinja::string("</think>"));
         } else {
             data.thinking_forced_open = true;
         }
@@ -1854,10 +1861,11 @@ static common_chat_params common_chat_params_init_minimax_m2(const common_chat_t
     data.format = COMMON_CHAT_FORMAT_MINIMAX_M2;
 
     // Handle thinking tags based on prompt ending
-    if (string_ends_with(data.prompt, "<think>\n")) {
+    std::string prompt_str = data.prompt.str();
+    if (string_ends_with(prompt_str, "<think>\n")) {
         if (!params.enable_thinking) {
             // Close the thinking tag immediately if thinking is disabled
-            data.prompt += "</think>\n\n";
+            data.prompt.append(jinja::string("</think>\n\n"));
         } else {
             // Mark thinking as forced open (template started with <think>)
             data.thinking_forced_open = true;
@@ -2050,17 +2058,19 @@ static common_chat_params common_chat_params_init_gpt_oss(const common_chat_temp
     }
 
     auto prompt = apply(tmpl, inputs, /* messages_override= */ adjusted_messages);
+    std::string prompt_str = prompt.str();
 
     // Check if we need to replace the return token with end token during
     // inference and without generation prompt. For more details see:
     // https://github.com/ggml-org/llama.cpp/issues/15417
-    if (inputs.is_inference && !inputs.add_generation_prompt) {
-        static constexpr std::string_view return_token = "<|return|>";
-        static constexpr std::string_view end_token    = "<|end|>";
-        if (size_t pos = prompt.rfind(return_token); pos != std::string::npos) {
-            prompt.replace(pos, return_token.length(), end_token);
-        }
-    }
+    // TODO @ngxson : either fix this, or refactor via autoparser
+    // if (inputs.is_inference && !inputs.add_generation_prompt) {
+    //     static constexpr std::string_view return_token = "<|return|>";
+    //     static constexpr std::string_view end_token    = "<|end|>";
+    //     if (size_t pos = prompt_str.rfind(return_token); pos != std::string::npos) {
+    //         prompt.replace(pos, return_token.length(), end_token);
+    //     }
+    // }
 
     data.prompt = prompt;
     data.format = COMMON_CHAT_FORMAT_GPT_OSS;
@@ -2182,18 +2192,13 @@ static common_chat_params common_chat_params_init_glm_4_5(const common_chat_temp
     common_chat_params data;
     data.grammar_lazy = inputs.tools.is_array() && !inputs.tools.empty() && inputs.tool_choice != COMMON_CHAT_TOOL_CHOICE_REQUIRED;
 
-    std::string prompt = apply(tmpl, inputs);
+    auto prompt = apply(tmpl, inputs);
+    std::string prompt_str = prompt.str();
 
     // match the existing trimming behavior
-    if (inputs.add_bos && string_starts_with(prompt, tmpl.bos_token())) {
-        prompt.erase(0, tmpl.bos_token().size());
-    }
-    if (inputs.add_eos && string_ends_with(prompt, tmpl.eos_token())) {
-        prompt.erase(prompt.size() - tmpl.eos_token().size());
-    }
-    if (string_ends_with(prompt, "<think>")) {
+    if (string_ends_with(prompt_str, "<think>")) {
         if (!inputs.enable_thinking) {
-            prompt += "</think>";
+            prompt.append(jinja::string("</think>"));
         } else {
             data.thinking_forced_open = true;
         }
@@ -2424,9 +2429,10 @@ static common_chat_params common_chat_params_init_hermes_2_pro(const common_chat
 
     data.prompt = apply(tmpl, inputs, /* messages_override =*/ std::nullopt, /* tools_override= */ std::nullopt, extra_context);
     data.format = COMMON_CHAT_FORMAT_HERMES_2_PRO;
-    if (string_ends_with(data.prompt, "<think>\n")) {
+    std::string prompt_str = data.prompt.str();
+    if (string_ends_with(prompt_str, "<think>\n")) {
         if (!extra_context["enable_thinking"]) {
-            data.prompt += "</think>";
+            data.prompt.append(jinja::string("</think>"));
         } else {
             data.thinking_forced_open = true;
         }
@@ -2882,6 +2888,7 @@ static common_chat_params common_chat_templates_apply_jinja(
     params.now = inputs.now;
     params.add_bos = tmpls->add_bos;
     params.add_eos = tmpls->add_eos;
+    params.mark_input = inputs.mark_input;
 
     if (!tmpl.original_caps().supports_system_role) {
         workaround::system_message_not_supported(params.messages);

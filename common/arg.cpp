@@ -1459,6 +1459,14 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples({LLAMA_EXAMPLE_COMPLETION, LLAMA_EXAMPLE_CLI, LLAMA_EXAMPLE_SERVER}));
     add_opt(common_arg(
+        {"--special-in-message"},
+        {"--no-special-in-message"},
+        string_format("[experimental] whether to parse the special tokens inside messages, requires using jinja chat template (default: %s)", params.special_in_msg ? "true" : "false"),
+        [](common_params & params, bool enabled) {
+            params.special_in_msg = enabled;
+        }
+    ).set_examples({LLAMA_EXAMPLE_CLI, LLAMA_EXAMPLE_SERVER}));
+    add_opt(common_arg(
         {"-cnv", "--conversation"},
         {"-no-cnv", "--no-conversation"},
         "whether to run in conversation mode:\n"
