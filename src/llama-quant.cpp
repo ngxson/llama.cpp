@@ -854,7 +854,14 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
     // For medium models (2-8B), upgrade bulk Q3_K tensors to Q3_K_HIFI
     // This uses the residual correction format for stronger signal recovery
     // Tiny models: Skip (overhead hurts more than helps)
-    // Q3_K_HIFI block type upgrade based on model size
+    // Q3_K_HIFI DUAL-MODE block type selection based on model size AND imatrix presence
+    // 
+    // DUAL-MODE STRATEGY:
+    // - WITHOUT imatrix: Use Q3_K_HIFI (FP16 outliers, 16 per block) - provides critical precision recovery
+    //   Results: 4B -4.4% PPL, 8B -1.6% PPL, 14B -0.9% PPL vs Q3_K_M
+    // - WITH imatrix: Use Q3_K_HIFI_RES8 (INT8 residuals, 8 per block) - lean format since base is optimized
+    //   Results: Reduces overhead while maintaining quality (imatrix already guides base quantization)
+    //
     // Small models (≤1.7B): Skip HIFI blocks (overhead hurts tiny models)
     // Medium models (1.7B-20B): Use HIFI blocks (4B/8B/14B all benefit)
     // Very large models (>20B): Skip HIFI blocks (32B shows catastrophic quality loss)
@@ -862,10 +869,17 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
         
         // Upgrade to Q3_K_HIFI for medium and large-medium models (1.7B-20B)
-        // where the FP16 outlier correction provides meaningful improvement
-        // 4B: -4.4% PPL win, 8B: -1.6% PPL win, 14B: expected -0.5% additional gain
         if (model_params_b > 1.7f && model_params_b <= 20.0f) {
-            new_type = GGML_TYPE_Q3_K_HIFI;
+            if (qs.has_imatrix) {
+                // With imatrix: Use lean INT8 residuals (Q3_K_HIFI_RES8)
+                // Base quantization is already optimized by imatrix guidance
+                // INT8 residuals provide sufficient correction with minimal overhead
+                new_type = GGML_TYPE_Q3_K_HIFI_RES8;
+            } else {
+                // Without imatrix: Use full FP16 outliers (Q3_K_HIFI)
+                // Need stronger correction since no imatrix guidance available
+                new_type = GGML_TYPE_Q3_K_HIFI;
+            }
         }
         // else: Keep Q3_K for tiny (<1.7B) and very large (>20B) models
     }

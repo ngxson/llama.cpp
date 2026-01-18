@@ -426,6 +426,89 @@ static void dequantize_block_q3_k_hifi(const void * __restrict__ vx, dst_t * __r
 
 }
 
+// Q3_K_HIFI_RES8: Q3_K with 8 INT8 residual corrections (lean version for imatrix)
+template<typename dst_t>
+static void dequantize_block_q3_k_hifi_res8(const void * __restrict__ vx, dst_t * __restrict__ yy,
+                                           const sycl::nd_item<3> &item_ct1) {
+
+    const int64_t i = item_ct1.get_group(2);
+    const block_q3_k_hifi_res8 * x = (const block_q3_k_hifi_res8 *) vx;
+
+#if QK_K == 256
+    const int64_t r = item_ct1.get_local_id(2) / 4;
+    const int64_t tid = r/2;
+    const int64_t is0 = r%2;
+    const int64_t l0 = 16 * is0 + 4 * (item_ct1.get_local_id(2) % 4);
+    const int64_t n = tid / 4;
+    const int64_t j = tid - 4*n;
+
+    uint8_t m = 1 << (4*n + j);
+    int64_t is = 8*n + 2*j + is0;
+    int shift = 2*j;
+
+    int8_t us = is <  4 ? (x[i].scales[is-0] & 0xF) | (((x[i].scales[is+8] >> 0) & 3) << 4) :
+                is <  8 ? (x[i].scales[is-0] & 0xF) | (((x[i].scales[is+4] >> 2) & 3) << 4) :
+                is < 12 ? (x[i].scales[is-8] >>  4) | (((x[i].scales[is+0] >> 4) & 3) << 4) :
+                          (x[i].scales[is-8] >>  4) | (((x[i].scales[is-4] >> 6) & 3) << 4);
+    float d_all = x[i].d;
+    float dl = d_all * (us - 32);
+
+    dst_t * y = yy + i*QK_K + 128*n + 32*j;
+    const uint8_t * q = x[i].qs + 32*n;
+    const uint8_t * hm = x[i].hmask;
+
+    // Get outlier count and residual scale
+    const int n_outliers = (x[i].outlier_count <= Q3_K_HIFI_RES8_OUTLIERS) ? x[i].outlier_count : Q3_K_HIFI_RES8_OUTLIERS;
+    const float res_scale = x[i].residual_scale;
+
+    for (int l = l0; l < l0+4; ++l) {
+        int idx = 128*n + 32*j + l;
+        // Step 1: Standard Q3_K dequantization
+        dst_t val = dl * ((int8_t)((q[l] >> shift) & 3) - ((hm[l] & m) ? 0 : 4));
+        // Step 2: ADD INT8 residual correction if this position has one
+        for (int k = 0; k < n_outliers; ++k) {
+            if (x[i].outlier_idx[k] == idx) {
+                val += res_scale * (float)x[i].residual_vals[k];  // ADD INT8 correction
+                break;
+            }
+        }
+        y[l] = val;
+    }
+#else
+    const int64_t tid = item_ct1.get_local_id(2);
+    const int64_t is  = tid/16;
+    const int64_t il  = tid%16;
+    const int64_t im  = il/8;
+    const int64_t in  = il%8;
+
+    dst_t * y = yy + i*QK_K + 16*is + il;
+
+    const uint8_t q = x[i].qs[il] >> (2*is);
+    const uint8_t h = x[i].hmask[in] >> (2*is + im);
+    const float   d = (float)x[i].d;
+    const float res_scale = x[i].residual_scale;
+
+    dst_t val0, val1;
+    if (is == 0) {
+        val0 = d * ((x[i].scales[0] & 0xF) - 8) * ((int8_t)((q >> 0) & 3) - ((h >> 0) & 1 ? 0 : 4));
+        val1 = d * ((x[i].scales[1] & 0xF) - 8) * ((int8_t)((q >> 4) & 3) - ((h >> 4) & 1 ? 0 : 4));
+    } else {
+        val0 = d * ((x[i].scales[0] >>  4) - 8) * ((int8_t)((q >> 0) & 3) - ((h >> 0) & 1 ? 0 : 4));
+        val1 = d * ((x[i].scales[1] >>  4) - 8) * ((int8_t)((q >> 4) & 3) - ((h >> 4) & 1 ? 0 : 4));
+    }
+    // Check for INT8 outliers
+    int idx0 = 16*is + il;
+    int idx1 = 16*is + il + 32;
+    for (int k = 0; k < Q3_K_HIFI_RES8_OUTLIERS; ++k) {
+        if (x[i].outlier_idx[k] == idx0) val0 += res_scale * (float)x[i].residual_vals[k];
+        if (x[i].outlier_idx[k] == idx1) val1 += res_scale * (float)x[i].residual_vals[k];
+    }
+    y[ 0] = val0;
+    y[32] = val1;
+#endif
+
+}
+
 #if QK_K == 256
 static inline void get_scale_min_k4(int j, const uint8_t * q, uint8_t & d, uint8_t & m) {
     if (j < 4) {

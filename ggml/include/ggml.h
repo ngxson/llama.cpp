@@ -430,7 +430,8 @@ extern "C" {
         GGML_TYPE_Q6_K_HIFI_DYNAMIC = 42, // Q6_K_HIFI_DYNAMIC: Q6_K + 2-8 outliers based on layer sensitivity
         GGML_TYPE_Q6_K_HIFI_RES8 = 43, // Q6_K_HIFI_RES8: Q6_K + INT8 residuals (compact format)
         GGML_TYPE_Q5_K_HIFI_RES8 = 44, // Q5_K_HIFI_RES8: Q5_K + INT8 residuals (efficient for 4B-10B models)
-        GGML_TYPE_COUNT   = 45,
+        GGML_TYPE_Q3_K_HIFI_RES8 = 45, // Q3_K_HIFI_RES8: Q3_K + INT8 residuals (lean version for imatrix use)
+        GGML_TYPE_COUNT   = 46,
     };
 
     // precision

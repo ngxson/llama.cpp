@@ -308,6 +308,26 @@ typedef struct {
 // Size: 110 (Q3_K) + 2 (count+pad) + 16 (idx) + 32 (vals) = 160 bytes
 static_assert(sizeof(block_q3_k_hifi) == sizeof(block_q3_K) + 2 + Q3_K_HIFI_OUTLIERS + Q3_K_HIFI_OUTLIERS*sizeof(ggml_half), "wrong q3_k_hifi block size/padding");
 
+// Q3_K_HIFI_RES8: Lean version with INT8 residuals for use WITH imatrix
+// When imatrix is present, base quantization is already optimized - INT8 residuals suffice
+// Uses 8 outliers (vs 16 in FP16 version) for minimal overhead while maintaining quality
+#define Q3_K_HIFI_RES8_OUTLIERS 8
+typedef struct {
+    // === Q3_K-COMPATIBLE REGION (110 bytes) - DO NOT REORDER ===
+    uint8_t hmask[QK_K/8];         // 32 bytes: high bit mask
+    uint8_t qs[QK_K/4];            // 64 bytes: low 2 bits
+    uint8_t scales[12];            // 12 bytes: 16 sub-group scales (6-bit each)
+    ggml_half d;                   // 2 bytes: super-block scale
+    // === INT8 RESIDUAL EXTENSION (22 bytes) ===
+    uint8_t outlier_count;                          // 1 byte: actual outliers stored (0-8)
+    uint8_t _pad1;                                  // 1 byte: alignment padding
+    uint8_t outlier_idx[Q3_K_HIFI_RES8_OUTLIERS];   // 8 bytes: outlier positions (0-255)
+    int8_t  residual_vals[Q3_K_HIFI_RES8_OUTLIERS]; // 8 bytes: INT8 residual corrections
+    float   residual_scale;                         // 4 bytes: scale for INT8 residuals
+} block_q3_k_hifi_res8;
+// Size: 110 (Q3_K) + 2 (count+pad) + 8 (idx) + 8 (vals) + 4 (scale) = 132 bytes
+static_assert(sizeof(block_q3_k_hifi_res8) == sizeof(block_q3_K) + 2 + Q3_K_HIFI_RES8_OUTLIERS + Q3_K_HIFI_RES8_OUTLIERS + sizeof(float), "wrong q3_k_hifi_res8 block size/padding");
+
 // 4-bit quantization
 // 8 blocks of 32 elements each
 // weight is represented as x = a * q + b
