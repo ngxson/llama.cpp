@@ -1349,8 +1349,10 @@ void server_task_result_cmpl_partial::update(task_result_state & state) {
                     }},
                 });
             }
-            if (!diff.tool_call_delta.name.empty()) {
+            if (!diff.tool_call_delta.name.empty() &&
+                !string_starts_with(state.generated_tool_call_ids.back(), "fc_")) {
                 // Add new function call output_item
+                // This fails to detect new item if there are >1 consecutive function calls
 
                 const std::string function_call_id = "fc_" + state.generated_tool_call_ids.back();
                 state.generated_tool_call_ids.back() = function_call_id;
