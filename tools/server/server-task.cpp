@@ -860,34 +860,53 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp_stream() {
     std::vector<json> output;
 
     if (oaicompat_msg.reasoning_content != "") {
+        const auto reasoning_id_it = std::find_if(
+            openai_responses_item_ids.begin(),
+            openai_responses_item_ids.end(),
+            [](const std::string & id){ return string_starts_with(id, "rs_"); }
+        );
+        GGML_ASSERT(reasoning_id_it != openai_responses_item_ids.end());
+        const std::string reasoning_id = *reasoning_id_it;
+
+        const json output_item = json {
+            {"id",      reasoning_id},
+            {"summary", json::array()},
+            {"type",    "reasoning"},
+            {"content", json::array({json {
+                {"text", oaicompat_msg.reasoning_content},
+                {"type", "reasoning_text"},
+            }})},
+            {"encrypted_content", ""},
+        };
+
         server_sent_events.push_back(json {
             {"event", "response.output_item.done"},
             {"data", json {
                 {"type", "response.output_item.done"},
-                {"item", json {
-                    {"id",      "rs_id(response.output_item.done)"},
-                    {"summary", json::array()},
-                    {"type",    "reasoning"},
-                    {"content", json::array({json {
-                        {"text", oaicompat_msg.reasoning_content},
-                        {"type", "reasoning_text"},
-                    }})},
-                    {"encrypted_content", ""},
-                }}
+                {"item", output_item}
             }}
         });
+        output.push_back(output_item);
     }
 
     if (oaicompat_msg.content != "") {
+        const auto message_id_it = std::find_if(
+            openai_responses_item_ids.begin(),
+            openai_responses_item_ids.end(),
+            [](const std::string & id){ return string_starts_with(id, "msg_"); }
+        );
+        GGML_ASSERT(message_id_it != openai_responses_item_ids.end());
+        const std::string message_id = *message_id_it;
         server_sent_events.push_back(json {
             {"event", "response.output_text.done"},
             {"data", json {
-                {"type", "response.output_text.done"},
-                {"text", oaicompat_msg.content}
+                {"type",    "response.output_text.done"},
+                {"item_id", message_id},
+                {"text",    oaicompat_msg.content}
             }}
         });
 
-        const json part = {
+        const json content_part = {
             {"type",        "output_text"},
             {"annotations", json::array()},
             {"logprobs",    json::array()},
@@ -897,14 +916,16 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp_stream() {
         server_sent_events.push_back(json {
             {"event", "response.content_part.done"},
             {"data", json {
-                {"type", "response.content_part.done"},
-                {"part", part}
+                {"type",    "response.content_part.done"},
+                {"item_id", message_id},
+                {"part",    content_part}
             }}
         });
-        const json item = {
+        const json output_item = {
             {"type",    "message"},
             {"status",  "completed"},
-            {"content", json::array({part})},
+            {"id",      message_id},
+            {"content", json::array({content_part})},
             {"role",    "assistant"}
         };
 
@@ -912,32 +933,28 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp_stream() {
             {"event", "response.output_item.done"},
             {"data", json {
                 {"type", "response.output_item.done"},
-                {"item", item}
+                {"item", output_item}
             }}
         });
-        output.push_back(item);
+        output.push_back(output_item);
     }
 
     for (const common_chat_tool_call & tool_call : oaicompat_msg.tool_calls) {
+        const json output_item = {
+            {"type",      "function_call"},
+            {"status",    "completed"},
+            {"arguments", tool_call.arguments},
+            {"call_id",   tool_call.id},
+            {"name",      tool_call.name}
+        };
         server_sent_events.push_back(json {
             {"event", "response.output_item.done"},
             {"data", json {
                 {"type", "response.output_item.done"},
-                {"item", json {
-                    {"type",      "function_call"},
-                    {"status",    "completed"},
-                    {"arguments", tool_call.arguments},
-                    {"call_id",   "call_dummy_id"},
-                    {"name",      tool_call.name}
-                }}
+                {"item", output_item}
             }}
         });
-        output.push_back({
-            {"type",      "function_call"},
-            {"status",    "completed"},
-            {"arguments", tool_call.arguments},
-            {"name",      tool_call.name}
-        });
+        output.push_back(output_item);
     }
 
     std::time_t t = std::time(0);
@@ -946,7 +963,7 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp_stream() {
         {"data", json {
             {"type", "response.completed"},
             {"response", json {
-                {"id",         "resp_dummy_id"},
+                {"id",         openai_responses_item_ids[0]},
                 {"object",     "response"},
                 {"created_at", t},
                 {"status",     "completed"},

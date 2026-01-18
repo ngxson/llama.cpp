@@ -357,6 +357,9 @@ struct server_task_result_cmpl_final : server_task_result {
     std::vector<common_chat_msg_diff> oaicompat_msg_diffs; // to be populated by update()
     bool is_updated = false;
 
+    // to be copied from task_result_state by update()
+    std::vector<std::string> openai_responses_item_ids;
+
     virtual bool is_stop() override {
         return true; // in stream mode, final responses are considered stop
     }
@@ -366,6 +369,7 @@ struct server_task_result_cmpl_final : server_task_result {
     virtual void update(task_result_state & state) override {
         is_updated = true;
         oaicompat_msg = state.update_chat_msg(content, false, oaicompat_msg_diffs);
+        openai_responses_item_ids = state.openai_responses_item_ids;
     }
 
     json to_json_non_oaicompat();
