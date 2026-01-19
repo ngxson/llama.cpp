@@ -1139,7 +1139,7 @@ json convert_responses_to_chatcmpl(const json & response_body) {
                         }
                         chatcmpl_content.push_back({
                             {"text", input_item.at("text")},
-                            {"type", "text"}
+                            {"type", "text"},
                         });
                     } else if (type == "input_image") {
                         // While `detail` is marked as required,
@@ -1149,8 +1149,10 @@ json convert_responses_to_chatcmpl(const json & response_body) {
                             throw std::invalid_argument("'image_url' is required");
                         }
                         chatcmpl_content.push_back({
-                            {"image_url", json {{"url", input_item.at("image_url")}}},
-                            {"type", "image_url"}
+                            {"image_url", json {
+                                {"url", input_item.at("image_url")}
+                            }},
+                            {"type", "image_url"},
                         });
                     } else if (type == "input_file") {
                         if (input_item.contains("file_url")) {
@@ -1163,8 +1165,9 @@ json convert_responses_to_chatcmpl(const json & response_body) {
                         chatcmpl_content.push_back({
                             {"file", json {
                                 {"file_data", input_item.at("file_data")},
-                                {"filename",  input_item.at("filename")}}},
-                            {"type", "file"}
+                                {"filename",  input_item.at("filename")},
+                            }},
+                            {"type", "file"},
                         });
                     } else {
                         throw std::invalid_argument("'type' must be one of 'input_text', 'input_image', or 'input_file'");
@@ -1205,7 +1208,7 @@ json convert_responses_to_chatcmpl(const json & response_body) {
                     // Ignore annotations and logprobs for now
                     chatcmpl_content.push_back({
                         {"text", output_text.at("text")},
-                        {"type", "text"}
+                        {"type", "text"},
                     });
                 }
 
@@ -1225,10 +1228,10 @@ json convert_responses_to_chatcmpl(const json & response_body) {
                     {"tool_calls", json::array({ json {
                         {"function", json {
                             {"arguments", item.at("arguments")},
-                            {"name",      item.at("name")}
+                            {"name",      item.at("name")},
                         }},
                         {"id",   item.at("call_id")},
-                        {"type", "function"}
+                        {"type", "function"},
                     }})},
                 };
 
@@ -1248,7 +1251,7 @@ json convert_responses_to_chatcmpl(const json & response_body) {
                     chatcmpl_messages.push_back(json {
                         {"content",      item.at("output")},
                         {"role",         "tool"},
-                        {"tool_call_id", item.at("call_id")}
+                        {"tool_call_id", item.at("call_id")},
                     });
                 } else {
                     json chatcmpl_outputs = item.at("output");
@@ -1261,7 +1264,7 @@ json convert_responses_to_chatcmpl(const json & response_body) {
                     chatcmpl_messages.push_back(json {
                         {"content",      chatcmpl_outputs},
                         {"role",         "tool"},
-                        {"tool_call_id", item.at("call_id")}
+                        {"tool_call_id", item.at("call_id")},
                     });
                 }
             } else if (// exists_and_is_string(item, "id") &&
@@ -1275,7 +1278,7 @@ json convert_responses_to_chatcmpl(const json & response_body) {
                 chatcmpl_messages.push_back(json {
                     {"role", "assistant"},
                     {"content", json::array()},
-                    {"reasoning_content", item.at("content")[0].at("text")}
+                    {"reasoning_content", item.at("content")[0].at("text")},
                 });
             } else {
                 throw std::invalid_argument("Cannot determine type of 'item'");
@@ -1285,8 +1288,8 @@ json convert_responses_to_chatcmpl(const json & response_body) {
         throw std::invalid_argument("'input' must be a string or array of objects");
     }
 
-    // Remove unused dummy message
-    // (reasoning content not followed by tool calls)
+    // Remove unused dummy message which contains
+    // reasoning content not followed by tool call
     chatcmpl_messages.erase(std::remove_if(
         chatcmpl_messages.begin(),
         chatcmpl_messages.end(),
