@@ -534,6 +534,7 @@ public:
     server_queue    queue_tasks;
     server_response queue_results;
 
+    // note: chat_params must not be refreshed upon existing sleeping state
     server_chat_params chat_params;
 
     ~server_context_impl() {
@@ -3427,7 +3428,7 @@ void server_routes::init_routes() {
 
     this->get_api_show = [this](const server_http_req &) {
         auto res = create_response();
-        std::string tmpl_default = common_chat_templates_source(ctx_server.chat_params.tmpls.get(), "");
+        std::string tmpl_default = common_chat_templates_source(meta->chat_params.tmpls.get(), "");
         json data = {
             {
                 "model_info", {
@@ -3561,7 +3562,7 @@ void server_routes::init_routes() {
         json body = json::parse(req.body);
         json body_parsed = oaicompat_chat_params_parse(
             body,
-            ctx_server.chat_params,
+            meta->chat_params,
             files);
         return handle_completions_impl(
             req,
@@ -3577,7 +3578,7 @@ void server_routes::init_routes() {
         json body = convert_anthropic_to_oai(json::parse(req.body));
         json body_parsed = oaicompat_chat_params_parse(
             body,
-            ctx_server.chat_params,
+            meta->chat_params,
             files);
         return handle_completions_impl(
             req,
@@ -3593,7 +3594,7 @@ void server_routes::init_routes() {
         json body = convert_anthropic_to_oai(json::parse(req.body));
         json body_parsed = oaicompat_chat_params_parse(
             body,
-            ctx_server.chat_params,
+            meta->chat_params,
             files);
 
         json prompt = body_parsed.at("prompt");
@@ -3609,7 +3610,7 @@ void server_routes::init_routes() {
         json body = json::parse(req.body);
         json data = oaicompat_chat_params_parse(
             body,
-            ctx_server.chat_params,
+            meta->chat_params,
             files);
         res->ok({{ "prompt", std::move(data.at("prompt")) }});
         return res;
