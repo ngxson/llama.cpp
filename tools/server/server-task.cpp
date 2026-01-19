@@ -812,45 +812,62 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp() {
         msg.content = content;
     }
 
-    const json reasoning = {
-        {"type",    "reasoning"},
-        {"summary", json::array({json {
-            {"type", "summary_text"},
-            {"text", msg.reasoning_content}
-        }})}
-    };
-    const json message = {
-        {"type",    "message"},
-        {"status",  "completed"},
-        {"content", json::array({json {
-            {"type",        "output_text"},
-            {"annotations", json::array()},
-            {"logprobs",    json::array()},
-            {"text",        msg.content}
-        }})},
-        {"role", msg.role}
-    };
+    std::vector<json> output;
+
+    if (msg.reasoning_content != "") {
+        output.push_back(json {
+            {"id",      "rs_" + random_string()},
+            {"summary", json::array()},
+            {"type",    "reasoning"},
+            {"content", json::array({ json {
+                {"text", msg.reasoning_content},
+                {"type", "reasoning_text"},
+            }})},
+            {"encrypted_content", ""},
+            {"status",            "completed"},
+        });
+    }
+
+    if (msg.content != "") {
+        output.push_back(json {
+            {"content", json::array({ json {
+                {"type",        "output_text"},
+                {"annotations", json::array()},
+                {"logprobs",    json::array()},
+                {"text",        msg.content},
+            }})},
+            {"id",     "msg_" + random_string()},
+            {"role",   msg.role},
+            {"status", "completed"},
+            {"type",   "message"},
+        });
+    }
+
+    for (const common_chat_tool_call & tool_call : oaicompat_msg.tool_calls) {
+        output.push_back(json {
+            {"type",      "function_call"},
+            {"status",    "completed"},
+            {"arguments", tool_call.arguments},
+            {"call_id",   tool_call.id},
+            {"name",      tool_call.name},
+        });
+    }
 
     std::time_t t = std::time(0);
     json res = {
-        {"object",     "response"},
-        {"created_at", t},
-        {"status",     "completed"},
-        {"model",      oaicompat_model},
-        {"output",     json::array({reasoning, message})},
-        {"usage",      json {
+        {"completed_at", t},
+        {"created_at",   t},
+        {"id",           "resp_" + random_string()},
+        {"model",        oaicompat_model},
+        {"object",       "response"},
+        {"output",       output},
+        {"status",       "completed"},
+        {"usage",        json {
             {"input_tokens",  n_prompt_tokens},
             {"output_tokens", n_decoded},
-            {"total_tokens",  n_decoded + n_prompt_tokens}
+            {"total_tokens",  n_decoded + n_prompt_tokens},
         }},
     };
-
-    if (verbose) {
-        res["__verbose"] = to_json_non_oaicompat();
-    }
-    if (timings.prompt_n >= 0) {
-        res.push_back({"timings", timings.to_json()});
-    }
 
     return res;
 }
@@ -872,7 +889,7 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp_stream() {
             {"id",      reasoning_id},
             {"summary", json::array()},
             {"type",    "reasoning"},
-            {"content", json::array({json {
+            {"content", json::array({ json {
                 {"text", oaicompat_msg.reasoning_content},
                 {"type", "reasoning_text"},
             }})},
