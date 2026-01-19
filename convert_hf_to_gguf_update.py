@@ -173,6 +173,7 @@ pre_computed_hashes = [
     {"name": "glm4", "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/zai-org/GLM-4.7-Flash", "chkhsh": "cdf5f35325780597efd76153d4d1c16778f766173908894c04afc20108536267"},
 ]
 
+
 def download_file_with_auth(url, token, save_path):
     headers = {"Authorization": f"Bearer {token}"} if token else None
     response = sess.get(url, headers=headers)
