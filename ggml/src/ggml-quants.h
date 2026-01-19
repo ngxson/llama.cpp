@@ -131,6 +131,11 @@ GGML_API void iq3xs_free_impl(int grid_size);
 GGML_API void dequantize_row_q3_k_hifi(const block_q3_k_hifi * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 GGML_API size_t quantize_q3_k_hifi(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
 
+// Q3_K_HIFI_RES8: Lean INT8 residual version for imatrix use
+GGML_API void quantize_row_q3_k_hifi_res8_ref(const float * GGML_RESTRICT x, block_q3_k_hifi_res8 * GGML_RESTRICT y, int64_t k);
+GGML_API void dequantize_row_q3_k_hifi_res8(const block_q3_k_hifi_res8 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API size_t quantize_q3_k_hifi_res8(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
+
 // Q6_K_HIFI: Q6_K with 4 FP16 outliers for critical tensors
 GGML_API void quantize_row_q6_k_hifi_ref(const float * GGML_RESTRICT x, block_q6_k_hifi * GGML_RESTRICT y, int64_t k);
 GGML_API void dequantize_row_q6_k_hifi(const block_q6_k_hifi * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);

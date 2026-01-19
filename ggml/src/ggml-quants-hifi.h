@@ -110,6 +110,103 @@ GGML_API int ggml_hifi_compute_block_outlier_count(
 //         outlier_idx[8] + residual_vals[8] + _padding[3] + residual_scale[4]
 #define Q5_K_HIFI_RES8_BLOCK_SIZE 200
 
+// ===========================================================================
+// Q3_K_HIFI Adaptive Enhancement API
+// Implements scale-aware tensor selection and statistical outlier detection
+// ===========================================================================
+
+// Q3_K_HIFI block constants
+#ifndef Q3_K_HIFI_MAX_OUTLIERS
+#define Q3_K_HIFI_MAX_OUTLIERS 8
+#endif
+
+// Model size categories for Q3_K_HIFI
+typedef enum {
+    Q3_HIFI_SIZE_TINY   = 0,  // ≤1.7B: minimal or no HIFI enhancement
+    Q3_HIFI_SIZE_MEDIUM = 1,  // 2B-8B: full enhancement (sweet spot)
+    Q3_HIFI_SIZE_LARGE  = 2,  // 14B+: reduced enhancement (leverage redundancy)
+} ggml_q3_hifi_size_category;
+
+// Get model size category from parameter count
+// Parameters:
+//   model_params_b: Model size in billions (e.g., 0.6, 1.7, 4.0, 8.0, 14.0, 32.0)
+// Returns: Size category for adaptive strategy selection
+GGML_API ggml_q3_hifi_size_category ggml_q3_hifi_get_size_category(float model_params_b);
+
+// Get maximum outlier count for Q3_K_HIFI based on model size
+// Implements Phase 1: Scale-Aware Enhancement
+// Parameters:
+//   model_params_b: Model size in billions
+// Returns: Maximum outliers (0-8)
+//   - Tiny (≤1.7B): 0-2 (avoid BPW overhead that hurts small models)
+//   - Medium (2-8B): 6-8 (full enhancement - this is the sweet spot)
+//   - Large (14B+): 3-4 (minimal enhancement - large models self-correct)
+GGML_API int ggml_q3_hifi_get_max_outliers(float model_params_b);
+
+// Get outlier ratio threshold for Q3_K_HIFI tensor enhancement
+// Implements Phase 2: Statistical Outlier Detection
+// Only enhance tensors whose outlier ratio exceeds this threshold
+// Parameters:
+//   model_params_b: Model size in billions
+// Returns: Minimum outlier ratio (0.0-1.0) required for enhancement
+//   - Tiny: 0.12 (12% - very selective to avoid wasting bits)
+//   - Medium: 0.06 (6% - moderate selectivity)
+//   - Large: 0.04 (4% - catch high-sensitivity tensors)
+GGML_API float ggml_q3_hifi_get_outlier_threshold(float model_params_b);
+
+// Compute statistical outlier ratio for a weight tensor
+// Uses 3σ rule: count(|w| > 3 * stddev) / n_elements
+// Parameters:
+//   weights: Input weight tensor
+//   n: Number of elements
+// Returns: Outlier ratio (0.0-1.0)
+GGML_API float ggml_q3_hifi_compute_outlier_ratio(const float * weights, int64_t n);
+
+// Determine if a tensor should receive Q3_K_HIFI enhancement
+// Combines scale-aware and statistical outlier detection
+// Parameters:
+//   tensor_name: Name of the tensor (e.g., "blk.5.attn_v.weight")
+//   weights: Weight data (can be NULL if only using name-based rules)
+//   n_elements: Number of elements in tensor
+//   model_params_b: Model size in billions
+//   enhanced_count: Current count of enhanced tensors (in/out)
+//   max_enhanced: Maximum tensors to enhance
+// Returns: true if tensor should use HIFI enhancement
+GGML_API int ggml_q3_hifi_should_enhance_tensor(
+    const char * tensor_name,
+    const float * weights,
+    int64_t n_elements,
+    float model_params_b,
+    int * enhanced_count,
+    int max_enhanced
+);
+
+// Get the enhancement type for Q3_K_HIFI critical tensors
+// Parameters:
+//   model_params_b: Model size in billions
+//   is_embedding: Whether this is token_embd or output.weight
+// Returns: GGML_TYPE to use (Q4_K, Q5_K, or Q6_K)
+GGML_API int ggml_q3_hifi_get_enhancement_type(float model_params_b, int is_embedding);
+
+// Get percentage of attn_v layers to enhance
+// Parameters:
+//   model_params_b: Model size in billions
+// Returns: Threshold (0.0-1.0) - enhance layers where layer_idx <= n_layers * threshold
+GGML_API float ggml_q3_hifi_get_attn_v_threshold(float model_params_b);
+
+// Compute adaptive outlier count for a specific block
+// Used in per-block quantization for fine-grained control
+// Parameters:
+//   block_outlier_ratio: Outlier ratio for this specific block
+//   base_outlier_count: Base outlier count from tensor-level decision
+//   model_params_b: Model size in billions
+// Returns: Adjusted outlier count for this block (0-8)
+GGML_API int ggml_q3_hifi_compute_block_outliers(
+    float block_outlier_ratio,
+    int base_outlier_count,
+    float model_params_b
+);
+
 #ifdef __cplusplus
 }
 #endif

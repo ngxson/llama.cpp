@@ -282,9 +282,9 @@ struct block_q3_K_packed16
 #define DATA_A_QUANT_K
 #endif
 
-// Q3_K_HIFI: Q3_K-compatible layout with 8 FP16 outliers
+// Q3_K_HIFI: Q3_K with 16 FP16 residual corrections for stronger signal recovery
 #define QUANT_K_Q3_K_HIFI 256
-#define Q3_K_HIFI_OUTLIERS 8
+#define Q3_K_HIFI_OUTLIERS 16
 
 struct block_q3_k_hifi
 {
@@ -292,8 +292,10 @@ struct block_q3_k_hifi
     uint8_t qs[QUANT_K_Q3_K_HIFI/4];        // 64 bytes
     uint8_t scales[12];                    // 12 bytes
     float16_t d;                           // 2 bytes
-    uint8_t outlier_idx[Q3_K_HIFI_OUTLIERS]; // 8 bytes
-    float16_t outlier_vals[Q3_K_HIFI_OUTLIERS]; // 16 bytes
+    uint8_t outlier_count;                 // 1 byte: actual outliers stored
+    uint8_t _pad;                          // 1 byte: alignment
+    uint8_t outlier_idx[Q3_K_HIFI_OUTLIERS]; // 16 bytes
+    float16_t outlier_vals[Q3_K_HIFI_OUTLIERS]; // 32 bytes
 };
 
 struct block_q3_k_hifi_packed16
@@ -302,6 +304,8 @@ struct block_q3_k_hifi_packed16
     uint16_t qs[QUANT_K_Q3_K_HIFI/4/2];
     uint16_t scales[12/2];
     float16_t d;
+    uint8_t outlier_count;
+    uint8_t _pad;
     uint16_t outlier_idx[Q3_K_HIFI_OUTLIERS/2];
     float16_t outlier_vals[Q3_K_HIFI_OUTLIERS];
 };
@@ -311,6 +315,43 @@ struct block_q3_k_hifi_packed16
 #define QUANT_R 1
 #define A_TYPE block_q3_k_hifi
 #define A_TYPE_PACKED16 block_q3_k_hifi_packed16
+#define DATA_A_QUANT_K
+#endif
+
+// Q3_K_HIFI_RES8: Lean INT8 residual version for imatrix use
+#define Q3_K_HIFI_RES8_OUTLIERS 8
+
+struct block_q3_k_hifi_res8
+{
+    uint8_t hmask[QUANT_K_Q3_K_HIFI/8];     // 32 bytes
+    uint8_t qs[QUANT_K_Q3_K_HIFI/4];        // 64 bytes
+    uint8_t scales[12];                    // 12 bytes
+    float16_t d;                           // 2 bytes
+    uint8_t outlier_count;                 // 1 byte: actual outliers stored
+    uint8_t _pad;                          // 1 byte: alignment
+    uint8_t outlier_idx[Q3_K_HIFI_RES8_OUTLIERS]; // 8 bytes
+    int8_t  residual_vals[Q3_K_HIFI_RES8_OUTLIERS]; // 8 bytes: INT8 residuals
+    float   residual_scale;                // 4 bytes
+};
+
+struct block_q3_k_hifi_res8_packed16
+{
+    uint16_t hmask[QUANT_K_Q3_K_HIFI/8/2];
+    uint16_t qs[QUANT_K_Q3_K_HIFI/4/2];
+    uint16_t scales[12/2];
+    float16_t d;
+    uint8_t outlier_count;
+    uint8_t _pad;
+    uint16_t outlier_idx[Q3_K_HIFI_RES8_OUTLIERS/2];
+    int8_t  residual_vals[Q3_K_HIFI_RES8_OUTLIERS];
+    float   residual_scale;
+};
+
+#if defined(DATA_A_Q3_K_HIFI_RES8)
+#define QUANT_K QUANT_K_Q3_K_HIFI
+#define QUANT_R 1
+#define A_TYPE block_q3_k_hifi_res8
+#define A_TYPE_PACKED16 block_q3_k_hifi_res8_packed16
 #define DATA_A_QUANT_K
 #endif
 
