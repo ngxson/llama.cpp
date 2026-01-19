@@ -876,26 +876,26 @@ private:
 
         // populate chat template params
         {
-            auto chat_templates = common_chat_templates_init(model, params_base.chat_template);
+            common_chat_templates_ptr chat_templates;
+
             try {
-                common_chat_format_example(chat_templates.get(), params_base.use_jinja, params_base.default_template_kwargs);
+                chat_templates = common_chat_templates_init(model, params_base.chat_template);
+
+                LOG_INF("%s: chat template, example_format: '%s'\n", __func__,
+                    common_chat_format_example(chat_templates.get(), params_base.use_jinja, params_base.default_template_kwargs).c_str());
+
             } catch (const std::exception & e) {
-                SRV_WRN("%s: Chat template parsing error: %s\n", __func__, e.what());
-                SRV_WRN("%s: The chat template that comes with this model is not yet supported, falling back to chatml. This may cause the model to output suboptimal responses\n", __func__);
-                chat_templates = common_chat_templates_init(model, "chatml");
+                SRV_ERR("%s: chat template parsing error: %s\n", __func__, e.what());
+                SRV_ERR("%s: please consider disabling jinja via --no-jinja, or use a custom chat template via --chat-template\n", __func__);
+                SRV_ERR("%s: for example: --no-jinja --chat-template chatml\n", __func__);
+                return false;
             }
 
             // thinking is enabled if:
             // 1. It's not explicitly disabled (reasoning_budget == 0)
             // 2. The chat template supports it
             const bool enable_thinking = params_base.use_jinja && params_base.reasoning_budget != 0 && common_chat_templates_support_enable_thinking(chat_templates.get());
-            SRV_INF("thinking = %d\n", enable_thinking);
-
-            // print sample chat example to make it clear which template is used
-            // @ngxson modern templates are too long, spam the logs; printing the example is enough
-            LOG_INF("%s: chat template, example_format: '%s'\n", __func__,
-            //      common_chat_templates_source(chat_templates.get()),
-                    common_chat_format_example(chat_templates.get(), params_base.use_jinja, params_base.default_template_kwargs).c_str());
+            SRV_INF("%s: chat template, thinking = %d\n", __func__, enable_thinking);
 
             chat_params = {
                 /* use_jinja             */ params_base.use_jinja,
