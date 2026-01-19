@@ -1587,30 +1587,14 @@ private:
 
     // tokenize the input if it's set by CLI, return false on error
     bool tokenize_cli_input(server_task & task) {
-        GGML_ASSERT(task.cli_input != nullptr);
         try {
-            common_chat_templates_inputs inputs;
-            inputs.messages              = common_chat_msgs_parse_oaicompat(task.cli_input);
-            inputs.tools                 = {}; // TODO
-            inputs.tool_choice           = COMMON_CHAT_TOOL_CHOICE_NONE;
-            inputs.json_schema           = ""; // TODO
-            inputs.grammar               = ""; // TODO
-            inputs.use_jinja             = chat_params.use_jinja;
-            inputs.parallel_tool_calls   = false;
-            inputs.add_generation_prompt = true;
-            inputs.reasoning_format      = chat_params.reasoning_format;
-            inputs.enable_thinking       = chat_params.enable_thinking;
-            // Apply chat template to the list of messages
-            auto result = common_chat_templates_apply(chat_params.tmpls.get(), inputs);
-
-            // tokenize the resulting prompt
-            auto & prompt = result.prompt;
+            auto & prompt = task.cli_prompt;
             if (mctx != nullptr) {
                 task.tokens = process_mtmd_prompt(mctx, prompt, task.cli_files);
             } else {
                 task.tokens = std::move(tokenize_input_prompts(vocab, mctx, prompt, true, true)[0]);
             }
-            task.cli_input.clear();
+            task.cli_prompt.clear();
             task.cli_files.clear();
         } catch (const std::exception & e) {
             send_error(task, std::string("Failed to format input: ") + e.what(), ERROR_TYPE_INVALID_REQUEST);
@@ -1686,7 +1670,7 @@ private:
                 {
                     // special case: if input is provided via CLI, tokenize it first
                     // otherwise, no need to tokenize as it's already done inside the HTTP thread
-                    if (task.cli_input != nullptr) {
+                    if (task.cli) {
                         if (!tokenize_cli_input(task)) {
                             break;
                         }
