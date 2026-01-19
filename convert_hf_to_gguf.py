@@ -1078,6 +1078,9 @@ class TextModel(ModelBase):
         if chkhsh == "b3d1dd861f1d4c5c0d2569ce36baf3f90fe8a102db3de50dd71ff860d91be3df":
             # ref: https://huggingface.co/aari1995/German_Semantic_V3
             res = "jina-v2-de"
+        if chkhsh == "cdf5f35325780597efd76153d4d1c16778f766173908894c04afc20108536267":
+            # ref: https://huggingface.co/zai-org/GLM-4.7-Flash
+            res = "glm4"
         if chkhsh == "0ef9807a4087ebef797fc749390439009c3b9eda9ad1a097abbe738f486c01e5":
             # ref: https://huggingface.co/meta-llama/Meta-Llama-3-8B
             res = "llama-bpe"
@@ -1255,9 +1258,6 @@ class TextModel(ModelBase):
         if chkhsh == "6c81ce329e0802883b22eabab0d3fa48357337ef1ecb45443828bf1f6254833f":
             # ref: https://huggingface.co/LGAI-EXAONE/K-EXAONE-236B-A23B
             res = "exaone-moe"
-        if chkhsh == "cdf5f35325780597efd76153d4d1c16778f766173908894c04afc20108536267":
-            # ref: https://huggingface.co/zai-org/GLM-4.7-Flash
-            res = "glm4"
 
         if res is None:
             logger.warning("\n")
@@ -7462,7 +7462,7 @@ class DeepseekModel(TextModel):
     "KimiVLForConditionalGeneration",
     "YoutuForCausalLM",
     "YoutuVLForConditionalGeneration",
-    "Glm4MoeLiteForCausalLM"
+    "Glm4MoeLiteForCausalLM",
 )
 class DeepseekV2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.DEEPSEEK2
