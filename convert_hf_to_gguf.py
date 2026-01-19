@@ -1255,6 +1255,9 @@ class TextModel(ModelBase):
         if chkhsh == "6c81ce329e0802883b22eabab0d3fa48357337ef1ecb45443828bf1f6254833f":
             # ref: https://huggingface.co/LGAI-EXAONE/K-EXAONE-236B-A23B
             res = "exaone-moe"
+        if chkhsh == "cdf5f35325780597efd76153d4d1c16778f766173908894c04afc20108536267":
+            # ref: https://huggingface.co/zai-org/GLM-4.7-Flash
+            res = "glm-4.7-flash"
 
         if res is None:
             logger.warning("\n")
@@ -7458,7 +7461,8 @@ class DeepseekModel(TextModel):
     "DeepseekV3ForCausalLM",
     "KimiVLForConditionalGeneration",
     "YoutuForCausalLM",
-    "YoutuVLForConditionalGeneration"
+    "YoutuVLForConditionalGeneration",
+    "Glm4MoeLiteForCausalLM"
 )
 class DeepseekV2Model(TextModel):
     model_arch = gguf.MODEL_ARCH.DEEPSEEK2
