@@ -1257,7 +1257,7 @@ class TextModel(ModelBase):
             res = "exaone-moe"
         if chkhsh == "cdf5f35325780597efd76153d4d1c16778f766173908894c04afc20108536267":
             # ref: https://huggingface.co/zai-org/GLM-4.7-Flash
-            res = "glm-4.7-flash"
+            res = "glm4"
 
         if res is None:
             logger.warning("\n")
