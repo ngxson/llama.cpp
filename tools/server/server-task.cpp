@@ -857,7 +857,7 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp() {
     json res = {
         {"completed_at", t},
         {"created_at",   t},
-        {"id",           "resp_" + oaicompat_cmpl_id.substr(9)},
+        {"id",           oai_resp_id},
         {"model",        oaicompat_model},
         {"object",       "response"},
         {"output",       output},
@@ -965,7 +965,7 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp_stream() {
         {"data", json {
             {"type", "response.completed"},
             {"response", json {
-                {"id",         "resp_" + oaicompat_cmpl_id.substr(9)},
+                {"id",         oai_resp_id},
                 {"object",     "response"},
                 {"created_at", t},
                 {"status",     "completed"},
@@ -1245,11 +1245,12 @@ void server_task_result_cmpl_partial::update(task_result_state & state) {
 
     // Copy current state for use in to_json_*() (reflects state BEFORE this chunk)
     thinking_block_started = state.thinking_block_started;
-    text_block_started = state.text_block_started;
+    text_block_started     = state.text_block_started;
 
-    oai_resp_reasoning_id = state.oai_resp_reasoning_id;
-    oai_resp_message_id   = state.oai_resp_message_id;
-    oai_resp_fc_id        = state.oai_resp_fc_id;
+    oai_resp_id            = state.oai_resp_id;
+    oai_resp_reasoning_id  = state.oai_resp_reasoning_id;
+    oai_resp_message_id    = state.oai_resp_message_id;
+    oai_resp_fc_id         = state.oai_resp_fc_id;
 
     // track if the accumulated message has any reasoning content
     anthropic_has_reasoning = !state.chat_msg.reasoning_content.empty();
@@ -1407,13 +1408,12 @@ json server_task_result_cmpl_partial::to_json_oaicompat_resp() {
     std::vector<json> events;
 
     if (n_decoded == 1) {
-        const std::string response_id = "resp_" + oaicompat_cmpl_id.substr(9);
         events.push_back(json {
             {"event", "response.created"},
             {"data", json {
                 {"type", "response.created"},
                 {"response", json {
-                    {"id",     response_id},
+                    {"id",     oai_resp_id},
                     {"object", "response"},
                     {"status", "in_progress"},
                 }},
@@ -1424,7 +1424,7 @@ json server_task_result_cmpl_partial::to_json_oaicompat_resp() {
             {"data", json {
                 {"type", "response.in_progress"},
                 {"response", json {
-                    {"id",     response_id},
+                    {"id",     oai_resp_id},
                     {"object", "response"},
                     {"status", "in_progress"},
                 }},
