@@ -1454,9 +1454,9 @@ json server_task_result_cmpl_partial::to_json_oaicompat_resp() {
             events.push_back(json {
                 {"event", "response.reasoning_text.delta"},
                 {"data", json {
+                    {"type",    "response.reasoning_text.delta"},
                     {"delta",   diff.reasoning_content_delta},
                     {"item_id", oai_resp_reasoning_id},
-                    {"type",    "response.reasoning_text.delta"},
                 }},
             });
         }
@@ -1520,9 +1520,9 @@ json server_task_result_cmpl_partial::to_json_oaicompat_resp() {
             events.push_back(json {
                 {"event", "response.function_call_arguments.delta"},
                 {"data", json {
+                    {"type",    "response.function_call_arguments.delta"},
                     {"delta",   diff.tool_call_delta.arguments},
                     {"item_id", "fc_" + oai_resp_fc_id},
-                    {"type",    "response.function_call_arguments.delta"},
                 }},
             });
         }
