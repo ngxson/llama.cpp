@@ -851,36 +851,47 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
     }
 
     // === Q3_K_HIFI: Model-size adaptive tensor upgrade ===
-    // For medium models (2-8B), upgrade bulk Q3_K tensors to Q3_K_HIFI
-    // Q3_K_HIFI: Dual-mode quantization strategy based on imatrix presence
+    // Empirical results show HIFI effectiveness varies by model size AND imatrix presence:
     //
-    // KEY INSIGHT FROM 14B TESTING:
-    // - WITHOUT imatrix: Q3_K_HIFI (FP16 outliers) provides critical precision recovery
-    //   Results: 14B PPL 9.4763 vs Q3_K_M's 9.5313 = -0.58% improvement ✓
-    // - WITH imatrix: Q3_K_M already achieves near-optimal weight allocation (9.2741 PPL)
-    //   HIFI overhead is COUNTERPRODUCTIVE: Q3_K_HIFI_RES8 gives 9.3866 = +1.21% worse
-    //   Solution: Fall back to standard Q3_K behavior (no HIFI blocks)
+    // | Model | Without imatrix | With imatrix | Strategy              |
+    // |-------|-----------------|--------------|------------------------|
+    // | 0.6B  | +2.2% worse     | +1.3% worse  | Never HIFI            |
+    // | 1.7B  | +0.8% worse     | -1.4% better | HIFI only WITH imatrix |
+    // | 4B    | -2.9% better    | -1.2% better | Always HIFI           |
+    // | 8B    | +0.2% worse     | -0.4% better | HIFI only WITH imatrix |
+    // | 14B   | -0.58% better   | ~0% (match)  | HIFI only WITHOUT imatrix |
+    // | 32B+  | catastrophic    | catastrophic | Never HIFI            |
     //
-    // Model size thresholds:
-    // - Small models (≤1.7B): Skip HIFI blocks (overhead hurts tiny models)
-    // - Medium models (1.7B-20B): Use HIFI blocks ONLY without imatrix
-    // - Very large models (>20B): Skip HIFI blocks (32B shows catastrophic quality loss)
     if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI && new_type == GGML_TYPE_Q3_K) {
-        // With imatrix: Keep Q3_K (standard Q3_K_M behavior gives best results)
-        // This achieves: 6.81 GiB, 9.2741 PPL at 14B - matches Q3_K_M exactly
-        if (!qs.has_imatrix) {
-            // Without imatrix: Use FP16 outliers for quality recovery
-            const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
-            
-            // Upgrade to Q3_K_HIFI for medium and large-medium models (1.7B-20B)
-            if (model_params_b > 1.7f && model_params_b <= 20.0f) {
-                // Use full FP16 outliers (Q3_K_HIFI)
-                // This achieves: 8.62 GiB, 9.4763 PPL at 14B (-0.58% vs Q3_K_M)
-                new_type = GGML_TYPE_Q3_K_HIFI;
-            }
-            // else: Keep Q3_K for tiny (<1.7B) and very large (>20B) models
+        const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+        
+        bool use_hifi = false;
+        
+        // 4B class (2.5B-6B): Always use HIFI - wins both with and without imatrix
+        // Results: -2.9% without imatrix, -1.2% with imatrix
+        if (model_params_b > 2.5f && model_params_b <= 6.0f) {
+            use_hifi = true;
         }
-        // else (has_imatrix): Keep Q3_K - standard Q3_K_M tensor allocation is optimal
+        // 1.7B class (1.2B-2.5B): Use HIFI only WITH imatrix
+        // Results: +0.8% worse without, -1.4% better with imatrix
+        else if (model_params_b > 1.2f && model_params_b <= 2.5f) {
+            use_hifi = qs.has_imatrix;
+        }
+        // 8B class (6B-10B): Use HIFI only WITH imatrix
+        // Results: +0.2% worse without, -0.4% better with imatrix
+        else if (model_params_b > 6.0f && model_params_b <= 10.0f) {
+            use_hifi = qs.has_imatrix;
+        }
+        // 14B class (10B-20B): Use HIFI only WITHOUT imatrix
+        // Results: -0.58% better without, ~0% with imatrix (matches Q3_K_M)
+        else if (model_params_b > 10.0f && model_params_b <= 20.0f) {
+            use_hifi = !qs.has_imatrix;
+        }
+        // else: tiny (<1.2B) or huge (>20B) - keep Q3_K, no HIFI
+        
+        if (use_hifi) {
+            new_type = GGML_TYPE_Q3_K_HIFI;
+        }
     }
 
     return new_type;
