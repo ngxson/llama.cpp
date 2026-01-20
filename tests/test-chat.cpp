@@ -341,6 +341,7 @@ static void test_templates(const struct common_chat_templates * tmpls, const std
         }
 
         if (expect_grammar_triggered) {
+            // TODO @ngxson : refactor common_chat_parse to avoid passing format/reasoning_format every time
             common_chat_parser_params params;
             params.format = data.params.format;
             params.reasoning_format = reasoning_format;
