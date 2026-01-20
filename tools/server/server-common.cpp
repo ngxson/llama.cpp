@@ -1082,11 +1082,10 @@ json convert_responses_to_chatcmpl(const json & response_body) {
     chatcmpl_body.erase("input");
     std::vector<json> chatcmpl_messages;
 
-    const std::string instructions = json_value(response_body, "instructions", std::string());
-    if (instructions != "") {
+    if (response_body.contains("instructions")) {
         chatcmpl_messages.push_back({
             {"role",    "system"},
-            {"content", instructions},
+            {"content", json_value(response_body, "instructions", std::string())},
         });
         chatcmpl_body.erase("instructions");
     }
