@@ -3588,7 +3588,7 @@ void server_routes::init_routes() {
         json body = convert_responses_to_chatcmpl(json::parse(req.body));
         json body_parsed = oaicompat_chat_params_parse(
             body,
-            ctx_server.oai_parser_opt,
+            meta->chat_params,
             files);
         return handle_completions_impl(
             req,
