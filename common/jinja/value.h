@@ -154,41 +154,12 @@ struct value_t {
         throw std::runtime_error("No builtins available for type " + type());
     }
 
-    virtual bool has_key(const std::string & key) {
-        return val_obj.unordered.find(key) != val_obj.unordered.end();
-    }
-    virtual value & at(const std::string & key, value & default_val) {
-        auto it = val_obj.unordered.find(key);
-        if (it == val_obj.unordered.end()) {
-            return default_val;
-        }
-        return val_obj.unordered.at(key);
-    }
-    virtual value & at(const std::string & key) {
-        auto it = val_obj.unordered.find(key);
-        if (it == val_obj.unordered.end()) {
-            throw std::runtime_error("Key '" + key + "' not found in value of type " + type());
-        }
-        return val_obj.unordered.at(key);
-    }
-    virtual value & at(int64_t index, value & default_val) {
-        if (index < 0) {
-            index += val_arr.size();
-        }
-        if (index < 0 || static_cast<size_t>(index) >= val_arr.size()) {
-            return default_val;
-        }
-        return val_arr[index];
-    }
-    virtual value & at(int64_t index) {
-        if (index < 0) {
-            index += val_arr.size();
-        }
-        if (index < 0 || static_cast<size_t>(index) >= val_arr.size()) {
-            throw std::runtime_error("Index " + std::to_string(index) + " out of bounds for array of size " + std::to_string(val_arr.size()));
-        }
-        return val_arr[index];
-    }
+    // array/object access
+    virtual bool has_key(const std::string &) { throw std::runtime_error(type() + " is not an object value"); }
+    virtual value & at(const std::string &, value &) { throw std::runtime_error(type() + " is not an object value"); }
+    virtual value & at(const std::string &) { throw std::runtime_error(type() + " is not an object value"); }
+    virtual value & at(int64_t, value &) { throw std::runtime_error(type() + " is not an array value"); }
+    virtual value & at(int64_t) { throw std::runtime_error(type() + " is not an array value"); }
 
     virtual std::string as_repr() const { return as_string().str(); }
 };
@@ -301,6 +272,24 @@ struct value_array_t : public value_t {
     virtual bool as_bool() const override {
         return !val_arr.empty();
     }
+    virtual value & at(int64_t index, value & default_val) override {
+        if (index < 0) {
+            index += val_arr.size();
+        }
+        if (index < 0 || static_cast<size_t>(index) >= val_arr.size()) {
+            return default_val;
+        }
+        return val_arr[index];
+    }
+    virtual value & at(int64_t index) override {
+        if (index < 0) {
+            index += val_arr.size();
+        }
+        if (index < 0 || static_cast<size_t>(index) >= val_arr.size()) {
+            throw std::runtime_error("Index " + std::to_string(index) + " out of bounds for array of size " + std::to_string(val_arr.size()));
+        }
+        return val_arr[index];
+    }
     virtual const func_builtins & get_builtins() const override;
 };
 using value_array = std::shared_ptr<value_array_t>;
@@ -329,6 +318,23 @@ struct value_object_t : public value_t {
     virtual const std::vector<std::pair<std::string, value>> & as_ordered_object() const override { return val_obj.ordered; }
     virtual bool as_bool() const override {
         return !val_obj.unordered.empty();
+    }
+    virtual bool has_key(const std::string & key) override {
+        return val_obj.unordered.find(key) != val_obj.unordered.end();
+    }
+    virtual value & at(const std::string & key, value & default_val) override {
+        auto it = val_obj.unordered.find(key);
+        if (it == val_obj.unordered.end()) {
+            return default_val;
+        }
+        return val_obj.unordered.at(key);
+    }
+    virtual value & at(const std::string & key) override {
+        auto it = val_obj.unordered.find(key);
+        if (it == val_obj.unordered.end()) {
+            throw std::runtime_error("Key '" + key + "' not found in value of type " + type());
+        }
+        return val_obj.unordered.at(key);
     }
     virtual const func_builtins & get_builtins() const override;
 };
