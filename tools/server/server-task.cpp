@@ -857,7 +857,7 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp() {
     json res = {
         {"completed_at", t},
         {"created_at",   t},
-        {"id",           "resp_" + random_string()},
+        {"id",           "resp_" + oaicompat_cmpl_id.substr(9)},
         {"model",        oaicompat_model},
         {"object",       "response"},
         {"output",       output},
@@ -877,16 +877,8 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp_stream() {
     std::vector<json> output;
 
     if (oaicompat_msg.reasoning_content != "") {
-        const auto reasoning_id_it = std::find_if(
-            openai_responses_item_ids.begin(),
-            openai_responses_item_ids.end(),
-            [](const std::string & id){ return string_starts_with(id, "rs_"); }
-        );
-        GGML_ASSERT(reasoning_id_it != openai_responses_item_ids.end());
-        const std::string reasoning_id = *reasoning_id_it;
-
         const json output_item = json {
-            {"id",      reasoning_id},
+            {"id",      oai_resp_reasoning_id},
             {"summary", json::array()},
             {"type",    "reasoning"},
             {"content", json::array({ json {
@@ -907,18 +899,11 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp_stream() {
     }
 
     if (oaicompat_msg.content != "") {
-        const auto message_id_it = std::find_if(
-            openai_responses_item_ids.begin(),
-            openai_responses_item_ids.end(),
-            [](const std::string & id){ return string_starts_with(id, "msg_"); }
-        );
-        GGML_ASSERT(message_id_it != openai_responses_item_ids.end());
-        const std::string message_id = *message_id_it;
         server_sent_events.push_back(json {
             {"event", "response.output_text.done"},
             {"data", json {
                 {"type",    "response.output_text.done"},
-                {"item_id", message_id},
+                {"item_id", oai_resp_message_id},
                 {"text",    oaicompat_msg.content}
             }}
         });
@@ -934,14 +919,14 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp_stream() {
             {"event", "response.content_part.done"},
             {"data", json {
                 {"type",    "response.content_part.done"},
-                {"item_id", message_id},
+                {"item_id", oai_resp_message_id},
                 {"part",    content_part}
             }}
         });
         const json output_item = {
             {"type",    "message"},
             {"status",  "completed"},
-            {"id",      message_id},
+            {"id",      oai_resp_message_id},
             {"content", json::array({content_part})},
             {"role",    "assistant"}
         };
@@ -961,7 +946,7 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp_stream() {
             {"type",      "function_call"},
             {"status",    "completed"},
             {"arguments", tool_call.arguments},
-            {"call_id",   tool_call.id},
+            {"call_id",   "fc_" + tool_call.id},
             {"name",      tool_call.name}
         };
         server_sent_events.push_back(json {
@@ -980,7 +965,7 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp_stream() {
         {"data", json {
             {"type", "response.completed"},
             {"response", json {
-                {"id",         openai_responses_item_ids[0]},
+                {"id",         "resp_" + oaicompat_cmpl_id.substr(9)},
                 {"object",     "response"},
                 {"created_at", t},
                 {"status",     "completed"},
@@ -1258,168 +1243,27 @@ void server_task_result_cmpl_partial::update(task_result_state & state) {
     is_updated = true;
     state.update_chat_msg(content, true, oaicompat_msg_diffs);
 
-    if (res_type == TASK_RESPONSE_TYPE_OAI_RESP) {
-        if (state.openai_responses_item_ids.empty()) {
-            // Create response object
-            const std::string response_id = "resp_" + random_string();
-            openai_responses_current_events.push_back(json {
-                {"event", "response.created"},
-                {"data", json {
-                    {"type", "response.created"},
-                    {"response", json {
-                        {"id",     response_id},
-                        {"object", "response"},
-                        {"status", "in_progress"},
-                    }},
-                }},
-            });
-            openai_responses_current_events.push_back(json {
-                {"event", "response.in_progress"},
-                {"data", json {
-                    {"type", "response.in_progress"},
-                    {"response", json {
-                        {"id",     response_id},
-                        {"object", "response"},
-                        {"status", "in_progress"},
-                    }},
-                }},
-            });
-            state.openai_responses_item_ids.push_back(response_id);
-        }
+    // Copy current state for use in to_json_*() (reflects state BEFORE this chunk)
+    thinking_block_started = state.thinking_block_started;
+    text_block_started = state.text_block_started;
 
-        for (const common_chat_msg_diff & diff : oaicompat_msg_diffs) {
-            if (!diff.reasoning_content_delta.empty()) {
-                std::string resoning_id;
-                const std::string prev_item_id = state.openai_responses_item_ids.back();
-                if (string_starts_with(prev_item_id, "rs_")) {
-                    resoning_id = state.openai_responses_item_ids.back();
-                } else {
-                    // Add new reasoning output_item
-
-                    GGML_ASSERT(string_starts_with(prev_item_id, "resp_"));
-                    // Reasoning item should be generated right after the reposonse object is created
-
-                    resoning_id = "rs_" + random_string();
-                    openai_responses_current_events.push_back(json {
-                        {"event", "response.output_item.added"},
-                        {"data", json {
-                            {"type", "response.output_item.added"},
-                            {"item", json {
-                                {"id",                resoning_id},
-                                {"summary",           json::array()},
-                                {"type",              "reasoning"},
-                                {"content",           json::array()},
-                                {"encrypted_content", ""},
-                                {"status",            "in_progress"},
-                            }},
-                        }},
-                    });
-                    state.openai_responses_item_ids.push_back(resoning_id);
-                }
-                openai_responses_current_events.push_back(json {
-                    {"event", "response.reasoning_text.delta"},
-                    {"data", json {
-                        {"delta",   diff.reasoning_content_delta},
-                        {"item_id", resoning_id},
-                        {"type",    "response.reasoning_text.delta"},
-                    }},
-                });
-            }
-            if (!diff.content_delta.empty()) {
-                std::string message_id;
-                if (string_starts_with(state.openai_responses_item_ids.back(), "msg_")) {
-                    message_id = state.openai_responses_item_ids.back();
-                } else {
-                    message_id = "msg_" + random_string();
-                    openai_responses_current_events.push_back(json {
-                        {"event", "response.output_item.added"},
-                        {"data", json {
-                            {"type", "response.output_item.added"},
-                            {"item", json {
-                                {"content", json::array()},
-                                {"id",      message_id},
-                                {"role",    "assistant"},
-                                {"status",  "in_progress"},
-                                {"type",    "message"},
-                            }},
-                        }},
-                    });
-                    openai_responses_current_events.push_back(json {
-                        {"event", "response.content_part.added"},
-                        {"data", json {
-                            {"type",    "response.content_part.added"},
-                            {"item_id", message_id},
-                            {"part", json {
-                                {"type", "output_text"},
-                                {"text", ""},
-                            }},
-                        }},
-                    });
-                    state.openai_responses_item_ids.push_back(message_id);
-                }
-                openai_responses_current_events.push_back(json {
-                    {"event", "response.output_text.delta"},
-                    {"data", json {
-                        {"type",    "response.output_text.delta"},
-                        {"item_id", message_id},
-                        {"delta",   diff.content_delta},
-                    }},
-                });
-            }
-            if (!diff.tool_call_delta.name.empty() &&
-                !string_starts_with(state.generated_tool_call_ids.back(), "fc_")) {
-                // Add new function call output_item
-                // This fails to detect new item if there are >1 consecutive function calls
-
-                const std::string function_call_id = "fc_" + state.generated_tool_call_ids.back();
-                state.generated_tool_call_ids.back() = function_call_id;
-                openai_responses_current_events.push_back(json {
-                    {"event", "response.output_item.added"},
-                    {"data", json {
-                        {"type",  "response.output_item.added"},
-                        {"item", json {
-                            {"arguments", ""},
-                            {"call_id",   function_call_id},
-                            {"name",      diff.tool_call_delta.name},
-                            {"type",      "function_call"},
-                            {"status",    "in_progress"},
-                        }},
-                    }},
-                });
-                state.openai_responses_item_ids.push_back(function_call_id);
-            }
-            if (!diff.tool_call_delta.arguments.empty()) {
-                const std::string prev_item_id = state.openai_responses_item_ids.back();
-                GGML_ASSERT(string_starts_with(prev_item_id, "fc_"));
-
-                openai_responses_current_events.push_back(json {
-                    {"event", "response.function_call_arguments.delta"},
-                    {"data", json {
-                        {"delta",   diff.tool_call_delta.arguments},
-                        {"item_id", prev_item_id},
-                        {"type",    "response.function_call_arguments.delta"},
-                    }},
-                });
-            }
-        }
-
-        return;
-    }
+    oai_resp_reasoning_id = state.oai_resp_reasoning_id;
+    oai_resp_message_id   = state.oai_resp_message_id;
+    oai_resp_fc_id        = state.oai_resp_fc_id;
 
     // track if the accumulated message has any reasoning content
     anthropic_has_reasoning = !state.chat_msg.reasoning_content.empty();
 
-    // Copy current state for use in to_json_anthropic() (reflects state BEFORE this chunk)
-    anthropic_thinking_block_started = state.anthropic_thinking_block_started;
-    anthropic_text_block_started = state.anthropic_text_block_started;
-
     // Pre-compute state updates based on diffs (for next chunk)
-    for (const auto & diff : oaicompat_msg_diffs) {
-        if (!diff.reasoning_content_delta.empty() && !state.anthropic_thinking_block_started) {
-            state.anthropic_thinking_block_started = true;
+    for (const common_chat_msg_diff & diff : oaicompat_msg_diffs) {
+        if (!diff.reasoning_content_delta.empty() && !state.thinking_block_started) {
+            state.thinking_block_started = true;
         }
-        if (!diff.content_delta.empty() && !state.anthropic_text_block_started) {
-            state.anthropic_text_block_started = true;
+        if (!diff.content_delta.empty() && !state.text_block_started) {
+            state.text_block_started = true;
+        }
+        if (!diff.tool_call_delta.name.empty()) {
+            state.oai_resp_fc_id = diff.tool_call_delta.id;
         }
     }
 }
@@ -1434,7 +1278,7 @@ json server_task_result_cmpl_partial::to_json() {
         case TASK_RESPONSE_TYPE_OAI_CHAT:
             return to_json_oaicompat_chat();
         case TASK_RESPONSE_TYPE_OAI_RESP:
-            return openai_responses_current_events;
+            return to_json_oaicompat_resp();
         case TASK_RESPONSE_TYPE_ANTHROPIC:
             return to_json_anthropic();
         default:
@@ -1559,6 +1403,133 @@ json server_task_result_cmpl_partial::to_json_oaicompat_chat() {
     return deltas;
 }
 
+json server_task_result_cmpl_partial::to_json_oaicompat_resp() {
+    std::vector<json> events;
+
+    if (n_decoded == 1) {
+        const std::string response_id = "resp_" + oaicompat_cmpl_id.substr(9);
+        events.push_back(json {
+            {"event", "response.created"},
+            {"data", json {
+                {"type", "response.created"},
+                {"response", json {
+                    {"id",     response_id},
+                    {"object", "response"},
+                    {"status", "in_progress"},
+                }},
+            }},
+        });
+        events.push_back(json {
+            {"event", "response.in_progress"},
+            {"data", json {
+                {"type", "response.in_progress"},
+                {"response", json {
+                    {"id",     response_id},
+                    {"object", "response"},
+                    {"status", "in_progress"},
+                }},
+            }},
+        });
+    }
+
+    for (const common_chat_msg_diff & diff : oaicompat_msg_diffs) {
+        if (!diff.reasoning_content_delta.empty()) {
+            if (!thinking_block_started) {
+                events.push_back(json {
+                    {"event", "response.output_item.added"},
+                    {"data", json {
+                        {"type", "response.output_item.added"},
+                        {"item", json {
+                            {"id",                oai_resp_reasoning_id},
+                            {"summary",           json::array()},
+                            {"type",              "reasoning"},
+                            {"content",           json::array()},
+                            {"encrypted_content", ""},
+                            {"status",            "in_progress"},
+                        }},
+                    }},
+                });
+                thinking_block_started = true;
+            }
+            events.push_back(json {
+                {"event", "response.reasoning_text.delta"},
+                {"data", json {
+                    {"delta",   diff.reasoning_content_delta},
+                    {"item_id", oai_resp_reasoning_id},
+                    {"type",    "response.reasoning_text.delta"},
+                }},
+            });
+        }
+
+        if (!diff.content_delta.empty()) {
+            if (!text_block_started) {
+                events.push_back(json {
+                    {"event", "response.output_item.added"},
+                    {"data", json {
+                        {"type", "response.output_item.added"},
+                        {"item", json {
+                            {"content", json::array()},
+                            {"id",      oai_resp_message_id},
+                            {"role",    "assistant"},
+                            {"status",  "in_progress"},
+                            {"type",    "message"},
+                        }},
+                    }},
+                });
+                events.push_back(json {
+                    {"event", "response.content_part.added"},
+                    {"data", json {
+                        {"type",    "response.content_part.added"},
+                        {"item_id", oai_resp_message_id},
+                        {"part", json {
+                            {"type", "output_text"},
+                            {"text", ""},
+                        }},
+                    }},
+                });
+                text_block_started = true;
+            }
+            events.push_back(json {
+                {"event", "response.output_text.delta"},
+                {"data", json {
+                    {"type",    "response.output_text.delta"},
+                    {"item_id", oai_resp_message_id},
+                    {"delta",   diff.content_delta},
+                }},
+            });
+        }
+
+        if (!diff.tool_call_delta.name.empty()) {
+            events.push_back(json {
+                {"event", "response.output_item.added"},
+                {"data", json {
+                    {"type",  "response.output_item.added"},
+                    {"item", json {
+                        {"arguments", ""},
+                        {"call_id",   "fc_" + diff.tool_call_delta.id},
+                        {"name",      diff.tool_call_delta.name},
+                        {"type",      "function_call"},
+                        {"status",    "in_progress"},
+                    }},
+                }},
+            });
+            oai_resp_fc_id = diff.tool_call_delta.id;
+        }
+
+        if (!diff.tool_call_delta.arguments.empty()) {
+            events.push_back(json {
+                {"event", "response.function_call_arguments.delta"},
+                {"data", json {
+                    {"delta",   diff.tool_call_delta.arguments},
+                    {"item_id", "fc_" + oai_resp_fc_id},
+                    {"type",    "response.function_call_arguments.delta"},
+                }},
+            });
+        }
+    }
+    return events;
+}
+
 //
 // server_task_result_embd
 //
@@ -1629,8 +1600,8 @@ json server_task_result_cmpl_partial::to_json_anthropic() {
 
     // use local copies of streaming state (copied from task_result_state in update())
     // these reflect the state BEFORE this chunk was processed
-    bool thinking_started = anthropic_thinking_block_started;
-    bool text_started     = anthropic_text_block_started;
+    bool thinking_started = thinking_block_started;
+    bool text_started     = text_block_started;
 
     for (const auto & diff : oaicompat_msg_diffs) {
         // handle thinking/reasoning content
