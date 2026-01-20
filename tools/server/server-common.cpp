@@ -1099,10 +1099,10 @@ json convert_responses_to_chatcmpl(const json & response_body) {
     } else if (input_value.is_array()) {
         // #responses_create-input-input_item_list
 
-        const auto exists_and_is_array = [](const json & j, const char * key) -> bool {
+        static auto exists_and_is_array = [](const json & j, const char * key) -> bool {
             return j.contains(key) && j.at(key).is_array();
         };
-        const auto exists_and_is_string = [](const json & j, const char * key) -> bool {
+        static auto exists_and_is_string = [](const json & j, const char * key) -> bool {
             return j.contains(key) && j.at(key).is_string();
         };
 
