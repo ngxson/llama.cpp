@@ -856,11 +856,16 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
     // | Model | Without imatrix | With imatrix | Strategy              |
     // |-------|-----------------|--------------|------------------------|
     // | 0.6B  | +2.2% worse     | +1.3% worse  | Never HIFI            |
-    // | 1.7B  | +0.8% worse     | -1.4% better | HIFI only WITH imatrix |
+    // | 1.7B  | +0.05% (same)   | +2.7% worse  | Never HIFI (overhead hurts) |
     // | 4B    | -2.9% better    | -1.2% better | Always HIFI           |
     // | 8B    | +0.2% worse     | -0.4% better | HIFI only WITH imatrix |
     // | 14B   | -0.58% better   | ~0% (match)  | HIFI only WITHOUT imatrix |
     // | 32B+  | catastrophic    | catastrophic | Never HIFI            |
+    //
+    // NOTE: 1.7B was tested with Q3_K_HIFI blocks (FP16 outliers) but showed:
+    // - +22% file size increase (1017 MiB -> 1.21 GiB)
+    // - +2.7% PPL regression with imatrix (17.78 -> 18.27)
+    // The overhead of Q3_K_HIFI blocks hurts at this scale.
     //
     if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI && new_type == GGML_TYPE_Q3_K) {
         const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
@@ -872,11 +877,6 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         if (model_params_b > 2.5f && model_params_b <= 6.0f) {
             use_hifi = true;
         }
-        // 1.7B class (1.2B-2.5B): Use HIFI only WITH imatrix
-        // Results: +0.8% worse without, -1.4% better with imatrix
-        else if (model_params_b > 1.2f && model_params_b <= 2.5f) {
-            use_hifi = qs.has_imatrix;
-        }
         // 8B class (6B-10B): Use HIFI only WITH imatrix
         // Results: +0.2% worse without, -0.4% better with imatrix
         else if (model_params_b > 6.0f && model_params_b <= 10.0f) {
@@ -887,7 +887,8 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         else if (model_params_b > 10.0f && model_params_b <= 20.0f) {
             use_hifi = !qs.has_imatrix;
         }
-        // else: tiny (<1.2B) or huge (>20B) - keep Q3_K, no HIFI
+        // else: tiny (<2.5B) or huge (>20B) - keep Q3_K, no HIFI
+        // This includes 0.6B and 1.7B where HIFI overhead hurts more than helps
         
         if (use_hifi) {
             new_type = GGML_TYPE_Q3_K_HIFI;
