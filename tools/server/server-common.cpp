@@ -1154,20 +1154,21 @@ json convert_responses_to_chatcmpl(const json & response_body) {
                             {"type", "image_url"},
                         });
                     } else if (type == "input_file") {
-                        if (input_item.contains("file_url")) {
-                            // chat completion API does not support file_url
-                            throw std::invalid_argument("'file_url' is not supported");
-                        }
-                        if (!input_item.contains("file_data") || !input_item.contains("filename")) {
-                            throw std::invalid_argument("Both 'file_data' and 'filename' are required");
-                        }
-                        chatcmpl_content.push_back({
-                            {"file", json {
-                                {"file_data", input_item.at("file_data")},
-                                {"filename",  input_item.at("filename")},
-                            }},
-                            {"type", "file"},
-                        });
+                        throw std::invalid_argument("'input_file' is not supported by llamacpp at this moment");
+                        // if (input_item.contains("file_url")) {
+                        //     // chat completion API does not support file_url
+                        //     throw std::invalid_argument("'file_url' is not supported");
+                        // }
+                        // if (!input_item.contains("file_data") || !input_item.contains("filename")) {
+                        //     throw std::invalid_argument("Both 'file_data' and 'filename' are required");
+                        // }
+                        // chatcmpl_content.push_back({
+                        //     {"file", json {
+                        //         {"file_data", input_item.at("file_data")},
+                        //         {"filename",  input_item.at("filename")},
+                        //     }},
+                        //     {"type", "file"},
+                        // });
                     } else {
                         throw std::invalid_argument("'type' must be one of 'input_text', 'input_image', or 'input_file'");
                     }
