@@ -1269,6 +1269,12 @@ This provides information on the performance of the server. It also allows calcu
 
 The total number of tokens in context is equal to `prompt_n + cache_n + predicted_n`
 
+*Reasoning support*
+
+The server supports parsing and returning reasoning via the `reasoning_content` field, similar to Deepseek API.
+
+Reasoning input (preserve reasoning in history) is also supported by some specific templates. For more details, please refer to [PR#18994](https://github.com/ggml-org/llama.cpp/pull/18994).
+
 ### POST `/v1/embeddings`: OpenAI-compatible embeddings API
 
 This endpoint requires that the model uses a pooling different than type `none`. The embeddings are normalized using the Eucledian norm.
