@@ -11,6 +11,7 @@ struct caps {
     bool supports_tool_calls = true;
     bool supports_system_role = true;
     bool supports_parallel_tool_calls = true;
+    bool supports_preserve_reasoning = false; // support assistant message with reasoning_content
 
     bool requires_typed_content = false; // default: use string content
 
