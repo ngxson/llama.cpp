@@ -389,10 +389,6 @@ json common_chat_msgs_to_json_oaicompat(const std::vector<common_chat_msg> & msg
     return messages;
 }
 
-// std::vector<common_chat_msg> common_chat_msgs_parse_oaicompat(const std::string & messages) {
-//     return common_chat_msgs_parse_oaicompat(json::parse(messages));
-// }
-
 std::vector<common_chat_tool> common_chat_tools_parse_oaicompat(const json & tools) {
     std::vector<common_chat_tool> result;
 
@@ -427,10 +423,6 @@ std::vector<common_chat_tool> common_chat_tools_parse_oaicompat(const json & too
 
     return result;
 }
-
-// std::vector<common_chat_tool> common_chat_tools_parse_oaicompat(const std::string & tools) {
-//     return common_chat_tools_parse_oaicompat(json::parse(tools));
-// }
 
 json common_chat_tools_to_json_oaicompat(const std::vector<common_chat_tool> & tools) {
     if (tools.empty()) {
