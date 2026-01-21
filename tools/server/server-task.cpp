@@ -848,7 +848,7 @@ json server_task_result_cmpl_final::to_json_oaicompat_resp() {
             {"type",      "function_call"},
             {"status",    "completed"},
             {"arguments", tool_call.arguments},
-            {"call_id",   tool_call.id},
+            {"call_id",   "fc_" + tool_call.id},
             {"name",      tool_call.name},
         });
     }
