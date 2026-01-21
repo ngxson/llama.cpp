@@ -3,6 +3,7 @@
 #include "runtime.h"
 
 #include <string>
+#include <map>
 
 namespace jinja {
 
@@ -15,11 +16,13 @@ struct caps {
 
     bool requires_typed_content = false; // default: use string content
 
+    // for reporting on server
+    std::map<std::string, bool> to_map() const;
+
     // for debugging
     std::string to_string() const;
 };
 
 caps caps_get(jinja::program & prog);
-void debug_print_caps(const caps & c);
 
 } // namespace jinja

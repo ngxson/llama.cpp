@@ -61,15 +61,23 @@ static void caps_print_stats(value & v, const std::string & path) {
                 ops.c_str());
 }
 
+std::map<std::string, bool> caps::to_map() const {
+    return {
+        {"requires_typed_content", requires_typed_content},
+        {"supports_tools", supports_tools},
+        {"supports_tool_calls", supports_tool_calls},
+        {"supports_parallel_tool_calls", supports_parallel_tool_calls},
+        {"supports_system_role", supports_system_role},
+        {"supports_preserve_reasoning", supports_preserve_reasoning},
+    };
+}
+
 std::string caps::to_string() const {
     std::ostringstream ss;
     ss << "Caps(\n";
-    ss << "  requires_typed_content=" << requires_typed_content << "\n";
-    ss << "  supports_tools=" << supports_tools << "\n";
-    ss << "  supports_tool_calls=" << supports_tool_calls << "\n";
-    ss << "  supports_parallel_tool_calls=" << supports_parallel_tool_calls << "\n";
-    ss << "  supports_system_role=" << supports_system_role << "\n";
-    ss << "  supports_preserve_reasoning=" << supports_preserve_reasoning << "\n";
+    for (const auto & [key, value] : to_map()) {
+        ss << "  " << key << "=" << (value ? "true" : "false") << "\n";
+    }
     ss << ")";
     return ss.str();
 }
