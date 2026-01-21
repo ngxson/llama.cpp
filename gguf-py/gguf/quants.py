@@ -217,9 +217,58 @@ class BF16(__Quant, qtype=GGMLQuantizationType.BF16):
         return (blocks.view(np.int16).astype(np.int32) << 16).view(np.float32)
 
 
+def quantize_q4_0_grad(tensor, num_iters=100, lr=0.01):
+    import torch
+    # quantize using gradient descent approach
+    # optimize scale directly to minimize reconstruction error (symmetric quantization)
+    assert tensor.dtype == torch.float32
+    assert tensor.shape[-1] == 32
+    
+    # Initialize from simple quantization
+    abs_max = tensor.abs().max(dim=0, keepdim=True).values
+    init_scale = abs_max / 7.0
+    
+    # Learnable parameter: scale (as float for gradient)
+    scale = init_scale.clone().detach().requires_grad_(True)
+    
+    optimizer = torch.optim.Adam([scale], lr=lr)
+    
+    for _ in range(num_iters):
+        optimizer.zero_grad()
+        
+        # Quantize: q = round(x / scale)
+        # Use Straight-Through Estimator: forward uses round, backward passes gradient through
+        scaled = tensor / (scale + 1e-8)
+        quantized_float = torch.clamp(scaled + (torch.round(scaled) - scaled).detach(), -8, 7)
+        
+        # Dequantize: x' = scale * q
+        dequantized = scale * quantized_float
+        
+        # Compute loss: direct reconstruction error
+        loss = torch.mean((dequantized - tensor) ** 2)
+        loss.requires_grad = True
+        
+        loss.backward()
+        optimizer.step()
+        
+        # Ensure scale stays positive
+        with torch.no_grad():
+            scale.clamp_(min=1e-8)
+    
+    # Final quantization with optimized parameters
+    with torch.no_grad():
+        quantized = torch.clamp(
+            torch.round(tensor / (scale + 1e-8)),
+            -8, 7
+        ).to(torch.int32)
+    
+    return scale.detach().squeeze(0), quantized
+
+
 class Q4_0(__Quant, qtype=GGMLQuantizationType.Q4_0):
     @classmethod
     def quantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        return cls.quantize_q4_0_grad_np(blocks)
         n_blocks = blocks.shape[0]
 
         imax = abs(blocks).argmax(axis=-1, keepdims=True)
@@ -235,6 +284,52 @@ class Q4_0(__Quant, qtype=GGMLQuantizationType.Q4_0):
 
         d = d.astype(np.float16).view(np.uint8)
 
+        return np.concatenate([d, qs], axis=-1)
+
+    @classmethod
+    def quantize_q4_0_grad_np(cls, blocks: np.ndarray) -> np.ndarray:
+        block_size = 32
+        num_iters = 20
+        lr = 0.01
+        n_blocks = blocks.shape[0]
+        
+        # Convert to torch and use quantize_q4_0_grad
+        import torch
+        tensor = torch.from_numpy(blocks).float().clone()
+        scale, quantized = quantize_q4_0_grad(tensor, num_iters=num_iters, lr=lr)
+        
+        # Convert back to numpy
+        scale = scale.numpy()  # shape: (32,)
+        quantized = quantized.numpy()  # shape: (n_blocks, 32), values in -8 to 7
+        
+        # Convert from signed (-8 to 7) to unsigned (0 to 15) representation
+        qs = (quantized + 8).astype(np.uint8)
+        
+        # Compute d from scale: in quantize_blocks, d = max / -8, and id = 1/d
+        # Here scale corresponds to abs_max / 7, so we need to adapt
+        # d = -scale (to match the sign convention of quantize_blocks)
+        d = -scale.reshape(1, block_size).repeat(n_blocks, axis=0)
+        
+        # Take the max absolute d per block
+        d = np.take_along_axis(d, abs(blocks).argmax(axis=-1, keepdims=True), axis=-1)
+        
+        # Actually, we need d per block, not per element. Recompute from optimized scale.
+        # scale is per-column (32,), but we need per-block scale
+        # For proper output format, compute d from the quantized values
+        # d such that: original ≈ d * (qs - 8)
+        qs_centered = qs.astype(np.float32) - 8
+        # Least squares: d = sum(original * qs_centered) / sum(qs_centered^2)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            d = np.sum(blocks * qs_centered, axis=-1, keepdims=True) / np.sum(qs_centered ** 2, axis=-1, keepdims=True)
+            d = np.nan_to_num(d, nan=0.0, posinf=0.0, neginf=0.0)
+        
+        # Pack two 4-bit values into one byte
+        qs = qs.reshape((n_blocks, 2, block_size // 2))
+        qs = qs[..., 0, :] | (qs[..., 1, :] << np.uint8(4))
+        
+        # Convert d to float16 bytes
+        d = d.astype(np.float16).view(np.uint8)
+        
         return np.concatenate([d, qs], axis=-1)
 
     @classmethod
