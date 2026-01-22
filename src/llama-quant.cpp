@@ -3,12 +3,18 @@
 #include "llama-model.h"
 #include "llama-model-loader.h"
 
+// HIFI layer-adaptive quantization context
+extern "C" {
+#include "../ggml/src/ggml-quants-hifi.h"
+}
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <cinttypes>
 #include <fstream>
 #include <mutex>
+#include <numeric>
 #include <regex>
 #include <thread>
 #include <unordered_map>
@@ -24,6 +30,243 @@ static void zeros(std::ofstream & file, size_t n) {
     for (size_t i = 0; i < n; ++i) {
         file.write(&zero, 1);
     }
+}
+
+// Compute model size in billions from hyperparameters
+static float compute_model_params_b(const llama_hparams & hparams, int64_t n_vocab) {
+    const int64_t n_embd = hparams.n_embd;
+    const int64_t n_ff = hparams.n_ff();
+    const int64_t n_layer = hparams.n_layer;
+    
+    // Attention: 4 weight matrices per layer (Q, K, V, O) each ~d*d
+    const int64_t attn_params = 4 * n_embd * n_embd * n_layer;
+    // FFN: 3 weight matrices per layer (gate, up, down) each ~d*n_ff
+    const int64_t ffn_params = 3 * n_embd * n_ff * n_layer;
+    // Embeddings: input + output
+    const int64_t emb_params = 2 * n_vocab * n_embd;
+    
+    return (float)(attn_params + ffn_params + emb_params) / 1e9f;
+}
+
+// Get the appropriate HIFI type based on model size for Q4_K_HIFI
+// Small models (≤5B): Q5_K_HIFI_RES8 - size-efficient, proven at 4B scale
+// Large models (>5B): Q6_K_HIFI_RES8 - precision-focused, needed for 8B/14B+ quality
+static ggml_type get_hifi_enhanced_type(float model_params_b) {
+    if (model_params_b <= 5.0f) {
+        // 0.6B–5B: Q5_K_HIFI_RES8 (size-efficient)
+        return GGML_TYPE_Q5_K_HIFI_RES8;
+    } else {
+        // 8B/14B+: Q6_K_HIFI_RES8 (precision-focused)
+        return GGML_TYPE_Q6_K_HIFI_RES8;
+    }
+}
+
+// Get the HIFI type for Q5_K_HIFI - always Q6_K_HIFI_RES8 for maximum precision benefit
+// Q5_K already has good base quality, so HIFI enhancement must be high-precision
+static ggml_type get_q5_hifi_enhanced_type(float model_params_b) {
+    // For Q5_K_HIFI, we want to use Q6_K_HIFI_RES8 only for large models where it helps
+    // For small models (≤2B), use Q6_K instead - no HIFI overhead (matches Q5_K_M behavior)
+    if (model_params_b <= 2.0f) {
+        return GGML_TYPE_Q6_K;  // No HIFI overhead for tiny models
+    } else if (model_params_b <= 5.0f) {
+        return GGML_TYPE_Q5_K_HIFI_RES8;  // Size-efficient HIFI for medium models
+    } else {
+        return GGML_TYPE_Q6_K_HIFI_RES8;  // Full precision HIFI for large models
+    }
+}
+
+// Get the percentage of attn_v layers to enhance based on model size
+// Smaller models benefit more from enhancement, larger models have diminishing returns
+// Strategy: Broader coverage for tiny models (≤1B), graduated reduction for larger
+static float get_hifi_enhancement_threshold(float model_params_b) {
+    if (model_params_b <= 1.0f) {
+        // Tiny models (≤1B, e.g. 0.6B): enhance ~32% (layers 0-8 of 28)
+        // Broader coverage critical for quantization-sensitive small models
+        return 0.32f;
+    } else if (model_params_b <= 2.0f) {
+        // Small models (1-2B): enhance 25% of layers
+        return 0.25f;
+    } else if (model_params_b <= 5.0f) {
+        // Medium-small models (2-5B): enhance 20% of layers
+        return 0.20f;
+    } else if (model_params_b <= 15.0f) {
+        // Medium-large models (5-15B): enhance 20% of layers
+        // Includes 8B and 14B models - matching 8B success case
+        // Results in ~8-12 enhanced tensors (token_embd, output.weight, attn_v layers 0-N)
+        return 0.20f;
+    } else {
+        // Very large models (>15B): Skip ALL attn_v enhancement
+        // Only token_embd and output.weight are enhanced (reduces overhead significantly)
+        return 0.0f;
+    }
+}
+
+// Get the percentage of ffn_gate layers to enhance for tiny models
+// Only tiny models (≤1B) benefit from ffn_gate enhancement - critical for reasoning paths
+static float get_hifi_ffn_gate_threshold(float model_params_b) {
+    if (model_params_b <= 1.0f) {
+        // Tiny models (≤1B): enhance ~18% (layers 0-5 of 28)
+        // ffn_gate enhancement recovers lost reasoning quality in small models
+        return 0.18f;
+    } else {
+        // Larger models: no ffn_gate enhancement needed (diminishing returns)
+        return 0.0f;
+    }
+}
+
+// ===========================================================================
+// Lever 3: Statistical Outlier Detection using 3σ rule
+// Computes the outlier ratio: count(|w| > 3*stddev) / n_elements
+// Used to determine if a tensor benefits from HIFI enhancement
+// ===========================================================================
+static float compute_outlier_ratio(const float * weights, int64_t n) {
+    if (weights == nullptr || n <= 0) {
+        return 0.0f;
+    }
+    
+    // Compute mean and stddev in one pass using Welford's algorithm
+    double mean = 0.0;
+    double m2 = 0.0;
+    for (int64_t i = 0; i < n; ++i) {
+        double x = (double)weights[i];
+        double delta = x - mean;
+        mean += delta / (double)(i + 1);
+        double delta2 = x - mean;
+        m2 += delta * delta2;
+    }
+    
+    double variance = m2 / (double)n;
+    if (variance <= 0.0) return 0.0f;
+    
+    double stddev = sqrt(variance);
+    double threshold = 3.0 * stddev;
+    
+    // Count outliers (weights beyond 3σ from mean)
+    int64_t outlier_count = 0;
+    for (int64_t i = 0; i < n; ++i) {
+        if (fabs((double)weights[i] - mean) > threshold) {
+            outlier_count++;
+        }
+    }
+    
+    return (float)outlier_count / (float)n;
+}
+
+// Get the outlier ratio threshold for HIFI enhancement based on model size
+// Only enhance tensors whose outlier ratio exceeds this threshold
+// Smaller models need higher thresholds (more selective) to avoid BPW overhead
+static float get_q5_hifi_outlier_threshold(float model_params_b) {
+    if (model_params_b <= 1.0f) {
+        return 0.08f;  // 8% - very selective for tiny models
+    } else if (model_params_b <= 2.0f) {
+        return 0.06f;  // 6% - selective for small models
+    } else if (model_params_b <= 5.0f) {
+        return 0.04f;  // 4% - moderate for medium models
+    } else if (model_params_b <= 10.0f) {
+        return 0.025f; // 2.5% - relaxed for large models
+    } else {
+        return 0.015f; // 1.5% - minimal threshold for very large models
+    }
+}
+
+// ===========================================================================
+// Lever 1: Adaptive Enhancement by Model Scale for Q5_K_HIFI
+// Returns the max number of enhanced tensors based on model size
+// Smaller models get fewer enhanced tensors to minimize BPW overhead
+// ===========================================================================
+static int get_q5_hifi_max_enhancements(float model_params_b) {
+    if (model_params_b <= 1.0f) {
+        return 2;  // Only token_embd + output for tiny models
+    } else if (model_params_b <= 2.0f) {
+        return 3;  // + maybe 1 attn_v for small models
+    } else if (model_params_b <= 5.0f) {
+        return 5;  // + 3 attn_v layers for medium models
+    } else if (model_params_b <= 10.0f) {
+        return 6;  // + 4 attn_v layers for large models
+    } else {
+        return 5;  // Focused enhancement for very large models
+    }
+}
+
+// Get Q5_K_HIFI enhancement threshold for attn_v layers
+// This is much more conservative than Q4_K_HIFI - focuses on proven wins
+static float get_q5_hifi_attn_v_threshold(float model_params_b) {
+    if (model_params_b <= 1.7f) {
+        return 0.0f;  // NO attn_v enhancement for tiny models - match Q5_K_M BPW
+    } else if (model_params_b <= 5.0f) {
+        return 0.05f;  // Only top 5% for medium models (1-2 layers)
+    } else if (model_params_b <= 10.0f) {
+        return 0.08f;  // 8% for large models (proven at 8B)
+    } else {
+        return 0.05f;  // Conservative for very large models
+    }
+}
+
+// ===========================================================================
+// Q3_K_HIFI Scale-Aware Enhancement Logic
+// Based on proven strategies from Q4_K_HIFI and Q5_K_HIFI
+// Key insight: Fixed enhancement doesn't scale - small/large models need different approaches
+// ===========================================================================
+
+// Get the percentage of attn_v layers to enhance for Q3_K_HIFI
+// Tiny models (≤1.7B): Skip HIFI overhead that hurts them
+// Medium models (2-8B): Full enhancement (sweet spot)
+// Large models (14B+): Minimal enhancement (large models self-correct)
+static float get_q3_hifi_attn_v_threshold(float model_params_b) {
+    if (model_params_b <= 1.0f) {
+        // 0.6B/1B: Skip attn_v HIFI entirely - matches Q3_K_M BPW
+        // This addresses the +2.2% PPL regression seen at 0.6B
+        return 0.0f;
+    } else if (model_params_b <= 1.7f) {
+        // 1.7B: Very minimal enhancement (2-3 layers only)
+        return 0.07f;
+    } else if (model_params_b <= 5.0f) {
+        // 2-5B: Full enhancement - this is the sweet spot
+        // 4B shows -2.9% PPL improvement with current Q3_K_HIFI
+        return 0.25f;
+    } else if (model_params_b <= 10.0f) {
+        // 8B: Moderate enhancement
+        return 0.15f;
+    } else if (model_params_b <= 20.0f) {
+        // 14B: Reduced enhancement - addresses +0.24% PPL regression
+        return 0.08f;
+    } else {
+        // 32B+: Minimal enhancement - addresses +0.13% PPL regression
+        return 0.05f;
+    }
+}
+
+// Get the enhancement type for Q3_K_HIFI attn_v layers based on model size
+// Smaller models: Q4_K (avoid excessive BPW overhead)
+// Larger models: Q5_K (quality focus with more headroom)
+static ggml_type get_q3_hifi_attn_v_type(float model_params_b) {
+    if (model_params_b <= 2.0f) {
+        // Small models: Q4_K to minimize BPW overhead
+        return GGML_TYPE_Q4_K;
+    } else if (model_params_b <= 10.0f) {
+        // Medium models: Q5_K for better quality
+        return GGML_TYPE_Q5_K;
+    } else {
+        // Large models: Q5_K (they can afford the bits)
+        return GGML_TYPE_Q5_K;
+    }
+}
+
+// Get the enhancement type for Q3_K_HIFI ffn_down layers based on model size
+// Follows Q3_K_M default but with scale-aware adjustments
+static ggml_type get_q3_hifi_ffn_down_type(float model_params_b, int i_layer, int n_layer) {
+    // Early layers (first 1/16) always get Q5_K
+    if (i_layer < n_layer / 16) {
+        return GGML_TYPE_Q5_K;
+    }
+    
+    // Tiny models: use Q4_K for middle layers (match Q3_K_M behavior)
+    if (model_params_b <= 1.7f) {
+        return GGML_TYPE_Q4_K;
+    }
+    
+    // Medium/large models: use Q4_K for most layers
+    return GGML_TYPE_Q4_K;
 }
 
 static std::string remap_layer(const std::string & orig_name, const std::vector<int> & prune, std::map<int, std::string> & mapped, int & next_id) {
@@ -185,6 +428,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
     auto use_more_bits = [](int i_layer, int n_layers) -> bool {
         return i_layer < n_layers/8 || i_layer >= 7*n_layers/8 || (i_layer - n_layers/8)%3 == 2;
     };
+
     const int n_expert = std::max(1, (int)qs.model.hparams.n_expert);
     auto layer_info = [n_expert] (int i_layer, int n_layer, const char * name) {
         if (n_expert > 1) {
@@ -222,6 +466,30 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                      ftype == LLAMA_FTYPE_MOSTLY_IQ1_M) {
                 new_type = GGML_TYPE_Q5_K;
             }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
+                // Q4_K_HIFI: Use size-aware HIFI type on output - always critical
+                // Q5_K_HIFI_RES8 for 4B-10B, Q6_K_HIFI_RES8 for smaller models
+                const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+                new_type = get_hifi_enhanced_type(model_params_b);
+            }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_HIFI) {
+                // Q5_K_HIFI: Use scale-appropriate type on output.weight
+                // Tiny models (≤2B): Use Q6_K (no HIFI overhead, matches Q5_K_M)
+                // Medium models (2-5B): Use Q5_K_HIFI_RES8 (efficient enhancement)
+                // Large models (>5B): Use Q6_K_HIFI_RES8 (maximum precision)
+                const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+                new_type = get_q5_hifi_enhanced_type(model_params_b);
+            }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI) {
+                // Q3_K_HIFI: Scale-aware output.weight handling
+                // Q3_K_M uses Q6_K via default else clause, so we match that for consistency
+                // However, for tiny models we could consider matching the lower overhead
+                const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+                // Q6_K for all sizes (matches Q3_K_M behavior)
+                // output.weight is critical for quality, so keep Q6_K even for tiny models
+                new_type = GGML_TYPE_Q6_K;
+                (void)model_params_b; // Suppress unused warning - kept for future tuning
+            }
             else if (new_type != GGML_TYPE_Q8_0) {
                 new_type = GGML_TYPE_Q6_K;
             }
@@ -250,6 +518,31 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             }
             else if (ftype == LLAMA_FTYPE_MOSTLY_TQ1_0 || ftype == LLAMA_FTYPE_MOSTLY_TQ2_0) {
                 new_type = GGML_TYPE_Q4_K;
+            }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
+                // Q4_K_HIFI: Use size-aware HIFI type on token embeddings - always critical
+                // Q5_K_HIFI_RES8 for 4B-10B, Q6_K_HIFI_RES8 for smaller models
+                const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+                new_type = get_hifi_enhanced_type(model_params_b);
+            }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_HIFI) {
+                // Q5_K_HIFI: Use scale-appropriate type on token_embd
+                // Tiny models (≤2B): Use Q6_K (no HIFI overhead, matches Q5_K_M)
+                // Medium models (2-5B): Use Q5_K_HIFI_RES8 (efficient enhancement)
+                // Large models (>5B): Use Q6_K_HIFI_RES8 (maximum precision)
+                const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+                new_type = get_q5_hifi_enhanced_type(model_params_b);
+            }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI) {
+                // Q3_K_HIFI: Scale-aware token_embd handling
+                // The key insight: Q3_K_M does NOT explicitly handle token_embd, so it uses default (Q3_K)
+                // For tiny models (≤1.7B): Match Q3_K_M → use default type (no explicit assignment)
+                // For larger models (>1.7B): Use Q6_K for better quality
+                const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+                if (model_params_b > 1.7f) {
+                    new_type = GGML_TYPE_Q6_K;
+                }
+                // else: tiny models skip - use default_type (Q3_K), matching Q3_K_M
             }
         }
     } else if (ftype == LLAMA_FTYPE_MOSTLY_IQ2_XXS || ftype == LLAMA_FTYPE_MOSTLY_IQ2_XS || ftype == LLAMA_FTYPE_MOSTLY_IQ1_S ||
@@ -295,9 +588,63 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_M) {
             new_type = qs.i_attention_wv < 2 ? GGML_TYPE_Q5_K : GGML_TYPE_Q4_K;
         }
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI) {
+            // Q3_K_HIFI: Scale-aware attn_v enhancement
+            // - Tiny models (≤1.7B): Skip HIFI enhancement (avoids +2.2% PPL regression at 0.6B)
+            // - Medium models (2-8B): Full enhancement (4B shows -2.9% PPL win)
+            // - Large models (14B+): Minimal enhancement (avoids +0.24% regression at 14B)
+            const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+            const float enhancement_threshold = get_q3_hifi_attn_v_threshold(model_params_b);
+            
+            if (enhancement_threshold > 0.0f && qs.i_attention_wv <= qs.n_attention_wv * enhancement_threshold) {
+                // Use scale-appropriate enhancement type
+                new_type = get_q3_hifi_attn_v_type(model_params_b);
+            } else if (qs.i_attention_wv < 2) {
+                // First 2 layers always get Q5_K (same as Q3_K_M)
+                new_type = GGML_TYPE_Q5_K;
+            } else {
+                // Fall back to Q4_K for remaining layers (same as Q3_K_M)
+                new_type = GGML_TYPE_Q4_K;
+            }
+        }
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
+            // Q4_K_HIFI: Model-size-aware enhancement to optimize size vs quality tradeoff
+            // - Tiny models (≤1B): Q5_K_HIFI_RES8, enhance 32% of attn_v layers
+            // - Small models (1-5B): Q5_K_HIFI_RES8, enhance 20-25% of layers
+            // - Large models (5-15B): Q6_K_HIFI_RES8, enhance 20% of layers (~8-12 tensors)
+            // - Very large models (>15B): Only token_embd and output.weight enhanced
+            // This provides optimal quality/size tradeoff at each model scale
+            const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+            const float enhancement_threshold = get_hifi_enhancement_threshold(model_params_b);
+            const ggml_type hifi_type = get_hifi_enhanced_type(model_params_b);
+            
+            if (qs.i_attention_wv <= qs.n_attention_wv * enhancement_threshold) {
+                new_type = hifi_type;  // Use size-appropriate HIFI type
+            } else if (use_more_bits(qs.i_attention_wv, qs.n_attention_wv)) {
+                new_type = GGML_TYPE_Q6_K;  // Follow Q4_K_M behavior for critical late layers
+            }
+            // else: use default Q4_K for non-critical middle/late layers
+        }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L) new_type = GGML_TYPE_Q5_K;
         else if ((ftype == LLAMA_FTYPE_MOSTLY_IQ4_NL || ftype == LLAMA_FTYPE_MOSTLY_IQ4_XS) && qs.model.hparams.n_gqa() >= 4) {
             new_type = GGML_TYPE_Q5_K;
+        }
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_HIFI) {
+            // Q5_K_HIFI: Adaptive enhancement based on model size + statistical filtering
+            // Lever 1: Scale-adaptive thresholds - tiny models get minimal enhancement
+            // Lever 3: Only enhance if tensor has high outlier ratio (pending weight access)
+            const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+            const float enhancement_threshold = get_q5_hifi_attn_v_threshold(model_params_b);
+            
+            // For tiny models (≤1.7B), skip ALL attn_v HIFI enhancement - only use Q5_K_M logic
+            // This matches Q5_K_M BPW while still getting HIFI benefit on token_embd/output
+            if (enhancement_threshold > 0.0f && qs.i_attention_wv <= qs.n_attention_wv * enhancement_threshold) {
+                // Use scale-appropriate HIFI type
+                new_type = get_q5_hifi_enhanced_type(model_params_b);
+            } else if (use_more_bits(qs.i_attention_wv, qs.n_attention_wv)) {
+                new_type = GGML_TYPE_Q6_K;  // Follow Q5_K_M behavior for critical late layers
+            }
+            // else: use default Q5_K for non-critical middle/late layers
         }
         else if ((ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q5_K_M) &&
                 use_more_bits(qs.i_attention_wv, qs.n_attention_wv)) new_type = GGML_TYPE_Q6_K;
@@ -348,6 +695,17 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                      : arch != LLM_ARCH_FALCON || use_more_bits(i_layer, n_layer) ? GGML_TYPE_Q4_K
                      : GGML_TYPE_Q3_K;
         }
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI) {
+            // Q3_K_HIFI: Scale-aware ffn_down enhancement
+            // Based on Q3_K_M strategy with model-size adjustments
+            const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+            new_type = get_q3_hifi_ffn_down_type(model_params_b, i_layer, n_layer);
+            
+            // For FALCON architecture, also use more bits on critical layers
+            if (arch == LLM_ARCH_FALCON && !use_more_bits(i_layer, n_layer)) {
+                new_type = GGML_TYPE_Q3_K;
+            }
+        }
         else if (ftype == LLAMA_FTYPE_MOSTLY_IQ3_M && (i_layer < n_layer/8 ||
                     (qs.model.hparams.n_expert == 8 && use_more_bits(i_layer, n_layer)))) {
             new_type = GGML_TYPE_Q4_K;
@@ -355,7 +713,8 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L) {
             new_type = arch == LLM_ARCH_FALCON ? GGML_TYPE_Q4_K : GGML_TYPE_Q5_K;
         }
-        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M) {
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
+            // Q4_K_HIFI follows Q4_K_M behavior for ffn_down
             if (arch == LLM_ARCH_FALCON) {
                 new_type = i_layer < n_layer/16 ? GGML_TYPE_Q6_K :
                            use_more_bits(i_layer, n_layer) ? GGML_TYPE_Q5_K : GGML_TYPE_Q4_K;
@@ -366,7 +725,10 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         else if (i_layer < n_layer/8 && (ftype == LLAMA_FTYPE_MOSTLY_IQ4_NL || ftype == LLAMA_FTYPE_MOSTLY_IQ4_XS) && !qs.has_imatrix) {
             new_type = GGML_TYPE_Q5_K;
         }
-        else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_M && use_more_bits(i_layer, n_layer)) new_type = GGML_TYPE_Q6_K;
+        else if ((ftype == LLAMA_FTYPE_MOSTLY_Q5_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q5_K_HIFI) && use_more_bits(i_layer, n_layer)) {
+            // Q5_K_HIFI follows Q5_K_M behavior for ffn_down - Q6_K for critical layers
+            new_type = GGML_TYPE_Q6_K;
+        }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_S && arch != LLM_ARCH_FALCON && i_layer < n_layer/8) {
             new_type = GGML_TYPE_Q5_K;
         }
@@ -384,13 +746,15 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 if (ftype == LLAMA_FTYPE_MOSTLY_Q2_K   || ftype == LLAMA_FTYPE_MOSTLY_IQ3_XS || ftype == LLAMA_FTYPE_MOSTLY_IQ3_XXS ||
                     ftype == LLAMA_FTYPE_MOSTLY_Q3_K_S || ftype == LLAMA_FTYPE_MOSTLY_Q3_K_M  || ftype == LLAMA_FTYPE_MOSTLY_IQ4_NL  ||
                     ftype == LLAMA_FTYPE_MOSTLY_Q4_K_S || ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M  || ftype == LLAMA_FTYPE_MOSTLY_IQ3_S  ||
-                    ftype == LLAMA_FTYPE_MOSTLY_IQ3_M  || ftype == LLAMA_FTYPE_MOSTLY_IQ4_XS) {
+                    ftype == LLAMA_FTYPE_MOSTLY_IQ3_M  || ftype == LLAMA_FTYPE_MOSTLY_IQ4_XS ||
+                    ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI) {  // Match Q3_K_M for MoE
                     new_type = GGML_TYPE_Q5_K;
                 }
             } else {
                 if      (ftype == LLAMA_FTYPE_MOSTLY_Q2_K   ) new_type = GGML_TYPE_Q3_K;
                 else if (ftype == LLAMA_FTYPE_MOSTLY_IQ3_XXS) new_type = GGML_TYPE_IQ3_S;
                 else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_M ) new_type = GGML_TYPE_Q4_K;
+                else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI) new_type = GGML_TYPE_Q4_K;  // Match Q3_K_M
                 else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L ) new_type = GGML_TYPE_Q5_K;
                 else if (ftype == LLAMA_FTYPE_MOSTLY_IQ3_M  ) new_type = GGML_TYPE_Q4_K;
             }
@@ -399,17 +763,30 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         }
     }
     else if (name.find("attn_qkv.weight") != std::string::npos) {
-        if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L || ftype == LLAMA_FTYPE_MOSTLY_IQ3_M) {
+        if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L || ftype == LLAMA_FTYPE_MOSTLY_IQ3_M ||
+            ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI) {  // Match Q3_K_M
             new_type = GGML_TYPE_Q4_K;
         }
-        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M) new_type = GGML_TYPE_Q5_K;
-        else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_M) new_type = GGML_TYPE_Q6_K;
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) new_type = GGML_TYPE_Q5_K;
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_M || ftype == LLAMA_FTYPE_MOSTLY_Q5_K_HIFI) new_type = GGML_TYPE_Q6_K;
     }
     else if (name.find("ffn_gate") != std::string::npos) {
         auto info = layer_info(qs.i_ffn_gate, qs.n_ffn_gate, name.c_str());
         int i_layer = info.first, n_layer = info.second;
         if (ftype == LLAMA_FTYPE_MOSTLY_IQ3_XS && (i_layer >= n_layer/8 && i_layer < 7*n_layer/8)) {
             new_type = GGML_TYPE_IQ3_XXS;
+        }
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
+            // Q4_K_HIFI: Enhance early ffn_gate layers for tiny models (≤1B)
+            // ffn_gate is critical for reasoning paths in small models
+            const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+            const float ffn_gate_threshold = get_hifi_ffn_gate_threshold(model_params_b);
+            
+            if (ffn_gate_threshold > 0.0f && i_layer <= n_layer * ffn_gate_threshold) {
+                const ggml_type hifi_type = get_hifi_enhanced_type(model_params_b);
+                new_type = hifi_type;  // Use HIFI type for early ffn_gate layers
+            }
+            // else: use default Q4_K for larger models or later layers
         }
         ++qs.i_ffn_gate;
     }
@@ -473,13 +850,65 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         ++qs.n_fallback;
     }
 
+    // === Q3_K_HIFI: Model-size adaptive tensor upgrade ===
+    // Empirical results show HIFI effectiveness varies by model size AND imatrix presence:
+    //
+    // | Model | Without imatrix | With imatrix | Strategy              |
+    // |-------|-----------------|--------------|------------------------|
+    // | 0.6B  | +2.2% worse     | +1.3% worse  | Never HIFI            |
+    // | 1.7B  | +0.05% (same)   | +2.7% worse  | Never HIFI (overhead hurts) |
+    // | 4B    | -2.9% better    | -1.2% better | Always HIFI           |
+    // | 8B    | +0.2% worse     | -0.4% better | HIFI only WITH imatrix |
+    // | 14B   | -0.58% better   | ~0% (match)  | HIFI only WITHOUT imatrix |
+    // | 32B+  | catastrophic    | catastrophic | Never HIFI            |
+    //
+    // NOTE: 1.7B was tested with Q3_K_HIFI blocks (FP16 outliers) but showed:
+    // - +22% file size increase (1017 MiB -> 1.21 GiB)
+    // - +2.7% PPL regression with imatrix (17.78 -> 18.27)
+    // The overhead of Q3_K_HIFI blocks hurts at this scale.
+    //
+    if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI && new_type == GGML_TYPE_Q3_K) {
+        const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
+        
+        bool use_hifi = false;
+        
+        // 4B class (2.5B-6B): Always use HIFI - wins both with and without imatrix
+        // Results: -2.9% without imatrix, -1.2% with imatrix
+        if (model_params_b > 2.5f && model_params_b <= 6.0f) {
+            use_hifi = true;
+        }
+        // 8B class (6B-10B): Use HIFI only WITH imatrix
+        // Results: +0.2% worse without, -0.4% better with imatrix
+        else if (model_params_b > 6.0f && model_params_b <= 10.0f) {
+            use_hifi = qs.has_imatrix;
+        }
+        // 14B class (10B-20B): Use HIFI only WITHOUT imatrix
+        // Results: -0.58% better without, ~0% with imatrix (matches Q3_K_M)
+        else if (model_params_b > 10.0f && model_params_b <= 20.0f) {
+            use_hifi = !qs.has_imatrix;
+        }
+        // else: tiny (<2.5B) or huge (>20B) - keep Q3_K, no HIFI
+        // This includes 0.6B and 1.7B where HIFI overhead hurts more than helps
+        
+        if (use_hifi) {
+            new_type = GGML_TYPE_Q3_K_HIFI;
+        }
+    }
+
     return new_type;
 }
 
-static size_t llama_tensor_quantize_impl(enum ggml_type new_type, const float * f32_data, void * new_data, const int64_t chunk_size, int64_t nrows, int64_t n_per_row, const float * imatrix, std::vector<std::thread> & workers, const int nthread) {
+// Overload with HIFI context support
+static size_t llama_tensor_quantize_impl(enum ggml_type new_type, const float * f32_data, void * new_data, const int64_t chunk_size, int64_t nrows, int64_t n_per_row, const float * imatrix, std::vector<std::thread> & workers, const int nthread, const ggml_hifi_quant_context * hifi_ctx = nullptr) {
     if (nthread < 2) {
-        // single-thread
+        // single-thread - set context directly
+        if (hifi_ctx) {
+            ggml_hifi_set_context(hifi_ctx);
+        }
         size_t new_size = ggml_quantize_chunk(new_type, f32_data, new_data, 0, nrows, n_per_row, imatrix);
+        if (hifi_ctx) {
+            ggml_hifi_set_context(nullptr);
+        }
         if (!ggml_validate_row_data(new_type, new_data, new_size)) {
             throw std::runtime_error("quantized data validation failed");
         }
@@ -491,7 +920,12 @@ static size_t llama_tensor_quantize_impl(enum ggml_type new_type, const float * 
     size_t new_size = 0;
     bool valid = true;
     auto compute = [&mutex, &counter, &new_size, &valid, new_type, f32_data, new_data, chunk_size,
-            nrows, n_per_row, imatrix]() {
+            nrows, n_per_row, imatrix, hifi_ctx]() {
+        // Set HIFI context for this thread
+        if (hifi_ctx) {
+            ggml_hifi_set_context(hifi_ctx);
+        }
+
         const int64_t nrows_per_chunk = chunk_size / n_per_row;
         size_t local_size = 0;
         while (true) {
@@ -516,6 +950,11 @@ static size_t llama_tensor_quantize_impl(enum ggml_type new_type, const float * 
                 valid = false;
                 break;
             }
+        }
+
+        // Clear HIFI context for this thread
+        if (hifi_ctx) {
+            ggml_hifi_set_context(nullptr);
         }
     };
     for (int it = 0; it < nthread - 1; ++it) {
@@ -553,6 +992,7 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
         case LLAMA_FTYPE_MOSTLY_Q3_K_S:
         case LLAMA_FTYPE_MOSTLY_Q3_K_M:
         case LLAMA_FTYPE_MOSTLY_Q3_K_L:  default_type = GGML_TYPE_Q3_K;    break;
+        case LLAMA_FTYPE_MOSTLY_Q3_K_HIFI: default_type = GGML_TYPE_Q3_K;  break;  // Upgraded to Q3_K_HIFI for 2-8B models in llama_tensor_get_type
         case LLAMA_FTYPE_MOSTLY_Q4_K_S:
         case LLAMA_FTYPE_MOSTLY_Q4_K_M:  default_type = GGML_TYPE_Q4_K;    break;
         case LLAMA_FTYPE_MOSTLY_Q5_K_S:
@@ -571,6 +1011,8 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
         case LLAMA_FTYPE_MOSTLY_IQ4_XS:  default_type = GGML_TYPE_IQ4_XS;  break;
         case LLAMA_FTYPE_MOSTLY_IQ3_S:   default_type = GGML_TYPE_IQ3_S;   break;
         case LLAMA_FTYPE_MOSTLY_IQ3_M:   default_type = GGML_TYPE_IQ3_S;   break;
+        case LLAMA_FTYPE_MOSTLY_Q4_K_HIFI: default_type = GGML_TYPE_Q4_K; break; // Q4_K_M + dynamic outliers + early exit
+        case LLAMA_FTYPE_MOSTLY_Q5_K_HIFI: default_type = GGML_TYPE_Q5_K; break; // Q5_K_M base + Q6_K_HIFI_RES8 on critical tensors
 
         default: throw std::runtime_error(format("invalid output file type %d\n", ftype));
     }
@@ -639,6 +1081,13 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
     gguf_set_kv     (ctx_out.get(), ml.meta.get());
     gguf_set_val_u32(ctx_out.get(), "general.quantization_version", GGML_QNT_VERSION); // TODO: use LLM_KV
     gguf_set_val_u32(ctx_out.get(), "general.file_type", ftype); // TODO: use LLM_KV
+
+    // Set quantization type string for Hugging Face model card display
+    if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
+        gguf_set_val_str(ctx_out.get(), "general.quantization_type", "Q4_K_HIFI");
+    } else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_HIFI) {
+        gguf_set_val_str(ctx_out.get(), "general.quantization_type", "Q5_K_HIFI");
+    }
 
     // Remove split metadata
     gguf_remove_key(ctx_out.get(), ml.llm_kv(LLM_KV_SPLIT_NO).c_str());
@@ -978,12 +1427,85 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
 
             // quantize each expert separately since they have different importance matrices
             new_size = 0;
+
+            // Set up HIFI context for Q6_K_HIFI_RES8 tensors with layer-adaptive outlier allocation
+            ggml_hifi_quant_context hifi_ctx = {};
+            const ggml_hifi_quant_context * hifi_ctx_ptr = nullptr;
+
+            // Handle both Q6_K_HIFI_RES8 and Q5_K_HIFI_RES8 HIFI types
+            const bool is_hifi_type = (new_type == GGML_TYPE_Q6_K_HIFI_RES8 || new_type == GGML_TYPE_Q5_K_HIFI_RES8);
+            const bool is_hifi_ftype = (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI || ftype == LLAMA_FTYPE_MOSTLY_Q5_K_HIFI);
+            if (is_hifi_type && is_hifi_ftype) {
+                // Extract layer index from tensor name (e.g., "blk.5.attn_v.weight" -> 5)
+                int layer_idx = -1;
+                if (sscanf(name.c_str(), "blk.%d.", &layer_idx) != 1) {
+                    // Not a layer tensor (e.g., token_embd, output.weight)
+                    // Use max outliers for these critical tensors
+                    layer_idx = -1;
+                }
+
+                const int n_layers = (int)model.hparams.n_layer;
+
+                // Compute model size in billions (more accurate formula)
+                // Params ≈ L * (4*d^2 + 3*d*n_ff) + 2*V*d
+                // Where: L=layers, d=embedding, n_ff=FFN hidden, V=vocab
+                const int64_t n_embd = model.hparams.n_embd;
+                const int64_t n_ff = model.hparams.n_ff();
+                const int64_t n_vocab = model.vocab.n_tokens();
+                const int64_t n_layer = model.hparams.n_layer;
+
+                // Attention: 4 weight matrices per layer (Q, K, V, O) each ~d*d
+                const int64_t attn_params = 4 * n_embd * n_embd * n_layer;
+                // FFN: 3 weight matrices per layer (gate, up, down) each ~d*n_ff
+                const int64_t ffn_params = 3 * n_embd * n_ff * n_layer;
+                // Embeddings: input + output (sometimes shared, but count both for safety)
+                const int64_t emb_params = 2 * n_vocab * n_embd;
+
+                const float model_params_b = (float)(attn_params + ffn_params + emb_params) / 1e9f;
+
+                // Compute layer importance from imatrix if available
+                float layer_importance = 0.5f;  // default to medium
+                if (imatrix && n_per_row > 0) {
+                    layer_importance = ggml_hifi_compute_tensor_importance(imatrix, n_per_row);
+                }
+
+                // Compute adaptive outlier count
+                // Use the appropriate max outliers constant based on type
+                const int max_outliers = (new_type == GGML_TYPE_Q5_K_HIFI_RES8) 
+                    ? Q5_K_HIFI_RES8_MAX_OUTLIERS : Q6_K_HIFI_RES8_MAX_OUTLIERS;
+                int outlier_count;
+                if (layer_idx < 0) {
+                    // Critical non-layer tensors (token_embd, output.weight): max outliers
+                    outlier_count = max_outliers;
+                } else {
+                    outlier_count = ggml_hifi_compute_outlier_count(
+                        layer_idx, n_layers, layer_importance, model_params_b
+                    );
+                    // Clamp to the type's max outliers
+                    if (outlier_count > max_outliers) outlier_count = max_outliers;
+                }
+
+                // Set up context
+                hifi_ctx.outlier_count = outlier_count;
+                hifi_ctx.layer_importance = layer_importance;
+                hifi_ctx.layer_idx = layer_idx;
+                hifi_ctx.total_layers = n_layers;
+                hifi_ctx.is_active = 1;
+                hifi_ctx.model_params_b = model_params_b;
+                hifi_ctx_ptr = &hifi_ctx;
+
+                // Log adaptive outlier allocation (INFO level for visibility)
+                const char * type_name = (new_type == GGML_TYPE_Q5_K_HIFI_RES8) ? "Q5_K_HIFI" : "Q6_K_HIFI";
+                LLAMA_LOG_INFO("(%s: model=%.1fB layer=%d/%d imp=%.2f outliers=%d) ",
+                    type_name, model_params_b, layer_idx, n_layers, layer_importance, outlier_count);
+            }
+
             for (int64_t i03 = 0; i03 < tensor->ne[2]; ++i03) {
                 const float * f32_data_03 = f32_data + i03 * nelements_matrix;
                 void * new_data_03 = (char *)new_data + ggml_row_size(new_type, n_per_row) * i03 * nrows;
                 const float * imatrix_03 = imatrix ? imatrix + i03 * n_per_row : nullptr;
 
-                new_size += llama_tensor_quantize_impl(new_type, f32_data_03, new_data_03, chunk_size, nrows, n_per_row, imatrix_03, workers, nthread_use);
+                new_size += llama_tensor_quantize_impl(new_type, f32_data_03, new_data_03, chunk_size, nrows, n_per_row, imatrix_03, workers, nthread_use, hifi_ctx_ptr);
 
                 // TODO: temporary sanity check that the F16 -> MXFP4 is lossless
 #if 0

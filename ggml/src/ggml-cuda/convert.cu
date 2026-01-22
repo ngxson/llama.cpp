@@ -286,6 +286,177 @@ static __global__ void dequantize_block_q6_K(const void * __restrict__ vx, dst_t
     y[96] = d * sc[6] * ((int8_t)((ql[32]  >> 4) | (((qh >> 6) & 3) << 4)) - 32);
 }
 
+// Q6_K_HIFI: Q6_K with 4 FP16 outliers for critical tensors
+template<typename dst_t>
+static __global__ void dequantize_block_q6_k_hifi(const void * __restrict__ vx, dst_t * __restrict__ yy) {
+    const block_q6_k_hifi * x = (const block_q6_k_hifi *) vx;
+
+    const int64_t i = blockIdx.x;
+
+    // Q6_K bulk dequantization (same as dequantize_block_q6_K)
+    const int64_t tid = threadIdx.x;
+    const int64_t ip  = tid/32;   // ip is 0 or 1
+    const int64_t il  = tid - 32*ip; // 0...32
+    const int64_t is  = 8*ip + il/16;
+
+    dst_t * y = yy + i*QK_K + 128*ip + il;
+
+    const float d = x[i].d;
+
+    const uint8_t * ql = x[i].ql + 64*ip + il;
+    const uint8_t   qh = x[i].qh[32*ip + il];
+    const int8_t  * sc = x[i].scales + is;
+
+    y[ 0] = d * sc[0] * ((int8_t)((ql[ 0] & 0xF) | (((qh >> 0) & 3) << 4)) - 32);
+    y[32] = d * sc[2] * ((int8_t)((ql[32] & 0xF) | (((qh >> 2) & 3) << 4)) - 32);
+    y[64] = d * sc[4] * ((int8_t)((ql[ 0]  >> 4) | (((qh >> 4) & 3) << 4)) - 32);
+    y[96] = d * sc[6] * ((int8_t)((ql[32]  >> 4) | (((qh >> 6) & 3) << 4)) - 32);
+
+    // Thread 0 handles outlier restoration (only 4 outliers)
+    __syncthreads();
+    if (threadIdx.x == 0) {
+        dst_t * yb = yy + i*QK_K;
+        const __half * outlier_vals = reinterpret_cast<const __half*>(x[i].outlier_vals);
+        #pragma unroll
+        for (int k = 0; k < Q6_K_HIFI_OUTLIERS; ++k) {
+            const int idx = x[i].outlier_idx[k];
+            yb[idx] = __half2float(outlier_vals[k]);
+        }
+    }
+}
+
+// Q6_K_HIFI_DYNAMIC: Q6_K with 2-8 dynamic FP16 outliers based on layer sensitivity
+template<typename dst_t>
+static __global__ void dequantize_block_q6_k_hifi_dynamic(const void * __restrict__ vx, dst_t * __restrict__ yy) {
+    const block_q6_k_hifi_dynamic * x = (const block_q6_k_hifi_dynamic *) vx;
+
+    const int64_t i = blockIdx.x;
+
+    // Q6_K bulk dequantization (same as dequantize_block_q6_K)
+    const int64_t tid = threadIdx.x;
+    const int64_t ip  = tid/32;   // ip is 0 or 1
+    const int64_t il  = tid - 32*ip; // 0...32
+    const int64_t is  = 8*ip + il/16;
+
+    dst_t * y = yy + i*QK_K + 128*ip + il;
+
+    const float d = x[i].d;
+
+    const uint8_t * ql = x[i].ql + 64*ip + il;
+    const uint8_t   qh = x[i].qh[32*ip + il];
+    const int8_t  * sc = x[i].scales + is;
+
+    y[ 0] = d * sc[0] * ((int8_t)((ql[ 0] & 0xF) | (((qh >> 0) & 3) << 4)) - 32);
+    y[32] = d * sc[2] * ((int8_t)((ql[32] & 0xF) | (((qh >> 2) & 3) << 4)) - 32);
+    y[64] = d * sc[4] * ((int8_t)((ql[ 0]  >> 4) | (((qh >> 4) & 3) << 4)) - 32);
+    y[96] = d * sc[6] * ((int8_t)((ql[32]  >> 4) | (((qh >> 6) & 3) << 4)) - 32);
+
+    // Thread 0 handles dynamic outlier restoration (2-8 outliers)
+    __syncthreads();
+    if (threadIdx.x == 0) {
+        dst_t * yb = yy + i*QK_K;
+        const int outlier_count = x[i].outlier_count;
+        const __half * outlier_vals = reinterpret_cast<const __half*>(x[i].outlier_vals);
+        // Loop only up to actual outlier count (dynamic)
+        for (int k = 0; k < outlier_count && k < Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS; ++k) {
+            const int idx = x[i].outlier_idx[k];
+            yb[idx] = __half2float(outlier_vals[k]);
+        }
+    }
+}
+
+// Q6_K_HIFI_RES8: Compact format with INT8 residuals + per-block scale
+template<typename dst_t>
+static __global__ void dequantize_block_q6_k_hifi_res8(const void * __restrict__ vx, dst_t * __restrict__ yy) {
+    const block_q6_k_hifi_res8 * x = (const block_q6_k_hifi_res8 *) vx;
+
+    const int64_t i = blockIdx.x;
+
+    // Q6_K bulk dequantization (same as dequantize_block_q6_K)
+    const int64_t tid = threadIdx.x;
+    const int64_t ip  = tid/32;   // ip is 0 or 1
+    const int64_t il  = tid - 32*ip; // 0...32
+    const int64_t is  = 8*ip + il/16;
+
+    dst_t * y = yy + i*QK_K + 128*ip + il;
+
+    const float d = x[i].d;
+
+    const uint8_t * ql = x[i].ql + 64*ip + il;
+    const uint8_t   qh = x[i].qh[32*ip + il];
+    const int8_t  * sc = x[i].scales + is;
+
+    y[ 0] = d * sc[0] * ((int8_t)((ql[ 0] & 0xF) | (((qh >> 0) & 3) << 4)) - 32);
+    y[32] = d * sc[2] * ((int8_t)((ql[32] & 0xF) | (((qh >> 2) & 3) << 4)) - 32);
+    y[64] = d * sc[4] * ((int8_t)((ql[ 0]  >> 4) | (((qh >> 4) & 3) << 4)) - 32);
+    y[96] = d * sc[6] * ((int8_t)((ql[32]  >> 4) | (((qh >> 6) & 3) << 4)) - 32);
+
+    // Thread 0 handles INT8 residual corrections
+    __syncthreads();
+    if (threadIdx.x == 0) {
+        dst_t * yb = yy + i*QK_K;
+        const int outlier_count = x[i].outlier_count;
+        const float res_scale = x[i].residual_scale;
+        const float scale_factor = res_scale * (1.0f / 127.0f);
+        // Add residual corrections at outlier positions
+        for (int k = 0; k < outlier_count && k < Q6_K_HIFI_RES8_MAX_OUTLIERS; ++k) {
+            const int idx = x[i].outlier_idx[k];
+            const float residual = x[i].residual_vals[k] * scale_factor;
+            yb[idx] += residual;
+        }
+    }
+}
+
+// Q5_K_HIFI_RES8: Efficient Q5_K base with INT8 residuals for 4B-10B models
+template<typename dst_t>
+static __global__ void dequantize_block_q5_k_hifi_res8(const void * __restrict__ vx, dst_t * __restrict__ yy) {
+    const block_q5_k_hifi_res8 * x = (const block_q5_k_hifi_res8 *) vx;
+
+    const int64_t i = blockIdx.x;
+
+    // Q5_K bulk dequantization (same as dequantize_block_q5_K)
+    const int64_t tid = threadIdx.x;
+    const int64_t il  = tid/16;   // il is in 0...3
+    const int64_t ir  = tid%16;   // ir is in 0...15
+    const int64_t is  = 2*il;     // is is in 0...6
+
+    dst_t * y = yy + i*QK_K + 64*il + 2*ir;
+
+    const float dall = __low2half(x[i].dm);
+    const float dmin = __high2half(x[i].dm);
+
+    const uint8_t * ql = x[i].qs + 32*il + 2*ir;
+    const uint8_t * qh = x[i].qh + 2*ir;
+
+    uint8_t sc, m;
+    get_scale_min_k4(is + 0, x[i].scales, sc, m);
+    const float d1 = dall * sc; const float m1 = dmin * m;
+    get_scale_min_k4(is + 1, x[i].scales, sc, m);
+    const float d2 = dall * sc; const float m2 = dmin * m;
+
+    uint8_t   hm  = 1 << (2*il);
+    y[ 0] = d1 * ((ql[ 0] & 0xF) + (qh[ 0] & hm ? 16 : 0)) - m1;
+    y[ 1] = d1 * ((ql[ 1] & 0xF) + (qh[ 1] & hm ? 16 : 0)) - m1;
+    hm <<= 1;
+    y[32] = d2 * ((ql[ 0] >>  4) + (qh[ 0] & hm ? 16 : 0)) - m2;
+    y[33] = d2 * ((ql[ 1] >>  4) + (qh[ 1] & hm ? 16 : 0)) - m2;
+
+    // Thread 0 handles INT8 residual corrections
+    __syncthreads();
+    if (threadIdx.x == 0) {
+        dst_t * yb = yy + i*QK_K;
+        const int outlier_count = x[i].outlier_count;
+        const float res_scale = x[i].residual_scale;
+        const float scale_factor = res_scale * (1.0f / 127.0f);
+        // Add residual corrections at outlier positions
+        for (int k = 0; k < outlier_count && k < Q5_K_HIFI_RES8_MAX_OUTLIERS; ++k) {
+            const int idx = x[i].outlier_idx[k];
+            const float residual = x[i].residual_vals[k] * scale_factor;
+            yb[idx] += residual;
+        }
+    }
+}
+
 template<typename dst_t>
 static __global__ void dequantize_block_iq2_xxs(const void * __restrict__ vx, dst_t * __restrict__ yy) {
 
@@ -518,6 +689,115 @@ static void dequantize_row_q3_K_cuda(const void * vx, dst_t * y, const int64_t k
     dequantize_block_q3_K<<<nb, 64, 0, stream>>>(vx, y);
 }
 
+// Q3_K_HIFI: Q3_K layout + 16 FP16 residual corrections per block
+// Uses Q3_K dequantization for bulk, then ADDS residual corrections
+template<typename dst_t>
+static __global__ void dequantize_block_q3_k_hifi(const void * __restrict__ vx, dst_t * __restrict__ yy) {
+    const int64_t i = blockIdx.x;
+    const block_q3_k_hifi * x = (const block_q3_k_hifi *) vx;
+
+    // First, do Q3_K-style dequantization for the bulk
+    const int64_t r = threadIdx.x/4;
+    const int64_t tid = r/2;
+    const int64_t is0 = r%2;
+    const int64_t l0 = 16*is0 + 4*(threadIdx.x%4);
+    const int64_t n = tid / 4;
+    const int64_t j = tid - 4*n;
+
+    uint8_t m = 1 << (4*n + j);
+    int64_t is = 8*n + 2*j + is0;
+    int shift = 2*j;
+
+    int8_t us = is <  4 ? (x[i].scales[is-0] & 0xF) | (((x[i].scales[is+8] >> 0) & 3) << 4) :
+                is <  8 ? (x[i].scales[is-0] & 0xF) | (((x[i].scales[is+4] >> 2) & 3) << 4) :
+                is < 12 ? (x[i].scales[is-8] >>  4) | (((x[i].scales[is+0] >> 4) & 3) << 4) :
+                          (x[i].scales[is-8] >>  4) | (((x[i].scales[is-4] >> 6) & 3) << 4);
+    float d_all = __half2float(x[i].d);
+    float dl = d_all * (us - 32);
+
+    dst_t * y = yy + i*QK_K + 128*n + 32*j;
+    const uint8_t * q = x[i].qs + 32*n;
+    const uint8_t * hm = x[i].hmask;
+
+    for (int l = l0; l < l0+4; ++l) {
+        y[l] = dl * ((int8_t)((q[l] >> shift) & 3) - ((hm[l] & m) ? 0 : 4));
+    }
+
+    // Synchronize before adding residual corrections
+    __syncthreads();
+
+    // Thread 0 handles residual corrections (ADD, not replace)
+    if (threadIdx.x == 0) {
+        dst_t * yb = yy + i*QK_K;
+        const int n_outliers = (x[i].outlier_count <= Q3_K_HIFI_OUTLIERS) ? x[i].outlier_count : Q3_K_HIFI_OUTLIERS;
+        for (int k = 0; k < n_outliers; ++k) {
+            const int idx = x[i].outlier_idx[k];
+            yb[idx] += __half2float(x[i].outlier_vals[k]);  // ADD residual correction
+        }
+    }
+}
+
+template<typename dst_t>
+static void dequantize_row_q3_k_hifi_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
+    const int nb = k / QK_K;
+    dequantize_block_q3_k_hifi<<<nb, 64, 0, stream>>>(vx, y);
+}
+
+// Q3_K_HIFI_RES8: Q3_K layout + 8 INT8 residual corrections per block (lean version)
+// Uses Q3_K dequantization for bulk, then ADDS INT8 residual corrections with scale
+template<typename dst_t>
+static __global__ void dequantize_block_q3_k_hifi_res8(const void * __restrict__ vx, dst_t * __restrict__ yy) {
+    const int64_t i = blockIdx.x;
+    const block_q3_k_hifi_res8 * x = (const block_q3_k_hifi_res8 *) vx;
+
+    // First, do Q3_K-style dequantization for the bulk
+    const int64_t r = threadIdx.x/4;
+    const int64_t tid = r/2;
+    const int64_t is0 = r%2;
+    const int64_t l0 = 16*is0 + 4*(threadIdx.x%4);
+    const int64_t n = tid / 4;
+    const int64_t j = tid - 4*n;
+
+    uint8_t m = 1 << (4*n + j);
+    int64_t is = 8*n + 2*j + is0;
+    int shift = 2*j;
+
+    int8_t us = is <  4 ? (x[i].scales[is-0] & 0xF) | (((x[i].scales[is+8] >> 0) & 3) << 4) :
+                is <  8 ? (x[i].scales[is-0] & 0xF) | (((x[i].scales[is+4] >> 2) & 3) << 4) :
+                is < 12 ? (x[i].scales[is-8] >>  4) | (((x[i].scales[is+0] >> 4) & 3) << 4) :
+                          (x[i].scales[is-8] >>  4) | (((x[i].scales[is-4] >> 6) & 3) << 4);
+    float d_all = __half2float(x[i].d);
+    float dl = d_all * (us - 32);
+
+    dst_t * y = yy + i*QK_K + 128*n + 32*j;
+    const uint8_t * q = x[i].qs + 32*n;
+    const uint8_t * hm = x[i].hmask;
+
+    for (int l = l0; l < l0+4; ++l) {
+        y[l] = dl * ((int8_t)((q[l] >> shift) & 3) - ((hm[l] & m) ? 0 : 4));
+    }
+
+    // Synchronize before adding residual corrections
+    __syncthreads();
+
+    // Thread 0 handles INT8 residual corrections (ADD, not replace)
+    if (threadIdx.x == 0) {
+        dst_t * yb = yy + i*QK_K;
+        const int n_outliers = (x[i].outlier_count <= Q3_K_HIFI_RES8_OUTLIERS) ? x[i].outlier_count : Q3_K_HIFI_RES8_OUTLIERS;
+        const float res_scale = x[i].residual_scale;
+        for (int k = 0; k < n_outliers; ++k) {
+            const int idx = x[i].outlier_idx[k];
+            yb[idx] += res_scale * (float)x[i].residual_vals[k];  // ADD INT8 residual correction
+        }
+    }
+}
+
+template<typename dst_t>
+static void dequantize_row_q3_k_hifi_res8_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
+    const int nb = k / QK_K;
+    dequantize_block_q3_k_hifi_res8<<<nb, 64, 0, stream>>>(vx, y);
+}
+
 template<typename dst_t>
 static void dequantize_row_q4_0_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
     const int nb32 = k / 32;
@@ -548,6 +828,30 @@ template<typename dst_t>
 static void dequantize_row_q6_K_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
     const int nb = k / QK_K;
     dequantize_block_q6_K<<<nb, 64, 0, stream>>>(vx, y);
+}
+
+template<typename dst_t>
+static void dequantize_row_q6_k_hifi_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
+    const int nb = k / QK_K;
+    dequantize_block_q6_k_hifi<<<nb, 64, 0, stream>>>(vx, y);
+}
+
+template<typename dst_t>
+static void dequantize_row_q6_k_hifi_dynamic_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
+    const int nb = k / QK_K;
+    dequantize_block_q6_k_hifi_dynamic<<<nb, 64, 0, stream>>>(vx, y);
+}
+
+template<typename dst_t>
+static void dequantize_row_q6_k_hifi_res8_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
+    const int nb = k / QK_K;
+    dequantize_block_q6_k_hifi_res8<<<nb, 64, 0, stream>>>(vx, y);
+}
+
+template<typename dst_t>
+static void dequantize_row_q5_k_hifi_res8_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
+    const int nb = k / QK_K;
+    dequantize_block_q5_k_hifi_res8<<<nb, 64, 0, stream>>>(vx, y);
 }
 
 template<typename dst_t>
@@ -675,6 +979,18 @@ to_fp16_cuda_t ggml_get_to_fp16_cuda(ggml_type type) {
             return dequantize_row_q2_K_cuda;
         case GGML_TYPE_Q3_K:
             return dequantize_row_q3_K_cuda;
+        case GGML_TYPE_Q3_K_HIFI:
+            return dequantize_row_q3_k_hifi_cuda;
+        case GGML_TYPE_Q3_K_HIFI_RES8:
+            return dequantize_row_q3_k_hifi_res8_cuda;
+        case GGML_TYPE_Q6_K_HIFI:
+            return dequantize_row_q6_k_hifi_cuda;
+        case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
+            return dequantize_row_q6_k_hifi_dynamic_cuda;
+        case GGML_TYPE_Q6_K_HIFI_RES8:
+            return dequantize_row_q6_k_hifi_res8_cuda;
+        case GGML_TYPE_Q5_K_HIFI_RES8:
+            return dequantize_row_q5_k_hifi_res8_cuda;
         case GGML_TYPE_Q4_K:
             return dequantize_row_q4_K_cuda;
         case GGML_TYPE_Q5_K:
@@ -726,6 +1042,18 @@ to_fp32_cuda_t ggml_get_to_fp32_cuda(ggml_type type) {
             return dequantize_row_q2_K_cuda;
         case GGML_TYPE_Q3_K:
             return dequantize_row_q3_K_cuda;
+        case GGML_TYPE_Q3_K_HIFI:
+            return dequantize_row_q3_k_hifi_cuda;
+        case GGML_TYPE_Q3_K_HIFI_RES8:
+            return dequantize_row_q3_k_hifi_res8_cuda;
+        case GGML_TYPE_Q6_K_HIFI:
+            return dequantize_row_q6_k_hifi_cuda;
+        case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
+            return dequantize_row_q6_k_hifi_dynamic_cuda;
+        case GGML_TYPE_Q6_K_HIFI_RES8:
+            return dequantize_row_q6_k_hifi_res8_cuda;
+        case GGML_TYPE_Q5_K_HIFI_RES8:
+            return dequantize_row_q5_k_hifi_res8_cuda;
         case GGML_TYPE_Q4_K:
             return dequantize_row_q4_K_cuda;
         case GGML_TYPE_Q5_K:

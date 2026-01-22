@@ -288,6 +288,46 @@ typedef struct {
 } block_q3_K;
 static_assert(sizeof(block_q3_K) == sizeof(ggml_half) + QK_K / 4 + QK_K / 8 + 12, "wrong q3_K block size/padding");
 
+// Q3_K_HIFI: Q3_K with FP16 residual correction for stronger signal recovery at 3-bit
+// Uses residual-based outlier selection (not magnitude) to correct weights Q3_K fails on
+// 16 outliers provide ~2x correction capacity vs previous 8-outlier design
+#define Q3_K_HIFI_BLOCK_SIZE 256
+#define Q3_K_HIFI_OUTLIERS   16
+typedef struct {
+    // === Q3_K-COMPATIBLE REGION (110 bytes) - DO NOT REORDER ===
+    uint8_t hmask[QK_K/8];         // 32 bytes: high bit mask
+    uint8_t qs[QK_K/4];            // 64 bytes: low 2 bits
+    uint8_t scales[12];            // 12 bytes: 16 sub-group scales (6-bit each)
+    ggml_half d;                   // 2 bytes: super-block scale
+    // === RESIDUAL CORRECTION EXTENSION (48 bytes) ===
+    uint8_t outlier_count;                      // 1 byte: actual outliers stored (0-16)
+    uint8_t _pad;                               // 1 byte: alignment padding
+    uint8_t outlier_idx[Q3_K_HIFI_OUTLIERS];    // 16 bytes: outlier positions (0-255)
+    ggml_half outlier_vals[Q3_K_HIFI_OUTLIERS]; // 32 bytes: FP16 residual corrections
+} block_q3_k_hifi;
+// Size: 110 (Q3_K) + 2 (count+pad) + 16 (idx) + 32 (vals) = 160 bytes
+static_assert(sizeof(block_q3_k_hifi) == sizeof(block_q3_K) + 2 + Q3_K_HIFI_OUTLIERS + Q3_K_HIFI_OUTLIERS*sizeof(ggml_half), "wrong q3_k_hifi block size/padding");
+
+// Q3_K_HIFI_RES8: Lean version with INT8 residuals for use WITH imatrix
+// When imatrix is present, base quantization is already optimized - INT8 residuals suffice
+// Uses 8 outliers (vs 16 in FP16 version) for minimal overhead while maintaining quality
+#define Q3_K_HIFI_RES8_OUTLIERS 8
+typedef struct {
+    // === Q3_K-COMPATIBLE REGION (110 bytes) - DO NOT REORDER ===
+    uint8_t hmask[QK_K/8];         // 32 bytes: high bit mask
+    uint8_t qs[QK_K/4];            // 64 bytes: low 2 bits
+    uint8_t scales[12];            // 12 bytes: 16 sub-group scales (6-bit each)
+    ggml_half d;                   // 2 bytes: super-block scale
+    // === INT8 RESIDUAL EXTENSION (22 bytes) ===
+    uint8_t outlier_count;                          // 1 byte: actual outliers stored (0-8)
+    uint8_t _pad1;                                  // 1 byte: alignment padding
+    uint8_t outlier_idx[Q3_K_HIFI_RES8_OUTLIERS];   // 8 bytes: outlier positions (0-255)
+    int8_t  residual_vals[Q3_K_HIFI_RES8_OUTLIERS]; // 8 bytes: INT8 residual corrections
+    float   residual_scale;                         // 4 bytes: scale for INT8 residuals
+} block_q3_k_hifi_res8;
+// Size: 110 (Q3_K) + 2 (count+pad) + 8 (idx) + 8 (vals) + 4 (scale) = 132 bytes
+static_assert(sizeof(block_q3_k_hifi_res8) == sizeof(block_q3_K) + 2 + Q3_K_HIFI_RES8_OUTLIERS + Q3_K_HIFI_RES8_OUTLIERS + sizeof(float), "wrong q3_k_hifi_res8 block size/padding");
+
 // 4-bit quantization
 // 8 blocks of 32 elements each
 // weight is represented as x = a * q + b
@@ -334,6 +374,97 @@ typedef struct {
     ggml_half d;             // super-block scale
 } block_q6_K;
 static_assert(sizeof(block_q6_K) == sizeof(ggml_half) + QK_K / 16 + 3*QK_K/4, "wrong q6_K block size/padding");
+
+// Q6_K_HIFI: Q6_K base + 4 FP16 outliers for enhanced precision on critical tensors
+// Designed for Q4_K_M_HIFI: applies only to token_embd, output.weight, and early attn_v
+// Provides ~0.05-0.10 PPL improvement with minimal overhead (+12 bytes per block)
+#define Q6_K_HIFI_OUTLIERS 4
+typedef struct {
+    // === Q6_K-COMPATIBLE REGION (210 bytes) - DO NOT REORDER ===
+    uint8_t ql[QK_K/2];      // 128 bytes: quants, lower 4 bits
+    uint8_t qh[QK_K/4];      // 64 bytes: quants, upper 2 bits
+    int8_t  scales[QK_K/16]; // 16 bytes: scales, quantized with 8 bits
+    ggml_half d;             // 2 bytes: super-block scale
+    // === OUTLIER EXTENSION (12 bytes) ===
+    uint8_t outlier_idx[Q6_K_HIFI_OUTLIERS];    // 4 bytes: outlier positions (0-255)
+    ggml_half outlier_vals[Q6_K_HIFI_OUTLIERS]; // 8 bytes: FP16 outlier values
+} block_q6_k_hifi;
+static_assert(sizeof(block_q6_k_hifi) == sizeof(block_q6_K) + Q6_K_HIFI_OUTLIERS + Q6_K_HIFI_OUTLIERS*sizeof(ggml_half), "wrong q6_k_hifi block size/padding");
+
+// Q6_K_HIFI_DYNAMIC: Q6_K base + dynamic outliers (2-8) based on layer sensitivity
+// - Early layers (0-30%): 6-8 outliers (most sensitive)
+// - Middle layers (30-70%): 4-6 outliers (moderately sensitive)
+// - Late layers (70-100%): 2-4 outliers (least sensitive, more redundant)
+// - Embeddings/output: 8 outliers (always critical)
+// Includes early-exit optimization: skip outlier correction when |activation| < threshold
+#define Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS 8
+#define Q6_K_HIFI_DYNAMIC_MIN_OUTLIERS 2
+#define Q6_K_HIFI_DYNAMIC_DEFAULT_OUTLIERS 6  // Default for generic quantization path
+#define Q6_K_HIFI_EARLY_EXIT_THRESHOLD 4  // |q8| > 4 means |activation| > 0.03
+typedef struct {
+    // === Q6_K-COMPATIBLE REGION (210 bytes) - DO NOT REORDER ===
+    uint8_t ql[QK_K/2];      // 128 bytes: quants, lower 4 bits
+    uint8_t qh[QK_K/4];      // 64 bytes: quants, upper 2 bits
+    int8_t  scales[QK_K/16]; // 16 bytes: scales, quantized with 8 bits
+    ggml_half d;             // 2 bytes: super-block scale
+    // === DYNAMIC OUTLIER EXTENSION (26 bytes with padding) ===
+    uint8_t outlier_count;                              // 1 byte: actual outlier count (2-8)
+    uint8_t outlier_idx[Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS];    // 8 bytes: outlier positions (0-255)
+    uint8_t _padding;                                   // 1 byte: padding for ggml_half alignment
+    ggml_half outlier_vals[Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS]; // 16 bytes: FP16 outlier values
+} block_q6_k_hifi_dynamic;
+// Total: 236 bytes (210 + 26)
+static_assert(sizeof(block_q6_k_hifi_dynamic) == sizeof(block_q6_K) + 2 + Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS + Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS*sizeof(ggml_half), "wrong q6_k_hifi_dynamic block size/padding");
+
+// Q6_K_HIFI_RES8: Compact Q6_K with INT8 residuals + per-block shared scale
+// This format reduces size by using INT8 residuals instead of FP16 outlier values.
+// The residual is computed as: original_value - Q6_K_approximation, then quantized to INT8.
+// Reconstruction: Q6_K_dequant + residual_scale * (residual_vals[i] / 127.0f)
+// Size reduction: 236 -> 232 bytes (-1.7% vs Q6_K_HIFI_DYNAMIC, matches Q4_K_M size ratio)
+#define Q6_K_HIFI_RES8_MAX_OUTLIERS 8
+typedef struct {
+    // === Q6_K-COMPATIBLE REGION (210 bytes) - DO NOT REORDER ===
+    uint8_t ql[QK_K/2];      // 128 bytes: quants, lower 4 bits
+    uint8_t qh[QK_K/4];      // 64 bytes: quants, upper 2 bits
+    int8_t  scales[QK_K/16]; // 16 bytes: scales, quantized with 8 bits
+    ggml_half d;             // 2 bytes: super-block scale
+    // === COMPACT INT8 RESIDUAL EXTENSION (22 bytes) ===
+    uint8_t outlier_count;                               // 1 byte: actual outlier count (1-8)
+    uint8_t outlier_idx[Q6_K_HIFI_RES8_MAX_OUTLIERS];    // 8 bytes: outlier positions (0-255)
+    int8_t  residual_vals[Q6_K_HIFI_RES8_MAX_OUTLIERS];  // 8 bytes: INT8 residuals (-127 to +127)
+    uint8_t _padding;                                    // 1 byte: padding for float alignment
+    float   residual_scale;                              // 4 bytes: shared scale for residuals
+} block_q6_k_hifi_res8;
+// Total: 232 bytes (210 + 22) - saves 4 bytes/block vs Q6_K_HIFI_DYNAMIC
+static_assert(sizeof(block_q6_k_hifi_res8) == 232, "wrong q6_k_hifi_res8 block size/padding");
+
+// Q5_K_HIFI_RES8: Efficient Q5_K with INT8 residuals for 4B-10B models
+// This format is optimized for mid-scale models where Q6_K overhead is wasteful.
+// Q5_K base provides sufficient precision, outliers compensate for 1-bit loss.
+// Size: 200 bytes vs Q6_K_HIFI_RES8's 232 bytes (~14% smaller)
+// Expected results: matches Q6_K_HIFI_RES8 quality at better BPW efficiency
+#define Q5_K_HIFI_RES8_MAX_OUTLIERS 8
+typedef struct {
+    // === Q5_K-COMPATIBLE REGION (176 bytes) - DO NOT REORDER ===
+    GGML_EXTENSION union {
+        struct {
+            ggml_half d;    // super-block scale for quantized scales
+            ggml_half dmin; // super-block scale for quantized mins
+        } GGML_COMMON_AGGR_S;
+        ggml_half2 dm;
+    } GGML_COMMON_AGGR_U;
+    uint8_t scales[K_SCALE_SIZE]; // 12 bytes: scales and mins, quantized with 6 bits
+    uint8_t qh[QK_K/8];           // 32 bytes: quants, high bit
+    uint8_t qs[QK_K/2];           // 128 bytes: quants, low 4 bits
+    // === COMPACT INT8 RESIDUAL EXTENSION (24 bytes) ===
+    uint8_t outlier_count;                               // 1 byte: actual outlier count (1-8)
+    uint8_t outlier_idx[Q5_K_HIFI_RES8_MAX_OUTLIERS];    // 8 bytes: outlier positions (0-255)
+    int8_t  residual_vals[Q5_K_HIFI_RES8_MAX_OUTLIERS];  // 8 bytes: INT8 residuals (-127 to +127)
+    uint8_t _padding[3];                                 // 3 bytes: padding for float alignment
+    float   residual_scale;                              // 4 bytes: shared scale for residuals
+} block_q5_k_hifi_res8;
+// Total: 200 bytes (176 + 24) - 14% smaller than Q6_K_HIFI_RES8
+static_assert(sizeof(block_q5_k_hifi_res8) == 200, "wrong q5_k_hifi_res8 block size/padding");
 
 // This is only used for intermediate quantization and dot products
 typedef struct {

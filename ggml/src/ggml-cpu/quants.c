@@ -66,6 +66,12 @@ void quantize_row_q3_K(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, i
     quantize_row_q3_K_ref(x, vy, k);
 }
 
+void quantize_row_q3_k_hifi(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
+    assert(k % Q3_K_HIFI_BLOCK_SIZE == 0);
+    block_q3_k_hifi * GGML_RESTRICT y = vy;
+    quantize_row_q3_k_hifi_ref(x, y, k);
+}
+
 // ====================== 4-bit (de)-quantization
 
 void quantize_row_q4_K(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
@@ -88,6 +94,25 @@ void quantize_row_q6_K(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, i
     assert(k % QK_K == 0);
     block_q6_K * GGML_RESTRICT y = vy;
     quantize_row_q6_K_ref(x, y, k);
+}
+
+void quantize_row_q6_k_hifi(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
+    assert(k % QK_K == 0);
+    block_q6_k_hifi * GGML_RESTRICT y = vy;
+    quantize_row_q6_k_hifi_ref(x, y, k);
+}
+
+void quantize_row_q6_k_hifi_dynamic(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
+    assert(k % QK_K == 0);
+    block_q6_k_hifi_dynamic * GGML_RESTRICT y = vy;
+    // Uses default outlier count (6) via the 3-argument wrapper
+    quantize_row_q6_k_hifi_dynamic_ref(x, y, k);
+}
+
+void quantize_row_q6_k_hifi_res8(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
+    assert(k % QK_K == 0);
+    block_q6_k_hifi_res8 * GGML_RESTRICT y = vy;
+    quantize_row_q6_k_hifi_res8_ref(x, y, k);
 }
 
 // ====================== Ternary (de)-quantization (BitNet b1.58 and TriLMs)
@@ -547,6 +572,96 @@ void ggml_vec_dot_q3_K_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, c
     *s = sumf;
 }
 
+// Q3_K_HIFI vec_dot: Generic implementation
+// Uses Q3_K format for bulk, adds outlier corrections
+void ggml_vec_dot_q3_k_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % Q3_K_HIFI_BLOCK_SIZE == 0);
+    assert(nrc == 1);
+    UNUSED(nrc);
+    UNUSED(bx);
+    UNUSED(by);
+    UNUSED(bs);
+
+    const block_q3_k_hifi * GGML_RESTRICT x = vx;
+    const block_q8_K * GGML_RESTRICT y = vy;
+    const int nb = n / Q3_K_HIFI_BLOCK_SIZE;
+
+    static const uint32_t kmask1 = 0x03030303;
+    static const uint32_t kmask2 = 0x0f0f0f0f;
+
+    uint32_t aux[4];
+    const int8_t * scales = (const int8_t*)aux;
+
+    float total_sum = 0.0f;
+
+    for (int i = 0; i < nb; ++i) {
+        const block_q3_k_hifi * xb = &x[i];
+        const block_q8_K * yb = &y[i];
+
+        const float d = GGML_FP16_TO_FP32(xb->d) * yb->d;
+
+        const uint8_t * GGML_RESTRICT q = xb->qs;
+        const uint8_t * GGML_RESTRICT hm = xb->hmask;
+        const int8_t  * GGML_RESTRICT q8 = yb->qs;
+        uint8_t m = 1;
+
+        // Decode scales (same as Q3_K)
+        memcpy(aux, xb->scales, 12);
+        uint32_t tmp = aux[2];
+        aux[2] = ((aux[0] >> 4) & kmask2) | (((tmp >> 4) & kmask1) << 4);
+        aux[3] = ((aux[1] >> 4) & kmask2) | (((tmp >> 6) & kmask1) << 4);
+        aux[0] = (aux[0] & kmask2) | (((tmp >> 0) & kmask1) << 4);
+        aux[1] = (aux[1] & kmask2) | (((tmp >> 2) & kmask1) << 4);
+
+        int32_t sumi = 0;
+        int is = 0;
+
+        for (int l = 0; l < QK_K; l += 128) {
+            int shift = 0;
+            for (int j = 0; j < 4; ++j) {
+                int32_t sum1 = 0, sum2 = 0;
+                const int8_t scale1 = scales[is++] - 32;
+                const int8_t scale2 = scales[is++] - 32;
+
+                for (int k = 0; k < 16; ++k) {
+                    int8_t q3val = (int8_t)((q[k] >> shift) & 3) - ((hm[k] & m) ? 0 : 4);
+                    sum1 += q3val * q8[k];
+                }
+                for (int k = 0; k < 16; ++k) {
+                    int8_t q3val = (int8_t)((q[k+16] >> shift) & 3) - ((hm[k+16] & m) ? 0 : 4);
+                    sum2 += q3val * q8[k+16];
+                }
+
+                sumi += scale1 * sum1 + scale2 * sum2;
+                q8 += 32;
+                shift += 2;
+                m <<= 1;
+            }
+            q += 32;
+        }
+
+        total_sum += d * (float)sumi;
+
+        // Add outlier corrections - fully unrolled for 8 outliers
+        const float yd = yb->d;
+        const uint8_t * GGML_RESTRICT o_idx = xb->outlier_idx;
+        const ggml_fp16_t * GGML_RESTRICT o_vals = xb->outlier_vals;
+
+        total_sum += GGML_FP16_TO_FP32(o_vals[0]) * yb->qs[o_idx[0]] * yd;
+        total_sum += GGML_FP16_TO_FP32(o_vals[1]) * yb->qs[o_idx[1]] * yd;
+        total_sum += GGML_FP16_TO_FP32(o_vals[2]) * yb->qs[o_idx[2]] * yd;
+        total_sum += GGML_FP16_TO_FP32(o_vals[3]) * yb->qs[o_idx[3]] * yd;
+        total_sum += GGML_FP16_TO_FP32(o_vals[4]) * yb->qs[o_idx[4]] * yd;
+        total_sum += GGML_FP16_TO_FP32(o_vals[5]) * yb->qs[o_idx[5]] * yd;
+        total_sum += GGML_FP16_TO_FP32(o_vals[6]) * yb->qs[o_idx[6]] * yd;
+        total_sum += GGML_FP16_TO_FP32(o_vals[7]) * yb->qs[o_idx[7]] * yd;
+    }
+
+    *s = total_sum;
+}
+
+// Note: ggml_vec_dot_q3_k_hifi_q8_K is defined in arch-specific files (x86/quants.c etc.)
+
 void ggml_vec_dot_q4_K_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);
     assert(nrc == 1);
@@ -755,6 +870,254 @@ void ggml_vec_dot_q6_K_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, c
     }
     for (int l = 0; l < 8; ++l) sumf += sums[l];
     *s = sumf;
+}
+
+// Q6_K_HIFI_DYNAMIC: vec_dot with early exit optimization
+// Skip outlier correction when |activation| < threshold (negligible contribution)
+void ggml_vec_dot_q6_k_hifi_dynamic_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % QK_K == 0);
+    assert(nrc == 1);
+    UNUSED(nrc);
+    UNUSED(bx);
+    UNUSED(by);
+    UNUSED(bs);
+
+    const block_q6_k_hifi_dynamic * GGML_RESTRICT x = vx;
+    const block_q8_K * GGML_RESTRICT y = vy;
+
+    const int nb = n / QK_K;
+
+    int8_t  aux8[QK_K];
+    int16_t aux16[8];
+    float   sums [8];
+    int32_t aux32[8];
+    memset(sums, 0, 8*sizeof(float));
+
+    float sumf = 0;
+    for (int i = 0; i < nb; ++i) {
+        // === Q6_K bulk dot product (identical to generic Q6_K) ===
+        const uint8_t * GGML_RESTRICT q4 = x[i].ql;
+        const uint8_t * GGML_RESTRICT qh = x[i].qh;
+        const  int8_t * GGML_RESTRICT q8 = y[i].qs;
+        memset(aux32, 0, 8*sizeof(int32_t));
+        int8_t * GGML_RESTRICT a = aux8;
+        for (int j = 0; j < QK_K; j += 128) {
+            for (int l = 0; l < 32; ++l) {
+                a[l +  0] = (int8_t)((q4[l +  0] & 0xF) | (((qh[l] >> 0) & 3) << 4)) - 32;
+                a[l + 32] = (int8_t)((q4[l + 32] & 0xF) | (((qh[l] >> 2) & 3) << 4)) - 32;
+                a[l + 64] = (int8_t)((q4[l +  0] >>  4) | (((qh[l] >> 4) & 3) << 4)) - 32;
+                a[l + 96] = (int8_t)((q4[l + 32] >>  4) | (((qh[l] >> 6) & 3) << 4)) - 32;
+            }
+            a  += 128;
+            q4 += 64;
+            qh += 32;
+        }
+        a = aux8;
+        int is = 0;
+        for (int j = 0; j < QK_K/16; ++j) {
+            int scale = x[i].scales[is++];
+            for (int l = 0; l < 8; ++l) aux16[l] = q8[l] * a[l];
+            for (int l = 0; l < 8; ++l) aux32[l] += scale * aux16[l];
+            q8 += 8; a += 8;
+            for (int l = 0; l < 8; ++l) aux16[l] = q8[l] * a[l];
+            for (int l = 0; l < 8; ++l) aux32[l] += scale * aux16[l];
+            q8 += 8; a += 8;
+        }
+        const float d = GGML_CPU_FP16_TO_FP32(x[i].d) * y[i].d;
+        for (int l = 0; l < 8; ++l) sums[l] += d * aux32[l];
+
+        // === EARLY EXIT OUTLIER CORRECTION ===
+        // Only apply correction if |activation| > threshold (avoids ~60% of corrections)
+        const int outlier_count = x[i].outlier_count;
+        const float d8 = y[i].d;
+        for (int k = 0; k < outlier_count; ++k) {
+            const int idx = x[i].outlier_idx[k];
+            const int8_t activation = y[i].qs[idx];
+            // Early exit: skip if activation is too small
+            if (activation > Q6_K_HIFI_EARLY_EXIT_THRESHOLD || activation < -Q6_K_HIFI_EARLY_EXIT_THRESHOLD) {
+                const float w = GGML_CPU_FP16_TO_FP32(x[i].outlier_vals[k]);
+                sumf += w * activation * d8;
+            }
+        }
+    }
+    for (int l = 0; l < 8; ++l) sumf += sums[l];
+    *s = sumf;
+}
+
+// Q6_K_HIFI_RES8: Compact format with INT8 residuals + per-block scale
+void ggml_vec_dot_q6_k_hifi_res8_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % QK_K == 0);
+    assert(nrc == 1);
+    UNUSED(nrc);
+    UNUSED(bx);
+    UNUSED(by);
+    UNUSED(bs);
+
+    const block_q6_k_hifi_res8 * GGML_RESTRICT x = vx;
+    const block_q8_K * GGML_RESTRICT y = vy;
+
+    const int nb = n / QK_K;
+
+    int8_t  aux8[QK_K];
+    int16_t aux16[8];
+    float   sums [8];
+    int32_t aux32[8];
+    memset(sums, 0, 8*sizeof(float));
+
+    float sumf = 0;
+    for (int i = 0; i < nb; ++i) {
+        // === Q6_K bulk dot product (identical to Q6_K) ===
+        const uint8_t * GGML_RESTRICT q4 = x[i].ql;
+        const uint8_t * GGML_RESTRICT qh = x[i].qh;
+        const  int8_t * GGML_RESTRICT q8 = y[i].qs;
+        memset(aux32, 0, 8*sizeof(int32_t));
+        int8_t * GGML_RESTRICT a = aux8;
+        for (int j = 0; j < QK_K; j += 128) {
+            for (int l = 0; l < 32; ++l) {
+                a[l +  0] = (int8_t)((q4[l +  0] & 0xF) | (((qh[l] >> 0) & 3) << 4)) - 32;
+                a[l + 32] = (int8_t)((q4[l + 32] & 0xF) | (((qh[l] >> 2) & 3) << 4)) - 32;
+                a[l + 64] = (int8_t)((q4[l +  0] >>  4) | (((qh[l] >> 4) & 3) << 4)) - 32;
+                a[l + 96] = (int8_t)((q4[l + 32] >>  4) | (((qh[l] >> 6) & 3) << 4)) - 32;
+            }
+            a  += 128;
+            q4 += 64;
+            qh += 32;
+        }
+        a = aux8;
+        int is = 0;
+        for (int j = 0; j < QK_K/16; ++j) {
+            int scale = x[i].scales[is++];
+            for (int l = 0; l < 8; ++l) aux16[l] = q8[l] * a[l];
+            for (int l = 0; l < 8; ++l) aux32[l] += scale * aux16[l];
+            q8 += 8; a += 8;
+            for (int l = 0; l < 8; ++l) aux16[l] = q8[l] * a[l];
+            for (int l = 0; l < 8; ++l) aux32[l] += scale * aux16[l];
+            q8 += 8; a += 8;
+        }
+        const float d = GGML_CPU_FP16_TO_FP32(x[i].d) * y[i].d;
+        for (int l = 0; l < 8; ++l) sums[l] += d * aux32[l];
+
+        // === INT8 RESIDUAL CORRECTION ===
+        // Add residual * activation corrections at outlier positions
+        // Residual was computed as: original_value - Q6_K_approximation
+        // So adding residual * activation gives us the missing contribution
+        const int outlier_count = x[i].outlier_count;
+        const float res_scale = x[i].residual_scale;
+        const float d8 = y[i].d;
+        const float scale_factor = res_scale * (1.0f / 127.0f) * d8;
+        for (int k = 0; k < outlier_count; ++k) {
+            const int idx = x[i].outlier_idx[k];
+            const int8_t activation = y[i].qs[idx];
+            // Early exit: skip if activation is too small
+            if (activation > Q6_K_HIFI_EARLY_EXIT_THRESHOLD || activation < -Q6_K_HIFI_EARLY_EXIT_THRESHOLD) {
+                const float residual = x[i].residual_vals[k] * scale_factor;
+                sumf += residual * activation;
+            }
+        }
+    }
+    for (int l = 0; l < 8; ++l) sumf += sums[l];
+    *s = sumf;
+}
+
+// Q5_K_HIFI_RES8: Efficient Q5_K base + INT8 residuals for 4B-10B models
+// Uses same correction strategy as Q6_K_HIFI_RES8, but with Q5_K base for better BPW
+void ggml_vec_dot_q5_k_hifi_res8_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % QK_K == 0);
+    assert(nrc == 1);
+    UNUSED(nrc);
+    UNUSED(bx);
+    UNUSED(by);
+    UNUSED(bs);
+
+    const block_q5_k_hifi_res8 * GGML_RESTRICT x = vx;
+    const block_q8_K * GGML_RESTRICT y = vy;
+
+    const int nb = n / QK_K;
+
+    static const uint32_t kmask1 = 0x3f3f3f3f;
+    static const uint32_t kmask2 = 0x0f0f0f0f;
+    static const uint32_t kmask3 = 0x03030303;
+
+    uint32_t utmp[4];
+    const uint8_t * scales = (const uint8_t*)&utmp[0];
+    const uint8_t * mins   = (const uint8_t*)&utmp[2];
+
+    int8_t  aux8[QK_K];
+    int16_t aux16[8];
+    float   sums [8];
+    int32_t aux32[8];
+    memset(sums, 0, 8*sizeof(float));
+
+    float sumf = 0;
+    for (int i = 0; i < nb; ++i) {
+        // === Q5_K bulk dot product (same as ggml_vec_dot_q5_K_q8_K_generic) ===
+        const uint8_t * GGML_RESTRICT q4 = x[i].qs;
+        const uint8_t * GGML_RESTRICT hm = x[i].qh;
+        const  int8_t * GGML_RESTRICT q8 = y[i].qs;
+        memset(aux32, 0, 8*sizeof(int32_t));
+        int8_t * GGML_RESTRICT a = aux8;
+        uint8_t m = 1;
+        for (int j = 0; j < QK_K; j += 64) {
+            for (int l = 0; l < 32; ++l) a[l] = (int8_t)(q4[l] & 0xF) + (hm[l] & m ? 16 : 0);
+            a += 32; m <<= 1;
+            for (int l = 0; l < 32; ++l) a[l] = (int8_t)(q4[l]  >> 4) + (hm[l] & m ? 16 : 0);
+            a += 32; m <<= 1;
+            q4 += 32;
+        }
+        memcpy(utmp, x[i].scales, 12);
+        utmp[3] = ((utmp[2] >> 4) & kmask2) | (((utmp[1] >> 6) & kmask3) << 4);
+        const uint32_t uaux = utmp[1] & kmask1;
+        utmp[1] = (utmp[2] & kmask2) | (((utmp[0] >> 6) & kmask3) << 4);
+        utmp[2] = uaux;
+        utmp[0] &= kmask1;
+
+        int sumi = 0;
+        for (int j = 0; j < QK_K/16; ++j) sumi += y[i].bsums[j] * mins[j/2];
+        a = aux8;
+        int is = 0;
+        for (int j = 0; j < QK_K/32; ++j) {
+            int32_t scale = scales[is++];
+            for (int l = 0; l < 8; ++l) aux16[l] = q8[l] * a[l];
+            for (int l = 0; l < 8; ++l) aux32[l] += scale * aux16[l];
+            q8 += 8; a += 8;
+            for (int l = 0; l < 8; ++l) aux16[l] = q8[l] * a[l];
+            for (int l = 0; l < 8; ++l) aux32[l] += scale * aux16[l];
+            q8 += 8; a += 8;
+            for (int l = 0; l < 8; ++l) aux16[l] = q8[l] * a[l];
+            for (int l = 0; l < 8; ++l) aux32[l] += scale * aux16[l];
+            q8 += 8; a += 8;
+            for (int l = 0; l < 8; ++l) aux16[l] = q8[l] * a[l];
+            for (int l = 0; l < 8; ++l) aux32[l] += scale * aux16[l];
+            q8 += 8; a += 8;
+        }
+        const float d = GGML_CPU_FP16_TO_FP32(x[i].d) * y[i].d;
+        for (int l = 0; l < 8; ++l) sums[l] += d * aux32[l];
+        const float dmin = GGML_CPU_FP16_TO_FP32(x[i].dmin) * y[i].d;
+        sumf -= dmin * sumi;
+
+        // === INT8 RESIDUAL CORRECTION ===
+        // Add residual * activation corrections at outlier positions
+        const int outlier_count = x[i].outlier_count;
+        const float res_scale = x[i].residual_scale;
+        const float d8 = y[i].d;
+        const float scale_factor = res_scale * (1.0f / 127.0f) * d8;
+        for (int k = 0; k < outlier_count; ++k) {
+            const int idx = x[i].outlier_idx[k];
+            const int8_t activation = y[i].qs[idx];
+            // Early exit: skip if activation is too small (same threshold as Q6_K_HIFI)
+            if (activation > 4 || activation < -4) {
+                const float residual = x[i].residual_vals[k] * scale_factor;
+                sumf += residual * activation;
+            }
+        }
+    }
+    for (int l = 0; l < 8; ++l) sumf += sums[l];
+    *s = sumf;
+}
+
+// Wrapper for quantize_row_q5_k_hifi_res8 (simple version)
+void quantize_row_q5_k_hifi_res8(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
+    quantize_row_q5_k_hifi_res8_ref(x, (block_q5_k_hifi_res8 *)y, k);
 }
 
 void ggml_vec_dot_iq2_xxs_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
