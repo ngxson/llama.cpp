@@ -2660,10 +2660,8 @@ static common_chat_params common_chat_params_init_translate_gemma(const common_c
     json & messages = inputs_new.messages;
 
     // default to chat_template_kwargs, or en-GB if not specified
-    std::string default_src_lang = inputs.extra_context.contains("source_lang_code")
-        ? inputs.extra_context["source_lang_code"].get<std::string>() : "en-GB";
-    std::string default_tgt_lang = inputs.extra_context.contains("target_lang_code")
-        ? inputs.extra_context["target_lang_code"].get<std::string>() : "en-GB";
+    std::string default_src_lang = inputs.extra_context.value("source_lang_code", "en-GB");
+    std::string default_tgt_lang = inputs.extra_context.value("target_lang_code", "en-GB");
 
     GGML_ASSERT(messages.is_array());
     for (auto & message : messages) {
