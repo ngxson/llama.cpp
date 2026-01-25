@@ -7382,27 +7382,29 @@ void kernel_mul_mv_q3_k_hifi_f32_impl(
 
     // Add outlier corrections
     // Outliers are stored per block with indices 0-255 within that block
-    // Each thread processes a subset of blocks, so we check outliers for blocks we handle
+    // Each thread processes a subset of blocks and a subset of y values per block
+    // We need to apply outlier corrections: outlier_val * y[idx] for each outlier
     for (int i = ix; i < nb; i += 4) {
-        device const block_q3_k_hifi * xb = &x[i];
-        const uint8_t n_outliers = xb->outlier_count;
-        
-        // Get the y vector for this block
+        // Get the y vector base for this block
         device const float * y_block = yy + i * QK_K;
         
         for (short row = 0; row < nr0; ++row) {
-            // Check each outlier to see if it's in this thread's y range
-            for (int k = 0; k < n_outliers && k < Q3_K_HIFI_OUTLIERS; ++k) {
+            // Get the block for this row
+            device const block_q3_k_hifi * xb = (device const block_q3_k_hifi *)((device const char *)&x[i] + row * args.nb01);
+            const uint8_t n_outliers = min(xb->outlier_count, (uint8_t)Q3_K_HIFI_OUTLIERS);
+            
+            // Check each outlier to see if it's in this thread's y processing range
+            // y_offset is the offset within the block's y vector that this thread processes
+            // Each thread processes 32 consecutive y values starting at y_offset
+            for (int k = 0; k < n_outliers; ++k) {
                 const int idx = xb->outlier_idx[k];
-                // Check if this outlier index is in the range this thread processes
+                // Check if this outlier index is in the range [y_offset, y_offset + 32) that this thread processes
                 if (idx >= y_offset && idx < y_offset + 32) {
                     const float outlier_val = float(xb->outlier_vals[k]);
+                    // Apply correction: outlier_val * y[idx] adds to the dot product
                     sumf1[row] += outlier_val * y_block[idx];
                 }
             }
-            
-            // Move to next row's block
-            xb = (device const block_q3_k_hifi *)((device const char *)xb + args.nb01);
         }
     }
 
