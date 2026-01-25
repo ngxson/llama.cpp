@@ -12,6 +12,7 @@ extern "C" {
 #include <cmath>
 #include <cstring>
 #include <cinttypes>
+#include <cstdlib>  // for getenv
 #include <fstream>
 #include <mutex>
 #include <numeric>
@@ -868,31 +869,9 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
     // The overhead of Q3_K_HIFI blocks hurts at this scale.
     //
     if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI && new_type == GGML_TYPE_Q3_K) {
-        const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
-        
-        bool use_hifi = false;
-        
-        // 4B class (2.5B-6B): Always use HIFI - wins both with and without imatrix
-        // Results: -2.9% without imatrix, -1.2% with imatrix
-        if (model_params_b > 2.5f && model_params_b <= 6.0f) {
-            use_hifi = true;
-        }
-        // 8B class (6B-10B): Use HIFI only WITH imatrix
-        // Results: +0.2% worse without, -0.4% better with imatrix
-        else if (model_params_b > 6.0f && model_params_b <= 10.0f) {
-            use_hifi = qs.has_imatrix;
-        }
-        // 14B class (10B-20B): Use HIFI only WITHOUT imatrix
-        // Results: -0.58% better without, ~0% with imatrix (matches Q3_K_M)
-        else if (model_params_b > 10.0f && model_params_b <= 20.0f) {
-            use_hifi = !qs.has_imatrix;
-        }
-        // else: tiny (<2.5B) or huge (>20B) - keep Q3_K, no HIFI
-        // This includes 0.6B and 1.7B where HIFI overhead hurts more than helps
-        
-        if (use_hifi) {
-            new_type = GGML_TYPE_Q3_K_HIFI;
-        }
+        // Always use Q3_K_HIFI when ftype is set to Q3_K_HIFI, regardless of model size
+        // User explicitly requested Q3_K_HIFI quantization
+        new_type = GGML_TYPE_Q3_K_HIFI;
     }
 
     return new_type;
