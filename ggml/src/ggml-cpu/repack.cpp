@@ -1449,7 +1449,8 @@ static block_q4_0x4 make_block_q4_0x4(block_q4_0 * in, unsigned int blck_size_in
         const uint64_t xor_mask = 0x8888888888888888ULL;
         // Suppress false positive buffer overflow warning - bounds are correct:
         // end = 8, max dst_offset = 56, writing 8 bytes means bytes 56-63, which is within qs[64]
-        #if defined(__GNUC__) || defined(__clang__)
+        #if defined(__GNUC__) && !defined(__clang__)
+        // Only GCC supports -Wstringop-overflow; Clang doesn't recognize it
         #pragma GCC diagnostic push
         #pragma GCC diagnostic ignored "-Wstringop-overflow"
         #endif
@@ -1465,6 +1466,7 @@ static block_q4_0x4 make_block_q4_0x4(block_q4_0 * in, unsigned int blck_size_in
             memcpy(&out.qs[dst_offset], &elems, sizeof(uint64_t));
         }
         #if defined(__GNUC__) || defined(__clang__)
+        #if defined(__GNUC__) && !defined(__clang__)
         #pragma GCC diagnostic pop
         #endif
     } else if (blck_size_interleave == 4) {
