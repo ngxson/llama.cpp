@@ -7381,23 +7381,29 @@ void kernel_mul_mv_q3_k_hifi_f32_impl(
     }
 
     // Add outlier corrections
-    // Each thread processes part of the activations, so we need all threads to check all outliers
-    device const float * y_base = yy + ix*QK_K;
+    // Outliers are stored per block with indices 0-255 within that block
+    // Each thread processes a subset of blocks, so we check outliers for blocks we handle
     for (int i = ix; i < nb; i += 4) {
+        device const block_q3_k_hifi * xb = &x[i];
+        const uint8_t n_outliers = xb->outlier_count;
+        
+        // Get the y vector for this block
+        device const float * y_block = yy + i * QK_K;
+        
         for (short row = 0; row < nr0; ++row) {
-            device const block_q3_k_hifi * xb = x + i + row * (args.nb01 / sizeof(block_q3_k_hifi));
-            device const float * y_block = y_base;
-
-            for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
+            // Check each outlier to see if it's in this thread's y range
+            for (int k = 0; k < n_outliers && k < Q3_K_HIFI_OUTLIERS; ++k) {
                 const int idx = xb->outlier_idx[k];
-                const float outlier_val = float(xb->outlier_vals[k]);
-                // Only this thread handles if idx is in its range
+                // Check if this outlier index is in the range this thread processes
                 if (idx >= y_offset && idx < y_offset + 32) {
+                    const float outlier_val = float(xb->outlier_vals[k]);
                     sumf1[row] += outlier_val * y_block[idx];
                 }
             }
+            
+            // Move to next row's block
+            xb = (device const block_q3_k_hifi *)((device const char *)xb + args.nb01);
         }
-        y_base += 4 * QK_K;
     }
 
     for (int row = 0; row < nr0; ++row) {
