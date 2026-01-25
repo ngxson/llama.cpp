@@ -811,6 +811,26 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
     //else {
     //    if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_S) new_type = GGML_TYPE_Q4_K;
     //}
+    // === Q3_K_HIFI: Upgrade Q3_K to Q3_K_HIFI BEFORE fallback checks ===
+    // This must happen before fallback conversion to ensure Q3_K_HIFI is preserved
+    if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI && new_type == GGML_TYPE_Q3_K) {
+        // Always use Q3_K_HIFI when ftype is set to Q3_K_HIFI, regardless of model size
+        // User explicitly requested Q3_K_HIFI quantization
+        static int upgrade_count = 0;
+        static bool debug_logged = false;
+        const char * debug_env = getenv("Q3_K_HIFI_DEBUG");
+        if (debug_env && !debug_logged) {
+            LLAMA_LOG_INFO("Q3_K_HIFI: Debug enabled - will upgrade Q3_K tensors to Q3_K_HIFI\n");
+            debug_logged = true;
+        }
+        new_type = GGML_TYPE_Q3_K_HIFI;
+        upgrade_count++;
+        if (debug_env && upgrade_count <= 5) {
+            LLAMA_LOG_INFO("Q3_K_HIFI: Upgraded tensor '%s' from Q3_K to Q3_K_HIFI (count: %d)\n", 
+                          name.c_str(), upgrade_count);
+        }
+    }
+
     bool convert_incompatible_tensor = false;
     {
         const int64_t nx = tensor->ne[0];
@@ -838,6 +858,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             case GGML_TYPE_IQ1_M:
             case GGML_TYPE_Q2_K:
             case GGML_TYPE_Q3_K:
+            case GGML_TYPE_Q3_K_HIFI:  // Q3_K_HIFI has same block size as Q3_K, so same fallback
             case GGML_TYPE_IQ4_XS: new_type = GGML_TYPE_IQ4_NL; break;
             case GGML_TYPE_Q4_K:   new_type = GGML_TYPE_Q5_0;   break;
             case GGML_TYPE_Q5_K:   new_type = GGML_TYPE_Q5_1;   break;
@@ -849,29 +870,6 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         }
         LLAMA_LOG_WARN(" - using fallback quantization %s\n", ggml_type_name(new_type));
         ++qs.n_fallback;
-    }
-
-    // === Q3_K_HIFI: Model-size adaptive tensor upgrade ===
-    // Empirical results show HIFI effectiveness varies by model size AND imatrix presence:
-    //
-    // | Model | Without imatrix | With imatrix | Strategy              |
-    // |-------|-----------------|--------------|------------------------|
-    // | 0.6B  | +2.2% worse     | +1.3% worse  | Never HIFI            |
-    // | 1.7B  | +0.05% (same)   | +2.7% worse  | Never HIFI (overhead hurts) |
-    // | 4B    | -2.9% better    | -1.2% better | Always HIFI           |
-    // | 8B    | +0.2% worse     | -0.4% better | HIFI only WITH imatrix |
-    // | 14B   | -0.58% better   | ~0% (match)  | HIFI only WITHOUT imatrix |
-    // | 32B+  | catastrophic    | catastrophic | Never HIFI            |
-    //
-    // NOTE: 1.7B was tested with Q3_K_HIFI blocks (FP16 outliers) but showed:
-    // - +22% file size increase (1017 MiB -> 1.21 GiB)
-    // - +2.7% PPL regression with imatrix (17.78 -> 18.27)
-    // The overhead of Q3_K_HIFI blocks hurts at this scale.
-    //
-    if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI && new_type == GGML_TYPE_Q3_K) {
-        // Always use Q3_K_HIFI when ftype is set to Q3_K_HIFI, regardless of model size
-        // User explicitly requested Q3_K_HIFI quantization
-        new_type = GGML_TYPE_Q3_K_HIFI;
     }
 
     return new_type;
