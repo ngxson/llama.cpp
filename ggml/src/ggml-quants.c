@@ -1352,7 +1352,7 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
         }
         if (quant_debug_enabled && ib < 5) {
             GGML_LOG_INFO("Q3_K_HIFI: quantize_row block %ld: stored %d outliers, max residual: %.6f\n",
-                         (long)ib, Q3_K_HIFI_OUTLIERS, max_residual);
+                         (long)ib, Q3_K_HIFI_OUTLIERS, (double)max_residual);
         }
     }
 }
@@ -1460,14 +1460,14 @@ void dequantize_row_q3_k_hifi(const block_q3_k_hifi * GGML_RESTRICT x, float * G
         }
     }
 
-    if (debug_enabled && nb > 0) {
-        static int call_count = 0;
-        call_count++;
-        if (call_count <= 10 || call_count % 1000 == 0) {
-            GGML_LOG_INFO("Q3_K_HIFI: dequantize_row called #%d: %ld blocks, %d outliers applied, max correction: %.6f\n",
-                         call_count, (long)nb, total_outliers_applied, max_correction);
+        if (debug_enabled && nb > 0) {
+            static int call_count = 0;
+            call_count++;
+            if (call_count <= 10 || call_count % 1000 == 0) {
+                GGML_LOG_INFO("Q3_K_HIFI: dequantize_row called #%d: %ld blocks, %d outliers applied, max correction: %.6f\n",
+                             call_count, (long)nb, total_outliers_applied, (double)max_correction);
+            }
         }
-    }
 }
 
 size_t quantize_q3_k_hifi(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrow, int64_t n_per_row, const float * quant_weights) {
