@@ -1328,11 +1328,31 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
         // Step 6: Store residual corrections (FP16)
         block->outlier_count = Q3_K_HIFI_OUTLIERS;
         block->_pad = 0;
+        float max_residual = 0.0f;
         for (int k_idx = 0; k_idx < Q3_K_HIFI_OUTLIERS; ++k_idx) {
             const int idx = outlier_indices[k_idx];
             block->outlier_idx[k_idx] = (uint8_t)idx;
             // Store RESIDUAL, not original value - this corrects Q3_K's error
             block->outlier_vals[k_idx] = GGML_FP32_TO_FP16(residuals[idx]);
+            float abs_res = fabsf(residuals[idx]);
+            if (abs_res > max_residual) {
+                max_residual = abs_res;
+            }
+        }
+
+        // Debug logging for quantization
+        static bool quant_debug_enabled = false;
+        static bool quant_debug_checked = false;
+        if (!quant_debug_checked) {
+            quant_debug_enabled = (getenv("Q3_K_HIFI_DEBUG") != NULL);
+            quant_debug_checked = true;
+            if (quant_debug_enabled) {
+                GGML_LOG_INFO("Q3_K_HIFI: Debug logging enabled. Quantization function active.\n");
+            }
+        }
+        if (quant_debug_enabled && ib < 5) {
+            GGML_LOG_INFO("Q3_K_HIFI: quantize_row block %ld: stored %d outliers, max residual: %.6f\n",
+                         (long)ib, Q3_K_HIFI_OUTLIERS, max_residual);
         }
     }
 }
@@ -1401,6 +1421,20 @@ void dequantize_row_q3_k_hifi(const block_q3_k_hifi * GGML_RESTRICT x, float * G
     assert(k % Q3_K_HIFI_BLOCK_SIZE == 0);
     const int64_t nb = k / Q3_K_HIFI_BLOCK_SIZE;
 
+    // Debug logging: check if Q3_K_HIFI_DEBUG is set
+    static bool debug_enabled = false;
+    static bool debug_checked = false;
+    if (!debug_checked) {
+        debug_enabled = (getenv("Q3_K_HIFI_DEBUG") != NULL);
+        debug_checked = true;
+        if (debug_enabled) {
+            GGML_LOG_INFO("Q3_K_HIFI: Debug logging enabled. Dequantization function active.\n");
+        }
+    }
+
+    int total_outliers_applied = 0;
+    float max_correction = 0.0f;
+
     for (int64_t ib = 0; ib < nb; ++ib) {
         const block_q3_k_hifi * block = &x[ib];
         float * yb = y + ib * Q3_K_HIFI_BLOCK_SIZE;
@@ -1415,8 +1449,23 @@ void dequantize_row_q3_k_hifi(const block_q3_k_hifi * GGML_RESTRICT x, float * G
         for (int k_idx = 0; k_idx < n_outliers; ++k_idx) {
             const int idx = block->outlier_idx[k_idx];
             if (idx < Q3_K_HIFI_BLOCK_SIZE) {
-                yb[idx] += GGML_FP16_TO_FP32(block->outlier_vals[k_idx]);
+                float correction = GGML_FP16_TO_FP32(block->outlier_vals[k_idx]);
+                yb[idx] += correction;
+                total_outliers_applied++;
+                float abs_correction = fabsf(correction);
+                if (abs_correction > max_correction) {
+                    max_correction = abs_correction;
+                }
             }
+        }
+    }
+
+    if (debug_enabled && nb > 0) {
+        static int call_count = 0;
+        call_count++;
+        if (call_count <= 10 || call_count % 1000 == 0) {
+            GGML_LOG_INFO("Q3_K_HIFI: dequantize_row called #%d: %ld blocks, %d outliers applied, max correction: %.6f\n",
+                         call_count, (long)nb, total_outliers_applied, max_correction);
         }
     }
 }

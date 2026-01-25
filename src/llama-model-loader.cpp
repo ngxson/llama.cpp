@@ -685,6 +685,19 @@ llama_model_loader::llama_model_loader(
             }
         }
 
+        // Log Q3_K_HIFI tensor count if debug is enabled
+        if (getenv("Q3_K_HIFI_DEBUG") != NULL) {
+            uint32_t q3_k_hifi_count = n_type[GGML_TYPE_Q3_K_HIFI];
+            uint32_t q3_k_count = n_type[GGML_TYPE_Q3_K];
+            if (q3_k_hifi_count > 0) {
+                LLAMA_LOG_INFO("%s: Q3_K_HIFI DEBUG: Found %u Q3_K_HIFI tensors and %u Q3_K tensors in model\n",
+                             __func__, q3_k_hifi_count, q3_k_count);
+            } else if (q3_k_count > 0) {
+                LLAMA_LOG_INFO("%s: Q3_K_HIFI DEBUG: Model uses Q3_K (not Q3_K_HIFI): %u Q3_K tensors found\n",
+                             __func__, q3_k_count);
+            }
+        }
+
         switch (type_max) {
             case GGML_TYPE_F32:     ftype = LLAMA_FTYPE_ALL_F32;        break;
             case GGML_TYPE_F16:     ftype = LLAMA_FTYPE_MOSTLY_F16;     break;
