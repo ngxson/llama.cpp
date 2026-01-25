@@ -1465,7 +1465,6 @@ static block_q4_0x4 make_block_q4_0x4(block_q4_0 * in, unsigned int blck_size_in
             elems ^= xor_mask;
             memcpy(&out.qs[dst_offset], &elems, sizeof(uint64_t));
         }
-        #if defined(__GNUC__) || defined(__clang__)
         #if defined(__GNUC__) && !defined(__clang__)
         #pragma GCC diagnostic pop
         #endif
