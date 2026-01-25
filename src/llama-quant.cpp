@@ -590,23 +590,10 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             new_type = qs.i_attention_wv < 2 ? GGML_TYPE_Q5_K : GGML_TYPE_Q4_K;
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI) {
-            // Q3_K_HIFI: Scale-aware attn_v enhancement
-            // - Tiny models (≤1.7B): Skip HIFI enhancement (avoids +2.2% PPL regression at 0.6B)
-            // - Medium models (2-8B): Full enhancement (4B shows -2.9% PPL win)
-            // - Large models (14B+): Minimal enhancement (avoids +0.24% regression at 14B)
-            const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
-            const float enhancement_threshold = get_q3_hifi_attn_v_threshold(model_params_b);
-            
-            if (enhancement_threshold > 0.0f && qs.i_attention_wv <= qs.n_attention_wv * enhancement_threshold) {
-                // Use scale-appropriate enhancement type
-                new_type = get_q3_hifi_attn_v_type(model_params_b);
-            } else if (qs.i_attention_wv < 2) {
-                // First 2 layers always get Q5_K (same as Q3_K_M)
-                new_type = GGML_TYPE_Q5_K;
-            } else {
-                // Fall back to Q4_K for remaining layers (same as Q3_K_M)
-                new_type = GGML_TYPE_Q4_K;
-            }
+            // Q3_K_HIFI: Match Q3_K_M strategy exactly for attn_v
+            // Q3_K_M uses: Q5_K for first 2 layers, Q4_K for the rest
+            // We match this exactly - no Q3_K is used here, so no upgrade needed
+            new_type = qs.i_attention_wv < 2 ? GGML_TYPE_Q5_K : GGML_TYPE_Q4_K;
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
             // Q4_K_HIFI: Model-size-aware enhancement to optimize size vs quality tradeoff
@@ -697,15 +684,12 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                      : GGML_TYPE_Q3_K;
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI) {
-            // Q3_K_HIFI: Scale-aware ffn_down enhancement
-            // Based on Q3_K_M strategy with model-size adjustments
-            const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
-            new_type = get_q3_hifi_ffn_down_type(model_params_b, i_layer, n_layer);
-            
-            // For FALCON architecture, also use more bits on critical layers
-            if (arch == LLM_ARCH_FALCON && !use_more_bits(i_layer, n_layer)) {
-                new_type = GGML_TYPE_Q3_K;
-            }
+            // Q3_K_HIFI: Match Q3_K_M strategy exactly, then upgrade Q3_K to Q3_K_HIFI
+            // Q3_K_M uses: Q5_K for early layers, Q4_K for most, Q3_K only for FALCON
+            // We match this exactly, then upgrade Q3_K → Q3_K_HIFI at the end
+            new_type = i_layer < n_layer/16 ? GGML_TYPE_Q5_K
+                     : arch != LLM_ARCH_FALCON || use_more_bits(i_layer, n_layer) ? GGML_TYPE_Q4_K
+                     : GGML_TYPE_Q3_K;  // Only FALCON with !use_more_bits gets Q3_K (will be upgraded to Q3_K_HIFI)
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_IQ3_M && (i_layer < n_layer/8 ||
                     (qs.model.hparams.n_expert == 8 && use_more_bits(i_layer, n_layer)))) {
@@ -811,23 +795,53 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
     //else {
     //    if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_S) new_type = GGML_TYPE_Q4_K;
     //}
-    // === Q3_K_HIFI: Upgrade Q3_K to Q3_K_HIFI BEFORE fallback checks ===
-    // This must happen before fallback conversion to ensure Q3_K_HIFI is preserved
+    // === Q3_K_HIFI: Upgrade Q3_K to Q3_K_HIFI ONLY where Q3_K_M would use Q3_K ===
+    // Critical: Q3_K_HIFI should only replace Q3_K where Q3_K_M actually uses Q3_K.
+    // Many tensors (like output layers) should remain at Q4_K/Q5_K/Q6_K even with HIFI.
+    // This prevents over-quantization of sensitive layers that Q3_K_M intentionally avoids.
     if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI && new_type == GGML_TYPE_Q3_K) {
-        // Always use Q3_K_HIFI when ftype is set to Q3_K_HIFI, regardless of model size
-        // User explicitly requested Q3_K_HIFI quantization
-        static int upgrade_count = 0;
-        static bool debug_logged = false;
-        const char * debug_env = getenv("Q3_K_HIFI_DEBUG");
-        if (debug_env && !debug_logged) {
-            LLAMA_LOG_INFO("Q3_K_HIFI: Debug enabled - will upgrade Q3_K tensors to Q3_K_HIFI\n");
-            debug_logged = true;
+        // Check if Q3_K_M would actually use Q3_K for this tensor
+        // If Q3_K_M would use a higher-bit type, we should NOT use Q3_K_HIFI
+        bool should_use_q3_k = true;
+        
+        // For ffn_down: Q3_K_M only uses Q3_K for FALCON with !use_more_bits
+        if (name.find("ffn_down") != std::string::npos) {
+            auto info = layer_info(qs.i_ffn_down, qs.n_ffn_down, name.c_str());
+            int i_layer = info.first, n_layer = info.second;
+            // Q3_K_M uses Q3_K only for FALCON with !use_more_bits (line 697)
+            if (arch != LLM_ARCH_FALCON || use_more_bits(i_layer, n_layer)) {
+                should_use_q3_k = false;  // Q3_K_M would use Q4_K here
+            }
         }
-        new_type = GGML_TYPE_Q3_K_HIFI;
-        upgrade_count++;
-        if (debug_env && upgrade_count <= 5) {
-            LLAMA_LOG_INFO("Q3_K_HIFI: Upgraded tensor '%s' from Q3_K to Q3_K_HIFI (count: %d)\n", 
-                          name.c_str(), upgrade_count);
+        // For other tensors: Q3_K_M typically uses Q3_K for tensors without specific logic
+        // (attn_q, attn_k, ffn_gate, ffn_up, etc. - these are safe to upgrade)
+        
+        if (should_use_q3_k) {
+            static int upgrade_count = 0;
+            static bool debug_logged = false;
+            const char * debug_env = getenv("Q3_K_HIFI_DEBUG");
+            if (debug_env && !debug_logged) {
+                LLAMA_LOG_INFO("Q3_K_HIFI: Debug enabled - will upgrade Q3_K tensors to Q3_K_HIFI (only where Q3_K_M uses Q3_K)\n");
+                debug_logged = true;
+            }
+            new_type = GGML_TYPE_Q3_K_HIFI;
+            upgrade_count++;
+            if (debug_env && upgrade_count <= 5) {
+                LLAMA_LOG_INFO("Q3_K_HIFI: Upgraded tensor '%s' from Q3_K to Q3_K_HIFI (count: %d)\n", 
+                              name.c_str(), upgrade_count);
+            }
+        } else {
+            // Q3_K_M would use a higher-bit type here, so we should too
+            // This prevents over-quantization of sensitive layers
+            const char * debug_env = getenv("Q3_K_HIFI_DEBUG");
+            if (debug_env) {
+                static int skip_count = 0;
+                skip_count++;
+                if (skip_count <= 5) {
+                    LLAMA_LOG_INFO("Q3_K_HIFI: Skipping upgrade for tensor '%s' (Q3_K_M would use higher-bit type)\n", 
+                                  name.c_str());
+                }
+            }
         }
     }
 
