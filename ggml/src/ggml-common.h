@@ -293,6 +293,9 @@ static_assert(sizeof(block_q3_K) == sizeof(ggml_half) + QK_K / 4 + QK_K / 8 + 12
 // 16 outliers provide ~2x correction capacity vs previous 8-outlier design
 #define Q3_K_HIFI_BLOCK_SIZE 256
 #define Q3_K_HIFI_OUTLIERS   16
+#if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
+#pragma pack(push, 1)
+#endif
 typedef struct {
     // === Q3_K-COMPATIBLE REGION (110 bytes) - DO NOT REORDER ===
     uint8_t hmask[QK_K/8];         // 32 bytes: high bit mask
@@ -305,6 +308,9 @@ typedef struct {
     uint8_t outlier_idx[Q3_K_HIFI_OUTLIERS];    // 16 bytes: outlier positions (0-255)
     ggml_half outlier_vals[Q3_K_HIFI_OUTLIERS]; // 32 bytes: FP16 residual corrections
 } block_q3_k_hifi;
+#if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
+#pragma pack(pop)
+#endif
 // Size: 110 (Q3_K) + 2 (count+pad) + 16 (idx) + 32 (vals) = 160 bytes
 static_assert(sizeof(block_q3_k_hifi) == sizeof(block_q3_K) + 2 + Q3_K_HIFI_OUTLIERS + Q3_K_HIFI_OUTLIERS*sizeof(ggml_half), "wrong q3_k_hifi block size/padding");
 

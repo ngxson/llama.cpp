@@ -3664,7 +3664,7 @@ GGML_QUANT_SIZES: dict[GGMLQuantizationType, tuple[int, int]] = {
     GGMLQuantizationType.TQ1_0:   (256, 2 + 4 * 13),
     GGMLQuantizationType.TQ2_0:   (256, 2 + 64),
     GGMLQuantizationType.MXFP4:   (32, 1 + 16),
-    GGMLQuantizationType.Q3_K_HIFI: (256, 134),  # Q3_K (110 bytes) + outlier_idx[8] + outlier_vals[16]
+    GGMLQuantizationType.Q3_K_HIFI: (256, 160),  # Q3_K (110 bytes) + outlier_count(1) + _pad(1) + outlier_idx[16] + outlier_vals[16] = 160 bytes
     GGMLQuantizationType.Q6_K_HIFI: (256, 222),  # Q6_K (210) + idx[4] + vals[8]
     GGMLQuantizationType.Q6_K_HIFI_DYNAMIC: (256, 236),  # Q6_K (210) + dynamic outliers (26)
     GGMLQuantizationType.Q6_K_HIFI_RES8: (256, 232),  # Q6_K (210) + INT8 residuals (22)
