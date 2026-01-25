@@ -800,58 +800,82 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
     // These layers are extremely sensitive to 3-bit quantization, even with outlier correction.
     // Only apply Q3_K_HIFI to input projections that tolerate 3-bit well.
     if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI && new_type == GGML_TYPE_Q3_K) {
-        // Check if this is a safe layer for Q3_K_HIFI (input projections only)
-        bool is_safe_for_q3_k_hifi = false;
+        // First, check if this is an output projection (EXCLUDE these)
+        bool is_output_projection = 
+            name.find("o_proj") != std::string::npos ||
+            name.find("attn_output") != std::string::npos ||
+            name.find("down_proj") != std::string::npos ||
+            name.find("ffn_down") != std::string::npos ||
+            name == tn(LLM_TENSOR_OUTPUT, "weight") ||
+            name == "output.weight" ||
+            name.find("lm_head") != std::string::npos ||
+            name.find("ssm_out") != std::string::npos;  // Qwen3Next linear attention output
         
-        // Safe layers: input projections that tolerate 3-bit well
-        if (name.find("q_proj") != std::string::npos ||
-            name.find("k_proj") != std::string::npos ||
-            name.find("v_proj") != std::string::npos ||
-            name.find("gate_proj") != std::string::npos ||
-            name.find("up_proj") != std::string::npos ||
-            name.find("attn_q") != std::string::npos ||
-            name.find("attn_k") != std::string::npos ||
-            name.find("attn_v") != std::string::npos ||
-            name.find("ffn_gate") != std::string::npos ||
-            name.find("ffn_up") != std::string::npos) {
-            is_safe_for_q3_k_hifi = true;
-        }
-        
-        // Also check if Q3_K_M would use Q3_K for ffn_down (only FALCON with !use_more_bits)
-        if (name.find("ffn_down") != std::string::npos) {
-            auto info = layer_info(qs.i_ffn_down, qs.n_ffn_down, name.c_str());
-            int i_layer = info.first, n_layer = info.second;
-            // Q3_K_M uses Q3_K only for FALCON with !use_more_bits
-            if (arch == LLM_ARCH_FALCON && !use_more_bits(i_layer, n_layer)) {
-                is_safe_for_q3_k_hifi = true;
-            }
-        }
-        
-        if (is_safe_for_q3_k_hifi) {
-            static int upgrade_count = 0;
-            static bool debug_logged = false;
-            const char * debug_env = getenv("Q3_K_HIFI_DEBUG");
-            if (debug_env && !debug_logged) {
-                LLAMA_LOG_INFO("Q3_K_HIFI: Debug enabled - will upgrade Q3_K tensors to Q3_K_HIFI (only safe input layers)\n");
-                debug_logged = true;
-            }
-            new_type = GGML_TYPE_Q3_K_HIFI;
-            upgrade_count++;
-            if (debug_env && upgrade_count <= 5) {
-                LLAMA_LOG_INFO("Q3_K_HIFI: Upgraded tensor '%s' from Q3_K to Q3_K_HIFI (count: %d)\n", 
-                              name.c_str(), upgrade_count);
-            }
-        } else {
-            // Output projections (o_proj, down_proj, output.weight) or other sensitive layers
-            // Fall back to Q4_K to preserve quality
+        if (is_output_projection) {
+            // Output projections: use Q4_K instead of Q3_K_HIFI
             new_type = GGML_TYPE_Q4_K;
             const char * debug_env = getenv("Q3_K_HIFI_DEBUG");
             if (debug_env) {
                 static int skip_count = 0;
                 skip_count++;
                 if (skip_count <= 10) {
-                    LLAMA_LOG_INFO("Q3_K_HIFI: Skipping upgrade for tensor '%s' (output projection, using Q4_K instead)\n", 
-                                  name.c_str());
+                    LLAMA_LOG_INFO("Q3_K_HIFI: Excluding output projection '%s' from Q3_K_HIFI, using Q4_K instead (count: %d)\n", 
+                                  name.c_str(), skip_count);
+                }
+            }
+        } else {
+            // Check if this is a safe input layer for Q3_K_HIFI
+            bool is_safe_for_q3_k_hifi = 
+                name.find("q_proj") != std::string::npos ||
+                name.find("k_proj") != std::string::npos ||
+                name.find("v_proj") != std::string::npos ||
+                name.find("gate_proj") != std::string::npos ||
+                name.find("up_proj") != std::string::npos ||
+                name.find("attn_q") != std::string::npos ||
+                name.find("attn_k") != std::string::npos ||
+                name.find("attn_v") != std::string::npos ||
+                name.find("ffn_gate") != std::string::npos ||
+                name.find("ffn_up") != std::string::npos ||
+                name.find("wqkv") != std::string::npos ||  // Combined QKV projection
+                name.find("qkv") != std::string::npos;     // Alternative QKV naming
+            
+            // For ffn_down: only allow Q3_K_HIFI if Q3_K_M would use Q3_K (FALCON with !use_more_bits)
+            if (name.find("ffn_down") != std::string::npos) {
+                auto info = layer_info(qs.i_ffn_down, qs.n_ffn_down, name.c_str());
+                int i_layer = info.first, n_layer = info.second;
+                // Q3_K_M uses Q3_K only for FALCON with !use_more_bits
+                if (arch == LLM_ARCH_FALCON && !use_more_bits(i_layer, n_layer)) {
+                    is_safe_for_q3_k_hifi = true;
+                } else {
+                    is_safe_for_q3_k_hifi = false;  // ffn_down should already be Q4_K from earlier logic
+                }
+            }
+            
+            if (is_safe_for_q3_k_hifi) {
+                static int upgrade_count = 0;
+                static bool debug_logged = false;
+                const char * debug_env = getenv("Q3_K_HIFI_DEBUG");
+                if (debug_env && !debug_logged) {
+                    LLAMA_LOG_INFO("Q3_K_HIFI: Debug enabled - will upgrade Q3_K tensors to Q3_K_HIFI (only safe input layers)\n");
+                    debug_logged = true;
+                }
+                new_type = GGML_TYPE_Q3_K_HIFI;
+                upgrade_count++;
+                if (debug_env && upgrade_count <= 10) {
+                    LLAMA_LOG_INFO("Q3_K_HIFI: Upgraded tensor '%s' from Q3_K to Q3_K_HIFI (count: %d)\n", 
+                                  name.c_str(), upgrade_count);
+                }
+            } else {
+                // Unknown tensor type - be conservative and use Q4_K
+                new_type = GGML_TYPE_Q4_K;
+                const char * debug_env = getenv("Q3_K_HIFI_DEBUG");
+                if (debug_env) {
+                    static int unknown_count = 0;
+                    unknown_count++;
+                    if (unknown_count <= 10) {
+                        LLAMA_LOG_INFO("Q3_K_HIFI: Unknown tensor '%s' - using Q4_K instead of Q3_K_HIFI (count: %d)\n", 
+                                      name.c_str(), unknown_count);
+                    }
                 }
             }
         }
