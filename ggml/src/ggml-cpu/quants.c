@@ -586,75 +586,51 @@ void ggml_vec_dot_q3_k_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t 
     const block_q8_K * GGML_RESTRICT y = vy;
     const int nb = n / Q3_K_HIFI_BLOCK_SIZE;
 
-    static const uint32_t kmask1 = 0x03030303;
-    static const uint32_t kmask2 = 0x0f0f0f0f;
-
-    uint32_t aux[4];
-    const int8_t * scales = (const int8_t*)aux;
-
     float total_sum = 0.0f;
 
     for (int i = 0; i < nb; ++i) {
         const block_q3_k_hifi * xb = &x[i];
         const block_q8_K * yb = &y[i];
 
-        const float d = GGML_FP16_TO_FP32(xb->d) * yb->d;
-
-        const uint8_t * GGML_RESTRICT q = xb->qs;
-        const uint8_t * GGML_RESTRICT hm = xb->hmask;
-        const int8_t  * GGML_RESTRICT q8 = yb->qs;
-        uint8_t m = 1;
-
-        // Decode scales (same as Q3_K)
-        memcpy(aux, xb->scales, 12);
-        uint32_t tmp = aux[2];
-        aux[2] = ((aux[0] >> 4) & kmask2) | (((tmp >> 4) & kmask1) << 4);
-        aux[3] = ((aux[1] >> 4) & kmask2) | (((tmp >> 6) & kmask1) << 4);
-        aux[0] = (aux[0] & kmask2) | (((tmp >> 0) & kmask1) << 4);
-        aux[1] = (aux[1] & kmask2) | (((tmp >> 2) & kmask1) << 4);
-
-        int32_t sumi = 0;
-        int is = 0;
-
-        for (int l = 0; l < QK_K; l += 128) {
-            int shift = 0;
-            for (int j = 0; j < 4; ++j) {
-                int32_t sum1 = 0, sum2 = 0;
-                const int8_t scale1 = scales[is++] - 32;
-                const int8_t scale2 = scales[is++] - 32;
-
-                for (int k = 0; k < 16; ++k) {
-                    int8_t q3val = (int8_t)((q[k] >> shift) & 3) - ((hm[k] & m) ? 0 : 4);
-                    sum1 += q3val * q8[k];
-                }
-                for (int k = 0; k < 16; ++k) {
-                    int8_t q3val = (int8_t)((q[k+16] >> shift) & 3) - ((hm[k+16] & m) ? 0 : 4);
-                    sum2 += q3val * q8[k+16];
-                }
-
-                sumi += scale1 * sum1 + scale2 * sum2;
-                q8 += 32;
-                shift += 2;
-                m <<= 1;
+        // Build outlier map: position → outlier index (or -1 if not an outlier)
+        int outlier_map[Q3_K_HIFI_BLOCK_SIZE];
+        for (int j = 0; j < Q3_K_HIFI_BLOCK_SIZE; ++j) {
+            outlier_map[j] = -1;
+        }
+        for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
+            int idx = xb->outlier_idx[k];
+            if (idx < Q3_K_HIFI_BLOCK_SIZE) {
+                outlier_map[idx] = k;
             }
-            q += 32;
         }
 
-        total_sum += d * (float)sumi;
+        // Global scale for inliers
+        const float scale = GGML_FP16_TO_FP32(xb->scale);
+        const float d = scale * yb->d;
+        const int8_t * GGML_RESTRICT q8 = yb->qs;
 
-        // Add outlier corrections - fully unrolled for 8 outliers
-        const float yd = yb->d;
-        const uint8_t * GGML_RESTRICT o_idx = xb->outlier_idx;
-        const ggml_fp16_t * GGML_RESTRICT o_vals = xb->outlier_vals;
+        float sum = 0.0f;
+        int inlier_pos = 0;
 
-        total_sum += GGML_FP16_TO_FP32(o_vals[0]) * yb->qs[o_idx[0]] * yd;
-        total_sum += GGML_FP16_TO_FP32(o_vals[1]) * yb->qs[o_idx[1]] * yd;
-        total_sum += GGML_FP16_TO_FP32(o_vals[2]) * yb->qs[o_idx[2]] * yd;
-        total_sum += GGML_FP16_TO_FP32(o_vals[3]) * yb->qs[o_idx[3]] * yd;
-        total_sum += GGML_FP16_TO_FP32(o_vals[4]) * yb->qs[o_idx[4]] * yd;
-        total_sum += GGML_FP16_TO_FP32(o_vals[5]) * yb->qs[o_idx[5]] * yd;
-        total_sum += GGML_FP16_TO_FP32(o_vals[6]) * yb->qs[o_idx[6]] * yd;
-        total_sum += GGML_FP16_TO_FP32(o_vals[7]) * yb->qs[o_idx[7]] * yd;
+        // Process all 256 weights
+        for (int j = 0; j < Q3_K_HIFI_BLOCK_SIZE; ++j) {
+            float weight_val;
+            if (outlier_map[j] >= 0) {
+                // Outlier: use stored FP16 value
+                weight_val = GGML_FP16_TO_FP32(xb->outliers[outlier_map[j]]);
+            } else {
+                // Inlier: unpack 3-bit value
+                int byte_idx = (inlier_pos * 3) / 8;
+                int bit_offset = (inlier_pos * 3) % 8;
+                uint32_t word = xb->q3[byte_idx] | ((uint32_t)xb->q3[byte_idx + 1] << 8);
+                uint8_t qi = (word >> bit_offset) & 0x7;
+                weight_val = ((float)qi - 4.0f) * scale;
+                inlier_pos++;
+            }
+            sum += weight_val * (float)q8[j];
+        }
+
+        total_sum += d * sum;
     }
 
     *s = total_sum;
