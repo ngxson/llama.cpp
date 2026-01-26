@@ -2060,65 +2060,8 @@ void ggml_vec_dot_q3_k_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, cons
 
     const int nb = n / QK_K;
 
-#if defined(__ARM_NEON)
-
-    float sum = 0;
-
-    for (int i = 0; i < nb; ++i) {
-        const block_q3_k_hifi * xb = &x[i];
-        const block_q8_K * yb = &y[i];
-
-        // Build outlier map: position → outlier index (or -1 if not an outlier)
-        int outlier_map[Q3_K_HIFI_BLOCK_SIZE];
-        for (int j = 0; j < Q3_K_HIFI_BLOCK_SIZE; ++j) {
-            outlier_map[j] = -1;
-        }
-        for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
-            int idx = xb->outlier_idx[k];
-            if (idx < Q3_K_HIFI_BLOCK_SIZE) {
-                outlier_map[idx] = k;
-            }
-        }
-
-        // Global scale for inliers
-        const float scale = GGML_CPU_FP16_TO_FP32(xb->scale);
-        const float d = scale * yb->d;
-        const int8_t * GGML_RESTRICT q8 = yb->qs;
-
-        float block_sum = 0.0f;
-        int inlier_pos = 0;
-
-        // Process all 256 weights
-        for (int j = 0; j < Q3_K_HIFI_BLOCK_SIZE; ++j) {
-            float weight_val;
-            if (outlier_map[j] >= 0) {
-                // Outlier: use stored FP16 value
-                weight_val = GGML_CPU_FP16_TO_FP32(xb->outliers[outlier_map[j]]);
-            } else {
-                // Inlier: unpack 3-bit value
-                int byte_idx = (inlier_pos * 3) / 8;
-                int bit_offset = (inlier_pos * 3) % 8;
-                uint32_t word = xb->q3[byte_idx] | ((uint32_t)xb->q3[byte_idx + 1] << 8);
-                uint8_t qi = (word >> bit_offset) & 0x7;
-                weight_val = ((float)qi - 4.0f) * scale;
-                inlier_pos++;
-            }
-            block_sum += weight_val * (float)q8[j];
-        }
-
-        sum += d * block_sum;
-    }
-
-    *s = sum;
-
-#else
-    UNUSED(kmask1);
-    UNUSED(kmask2);
-    UNUSED(x);
-    UNUSED(y);
-    UNUSED(nb);
+    // Use generic implementation (can be optimized with NEON later)
     ggml_vec_dot_q3_k_hifi_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
-#endif
 
 }
 
@@ -4138,34 +4081,15 @@ void dequantize_row_q3_k_hifi(const block_q3_k_hifi * GGML_RESTRICT x, float * G
         const block_q3_k_hifi * block = &x[ib];
         float * yb = y + ib * Q3_K_HIFI_BLOCK_SIZE;
 
-        // Build outlier map
-        int outlier_map[Q3_K_HIFI_BLOCK_SIZE];
-        for (int j = 0; j < Q3_K_HIFI_BLOCK_SIZE; ++j) {
-            outlier_map[j] = -1;
-        }
+        // Step 1: Reconstruct inliers with standard Q3_K dequantization
+        const block_q3_K * q3k_block = (const block_q3_K *)block->q3_k_data;
+        dequantize_row_q3_K(q3k_block, yb, Q3_K_HIFI_BLOCK_SIZE);
+
+        // Step 2: Restore original outlier values (overwrite Q3_K reconstruction at outlier positions)
         for (int outlier_k = 0; outlier_k < Q3_K_HIFI_OUTLIERS; ++outlier_k) {
             int idx = block->outlier_idx[outlier_k];
             if (idx < Q3_K_HIFI_BLOCK_SIZE) {
-                outlier_map[idx] = outlier_k;
-            }
-        }
-
-        const float scale = GGML_CPU_FP16_TO_FP32(block->scale);
-        int inlier_pos = 0;
-
-        // Process all 256 weights
-        for (int i = 0; i < Q3_K_HIFI_BLOCK_SIZE; ++i) {
-            if (outlier_map[i] >= 0) {
-                // Outlier: use stored FP16 value
-                yb[i] = GGML_CPU_FP16_TO_FP32(block->outliers[outlier_map[i]]);
-            } else {
-                // Inlier: unpack 3-bit value
-                int byte_idx = (inlier_pos * 3) / 8;
-                int bit_offset = (inlier_pos * 3) % 8;
-                uint32_t word = block->q3[byte_idx] | ((uint32_t)block->q3[byte_idx + 1] << 8);
-                uint8_t qi = (word >> bit_offset) & 0x7;
-                yb[i] = ((float)qi - 4.0f) * scale;
-                inlier_pos++;
+                yb[idx] = GGML_CPU_FP16_TO_FP32(block->outliers[outlier_k]);
             }
         }
     }

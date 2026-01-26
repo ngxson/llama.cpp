@@ -592,45 +592,34 @@ void ggml_vec_dot_q3_k_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t 
         const block_q3_k_hifi * xb = &x[i];
         const block_q8_K * yb = &y[i];
 
-        // Build outlier map: position → outlier index (or -1 if not an outlier)
-        int outlier_map[Q3_K_HIFI_BLOCK_SIZE];
+        // Step 1: Compute Q3_K dot product from q3_k_data
+        const block_q3_K * q3k_block = (const block_q3_K *)xb->q3_k_data;
+        float q3k_sum = 0.0f;
+        
+        // Use Q3_K's dot product logic
+        // For now, we'll dequantize Q3_K and compute dot product manually
+        float q3k_weights[Q3_K_HIFI_BLOCK_SIZE];
+        dequantize_row_q3_K(q3k_block, q3k_weights, Q3_K_HIFI_BLOCK_SIZE);
+        
+        const float d_y = yb->d;
+        const int8_t * GGML_RESTRICT q8 = yb->qs;
         for (int j = 0; j < Q3_K_HIFI_BLOCK_SIZE; ++j) {
-            outlier_map[j] = -1;
+            q3k_sum += q3k_weights[j] * (float)q8[j] * d_y;
         }
+
+        // Step 2: Add outlier corrections
+        // Outliers were zeroed before Q3_K quantization, so Q3_K contribution is ~0 at those positions
+        // We need to subtract the ~0 Q3_K contribution and add the original outlier value
         for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
             int idx = xb->outlier_idx[k];
             if (idx < Q3_K_HIFI_BLOCK_SIZE) {
-                outlier_map[idx] = k;
+                float outlier_val = GGML_FP16_TO_FP32(xb->outliers[k]);
+                float q3k_val = q3k_weights[idx];  // Should be ~0 since we zeroed it
+                q3k_sum += (outlier_val - q3k_val) * (float)q8[idx] * d_y;
             }
         }
 
-        // Global scale for inliers
-        const float scale = GGML_FP16_TO_FP32(xb->scale);
-        const float d = scale * yb->d;
-        const int8_t * GGML_RESTRICT q8 = yb->qs;
-
-        float sum = 0.0f;
-        int inlier_pos = 0;
-
-        // Process all 256 weights
-        for (int j = 0; j < Q3_K_HIFI_BLOCK_SIZE; ++j) {
-            float weight_val;
-            if (outlier_map[j] >= 0) {
-                // Outlier: use stored FP16 value
-                weight_val = GGML_FP16_TO_FP32(xb->outliers[outlier_map[j]]);
-            } else {
-                // Inlier: unpack 3-bit value
-                int byte_idx = (inlier_pos * 3) / 8;
-                int bit_offset = (inlier_pos * 3) % 8;
-                uint32_t word = xb->q3[byte_idx] | ((uint32_t)xb->q3[byte_idx + 1] << 8);
-                uint8_t qi = (word >> bit_offset) & 0x7;
-                weight_val = ((float)qi - 4.0f) * scale;
-                inlier_pos++;
-            }
-            sum += weight_val * (float)q8[j];
-        }
-
-        total_sum += d * sum;
+        total_sum += q3k_sum;
     }
 
     *s = total_sum;
