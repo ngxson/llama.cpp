@@ -7331,20 +7331,40 @@ void kernel_mul_mv_q3_k_hifi_f32_impl(
             }
             
             // Compute dot product for this thread's y range [y_offset, y_offset+32)
-            float sum = 0.0f;
+            // First, count how many inliers come before y_offset
             int inlier_pos = 0;
+            for (int j = 0; j < y_offset; ++j) {
+                if (!is_outlier[j]) {
+                    inlier_pos++;
+                }
+            }
+            
+            // Build outlier reverse map for efficient lookup
+            int outlier_map[Q3_K_HIFI_BLOCK_SIZE];
             for (int j = 0; j < Q3_K_HIFI_BLOCK_SIZE; ++j) {
+                outlier_map[j] = -1;
+            }
+            for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
+                int idx = xb->outlier_idx[k];
+                if (idx < Q3_K_HIFI_BLOCK_SIZE) {
+                    outlier_map[idx] = k;
+                }
+            }
+            
+            // Process only weights in y range [y_offset, y_offset+32)
+            float sum = 0.0f;
+            for (int j = y_offset; j < y_offset + 32 && j < Q3_K_HIFI_BLOCK_SIZE; ++j) {
                 float w_val;
                 if (is_outlier[j]) {
-                    // Find outlier index
-                    for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
-                        if (xb->outlier_idx[k] == j) {
-                            w_val = outlier_vals[k];
-                            break;
-                        }
+                    // Outlier: use stored FP16 value
+                    int k = outlier_map[j];
+                    if (k >= 0 && k < Q3_K_HIFI_OUTLIERS) {
+                        w_val = outlier_vals[k];
+                    } else {
+                        w_val = 0.0f;  // fallback
                     }
                 } else {
-                    // Unpack 3-bit inlier
+                    // Inlier: unpack 3-bit value
                     int byte_idx = (inlier_pos * 3) / 8;
                     int bit_offset = (inlier_pos * 3) % 8;
                     uint word = xb->q3[byte_idx];
@@ -7355,10 +7375,7 @@ void kernel_mul_mv_q3_k_hifi_f32_impl(
                     w_val = ((float)qi - 4.0f) * scale;
                     inlier_pos++;
                 }
-                // Only add if in this thread's y range
-                if (j >= y_offset && j < y_offset + 32) {
-                    sum += w_val * y1[j - y_offset];
-                }
+                sum += w_val * y1[j - y_offset];
             }
             sumf1[row] += sum;
         }
