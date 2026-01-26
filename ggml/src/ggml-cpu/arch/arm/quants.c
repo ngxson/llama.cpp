@@ -2054,30 +2054,13 @@ void ggml_vec_dot_q3_k_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, cons
     UNUSED(by);
     UNUSED(bs);
 
-    const uint32_t kmask1 = 0x03030303;
-    const uint32_t kmask2 = 0x0f0f0f0f;
-
-    // CRITICAL: Use block_q3_k_hifi for correct 128-byte stride
+    // Use block_q3_k_hifi for sparse layout
     const block_q3_k_hifi * GGML_RESTRICT x = (const block_q3_k_hifi *)vx;
     const block_q8_K * GGML_RESTRICT y = vy;
 
     const int nb = n / QK_K;
 
 #if defined(__ARM_NEON)
-
-    uint32_t aux[3];
-    uint32_t utmp[4];
-
-    const uint8x16_t m3b = vdupq_n_u8(0x3);
-    const int32x4_t vzero = vdupq_n_s32(0);
-
-    const uint8x16_t m0 = vdupq_n_u8(1);
-    const uint8x16_t m1 = vshlq_n_u8(m0, 1);
-    const uint8x16_t m2 = vshlq_n_u8(m0, 2);
-    const uint8x16_t m3 = vshlq_n_u8(m0, 3);
-    const int8_t m32 = 32;
-
-    ggml_int8x16x4_t q3bytes;
 
     float sum = 0;
 
