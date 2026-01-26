@@ -288,31 +288,27 @@ typedef struct {
 } block_q3_K;
 static_assert(sizeof(block_q3_K) == sizeof(ggml_half) + QK_K / 4 + QK_K / 8 + 12, "wrong q3_K block size/padding");
 
-// Q3_K_HIFI: Q3_K with FP16 residual correction for stronger signal recovery at 3-bit
-// Uses importance-weighted residual selection to correct weights Q3_K fails on
-// 16 outliers provide ~2x correction capacity vs previous 8-outlier design
+// Q3_K_HIFI: Imatrix-Guided Sparse 3-bit quantization (IGS-3)
+// Preserves top-16 most important weights as FP16, quantizes remaining 240 to 3-bit
+// This avoids scale distortion and preserves critical signal exactly
 #define Q3_K_HIFI_BLOCK_SIZE 256
 #define Q3_K_HIFI_OUTLIERS   16
+#define Q3_K_HIFI_INLIERS    (Q3_K_HIFI_BLOCK_SIZE - Q3_K_HIFI_OUTLIERS)  // 240
 #if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
 #pragma pack(push, 1)
 #endif
 typedef struct {
-    // === Q3_K-COMPATIBLE REGION (110 bytes) - DO NOT REORDER ===
-    uint8_t hmask[QK_K/8];         // 32 bytes: high bit mask
-    uint8_t qs[QK_K/4];            // 64 bytes: low 2 bits
-    uint8_t scales[12];            // 12 bytes: 16 sub-group scales (6-bit each)
-    ggml_half d;                   // 2 bytes: super-block scale
-    // === RESIDUAL CORRECTION EXTENSION (48 bytes) ===
-    uint8_t outlier_count;                      // 1 byte: actual outliers stored (0-16)
-    uint8_t _pad;                               // 1 byte: alignment padding
-    uint8_t outlier_idx[Q3_K_HIFI_OUTLIERS];    // 16 bytes: outlier positions (0-255)
-    ggml_half outlier_vals[Q3_K_HIFI_OUTLIERS]; // 32 bytes: FP16 residual corrections
+    // === SPARSE LAYOUT (160 bytes) ===
+    ggml_half scale;                            // 2 bytes: global scale for 3-bit inliers
+    uint8_t outlier_idx[Q3_K_HIFI_OUTLIERS];    // 16 bytes: positions of top-16 important weights (preserved as FP16)
+    ggml_half outliers[Q3_K_HIFI_OUTLIERS];     // 32 bytes: original FP16 values of important weights
+    uint8_t q3[110];                            // 110 bytes: packed 3-bit values for remaining 240 inliers (in natural order, skipping outlier positions)
 } block_q3_k_hifi;
 #if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
 #pragma pack(pop)
 #endif
-// Size: 110 (Q3_K) + 2 (count+pad) + 16 (idx) + 32 (vals) = 160 bytes
-static_assert(sizeof(block_q3_k_hifi) == sizeof(block_q3_K) + 2 + Q3_K_HIFI_OUTLIERS + Q3_K_HIFI_OUTLIERS*sizeof(ggml_half), "wrong q3_k_hifi block size/padding");
+// Size: 2 (scale) + 16 (idx) + 32 (outliers) + 110 (q3) = 160 bytes
+static_assert(sizeof(block_q3_k_hifi) == 2 + Q3_K_HIFI_OUTLIERS + Q3_K_HIFI_OUTLIERS*sizeof(ggml_half) + 110, "wrong q3_k_hifi block size/padding");
 
 // Q3_K_HIFI_RES8: Lean version with INT8 residuals for use WITH imatrix
 // When imatrix is present, base quantization is already optimized - INT8 residuals suffice
