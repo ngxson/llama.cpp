@@ -2054,13 +2054,9 @@ void ggml_vec_dot_q3_k_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, cons
     UNUSED(by);
     UNUSED(bs);
 
-    // Use block_q3_k_hifi for sparse layout
-    const block_q3_k_hifi * GGML_RESTRICT x = (const block_q3_k_hifi *)vx;
-    const block_q8_K * GGML_RESTRICT y = vy;
-
-    const int nb = n / QK_K;
-
     // Use generic implementation (can be optimized with NEON later)
+    UNUSED(vx);
+    UNUSED(vy);
     ggml_vec_dot_q3_k_hifi_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
 
 }
