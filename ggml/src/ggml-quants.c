@@ -1283,6 +1283,17 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
     assert(k % Q3_K_HIFI_BLOCK_SIZE == 0);
     const int64_t nb = k / Q3_K_HIFI_BLOCK_SIZE;
 
+    // Get model-size-aware max outliers from HIFI context if available
+    // For 0.6B models, this returns 0 (skip HIFI), for larger models it returns 2-8
+    int max_outliers = Q3_K_HIFI_OUTLIERS;  // Default to max if no context
+    const ggml_hifi_quant_context * hifi_ctx = ggml_hifi_get_context();
+    if (hifi_ctx && hifi_ctx->is_active && hifi_ctx->model_params_b > 0.0f) {
+        max_outliers = ggml_q3_hifi_get_max_outliers(hifi_ctx->model_params_b);
+        // Clamp to valid range
+        if (max_outliers > Q3_K_HIFI_OUTLIERS) max_outliers = Q3_K_HIFI_OUTLIERS;
+        if (max_outliers < 0) max_outliers = 0;
+    }
+
     for (int64_t ib = 0; ib < nb; ++ib) {
         const float * xb = x + ib * Q3_K_HIFI_BLOCK_SIZE;
         block_q3_k_hifi * block = &y[ib];
@@ -1297,6 +1308,16 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
         memcpy(block->scales, q3k_block.scales, sizeof(block->scales));
         block->d = q3k_block.d;
 
+        // If max_outliers is 0, skip outlier computation (for tiny models like 0.6B)
+        if (max_outliers == 0) {
+            block->outlier_count = 0;
+            block->_pad = 0;
+            // Zero out outlier arrays (they're already zero-initialized, but be explicit)
+            memset(block->outlier_idx, 0, sizeof(block->outlier_idx));
+            memset(block->outlier_vals, 0, sizeof(block->outlier_vals));
+            continue;
+        }
+
         // Step 3: Dequantize to get reconstructed values
         float x_recon[Q3_K_HIFI_BLOCK_SIZE];
         dequantize_row_q3_K(&q3k_block, x_recon, Q3_K_HIFI_BLOCK_SIZE);
@@ -1309,10 +1330,10 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
             abs_residuals[i] = fabsf(residuals[i]);
         }
 
-        // Step 5: Find top-16 outliers by RESIDUAL magnitude (not original magnitude)
+        // Step 5: Find top-N outliers by RESIDUAL magnitude (N = max_outliers, model-size-aware)
         // This captures weights that Q3_K struggled with, not just the largest weights
         int outlier_indices[Q3_K_HIFI_OUTLIERS];
-        for (int k_idx = 0; k_idx < Q3_K_HIFI_OUTLIERS; ++k_idx) {
+        for (int k_idx = 0; k_idx < max_outliers; ++k_idx) {
             int argmax = 0;
             float max_val = abs_residuals[0];
             for (int i = 1; i < Q3_K_HIFI_BLOCK_SIZE; ++i) {
@@ -1326,10 +1347,10 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
         }
 
         // Step 6: Store residual corrections (FP16)
-        block->outlier_count = Q3_K_HIFI_OUTLIERS;
+        block->outlier_count = max_outliers;
         block->_pad = 0;
         float max_residual = 0.0f;
-        for (int k_idx = 0; k_idx < Q3_K_HIFI_OUTLIERS; ++k_idx) {
+        for (int k_idx = 0; k_idx < max_outliers; ++k_idx) {
             const int idx = outlier_indices[k_idx];
             block->outlier_idx[k_idx] = (uint8_t)idx;
             // Store RESIDUAL, not original value - this corrects Q3_K's error
@@ -1338,6 +1359,11 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
             if (abs_res > max_residual) {
                 max_residual = abs_res;
             }
+        }
+        // Zero out unused outlier slots
+        for (int k_idx = max_outliers; k_idx < Q3_K_HIFI_OUTLIERS; ++k_idx) {
+            block->outlier_idx[k_idx] = 0;
+            block->outlier_vals[k_idx] = 0;
         }
 
         // Debug logging for quantization
@@ -1351,8 +1377,8 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
             }
         }
         if (quant_debug_enabled && ib < 5) {
-            GGML_LOG_INFO("Q3_K_HIFI: quantize_row block %ld: stored %d outliers, max residual: %.6f\n",
-                         (long)ib, Q3_K_HIFI_OUTLIERS, (double)max_residual);
+            GGML_LOG_INFO("Q3_K_HIFI: quantize_row block %ld: stored %d outliers (max=%d), max residual: %.6f\n",
+                         (long)ib, max_outliers, max_outliers, (double)max_residual);
         }
     }
 }
@@ -1360,6 +1386,17 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
 static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_k_hifi * GGML_RESTRICT y, int64_t k, const float * GGML_RESTRICT quant_weights) {
     assert(k % Q3_K_HIFI_BLOCK_SIZE == 0);
     const int64_t nb = k / Q3_K_HIFI_BLOCK_SIZE;
+
+    // Get model-size-aware max outliers from HIFI context if available
+    // For 0.6B models, this returns 0 (skip HIFI), for larger models it returns 2-8
+    int max_outliers = Q3_K_HIFI_OUTLIERS;  // Default to max if no context
+    const ggml_hifi_quant_context * hifi_ctx = ggml_hifi_get_context();
+    if (hifi_ctx && hifi_ctx->is_active && hifi_ctx->model_params_b > 0.0f) {
+        max_outliers = ggml_q3_hifi_get_max_outliers(hifi_ctx->model_params_b);
+        // Clamp to valid range
+        if (max_outliers > Q3_K_HIFI_OUTLIERS) max_outliers = Q3_K_HIFI_OUTLIERS;
+        if (max_outliers < 0) max_outliers = 0;
+    }
 
     for (int64_t ib = 0; ib < nb; ++ib) {
         const float * xb = x + ib * Q3_K_HIFI_BLOCK_SIZE;
@@ -1376,6 +1413,16 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
         memcpy(block->scales, q3k_block.scales, sizeof(block->scales));
         block->d = q3k_block.d;
 
+        // If max_outliers is 0, skip outlier computation (for tiny models like 0.6B)
+        if (max_outliers == 0) {
+            block->outlier_count = 0;
+            block->_pad = 0;
+            // Zero out outlier arrays
+            memset(block->outlier_idx, 0, sizeof(block->outlier_idx));
+            memset(block->outlier_vals, 0, sizeof(block->outlier_vals));
+            continue;
+        }
+
         // Step 3: Dequantize to get reconstructed values
         float x_recon[Q3_K_HIFI_BLOCK_SIZE];
         dequantize_row_q3_K(&q3k_block, x_recon, Q3_K_HIFI_BLOCK_SIZE);
@@ -1390,9 +1437,9 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
             weighted_abs_residuals[i] = fabsf(residuals[i]) * (qw ? qw[i] : 1.0f);
         }
 
-        // Step 5: Find top-16 outliers by WEIGHTED RESIDUAL magnitude
+        // Step 5: Find top-N outliers by WEIGHTED RESIDUAL magnitude (N = max_outliers, model-size-aware)
         int outlier_indices[Q3_K_HIFI_OUTLIERS];
-        for (int k_idx = 0; k_idx < Q3_K_HIFI_OUTLIERS; ++k_idx) {
+        for (int k_idx = 0; k_idx < max_outliers; ++k_idx) {
             int argmax = 0;
             float max_val = weighted_abs_residuals[0];
             for (int i = 1; i < Q3_K_HIFI_BLOCK_SIZE; ++i) {
@@ -1406,13 +1453,18 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
         }
 
         // Step 6: Store residual corrections (FP16)
-        block->outlier_count = Q3_K_HIFI_OUTLIERS;
+        block->outlier_count = max_outliers;
         block->_pad = 0;
-        for (int k_idx = 0; k_idx < Q3_K_HIFI_OUTLIERS; ++k_idx) {
+        for (int k_idx = 0; k_idx < max_outliers; ++k_idx) {
             const int idx = outlier_indices[k_idx];
             block->outlier_idx[k_idx] = (uint8_t)idx;
             // Store RESIDUAL correction, not original value
             block->outlier_vals[k_idx] = GGML_FP32_TO_FP16(residuals[idx]);
+        }
+        // Zero out unused outlier slots
+        for (int k_idx = max_outliers; k_idx < Q3_K_HIFI_OUTLIERS; ++k_idx) {
+            block->outlier_idx[k_idx] = 0;
+            block->outlier_vals[k_idx] = 0;
         }
     }
 }

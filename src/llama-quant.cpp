@@ -1455,11 +1455,45 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
             // quantize each expert separately since they have different importance matrices
             new_size = 0;
 
-            // Set up HIFI context for Q6_K_HIFI_RES8 tensors with layer-adaptive outlier allocation
+            // Set up HIFI context for Q6_K_HIFI_RES8, Q5_K_HIFI_RES8, and Q3_K_HIFI tensors
             ggml_hifi_quant_context hifi_ctx = {};
             const ggml_hifi_quant_context * hifi_ctx_ptr = nullptr;
 
-            // Handle both Q6_K_HIFI_RES8 and Q5_K_HIFI_RES8 HIFI types
+            // Compute model size in billions (needed for Q3_K_HIFI and other HIFI types)
+            const int64_t n_embd = model.hparams.n_embd;
+            const int64_t n_ff = model.hparams.n_ff();
+            const int64_t n_vocab = model.vocab.n_tokens();
+            const int64_t n_layer = model.hparams.n_layer;
+            const int64_t attn_params = 4 * n_embd * n_embd * n_layer;
+            const int64_t ffn_params = 3 * n_embd * n_ff * n_layer;
+            const int64_t emb_params = 2 * n_vocab * n_embd;
+            const float model_params_b = (float)(attn_params + ffn_params + emb_params) / 1e9f;
+
+            // Handle Q3_K_HIFI: model-size-aware outlier allocation (0 for 0.6B, 2-8 for larger)
+            const bool is_q3_hifi = (new_type == GGML_TYPE_Q3_K_HIFI);
+            const bool is_q3_hifi_ftype = (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI);
+            if (is_q3_hifi && is_q3_hifi_ftype) {
+                // Q3_K_HIFI uses fixed outlier count based on model size (not layer-adaptive)
+                // For 0.6B: 0 outliers (skip HIFI), for 1.7B: 2, for 2-5B: 8, etc.
+                const int max_outliers = ggml_q3_hifi_get_max_outliers(model_params_b);
+                
+                hifi_ctx.outlier_count = max_outliers;  // Not used by Q3_K_HIFI, but set for consistency
+                hifi_ctx.layer_importance = 0.5f;  // Not used by Q3_K_HIFI
+                hifi_ctx.layer_idx = -1;  // Not used by Q3_K_HIFI
+                hifi_ctx.total_layers = (int)n_layer;
+                hifi_ctx.is_active = 1;
+                hifi_ctx.model_params_b = model_params_b;
+                hifi_ctx_ptr = &hifi_ctx;
+
+                // Log model-size-aware outlier allocation
+                if (max_outliers == 0) {
+                    LLAMA_LOG_INFO("(Q3_K_HIFI: model=%.1fB, skipping outliers - too small) ", model_params_b);
+                } else {
+                    LLAMA_LOG_INFO("(Q3_K_HIFI: model=%.1fB, max_outliers=%d) ", model_params_b, max_outliers);
+                }
+            }
+
+            // Handle both Q6_K_HIFI_RES8 and Q5_K_HIFI_RES8 HIFI types (layer-adaptive)
             const bool is_hifi_type = (new_type == GGML_TYPE_Q6_K_HIFI_RES8 || new_type == GGML_TYPE_Q5_K_HIFI_RES8);
             const bool is_hifi_ftype = (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI || ftype == LLAMA_FTYPE_MOSTLY_Q5_K_HIFI);
             if (is_hifi_type && is_hifi_ftype) {
@@ -1472,23 +1506,6 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
                 }
 
                 const int n_layers = (int)model.hparams.n_layer;
-
-                // Compute model size in billions (more accurate formula)
-                // Params ≈ L * (4*d^2 + 3*d*n_ff) + 2*V*d
-                // Where: L=layers, d=embedding, n_ff=FFN hidden, V=vocab
-                const int64_t n_embd = model.hparams.n_embd;
-                const int64_t n_ff = model.hparams.n_ff();
-                const int64_t n_vocab = model.vocab.n_tokens();
-                const int64_t n_layer = model.hparams.n_layer;
-
-                // Attention: 4 weight matrices per layer (Q, K, V, O) each ~d*d
-                const int64_t attn_params = 4 * n_embd * n_embd * n_layer;
-                // FFN: 3 weight matrices per layer (gate, up, down) each ~d*n_ff
-                const int64_t ffn_params = 3 * n_embd * n_ff * n_layer;
-                // Embeddings: input + output (sometimes shared, but count both for safety)
-                const int64_t emb_params = 2 * n_vocab * n_embd;
-
-                const float model_params_b = (float)(attn_params + ffn_params + emb_params) / 1e9f;
 
                 // Compute layer importance from imatrix if available
                 float layer_importance = 0.5f;  // default to medium
