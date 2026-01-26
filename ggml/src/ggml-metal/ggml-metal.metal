@@ -7274,6 +7274,7 @@ void kernel_mul_mv_q3_k_hifi_f32_impl(
     const short l0  = 8*ir;
 
     const short shift = 2*il;
+    const short q_offset = 32*ip + l0;
     const short y_offset = 128*ip + 32*il + l0;
 
     device const float * y1 = yy + ix*QK_K + y_offset;
