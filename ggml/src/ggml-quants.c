@@ -1497,8 +1497,13 @@ void dequantize_row_q3_k_hifi(const block_q3_k_hifi * GGML_RESTRICT x, float * G
         float * yb = y + ib * Q3_K_HIFI_BLOCK_SIZE;
 
         // Step 1: Dequantize using Q3_K algorithm for single block
-        // The first 110 bytes of block_q3_k_hifi match Q3_K exactly
-        dequantize_row_q3_K((const block_q3_K *)block, yb, Q3_K_HIFI_BLOCK_SIZE);
+        // Copy Q3_K-compatible region to avoid potential padding/alignment issues
+        block_q3_K q3k_block;
+        memcpy(&q3k_block.hmask, &block->hmask, sizeof(block->hmask));
+        memcpy(&q3k_block.qs, &block->qs, sizeof(block->qs));
+        memcpy(&q3k_block.scales, &block->scales, sizeof(block->scales));
+        q3k_block.d = block->d;
+        dequantize_row_q3_K(&q3k_block, yb, Q3_K_HIFI_BLOCK_SIZE);
 
         // Step 2: ADD residual corrections (not overwrite!)
         // This corrects the quantization error at critical positions
@@ -1517,14 +1522,14 @@ void dequantize_row_q3_k_hifi(const block_q3_k_hifi * GGML_RESTRICT x, float * G
         }
     }
 
-        if (debug_enabled && nb > 0) {
-            static int call_count = 0;
-            call_count++;
-            if (call_count <= 10 || call_count % 1000 == 0) {
-                GGML_LOG_INFO("Q3_K_HIFI: dequantize_row called #%d: %ld blocks, %d residuals applied, max correction: %.6f\n",
-                             call_count, (long)nb, total_outliers_applied, (double)max_correction);
-            }
+    if (debug_enabled && nb > 0) {
+        static int call_count = 0;
+        call_count++;
+        if (call_count <= 10 || call_count % 1000 == 0) {
+            GGML_LOG_INFO("Q3_K_HIFI: dequantize_row called #%d: %ld blocks, %d residuals applied, max correction: %.6f\n",
+                         call_count, (long)nb, total_outliers_applied, (double)max_correction);
         }
+    }
 }
 
 size_t quantize_q3_k_hifi(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrow, int64_t n_per_row, const float * quant_weights) {
