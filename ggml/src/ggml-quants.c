@@ -1405,24 +1405,11 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
         if (max_outliers == 0) {
             block_q3_K q3k_block;
             quantize_row_q3_K_ref(xb, &q3k_block, Q3_K_HIFI_BLOCK_SIZE);
-            // Convert Q3_K to sparse layout (all weights quantized, no outliers)
-            block->scale = q3k_block.d;  // Use super-block scale as global scale
+            // Copy Q3_K block to q3_k_data, no outliers
+            memcpy(block->q3_k_data, &q3k_block, 110);
             memset(block->outlier_idx, 0, sizeof(block->outlier_idx));
             memset(block->outliers, 0, sizeof(block->outliers));
-            // Pack all weights as 3-bit inliers
-            float scale = GGML_FP16_TO_FP32(q3k_block.d);
-            memset(block->q3, 0, 110);
-            for (int i = 0; i < Q3_K_HIFI_BLOCK_SIZE; ++i) {
-                float val = xb[i] / scale;
-                int qi = (int)roundf(fmaxf(-3.5f, fminf(3.5f, val))) + 4;
-                qi = fmaxf(0, fminf(7, qi));
-                int byte_idx = (i * 3) / 8;
-                int bit_offset = (i * 3) % 8;
-                block->q3[byte_idx] |= ((uint8_t)qi << bit_offset);
-                if (bit_offset > 5 && byte_idx + 1 < 110) {
-                    block->q3[byte_idx + 1] |= ((uint8_t)qi >> (8 - bit_offset));
-                }
-            }
+            memset(block->padding, 0, sizeof(block->padding));
             continue;
         }
 
@@ -6485,10 +6472,11 @@ bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbyte
 
         case GGML_TYPE_Q3_K_HIFI:
             {
-                // Validate sparse layout: check scale field (not d)
+                // Validate true outlier extraction layout: check Q3_K block's d field
                 const block_q3_k_hifi * q = (const block_q3_k_hifi *) (data);
                 for (size_t i = 0; i < nb; ++i) {
-                    if (!validate_fp16(q[i].scale, i)) {
+                    const block_q3_K * q3k = (const block_q3_K *)q[i].q3_k_data;
+                    if (!validate_fp16(q3k->d, i)) {
                         return false;
                     }
                 }
