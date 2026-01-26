@@ -2124,10 +2124,6 @@ void ggml_vec_dot_q3_k_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, cons
         }
 
         sum += d * block_sum;
-        sum += GGML_FP16_TO_FP32(vals[4]) * q8[idx[4]] * d_y;
-        sum += GGML_FP16_TO_FP32(vals[5]) * q8[idx[5]] * d_y;
-        sum += GGML_FP16_TO_FP32(vals[6]) * q8[idx[6]] * d_y;
-        sum += GGML_FP16_TO_FP32(vals[7]) * q8[idx[7]] * d_y;
     }
 
     *s = sum;
@@ -4164,10 +4160,10 @@ void dequantize_row_q3_k_hifi(const block_q3_k_hifi * GGML_RESTRICT x, float * G
         for (int j = 0; j < Q3_K_HIFI_BLOCK_SIZE; ++j) {
             outlier_map[j] = -1;
         }
-        for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
-            int idx = block->outlier_idx[k];
+        for (int outlier_k = 0; outlier_k < Q3_K_HIFI_OUTLIERS; ++outlier_k) {
+            int idx = block->outlier_idx[outlier_k];
             if (idx < Q3_K_HIFI_BLOCK_SIZE) {
-                outlier_map[idx] = k;
+                outlier_map[idx] = outlier_k;
             }
         }
 
