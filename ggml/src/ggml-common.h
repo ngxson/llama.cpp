@@ -288,8 +288,9 @@ typedef struct {
 } block_q3_K;
 static_assert(sizeof(block_q3_K) == sizeof(ggml_half) + QK_K / 4 + QK_K / 8 + 12, "wrong q3_K block size/padding");
 
-// Q3_K_HIFI: Q3_K with FP16 residual correction for stronger signal recovery at 3-bit
-// Uses residual-based outlier selection (not magnitude) to correct weights Q3_K fails on
+// Q3_K_HIFI: Q3_K with true outlier extraction for stronger signal recovery at 3-bit
+// Extracts top-K outliers by magnitude, quantizes remaining inliers with Q3_K, stores outliers as FP16
+// Stores original outlier values (not residuals) to preserve true signal
 // 16 outliers provide ~2x correction capacity vs previous 8-outlier design
 #define Q3_K_HIFI_BLOCK_SIZE 256
 #define Q3_K_HIFI_OUTLIERS   16
@@ -302,11 +303,11 @@ typedef struct {
     uint8_t qs[QK_K/4];            // 64 bytes: low 2 bits
     uint8_t scales[12];            // 12 bytes: 16 sub-group scales (6-bit each)
     ggml_half d;                   // 2 bytes: super-block scale
-    // === RESIDUAL CORRECTION EXTENSION (48 bytes) ===
+    // === TRUE OUTLIER EXTENSION (48 bytes) ===
     uint8_t outlier_count;                      // 1 byte: actual outliers stored (0-16)
     uint8_t _pad;                               // 1 byte: alignment padding
     uint8_t outlier_idx[Q3_K_HIFI_OUTLIERS];    // 16 bytes: outlier positions (0-255)
-    ggml_half outlier_vals[Q3_K_HIFI_OUTLIERS]; // 32 bytes: FP16 residual corrections
+    ggml_half outlier_vals[Q3_K_HIFI_OUTLIERS]; // 32 bytes: FP16 original outlier values (not residuals!)
 } block_q3_k_hifi;
 #if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
 #pragma pack(pop)

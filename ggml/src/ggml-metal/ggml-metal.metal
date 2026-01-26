@@ -7380,10 +7380,11 @@ void kernel_mul_mv_q3_k_hifi_f32_impl(
         y1 += 4 * QK_K;
     }
 
-    // Add outlier corrections
-    // Outliers are stored per block with indices 0-255 within that block
-    // Each thread processes a subset of blocks and a subset of y values per block
-    // We need to apply outlier corrections: outlier_val * y[idx] for each outlier
+    // Apply true outlier corrections
+    // With true outlier extraction, outliers were set to 0 during quantization
+    // The Q3_K kernel computed contributions from those 0 values (which are wrong)
+    // We need to: subtract wrong contribution + add correct original value contribution
+    // Since outliers were quantized as 0, their Q3_K contribution is ~0, so we can just add the correct value
     for (int i = ix; i < nb; i += 4) {
         // Get the y vector base for this block
         device const float * y_block = yy + i * QK_K;
@@ -7400,9 +7401,11 @@ void kernel_mul_mv_q3_k_hifi_f32_impl(
                 const int idx = xb->outlier_idx[k];
                 // Check if this outlier index is in the range [y_offset, y_offset + 32) that this thread processes
                 if (idx >= y_offset && idx < y_offset + 32) {
-                    const float outlier_val = float(xb->outlier_vals[k]);
-                    // Apply correction: outlier_val * y[idx] adds to the dot product
-                    sumf1[row] += outlier_val * y_block[idx];
+                    const float original_val = float(xb->outlier_vals[k]);  // Original value, not residual
+                    // Add correct contribution: original_val * y[idx]
+                    // The Q3_K kernel already computed ~0 for this position (since outlier was quantized as 0)
+                    // So we just add the correct contribution
+                    sumf1[row] += original_val * y_block[idx];
                 }
             }
         }
