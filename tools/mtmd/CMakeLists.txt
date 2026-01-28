@@ -28,6 +28,8 @@ add_library(mtmd
             models/siglip.cpp
             models/whisper-enc.cpp
             models/deepseekocr.cpp
+            models/mobilenetv5.cpp
+            models/youtuvl.cpp
             )
 
 set_target_properties(mtmd PROPERTIES
