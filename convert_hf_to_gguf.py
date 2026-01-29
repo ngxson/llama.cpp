@@ -10938,7 +10938,7 @@ class LongcatFlashModel(DeepseekV2Model):
 
         zero_expert_num = self.hparams["zero_expert_num"]
         zero_expert_type = self.hparams["zero_expert_type"]
-        assert(zero_expert_type == "identity")
+        assert zero_expert_type == "identity", "cpp implementation only supports 'identity' type"
         self.gguf_writer.add_n_zero_experts(zero_expert_num)
 
     def modify_tensors(self, data_torch, name, bid):

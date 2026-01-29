@@ -7032,7 +7032,12 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                         // try to see if this is a dense or MoE layer
                         layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert_full}, TENSOR_NOT_REQUIRED);
 
-                        if (!layer.ffn_gate_inp) {
+                        bool is_moe = (layer.ffn_gate_inp != nullptr);
+                        if (is_moe && (i % 2 != 0)) {
+                            throw std::runtime_error("MoE layers must be at even indices");
+                        }
+
+                        if (!is_moe) {
                             // dense
                             layer.ffn_gate = create_tensor(tn(LLM_TENSOR_FFN_GATE, "weight", i), {n_embd,   n_ff}, 0);
                             layer.ffn_down = create_tensor(tn(LLM_TENSOR_FFN_DOWN, "weight", i), {  n_ff, n_embd}, 0);
@@ -8166,6 +8171,10 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
         case LLM_ARCH_MIMO2:
             {
                 llm = std::make_unique<llm_build_mimo2_iswa>(*this, params);
+            } break;
+        case LLM_ARCH_LONGCAT_FLASH:
+            {
+                llm = std::make_unique<llm_build_longcat_flash>(*this, params);
             } break;
         default:
             GGML_ABORT("fatal error");
