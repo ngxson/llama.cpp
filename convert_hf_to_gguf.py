@@ -10931,6 +10931,15 @@ class LongcatFlashModel(DeepseekV2Model):
         self.hparams["num_key_value_heads"] = self.hparams["num_attention_heads"]
         self.hparams["intermediate_size"] = self.hparams["ffn_hidden_size"]
         self.hparams["moe_intermediate_size"] = self.hparams["expert_ffn_hidden_size"]
+        self.hparams["num_experts_per_tok"] = self.hparams["moe_topk"]
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+
+        zero_expert_num = self.hparams["zero_expert_num"]
+        zero_expert_type = self.hparams["zero_expert_type"]
+        assert(zero_expert_type == "identity")
+        self.gguf_writer.add_n_zero_experts(zero_expert_num)
 
     def modify_tensors(self, data_torch, name, bid):
         if bid is not None:

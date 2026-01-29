@@ -148,6 +148,7 @@ class Keys:
         EMBD_LENGTH_PER_LAYER_INP         = "{arch}.embedding_length_per_layer_input"
         DENSE_FEAT_IN_SIZE                = "{arch}.{dense}_feat_in"
         DENSE_FEAT_OUT_SIZE               = "{arch}.{dense}_feat_out"
+        N_ZERO_EXPERTS                    = "{arch}.n_zero_experts" # longcat-flash
 
     class Attention:
         HEAD_COUNT                   = "{arch}.attention.head_count"
