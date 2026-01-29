@@ -1257,6 +1257,9 @@ class TextModel(ModelBase):
         if chkhsh == "6c81ce329e0802883b22eabab0d3fa48357337ef1ecb45443828bf1f6254833f":
             # ref: https://huggingface.co/LGAI-EXAONE/K-EXAONE-236B-A23B
             res = "exaone-moe"
+        if chkhsh == "27d87c17bcffe5262a1e80b2ceb9a5e002c4f8a17d796fd5afac9180dd8bd96e":
+            # ref: https://huggingface.co/meituan-longcat/LongCat-Flash-Chat
+            res = "longcat-flash"
 
         if res is None:
             logger.warning("\n")
