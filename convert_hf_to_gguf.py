@@ -7513,6 +7513,7 @@ class DeepseekV2Model(TextModel):
             self._experts[bid][name] = data_torch
 
             if len(self._experts[bid]) >= n_experts * 3:
+                print("->>>> Merging experts for block", bid, '\n'.join(self._experts[bid].keys()))
                 # merge the experts into a single 3d tensor
                 for w_name in ["down_proj", "gate_proj", "up_proj"]:
                     datas: list[Tensor] = []
@@ -10912,6 +10913,53 @@ class SolarOpenModel(Glm4MoeModel):
         special_vocab._set_special_token("unk", tokenizer.get_added_vocab()["<unk>"])
         special_vocab._set_special_token("bos", tokenizer.get_added_vocab()["<|startoftext|>"])
         special_vocab.add_to_gguf(self.gguf_writer)
+
+
+@ModelBase.register("LongcatFlashForCausalLM")
+class LongcatFlashModel(DeepseekV2Model):
+    model_arch = gguf.MODEL_ARCH.LONGCAT_FLASH
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # the model use double block, we need to adjust block count
+        self.block_count = self.hparams["num_layers"] * 2
+        self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
+        # compat with deepseek2 base class hparam
+        self.hparams["num_hidden_layers"] = self.block_count
+        self.hparams["num_key_value_heads"] = self.hparams["num_attention_heads"]
+        self.hparams["intermediate_size"] = self.hparams["ffn_hidden_size"]
+        self.hparams["moe_intermediate_size"] = self.hparams["expert_ffn_hidden_size"]
+
+    def modify_tensors(self, data_torch, name, bid):
+        if bid is not None:
+            bid = bid * 2  # double block id
+
+        # Rename rules examples:
+        # model.layers.1.input_layernorm.0.weight --> model.layers.1.input_layernorm.weight
+        # model.layers.1.input_layernorm.1.weight --> model.layers.2.input_layernorm.weight
+        # model.layers.1.mlp.experts.0 --> model.layers.2.mlp.expert.0 (special case for experts)
+
+        name = name.replace('.mlps.', '.mlp.')
+        name = name.replace('.router.classifier.', '.gate.')
+        name = name.replace('.router.e_score_correction_bias', '.e_score_correction_bias')
+
+        # handle sub-block remapping
+        match = re.match(r'.*\.(\d+)\.([a-z_\.]+)\.(\d+)\..*', name)
+        if match and ".mlp.experts." not in name:
+            # convert block id from N.(name).M to (N+M).(name)
+            N = int(match.group(1))
+            middle = match.group(2)
+            M = int(match.group(3))
+            assert(N * 2 == bid)
+            new_bid = N * 2 + M
+            new_name = re.sub(r'\.(\d+)\.([a-z_\.]+)\.(\d+)\.', f'.{new_bid}.{middle}.', name)
+            print(f"Renaming tensor from {name} to {new_name}")
+            yield from super().modify_tensors(data_torch, new_name, new_bid)
+        else:
+            # correct block inside name
+            if bid is not None:
+                name = name.replace(f'.{bid // 2}.', f'.{bid}.', 1)
+            yield from super().modify_tensors(data_torch, name, bid)
 
 
 ###### CONVERSION LOGIC ######
