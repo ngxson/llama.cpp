@@ -7516,7 +7516,6 @@ class DeepseekV2Model(TextModel):
             self._experts[bid][name] = data_torch
 
             if len(self._experts[bid]) >= n_experts * 3:
-                print("->>>> Merging experts for block", bid, '\n'.join(self._experts[bid].keys()))
                 # merge the experts into a single 3d tensor
                 for w_name in ["down_proj", "gate_proj", "up_proj"]:
                     datas: list[Tensor] = []
@@ -10956,10 +10955,9 @@ class LongcatFlashModel(DeepseekV2Model):
             assert(N * 2 == bid)
             new_bid = N * 2 + M
             new_name = re.sub(r'\.(\d+)\.([a-z_\.]+)\.(\d+)\.', f'.{new_bid}.{middle}.', name)
-            print(f"Renaming tensor from {name} to {new_name}")
             yield from super().modify_tensors(data_torch, new_name, new_bid)
         else:
-            # correct block inside name
+            # correct block inside name (fix for experts tensors)
             if bid is not None:
                 name = name.replace(f'.{bid // 2}.', f'.{bid}.', 1)
             yield from super().modify_tensors(data_torch, name, bid)
