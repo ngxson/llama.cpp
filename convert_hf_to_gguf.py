@@ -7519,9 +7519,6 @@ class DeepseekV2Model(TextModel):
             first_k_dense_replace = hparams["num_hidden_layers"] if not has_moe else 0
         self.gguf_writer.add_leading_dense_block_count(first_k_dense_replace)
         kv_lora_rank = hparams["kv_lora_rank"] if hparams.get("kv_lora_rank") is not None else 512
-        routed_scaling_factor = hparams.get("routed_scaling_factor", 1.0)
-        norm_topk_prob = hparams.get("norm_topk_prob", False)
-        self.gguf_writer.add_leading_dense_block_count(hparams["first_k_dense_replace"])
         self.gguf_writer.add_vocab_size(hparams["vocab_size"])
         if "q_lora_rank" in hparams and hparams["q_lora_rank"] is not None:
             self.gguf_writer.add_q_lora_rank(hparams["q_lora_rank"])
@@ -7534,7 +7531,6 @@ class DeepseekV2Model(TextModel):
             self.gguf_writer.add_value_length(kv_lora_rank)
             self.gguf_writer.add_key_length_mla(hparams["qk_nope_head_dim"] + hparams["qk_rope_head_dim"])
             self.gguf_writer.add_value_length_mla(hparams["v_head_dim"])
-            self.gguf_writer.add_rope_dimension_count(hparams["qk_rope_head_dim"])
 
         # MoE parameters (required by C++ code for DEEPSEEK2 arch)
         # For non-MoE models like Youtu, use intermediate_size as expert_feed_forward_length
@@ -7554,11 +7550,6 @@ class DeepseekV2Model(TextModel):
 
         if (norm_topk_prob := hparams.get("norm_topk_prob")) is not None and norm_topk_prob:
             self.gguf_writer.add_expert_weights_norm(norm_topk_prob)
-        self.gguf_writer.add_expert_feed_forward_length(hparams["moe_intermediate_size"])
-        self.gguf_writer.add_expert_count(hparams["n_routed_experts"])
-        self.gguf_writer.add_expert_shared_count(hparams["n_shared_experts"])
-        self.gguf_writer.add_expert_weights_scale(routed_scaling_factor)
-        self.gguf_writer.add_expert_weights_norm(norm_topk_prob)
 
         self.gguf_writer.add_rope_dimension_count(hparams["qk_rope_head_dim"])
 

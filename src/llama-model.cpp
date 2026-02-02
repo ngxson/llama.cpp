@@ -4917,7 +4917,6 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
             case LLM_ARCH_DEEPSEEK2OCR:
                 {
                     // lite variants include DeepSeek-V2-Lite, GigaChat3-10B-A1.8B
-                    const bool is_lite = (hparams.n_layer == 27 || hparams.n_layer == 26);
                     const bool is_ocr = (arch == LLM_ARCH_DEEPSEEK2OCR);
 
                     const bool is_mla = hparams.is_mla();

@@ -4180,37 +4180,6 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         return false;
     }
 
-    // print debug nodes
-    if (ctx->debug_graph) {
-        LOG_INF("\n\n---\n\n");
-        LOG_INF("\n\nDebug graph:\n\n");
-        for (ggml_tensor * t : ctx->debug_print_tensors) {
-            std::vector<uint8_t> data(ggml_nbytes(t));
-            ggml_backend_tensor_get(t, data.data(), 0, ggml_nbytes(t));
-            print_tensor_info(t);
-            print_tensor_shape(t);
-            print_tensor_sum(t, data.data(), 3);
-            std::string tname_s = std::string(t->name);
-
-            bool is_stored = false;
-            std::vector<std::string> patterns = {
-                /* Add tensor names here to dump (e.g. "sam_output") */
-            };
-
-            for (auto & p : patterns) {
-                if (tname_s == p) {
-                    save_tensor_to_file(t, data.data());
-                    is_stored = true;
-                    break;
-                }
-            }
-
-            if (!is_stored) {
-                print_tensor_data(t, data.data(), 3);
-            }
-        }
-    }
-
     // the last node is the embedding tensor
     ggml_tensor * embeddings = ggml_graph_node(gf, -1);
 

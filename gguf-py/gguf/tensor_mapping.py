@@ -1312,7 +1312,7 @@ class TensorNameMap:
             "vision_model.positional_embedding_vlm", # llama 4
             "vision_tower.patch_embed.pos_emb", # kimi-vl
             "visual.pos_embed", # qwen3vl
-            "model.vision.patch_embedding.position_embedding",  # cogvlm
+            "model.vision.patch_embedding.position_embedding", # cogvlm
             "visual.embeddings.position_embedding", # glm4v
         ),
 
