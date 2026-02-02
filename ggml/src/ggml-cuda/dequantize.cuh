@@ -76,9 +76,9 @@ static __device__ __forceinline__ void dequantize_q8_0(const void * vx, const in
     v.y *= d;
 }
 
-// Q3_K_HIFI: Q3_K layout + 16 FP16 residual corrections
+// Q3_K_HIFI: Q3_K layout + 16 FP16 exact outlier values
 // Uses same hmask/qs/scales layout as Q3_K for the first 110 bytes
-// Residuals ADD to the Q3_K value (don't replace)
+// Outliers REPLACE the Q3_K value at specified positions (not residual add)
 static __device__ __forceinline__ void dequantize_q3_k_hifi(const void * vx, const int64_t ib, const int iqs, float2 & v){
     const block_q3_k_hifi * x = (const block_q3_k_hifi *) vx;
 
@@ -117,15 +117,15 @@ static __device__ __forceinline__ void dequantize_q3_k_hifi(const void * vx, con
     v.x = quant_val0 * d;
     v.y = quant_val1 * d;
 
-    // ADD residual corrections (not replace!)
-    // outlier_vals contains the residual error that Q3_K failed to represent
-    const int n_outliers = (x[ib].outlier_count <= Q3_K_HIFI_OUTLIERS) ? x[ib].outlier_count : Q3_K_HIFI_OUTLIERS;
-    for (int k = 0; k < n_outliers; ++k) {
+    // REPLACE with exact FP16 outlier values if present
+    // outliers array contains original FP16 values, not residuals
+    const int n_out = (x[ib].n_outliers <= Q3_K_HIFI_OUTLIERS) ? x[ib].n_outliers : Q3_K_HIFI_OUTLIERS;
+    for (int k = 0; k < n_out; ++k) {
         if (x[ib].outlier_idx[k] == idx0) {
-            v.x += __half2float(x[ib].outlier_vals[k]);  // ADD correction
+            v.x = __half2float(x[ib].outliers[k]);  // REPLACE with exact value
         }
         if (x[ib].outlier_idx[k] == idx1) {
-            v.y += __half2float(x[ib].outlier_vals[k]);  // ADD correction
+            v.y = __half2float(x[ib].outliers[k]);  // REPLACE with exact value
         }
     }
 }

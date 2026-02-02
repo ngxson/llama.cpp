@@ -723,16 +723,16 @@ static __global__ void dequantize_block_q3_k_hifi(const void * __restrict__ vx, 
         y[l] = dl * ((int8_t)((q[l] >> shift) & 3) - ((hm[l] & m) ? 0 : 4));
     }
 
-    // Synchronize before adding residual corrections
+    // Synchronize before replacing outlier positions
     __syncthreads();
 
-    // Thread 0 handles residual corrections (ADD, not replace)
+    // Thread 0 handles outlier replacements (REPLACE with exact FP16 values)
     if (threadIdx.x == 0) {
         dst_t * yb = yy + i*QK_K;
-        const int n_outliers = (x[i].outlier_count <= Q3_K_HIFI_OUTLIERS) ? x[i].outlier_count : Q3_K_HIFI_OUTLIERS;
-        for (int k = 0; k < n_outliers; ++k) {
+        const int n_out = (x[i].n_outliers <= Q3_K_HIFI_OUTLIERS) ? x[i].n_outliers : Q3_K_HIFI_OUTLIERS;
+        for (int k = 0; k < n_out; ++k) {
             const int idx = x[i].outlier_idx[k];
-            yb[idx] += __half2float(x[i].outlier_vals[k]);  // ADD residual correction
+            yb[idx] = __half2float(x[i].outliers[k]);  // REPLACE with original FP16 value
         }
     }
 }

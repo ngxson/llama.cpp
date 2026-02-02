@@ -4078,7 +4078,8 @@ void dequantize_row_q3_k_hifi(const block_q3_k_hifi * GGML_RESTRICT x, float * G
         float * yb = y + ib * Q3_K_HIFI_BLOCK_SIZE;
 
         // Step 1: Reconstruct inliers with standard Q3_K dequantization
-        const block_q3_K * q3k_block = (const block_q3_K *)block->q3_k_data;
+        // Cast to block_q3_K since the first 110 bytes match Q3_K layout
+        const block_q3_K * q3k_block = (const block_q3_K *)block;
         dequantize_row_q3_K(q3k_block, yb, Q3_K_HIFI_BLOCK_SIZE);
 
         // Step 2: Restore original outlier values (overwrite Q3_K reconstruction at outlier positions)

@@ -298,24 +298,30 @@ static_assert(sizeof(block_q3_K) == sizeof(ggml_half) + QK_K / 4 + QK_K / 8 + 12
 #pragma pack(push, 1)
 #endif
 typedef struct {
-    // === TRUE OUTLIER EXTRACTION LAYOUT (158 bytes, pad to 160) ===
-    // First 110 bytes: standard Q3_K block (for inliers with outliers zeroed)
-    uint8_t q3_k_data[110];
-    
-    // Next 16 bytes: indices of top-16 outliers (0-255)
+    // === Q3_K-COMPATIBLE REGION (110 bytes) - DO NOT REORDER ===
+    uint8_t hmask[QK_K/8];         // 32 bytes: high bit mask
+    uint8_t qs[QK_K/4];            // 64 bytes: low 2 bits
+    uint8_t scales[12];            // 12 bytes: 16 sub-group scales (6-bit each)
+    ggml_half d;                   // 2 bytes: super-block scale
+
+    // === Q3_K_HIFI OUTLIER EXTENSION (50 bytes) ===
+    // 1 byte: number of outliers stored (usually 16, but allows flexibility)
+    uint8_t n_outliers;
+
+    // 16 bytes: indices of top-16 outliers (0-255)
     uint8_t outlier_idx[Q3_K_HIFI_OUTLIERS];
-    
-    // Next 32 bytes: original outlier values as FP16 (not residuals!)
+
+    // 32 bytes: original outlier values as FP16 (REPLACEMENT values, not residuals!)
     ggml_half outliers[Q3_K_HIFI_OUTLIERS];
-    
-    // Padding to 160 bytes for alignment
-    uint8_t padding[2];
+
+    // 1 byte padding to align to 161 bytes
+    uint8_t padding[1];
 } block_q3_k_hifi;
 #if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
 #pragma pack(pop)
 #endif
-// Size: 110 (Q3_K) + 16 (idx) + 32 (outliers) + 2 (pad) = 160 bytes
-static_assert(sizeof(block_q3_k_hifi) == 110 + Q3_K_HIFI_OUTLIERS + Q3_K_HIFI_OUTLIERS*sizeof(ggml_half) + 2, "wrong q3_k_hifi block size/padding");
+// Size: 110 (Q3_K) + 1 (n_outliers) + 16 (idx) + 32 (outliers) + 1 (pad) = 161 bytes
+static_assert(sizeof(block_q3_k_hifi) == 110 + 1 + Q3_K_HIFI_OUTLIERS + Q3_K_HIFI_OUTLIERS*sizeof(ggml_half) + 1, "wrong q3_k_hifi block size/padding");
 
 // Q3_K_HIFI_RES8: Lean version with INT8 residuals for use WITH imatrix
 // When imatrix is present, base quantization is already optimized - INT8 residuals suffice

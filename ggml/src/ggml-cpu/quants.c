@@ -592,8 +592,8 @@ void ggml_vec_dot_q3_k_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t 
         const block_q3_k_hifi * xb = &x[i];
         const block_q8_K * yb = &y[i];
 
-        // Step 1: Compute Q3_K dot product from q3_k_data
-        const block_q3_K * q3k_block = (const block_q3_K *)xb->q3_k_data;
+        // Step 1: Compute Q3_K dot product from Q3_K fields (first 110 bytes)
+        const block_q3_K * q3k_block = (const block_q3_K *)xb;
         float q3k_sum = 0.0f;
         
         // Use Q3_K's dot product logic

@@ -805,14 +805,14 @@ static __device__ __forceinline__ float vec_dot_q3_k_hifi_q8_1(
     // Compute Q3_K bulk dot product (includes all positions now)
     float sum = vec_dot_q3_K_q8_1_impl_mmvq(vl, vh, u, bq3_k_hifi->scales, scale_offset, d, d8);
 
-    // === Q3_K_HIFI residual correction ===
-    // Each residual correction: residual_val * q8_val * d8
-    // These correct the quantization error at positions where Q3_K struggled
-    // Outliers are selected by residual magnitude (not original magnitude)
+    // === Q3_K_HIFI outlier correction ===
+    // Outliers store EXACT FP16 values (not residuals!)
+    // We need to replace Q3_K contribution with exact value contribution
+    // Correction = (exact_value - q3k_value) * q8_val * d8
 
-    const int n_outliers = (bq3_k_hifi->outlier_count <= Q3_K_HIFI_OUTLIERS) ? bq3_k_hifi->outlier_count : Q3_K_HIFI_OUTLIERS;
+    const int n_out = (bq3_k_hifi->n_outliers <= Q3_K_HIFI_OUTLIERS) ? bq3_k_hifi->n_outliers : Q3_K_HIFI_OUTLIERS;
 
-    for (int k = 0; k < n_outliers; ++k) {
+    for (int k = 0; k < n_out; ++k) {
         const int idx = bq3_k_hifi->outlier_idx[k];
 
         // Determine which bq8 block this index falls into
@@ -829,11 +829,31 @@ static __device__ __forceinline__ float vec_dot_q3_k_hifi_q8_1(
             // Each thread processes 4 consecutive int8 values at positions [thread_q8_offset*4, thread_q8_offset*4+4)
             const int pos_in_q8_group = idx_in_bq8 / 4;
             if (pos_in_q8_group == thread_q8_offset) {
-                // outlier_vals contains RESIDUAL correction, not original value
-                const float residual_correction = __half2float(bq3_k_hifi->outlier_vals[k]);
+                // Compute Q3_K dequantized value at this position
+                const int idx_local = idx % QK_K;
+                const int idx_n = idx_local / 128;
+                const int idx_j = (idx_local % 128) / 32;
+                const int idx_l = idx_local % 32;
+
+                const uint8_t m_local = 1 << (4*idx_n + idx_j);
+                const int shift_local = 2*idx_j;
+                const int is_local = 8*idx_n + 2*idx_j;
+
+                const int8_t us_local = is_local < 4  ? (bq3_k_hifi->scales[is_local] & 0xF) | (((bq3_k_hifi->scales[is_local+8] >> 0) & 3) << 4) :
+                                        is_local < 8  ? (bq3_k_hifi->scales[is_local] & 0xF) | (((bq3_k_hifi->scales[is_local+4] >> 2) & 3) << 4) :
+                                        is_local < 12 ? (bq3_k_hifi->scales[is_local-8] >> 4) | (((bq3_k_hifi->scales[is_local] >> 4) & 3) << 4) :
+                                                        (bq3_k_hifi->scales[is_local-8] >> 4) | (((bq3_k_hifi->scales[is_local-4] >> 6) & 3) << 4);
+                const float dl_local = d * (us_local - 32);
+                const float q3k_val = dl_local * ((int8_t)((bq3_k_hifi->qs[idx_local] >> shift_local) & 3) - ((bq3_k_hifi->hmask[idx_local] & m_local) ? 0 : 4));
+
+                // Get exact value and compute residual
+                const float exact_val = __half2float(bq3_k_hifi->outliers[k]);
+                const float residual = exact_val - q3k_val;
+
+                // Apply correction to dot product
                 const int8_t q8_val = ((const int8_t*)bq8_1[idx_bq8].qs)[idx_in_bq8];
                 const float d8_val = __low2float(bq8_1[idx_bq8].ds);
-                sum += residual_correction * q8_val * d8_val;
+                sum += residual * q8_val * d8_val;
             }
         }
     }

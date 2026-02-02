@@ -1302,7 +1302,8 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
         if (max_outliers == 0) {
             block_q3_K q3k_block;
             quantize_row_q3_K_ref(xb, &q3k_block, Q3_K_HIFI_BLOCK_SIZE);
-            memcpy(block->q3_k_data, &q3k_block, 110);
+            memcpy(&block->hmask, &q3k_block, 110);  // Copy Q3_K fields
+            block->n_outliers = 0;
             memset(block->outlier_idx, 0, sizeof(block->outlier_idx));
             memset(block->outliers, 0, sizeof(block->outliers));
             memset(block->padding, 0, sizeof(block->padding));
@@ -1336,6 +1337,7 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
         }
 
         // Step 3: Store original outlier values (not residuals!)
+        block->n_outliers = (uint8_t)max_outliers;
         for (int outlier_k = 0; outlier_k < max_outliers; ++outlier_k) {
             const int idx = outlier_indices[outlier_k];
             block->outlier_idx[outlier_k] = (uint8_t)idx;
@@ -1356,7 +1358,7 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
         // Step 5: Quantize inliers with standard Q3_K (no imatrix - already used for outlier selection)
         block_q3_K q3k_block;
         quantize_row_q3_K_ref(inliers_only, &q3k_block, Q3_K_HIFI_BLOCK_SIZE);
-        memcpy(block->q3_k_data, &q3k_block, 110);
+        memcpy(&block->hmask, &q3k_block, 110);  // Copy Q3_K fields
         memset(block->padding, 0, sizeof(block->padding));
 
         // Debug logging
@@ -1405,8 +1407,8 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
         if (max_outliers == 0) {
             block_q3_K q3k_block;
             quantize_row_q3_K_ref(xb, &q3k_block, Q3_K_HIFI_BLOCK_SIZE);
-            // Copy Q3_K block to q3_k_data, no outliers
-            memcpy(block->q3_k_data, &q3k_block, 110);
+            // Copy Q3_K block, no outliers
+            memcpy(&block->hmask, &q3k_block, 110);  // Copy Q3_K fields
             memset(block->outlier_idx, 0, sizeof(block->outlier_idx));
             memset(block->outliers, 0, sizeof(block->outliers));
             memset(block->padding, 0, sizeof(block->padding));
@@ -1442,6 +1444,7 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
         }
 
         // Step 3: Store original outlier values (not residuals!)
+        block->n_outliers = (uint8_t)max_outliers;
         for (int outlier_k = 0; outlier_k < max_outliers; ++outlier_k) {
             const int idx = outlier_indices[outlier_k];
             block->outlier_idx[outlier_k] = (uint8_t)idx;
@@ -1462,7 +1465,7 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
         // Step 5: Quantize inliers with standard Q3_K (no imatrix - already used for outlier selection)
         block_q3_K q3k_block;
         quantize_row_q3_K_impl(inliers_only, &q3k_block, Q3_K_HIFI_BLOCK_SIZE, NULL);
-        memcpy(block->q3_k_data, &q3k_block, 110);
+        memcpy(&block->hmask, &q3k_block, 110);  // Copy Q3_K fields
         memset(block->padding, 0, sizeof(block->padding));
     }
 }
@@ -1490,7 +1493,8 @@ void dequantize_row_q3_k_hifi(const block_q3_k_hifi * GGML_RESTRICT x, float * G
         float * yb = y + ib * Q3_K_HIFI_BLOCK_SIZE;
 
         // Step 1: Reconstruct inliers with standard Q3_K dequantization
-        const block_q3_K * q3k_block = (const block_q3_K *)block->q3_k_data;
+        // Cast to block_q3_K since the first 110 bytes match Q3_K layout
+        const block_q3_K * q3k_block = (const block_q3_K *)block;
         dequantize_row_q3_K(q3k_block, yb, Q3_K_HIFI_BLOCK_SIZE);
 
         // Step 2: Restore original outlier values (overwrite Q3_K reconstruction at outlier positions)
@@ -6475,7 +6479,8 @@ bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbyte
                 // Validate true outlier extraction layout: check Q3_K block's d field
                 const block_q3_k_hifi * q = (const block_q3_k_hifi *) (data);
                 for (size_t i = 0; i < nb; ++i) {
-                    const block_q3_K * q3k = (const block_q3_K *)q[i].q3_k_data;
+                    // Cast to block_q3_K since first 110 bytes match Q3_K layout
+                    const block_q3_K * q3k = (const block_q3_K *)&q[i];
                     if (!validate_fp16(q3k->d, i)) {
                         return false;
                     }
