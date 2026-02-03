@@ -809,10 +809,9 @@ static __device__ __forceinline__ float vec_dot_q3_k_hifi_q8_1(
     // KEY INSIGHT: Outlier positions are ZEROED in Q3_K data during quantization (see ggml-quants.c:1355)
     // So bulk Q3_K dot product naturally contributes 0.0 for outliers
     // We just ADD the outlier contributions: outlier_value * q8_val * d8_val
+    // Unused slots are zeroed, so they have no effect
 
-    const int n_out = (bq3_k_hifi->n_outliers <= Q3_K_HIFI_OUTLIERS) ? bq3_k_hifi->n_outliers : Q3_K_HIFI_OUTLIERS;
-
-    for (int k = 0; k < n_out; ++k) {
+    for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
         const int idx = bq3_k_hifi->outlier_idx[k];
 
         // Determine which bq8 block this index falls into

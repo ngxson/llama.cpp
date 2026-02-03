@@ -1302,11 +1302,10 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
         if (max_outliers == 0) {
             block_q3_K q3k_block;
             quantize_row_q3_K_ref(xb, &q3k_block, Q3_K_HIFI_BLOCK_SIZE);
-            memcpy(&block->hmask, &q3k_block, 110);  // Copy Q3_K fields
-            block->n_outliers = 0;
+            memcpy(block->q3_k_data, &q3k_block, 110);
             memset(block->outlier_idx, 0, sizeof(block->outlier_idx));
             memset(block->outliers, 0, sizeof(block->outliers));
-            // No explicit padding field - compiler handles alignment
+            memset(block->padding, 0, sizeof(block->padding));
             continue;
         }
 
@@ -1337,7 +1336,6 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
         }
 
         // Step 3: Store original outlier values (not residuals!)
-        block->n_outliers = (uint8_t)max_outliers;
         for (int outlier_k = 0; outlier_k < max_outliers; ++outlier_k) {
             const int idx = outlier_indices[outlier_k];
             block->outlier_idx[outlier_k] = (uint8_t)idx;
@@ -1358,8 +1356,8 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
         // Step 5: Quantize inliers with standard Q3_K (no imatrix - already used for outlier selection)
         block_q3_K q3k_block;
         quantize_row_q3_K_ref(inliers_only, &q3k_block, Q3_K_HIFI_BLOCK_SIZE);
-        memcpy(&block->hmask, &q3k_block, 110);  // Copy Q3_K fields
-        // No explicit padding field - compiler handles alignment
+        memcpy(block->q3_k_data, &q3k_block, 110);
+        memset(block->padding, 0, sizeof(block->padding));
 
         // Debug logging
         static bool quant_debug_enabled = false;
@@ -1408,10 +1406,10 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
             block_q3_K q3k_block;
             quantize_row_q3_K_ref(xb, &q3k_block, Q3_K_HIFI_BLOCK_SIZE);
             // Copy Q3_K block, no outliers
-            memcpy(&block->hmask, &q3k_block, 110);  // Copy Q3_K fields
+            memcpy(block->q3_k_data, &q3k_block, 110);
             memset(block->outlier_idx, 0, sizeof(block->outlier_idx));
             memset(block->outliers, 0, sizeof(block->outliers));
-            // No explicit padding field - compiler handles alignment
+            memset(block->padding, 0, sizeof(block->padding));
             continue;
         }
 
@@ -1444,7 +1442,6 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
         }
 
         // Step 3: Store original outlier values (not residuals!)
-        block->n_outliers = (uint8_t)max_outliers;
         for (int outlier_k = 0; outlier_k < max_outliers; ++outlier_k) {
             const int idx = outlier_indices[outlier_k];
             block->outlier_idx[outlier_k] = (uint8_t)idx;
@@ -1465,8 +1462,8 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
         // Step 5: Quantize inliers with standard Q3_K (no imatrix - already used for outlier selection)
         block_q3_K q3k_block;
         quantize_row_q3_K_impl(inliers_only, &q3k_block, Q3_K_HIFI_BLOCK_SIZE, NULL);
-        memcpy(&block->hmask, &q3k_block, 110);  // Copy Q3_K fields
-        // No explicit padding field - compiler handles alignment
+        memcpy(block->q3_k_data, &q3k_block, 110);
+        memset(block->padding, 0, sizeof(block->padding));
     }
 }
 

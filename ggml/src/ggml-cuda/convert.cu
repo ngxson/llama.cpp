@@ -727,10 +727,10 @@ static __global__ void dequantize_block_q3_k_hifi(const void * __restrict__ vx, 
     __syncthreads();
 
     // Thread 0 handles outlier replacements (REPLACE with exact FP16 values)
+    // Unused slots are zeroed, so they have no effect
     if (threadIdx.x == 0) {
         dst_t * yb = yy + i*QK_K;
-        const int n_out = (x[i].n_outliers <= Q3_K_HIFI_OUTLIERS) ? x[i].n_outliers : Q3_K_HIFI_OUTLIERS;
-        for (int k = 0; k < n_out; ++k) {
+        for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
             const int idx = x[i].outlier_idx[k];
             yb[idx] = __half2float(x[i].outliers[k]);  // REPLACE with original FP16 value
         }

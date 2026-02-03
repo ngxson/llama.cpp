@@ -76,16 +76,17 @@ static __device__ __forceinline__ void dequantize_q8_0(const void * vx, const in
     v.y *= d;
 }
 
-// Q3_K_HIFI: Q3_K layout + 16 FP16 exact outlier values
-// Uses same hmask/qs/scales layout as Q3_K for the first 110 bytes
+// Q3_K_HIFI: Q3_K layout + up to 8 FP16 exact outlier values
+// Uses Q3_K block in first 110 bytes (q3_k_data)
 // Outliers REPLACE the Q3_K value at specified positions (not residual add)
 static __device__ __forceinline__ void dequantize_q3_k_hifi(const void * vx, const int64_t ib, const int iqs, float2 & v){
     const block_q3_k_hifi * x = (const block_q3_k_hifi *) vx;
 
-    // Use Q3_K-style extraction
-    const float d = __half2float(x[ib].d);
-    const uint8_t * qs = x[ib].qs;
-    const uint8_t * hmask = x[ib].hmask;
+    // Cast q3_k_data to block_q3_K for extraction
+    const block_q3_K * q3k = (const block_q3_K *)x[ib].q3_k_data;
+    const float d = __half2float(q3k->d);
+    const uint8_t * qs = q3k->qs;
+    const uint8_t * hmask = q3k->hmask;
 
     // iqs is in range [0, QK_K/2) = [0, 128)
     // We need to extract 2 values at positions iqs*2 and iqs*2+1
@@ -119,8 +120,8 @@ static __device__ __forceinline__ void dequantize_q3_k_hifi(const void * vx, con
 
     // REPLACE with exact FP16 outlier values if present
     // outliers array contains original FP16 values, not residuals
-    const int n_out = (x[ib].n_outliers <= Q3_K_HIFI_OUTLIERS) ? x[ib].n_outliers : Q3_K_HIFI_OUTLIERS;
-    for (int k = 0; k < n_out; ++k) {
+    // Unused slots are zeroed, so they have no effect
+    for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
         if (x[ib].outlier_idx[k] == idx0) {
             v.x = __half2float(x[ib].outliers[k]);  // REPLACE with exact value
         }
