@@ -896,19 +896,26 @@ void dequantize_q3_k_hifi(device const block_q3_k_hifi * xb, short il, thread ty
     // Step 1: Dequantize Q3_K from first 110 bytes
     const device block_q3_K * q3k_block = (const device block_q3_K *)xb->q3_k_data;
     dequantize_q3_K(q3k_block, il, reg);
-    
+
     // Step 2: Overwrite outlier positions with stored FP16 values
-    int base_pos = il * 16;
-    for (int i = 0; i < 16; ++i) {
-        int pos = base_pos + i;
-        if (pos >= Q3_K_HIFI_BLOCK_SIZE) break;
-        
-        // Check if this position is an outlier
-        for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
-            if (xb->outlier_idx[k] == pos) {
-                reg[i/4][i%4] = (float)xb->outliers[k];
-                break;
-            }
+    // Outliers are sorted by index (ascending), enabling efficient processing
+    const int base_pos = il * 16;
+    const int end_pos = base_pos + 16;
+
+    // Load all outlier data once (vectorized)
+    const half4 outliers_lo = *(device const half4 *)&xb->outliers[0];
+    const half4 outliers_hi = *(device const half4 *)&xb->outliers[4];
+
+    // Process sorted outliers with early exit
+    // Skip outliers before our range, process those in range, stop when past range
+    #pragma unroll
+    for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
+        const int idx = xb->outlier_idx[k];
+        if (idx >= end_pos) break;  // Early exit: remaining indices are larger (sorted)
+        if (idx >= base_pos) {
+            const int local_pos = idx - base_pos;
+            const float val = (k < 4) ? (float)outliers_lo[k] : (float)outliers_hi[k - 4];
+            reg[local_pos / 4][local_pos % 4] = val;
         }
     }
 }
@@ -7355,15 +7362,52 @@ void kernel_mul_mv_q3_k_hifi_f32_impl(
             d2 = d_all * (s4 + 1.f/256.f * s5 - s6*v2);
             q3k_sum += d1 * (scales[1] - 32) + d2 * (scales[3] - 32);
             
-            // Step 2: Add outlier corrections (outliers were zeroed, so Q3_K contribution is ~0)
-            // We need to add the outlier values directly
-            for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
-                int idx = xb->outlier_idx[k];
-                if (idx >= y_offset && idx < y_offset + 32 && idx < Q3_K_HIFI_BLOCK_SIZE) {
-                    float outlier_val = (float)xb->outliers[k];
-                    q3k_sum += outlier_val * y1[idx - y_offset];
+            // Step 2: Add outlier corrections (optimized with vectorized load + early exit)
+            // Outliers are sorted by index during quantization, enabling early exit
+            // Load all 8 indices at once (they're contiguous in memory)
+            const uint8_t idx0 = xb->outlier_idx[0];
+            const uint8_t idx1 = xb->outlier_idx[1];
+            const uint8_t idx2 = xb->outlier_idx[2];
+            const uint8_t idx3 = xb->outlier_idx[3];
+            const uint8_t idx4 = xb->outlier_idx[4];
+            const uint8_t idx5 = xb->outlier_idx[5];
+            const uint8_t idx6 = xb->outlier_idx[6];
+            const uint8_t idx7 = xb->outlier_idx[7];
+
+            // Load all 8 FP16 outlier values at once
+            const half4 outliers_lo = *(device const half4 *)&xb->outliers[0];
+            const half4 outliers_hi = *(device const half4 *)&xb->outliers[4];
+
+            // Process outliers with early exit (indices are sorted ascending, 255 = sentinel)
+            const int y_end = y_offset + 32;
+            float outlier_sum = 0.0f;
+
+            // Unrolled loop with early exit on sorted indices
+            if (idx0 < y_end) {
+                if (idx0 >= y_offset) outlier_sum += (float)outliers_lo[0] * y1[idx0 - y_offset];
+                if (idx1 < y_end) {
+                    if (idx1 >= y_offset) outlier_sum += (float)outliers_lo[1] * y1[idx1 - y_offset];
+                    if (idx2 < y_end) {
+                        if (idx2 >= y_offset) outlier_sum += (float)outliers_lo[2] * y1[idx2 - y_offset];
+                        if (idx3 < y_end) {
+                            if (idx3 >= y_offset) outlier_sum += (float)outliers_lo[3] * y1[idx3 - y_offset];
+                            if (idx4 < y_end) {
+                                if (idx4 >= y_offset) outlier_sum += (float)outliers_hi[0] * y1[idx4 - y_offset];
+                                if (idx5 < y_end) {
+                                    if (idx5 >= y_offset) outlier_sum += (float)outliers_hi[1] * y1[idx5 - y_offset];
+                                    if (idx6 < y_end) {
+                                        if (idx6 >= y_offset) outlier_sum += (float)outliers_hi[2] * y1[idx6 - y_offset];
+                                        if (idx7 < y_end && idx7 >= y_offset) {
+                                            outlier_sum += (float)outliers_hi[3] * y1[idx7 - y_offset];
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
+            q3k_sum += outlier_sum;
             
             sumf1[row] += q3k_sum;
         }

@@ -783,15 +783,18 @@ static __device__ __forceinline__ float vec_dot_q3_k_hifi_q8_1(
     const block_q3_k_hifi * bq3_k_hifi = (const block_q3_k_hifi *) vbq + kbx;
 
     // === Q3_K bulk dot product (identical logic) ===
+    // Cast q3_k_data to block_q3_K to access Q3_K fields
+    const block_q3_K * q3k = (const block_q3_K *)bq3_k_hifi->q3_k_data;
+
     const int bq8_offset = QR3_K * (iqs / (QI3_K/2));
     const int scale_offset = iqs - iqs % QI8_1 + (iqs % QI8_1) / (QI8_1/2);
 
-    const float d = __half2float(bq3_k_hifi->d);
+    const float d = __half2float(q3k->d);
 
-    const int vl = get_int_b2(bq3_k_hifi->qs, iqs);
+    const int vl = get_int_b2(q3k->qs, iqs);
 
     // invert the mask with ~ so that a 0/1 results in 4/0 being subtracted
-    const int vh = ~get_int_b2(bq3_k_hifi->hmask, iqs % (QI3_K/2)) >> bq8_offset;
+    const int vh = ~get_int_b2(q3k->hmask, iqs % (QI3_K/2)) >> bq8_offset;
 
     int    u[QR3_K];
     float d8[QR3_K];
@@ -803,38 +806,61 @@ static __device__ __forceinline__ float vec_dot_q3_k_hifi_q8_1(
     }
 
     // Compute Q3_K bulk dot product (includes all positions now)
-    float sum = vec_dot_q3_K_q8_1_impl_mmvq(vl, vh, u, bq3_k_hifi->scales, scale_offset, d, d8);
+    float sum = vec_dot_q3_K_q8_1_impl_mmvq(vl, vh, u, q3k->scales, scale_offset, d, d8);
 
-    // === Q3_K_HIFI outlier addition ===
-    // KEY INSIGHT: Outlier positions are ZEROED in Q3_K data during quantization (see ggml-quants.c:1355)
-    // So bulk Q3_K dot product naturally contributes 0.0 for outliers
-    // We just ADD the outlier contributions: outlier_value * q8_val * d8_val
-    // Unused slots are zeroed, so they have no effect
+    // === Q3_K_HIFI outlier addition (optimized with vectorized load + early exit) ===
+    // Outlier indices are SORTED ascending during quantization, enabling early exit
+    // Unused slots have index=255 as sentinel
 
+    // Precompute thread's valid range
+    const int bq8_end = bq8_offset + QR3_K;
+    const int thread_q8_offset = iqs % QI8_1;
+
+    // Load all 8 outlier indices at once (vectorized as 2x uint32)
+    const uint32_t idx_lo = *reinterpret_cast<const uint32_t*>(&bq3_k_hifi->outlier_idx[0]);
+    const uint32_t idx_hi = *reinterpret_cast<const uint32_t*>(&bq3_k_hifi->outlier_idx[4]);
+
+    // Load all 8 outlier values (as 2x half2 pairs for better memory access)
+    const half2 outliers_01 = *reinterpret_cast<const half2*>(&bq3_k_hifi->outliers[0]);
+    const half2 outliers_23 = *reinterpret_cast<const half2*>(&bq3_k_hifi->outliers[2]);
+    const half2 outliers_45 = *reinterpret_cast<const half2*>(&bq3_k_hifi->outliers[4]);
+    const half2 outliers_67 = *reinterpret_cast<const half2*>(&bq3_k_hifi->outliers[6]);
+
+    // Process outliers with early exit (indices are sorted, 255 = sentinel)
+    #pragma unroll
     for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
-        const int idx = bq3_k_hifi->outlier_idx[k];
+        // Extract index from packed uint32
+        const int idx = (k < 4) ? ((idx_lo >> (k * 8)) & 0xFF) : ((idx_hi >> ((k - 4) * 8)) & 0xFF);
 
-        // Determine which bq8 block this index falls into
-        const int idx_bq8 = idx / QK8_1;  // Which Q8 block (0-7 for 256 weights)
-        const int idx_in_bq8 = idx % QK8_1;  // Position within Q8 block (0-31)
+        // Early exit: indices are sorted, so if we're past the range, we're done
+        const int idx_bq8 = idx / QK8_1;
+        if (idx_bq8 >= bq8_end) break;  // All remaining indices will be >= this one
 
-        // Check if this outlier is in the range this thread processes
-        if (idx_bq8 >= bq8_offset && idx_bq8 < bq8_offset + QR3_K) {
-            // Thread position filtering: ensure only ONE thread processes each outlier
-            // Each thread handles specific positions based on iqs parameter
-            const int thread_q8_offset = iqs % QI8_1;  // Which position group this thread handles (0-31)
-            const int pos_in_q8_group = idx_in_bq8 / 4;  // Which group this outlier belongs to (0-7)
+        // Skip if before our range
+        if (idx_bq8 < bq8_offset) continue;
 
-            // Only process if this outlier is in this thread's position group
-            if (pos_in_q8_group == thread_q8_offset) {
-                // Get outlier value and corresponding Q8 quantized value
-                const float outlier_val = __half2float(bq3_k_hifi->outliers[k]);
-                const int8_t q8_val = ((const int8_t*)bq8_1[idx_bq8].qs)[idx_in_bq8];
-                const float d8_val = __low2float(bq8_1[idx_bq8].ds);
+        const int idx_in_bq8 = idx % QK8_1;
+        const int pos_in_q8_group = idx_in_bq8 / 4;
 
-                // Add outlier contribution (Q3_K contribution is 0 since position was zeroed)
-                sum += outlier_val * q8_val * d8_val;
+        // Only process if this outlier is in this thread's position group
+        if (pos_in_q8_group == thread_q8_offset) {
+            // Get outlier value from preloaded half2 pairs
+            float outlier_val;
+            switch (k) {
+                case 0: outlier_val = __low2float(outliers_01); break;
+                case 1: outlier_val = __high2float(outliers_01); break;
+                case 2: outlier_val = __low2float(outliers_23); break;
+                case 3: outlier_val = __high2float(outliers_23); break;
+                case 4: outlier_val = __low2float(outliers_45); break;
+                case 5: outlier_val = __high2float(outliers_45); break;
+                case 6: outlier_val = __low2float(outliers_67); break;
+                default: outlier_val = __high2float(outliers_67); break;
             }
+
+            const int8_t q8_val = ((const int8_t*)bq8_1[idx_bq8].qs)[idx_in_bq8];
+            const float d8_val = __low2float(bq8_1[idx_bq8].ds);
+
+            sum += outlier_val * q8_val * d8_val;
         }
     }
 
@@ -851,15 +877,18 @@ static __device__ __forceinline__ float vec_dot_q3_k_hifi_res8_q8_1(
     const block_q3_k_hifi_res8 * bq3_k_hifi = (const block_q3_k_hifi_res8 *) vbq + kbx;
 
     // === Q3_K bulk dot product (identical logic) ===
+    // Cast q3_k_data to block_q3_K to access Q3_K fields
+    const block_q3_K * q3k = (const block_q3_K *)bq3_k_hifi->q3_k_data;
+
     const int bq8_offset = QR3_K * (iqs / (QI3_K/2));
     const int scale_offset = iqs - iqs % QI8_1 + (iqs % QI8_1) / (QI8_1/2);
 
-    const float d = __half2float(bq3_k_hifi->d);
+    const float d = __half2float(q3k->d);
 
-    const int vl = get_int_b2(bq3_k_hifi->qs, iqs);
+    const int vl = get_int_b2(q3k->qs, iqs);
 
     // invert the mask with ~ so that a 0/1 results in 4/0 being subtracted
-    const int vh = ~get_int_b2(bq3_k_hifi->hmask, iqs % (QI3_K/2)) >> bq8_offset;
+    const int vh = ~get_int_b2(q3k->hmask, iqs % (QI3_K/2)) >> bq8_offset;
 
     int    u[QR3_K];
     float d8[QR3_K];
@@ -871,7 +900,7 @@ static __device__ __forceinline__ float vec_dot_q3_k_hifi_res8_q8_1(
     }
 
     // Compute Q3_K bulk dot product (includes all positions now)
-    float sum = vec_dot_q3_K_q8_1_impl_mmvq(vl, vh, u, bq3_k_hifi->scales, scale_offset, d, d8);
+    float sum = vec_dot_q3_K_q8_1_impl_mmvq(vl, vh, u, q3k->scales, scale_offset, d, d8);
 
     // === Q3_K_HIFI_RES8 INT8 residual correction ===
     // Each residual correction: residual_val * residual_scale * q8_val * d8

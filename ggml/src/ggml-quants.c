@@ -1279,6 +1279,16 @@ size_t quantize_q3_K(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, 
 // ====================== Q3_K_HIFI: Q3_K layout + 8 FP16 outliers ======================
 // Uses Q3_K's optimized AVX2 kernels for ~98% of Q3_K speed with better quality
 
+// === Q3_K_HIFI STATISTICS COLLECTION (shared across all quantization functions) ===
+static int64_t g_q3k_hifi_total_blocks_quantized = 0;
+static int64_t g_q3k_hifi_outlier_count_histogram[Q3_K_HIFI_OUTLIERS + 1] = {0};  // 0-8 outliers
+static int64_t g_q3k_hifi_outlier_position_histogram[Q3_K_HIFI_BLOCK_SIZE] = {0}; // position 0-255
+static double g_q3k_hifi_sum_outlier_magnitude = 0.0;
+static double g_q3k_hifi_sum_outlier_magnitude_sq = 0.0;
+static int64_t g_q3k_hifi_total_outliers = 0;
+static float g_q3k_hifi_max_outlier_magnitude = 0.0f;
+static float g_q3k_hifi_min_outlier_magnitude = FLT_MAX;
+
 void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi * GGML_RESTRICT y, int64_t k) {
     assert(k % Q3_K_HIFI_BLOCK_SIZE == 0);
     const int64_t nb = k / Q3_K_HIFI_BLOCK_SIZE;
@@ -1317,10 +1327,10 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
             importance[i] = fabsf(xb[i]);
         }
 
-        // Step 2: Select TOP-16 most important weights → these become outliers
+        // Step 2: Select TOP-8 most important weights → these become outliers
         int outlier_indices[Q3_K_HIFI_OUTLIERS];
         bool is_outlier[Q3_K_HIFI_BLOCK_SIZE] = {false};
-        
+
         for (int outlier_k = 0; outlier_k < max_outliers; ++outlier_k) {
             int argmax = 0;
             float max_val = importance[0];
@@ -1335,25 +1345,50 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
             importance[argmax] = -1.0f;  // mask out
         }
 
-        // Step 3: Store original outlier values (not residuals!)
+        // Step 3: Sort outliers by index for faster kernel access (enables early exit)
+        // Simple insertion sort - only 8 elements max
+        for (int i = 1; i < max_outliers; ++i) {
+            int key_idx = outlier_indices[i];
+            int j = i - 1;
+            while (j >= 0 && outlier_indices[j] > key_idx) {
+                outlier_indices[j + 1] = outlier_indices[j];
+                j--;
+            }
+            outlier_indices[j + 1] = key_idx;
+        }
+
+        // Step 4: Store sorted outlier values
         for (int outlier_k = 0; outlier_k < max_outliers; ++outlier_k) {
             const int idx = outlier_indices[outlier_k];
             block->outlier_idx[outlier_k] = (uint8_t)idx;
             block->outliers[outlier_k] = GGML_FP32_TO_FP16(xb[idx]);
+
+            // Collect statistics
+            float outlier_mag = fabsf(xb[idx]);
+            g_q3k_hifi_sum_outlier_magnitude += outlier_mag;
+            g_q3k_hifi_sum_outlier_magnitude_sq += outlier_mag * outlier_mag;
+            if (outlier_mag > g_q3k_hifi_max_outlier_magnitude) g_q3k_hifi_max_outlier_magnitude = outlier_mag;
+            if (outlier_mag < g_q3k_hifi_min_outlier_magnitude) g_q3k_hifi_min_outlier_magnitude = outlier_mag;
+            g_q3k_hifi_outlier_position_histogram[idx]++;
+            g_q3k_hifi_total_outliers++;
         }
-        // Zero out unused outlier slots
+        // Zero out unused outlier slots (use 255 as sentinel for early exit in kernels)
         for (int outlier_k = max_outliers; outlier_k < Q3_K_HIFI_OUTLIERS; ++outlier_k) {
-            block->outlier_idx[outlier_k] = 0;
+            block->outlier_idx[outlier_k] = 255;  // Sentinel: indices are sorted, so 255 means "no more outliers in range"
             block->outliers[outlier_k] = 0;
         }
 
-        // Step 4: Zero out outliers and quantize inliers with standard Q3_K
+        // Track outlier count per block
+        g_q3k_hifi_outlier_count_histogram[max_outliers]++;
+        g_q3k_hifi_total_blocks_quantized++;
+
+        // Step 5: Zero out outliers and quantize inliers with standard Q3_K
         float inliers_only[Q3_K_HIFI_BLOCK_SIZE];
         for (int i = 0; i < Q3_K_HIFI_BLOCK_SIZE; ++i) {
             inliers_only[i] = is_outlier[i] ? 0.0f : xb[i];
         }
 
-        // Step 5: Quantize inliers with standard Q3_K (no imatrix - already used for outlier selection)
+        // Step 6: Quantize inliers with standard Q3_K (no imatrix - already used for outlier selection)
         block_q3_K q3k_block;
         quantize_row_q3_K_ref(inliers_only, &q3k_block, Q3_K_HIFI_BLOCK_SIZE);
         memcpy(block->q3_k_data, &q3k_block, 110);
@@ -1410,6 +1445,10 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
             memset(block->outlier_idx, 0, sizeof(block->outlier_idx));
             memset(block->outliers, 0, sizeof(block->outliers));
             memset(block->padding, 0, sizeof(block->padding));
+
+            // Track blocks with 0 outliers
+            g_q3k_hifi_outlier_count_histogram[0]++;
+            g_q3k_hifi_total_blocks_quantized++;
             continue;
         }
 
@@ -1423,10 +1462,10 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
             importance[i] = base_importance * imatrix_weight;
         }
 
-        // Step 2: Select TOP-16 most important weights → these become outliers
+        // Step 2: Select TOP-8 most important weights → these become outliers
         int outlier_indices[Q3_K_HIFI_OUTLIERS];
         bool is_outlier[Q3_K_HIFI_BLOCK_SIZE] = {false};
-        
+
         for (int outlier_k = 0; outlier_k < max_outliers; ++outlier_k) {
             int argmax = 0;
             float max_val = importance[0];
@@ -1441,29 +1480,121 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
             importance[argmax] = -1.0f;  // mask out
         }
 
-        // Step 3: Store original outlier values (not residuals!)
+        // Step 3: Sort outliers by index for faster kernel access (enables early exit)
+        // Simple insertion sort - only 8 elements max
+        for (int i = 1; i < max_outliers; ++i) {
+            int key_idx = outlier_indices[i];
+            int j = i - 1;
+            while (j >= 0 && outlier_indices[j] > key_idx) {
+                outlier_indices[j + 1] = outlier_indices[j];
+                j--;
+            }
+            outlier_indices[j + 1] = key_idx;
+        }
+
+        // Step 4: Store sorted outlier values
         for (int outlier_k = 0; outlier_k < max_outliers; ++outlier_k) {
             const int idx = outlier_indices[outlier_k];
             block->outlier_idx[outlier_k] = (uint8_t)idx;
             block->outliers[outlier_k] = GGML_FP32_TO_FP16(xb[idx]);
+
+            // Collect statistics
+            float outlier_mag = fabsf(xb[idx]);
+            g_q3k_hifi_sum_outlier_magnitude += outlier_mag;
+            g_q3k_hifi_sum_outlier_magnitude_sq += outlier_mag * outlier_mag;
+            if (outlier_mag > g_q3k_hifi_max_outlier_magnitude) g_q3k_hifi_max_outlier_magnitude = outlier_mag;
+            if (outlier_mag < g_q3k_hifi_min_outlier_magnitude) g_q3k_hifi_min_outlier_magnitude = outlier_mag;
+            g_q3k_hifi_outlier_position_histogram[idx]++;
+            g_q3k_hifi_total_outliers++;
         }
-        // Zero out unused outlier slots
+        // Zero out unused outlier slots (use 255 as sentinel for early exit in kernels)
         for (int outlier_k = max_outliers; outlier_k < Q3_K_HIFI_OUTLIERS; ++outlier_k) {
-            block->outlier_idx[outlier_k] = 0;
+            block->outlier_idx[outlier_k] = 255;  // Sentinel: indices are sorted, so 255 means "no more outliers in range"
             block->outliers[outlier_k] = 0;
         }
 
-        // Step 4: Zero out outliers and quantize inliers with standard Q3_K
+        // Track outlier count per block
+        g_q3k_hifi_outlier_count_histogram[max_outliers]++;
+        g_q3k_hifi_total_blocks_quantized++;
+
+        // Step 5: Zero out outliers and quantize inliers with standard Q3_K
         float inliers_only[Q3_K_HIFI_BLOCK_SIZE];
         for (int i = 0; i < Q3_K_HIFI_BLOCK_SIZE; ++i) {
             inliers_only[i] = is_outlier[i] ? 0.0f : xb[i];
         }
 
-        // Step 5: Quantize inliers with standard Q3_K (no imatrix - already used for outlier selection)
+        // Step 6: Quantize inliers with standard Q3_K (no imatrix - already used for outlier selection)
         block_q3_K q3k_block;
         quantize_row_q3_K_impl(inliers_only, &q3k_block, Q3_K_HIFI_BLOCK_SIZE, NULL);
         memcpy(block->q3_k_data, &q3k_block, 110);
         memset(block->padding, 0, sizeof(block->padding));
+    }
+
+    // === PRINT STATISTICS (every 1000 blocks or when env var is set) ===
+    static bool stats_enabled = false;
+    static bool stats_checked = false;
+    if (!stats_checked) {
+        stats_enabled = (getenv("Q3_K_HIFI_STATS") != NULL);
+        stats_checked = true;
+    }
+
+    if (stats_enabled && (g_q3k_hifi_total_blocks_quantized % 1000 == 0 || g_q3k_hifi_total_blocks_quantized == nb)) {
+        fprintf(stderr, "\n=== Q3_K_HIFI Outlier Statistics (after %lld blocks) ===\n",
+                (long long)g_q3k_hifi_total_blocks_quantized);
+
+        // Outlier count distribution
+        fprintf(stderr, "\nOutlier Count Distribution:\n");
+        for (int i = 0; i <= Q3_K_HIFI_OUTLIERS; ++i) {
+            if (g_q3k_hifi_outlier_count_histogram[i] > 0) {
+                double percentage = 100.0 * g_q3k_hifi_outlier_count_histogram[i] / g_q3k_hifi_total_blocks_quantized;
+                fprintf(stderr, "  %d outliers: %lld blocks (%.2f%%)\n",
+                        i, (long long)g_q3k_hifi_outlier_count_histogram[i], percentage);
+            }
+        }
+
+        // Outlier magnitude statistics
+        if (g_q3k_hifi_total_outliers > 0) {
+            double avg_magnitude = g_q3k_hifi_sum_outlier_magnitude / g_q3k_hifi_total_outliers;
+            double variance = (g_q3k_hifi_sum_outlier_magnitude_sq / g_q3k_hifi_total_outliers) - (avg_magnitude * avg_magnitude);
+            double stddev = sqrt(variance);
+
+            fprintf(stderr, "\nOutlier Magnitude Statistics:\n");
+            fprintf(stderr, "  Total outliers: %lld\n", (long long)g_q3k_hifi_total_outliers);
+            fprintf(stderr, "  Min magnitude: %.6f\n", g_q3k_hifi_min_outlier_magnitude);
+            fprintf(stderr, "  Max magnitude: %.6f\n", g_q3k_hifi_max_outlier_magnitude);
+            fprintf(stderr, "  Avg magnitude: %.6f\n", avg_magnitude);
+            fprintf(stderr, "  Std deviation: %.6f\n", stddev);
+        }
+
+        // Outlier position heatmap (top 20 positions)
+        fprintf(stderr, "\nTop 20 Outlier Positions (out of 256):\n");
+        typedef struct { int pos; int64_t count; } pos_count_t;
+        pos_count_t top_positions[20] = {0};
+
+        for (int i = 0; i < Q3_K_HIFI_BLOCK_SIZE; ++i) {
+            if (g_q3k_hifi_outlier_position_histogram[i] > 0) {
+                // Insert into top 20 if it qualifies
+                for (int j = 0; j < 20; ++j) {
+                    if (g_q3k_hifi_outlier_position_histogram[i] > top_positions[j].count) {
+                        // Shift down
+                        for (int k = 19; k > j; --k) {
+                            top_positions[k] = top_positions[k-1];
+                        }
+                        top_positions[j].pos = i;
+                        top_positions[j].count = g_q3k_hifi_outlier_position_histogram[i];
+                        break;
+                    }
+                }
+            }
+        }
+
+        for (int i = 0; i < 20 && top_positions[i].count > 0; ++i) {
+            double percentage = 100.0 * top_positions[i].count / g_q3k_hifi_total_outliers;
+            fprintf(stderr, "  Position %3d: %lld occurrences (%.2f%%)\n",
+                    top_positions[i].pos, (long long)top_positions[i].count, percentage);
+        }
+
+        fprintf(stderr, "\n");
     }
 }
 
