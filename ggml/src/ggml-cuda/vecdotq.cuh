@@ -821,13 +821,21 @@ static __device__ __forceinline__ float vec_dot_q3_k_hifi_q8_1(
 
         // Check if this outlier is in the range this thread processes
         if (idx_bq8 >= bq8_offset && idx_bq8 < bq8_offset + QR3_K) {
-            // Get outlier value and corresponding Q8 quantized value
-            const float outlier_val = __half2float(bq3_k_hifi->outliers[k]);
-            const int8_t q8_val = ((const int8_t*)bq8_1[idx_bq8].qs)[idx_in_bq8];
-            const float d8_val = __low2float(bq8_1[idx_bq8].ds);
+            // Thread position filtering: ensure only ONE thread processes each outlier
+            // Each thread handles specific positions based on iqs parameter
+            const int thread_q8_offset = iqs % QI8_1;  // Which position group this thread handles (0-31)
+            const int pos_in_q8_group = idx_in_bq8 / 4;  // Which group this outlier belongs to (0-7)
 
-            // Add outlier contribution (Q3_K contribution is 0 since position was zeroed)
-            sum += outlier_val * q8_val * d8_val;
+            // Only process if this outlier is in this thread's position group
+            if (pos_in_q8_group == thread_q8_offset) {
+                // Get outlier value and corresponding Q8 quantized value
+                const float outlier_val = __half2float(bq3_k_hifi->outliers[k]);
+                const int8_t q8_val = ((const int8_t*)bq8_1[idx_bq8].qs)[idx_in_bq8];
+                const float d8_val = __low2float(bq8_1[idx_bq8].ds);
+
+                // Add outlier contribution (Q3_K contribution is 0 since position was zeroed)
+                sum += outlier_val * q8_val * d8_val;
+            }
         }
     }
 
