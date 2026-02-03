@@ -877,8 +877,8 @@ static __device__ __forceinline__ float vec_dot_q3_k_hifi_res8_q8_1(
     const block_q3_k_hifi_res8 * bq3_k_hifi = (const block_q3_k_hifi_res8 *) vbq + kbx;
 
     // === Q3_K bulk dot product (identical logic) ===
-    // Cast q3_k_data to block_q3_K to access Q3_K fields
-    const block_q3_K * q3k = (const block_q3_K *)bq3_k_hifi->q3_k_data;
+    // block_q3_k_hifi_res8 has Q3_K fields directly at the start (hmask, qs, scales, d)
+    const block_q3_K * q3k = (const block_q3_K *)bq3_k_hifi;
 
     const int bq8_offset = QR3_K * (iqs / (QI3_K/2));
     const int scale_offset = iqs - iqs % QI8_1 + (iqs % QI8_1) / (QI8_1/2);
