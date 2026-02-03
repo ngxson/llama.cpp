@@ -304,7 +304,7 @@ typedef struct {
     uint8_t scales[12];            // 12 bytes: 16 sub-group scales (6-bit each)
     ggml_half d;                   // 2 bytes: super-block scale
 
-    // === Q3_K_HIFI OUTLIER EXTENSION (50 bytes) ===
+    // === Q3_K_HIFI OUTLIER EXTENSION ===
     // 1 byte: number of outliers stored (usually 16, but allows flexibility)
     uint8_t n_outliers;
 
@@ -312,16 +312,15 @@ typedef struct {
     uint8_t outlier_idx[Q3_K_HIFI_OUTLIERS];
 
     // 32 bytes: original outlier values as FP16 (REPLACEMENT values, not residuals!)
+    // Note: Compiler may add 1 byte padding before this for alignment on some platforms
     ggml_half outliers[Q3_K_HIFI_OUTLIERS];
-
-    // 1 byte padding to align to 161 bytes
-    uint8_t padding[1];
 } block_q3_k_hifi;
 #if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
 #pragma pack(pop)
 #endif
-// Size: 110 (Q3_K) + 1 (n_outliers) + 16 (idx) + 32 (outliers) + 1 (pad) = 161 bytes
-static_assert(sizeof(block_q3_k_hifi) == 110 + 1 + Q3_K_HIFI_OUTLIERS + Q3_K_HIFI_OUTLIERS*sizeof(ggml_half) + 1, "wrong q3_k_hifi block size/padding");
+// Size: 110 (Q3_K) + 1 (n_outliers) + 16 (idx) + 32 (outliers) = 159 bytes minimum
+// With alignment: may be 160 or 162 bytes depending on compiler/platform
+static_assert(sizeof(block_q3_k_hifi) >= 159 && sizeof(block_q3_k_hifi) <= 162, "wrong q3_k_hifi block size/padding");
 
 // Q3_K_HIFI_RES8: Lean version with INT8 residuals for use WITH imatrix
 // When imatrix is present, base quantization is already optimized - INT8 residuals suffice

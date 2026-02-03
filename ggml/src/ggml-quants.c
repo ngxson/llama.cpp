@@ -1306,7 +1306,7 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
             block->n_outliers = 0;
             memset(block->outlier_idx, 0, sizeof(block->outlier_idx));
             memset(block->outliers, 0, sizeof(block->outliers));
-            memset(block->padding, 0, sizeof(block->padding));
+            // No explicit padding field - compiler handles alignment
             continue;
         }
 
@@ -1359,7 +1359,7 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
         block_q3_K q3k_block;
         quantize_row_q3_K_ref(inliers_only, &q3k_block, Q3_K_HIFI_BLOCK_SIZE);
         memcpy(&block->hmask, &q3k_block, 110);  // Copy Q3_K fields
-        memset(block->padding, 0, sizeof(block->padding));
+        // No explicit padding field - compiler handles alignment
 
         // Debug logging
         static bool quant_debug_enabled = false;
@@ -1411,7 +1411,7 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
             memcpy(&block->hmask, &q3k_block, 110);  // Copy Q3_K fields
             memset(block->outlier_idx, 0, sizeof(block->outlier_idx));
             memset(block->outliers, 0, sizeof(block->outliers));
-            memset(block->padding, 0, sizeof(block->padding));
+            // No explicit padding field - compiler handles alignment
             continue;
         }
 
@@ -1466,7 +1466,7 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
         block_q3_K q3k_block;
         quantize_row_q3_K_impl(inliers_only, &q3k_block, Q3_K_HIFI_BLOCK_SIZE, NULL);
         memcpy(&block->hmask, &q3k_block, 110);  // Copy Q3_K fields
-        memset(block->padding, 0, sizeof(block->padding));
+        // No explicit padding field - compiler handles alignment
     }
 }
 
