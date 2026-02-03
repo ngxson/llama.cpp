@@ -833,7 +833,6 @@ static __device__ __forceinline__ float vec_dot_q3_k_hifi_q8_1(
                 const int idx_local = idx % QK_K;
                 const int idx_n = idx_local / 128;
                 const int idx_j = (idx_local % 128) / 32;
-                const int idx_l = idx_local % 32;
 
                 const uint8_t m_local = 1 << (4*idx_n + idx_j);
                 const int shift_local = 2*idx_j;
