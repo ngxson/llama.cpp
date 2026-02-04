@@ -1365,8 +1365,8 @@ void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi *
 
             // Collect statistics
             float outlier_mag = fabsf(xb[idx]);
-            g_q3k_hifi_sum_outlier_magnitude += outlier_mag;
-            g_q3k_hifi_sum_outlier_magnitude_sq += outlier_mag * outlier_mag;
+            g_q3k_hifi_sum_outlier_magnitude += (double)outlier_mag;
+            g_q3k_hifi_sum_outlier_magnitude_sq += (double)(outlier_mag * outlier_mag);
             if (outlier_mag > g_q3k_hifi_max_outlier_magnitude) g_q3k_hifi_max_outlier_magnitude = outlier_mag;
             if (outlier_mag < g_q3k_hifi_min_outlier_magnitude) g_q3k_hifi_min_outlier_magnitude = outlier_mag;
             g_q3k_hifi_outlier_position_histogram[idx]++;
@@ -1500,8 +1500,8 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
 
             // Collect statistics
             float outlier_mag = fabsf(xb[idx]);
-            g_q3k_hifi_sum_outlier_magnitude += outlier_mag;
-            g_q3k_hifi_sum_outlier_magnitude_sq += outlier_mag * outlier_mag;
+            g_q3k_hifi_sum_outlier_magnitude += (double)outlier_mag;
+            g_q3k_hifi_sum_outlier_magnitude_sq += (double)(outlier_mag * outlier_mag);
             if (outlier_mag > g_q3k_hifi_max_outlier_magnitude) g_q3k_hifi_max_outlier_magnitude = outlier_mag;
             if (outlier_mag < g_q3k_hifi_min_outlier_magnitude) g_q3k_hifi_min_outlier_magnitude = outlier_mag;
             g_q3k_hifi_outlier_position_histogram[idx]++;
@@ -1560,8 +1560,8 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
 
             fprintf(stderr, "\nOutlier Magnitude Statistics:\n");
             fprintf(stderr, "  Total outliers: %lld\n", (long long)g_q3k_hifi_total_outliers);
-            fprintf(stderr, "  Min magnitude: %.6f\n", g_q3k_hifi_min_outlier_magnitude);
-            fprintf(stderr, "  Max magnitude: %.6f\n", g_q3k_hifi_max_outlier_magnitude);
+            fprintf(stderr, "  Min magnitude: %.6f\n", (double)g_q3k_hifi_min_outlier_magnitude);
+            fprintf(stderr, "  Max magnitude: %.6f\n", (double)g_q3k_hifi_max_outlier_magnitude);
             fprintf(stderr, "  Avg magnitude: %.6f\n", avg_magnitude);
             fprintf(stderr, "  Std deviation: %.6f\n", stddev);
         }
@@ -1577,8 +1577,8 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
                 for (int j = 0; j < 20; ++j) {
                     if (g_q3k_hifi_outlier_position_histogram[i] > top_positions[j].count) {
                         // Shift down
-                        for (int k = 19; k > j; --k) {
-                            top_positions[k] = top_positions[k-1];
+                        for (int m = 19; m > j; --m) {
+                            top_positions[m] = top_positions[m-1];
                         }
                         top_positions[j].pos = i;
                         top_positions[j].count = g_q3k_hifi_outlier_position_histogram[i];
