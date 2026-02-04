@@ -892,37 +892,32 @@ void dequantize_iq4_xs(device const block_iq4_xs * xb, short il, thread type4x4 
 
 template <typename type4x4>
 void dequantize_q3_k_hifi(device const block_q3_k_hifi * xb, short il, thread type4x4 & reg) {
-    // Q3_K_HIFI uses Q3_K-compatible layout: hmask[32] + qs[64] + scales[12] + d + outliers
-    // For template-based matmul kernels, we use simplified dequantization
-    // Outliers are handled at the kernel level (see kernel_mul_mv_q3_k_hifi_f32_impl)
-    // This matches Q3_K dequantization exactly since the base layout is identical
-    const half d_all = xb->d;
-    device const uint8_t * q = (device const uint8_t *)xb->qs;
-    device const uint8_t * h = (device const uint8_t *)xb->hmask;
-    device const int8_t * scales = (device const int8_t *)xb->scales;
+    // Q3_K_HIFI uses true outlier extraction: Q3_K block + outlier indices + original outlier values
+    // Step 1: Dequantize Q3_K from first 110 bytes
+    const device block_q3_K * q3k_block = (const device block_q3_K *)xb->q3_k_data;
+    dequantize_q3_K(q3k_block, il, reg);
 
-    q = q + 32 * (il/8) + 16 * (il&1);
-    h = h + 16 * (il&1);
-    uint8_t m = 1 << (il/2);
-    uint16_t kmask1 = (il/4)>1 ? ((il/4)>2 ? 192 : 48) : \
-                                 ((il/4)>0 ? 12  : 3);
-    uint16_t kmask2 = il/8 ? 0xF0 : 0x0F;
-    uint16_t scale_2 = scales[il%8], scale_1 = scales[8 + il%4];
-    int16_t  dl_int = (il/4)&1 ? (scale_2&kmask2) | ((scale_1&kmask1) << 2)
-                               : (scale_2&kmask2) | ((scale_1&kmask1) << 4);
-    float dl = il<8 ? d_all * (dl_int - 32.f) : d_all * (dl_int / 16.f - 32.f);
-    const float ml = 4.f * dl;
+    // Step 2: Overwrite outlier positions with stored FP16 values
+    // Outliers are sorted by index (ascending), enabling efficient processing
+    const int base_pos = il * 16;
+    const int end_pos = base_pos + 16;
 
-    il = (il/2) & 3;
-    const half    coef = il>1 ? (il>2 ? 1/64.h : 1/16.h) : (il>0 ? 1/4.h : 1.h);
-    const uint8_t mask = il>1 ? (il>2 ? 192    : 48)     : (il>0 ? 12    : 3);
-    dl *= coef;
+    // Load all outlier data once (vectorized)
+    const half4 outliers_lo = *(device const half4 *)&xb->outliers[0];
+    const half4 outliers_hi = *(device const half4 *)&xb->outliers[4];
 
-    for (int i = 0; i < 16; ++i) {
-        reg[i/4][i%4] = dl * (q[i] & mask) - (h[i] & m ? 0 : ml);
+    // Process sorted outliers with early exit
+    // Skip outliers before our range, process those in range, stop when past range
+    #pragma unroll
+    for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
+        const int idx = xb->outlier_idx[k];
+        if (idx >= end_pos) break;  // Early exit: remaining indices are larger (sorted)
+        if (idx >= base_pos) {
+            const int local_pos = idx - base_pos;
+            const float val = (k < 4) ? (float)outliers_lo[k] : (float)outliers_hi[k - 4];
+            reg[local_pos / 4][local_pos % 4] = val;
+        }
     }
-    // Note: Outliers are handled separately in kernel_mul_mv_q3_k_hifi_f32_impl
-    // and in template-based matmul kernels via post-processing
 }
 
 enum ggml_sort_order {
@@ -7278,8 +7273,6 @@ void kernel_mul_mv_q3_k_hifi_f32_impl(
     device const block_q3_k_hifi * x = (device const block_q3_k_hifi *) (src0 + offset0);
     device const float        * yy = (device const float         *) (src1 + offset1);
 
-    float yl[32];
-
     const short tid = tiisg/4;
     const short ix  = tiisg%4;
     const short ip  = tid/4;          // 0 or 1
@@ -7287,60 +7280,52 @@ void kernel_mul_mv_q3_k_hifi_f32_impl(
     const short ir  = tid%2;
     const short l0  = 8*ir;
 
-    // Possible masks for the high bit (same as Q3_K)
-    const ushort4 mm[4] = {{0x0001, 0x0100, 0x0002, 0x0200},
-                           {0x0004, 0x0400, 0x0008, 0x0800},
-                           {0x0010, 0x1000, 0x0020, 0x2000},
-                           {0x0040, 0x4000, 0x0080, 0x8000}};
-
-    // Possible masks for the low 2 bits
-    const int4 qm[2] = {{0x0003, 0x0300, 0x000c, 0x0c00}, {0x0030, 0x3000, 0x00c0, 0xc000}};
-
-    const ushort4 hm = mm[2*ip + il/2];
-
     const short shift = 2*il;
-
-    const float v1 = il == 0 ? 4.f : 64.f;
-    const float v2 = 4.f * v1;
-
-    const uint16_t s_shift1 = 4*ip;
-    const uint16_t s_shift2 = s_shift1 + il;
-
     const short q_offset = 32*ip + l0;
     const short y_offset = 128*ip + 32*il + l0;
 
     device const float * y1 = yy + ix*QK_K + y_offset;
 
-    uint32_t scales32, aux32;
-    thread uint16_t * scales16 = (thread uint16_t *)&scales32;
-    thread const int8_t * scales = (thread const int8_t *)&scales32;
-
     float sumf1[nr0] = {0.f};
-    float sumf2[nr0] = {0.f};
 
+    // True outlier extraction: reuse Q3_K kernel logic, then add outlier corrections
+    // We'll compute Q3_K dot product from q3_k_data, then add outlier contributions
     for (int i = ix; i < nb; i += 4) {
-        for (short l = 0; l < 8; ++l) {
-            yl[l+ 0] = y1[l+ 0];
-            yl[l+ 8] = y1[l+16];
-            yl[l+16] = y1[l+32];
-            yl[l+24] = y1[l+48];
-        }
-
-        device const uint16_t * q = (device const uint16_t *)(x[i].qs + q_offset);
-        device const uint16_t * h = (device const uint16_t *)(x[i].hmask + l0);
-        device const uint16_t * a = (device const uint16_t *)(x[i].scales);
-        device const half * dh = &x[i].d;
-
         for (short row = 0; row < nr0; ++row) {
+            device const block_q3_k_hifi * xb = (device const block_q3_k_hifi *)((device const char *)&x[i] + row * args.nb01);
+            
+            // Step 1: Compute Q3_K dot product using Q3_K's logic
+            // Cast q3_k_data to block_q3_K and use Q3_K kernel logic
+            const device block_q3_K * q3k_block = (const device block_q3_K *)xb->q3_k_data;
+            
+            // Reuse Q3_K's dot product computation (from kernel_mul_mv_q3_K_f32_impl)
+            float yl[32];
+            for (short l = 0; l < 8; ++l) {
+                yl[l+ 0] = y1[l+ 0];
+                yl[l+ 8] = y1[l+16];
+                yl[l+16] = y1[l+32];
+                yl[l+24] = y1[l+48];
+            }
+            
+            device const uint16_t * q = (device const uint16_t *)(q3k_block->qs + q_offset);
+            device const uint16_t * h = (device const uint16_t *)(q3k_block->hmask + l0);
+            device const uint16_t * a = (device const uint16_t *)(q3k_block->scales);
+            device const half * dh = &q3k_block->d;
+            
             const float d_all = (float)dh[0];
-
-            scales16[0] = a[4];
-            scales16[1] = a[5];
-            aux32 = ((scales32 >> s_shift2) << 4) & 0x30303030;
-            scales16[0] = a[il+0];
-            scales16[1] = a[il+1];
-            scales32 = ((scales32 >> s_shift1) & 0x0f0f0f0f) | aux32;
-
+            uint32_t scales32, aux32;
+            thread uint16_t * scales16 = (thread uint16_t *)&scales32;
+            thread const int8_t * scales = (thread const int8_t *)&scales32;
+            
+            const ushort4 mm[4] = {{0x0001, 0x0100, 0x0002, 0x0200}, {0x0004, 0x0400, 0x0008, 0x0800},
+                                 {0x0010, 0x1000, 0x0020, 0x2000}, {0x0040, 0x4000, 0x0080, 0x8000}};
+            const int4 qm[2] = {{0x0003, 0x0300, 0x000c, 0x0c00}, {0x0030, 0x3000, 0x00c0, 0xc000}};
+            const ushort4 hm = mm[2*ip + il/2];
+            const float v1 = il == 0 ? 4.f : 64.f;
+            const float v2 = 4.f * v1;
+            const uint16_t s_shift1 = 4*ip;
+            const uint16_t s_shift2 = s_shift1 + il;
+            
             float s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0, s6 = 0;
             for (short l = 0; l < 8; l += 2) {
                 const int32_t qs = q[l/2];
@@ -7351,11 +7336,18 @@ void kernel_mul_mv_q3_k_hifi_f32_impl(
                 s5 += yl[l+17] * (qs & qm[il/2][3]);
                 s6 += ((h[l/2] & hm[2]) ? 0.f : yl[l+16]) + ((h[l/2] & hm[3]) ? 0.f : yl[l+17]);
             }
+            
+            scales16[0] = a[4];
+            scales16[1] = a[5];
+            aux32 = ((scales32 >> s_shift2) << 4) & 0x30303030;
+            scales16[0] = a[il+0];
+            scales16[1] = a[il+1];
+            scales32 = ((scales32 >> s_shift1) & 0x0f0f0f0f) | aux32;
+            
             float d1 = d_all * (s1 + 1.f/256.f * s2 - s3*v1);
             float d2 = d_all * (s4 + 1.f/256.f * s5 - s6*v2);
-            sumf1[row] += d1 * (scales[0] - 32);
-            sumf2[row] += d2 * (scales[2] - 32);
-
+            float q3k_sum = d1 * (scales[0] - 32) + d2 * (scales[2] - 32);
+            
             s1 = s2 = s3 = s4 = s5 = s6 = 0;
             for (short l = 0; l < 8; l += 2) {
                 const int32_t qs = q[l/2+8];
@@ -7368,40 +7360,62 @@ void kernel_mul_mv_q3_k_hifi_f32_impl(
             }
             d1 = d_all * (s1 + 1.f/256.f * s2 - s3*v1);
             d2 = d_all * (s4 + 1.f/256.f * s5 - s6*v2);
-            sumf1[row] += d1 * (scales[1] - 32);
-            sumf2[row] += d2 * (scales[3] - 32);
+            q3k_sum += d1 * (scales[1] - 32) + d2 * (scales[3] - 32);
+            
+            // Step 2: Add outlier corrections (optimized with vectorized load + early exit)
+            // Outliers are sorted by index during quantization, enabling early exit
+            // Load all 8 indices at once (they're contiguous in memory)
+            const uint8_t idx0 = xb->outlier_idx[0];
+            const uint8_t idx1 = xb->outlier_idx[1];
+            const uint8_t idx2 = xb->outlier_idx[2];
+            const uint8_t idx3 = xb->outlier_idx[3];
+            const uint8_t idx4 = xb->outlier_idx[4];
+            const uint8_t idx5 = xb->outlier_idx[5];
+            const uint8_t idx6 = xb->outlier_idx[6];
+            const uint8_t idx7 = xb->outlier_idx[7];
 
-            q  += args.nb01/2;
-            h  += args.nb01/2;
-            a  += args.nb01/2;
-            dh += args.nb01/2;
+            // Load all 8 FP16 outlier values at once
+            const half4 outliers_lo = *(device const half4 *)&xb->outliers[0];
+            const half4 outliers_hi = *(device const half4 *)&xb->outliers[4];
+
+            // Process outliers with early exit (indices are sorted ascending, 255 = sentinel)
+            const int y_end = y_offset + 32;
+            float outlier_sum = 0.0f;
+
+            // Unrolled loop with early exit on sorted indices
+            if (idx0 < y_end) {
+                if (idx0 >= y_offset) outlier_sum += (float)outliers_lo[0] * y1[idx0 - y_offset];
+                if (idx1 < y_end) {
+                    if (idx1 >= y_offset) outlier_sum += (float)outliers_lo[1] * y1[idx1 - y_offset];
+                    if (idx2 < y_end) {
+                        if (idx2 >= y_offset) outlier_sum += (float)outliers_lo[2] * y1[idx2 - y_offset];
+                        if (idx3 < y_end) {
+                            if (idx3 >= y_offset) outlier_sum += (float)outliers_lo[3] * y1[idx3 - y_offset];
+                            if (idx4 < y_end) {
+                                if (idx4 >= y_offset) outlier_sum += (float)outliers_hi[0] * y1[idx4 - y_offset];
+                                if (idx5 < y_end) {
+                                    if (idx5 >= y_offset) outlier_sum += (float)outliers_hi[1] * y1[idx5 - y_offset];
+                                    if (idx6 < y_end) {
+                                        if (idx6 >= y_offset) outlier_sum += (float)outliers_hi[2] * y1[idx6 - y_offset];
+                                        if (idx7 < y_end && idx7 >= y_offset) {
+                                            outlier_sum += (float)outliers_hi[3] * y1[idx7 - y_offset];
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            q3k_sum += outlier_sum;
+            
+            sumf1[row] += q3k_sum;
         }
-
         y1 += 4 * QK_K;
     }
 
-    // Add outlier corrections
-    // Each thread processes part of the activations, so we need all threads to check all outliers
-    device const float * y_base = yy + ix*QK_K;
-    for (int i = ix; i < nb; i += 4) {
-        for (short row = 0; row < nr0; ++row) {
-            device const block_q3_k_hifi * xb = x + i + row * (args.nb01 / sizeof(block_q3_k_hifi));
-            device const float * y_block = y_base;
-
-            for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
-                const int idx = xb->outlier_idx[k];
-                const float outlier_val = float(xb->outlier_vals[k]);
-                // Only this thread handles if idx is in its range
-                if (idx >= y_offset && idx < y_offset + 32) {
-                    sumf1[row] += outlier_val * y_block[idx];
-                }
-            }
-        }
-        y_base += 4 * QK_K;
-    }
-
     for (int row = 0; row < nr0; ++row) {
-        const float sumf = (sumf1[row] + 0.25f * sumf2[row]) / (1 << shift);
+        const float sumf = sumf1[row] / (1 << shift);
         sumf1[row] = simd_sum(sumf);
     }
 

@@ -708,31 +708,38 @@ static __global__ void dequantize_block_q3_k_hifi(const void * __restrict__ vx, 
     int64_t is = 8*n + 2*j + is0;
     int shift = 2*j;
 
-    int8_t us = is <  4 ? (x[i].scales[is-0] & 0xF) | (((x[i].scales[is+8] >> 0) & 3) << 4) :
-                is <  8 ? (x[i].scales[is-0] & 0xF) | (((x[i].scales[is+4] >> 2) & 3) << 4) :
-                is < 12 ? (x[i].scales[is-8] >>  4) | (((x[i].scales[is+0] >> 4) & 3) << 4) :
-                          (x[i].scales[is-8] >>  4) | (((x[i].scales[is-4] >> 6) & 3) << 4);
-    float d_all = __half2float(x[i].d);
+    // Cast q3_k_data to access Q3_K fields
+    const block_q3_K * q3k = (const block_q3_K *)x[i].q3_k_data;
+
+    int8_t us = is <  4 ? (q3k->scales[is-0] & 0xF) | (((q3k->scales[is+8] >> 0) & 3) << 4) :
+                is <  8 ? (q3k->scales[is-0] & 0xF) | (((q3k->scales[is+4] >> 2) & 3) << 4) :
+                is < 12 ? (q3k->scales[is-8] >>  4) | (((q3k->scales[is+0] >> 4) & 3) << 4) :
+                          (q3k->scales[is-8] >>  4) | (((q3k->scales[is-4] >> 6) & 3) << 4);
+    float d_all = __half2float(q3k->d);
     float dl = d_all * (us - 32);
 
     dst_t * y = yy + i*QK_K + 128*n + 32*j;
-    const uint8_t * q = x[i].qs + 32*n;
-    const uint8_t * hm = x[i].hmask;
+    const uint8_t * q = q3k->qs + 32*n;
+    const uint8_t * hm = q3k->hmask;
 
     for (int l = l0; l < l0+4; ++l) {
         y[l] = dl * ((int8_t)((q[l] >> shift) & 3) - ((hm[l] & m) ? 0 : 4));
     }
 
-    // Synchronize before adding residual corrections
+    // Synchronize before replacing outlier positions
     __syncthreads();
 
-    // Thread 0 handles residual corrections (ADD, not replace)
+    // Thread 0 handles outlier replacements (REPLACE with exact FP16 values)
+    // Outliers are sorted by index, unused slots have idx=255 (sentinel)
     if (threadIdx.x == 0) {
         dst_t * yb = yy + i*QK_K;
-        const int n_outliers = (x[i].outlier_count <= Q3_K_HIFI_OUTLIERS) ? x[i].outlier_count : Q3_K_HIFI_OUTLIERS;
-        for (int k = 0; k < n_outliers; ++k) {
+
+        // Process with early exit (sorted indices, 255 = sentinel)
+        #pragma unroll
+        for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
             const int idx = x[i].outlier_idx[k];
-            yb[idx] += __half2float(x[i].outlier_vals[k]);  // ADD residual correction
+            if (idx >= Q3_K_HIFI_BLOCK_SIZE) break;  // Sentinel (255) reached, no more valid outliers
+            yb[idx] = __half2float(x[i].outliers[k]);
         }
     }
 }

@@ -534,8 +534,11 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_rwkv(ggml_metal_
 
 // Map HIFI types to their base types for kernel name generation
 // Since HIFI types are based on Q6_K/Q5_K, they can use the same kernels
+// Q3_K_HIFI has its own dedicated kernel, so it needs its own name
 static const char * ggml_metal_type_name_for_kernel(ggml_type type) {
     switch (type) {
+        case GGML_TYPE_Q3_K_HIFI:
+            return "q3_k_hifi";
         case GGML_TYPE_Q6_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
         case GGML_TYPE_Q6_K_HIFI_RES8:
