@@ -734,14 +734,10 @@ static __global__ void dequantize_block_q3_k_hifi(const void * __restrict__ vx, 
     if (threadIdx.x == 0) {
         dst_t * yb = yy + i*QK_K;
 
-        // Load all outlier indices at once (vectorized as 2x uint32)
-        const uint32_t idx_lo = *reinterpret_cast<const uint32_t*>(&x[i].outlier_idx[0]);
-        const uint32_t idx_hi = *reinterpret_cast<const uint32_t*>(&x[i].outlier_idx[4]);
-
         // Process with early exit (sorted indices, 255 = sentinel)
         #pragma unroll
         for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
-            const int idx = (k < 4) ? ((idx_lo >> (k * 8)) & 0xFF) : ((idx_hi >> ((k - 4) * 8)) & 0xFF);
+            const int idx = x[i].outlier_idx[k];
             if (idx >= Q3_K_HIFI_BLOCK_SIZE) break;  // Sentinel (255) reached, no more valid outliers
             yb[idx] = __half2float(x[i].outliers[k]);
         }
