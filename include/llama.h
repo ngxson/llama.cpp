@@ -194,6 +194,13 @@ extern "C" {
         LLAMA_SPLIT_MODE_ROW   = 2, // split layers and KV across GPUs, use tensor parallelism if supported
     };
 
+    enum llama_graph_type {
+        LLAMA_GRAPH_TYPE_DEFAULT,
+        LLAMA_GRAPH_TYPE_ENCODER,
+        LLAMA_GRAPH_TYPE_DECODER,
+        LLAMA_GRAPH_TYPE_DECODER_MTP,
+    };
+
     // TODO: simplify (https://github.com/ggml-org/llama.cpp/pull/9294#pullrequestreview-2286561979)
     typedef struct llama_token_data {
         llama_token id; // token id
@@ -370,13 +377,14 @@ extern "C" {
         bool kv_unified;  // use a unified buffer across the input sequences when computing the attention
                           // try to disable when n_seq_max > 1 for improved performance when the sequences do not share a large prefix
                           // ref: https://github.com/ggml-org/llama.cpp/pull/14363
-        bool is_mtp;      // create context for Multi-Token Prediction (MTP)
 
         // [EXPERIMENTAL]
         // backend sampler chain configuration (make sure the caller keeps the sampler chains alive)
         // note: the samplers must be sampler chains (i.e. use llama_sampler_chain_init)
         struct llama_sampler_seq_config * samplers;
         size_t                            n_samplers;
+
+        llama_graph_type graph_type; // type of the computation graph to be used
     };
 
     // model quantization parameters

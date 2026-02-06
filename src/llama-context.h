@@ -351,7 +351,7 @@ private:
     // host buffer for the model output (logits and embeddings)
     ggml_backend_buffer_ptr buf_output;
 
-    bool is_mtp = false;
+    llm_graph_type gtype;
 
     bool has_evaluated_once = false;
 

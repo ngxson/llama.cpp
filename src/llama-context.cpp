@@ -27,8 +27,6 @@ llama_context::llama_context(
     //     may need to be backend-dependent
     LLAMA_LOG_INFO("%s: constructing llama_context\n", __func__);
 
-    is_mtp = params.is_mtp;
-
     t_start_us = model.t_start_us;
     t_load_us  = model.t_load_us;
 
@@ -187,6 +185,23 @@ llama_context::llama_context(
             cparams.n_ctx =  cparams.n_ctx_seq * cparams.n_seq_max;
             LLAMA_LOG_WARN("%s: n_ctx is not divisible by n_seq_max - rounding down to %u\n", __func__, cparams.n_ctx);
         }
+    }
+
+    switch (params.graph_type) {
+        case LLAMA_GRAPH_TYPE_DEFAULT:
+            gtype = LLM_GRAPH_TYPE_DEFAULT;
+             break;
+        case LLAMA_GRAPH_TYPE_ENCODER:
+            gtype = LLM_GRAPH_TYPE_ENCODER;
+            break;
+        case LLAMA_GRAPH_TYPE_DECODER:
+            gtype = LLM_GRAPH_TYPE_DECODER;
+            break;
+        case LLAMA_GRAPH_TYPE_DECODER_MTP:
+            gtype = LLM_GRAPH_TYPE_DECODER_MTP;
+            break;
+        default:
+            throw std::runtime_error("invalid graph type");
     }
 
     LLAMA_LOG_INFO("%s: n_seq_max     = %u\n",   __func__, cparams.n_seq_max);
@@ -814,7 +829,7 @@ float * llama_context::get_embeddings_seq(llama_seq_id seq_id) {
 }
 
 int32_t llama_context::cpy_mtp_state(llama_context & ctx_mtp) {
-    if (!ctx_mtp.is_mtp) {
+    if (ctx_mtp.gtype != LLM_GRAPH_TYPE_DECODER_MTP) {
         LLAMA_LOG_ERROR("%s: target context is not MTP\n", __func__);
         return -1;
     }
@@ -1488,7 +1503,7 @@ static bool needs_raw_logits(const llama_ubatch & ubatch, const std::map<llama_s
 int llama_context::decode(const llama_batch & batch_inp) {
     GGML_ASSERT((!batch_inp.token && batch_inp.embd) || (batch_inp.token && !batch_inp.embd)); // NOLINT
 
-    if (is_mtp) {
+    if (gtype == LLM_GRAPH_TYPE_DECODER_MTP) {
         if (model.hparams.nextn_predict_layers == 0) {
             LLAMA_LOG_ERROR("%s: MTP decode called but model does not support MTP\n", __func__);
             return -1;
@@ -1665,7 +1680,6 @@ int llama_context::decode(const llama_batch & batch_inp) {
         }
 
         ggml_status status;
-        llm_graph_type gtype = is_mtp ? LLM_GRAPH_TYPE_DECODER_MTP : LLM_GRAPH_TYPE_DECODER;
         const auto * res = process_ubatch(ubatch, gtype, mctx.get(), status);
 
         if (!res) {
@@ -3029,9 +3043,9 @@ llama_context_params llama_context_default_params() {
         /*.op_offload                  =*/ true,
         /*.swa_full                    =*/ true,
         /*.kv_unified                  =*/ false,
-        /*.is_mtp                      =*/ false,
         /*.sampler                     =*/ nullptr,
         /*.n_sampler                   =*/ 0,
+        /*.graph_type                  =*/ LLAMA_GRAPH_TYPE_DEFAULT,
     };
 
     return result;
