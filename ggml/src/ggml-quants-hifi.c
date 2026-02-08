@@ -9,8 +9,14 @@
 // Using a simple pointer approach - the context lifetime is managed by the caller
 #ifdef _MSC_VER
     static __declspec(thread) const ggml_hifi_quant_context * g_hifi_context = NULL;
+    // Q3_K_HIFI per-tensor outlier count (set before quantizing each tensor)
+    static __declspec(thread) int g_q3_hifi_tensor_outliers = -1;  // -1 = use default
+    static __declspec(thread) float g_q3_hifi_tensor_importance = 0.5f;
 #else
     static __thread const ggml_hifi_quant_context * g_hifi_context = NULL;
+    // Q3_K_HIFI per-tensor outlier count (set before quantizing each tensor)
+    static __thread int g_q3_hifi_tensor_outliers = -1;  // -1 = use default
+    static __thread float g_q3_hifi_tensor_importance = 0.5f;
 #endif
 
 const ggml_hifi_quant_context * ggml_hifi_get_context(void) {
@@ -19,6 +25,38 @@ const ggml_hifi_quant_context * ggml_hifi_get_context(void) {
 
 void ggml_hifi_set_context(const ggml_hifi_quant_context * ctx) {
     g_hifi_context = ctx;
+}
+
+// ===========================================================================
+// Q3_K_HIFI Per-Tensor Outlier Control (TLS)
+// Allows setting outlier count per tensor before quantization
+// ===========================================================================
+
+// Set outlier count for the current tensor being quantized
+// Pass -1 to use the default model-size-based count
+void ggml_q3_hifi_set_tensor_outliers(int outliers) {
+    g_q3_hifi_tensor_outliers = outliers;
+}
+
+// Get the current tensor outlier count (-1 if using default)
+int ggml_q3_hifi_get_tensor_outliers(void) {
+    return g_q3_hifi_tensor_outliers;
+}
+
+// Set tensor importance for current quantization
+void ggml_q3_hifi_set_tensor_importance(float importance) {
+    g_q3_hifi_tensor_importance = importance;
+}
+
+// Get current tensor importance
+float ggml_q3_hifi_get_tensor_importance(void) {
+    return g_q3_hifi_tensor_importance;
+}
+
+// Reset TLS state to defaults (call after each tensor)
+void ggml_q3_hifi_reset_tensor_state(void) {
+    g_q3_hifi_tensor_outliers = -1;
+    g_q3_hifi_tensor_importance = 0.5f;
 }
 
 // Compute adaptive outlier count based on layer position, importance, and model scale
@@ -464,8 +502,9 @@ float ggml_q3_hifi_get_attn_v_threshold(float model_params_b) {
         // 0.6B/1B: Skip attn_v HIFI entirely - matches Q3_K_M BPW
         // This addresses the +2.2% PPL regression seen at 0.6B
         return 0.0f;
-    } else if (model_params_b <= 1.7f) {
-        // 1.7B: Very minimal enhancement (2-3 layers only)
+    } else if (model_params_b <= 2.0f) {
+        // 1.7B: Q3_K_HIFI DISABLED - match Q3_K_M behavior exactly
+        // Q3_K_M uses: first 2 layers get Q5_K, rest Q4_K (threshold = 2/28 ≈ 0.07)
         return 0.07f;
     } else if (model_params_b <= 5.0f) {
         // 2-5B: Full enhancement - this is the sweet spot
