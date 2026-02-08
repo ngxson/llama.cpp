@@ -194,6 +194,33 @@ GGML_API int ggml_q3_hifi_get_enhancement_type(float model_params_b, int is_embe
 // Returns: Threshold (0.0-1.0) - enhance layers where layer_idx <= n_layers * threshold
 GGML_API float ggml_q3_hifi_get_attn_v_threshold(float model_params_b);
 
+// ===========================================================================
+// Q3_K_HIFI Per-Tensor Outlier Control (TLS)
+// Allows dynamic outlier allocation per tensor based on imatrix importance
+// ===========================================================================
+
+// Set outlier count for the current tensor being quantized
+// Pass -1 to use the default model-size-based count
+// Parameters:
+//   outliers: Outlier count (0-8) or -1 for default
+GGML_API void ggml_q3_hifi_set_tensor_outliers(int outliers);
+
+// Get the current tensor outlier count (-1 if using default)
+// Returns: Outlier count or -1 if using default
+GGML_API int ggml_q3_hifi_get_tensor_outliers(void);
+
+// Set tensor importance for current quantization (from imatrix)
+// Parameters:
+//   importance: Importance score (0.0-1.0)
+GGML_API void ggml_q3_hifi_set_tensor_importance(float importance);
+
+// Get current tensor importance
+// Returns: Importance score (0.0-1.0)
+GGML_API float ggml_q3_hifi_get_tensor_importance(void);
+
+// Reset TLS state to defaults (call after each tensor)
+GGML_API void ggml_q3_hifi_reset_tensor_state(void);
+
 // Compute adaptive outlier count for a specific block
 // Used in per-block quantization for fine-grained control
 // Parameters:

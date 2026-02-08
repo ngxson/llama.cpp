@@ -1420,15 +1420,26 @@ static void quantize_row_q3_k_hifi_impl(const float * GGML_RESTRICT x, block_q3_
     assert(k % Q3_K_HIFI_BLOCK_SIZE == 0);
     const int64_t nb = k / Q3_K_HIFI_BLOCK_SIZE;
 
-    // Get model-size-aware max outliers from HIFI context if available
-    // For 0.6B models, this returns 0 (skip HIFI), for larger models it returns 2-8
+    // Get outlier count: Priority 1 = TLS per-tensor setting, Priority 2 = HIFI context
+    // TLS allows imatrix-guided dynamic outlier allocation per tensor
     int max_outliers = Q3_K_HIFI_OUTLIERS;  // Default to max if no context
-    const ggml_hifi_quant_context * hifi_ctx = ggml_hifi_get_context();
-    if (hifi_ctx && hifi_ctx->is_active && hifi_ctx->model_params_b > 0.0f) {
-        max_outliers = ggml_q3_hifi_get_max_outliers(hifi_ctx->model_params_b);
+
+    // Check TLS per-tensor outlier setting first (from imatrix-guided selection)
+    int tls_outliers = ggml_q3_hifi_get_tensor_outliers();
+    if (tls_outliers >= 0) {
+        // TLS is set: use imatrix-guided outlier count
+        max_outliers = tls_outliers;
         // Clamp to valid range
         if (max_outliers > Q3_K_HIFI_OUTLIERS) max_outliers = Q3_K_HIFI_OUTLIERS;
-        if (max_outliers < 0) max_outliers = 0;
+    } else {
+        // Fall back to model-size-aware defaults from HIFI context
+        const ggml_hifi_quant_context * hifi_ctx = ggml_hifi_get_context();
+        if (hifi_ctx && hifi_ctx->is_active && hifi_ctx->model_params_b > 0.0f) {
+            max_outliers = ggml_q3_hifi_get_max_outliers(hifi_ctx->model_params_b);
+            // Clamp to valid range
+            if (max_outliers > Q3_K_HIFI_OUTLIERS) max_outliers = Q3_K_HIFI_OUTLIERS;
+            if (max_outliers < 0) max_outliers = 0;
+        }
     }
 
     for (int64_t ib = 0; ib < nb; ++ib) {
