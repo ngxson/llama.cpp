@@ -3033,7 +3033,6 @@ static json render_message_to_json(const std::vector<common_chat_msg> & msgs, co
                     }
                 });
             }
-            printf("%s\n", jmsg.dump().c_str());
             messages.push_back(jmsg);
         } else {
             json jmsg = msg.to_json_oaicompat(/* concat_typed_text= */ false);
