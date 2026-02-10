@@ -1901,6 +1901,9 @@ void quantize_row_q4_k_hifi_ref(const float * GGML_RESTRICT x, block_q4_k_hifi *
     }
 }
 
+// Forward declaration — quantize_row_q4_K_impl is defined later in this file as static
+static void quantize_row_q4_K_impl(const float * GGML_RESTRICT x, block_q4_K * GGML_RESTRICT y, int64_t n_per_row, const float * quant_weights);
+
 static void quantize_row_q4_k_hifi_impl(const float * GGML_RESTRICT x, block_q4_k_hifi * GGML_RESTRICT y, int64_t k, const float * GGML_RESTRICT quant_weights) {
     assert(k % Q4_K_HIFI_BLOCK_SIZE == 0);
     const int64_t nb = k / Q4_K_HIFI_BLOCK_SIZE;
