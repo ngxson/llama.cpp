@@ -6948,6 +6948,20 @@ bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbyte
                 VALIDATE_ROW_DATA_D_F16_IMPL(block_q3_k_hifi_res8, data, nb);
             } break;
 
+        case GGML_TYPE_Q4_K_HIFI:
+            {
+                const block_q4_k_hifi * q = (const block_q4_k_hifi *) data;
+                for (size_t i = 0; i < nb; ++i) {
+                    const block_q4_K * q4k = (const block_q4_K *)q[i].q4_k_data;
+                    if (!validate_fp16(q4k->d, i)) {
+                        return false;
+                    }
+                    if (!validate_fp16(q4k->dmin, i)) {
+                        return false;
+                    }
+                }
+            } break;
+
         case GGML_TYPE_I8:
         case GGML_TYPE_I16:
         case GGML_TYPE_I32:
