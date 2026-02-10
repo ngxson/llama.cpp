@@ -436,7 +436,8 @@ extern "C" {
         GGML_TYPE_Q6_K_HIFI_RES8 = 43, // Q6_K_HIFI_RES8: Q6_K + INT8 residuals (compact format)
         GGML_TYPE_Q5_K_HIFI_RES8 = 44, // Q5_K_HIFI_RES8: Q5_K + INT8 residuals (efficient for 4B-10B models)
         GGML_TYPE_Q3_K_HIFI_RES8 = 45, // Q3_K_HIFI_RES8: Q3_K + INT8 residuals (lean version for imatrix use)
-        GGML_TYPE_COUNT   = 46,
+        GGML_TYPE_Q4_K_HIFI = 46, // Q4_K_HIFI: Q4_K layout + 8 FP16 outliers per block (high-fidelity 4-bit)
+        GGML_TYPE_COUNT   = 47,
     };
 
     // precision

@@ -336,6 +336,31 @@ typedef struct {
 // Size: 110 (Q3_K) + 2 (count+pad) + 8 (idx) + 8 (vals) + 4 (scale) = 132 bytes
 static_assert(sizeof(block_q3_k_hifi_res8) == sizeof(block_q3_K) + 2 + Q3_K_HIFI_RES8_OUTLIERS + Q3_K_HIFI_RES8_OUTLIERS + sizeof(float), "wrong q3_k_hifi_res8 block size/padding");
 
+// Q4_K_HIFI: Imatrix-Guided Sparse 4-bit quantization
+// Preserves top-8 most important weights as FP16, quantizes remaining 248 to 4-bit via Q4_K
+// This gives near-Q5 quality at ~5.25 BPW by preserving outliers exactly
+#define Q4_K_HIFI_BLOCK_SIZE 256
+#define Q4_K_HIFI_OUTLIERS   8
+#define Q4_K_HIFI_INLIERS    (Q4_K_HIFI_BLOCK_SIZE - Q4_K_HIFI_OUTLIERS)  // 248
+#if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
+#pragma pack(push, 1)
+#endif
+typedef struct {
+    // First 144 bytes: standard Q4_K block (for inliers with outliers zeroed)
+    uint8_t q4_k_data[144];
+
+    // Next 8 bytes: indices of top-8 outliers (0-255), sorted ascending
+    uint8_t outlier_idx[Q4_K_HIFI_OUTLIERS];
+
+    // Next 16 bytes: original outlier values as FP16 (REPLACEMENT values, not residuals!)
+    ggml_half outliers[Q4_K_HIFI_OUTLIERS];
+} block_q4_k_hifi;
+#if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
+#pragma pack(pop)
+#endif
+// Size: 144 (Q4_K) + 8 (idx) + 16 (outliers) = 168 bytes → 5.25 BPW
+static_assert(sizeof(block_q4_k_hifi) == 144 + Q4_K_HIFI_OUTLIERS + Q4_K_HIFI_OUTLIERS*sizeof(ggml_half), "wrong q4_k_hifi block size/padding");
+
 // 4-bit quantization
 // 8 blocks of 32 elements each
 // weight is represented as x = a * q + b

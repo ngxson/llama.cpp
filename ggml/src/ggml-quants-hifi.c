@@ -564,11 +564,41 @@ int ggml_q3_hifi_compute_block_outliers(
     }
     
     int result = (int)roundf((float)base_outlier_count * scale);
-    
+
     // Clamp to valid range
     if (result < 0) result = 0;
     if (result > Q3_K_HIFI_MAX_OUTLIERS) result = Q3_K_HIFI_MAX_OUTLIERS;
-    
+
     return result;
+}
+
+// ===========================================================================
+// Q4_K_HIFI Adaptive Enhancement Functions
+// Model-size-aware outlier allocation for Q4_K_HIFI quantization
+// At 4-bit, the base quantization is more robust than 3-bit, so the
+// outlier strategy is tuned differently from Q3_K_HIFI.
+// ===========================================================================
+
+// Get maximum outlier count for Q4_K_HIFI based on model size
+// Key differences from Q3_K_HIFI:
+// - Q4_K base is more robust, so fewer outliers are needed for small models
+// - Large models benefit more at 4-bit because outlier concentration increases
+int ggml_q4_hifi_get_max_outliers(float model_params_b) {
+    if (model_params_b <= 1.0f) {
+        // ≤1B: 4 outliers - Q4_K base is decent, moderate enhancement
+        return 4;
+    } else if (model_params_b <= 3.0f) {
+        // 1-3B: 4 outliers - conservative for small models
+        return 4;
+    } else if (model_params_b <= 13.0f) {
+        // 3-13B: 6 outliers - sweet spot for quality gains
+        return 6;
+    } else if (model_params_b <= 30.0f) {
+        // 14-30B: 6 outliers - still significant benefit
+        return 6;
+    } else {
+        // 30B+: 8 outliers - outlier concentration increases with scale
+        return 8;
+    }
 }
 

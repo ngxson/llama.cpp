@@ -1788,6 +1788,300 @@ size_t quantize_q3_k_hifi_res8(const float * GGML_RESTRICT src, void * GGML_REST
     return nrow * row_size;
 }
 
+// ====================== Q4_K_HIFI: Q4_K layout + 8 FP16 outliers ======================
+// Uses Q4_K's optimized kernels for the base quantization with outlier preservation
+
+// === Q4_K_HIFI STATISTICS COLLECTION ===
+static int64_t g_q4k_hifi_total_blocks_quantized = 0;
+static int64_t g_q4k_hifi_outlier_count_histogram[Q4_K_HIFI_OUTLIERS + 1] = {0};
+static int64_t g_q4k_hifi_outlier_position_histogram[Q4_K_HIFI_BLOCK_SIZE] = {0};
+static double g_q4k_hifi_sum_outlier_magnitude = 0.0;
+static double g_q4k_hifi_sum_outlier_magnitude_sq = 0.0;
+static int64_t g_q4k_hifi_total_outliers = 0;
+static float g_q4k_hifi_max_outlier_magnitude = 0.0f;
+static float g_q4k_hifi_min_outlier_magnitude = FLT_MAX;
+
+void quantize_row_q4_k_hifi_ref(const float * GGML_RESTRICT x, block_q4_k_hifi * GGML_RESTRICT y, int64_t k) {
+    assert(k % Q4_K_HIFI_BLOCK_SIZE == 0);
+    const int64_t nb = k / Q4_K_HIFI_BLOCK_SIZE;
+
+    // Get model-size-aware max outliers from HIFI context if available
+    int max_outliers = Q4_K_HIFI_OUTLIERS;  // Default to max if no context
+    const ggml_hifi_quant_context * hifi_ctx = ggml_hifi_get_context();
+    if (hifi_ctx && hifi_ctx->is_active && hifi_ctx->model_params_b > 0.0f) {
+        max_outliers = ggml_q4_hifi_get_max_outliers(hifi_ctx->model_params_b);
+        if (max_outliers > Q4_K_HIFI_OUTLIERS) max_outliers = Q4_K_HIFI_OUTLIERS;
+        if (max_outliers < 0) max_outliers = 0;
+    }
+
+    for (int64_t ib = 0; ib < nb; ++ib) {
+        const float * xb = x + ib * Q4_K_HIFI_BLOCK_SIZE;
+        block_q4_k_hifi * block = &y[ib];
+
+        // If max_outliers is 0, use standard Q4_K (no outliers)
+        if (max_outliers == 0) {
+            block_q4_K q4k_block;
+            quantize_row_q4_K_ref(xb, &q4k_block, Q4_K_HIFI_BLOCK_SIZE);
+            memcpy(block->q4_k_data, &q4k_block, 144);
+            memset(block->outlier_idx, 255, sizeof(block->outlier_idx));
+            memset(block->outliers, 0, sizeof(block->outliers));
+            g_q4k_hifi_outlier_count_histogram[0]++;
+            g_q4k_hifi_total_blocks_quantized++;
+            continue;
+        }
+
+        // Step 1: Score weights by magnitude for outlier selection
+        float importance[Q4_K_HIFI_BLOCK_SIZE];
+        for (int i = 0; i < Q4_K_HIFI_BLOCK_SIZE; ++i) {
+            importance[i] = fabsf(xb[i]);
+        }
+
+        // Step 2: Select top-N most important weights as outliers
+        int outlier_indices[Q4_K_HIFI_OUTLIERS];
+        bool is_outlier[Q4_K_HIFI_BLOCK_SIZE] = {false};
+
+        for (int ok = 0; ok < max_outliers; ++ok) {
+            int argmax = 0;
+            float max_val = importance[0];
+            for (int i = 1; i < Q4_K_HIFI_BLOCK_SIZE; ++i) {
+                if (!is_outlier[i] && importance[i] > max_val) {
+                    max_val = importance[i];
+                    argmax = i;
+                }
+            }
+            outlier_indices[ok] = argmax;
+            is_outlier[argmax] = true;
+            importance[argmax] = -1.0f;
+        }
+
+        // Step 3: Sort outliers by index for faster kernel access (enables early exit)
+        for (int i = 1; i < max_outliers; ++i) {
+            int key_idx = outlier_indices[i];
+            int j = i - 1;
+            while (j >= 0 && outlier_indices[j] > key_idx) {
+                outlier_indices[j + 1] = outlier_indices[j];
+                j--;
+            }
+            outlier_indices[j + 1] = key_idx;
+        }
+
+        // Step 4: Store sorted outlier values
+        for (int ok = 0; ok < max_outliers; ++ok) {
+            const int idx = outlier_indices[ok];
+            block->outlier_idx[ok] = (uint8_t)idx;
+            block->outliers[ok] = GGML_FP32_TO_FP16(xb[idx]);
+
+            // Collect statistics
+            float outlier_mag = fabsf(xb[idx]);
+            g_q4k_hifi_sum_outlier_magnitude += (double)outlier_mag;
+            g_q4k_hifi_sum_outlier_magnitude_sq += (double)(outlier_mag * outlier_mag);
+            if (outlier_mag > g_q4k_hifi_max_outlier_magnitude) g_q4k_hifi_max_outlier_magnitude = outlier_mag;
+            if (outlier_mag < g_q4k_hifi_min_outlier_magnitude) g_q4k_hifi_min_outlier_magnitude = outlier_mag;
+            g_q4k_hifi_outlier_position_histogram[idx]++;
+            g_q4k_hifi_total_outliers++;
+        }
+        // Zero unused outlier slots (255 sentinel for early exit in kernels)
+        for (int ok = max_outliers; ok < Q4_K_HIFI_OUTLIERS; ++ok) {
+            block->outlier_idx[ok] = 255;
+            block->outliers[ok] = 0;
+        }
+
+        g_q4k_hifi_outlier_count_histogram[max_outliers]++;
+        g_q4k_hifi_total_blocks_quantized++;
+
+        // Step 5: Zero out outliers and quantize inliers with standard Q4_K
+        float inliers_only[Q4_K_HIFI_BLOCK_SIZE];
+        for (int i = 0; i < Q4_K_HIFI_BLOCK_SIZE; ++i) {
+            inliers_only[i] = is_outlier[i] ? 0.0f : xb[i];
+        }
+
+        block_q4_K q4k_block;
+        quantize_row_q4_K_ref(inliers_only, &q4k_block, Q4_K_HIFI_BLOCK_SIZE);
+        memcpy(block->q4_k_data, &q4k_block, 144);
+    }
+}
+
+static void quantize_row_q4_k_hifi_impl(const float * GGML_RESTRICT x, block_q4_k_hifi * GGML_RESTRICT y, int64_t k, const float * GGML_RESTRICT quant_weights) {
+    assert(k % Q4_K_HIFI_BLOCK_SIZE == 0);
+    const int64_t nb = k / Q4_K_HIFI_BLOCK_SIZE;
+
+    // Get outlier count: Priority 1 = TLS per-tensor, Priority 2 = HIFI context
+    int max_outliers = Q4_K_HIFI_OUTLIERS;
+
+    int tls_outliers = ggml_q3_hifi_get_tensor_outliers();
+    if (tls_outliers >= 0) {
+        max_outliers = tls_outliers;
+        if (max_outliers > Q4_K_HIFI_OUTLIERS) max_outliers = Q4_K_HIFI_OUTLIERS;
+    } else {
+        const ggml_hifi_quant_context * hifi_ctx = ggml_hifi_get_context();
+        if (hifi_ctx && hifi_ctx->is_active && hifi_ctx->model_params_b > 0.0f) {
+            max_outliers = ggml_q4_hifi_get_max_outliers(hifi_ctx->model_params_b);
+            if (max_outliers > Q4_K_HIFI_OUTLIERS) max_outliers = Q4_K_HIFI_OUTLIERS;
+            if (max_outliers < 0) max_outliers = 0;
+        }
+    }
+
+    for (int64_t ib = 0; ib < nb; ++ib) {
+        const float * xb = x + ib * Q4_K_HIFI_BLOCK_SIZE;
+        const float * qw = quant_weights ? quant_weights + ib * Q4_K_HIFI_BLOCK_SIZE : NULL;
+        block_q4_k_hifi * block = &y[ib];
+
+        // If max_outliers is 0, use standard Q4_K
+        if (max_outliers == 0) {
+            block_q4_K q4k_block;
+            quantize_row_q4_K_ref(xb, &q4k_block, Q4_K_HIFI_BLOCK_SIZE);
+            memcpy(block->q4_k_data, &q4k_block, 144);
+            memset(block->outlier_idx, 255, sizeof(block->outlier_idx));
+            memset(block->outliers, 0, sizeof(block->outliers));
+            g_q4k_hifi_outlier_count_histogram[0]++;
+            g_q4k_hifi_total_blocks_quantized++;
+            continue;
+        }
+
+        // Step 1: Score weights by importance (imatrix-weighted)
+        float importance[Q4_K_HIFI_BLOCK_SIZE];
+        for (int i = 0; i < Q4_K_HIFI_BLOCK_SIZE; ++i) {
+            float base_importance = fabsf(xb[i]);
+            float imatrix_weight = qw ? qw[i] : 1.0f;
+            importance[i] = base_importance * imatrix_weight;
+        }
+
+        // Step 2: Select top-N most important weights as outliers
+        int outlier_indices[Q4_K_HIFI_OUTLIERS];
+        bool is_outlier[Q4_K_HIFI_BLOCK_SIZE] = {false};
+
+        for (int ok = 0; ok < max_outliers; ++ok) {
+            int argmax = 0;
+            float max_val = importance[0];
+            for (int i = 1; i < Q4_K_HIFI_BLOCK_SIZE; ++i) {
+                if (!is_outlier[i] && importance[i] > max_val) {
+                    max_val = importance[i];
+                    argmax = i;
+                }
+            }
+            outlier_indices[ok] = argmax;
+            is_outlier[argmax] = true;
+            importance[argmax] = -1.0f;
+        }
+
+        // Step 3: Sort outliers by index ascending
+        for (int i = 1; i < max_outliers; ++i) {
+            int key_idx = outlier_indices[i];
+            int j = i - 1;
+            while (j >= 0 && outlier_indices[j] > key_idx) {
+                outlier_indices[j + 1] = outlier_indices[j];
+                j--;
+            }
+            outlier_indices[j + 1] = key_idx;
+        }
+
+        // Step 4: Store sorted outlier values
+        for (int ok = 0; ok < max_outliers; ++ok) {
+            const int idx = outlier_indices[ok];
+            block->outlier_idx[ok] = (uint8_t)idx;
+            block->outliers[ok] = GGML_FP32_TO_FP16(xb[idx]);
+
+            float outlier_mag = fabsf(xb[idx]);
+            g_q4k_hifi_sum_outlier_magnitude += (double)outlier_mag;
+            g_q4k_hifi_sum_outlier_magnitude_sq += (double)(outlier_mag * outlier_mag);
+            if (outlier_mag > g_q4k_hifi_max_outlier_magnitude) g_q4k_hifi_max_outlier_magnitude = outlier_mag;
+            if (outlier_mag < g_q4k_hifi_min_outlier_magnitude) g_q4k_hifi_min_outlier_magnitude = outlier_mag;
+            g_q4k_hifi_outlier_position_histogram[idx]++;
+            g_q4k_hifi_total_outliers++;
+        }
+        for (int ok = max_outliers; ok < Q4_K_HIFI_OUTLIERS; ++ok) {
+            block->outlier_idx[ok] = 255;
+            block->outliers[ok] = 0;
+        }
+
+        g_q4k_hifi_outlier_count_histogram[max_outliers]++;
+        g_q4k_hifi_total_blocks_quantized++;
+
+        // Step 5: Zero out outliers and quantize inliers with Q4_K (imatrix-aware)
+        float inliers_only[Q4_K_HIFI_BLOCK_SIZE];
+        for (int i = 0; i < Q4_K_HIFI_BLOCK_SIZE; ++i) {
+            inliers_only[i] = is_outlier[i] ? 0.0f : xb[i];
+        }
+
+        block_q4_K q4k_block;
+        quantize_row_q4_K_impl(inliers_only, &q4k_block, Q4_K_HIFI_BLOCK_SIZE, NULL);
+        memcpy(block->q4_k_data, &q4k_block, 144);
+    }
+
+    // === PRINT STATISTICS ===
+    static bool stats_enabled = false;
+    static bool stats_checked = false;
+    if (!stats_checked) {
+        stats_enabled = (getenv("Q4_K_HIFI_STATS") != NULL);
+        stats_checked = true;
+    }
+
+    if (stats_enabled && (g_q4k_hifi_total_blocks_quantized % 1000 == 0 || g_q4k_hifi_total_blocks_quantized == nb)) {
+        fprintf(stderr, "\n=== Q4_K_HIFI Outlier Statistics (after %lld blocks) ===\n",
+                (long long)g_q4k_hifi_total_blocks_quantized);
+
+        fprintf(stderr, "\nOutlier Count Distribution:\n");
+        for (int i = 0; i <= Q4_K_HIFI_OUTLIERS; ++i) {
+            if (g_q4k_hifi_outlier_count_histogram[i] > 0) {
+                double percentage = 100.0 * g_q4k_hifi_outlier_count_histogram[i] / g_q4k_hifi_total_blocks_quantized;
+                fprintf(stderr, "  %d outliers: %lld blocks (%.2f%%)\n",
+                        i, (long long)g_q4k_hifi_outlier_count_histogram[i], percentage);
+            }
+        }
+
+        if (g_q4k_hifi_total_outliers > 0) {
+            double avg_magnitude = g_q4k_hifi_sum_outlier_magnitude / g_q4k_hifi_total_outliers;
+            double variance = (g_q4k_hifi_sum_outlier_magnitude_sq / g_q4k_hifi_total_outliers) - (avg_magnitude * avg_magnitude);
+            double stddev = sqrt(variance);
+
+            fprintf(stderr, "\nOutlier Magnitude Statistics:\n");
+            fprintf(stderr, "  Total outliers: %lld\n", (long long)g_q4k_hifi_total_outliers);
+            fprintf(stderr, "  Min magnitude: %.6f\n", (double)g_q4k_hifi_min_outlier_magnitude);
+            fprintf(stderr, "  Max magnitude: %.6f\n", (double)g_q4k_hifi_max_outlier_magnitude);
+            fprintf(stderr, "  Avg magnitude: %.6f\n", avg_magnitude);
+            fprintf(stderr, "  Std deviation: %.6f\n", stddev);
+        }
+        fprintf(stderr, "\n");
+    }
+}
+
+void dequantize_row_q4_k_hifi(const block_q4_k_hifi * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % Q4_K_HIFI_BLOCK_SIZE == 0);
+    const int64_t nb = k / Q4_K_HIFI_BLOCK_SIZE;
+
+    for (int64_t ib = 0; ib < nb; ++ib) {
+        const block_q4_k_hifi * block = &x[ib];
+        float * yb = y + ib * Q4_K_HIFI_BLOCK_SIZE;
+
+        // Step 1: Reconstruct base Q4_K values
+        const block_q4_K * q4k_block = (const block_q4_K *)block->q4_k_data;
+        dequantize_row_q4_K(q4k_block, yb, Q4_K_HIFI_BLOCK_SIZE);
+
+        // Step 2: Restore original outlier values (overwrite Q4_K reconstruction)
+        for (int ok = 0; ok < Q4_K_HIFI_OUTLIERS; ++ok) {
+            int idx = block->outlier_idx[ok];
+            if (idx < Q4_K_HIFI_BLOCK_SIZE) {
+                yb[idx] = GGML_FP16_TO_FP32(block->outliers[ok]);
+            }
+        }
+    }
+}
+
+size_t quantize_q4_k_hifi(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrow, int64_t n_per_row, const float * quant_weights) {
+    const size_t row_size = ggml_row_size(GGML_TYPE_Q4_K_HIFI, n_per_row);
+    if (!quant_weights) {
+        quantize_row_q4_k_hifi_ref(src, dst, nrow * n_per_row);
+    } else {
+        char * qrow = (char *)dst;
+        for (int64_t row = 0; row < nrow; ++row) {
+            quantize_row_q4_k_hifi_impl(src, (block_q4_k_hifi*)qrow, n_per_row, quant_weights);
+            src += n_per_row;
+            qrow += row_size;
+        }
+    }
+    return nrow * row_size;
+}
+
 // ====================== 4-bit (de)-quantization
 
 void quantize_row_q4_K_ref(const float * GGML_RESTRICT x, block_q4_K * GGML_RESTRICT y, int64_t k) {

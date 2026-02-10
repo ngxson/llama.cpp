@@ -3505,6 +3505,8 @@ class GGMLQuantizationType(IntEnum):
     Q6_K_HIFI_DYNAMIC = 42    # Q6_K + 2-8 dynamic outliers
     Q6_K_HIFI_RES8 = 43       # Q6_K + INT8 residuals (compact format)
     Q5_K_HIFI_RES8 = 44       # Q5_K + INT8 residuals (efficient for 4B-10B models)
+    Q3_K_HIFI_RES8 = 45       # Q3_K + INT8 residuals (lean version for imatrix use)
+    Q4_K_HIFI = 46             # Q4_K layout + 8 FP16 outliers per block (high-fidelity 4-bit)
 
 
 class ExpertGatingFuncType(IntEnum):
@@ -3669,6 +3671,8 @@ GGML_QUANT_SIZES: dict[GGMLQuantizationType, tuple[int, int]] = {
     GGMLQuantizationType.Q6_K_HIFI_DYNAMIC: (256, 236),  # Q6_K (210) + dynamic outliers (26)
     GGMLQuantizationType.Q6_K_HIFI_RES8: (256, 232),  # Q6_K (210) + INT8 residuals (22)
     GGMLQuantizationType.Q5_K_HIFI_RES8: (256, 200),  # Q5_K (176) + INT8 residuals (24)
+    GGMLQuantizationType.Q3_K_HIFI_RES8: (256, 132),  # Q3_K (110) + INT8 residuals (22)
+    GGMLQuantizationType.Q4_K_HIFI: (256, 168),  # Q4_K (144) + outlier_idx[8] + outlier_vals[16] = 168 bytes
 }
 
 

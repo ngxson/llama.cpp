@@ -956,6 +956,79 @@ static __device__ __forceinline__ float vec_dot_q4_K_q8_1(
     return vec_dot_q4_K_q8_1_impl_vmmq(v, u, sc, m, bq4_K->dm, d8);
 }
 
+// Q4_K_HIFI: Q4_K layout + up to 8 FP16 outlier replacements per block
+#define VDR_Q4_K_HIFI_Q8_1_MMVQ VDR_Q4_K_Q8_1_MMVQ
+
+static __device__ __forceinline__ float vec_dot_q4_k_hifi_q8_1(
+    const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
+
+    const block_q4_k_hifi * bq4_k_hifi = (const block_q4_k_hifi *) vbq + kbx;
+
+    // === Q4_K bulk dot product ===
+    // Cast q4_k_data to block_q4_K to access Q4_K fields
+    const block_q4_K * bq4_K = (const block_q4_K *)bq4_k_hifi->q4_k_data;
+
+    int    v[2];
+    int    u[2*QR4_K];
+    float d8[QR4_K];
+
+    const int bq8_offset = QR4_K * ((iqs/2) / (QI8_1/2));
+
+    const int * q4 = (const int *)(bq4_K->qs + 16 * bq8_offset + 4 * ((iqs/2)%4));
+    v[0] = q4[0];
+    v[1] = q4[4];
+
+    const uint16_t * scales = (const uint16_t *)bq4_K->scales;
+    uint16_t aux[2];
+    const int j = bq8_offset/2;
+    if (j < 2) {
+        aux[0] = scales[j+0] & 0x3f3f;
+        aux[1] = scales[j+2] & 0x3f3f;
+    } else {
+        aux[0] = ((scales[j+2] >> 0) & 0x0f0f) | ((scales[j-2] & 0xc0c0) >> 2);
+        aux[1] = ((scales[j+2] >> 4) & 0x0f0f) | ((scales[j-0] & 0xc0c0) >> 2);
+    }
+    const uint8_t * sc = (const uint8_t *)aux;
+    const uint8_t * m  = sc + 2;
+
+    for (int i = 0; i < QR4_K; ++i) {
+        const block_q8_1 * bq8i = bq8_1 + bq8_offset + i;
+        d8[i] = __low2float(bq8i->ds);
+
+        const int * q8 = (const int *)bq8i->qs + ((iqs/2)%4);
+        u[2*i+0] = q8[0];
+        u[2*i+1] = q8[4];
+    }
+
+    float sum = vec_dot_q4_K_q8_1_impl_vmmq(v, u, sc, m, bq4_K->dm, d8);
+
+    // === Q4_K_HIFI outlier correction ===
+    // Outlier indices are sorted ascending, unused slots have idx=255 (sentinel)
+    const int bq8_end = bq8_offset + QR4_K;
+    const int thread_q8_pos = (iqs/2) % 4;  // Position group within Q8 block (0..3)
+
+    #pragma unroll
+    for (int k = 0; k < Q4_K_HIFI_OUTLIERS; ++k) {
+        const int idx = bq4_k_hifi->outlier_idx[k];
+
+        const int idx_bq8 = idx / QK8_1;
+        if (idx_bq8 >= bq8_end) break;  // Sorted: all remaining past our range
+        if (idx_bq8 < bq8_offset) continue;
+
+        const int idx_in_bq8 = idx % QK8_1;
+        const int pos_group = (idx_in_bq8 % 16) / 4;
+
+        if (pos_group == thread_q8_pos) {
+            const float outlier_val = __half2float(bq4_k_hifi->outliers[k]);
+            const int8_t q8_val = ((const int8_t*)bq8_1[idx_bq8].qs)[idx_in_bq8];
+            const float d8_val = __low2float(bq8_1[idx_bq8].ds);
+            sum += outlier_val * q8_val * d8_val;
+        }
+    }
+
+    return sum;
+}
+
 static __device__ __forceinline__ float vec_dot_q5_K_q8_1(
     const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
 

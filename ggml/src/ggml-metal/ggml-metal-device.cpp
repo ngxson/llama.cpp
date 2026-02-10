@@ -539,6 +539,8 @@ static const char * ggml_metal_type_name_for_kernel(ggml_type type) {
     switch (type) {
         case GGML_TYPE_Q3_K_HIFI:
             return "q3_k_hifi";
+        case GGML_TYPE_Q4_K_HIFI:
+            return "q4_k_hifi";
         case GGML_TYPE_Q6_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
         case GGML_TYPE_Q6_K_HIFI_RES8:
@@ -691,6 +693,11 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv(ggml_meta
             {
                 nsg = N_SG_Q4_K;
                 nr0 = N_R0_Q4_K;
+            } break;
+        case GGML_TYPE_Q4_K_HIFI:
+            {
+                nsg = N_SG_Q4_K_HIFI;
+                nr0 = N_R0_Q4_K_HIFI;
             } break;
         case GGML_TYPE_Q5_K:
             {
@@ -928,6 +935,11 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv_id(ggml_m
             {
                 nsg = N_SG_Q4_K;
                 nr0 = N_R0_Q4_K;
+            } break;
+        case GGML_TYPE_Q4_K_HIFI:
+            {
+                nsg = N_SG_Q4_K_HIFI;
+                nr0 = N_R0_Q4_K_HIFI;
             } break;
         case GGML_TYPE_Q5_K:
             {

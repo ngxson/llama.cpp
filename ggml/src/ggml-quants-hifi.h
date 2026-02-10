@@ -234,6 +234,25 @@ GGML_API int ggml_q3_hifi_compute_block_outliers(
     float model_params_b
 );
 
+// ===========================================================================
+// Q4_K_HIFI Adaptive Enhancement API
+// Model-size-aware outlier allocation for Q4_K_HIFI quantization
+// Reuses Q3_K_HIFI TLS infrastructure for per-tensor control
+// ===========================================================================
+
+// Q4_K_HIFI block constants
+#ifndef Q4_K_HIFI_MAX_OUTLIERS
+#define Q4_K_HIFI_MAX_OUTLIERS 8
+#endif
+
+// Get maximum outlier count for Q4_K_HIFI based on model size
+// At 4-bit, the base quantization is more robust than 3-bit, so outlier
+// allocation is tuned differently:
+//   - ≤3B: 4 outliers (Q4_K base is already decent, moderate enhancement)
+//   - 3B-13B: 6 outliers (sweet spot for quality gains)
+//   - ≥30B: 8 outliers (outlier concentration increases with scale)
+GGML_API int ggml_q4_hifi_get_max_outliers(float model_params_b);
+
 #ifdef __cplusplus
 }
 #endif

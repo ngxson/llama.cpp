@@ -727,8 +727,9 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 new_type = hifi_type;  // Use size-appropriate HIFI type
             } else if (use_more_bits(qs.i_attention_wv, qs.n_attention_wv)) {
                 new_type = GGML_TYPE_Q6_K;  // Follow Q4_K_M behavior for critical late layers
+            } else {
+                new_type = GGML_TYPE_Q4_K_HIFI;  // Q4_K_HIFI for medium-sensitivity mid layers
             }
-            // else: use default Q4_K for non-critical middle/late layers
         }
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L) new_type = GGML_TYPE_Q5_K;
         else if ((ftype == LLAMA_FTYPE_MOSTLY_IQ4_NL || ftype == LLAMA_FTYPE_MOSTLY_IQ4_XS) && qs.model.hparams.n_gqa() >= 4) {
@@ -857,6 +858,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 else if (ftype == LLAMA_FTYPE_MOSTLY_IQ3_XXS) new_type = GGML_TYPE_IQ3_S;
                 else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_M ) new_type = GGML_TYPE_Q4_K;
                 else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI) new_type = GGML_TYPE_Q4_K;  // Match Q3_K_M
+                else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) new_type = GGML_TYPE_Q4_K_HIFI;  // Medium-sensitivity
                 else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_L ) new_type = GGML_TYPE_Q5_K;
                 else if (ftype == LLAMA_FTYPE_MOSTLY_IQ3_M  ) new_type = GGML_TYPE_Q4_K;
             }
@@ -887,8 +889,9 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             if (ffn_gate_threshold > 0.0f && i_layer <= n_layer * ffn_gate_threshold) {
                 const ggml_type hifi_type = get_hifi_enhanced_type(model_params_b);
                 new_type = hifi_type;  // Use HIFI type for early ffn_gate layers
+            } else {
+                new_type = GGML_TYPE_Q4_K_HIFI;  // Q4_K_HIFI for medium-sensitivity
             }
-            // else: use default Q4_K for larger models or later layers
         }
         ++qs.i_ffn_gate;
     }
@@ -897,6 +900,9 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         int i_layer = info.first, n_layer = info.second;
         if (ftype == LLAMA_FTYPE_MOSTLY_IQ3_XS && (i_layer >= n_layer/8 && i_layer < 7*n_layer/8)) {
             new_type = GGML_TYPE_IQ3_XXS;
+        }
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_HIFI) {
+            new_type = GGML_TYPE_Q4_K_HIFI;  // Q4_K_HIFI for medium-sensitivity ffn_up
         }
         ++qs.i_ffn_up;
     }
@@ -1808,6 +1814,25 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
                     type_name, model_params_b, layer_idx, n_layers, layer_importance, outlier_count);
             }
 
+            // Handle Q4_K_HIFI type - set per-tensor outlier count via TLS
+            if (new_type == GGML_TYPE_Q4_K_HIFI) {
+                int q4_outliers = ggml_q4_hifi_get_max_outliers(model_params_b);
+
+                // Use imatrix importance to modulate outlier count
+                if (imatrix && n_per_row > 0) {
+                    float importance = ggml_hifi_compute_tensor_importance(imatrix, n_per_row);
+                    // High importance tensors get more outliers
+                    if (importance > 0.7f) {
+                        q4_outliers = Q4_K_HIFI_MAX_OUTLIERS;  // Max outliers for critical tensors
+                    } else if (importance < 0.3f) {
+                        q4_outliers = (q4_outliers > 2) ? q4_outliers - 2 : 2;  // Reduce for low-importance
+                    }
+                }
+
+                ggml_q3_hifi_set_tensor_outliers(q4_outliers);  // Reuse Q3 TLS infrastructure
+                LLAMA_LOG_INFO("(Q4_K_HIFI: model=%.1fB outliers=%d) ", model_params_b, q4_outliers);
+            }
+
             for (int64_t i03 = 0; i03 < tensor->ne[2]; ++i03) {
                 const float * f32_data_03 = f32_data + i03 * nelements_matrix;
                 void * new_data_03 = (char *)new_data + ggml_row_size(new_type, n_per_row) * i03 * nrows;
@@ -1841,6 +1866,11 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
 
             // Reset Q3_K_HIFI TLS state after each tensor
             if (is_q3_hifi && is_q3_hifi_ftype) {
+                ggml_q3_hifi_reset_tensor_state();
+            }
+
+            // Reset TLS state after Q4_K_HIFI quantization
+            if (new_type == GGML_TYPE_Q4_K_HIFI) {
                 ggml_q3_hifi_reset_tensor_state();
             }
 
