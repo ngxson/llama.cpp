@@ -7758,15 +7758,14 @@ class DeepseekV2Model(TextModel):
             # Default: if no MoE, all layers are dense; if MoE, none are dense
             first_k_dense_replace = hparams["num_hidden_layers"] if not has_moe else 0
         self.gguf_writer.add_leading_dense_block_count(first_k_dense_replace)
-        kv_lora_rank = hparams["kv_lora_rank"] if hparams.get("kv_lora_rank") is not None else 512
+        kv_lora_rank = hparams.get("kv_lora_rank", 512)
         self.gguf_writer.add_vocab_size(hparams["vocab_size"])
         if "q_lora_rank" in hparams and hparams["q_lora_rank"] is not None:
             self.gguf_writer.add_q_lora_rank(hparams["q_lora_rank"])
-        if "kv_lora_rank" in hparams and hparams["kv_lora_rank"] is not None:
-            self.gguf_writer.add_kv_lora_rank(kv_lora_rank)
 
         # note: deepseek2 using MLA converts into MQA with larger heads, then decompresses to MHA
         if not is_ocr:
+            self.gguf_writer.add_kv_lora_rank(kv_lora_rank)
             self.gguf_writer.add_key_length(kv_lora_rank + hparams["qk_rope_head_dim"])
             self.gguf_writer.add_value_length(kv_lora_rank)
             self.gguf_writer.add_key_length_mla(hparams["qk_nope_head_dim"] + hparams["qk_rope_head_dim"])
