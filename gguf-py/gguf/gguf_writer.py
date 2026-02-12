@@ -768,7 +768,7 @@ class GGUFWriter:
     def add_value_length_mla(self, length: int) -> None:
         self.add_uint32(Keys.Attention.VALUE_LENGTH_MLA.format(arch=self.arch), length)
 
-    def add_indexer_head_count(self, count: int | Sequence[int]) -> None:
+    def add_indexer_head_count(self, count: int) -> None:
         self.add_uint32(Keys.Attention.Indexer.HEAD_COUNT.format(arch=self.arch), count)
 
     def add_indexer_key_length(self, length: int) -> None:
