@@ -136,6 +136,7 @@ const char * llm_type_name(llm_type type) {
         case LLM_TYPE_300B_A47B:     return "300B.A47B";
         case LLM_TYPE_310B_A15B:     return "310B.A15B";
         case LLM_TYPE_355B_A32B:     return "355B.A32B";
+        case LLM_TYPE_744B_A40B:     return "744B.A40B";
         case LLM_TYPE_E2B:           return "E2B";
         case LLM_TYPE_E4B:           return "E4B";
         default:                     return "?B";
@@ -1860,7 +1861,7 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 hparams.n_layer_kv_from_start = hparams.n_layer - hparams.nextn_predict_layers;
 
                 switch (hparams.n_layer) {
-                    // TODO
+                    case 78: type = LLM_TYPE_744B_A40B; break;
                     default: type = LLM_TYPE_UNKNOWN;
                 }
             } break;

@@ -1605,6 +1605,23 @@ class TextModel(ModelBase):
         special_vocab._set_special_token("bos", tokenizer.get_added_vocab()["<|endoftext|>"])
         special_vocab.add_to_gguf(self.gguf_writer)
 
+    def _set_vocab_glm(self):
+        from transformers import AutoTokenizer
+        tokenizer = AutoTokenizer.from_pretrained(self.dir_model)
+        special_vocab = gguf.SpecialVocab(self.dir_model, load_merges=True)
+        tokens, toktypes, tokpre = self.get_vocab_base()
+        self.gguf_writer.add_tokenizer_model("gpt2")
+        self.gguf_writer.add_tokenizer_pre(tokpre)
+        self.gguf_writer.add_token_list(tokens)
+        self.gguf_writer.add_token_types(toktypes)
+        # Special tokens
+        # Note: Using <|endoftext|> (151329) for eot causes endless generation
+        special_vocab._set_special_token("bos", tokenizer.get_added_vocab()["[gMASK]"])  # 151331
+        special_vocab._set_special_token("eot", tokenizer.get_added_vocab()["<|user|>"])  # 151336
+        special_vocab._set_special_token("unk", tokenizer.get_added_vocab()["<|endoftext|>"]) # 151329
+        special_vocab._set_special_token("eom", tokenizer.get_added_vocab()["<|observation|>"])  # 151338
+        special_vocab.add_to_gguf(self.gguf_writer)
+
     def _set_vocab_interns1(self):
         tokens: list[str] = []
         toktypes: list[int] = []
@@ -8562,27 +8579,6 @@ class Glm4MoeModel(TextModel):
         self.block_count = self.hparams["num_hidden_layers"] + self.hparams.get("num_nextn_predict_layers", 0)
         self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
 
-    # using staticmethod here to allow re-using it in other classes
-    @staticmethod
-    def set_vocab_glm(model: TextModel):
-        from transformers import AutoTokenizer
-
-        tokenizer = AutoTokenizer.from_pretrained(model.dir_model)
-        special_vocab = gguf.SpecialVocab(model.dir_model, load_merges=True)
-        tokens, toktypes, tokpre = model.get_vocab_base()
-        model.gguf_writer.add_tokenizer_model("gpt2")
-        model.gguf_writer.add_tokenizer_pre(tokpre)
-        model.gguf_writer.add_token_list(tokens)
-        model.gguf_writer.add_token_types(toktypes)
-        # Special tokens
-        # Note: Using <|endoftext|> (151329) for eot causes endless generation
-        special_vocab._set_special_token("bos", tokenizer.get_added_vocab()["[gMASK]"])  # 151331
-        special_vocab._set_special_token("eot", tokenizer.get_added_vocab()["<|user|>"])  # 151336
-        special_vocab._set_special_token("unk", tokenizer.get_added_vocab()["<|endoftext|>"]) # 151329
-        special_vocab._set_special_token("eom", tokenizer.get_added_vocab()["<|observation|>"])  # 151338
-
-        special_vocab.add_to_gguf(model.gguf_writer)
-
     def set_vocab(self):
         Glm4MoeModel.set_vocab_glm(self)
 
@@ -8685,7 +8681,7 @@ class Glm4MoeLiteModel(DeepseekV2Model):
     model_arch = gguf.MODEL_ARCH.DEEPSEEK2
 
     def set_vocab(self):
-        Glm4MoeModel.set_vocab_glm(self)
+        return self._set_vocab_glm()
 
 
 @ModelBase.register("GlmMoeDsaForCausalLM")
@@ -8700,19 +8696,14 @@ class GlmMoeDsaModel(DeepseekV2Model):
         self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
 
     def set_vocab(self):
-        Glm4MoeModel.set_vocab_glm(self)
+        return self._set_vocab_glm()
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
 
-        self.gguf_writer.add_leading_dense_block_count(3) # TODO: not to hard-code this for future models
-
         rope_dim = self.hparams["qk_rope_head_dim"]
         partial_rotary_factor = self.hparams.get("partial_rotary_factor", 1.0)
         self.gguf_writer.add_rope_dimension_count(int(rope_dim * partial_rotary_factor))
-
-        # Expert gating function (sigmoid for GLM4_MOE)
-        self.gguf_writer.add_expert_gating_func(gguf.ExpertGatingFuncType.SIGMOID)
 
         # NextN/MTP prediction layers
         if (num_nextn_predict_layers := self.hparams.get("num_nextn_predict_layers")) is not None:
@@ -8722,9 +8713,6 @@ class GlmMoeDsaModel(DeepseekV2Model):
         self.gguf_writer.add_indexer_head_count(self.hparams["index_n_heads"])
         self.gguf_writer.add_indexer_key_length(self.hparams["index_head_dim"])
         self.gguf_writer.add_indexer_top_k(self.hparams["index_topk"])
-
-    def modify_tensors(self, data_torch, name, bid):
-        yield from super().modify_tensors(data_torch, name, bid)
 
 
 @ModelBase.register("GlmForCausalLM", "ChatGLMModel", "ChatGLMForConditionalGeneration")
