@@ -15,6 +15,7 @@
 #include <vector>
 #include <fstream>
 #include <unordered_map>
+#include <unordered_set>
 #include <map>
 #include <regex>
 #include <numeric>
@@ -75,6 +76,7 @@ private:
     int32_t                                m_last_chunk = 0;
     std::vector<char>                      m_src1_data;
     std::vector<char>                      m_ids; // the expert ids from ggml_mul_mat_id
+    std::unordered_set<std::string>        m_nan_warned; // tensors we already warned about non-finite activations
 };
 
 // remove any prefix and suffixes from the name
@@ -312,10 +314,13 @@ bool IMatrixCollector::collect_imatrix(struct ggml_tensor * t, bool ask, void * 
                     e.counts[ex]++;
 
                     for (int64_t j = 0; j < src1->ne[0]; ++j) {
-                        e.values[e_start + j] += x[j] * x[j];
-                        if (!std::isfinite((float)e.values[e_start + j])) {
-                            LOG_ERR("%f detected in %s\n", (float)e.values[e_start + j], wname.c_str());
-                            exit(1);
+                        const float sq = x[j] * x[j];
+                        if (std::isfinite(sq)) {
+                            e.values[e_start + j] += sq;
+                        } else {
+                            if (m_nan_warned.insert(wname).second) {
+                                LOG_WRN("imatrix: skipping non-finite activation in %s (numerical instability in forward pass, continuing)\n", wname.c_str());
+                            }
                         }
                     }
                 }
@@ -369,10 +374,13 @@ bool IMatrixCollector::collect_imatrix(struct ggml_tensor * t, bool ask, void * 
                 for (int64_t row = 0; row < src1->ne[1]; ++row) {
                     const float * x = (const float *) (data + row * src1->nb[1] + i2 * src1->nb[2] + i3 * src1->nb[3]);
                     for (int64_t j = 0; j < src1->ne[0]; ++j) {
-                        e.values[mat_start + j] += x[j] * x[j];
-                        if (!std::isfinite((float)e.values[j])) {
-                            LOG_ERR("%f detected in %s\n", (float)e.values[j], wname.c_str());
-                            exit(1);
+                        const float sq = x[j] * x[j];
+                        if (std::isfinite(sq)) {
+                            e.values[mat_start + j] += sq;
+                        } else {
+                            if (m_nan_warned.insert(wname).second) {
+                                LOG_WRN("imatrix: skipping non-finite activation in %s (numerical instability in forward pass, continuing)\n", wname.c_str());
+                            }
                         }
                     }
                 }
