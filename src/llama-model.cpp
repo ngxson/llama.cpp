@@ -1861,7 +1861,7 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 hparams.n_layer_kv_from_start = hparams.n_layer - hparams.nextn_predict_layers;
 
                 switch (hparams.n_layer) {
-                    case 78: type = LLM_TYPE_744B_A40B; break;
+                    case 79: type = LLM_TYPE_744B_A40B; break;
                     default: type = LLM_TYPE_UNKNOWN;
                 }
             } break;
