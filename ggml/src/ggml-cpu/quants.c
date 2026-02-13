@@ -72,6 +72,12 @@ void quantize_row_q3_k_hifi(const float * GGML_RESTRICT x, void * GGML_RESTRICT 
     quantize_row_q3_k_hifi_ref(x, y, k);
 }
 
+void quantize_row_q4_k_hifi(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
+    assert(k % Q4_K_HIFI_BLOCK_SIZE == 0);
+    block_q4_k_hifi * GGML_RESTRICT y = vy;
+    quantize_row_q4_k_hifi_ref(x, y, k);
+}
+
 // ====================== 4-bit (de)-quantization
 
 void quantize_row_q4_K(const float * GGML_RESTRICT x, void * GGML_RESTRICT vy, int64_t k) {
@@ -626,6 +632,55 @@ void ggml_vec_dot_q3_k_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t 
 }
 
 // Note: ggml_vec_dot_q3_k_hifi_q8_K is defined in arch-specific files (x86/quants.c etc.)
+
+// Q4_K_HIFI vec_dot: Generic implementation
+// Uses Q4_K format for bulk, adds outlier corrections
+void ggml_vec_dot_q4_k_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % Q4_K_HIFI_BLOCK_SIZE == 0);
+    assert(nrc == 1);
+    UNUSED(nrc);
+    UNUSED(bx);
+    UNUSED(by);
+    UNUSED(bs);
+
+    const block_q4_k_hifi * GGML_RESTRICT x = vx;
+    const block_q8_K * GGML_RESTRICT y = vy;
+    const int nb = n / Q4_K_HIFI_BLOCK_SIZE;
+
+    float total_sum = 0.0f;
+
+    for (int i = 0; i < nb; ++i) {
+        const block_q4_k_hifi * xb = &x[i];
+        const block_q8_K * yb = &y[i];
+
+        // Step 1: Dequantize Q4_K from q4_k_data (first 144 bytes)
+        const block_q4_K * q4k_block = (const block_q4_K *)xb->q4_k_data;
+        float q4k_weights[Q4_K_HIFI_BLOCK_SIZE];
+        dequantize_row_q4_K(q4k_block, q4k_weights, Q4_K_HIFI_BLOCK_SIZE);
+
+        // Step 2: Compute dot product
+        const float d_y = yb->d;
+        const int8_t * GGML_RESTRICT q8 = yb->qs;
+        float block_sum = 0.0f;
+        for (int j = 0; j < Q4_K_HIFI_BLOCK_SIZE; ++j) {
+            block_sum += q4k_weights[j] * (float)q8[j] * d_y;
+        }
+
+        // Step 3: Add outlier corrections
+        for (int k = 0; k < Q4_K_HIFI_OUTLIERS; ++k) {
+            int idx = xb->outlier_idx[k];
+            if (idx < Q4_K_HIFI_BLOCK_SIZE) {
+                float outlier_val = GGML_FP16_TO_FP32(xb->outliers[k]);
+                float q4k_val = q4k_weights[idx];
+                block_sum += (outlier_val - q4k_val) * (float)q8[idx] * d_y;
+            }
+        }
+
+        total_sum += block_sum;
+    }
+
+    *s = total_sum;
+}
 
 void ggml_vec_dot_q4_K_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);

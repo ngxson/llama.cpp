@@ -61,7 +61,7 @@ static std::string llama_model_ftype_name(llama_ftype ftype) {
         case LLAMA_FTYPE_MOSTLY_IQ4_XS:   return "IQ4_XS - 4.25 bpw";
         case LLAMA_FTYPE_MOSTLY_IQ3_S:    return "IQ3_S - 3.4375 bpw";
         case LLAMA_FTYPE_MOSTLY_IQ3_M:    return "IQ3_S mix - 3.66 bpw";
-        case LLAMA_FTYPE_MOSTLY_Q4_K_HIFI: return "Q4_K_HIFI - ~4.95 bpw (Q4_K_M + INT8 residuals, compact)";
+        case LLAMA_FTYPE_MOSTLY_Q4_K_HIFI: return "Q4_K_HIFI - ~4.95 bpw (Q4_K base + FP16 outliers, tiered)";
 
         default: return "unknown, may not work";
     }
@@ -727,6 +727,7 @@ llama_model_loader::llama_model_loader(
             case GGML_TYPE_Q6_K_HIFI_DYNAMIC: ftype = LLAMA_FTYPE_MOSTLY_Q4_K_HIFI; break;
             case GGML_TYPE_Q6_K_HIFI_RES8: ftype = LLAMA_FTYPE_MOSTLY_Q4_K_HIFI; break;
             case GGML_TYPE_Q5_K_HIFI_RES8: ftype = LLAMA_FTYPE_MOSTLY_Q4_K_HIFI; break;
+            case GGML_TYPE_Q4_K_HIFI: ftype = LLAMA_FTYPE_MOSTLY_Q4_K_HIFI; break;
             default:
                 {
                     LLAMA_LOG_WARN("%s: unknown type %s\n", __func__, ggml_type_name(type_max));

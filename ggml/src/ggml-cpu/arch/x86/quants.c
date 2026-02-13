@@ -2339,6 +2339,11 @@ void ggml_vec_dot_q3_k_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, cons
     ggml_vec_dot_q3_k_hifi_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
 }
 
+// Q4_K_HIFI vec_dot - delegates to generic implementation
+void ggml_vec_dot_q4_k_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    ggml_vec_dot_q4_k_hifi_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+}
+
 #if defined (__AVX__) || defined (__AVX2__)
 static const int8_t keven_signs_q2xs[1024] = {
      1,  1,  1,  1,  1,  1,  1,  1, -1,  1,  1,  1,  1,  1,  1, -1,  1, -1,  1,  1,  1,  1,  1, -1, -1, -1,  1,  1,  1,  1,  1,  1,
