@@ -497,12 +497,12 @@ typedef struct {
     uint8_t residual_scale_e4m3;                         // 1 byte: E4M3 FP8 scale (0.92% error vs FP16)
     // NOTE: 3 bytes saved vs FP32 scale, no padding needed
     // Effective bpw after early exit optimization (92% non-enhanced blocks):
-    //   Enhanced blocks (8%): 197 bytes → 6.16 bpw
+    //   Enhanced blocks (8%): 196 bytes → 6.125 bpw
     //   Non-enhanced blocks (92%): 177 bytes (skip residual storage) → 5.53 bpw
-    //   Weighted average: 0.08×6.16 + 0.92×5.53 = 5.58 bpw (beats Q5_K_M's 5.69 bpw!)
+    //   Weighted average: 0.08×6.125 + 0.92×5.53 = 5.58 bpw (beats Q5_K_M's 5.69 bpw!)
 } block_q5_k_hifi_res8;
-// Total: 197 bytes (176 + 21) - 15% smaller than Q6_K_HIFI_RES8
-static_assert(sizeof(block_q5_k_hifi_res8) == 197, "wrong q5_k_hifi_res8 block size/padding");
+// Total: 196 bytes (176 + 20) - 15.5% smaller than Q6_K_HIFI_RES8
+static_assert(sizeof(block_q5_k_hifi_res8) == 196, "wrong q5_k_hifi_res8 block size/padding");
 
 // This is only used for intermediate quantization and dot products
 typedef struct {

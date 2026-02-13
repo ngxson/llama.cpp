@@ -3274,7 +3274,6 @@ void quantize_row_q5_k_hifi_res8_ref_ex(const float * GGML_RESTRICT x, block_q5_
 
         // Initialize extension fields
         block->outlier_count = (uint8_t)outlier_count;
-        memset(block->_padding, 0, sizeof(block->_padding));
 
         // Step 1: Find top-k outliers by magnitude
         float mag[QK_K];
@@ -3376,7 +3375,6 @@ static void quantize_row_q5_k_hifi_res8_impl(const float * GGML_RESTRICT x, bloc
         }
 
         block->outlier_count = (uint8_t)outlier_count;
-        memset(block->_padding, 0, sizeof(block->_padding));
 
         // Find top-k outliers using imatrix-weighted importance
         float importance[QK_K];
