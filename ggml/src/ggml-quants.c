@@ -3323,7 +3323,9 @@ void quantize_row_q5_k_hifi_res8_ref_ex(const float * GGML_RESTRICT x, block_q5_
 
         // Handle zero case
         if (max_residual == 0.0f) max_residual = 1e-8f;
-        block->residual_scale = max_residual;
+
+        // Store residual scale using E4M3 FP8 encoding
+        block->residual_scale_e4m3 = GGML_FP32_TO_E4M3(max_residual);
 
         // Step 4: Store indices and INT8-quantized residuals
         for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
@@ -3459,7 +3461,7 @@ static void quantize_row_q5_k_hifi_res8_impl(const float * GGML_RESTRICT x, bloc
         if (max_residual < threshold || significant_count < 3) {
             // Mark block as non-enhanced by setting outlier_count to 0
             block->outlier_count = 0;
-            block->residual_scale = 0.0f;
+            block->residual_scale_e4m3 = 0;  // E4M3: 0 encodes as 0.0f
             // Zero out residual storage
             for (int k_idx = 0; k_idx < Q5_K_HIFI_RES8_MAX_OUTLIERS; ++k_idx) {
                 block->outlier_idx[k_idx] = 0;
@@ -3470,7 +3472,9 @@ static void quantize_row_q5_k_hifi_res8_impl(const float * GGML_RESTRICT x, bloc
 
         // Residuals are significant - proceed with storage
         if (max_residual == 0.0f) max_residual = 1e-8f;
-        block->residual_scale = max_residual;
+
+        // Store residual scale using E4M3 FP8 encoding (saves 3 bytes vs FP32)
+        block->residual_scale_e4m3 = GGML_FP32_TO_E4M3(max_residual);
 
         for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
             block->outlier_idx[k_idx] = (uint8_t)outlier_indices[k_idx];
@@ -3506,7 +3510,8 @@ void dequantize_row_q5_k_hifi_res8(const block_q5_k_hifi_res8 * GGML_RESTRICT x,
         }
 
         // SLOW PATH: Apply residual corrections at outlier positions (8% of blocks)
-        const float scale = block->residual_scale;
+        // Decode E4M3 FP8 scale to FP32 (0.92% error vs FP16)
+        const float scale = GGML_E4M3_TO_FP32(block->residual_scale_e4m3);
         const float inv_127 = 1.0f / 127.0f;  // Hoist division out of loop
         for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
             const int idx = block->outlier_idx[k_idx];
