@@ -8580,7 +8580,7 @@ class Glm4MoeModel(TextModel):
         self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
 
     def set_vocab(self):
-        Glm4MoeModel.set_vocab_glm(self)
+        return self._set_vocab_glm()
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
@@ -8691,7 +8691,6 @@ class GlmMoeDsaModel(DeepseekV2Model):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # GLM4_MOE has num_hidden_layers + 1 actual layers (including NextN layer)
         self.block_count = self.hparams["num_hidden_layers"] + self.hparams.get("num_nextn_predict_layers", 0)
         self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
 
