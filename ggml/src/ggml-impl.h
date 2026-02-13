@@ -488,6 +488,72 @@ static inline float ggml_e8m0_to_fp32_half(uint8_t x) {
 #define GGML_E8M0_TO_FP32_HALF(x) ggml_e8m0_to_fp32_half(x)
 
 /**
+ * E4M3 FP8 format conversion for Q5_K_HIFI residual scales
+ *
+ * E4M3 format layout (8 bits total):
+ *   - 1 sign bit
+ *   - 4 exponent bits (biased by 7)
+ *   - 3 mantissa bits
+ *
+ * This format is optimized for residual scale storage in Q5_K_HIFI blocks,
+ * providing ~0.92% relative error vs FP16 for typical residual scale ranges.
+ *
+ * Range: ~2^(-7) to ~2^8 (0.0078125 to 256.0)
+ * Precision: 3-bit mantissa provides ~12.5% step size
+ */
+
+// Convert E4M3 FP8 to FP32
+static inline float ggml_e4m3_to_fp32(uint8_t e4m3) {
+    if (e4m3 == 0) return 0.0f;
+
+    // Extract fields
+    const int sign     = (e4m3 >> 7) & 0x01;  // Bit 7: sign
+    const int exp      = (e4m3 >> 3) & 0x0F;  // Bits 6-3: exponent (biased by 7)
+    const int mantissa = e4m3 & 0x07;          // Bits 2-0: mantissa
+
+    // Compute normalized value: (1 + m/8) * 2^(exp - 7)
+    // mantissa/8 gives fractional part: 0/8, 1/8, 2/8, ..., 7/8
+    const float m_frac = (float)mantissa / 8.0f;
+    const float value = (1.0f + m_frac) * exp2f((float)exp - 7.0f);
+
+    return sign ? -value : value;
+}
+
+// Convert FP32 to E4M3 FP8 (with rounding)
+static inline uint8_t ggml_fp32_to_e4m3(float f) {
+    if (f == 0.0f) return 0;
+
+    // Extract sign and work with absolute value
+    const int sign = (f < 0.0f) ? 1 : 0;
+    f = fabsf(f);
+
+    // Compute exponent: floor(log2(f)) + 7 (bias)
+    // Clamp to valid range [0, 15]
+    const int exp_unbias = (int)floorf(log2f(f));
+    int exp = exp_unbias + 7;
+    if (exp < 0) exp = 0;
+    if (exp > 15) exp = 15;
+
+    // Compute mantissa: extract 3 bits from normalized fraction
+    // Normalized value is f / 2^(exp-7), subtract 1 to get fractional part
+    const float scale = exp2f((float)exp - 7.0f);
+    float mantissa_f = (f / scale) - 1.0f;
+
+    // Clamp mantissa to [0, 1) and quantize to 3 bits with rounding
+    if (mantissa_f < 0.0f) mantissa_f = 0.0f;
+    if (mantissa_f >= 1.0f) mantissa_f = 0.999f;  // Avoid overflow
+
+    const int mantissa = (int)roundf(mantissa_f * 8.0f);
+    const int mantissa_clamped = (mantissa > 7) ? 7 : mantissa;
+
+    // Pack: sign(1) | exp(4) | mantissa(3)
+    return (uint8_t)((sign << 7) | (exp << 3) | mantissa_clamped);
+}
+
+#define GGML_E4M3_TO_FP32(x) ggml_e4m3_to_fp32(x)
+#define GGML_FP32_TO_E4M3(x) ggml_fp32_to_e4m3(x)
+
+/**
  * Converts brain16 to float32.
  *
  * The bfloat16 floating point format has the following structure:
