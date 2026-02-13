@@ -3541,8 +3541,8 @@ void dequantize_row_q5_k_hifi_res8(const block_q5_k_hifi_res8 * GGML_RESTRICT x,
         // FUSED Q5_K DEQUANTIZATION + RESIDUAL APPLICATION (single pass)
         const uint8_t * ql = block->qs;
         const uint8_t * qh = block->qh;
-        const float d = GGML_FP16_TO_FP32(block->dm.GGML_COMMON_AGGR_S.d);
-        const float min = GGML_FP16_TO_FP32(block->dm.GGML_COMMON_AGGR_S.dmin);
+        const float d = GGML_FP16_TO_FP32(block->d);
+        const float min = GGML_FP16_TO_FP32(block->dmin);
 
         int is = 0;
         uint8_t sc, m;
