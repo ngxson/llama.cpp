@@ -40,6 +40,12 @@ enum slot_state {
     SLOT_STATE_GENERATING,
 };
 
+// sub-state of SLOT_STATE_GENERATING
+enum slot_state_generating {
+    SLOT_STATE_GENERATING_TEXT,
+    SLOT_STATE_GENERATING_AUDIO,
+};
+
 enum server_state {
     SERVER_STATE_LOADING_MODEL,  // Server is starting up, model not fully loaded yet
     SERVER_STATE_READY,          // Server is ready and model is loaded
@@ -96,6 +102,9 @@ struct server_slot {
 
     // state
     slot_state state = SLOT_STATE_IDLE;
+
+    // sub-state of SLOT_STATE_GENERATING
+    slot_state_generating state_gen = SLOT_STATE_GENERATING_TEXT;
 
     server_prompt prompt;
 
@@ -173,6 +182,7 @@ struct server_slot {
         stop           = STOP_TYPE_NONE;
         stopping_word  = "";
         n_sent_text    = 0;
+        state_gen      = SLOT_STATE_GENERATING_TEXT;
 
         drafted.clear();
         i_batch_dft.clear();
@@ -2753,6 +2763,22 @@ private:
                 const int64_t t_current = ggml_time_us();
 
                 slot.n_decoded += 1;
+
+                if (mctx) {
+                    llama_token audio_beg = mtmd_audio_gen_token_start(mctx);
+                    llama_token audio_end = mtmd_audio_gen_token_end(mctx);
+                    if (id == audio_beg) {
+                        slot.state_gen = SLOT_STATE_GENERATING_AUDIO;
+                    } else if (id == audio_end) {
+                        slot.state_gen = SLOT_STATE_GENERATING_TEXT;
+                    }
+                }
+
+                if (slot.state_gen == SLOT_STATE_GENERATING_AUDIO) {
+                    // invoke mtmd_audio_gen(...)
+                    // note: logic beyond this point may be skipped, as we don't generate tokens, but generate embeddings directly
+                    continue; // skip token processing for audio generation
+                }
 
                 if (slot.n_decoded == 1) {
                     slot.t_start_generation = t_current;
