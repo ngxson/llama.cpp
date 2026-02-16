@@ -1211,17 +1211,24 @@ static __device__ __forceinline__ float vec_dot_q5_k_hifi_res8_q8_1(
 
     // === INT8 RESIDUAL CORRECTION ===
     const int outlier_count = bq5_hifi->outlier_count;
-    
+
     if (outlier_count > 0) {
-        const float res_scale = bq5_hifi->residual_scale * (1.0f / 127.0f);
-        
+        // Decode E4M3 FP8 scale to FP32 (inline for CUDA performance)
+        const uint8_t e4m3 = bq5_hifi->residual_scale_e4m3;
+        const int sign = (e4m3 >> 7) & 0x01;
+        const int exp = (e4m3 >> 3) & 0x0F;
+        const int mantissa = e4m3 & 0x07;
+        const float m_frac = (float)mantissa / 8.0f;
+        const float decoded_scale = (e4m3 == 0) ? 0.0f : ((1.0f + m_frac) * exp2f((float)exp - 7.0f) * (sign ? -1.0f : 1.0f));
+        const float res_scale = decoded_scale * (1.0f / 127.0f);
+
         // Only thread 0 in the warp group for this block computes the residual correction
         if (iqs == 0) {
             for (int k = 0; k < outlier_count && k < 8; ++k) {
                 const int idx = bq5_hifi->outlier_idx[k];
                 const int idx_bq8 = idx / QK8_1;
                 const int idx_in_bq8 = idx % QK8_1;
-                
+
                 const int8_t q8_val = ((const int8_t*)bq8_1[idx_bq8].qs)[idx_in_bq8];
                 const float d8_val = __low2float(bq8_1[idx_bq8].ds);
                 const float residual = res_scale * bq5_hifi->residual_vals[k];

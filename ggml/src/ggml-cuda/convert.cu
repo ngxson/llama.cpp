@@ -504,13 +504,24 @@ static __global__ void dequantize_block_q5_k_hifi_res8(const void * __restrict__
     if (threadIdx.x == 0) {
         dst_t * yb = yy + i*QK_K;
         const int outlier_count = x[i].outlier_count;
-        const float res_scale = x[i].residual_scale;
-        const float scale_factor = res_scale * (1.0f / 127.0f);
-        // Add residual corrections at outlier positions
-        for (int k = 0; k < outlier_count && k < Q5_K_HIFI_RES8_MAX_OUTLIERS; ++k) {
-            const int idx = x[i].outlier_idx[k];
-            const float residual = x[i].residual_vals[k] * scale_factor;
-            yb[idx] += residual;
+
+        // FAST PATH: Skip residual application if block has no outliers
+        if (outlier_count > 0) {
+            // Decode E4M3 FP8 scale to FP32 (inline for CUDA)
+            const uint8_t e4m3 = x[i].residual_scale_e4m3;
+            const int sign = (e4m3 >> 7) & 0x01;
+            const int exp = (e4m3 >> 3) & 0x0F;
+            const int mantissa = e4m3 & 0x07;
+            const float m_frac = (float)mantissa / 8.0f;
+            const float res_scale = (e4m3 == 0) ? 0.0f : ((1.0f + m_frac) * exp2f((float)exp - 7.0f) * (sign ? -1.0f : 1.0f));
+
+            const float scale_factor = res_scale * (1.0f / 127.0f);
+            // Add residual corrections at outlier positions
+            for (int k = 0; k < outlier_count && k < Q5_K_HIFI_RES8_MAX_OUTLIERS; ++k) {
+                const int idx = x[i].outlier_idx[k];
+                const float residual = x[i].residual_vals[k] * scale_factor;
+                yb[idx] += residual;
+            }
         }
     }
 }

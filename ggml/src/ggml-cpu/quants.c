@@ -1118,16 +1118,27 @@ void ggml_vec_dot_q5_k_hifi_res8_q8_K(int n, float * GGML_RESTRICT s, size_t bs,
         // === INT8 RESIDUAL CORRECTION ===
         // Add residual * activation corrections at outlier positions
         const int outlier_count = x[i].outlier_count;
-        const float res_scale = x[i].residual_scale;
-        const float d8 = y[i].d;
-        const float scale_factor = res_scale * (1.0f / 127.0f) * d8;
-        for (int k = 0; k < outlier_count; ++k) {
-            const int idx = x[i].outlier_idx[k];
-            const int8_t activation = y[i].qs[idx];
-            // Early exit: skip if activation is too small (same threshold as Q6_K_HIFI)
-            if (activation > 4 || activation < -4) {
-                const float residual = x[i].residual_vals[k] * scale_factor;
-                sumf += residual * activation;
+
+        // FAST PATH: Skip residual correction if no outliers
+        if (outlier_count > 0) {
+            // Decode E4M3 FP8 scale to FP32
+            const uint8_t e4m3 = x[i].residual_scale_e4m3;
+            const int sign = (e4m3 >> 7) & 0x01;
+            const int exp = (e4m3 >> 3) & 0x0F;
+            const int mantissa = e4m3 & 0x07;
+            const float m_frac = (float)mantissa / 8.0f;
+            const float decoded_scale = (e4m3 == 0) ? 0.0f : ((1.0f + m_frac) * exp2f((float)exp - 7.0f) * (sign ? -1.0f : 1.0f));
+
+            const float d8 = y[i].d;
+            const float scale_factor = decoded_scale * (1.0f / 127.0f) * d8;
+            for (int k = 0; k < outlier_count; ++k) {
+                const int idx = x[i].outlier_idx[k];
+                const int8_t activation = y[i].qs[idx];
+                // Early exit: skip if activation is too small (same threshold as Q6_K_HIFI)
+                if (activation > 4 || activation < -4) {
+                    const float residual = x[i].residual_vals[k] * scale_factor;
+                    sumf += residual * activation;
+                }
             }
         }
     }
