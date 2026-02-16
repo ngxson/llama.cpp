@@ -1206,6 +1206,22 @@ class TensorNameMap:
             "model.layers.{bid}.self_attn.vision_expert_query_key_value",  # cogvlm
         ),
 
+        MODEL_TENSOR.INDEXER_K_NORM: (
+            "model.layers.{bid}.self_attn.indexer.k_norm", # DSA
+        ),
+
+        MODEL_TENSOR.INDEXER_PROJ: (
+            "model.layers.{bid}.self_attn.indexer.weights_proj", # DSA
+        ),
+
+        MODEL_TENSOR.INDEXER_ATTN_K: (
+            "model.layers.{bid}.self_attn.indexer.wk", # DSA
+        ),
+
+        MODEL_TENSOR.INDEXER_ATTN_Q_B: (
+            "model.layers.{bid}.self_attn.indexer.wq_b", # DSA
+        ),
+
         ############################################################################
         # TODO: these do not belong to block_mappings_cfg - move them to mappings_cfg
         MODEL_TENSOR.ENC_OUTPUT_NORM: (
@@ -1331,6 +1347,7 @@ class TensorNameMap:
             "model.vision_tower.embeddings.cls_token", # Intern-S1
             "vision_model.class_embedding", # llama 4
             "model.vision.patch_embedding.cls_embedding", # cogvlm
+            "vision_model.radio_model.model.patch_generator.cls_token.token", # Nemotron Nano v2 VL
             "model.vision_model.embeddings.class_embedding", # Deepseek-OCR
         ),
 
@@ -1347,6 +1364,7 @@ class TensorNameMap:
             "model.vision.patch_embedding.proj", # cogvlm
             "model.vision_model.embeddings.patch_embedding", # Deepseek-OCR CLIP
             "siglip2.vision_model.embeddings.patch_embedding",
+            "vision_model.radio_model.model.patch_generator.embedder", # Nemotron Nano v2 VL
         ),
 
         MODEL_TENSOR.V_ENC_EMBD_NORM: (
@@ -1363,6 +1381,7 @@ class TensorNameMap:
             "visual.pos_embed", # qwen3vl
             "model.vision.patch_embedding.position_embedding", # cogvlm
             "visual.embeddings.position_embedding", # glm4v
+            "vision_model.radio_model.model.patch_generator.pos_embed", # Nemotron Nano v2 VL
         ),
 
         MODEL_TENSOR.V_ENC_EMBD_IMGNL: (
@@ -1378,6 +1397,7 @@ class TensorNameMap:
             "model.vision.transformer.layers.{bid}.attention.query_key_value", # cogvlm
             "model.vision_model.transformer.layers.{bid}.self_attn.qkv_proj", # Deepseek-OCR CLIP
             "vision_tower.encoder.blocks.{bid}.wqkv" # Kimi-K2.5
+            "vision_model.radio_model.model.blocks.{bid}.attn.qkv", # Nemotron Nano v2 VL
         ),
 
         MODEL_TENSOR.V_ENC_ATTN_Q: (
@@ -1446,6 +1466,7 @@ class TensorNameMap:
             "model.vision.transformer.layers.{bid}.input_layernorm", # cogvlm
             "model.vision_model.transformer.layers.{bid}.layer_norm1", # Deepseek-OCR CLIP
             "siglip2.vision_model.encoder.layers.{bid}.layer_norm1",
+            "vision_model.radio_model.model.blocks.{bid}.norm1", # Nemotron Nano v2 VL
         ),
 
         MODEL_TENSOR.V_ENC_ATTN_O: (
@@ -1463,6 +1484,7 @@ class TensorNameMap:
             "model.vision.transformer.layers.{bid}.attention.dense", # cogvlm
             "model.vision_model.transformer.layers.{bid}.self_attn.out_proj", # Deepseek-OCR CLIP
             "siglip2.vision_model.encoder.layers.{bid}.self_attn.out_proj", # youtuvl
+            "vision_model.radio_model.model.blocks.{bid}.attn.proj", # Nemotron Nano v2 VL
         ),
 
         MODEL_TENSOR.V_ENC_POST_ATTN_NORM: (
@@ -1479,6 +1501,7 @@ class TensorNameMap:
             "model.vision.transformer.layers.{bid}.post_attention_layernorm", # cogvlm
             "model.vision_model.transformer.layers.{bid}.layer_norm2", # Deepseek-OCR CLIP
             "siglip2.vision_model.encoder.layers.{bid}.layer_norm2",
+            "vision_model.radio_model.model.blocks.{bid}.norm2", # Nemotron Nano v2 VL
         ),
 
         MODEL_TENSOR.V_ENC_FFN_UP: (
@@ -1496,6 +1519,7 @@ class TensorNameMap:
             "model.vision_model.transformer.layers.{bid}.mlp.fc1", # Deepseek-OCR CLIP
             "model.vision.transformer.layers.{bid}.mlp.fc1", # cogvlm
             "siglip2.vision_model.encoder.layers.{bid}.mlp.fc1",
+            "vision_model.radio_model.model.blocks.{bid}.mlp.fc1", # Nemotron Nano v2 VL
         ),
 
         MODEL_TENSOR.V_ENC_FFN_GATE: (
@@ -1519,6 +1543,7 @@ class TensorNameMap:
             "model.vision.transformer.layers.{bid}.mlp.fc2", # cogvlm
             "model.vision_model.transformer.layers.{bid}.mlp.fc2", # Deepseek-OCR CLIP
             "siglip2.vision_model.encoder.layers.{bid}.mlp.fc2",
+            "vision_model.radio_model.model.blocks.{bid}.mlp.fc2", # Nemotron Nano v2 VL
         ),
 
         MODEL_TENSOR.V_LAYER_SCALE_1: (
