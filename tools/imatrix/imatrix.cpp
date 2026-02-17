@@ -370,8 +370,8 @@ bool IMatrixCollector::collect_imatrix(struct ggml_tensor * t, bool ask, void * 
                     const float * x = (const float *) (data + row * src1->nb[1] + i2 * src1->nb[2] + i3 * src1->nb[3]);
                     for (int64_t j = 0; j < src1->ne[0]; ++j) {
                         e.values[mat_start + j] += x[j] * x[j];
-                        if (!std::isfinite((float)e.values[mat_start + j])) {
-                            LOG_ERR("%f detected in %s\n", (float)e.values[mat_start + j], wname.c_str());
+                        if (!std::isfinite((float)e.values[j])) {
+                            LOG_ERR("%f detected in %s\n", (float)e.values[j], wname.c_str());
                             exit(1);
                         }
                     }
