@@ -6533,12 +6533,9 @@ class DeepseekOCRVisionModel(MmprojModel):
         # Vision components: sam_model, vision_model, projector, image_newline, view_seperator
         # Language model components to skip: lm_head, embed_tokens, layers, norm
         if name.startswith(("lm_head.", "model.embed_tokens.", "model.layers.", "model.norm.")):
-            return []
+            return
 
-        if ".attn.rel_pos_h" in name or ".attn.rel_pos_w" in name:
-            return [(self.map_tensor_name(name, try_suffixes=("",)), data_torch)]
-
-        return [(self.map_tensor_name(name), data_torch)]
+        yield from super().modify_tensors(data_torch, name, bid)
 
 
 @ModelBase.register("Gemma3nForConditionalGeneration")
