@@ -73,6 +73,10 @@ add_library(${TARGET} STATIC
     log.h
     ngram-cache.cpp
     ngram-cache.h
+    ngram-map.cpp
+    ngram-map.h
+    ngram-mod.cpp
+    ngram-mod.h
     peg-parser.cpp
     peg-parser.h
     preset.cpp
@@ -108,11 +112,7 @@ endif()
 
 # TODO: use list(APPEND LLAMA_COMMON_EXTRA_LIBS ...)
 set(LLAMA_COMMON_EXTRA_LIBS build_info)
-
-if (LLAMA_HTTPLIB)
-    target_compile_definitions(${TARGET} PUBLIC LLAMA_USE_HTTPLIB)
-    set(LLAMA_COMMON_EXTRA_LIBS ${LLAMA_COMMON_EXTRA_LIBS} cpp-httplib)
-endif()
+set(LLAMA_COMMON_EXTRA_LIBS ${LLAMA_COMMON_EXTRA_LIBS} cpp-httplib)
 
 if (LLAMA_LLGUIDANCE)
     include(ExternalProject)
