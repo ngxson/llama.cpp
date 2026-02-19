@@ -800,6 +800,7 @@ int32_t llama_context::cpy_mtp_state(llama_context & ctx_mtp) {
     }
 
     // TODO: maybe std::move is better?
+    LLAMA_LOG_DEBUG("%s: copying MTP state (n_token = %lld, n_embd = %lld)\n", __func__, cross.n_token, cross.n_embd);
     ctx_mtp.cross = cross;
 
     return 0;
@@ -1595,12 +1596,14 @@ int llama_context::decode(const llama_batch & batch_inp) {
         break;
     }
 
-    const bool update_mtp_state = hparams.nextn_predict_layers > 0 && n_outputs > 0;
+    const bool update_mtp_state = gtype == LLM_GRAPH_TYPE_DECODER_MTP // this is MTP layer
+        || (hparams.nextn_predict_layers > 0 && n_outputs_all > 0); // or, this is the main LLM, we need to forward state to MTP layer
 
     // set MTP state if needed
     if (update_mtp_state) {
+        // printf("\n\nupdate MTP state: gtype = %d, n_outputs_all = %d\n", (int) gtype, n_outputs_all);
         cross.n_embd  = hparams.get_n_embd_mtp();
-        cross.n_token = n_outputs;
+        cross.n_token = n_outputs_all;
         cross.mtp_embd.resize(cross.n_embd*cross.n_token);
     }
 

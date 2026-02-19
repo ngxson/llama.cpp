@@ -81,6 +81,9 @@ llm_build_glm4<LLM_GRAPH_TYPE_DECODER_MTP>::llm_build_glm4(const llama_model & m
     inpL = ggml_concat(ctx0, inp_token_embd, inp_state_embd, 0);
     cb(inpL, "inp_mtp", il);
 
+    inpL = build_lora_mm(mtp_layer.nextn.eh_proj, inpL);
+    cb(inpL, "inp_mtp_projected", il);
+
     // inp_pos - contains the positions
     ggml_tensor * inp_pos = build_inp_pos();
 
@@ -88,8 +91,7 @@ llm_build_glm4<LLM_GRAPH_TYPE_DECODER_MTP>::llm_build_glm4(const llama_model & m
 
     ggml_tensor * inp_out_ids = build_inp_out_ids();
     {
-        // input for next layer
-        bool is_output_layer = (il == n_layer - 1);
+        bool is_output_layer = true; // TODO: we only have one single nextn layer for now, may need to change in the future
         inpL = build_layer(model, inp_attn, inpL, inp_pos, inp_out_ids, sections, is_output_layer, il);
     }
     cur = inpL;
