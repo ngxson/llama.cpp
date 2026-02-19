@@ -78,7 +78,7 @@ struct llama_context {
     float * get_embeddings();
     float * get_embeddings_ith(int32_t i);
     float * get_embeddings_seq(llama_seq_id seq_id);
-    
+
     int32_t cpy_mtp_state(llama_context & ctx_mtp);
 
     llama_token * get_sampled_tokens() const;

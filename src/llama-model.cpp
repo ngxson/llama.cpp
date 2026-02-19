@@ -8577,14 +8577,18 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
             } break;
         case LLM_ARCH_GLM4:
             {
-                llm = std::make_unique<llm_build_glm4>(*this, params);
+                if (params.gtype == LLM_GRAPH_TYPE_DECODER_MTP) {
+                    llm = std::make_unique<llm_build_glm4<LLM_GRAPH_TYPE_DECODER_MTP>>(*this, params);
+                } else {
+                    llm = std::make_unique<llm_build_glm4<LLM_GRAPH_TYPE_DECODER>>(*this, params);
+                }
             } break;
         case LLM_ARCH_GLM4_MOE:
             {
                 if (params.gtype == LLM_GRAPH_TYPE_DECODER_MTP) {
-                    llm = std::make_unique<llm_build_glm4_moe<true>>(*this, params);
+                    llm = std::make_unique<llm_build_glm4_moe<LLM_GRAPH_TYPE_DECODER_MTP>>(*this, params);
                 } else {
-                    llm = std::make_unique<llm_build_glm4_moe<false>>(*this, params);
+                    llm = std::make_unique<llm_build_glm4_moe<LLM_GRAPH_TYPE_DECODER>>(*this, params);
                 }
             } break;
         case LLM_ARCH_BITNET:

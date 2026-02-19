@@ -1,7 +1,7 @@
 #include "models.h"
 
 template <>
-llm_build_glm4_moe<false>::llm_build_glm4_moe(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
+llm_build_glm4_moe<LLM_GRAPH_TYPE_DECODER>::llm_build_glm4_moe(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v;
     const bool use_mrope = hparams.use_mrope();
 
@@ -52,7 +52,7 @@ llm_build_glm4_moe<false>::llm_build_glm4_moe(const llama_model & model, const l
 
 // MTP model
 template <>
-llm_build_glm4_moe<true>::llm_build_glm4_moe(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
+llm_build_glm4_moe<LLM_GRAPH_TYPE_DECODER_MTP>::llm_build_glm4_moe(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
     const int64_t n_embd_head = hparams.n_embd_head_v;
 
     GGML_ASSERT(n_embd_head == hparams.n_embd_head_k);
@@ -109,8 +109,8 @@ llm_build_glm4_moe<true>::llm_build_glm4_moe(const llama_model & model, const ll
     ggml_build_forward_expand(gf, cur);
 }
 
-template <bool is_mtp>
-ggml_tensor * llm_build_glm4_moe<is_mtp>::build_layer(const llama_model & model,
+template <llm_graph_type graph_type>
+ggml_tensor * llm_build_glm4_moe<graph_type>::build_layer(const llama_model & model,
                                               llm_graph_input_attn_kv * inp_attn,
                                               ggml_tensor * inpL,
                                               ggml_tensor * inp_pos,
