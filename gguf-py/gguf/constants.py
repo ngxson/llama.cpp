@@ -441,6 +441,7 @@ class MODEL_ARCH(IntEnum):
     T5               = auto()
     T5ENCODER        = auto()
     JAIS             = auto()
+    JAIS2            = auto()
     NEMOTRON         = auto()
     NEMOTRON_H       = auto()
     NEMOTRON_H_MOE   = auto()
@@ -478,6 +479,7 @@ class MODEL_ARCH(IntEnum):
     RND1             = auto()
     PANGU_EMBED      = auto()
     MISTRAL3         = auto()
+    PADDLEOCR        = auto()
     MIMO2            = auto()
     STEP35           = auto()
     LLAMA_EMBED      = auto()
@@ -658,6 +660,7 @@ class MODEL_TENSOR(IntEnum):
     ENC_OUTPUT_NORM      = auto()
     CLS                  = auto() # classifier
     CLS_OUT              = auto() # classifier output projection
+    CLS_NORM             = auto()
     CONV1D               = auto()
     CONVNEXT_DW          = auto()
     CONVNEXT_NORM        = auto()
@@ -896,6 +899,7 @@ MODEL_ARCH_NAMES: dict[MODEL_ARCH, str] = {
     MODEL_ARCH.T5:               "t5",
     MODEL_ARCH.T5ENCODER:        "t5encoder",
     MODEL_ARCH.JAIS:             "jais",
+    MODEL_ARCH.JAIS2:            "jais2",
     MODEL_ARCH.NEMOTRON:         "nemotron",
     MODEL_ARCH.NEMOTRON_H:       "nemotron_h",
     MODEL_ARCH.NEMOTRON_H_MOE:   "nemotron_h_moe",
@@ -934,6 +938,7 @@ MODEL_ARCH_NAMES: dict[MODEL_ARCH, str] = {
     MODEL_ARCH.RND1:             "rnd1",
     MODEL_ARCH.PANGU_EMBED:      "pangu-embedded",
     MODEL_ARCH.MISTRAL3:         "mistral3",
+    MODEL_ARCH.PADDLEOCR:        "paddleocr",
     MODEL_ARCH.MIMO2:            "mimo2",
     MODEL_ARCH.STEP35:           "step35",
     MODEL_ARCH.LLAMA_EMBED:      "llama-embed",
@@ -1111,6 +1116,7 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.ENC_OUTPUT_NORM:           "enc.output_norm",
     MODEL_TENSOR.CLS:                       "cls",
     MODEL_TENSOR.CLS_OUT:                   "cls.output",
+    MODEL_TENSOR.CLS_NORM:                  "cls.norm",
     MODEL_TENSOR.CONV1D:                    "conv1d",
     MODEL_TENSOR.CONVNEXT_DW:               "convnext.{bid}.dw",
     MODEL_TENSOR.CONVNEXT_NORM:             "convnext.{bid}.norm",
@@ -1561,6 +1567,7 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.FFN_NORM,
         MODEL_TENSOR.CLS,
         MODEL_TENSOR.CLS_OUT,
+        MODEL_TENSOR.CLS_NORM,
     ],
     MODEL_ARCH.NOMIC_BERT: [
         MODEL_TENSOR.TOKEN_EMBD,
@@ -2748,6 +2755,13 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.FFN_UP,
         MODEL_TENSOR.ATTN_POST_NORM,
         MODEL_TENSOR.FFN_POST_NORM,
+        # NextN/MTP tensors - preserved but unused
+        MODEL_TENSOR.NEXTN_EH_PROJ,
+        MODEL_TENSOR.NEXTN_EMBED_TOKENS,
+        MODEL_TENSOR.NEXTN_ENORM,
+        MODEL_TENSOR.NEXTN_HNORM,
+        MODEL_TENSOR.NEXTN_SHARED_HEAD_HEAD,
+        MODEL_TENSOR.NEXTN_SHARED_HEAD_NORM,
     ],
     MODEL_ARCH.GLM4_MOE: [
         MODEL_TENSOR.TOKEN_EMBD,
@@ -2893,6 +2907,19 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.FFN_NORM,
         MODEL_TENSOR.FFN_DOWN,
         MODEL_TENSOR.FFN_GATE,
+        MODEL_TENSOR.FFN_UP,
+    ],
+    MODEL_ARCH.JAIS2: [
+        MODEL_TENSOR.TOKEN_EMBD,
+        MODEL_TENSOR.OUTPUT_NORM,
+        MODEL_TENSOR.OUTPUT,
+        MODEL_TENSOR.ATTN_NORM,
+        MODEL_TENSOR.ATTN_Q,
+        MODEL_TENSOR.ATTN_K,
+        MODEL_TENSOR.ATTN_V,
+        MODEL_TENSOR.ATTN_OUT,
+        MODEL_TENSOR.FFN_NORM,
+        MODEL_TENSOR.FFN_DOWN,
         MODEL_TENSOR.FFN_UP,
     ],
     MODEL_ARCH.NEMOTRON: [
@@ -3236,6 +3263,20 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.FFN_EXP_PROBS_B,
     ],
     MODEL_ARCH.ERNIE4_5: [
+        MODEL_TENSOR.TOKEN_EMBD,
+        MODEL_TENSOR.OUTPUT_NORM,
+        MODEL_TENSOR.OUTPUT,
+        MODEL_TENSOR.ATTN_NORM,
+        MODEL_TENSOR.ATTN_Q,
+        MODEL_TENSOR.ATTN_K,
+        MODEL_TENSOR.ATTN_V,
+        MODEL_TENSOR.ATTN_OUT,
+        MODEL_TENSOR.FFN_NORM,
+        MODEL_TENSOR.FFN_GATE,
+        MODEL_TENSOR.FFN_DOWN,
+        MODEL_TENSOR.FFN_UP,
+    ],
+    MODEL_ARCH.PADDLEOCR: [
         MODEL_TENSOR.TOKEN_EMBD,
         MODEL_TENSOR.OUTPUT_NORM,
         MODEL_TENSOR.OUTPUT,
@@ -3914,6 +3955,7 @@ class VisionProjectorType:
     VOXTRAL = "voxtral"
     LFM2 = "lfm2"
     KIMIVL = "kimivl"
+    PADDLEOCR = "paddleocr"
     KIMIK25 = "kimik25"
     LIGHTONOCR = "lightonocr"
     COGVLM = "cogvlm"
