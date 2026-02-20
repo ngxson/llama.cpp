@@ -898,6 +898,64 @@ void dequantize_iq4_xs(device const block_iq4_xs * xb, short il, thread type4x4 
     }
 }
 
+template <typename type4x4>
+void dequantize_q3_k_hifi(device const block_q3_k_hifi * xb, short il, thread type4x4 & reg) {
+    // Q3_K_HIFI uses true outlier extraction: Q3_K block + outlier indices + original outlier values
+    // Step 1: Dequantize Q3_K from first 110 bytes
+    const device block_q3_K * q3k_block = (const device block_q3_K *)xb->q3_k_data;
+    dequantize_q3_K(q3k_block, il, reg);
+
+    // Step 2: Overwrite outlier positions with stored FP16 values
+    // Outliers are sorted by index (ascending), enabling efficient processing
+    const int base_pos = il * 16;
+    const int end_pos = base_pos + 16;
+
+    // Load all outlier data once (vectorized)
+    const half4 outliers_lo = *(device const half4 *)&xb->outliers[0];
+    const half4 outliers_hi = *(device const half4 *)&xb->outliers[4];
+
+    // Process sorted outliers with early exit
+    // Skip outliers before our range, process those in range, stop when past range
+    #pragma unroll
+    for (int k = 0; k < Q3_K_HIFI_OUTLIERS; ++k) {
+        const int idx = xb->outlier_idx[k];
+        if (idx >= end_pos) break;  // Early exit: remaining indices are larger (sorted)
+        if (idx >= base_pos) {
+            const int local_pos = idx - base_pos;
+            const float val = (k < 4) ? (float)outliers_lo[k] : (float)outliers_hi[k - 4];
+            reg[local_pos / 4][local_pos % 4] = val;
+        }
+    }
+}
+
+// Q4_K_HIFI: Q4_K layout + 8 FP16 outlier replacements per block
+template <typename type4x4>
+void dequantize_q4_k_hifi(device const block_q4_k_hifi * xb, short il, thread type4x4 & reg) {
+    // Step 1: Dequantize Q4_K from first 144 bytes
+    const device block_q4_K * q4k_block = (const device block_q4_K *)xb->q4_k_data;
+    dequantize_q4_K(q4k_block, il, reg);
+
+    // Step 2: Overwrite outlier positions with stored FP16 values
+    const int base_pos = il * 16;
+    const int end_pos = base_pos + 16;
+
+    // Load all outlier data once (vectorized)
+    const half4 outliers_lo = *(device const half4 *)&xb->outliers[0];
+    const half4 outliers_hi = *(device const half4 *)&xb->outliers[4];
+
+    // Process sorted outliers with early exit
+    #pragma unroll
+    for (int k = 0; k < Q4_K_HIFI_OUTLIERS; ++k) {
+        const int idx = xb->outlier_idx[k];
+        if (idx >= end_pos) break;
+        if (idx >= base_pos) {
+            const int local_pos = idx - base_pos;
+            const float val = (k < 4) ? (float)outliers_lo[k] : (float)outliers_hi[k - 4];
+            reg[local_pos / 4][local_pos % 4] = val;
+        }
+    }
+}
+
 enum ggml_sort_order {
     GGML_SORT_ORDER_ASC,
     GGML_SORT_ORDER_DESC,
@@ -3520,6 +3578,13 @@ template [[host_name("kernel_mul_mv_ext_q4_K_f32_r1_2")]] kernel mul_mv_ext_q4x4
 template [[host_name("kernel_mul_mv_ext_q4_K_f32_r1_3")]] kernel mul_mv_ext_q4x4_f32_t kernel_mul_mv_ext_q4x4_f32_disp<3, block_q4_K, 256, dequantize_q4_K>;
 template [[host_name("kernel_mul_mv_ext_q4_K_f32_r1_4")]] kernel mul_mv_ext_q4x4_f32_t kernel_mul_mv_ext_q4x4_f32_disp<4, block_q4_K, 256, dequantize_q4_K>;
 template [[host_name("kernel_mul_mv_ext_q4_K_f32_r1_5")]] kernel mul_mv_ext_q4x4_f32_t kernel_mul_mv_ext_q4x4_f32_disp<5, block_q4_K, 256, dequantize_q4_K>;
+
+typedef decltype(kernel_mul_mv_ext_q4x4_f32_disp<2, block_q4_k_hifi, 256, dequantize_q4_k_hifi>) mul_mv_ext_q4_k_hifi_f32_t;
+
+template [[host_name("kernel_mul_mv_ext_q4_k_hifi_f32_r1_2")]] kernel mul_mv_ext_q4_k_hifi_f32_t kernel_mul_mv_ext_q4x4_f32_disp<2, block_q4_k_hifi, 256, dequantize_q4_k_hifi>;
+template [[host_name("kernel_mul_mv_ext_q4_k_hifi_f32_r1_3")]] kernel mul_mv_ext_q4_k_hifi_f32_t kernel_mul_mv_ext_q4x4_f32_disp<3, block_q4_k_hifi, 256, dequantize_q4_k_hifi>;
+template [[host_name("kernel_mul_mv_ext_q4_k_hifi_f32_r1_4")]] kernel mul_mv_ext_q4_k_hifi_f32_t kernel_mul_mv_ext_q4x4_f32_disp<4, block_q4_k_hifi, 256, dequantize_q4_k_hifi>;
+template [[host_name("kernel_mul_mv_ext_q4_k_hifi_f32_r1_5")]] kernel mul_mv_ext_q4_k_hifi_f32_t kernel_mul_mv_ext_q4x4_f32_disp<5, block_q4_k_hifi, 256, dequantize_q4_k_hifi>;
 
 template [[host_name("kernel_mul_mv_ext_q5_K_f32_r1_2")]] kernel mul_mv_ext_q4x4_f32_t kernel_mul_mv_ext_q4x4_f32_disp<2, block_q5_K, 256, dequantize_q5_K>;
 template [[host_name("kernel_mul_mv_ext_q5_K_f32_r1_3")]] kernel mul_mv_ext_q4x4_f32_t kernel_mul_mv_ext_q4x4_f32_disp<3, block_q5_K, 256, dequantize_q5_K>;
@@ -6946,6 +7011,205 @@ kernel void kernel_mul_mv_q3_K_f32(
     kernel_mul_mv_q3_K_f32_impl<N_R0_Q3_K, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
 }
 
+// Q3_K_HIFI: Q3_K-compatible layout with 8 FP16 outliers for improved accuracy
+// Reuses Q3_K kernel logic and adds outlier corrections
+template<int nr0, typename args_t>
+void kernel_mul_mv_q3_k_hifi_f32_impl(
+        args_t args,
+        device const char * src0,
+        device const char * src1,
+        device       char * dst,
+        threadgroup  char * shmem,
+        uint3  tgpig,
+        ushort tiisg,
+        ushort sgitg) {
+    const short NSG = FC_mul_mv_nsg;
+
+    const int nb = args.ne00/QK_K;
+
+    const int r0 = tgpig.x;
+    const int r1 = tgpig.y;
+    const int im = tgpig.z;
+
+    const int first_row = (r0 * NSG + sgitg) * nr0;
+
+    const uint i12 = im%args.ne12;
+    const uint i13 = im/args.ne12;
+
+    const uint64_t offset0 = first_row*args.nb01 + (i12/args.r2)*args.nb02 + (i13/args.r3)*args.nb03;
+    const uint64_t offset1 =        r1*args.nb11 + (i12        )*args.nb12 + (i13        )*args.nb13;
+
+    device const block_q3_k_hifi * x = (device const block_q3_k_hifi *) (src0 + offset0);
+    device const float        * yy = (device const float         *) (src1 + offset1);
+
+    const short tid = tiisg/4;
+    const short ix  = tiisg%4;
+    const short ip  = tid/4;          // 0 or 1
+    const short il  = 2*((tid%4)/2);  // 0 or 2
+    const short ir  = tid%2;
+    const short l0  = 8*ir;
+
+    const short shift = 2*il;
+    const short q_offset = 32*ip + l0;
+    const short y_offset = 128*ip + 32*il + l0;
+
+    device const float * y1 = yy + ix*QK_K + y_offset;
+
+    float sumf1[nr0] = {0.f};
+
+    // True outlier extraction: reuse Q3_K kernel logic, then add outlier corrections
+    // We'll compute Q3_K dot product from q3_k_data, then add outlier contributions
+    for (int i = ix; i < nb; i += 4) {
+        for (short row = 0; row < nr0; ++row) {
+            device const block_q3_k_hifi * xb = (device const block_q3_k_hifi *)((device const char *)&x[i] + row * args.nb01);
+            
+            // Step 1: Compute Q3_K dot product using Q3_K's logic
+            // Cast q3_k_data to block_q3_K and use Q3_K kernel logic
+            const device block_q3_K * q3k_block = (const device block_q3_K *)xb->q3_k_data;
+            
+            // Reuse Q3_K's dot product computation (from kernel_mul_mv_q3_K_f32_impl)
+            float yl[32];
+            for (short l = 0; l < 8; ++l) {
+                yl[l+ 0] = y1[l+ 0];
+                yl[l+ 8] = y1[l+16];
+                yl[l+16] = y1[l+32];
+                yl[l+24] = y1[l+48];
+            }
+            
+            device const uint16_t * q = (device const uint16_t *)(q3k_block->qs + q_offset);
+            device const uint16_t * h = (device const uint16_t *)(q3k_block->hmask + l0);
+            device const uint16_t * a = (device const uint16_t *)(q3k_block->scales);
+            device const half * dh = &q3k_block->d;
+            
+            const float d_all = (float)dh[0];
+            uint32_t scales32, aux32;
+            thread uint16_t * scales16 = (thread uint16_t *)&scales32;
+            thread const int8_t * scales = (thread const int8_t *)&scales32;
+            
+            const ushort4 mm[4] = {{0x0001, 0x0100, 0x0002, 0x0200}, {0x0004, 0x0400, 0x0008, 0x0800},
+                                 {0x0010, 0x1000, 0x0020, 0x2000}, {0x0040, 0x4000, 0x0080, 0x8000}};
+            const int4 qm[2] = {{0x0003, 0x0300, 0x000c, 0x0c00}, {0x0030, 0x3000, 0x00c0, 0xc000}};
+            const ushort4 hm = mm[2*ip + il/2];
+            const float v1 = il == 0 ? 4.f : 64.f;
+            const float v2 = 4.f * v1;
+            const uint16_t s_shift1 = 4*ip;
+            const uint16_t s_shift2 = s_shift1 + il;
+            
+            float s1 = 0, s2 = 0, s3 = 0, s4 = 0, s5 = 0, s6 = 0;
+            for (short l = 0; l < 8; l += 2) {
+                const int32_t qs = q[l/2];
+                s1 += yl[l+0] * (qs & qm[il/2][0]);
+                s2 += yl[l+1] * (qs & qm[il/2][1]);
+                s3 += ((h[l/2] & hm[0]) ? 0.f : yl[l+0]) + ((h[l/2] & hm[1]) ? 0.f : yl[l+1]);
+                s4 += yl[l+16] * (qs & qm[il/2][2]);
+                s5 += yl[l+17] * (qs & qm[il/2][3]);
+                s6 += ((h[l/2] & hm[2]) ? 0.f : yl[l+16]) + ((h[l/2] & hm[3]) ? 0.f : yl[l+17]);
+            }
+            
+            scales16[0] = a[4];
+            scales16[1] = a[5];
+            aux32 = ((scales32 >> s_shift2) << 4) & 0x30303030;
+            scales16[0] = a[il+0];
+            scales16[1] = a[il+1];
+            scales32 = ((scales32 >> s_shift1) & 0x0f0f0f0f) | aux32;
+            
+            float d1 = d_all * (s1 + 1.f/256.f * s2 - s3*v1);
+            float d2 = d_all * (s4 + 1.f/256.f * s5 - s6*v2);
+            float q3k_sum = d1 * (scales[0] - 32) + d2 * (scales[2] - 32);
+            
+            s1 = s2 = s3 = s4 = s5 = s6 = 0;
+            for (short l = 0; l < 8; l += 2) {
+                const int32_t qs = q[l/2+8];
+                s1 += yl[l+8] * (qs & qm[il/2][0]);
+                s2 += yl[l+9] * (qs & qm[il/2][1]);
+                s3 += ((h[l/2+8] & hm[0]) ? 0.f : yl[l+8]) + ((h[l/2+8] & hm[1]) ? 0.f : yl[l+9]);
+                s4 += yl[l+24] * (qs & qm[il/2][2]);
+                s5 += yl[l+25] * (qs & qm[il/2][3]);
+                s6 += ((h[l/2+8] & hm[2]) ? 0.f : yl[l+24]) + ((h[l/2+8] & hm[3]) ? 0.f : yl[l+25]);
+            }
+            d1 = d_all * (s1 + 1.f/256.f * s2 - s3*v1);
+            d2 = d_all * (s4 + 1.f/256.f * s5 - s6*v2);
+            q3k_sum += d1 * (scales[1] - 32) + d2 * (scales[3] - 32);
+            
+            // Step 2: Add outlier corrections (optimized with vectorized load + early exit)
+            // Outliers are sorted by index during quantization, enabling early exit
+            // Load all 8 indices at once (they're contiguous in memory)
+            const uint8_t idx0 = xb->outlier_idx[0];
+            const uint8_t idx1 = xb->outlier_idx[1];
+            const uint8_t idx2 = xb->outlier_idx[2];
+            const uint8_t idx3 = xb->outlier_idx[3];
+            const uint8_t idx4 = xb->outlier_idx[4];
+            const uint8_t idx5 = xb->outlier_idx[5];
+            const uint8_t idx6 = xb->outlier_idx[6];
+            const uint8_t idx7 = xb->outlier_idx[7];
+
+            // Load all 8 FP16 outlier values at once
+            const half4 outliers_lo = *(device const half4 *)&xb->outliers[0];
+            const half4 outliers_hi = *(device const half4 *)&xb->outliers[4];
+
+            // Process outliers with early exit (indices are sorted ascending, 255 = sentinel)
+            const int y_end = y_offset + 32;
+            float outlier_sum = 0.0f;
+
+            // Unrolled loop with early exit on sorted indices
+            if (idx0 < y_end) {
+                if (idx0 >= y_offset) outlier_sum += (float)outliers_lo[0] * y1[idx0 - y_offset];
+                if (idx1 < y_end) {
+                    if (idx1 >= y_offset) outlier_sum += (float)outliers_lo[1] * y1[idx1 - y_offset];
+                    if (idx2 < y_end) {
+                        if (idx2 >= y_offset) outlier_sum += (float)outliers_lo[2] * y1[idx2 - y_offset];
+                        if (idx3 < y_end) {
+                            if (idx3 >= y_offset) outlier_sum += (float)outliers_lo[3] * y1[idx3 - y_offset];
+                            if (idx4 < y_end) {
+                                if (idx4 >= y_offset) outlier_sum += (float)outliers_hi[0] * y1[idx4 - y_offset];
+                                if (idx5 < y_end) {
+                                    if (idx5 >= y_offset) outlier_sum += (float)outliers_hi[1] * y1[idx5 - y_offset];
+                                    if (idx6 < y_end) {
+                                        if (idx6 >= y_offset) outlier_sum += (float)outliers_hi[2] * y1[idx6 - y_offset];
+                                        if (idx7 < y_end && idx7 >= y_offset) {
+                                            outlier_sum += (float)outliers_hi[3] * y1[idx7 - y_offset];
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            q3k_sum += outlier_sum;
+            
+            sumf1[row] += q3k_sum;
+        }
+        y1 += 4 * QK_K;
+    }
+
+    for (int row = 0; row < nr0; ++row) {
+        const float sumf = sumf1[row] / (1 << shift);
+        sumf1[row] = simd_sum(sumf);
+    }
+
+    device float * dst_f32 = (device float *) dst + (uint64_t)im*args.ne0*args.ne1 + (uint64_t)r1*args.ne0;
+
+    if (tiisg == 0) {
+        for (int row = 0; row < nr0 && first_row + row < args.ne0; ++row) {
+            dst_f32[first_row + row] = sumf1[row];
+        }
+    }
+}
+
+[[host_name("kernel_mul_mv_q3_k_hifi_f32")]]
+kernel void kernel_mul_mv_q3_k_hifi_f32(
+        constant ggml_metal_kargs_mul_mv & args,
+        device const char * src0,
+        device const char * src1,
+        device       char * dst,
+        uint3  tgpig[[threadgroup_position_in_grid]],
+        ushort tiisg[[thread_index_in_simdgroup]],
+        ushort sgitg[[simdgroup_index_in_threadgroup]]) {
+
+    kernel_mul_mv_q3_k_hifi_f32_impl<N_R0_Q3_K_HIFI, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
+}
+
 template<int nr0, typename args_t>
 void kernel_mul_mv_q4_K_f32_impl(
         args_t args,
@@ -7065,6 +7329,145 @@ kernel void kernel_mul_mv_q4_K_f32(
         ushort sgitg[[simdgroup_index_in_threadgroup]]) {
 
     kernel_mul_mv_q4_K_f32_impl<N_R0_Q4_K, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
+}
+
+// Q4_K_HIFI: Q4_K layout + 8 FP16 outlier replacements per block
+// Reuses Q4_K kernel logic and adds outlier corrections
+template<int nr0, typename args_t>
+void kernel_mul_mv_q4_k_hifi_f32_impl(
+        args_t args,
+        device const char * src0,
+        device const char * src1,
+        device       char * dst,
+        threadgroup  char * shmem,
+        uint3  tgpig,
+        ushort tiisg,
+        ushort sgitg) {
+    const short NSG = FC_mul_mv_nsg;
+
+    constexpr uint16_t kmask1 = 0x3f3f;
+    constexpr uint16_t kmask2 = 0x0f0f;
+    constexpr uint16_t kmask3 = 0xc0c0;
+
+    const short ix = tiisg/8;  // 0...3
+    const short it = tiisg%8;  // 0...7
+    const short iq = it/4;     // 0 or 1
+    const short ir = it%4;     // 0...3
+
+    const int nb = args.ne00/QK_K;
+
+    const int r0 = tgpig.x;
+    const int r1 = tgpig.y;
+    const int im = tgpig.z;
+
+    const int first_row = (r0 * NSG + sgitg) * nr0;
+
+    const uint i12 = im%args.ne12;
+    const uint i13 = im/args.ne12;
+
+    const uint64_t offset0 = first_row*args.nb01 + (i12/args.r2)*args.nb02 + (i13/args.r3)*args.nb03;
+    const uint64_t offset1 =        r1*args.nb11 + (i12        )*args.nb12 + (i13        )*args.nb13;
+
+    device const block_q4_k_hifi * x = (device const block_q4_k_hifi *) (src0 + offset0);
+    device const float           * y = (device const float           *) (src1 + offset1);
+
+    float yl[16];
+    float yh[16];
+
+    float sumf[nr0]={0.f};
+
+    device const float * y4 = y + ix * QK_K + 64 * iq + 8 * ir;
+
+    uint16_t sc16[4];
+    thread const uint8_t * sc8 = (thread const uint8_t *)sc16;
+
+    for (int ib = ix; ib < nb; ib += 4) {
+        float4 sumy = {0.f, 0.f, 0.f, 0.f};
+
+        for (short i = 0; i < 8; ++i) {
+            yl[i+0] = y4[i+  0]; sumy[0] += yl[i+0];
+            yl[i+8] = y4[i+ 32]; sumy[1] += yl[i+8];
+            yh[i+0] = y4[i+128]; sumy[2] += yh[i+0];
+            yh[i+8] = y4[i+160]; sumy[3] += yh[i+8];
+        }
+
+        // Access Q4_K data through q4_k_data field
+        device const block_q4_K * q4k = (device const block_q4_K *) x[ib].q4_k_data;
+        device const uint16_t * sc = (device const uint16_t *)q4k->scales + iq;
+        device const uint16_t * q1 = (device const uint16_t *)q4k->qs + 16 * iq + 4 * ir;
+        device const half     * dh = &q4k->d;
+
+        // Track block_q4_k_hifi pointer for outlier access per row
+        device const block_q4_k_hifi * xh_row = &x[ib];
+
+        for (short row = 0; row < nr0; row++) {
+            sc16[0] = sc[0] & kmask1;
+            sc16[1] = sc[2] & kmask1;
+            sc16[2] = ((sc[4] >> 0) & kmask2) | ((sc[0] & kmask3) >> 2);
+            sc16[3] = ((sc[4] >> 4) & kmask2) | ((sc[2] & kmask3) >> 2);
+
+            device const uint16_t * q2 = q1 + 32;
+
+            float4 acc1 = {0.f, 0.f, 0.f, 0.f};
+            float4 acc2 = {0.f, 0.f, 0.f, 0.f};
+
+            FOR_UNROLL (short i = 0; i < 4; ++i) {
+                acc1[0] += yl[2*i + 0] * (q1[i] & 0x000F);
+                acc1[1] += yl[2*i + 1] * (q1[i] & 0x0F00);
+                acc1[2] += yl[2*i + 8] * (q1[i] & 0x00F0);
+                acc1[3] += yl[2*i + 9] * (q1[i] & 0xF000);
+                acc2[0] += yh[2*i + 0] * (q2[i] & 0x000F);
+                acc2[1] += yh[2*i + 1] * (q2[i] & 0x0F00);
+                acc2[2] += yh[2*i + 8] * (q2[i] & 0x00F0);
+                acc2[3] += yh[2*i + 9] * (q2[i] & 0xF000);
+            }
+
+            sumf[row] += dh[0] * ((acc1[0] + 1.f/256.f * acc1[1]) * sc8[0] +
+                                  (acc1[2] + 1.f/256.f * acc1[3]) * sc8[1] * 1.f/16.f +
+                                  (acc2[0] + 1.f/256.f * acc2[1]) * sc8[4] +
+                                  (acc2[2] + 1.f/256.f * acc2[3]) * sc8[5] * 1.f/16.f) -
+                         dh[1] * (sumy[0] * sc8[2] + sumy[1] * sc8[3] + sumy[2] * sc8[6] + sumy[3] * sc8[7]);
+
+            // Q4_K_HIFI outlier corrections (thread it==0 handles all outliers for this block)
+            if (it == 0) {
+                for (int k = 0; k < Q4_K_HIFI_OUTLIERS; k++) {
+                    const int idx = xh_row->outlier_idx[k];
+                    if (idx >= Q4_K_HIFI_BLOCK_SIZE) break;  // Sentinel (255)
+                    const float outlier_val = (float)xh_row->outliers[k];
+                    sumf[row] += outlier_val * y[ib * QK_K + idx];
+                }
+            }
+
+            q1 += args.nb01/2;
+            sc += args.nb01/2;
+            dh += args.nb01/2;
+            xh_row = (device const block_q4_k_hifi *)((device const char *)xh_row + args.nb01);
+        }
+
+        y4 += 4 * QK_K;
+    }
+
+    device float * dst_f32 = (device float *) dst + (int64_t)im*args.ne0*args.ne1 + (int64_t)r1*args.ne0;
+
+    for (int row = 0; row < nr0 && first_row + row < args.ne0; ++row) {
+        float sum_all = simd_sum(sumf[row]);
+        if (tiisg == 0) {
+            dst_f32[first_row + row] = sum_all;
+        }
+    }
+}
+
+[[host_name("kernel_mul_mv_q4_k_hifi_f32")]]
+kernel void kernel_mul_mv_q4_k_hifi_f32(
+        constant ggml_metal_kargs_mul_mv & args,
+        device const char * src0,
+        device const char * src1,
+        device       char * dst,
+        uint3  tgpig[[threadgroup_position_in_grid]],
+        ushort tiisg[[thread_index_in_simdgroup]],
+        ushort sgitg[[simdgroup_index_in_threadgroup]]) {
+
+    kernel_mul_mv_q4_k_hifi_f32_impl<N_R0_Q4_K_HIFI, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
 }
 
 template<int nr0, typename args_t>
@@ -9243,7 +9646,9 @@ template [[host_name("kernel_get_rows_q8_0")]]    kernel get_rows_q_t kernel_get
 template [[host_name("kernel_get_rows_mxfp4")]]   kernel get_rows_q_t kernel_get_rows_q<block_mxfp4,   2, dequantize_mxfp4>;
 template [[host_name("kernel_get_rows_q2_K")]]    kernel get_rows_q_t kernel_get_rows_q<block_q2_K,    QK_NL, dequantize_q2_K>;
 template [[host_name("kernel_get_rows_q3_K")]]    kernel get_rows_q_t kernel_get_rows_q<block_q3_K,    QK_NL, dequantize_q3_K>;
+template [[host_name("kernel_get_rows_q3_k_hifi")]] kernel get_rows_q_t kernel_get_rows_q<block_q3_k_hifi, QK_NL, dequantize_q3_k_hifi>;
 template [[host_name("kernel_get_rows_q4_K")]]    kernel get_rows_q_t kernel_get_rows_q<block_q4_K,    QK_NL, dequantize_q4_K>;
+template [[host_name("kernel_get_rows_q4_k_hifi")]] kernel get_rows_q_t kernel_get_rows_q<block_q4_k_hifi, QK_NL, dequantize_q4_k_hifi>;
 template [[host_name("kernel_get_rows_q5_K")]]    kernel get_rows_q_t kernel_get_rows_q<block_q5_K,    QK_NL, dequantize_q5_K>;
 template [[host_name("kernel_get_rows_q6_K")]]    kernel get_rows_q_t kernel_get_rows_q<block_q6_K,    QK_NL, dequantize_q6_K>;
 template [[host_name("kernel_get_rows_iq2_xxs")]] kernel get_rows_q_t kernel_get_rows_q<block_iq2_xxs, QK_NL, dequantize_iq2_xxs>;
@@ -9305,7 +9710,9 @@ template [[host_name("kernel_mul_mm_q8_0_f32")]]    kernel mul_mm_t kernel_mul_m
 template [[host_name("kernel_mul_mm_mxfp4_f32")]]   kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_mxfp4,   2,     dequantize_mxfp4,   float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_q2_K_f32")]]    kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q2_K,    QK_NL, dequantize_q2_K,    float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_q3_K_f32")]]    kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q3_K,    QK_NL, dequantize_q3_K,    float,  float4x4,  float, float2x4>;
+template [[host_name("kernel_mul_mm_q3_k_hifi_f32")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q3_k_hifi, QK_NL, dequantize_q3_k_hifi, float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_q4_K_f32")]]    kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q4_K,    QK_NL, dequantize_q4_K,    float,  float4x4,  float, float2x4>;
+template [[host_name("kernel_mul_mm_q4_k_hifi_f32")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q4_k_hifi, QK_NL, dequantize_q4_k_hifi, float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_q5_K_f32")]]    kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q5_K,    QK_NL, dequantize_q5_K,    float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_q6_K_f32")]]    kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_K,    QK_NL, dequantize_q6_K,    float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_iq2_xxs_f32")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_iq2_xxs, QK_NL, dequantize_iq2_xxs, float,  float4x4,  float, float2x4>;
@@ -9328,7 +9735,9 @@ template [[host_name("kernel_mul_mm_q8_0_f16")]]    kernel mul_mm_t kernel_mul_m
 template [[host_name("kernel_mul_mm_mxfp4_f16")]]   kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_mxfp4,   2,     dequantize_mxfp4,   float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_q2_K_f16")]]    kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q2_K,    QK_NL, dequantize_q2_K,    float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_q3_K_f16")]]    kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q3_K,    QK_NL, dequantize_q3_K,    float,  float4x4,  half, half2x4>;
+template [[host_name("kernel_mul_mm_q3_k_hifi_f16")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q3_k_hifi, QK_NL, dequantize_q3_k_hifi, float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_q4_K_f16")]]    kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q4_K,    QK_NL, dequantize_q4_K,    float,  float4x4,  half, half2x4>;
+template [[host_name("kernel_mul_mm_q4_k_hifi_f16")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q4_k_hifi, QK_NL, dequantize_q4_k_hifi, float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_q5_K_f16")]]    kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q5_K,    QK_NL, dequantize_q5_K,    float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_q6_K_f16")]]    kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_K,    QK_NL, dequantize_q6_K,    float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_iq2_xxs_f16")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_iq2_xxs, QK_NL, dequantize_iq2_xxs, float,  float4x4,  half, half2x4>;
@@ -9360,7 +9769,9 @@ template [[host_name("kernel_mul_mm_id_q8_0_f32")]]    kernel mul_mm_id kernel_m
 template [[host_name("kernel_mul_mm_id_mxfp4_f32")]]   kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_mxfp4,   2,     dequantize_mxfp4,   float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_id_q2_K_f32")]]    kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q2_K,    QK_NL, dequantize_q2_K,    float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_id_q3_K_f32")]]    kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q3_K,    QK_NL, dequantize_q3_K,    float,  float4x4,  float, float2x4>;
+template [[host_name("kernel_mul_mm_id_q3_k_hifi_f32")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q3_k_hifi, QK_NL, dequantize_q3_k_hifi, float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_id_q4_K_f32")]]    kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q4_K,    QK_NL, dequantize_q4_K,    float,  float4x4,  float, float2x4>;
+template [[host_name("kernel_mul_mm_id_q4_k_hifi_f32")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q4_k_hifi, QK_NL, dequantize_q4_k_hifi, float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_id_q5_K_f32")]]    kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q5_K,    QK_NL, dequantize_q5_K,    float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_id_q6_K_f32")]]    kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_K,    QK_NL, dequantize_q6_K,    float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_id_iq2_xxs_f32")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_iq2_xxs, QK_NL, dequantize_iq2_xxs, float,  float4x4,  float, float2x4>;
@@ -9383,7 +9794,9 @@ template [[host_name("kernel_mul_mm_id_q8_0_f16")]]    kernel mul_mm_id kernel_m
 template [[host_name("kernel_mul_mm_id_mxfp4_f16")]]   kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_mxfp4,   2,     dequantize_mxfp4,   float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_id_q2_K_f16")]]    kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q2_K,    QK_NL, dequantize_q2_K,    float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_id_q3_K_f16")]]    kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q3_K,    QK_NL, dequantize_q3_K,    float,  float4x4,  half, half2x4>;
+template [[host_name("kernel_mul_mm_id_q3_k_hifi_f16")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q3_k_hifi, QK_NL, dequantize_q3_k_hifi, float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_id_q4_K_f16")]]    kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q4_K,    QK_NL, dequantize_q4_K,    float,  float4x4,  half, half2x4>;
+template [[host_name("kernel_mul_mm_id_q4_k_hifi_f16")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q4_k_hifi, QK_NL, dequantize_q4_k_hifi, float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_id_q5_K_f16")]]    kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q5_K,    QK_NL, dequantize_q5_K,    float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_id_q6_K_f16")]]    kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_K,    QK_NL, dequantize_q6_K,    float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_id_iq2_xxs_f16")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_iq2_xxs, QK_NL, dequantize_iq2_xxs, float,  float4x4,  half, half2x4>;
@@ -9538,7 +9951,9 @@ template [[host_name("kernel_mul_mv_id_mxfp4_f32")]]   kernel kernel_mul_mv_id_t
 
 template [[host_name("kernel_mul_mv_id_q2_K_f32")]]    kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q2_K_f32_impl   <N_R0_Q2_K>>>;
 template [[host_name("kernel_mul_mv_id_q3_K_f32")]]    kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q3_K_f32_impl   <N_R0_Q3_K>>>;
+template [[host_name("kernel_mul_mv_id_q3_k_hifi_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q3_k_hifi_f32_impl<N_R0_Q3_K_HIFI>>>;
 template [[host_name("kernel_mul_mv_id_q4_K_f32")]]    kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q4_K_f32_impl   <N_R0_Q4_K>>>;
+template [[host_name("kernel_mul_mv_id_q4_k_hifi_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q4_k_hifi_f32_impl<N_R0_Q4_K_HIFI>>>;
 template [[host_name("kernel_mul_mv_id_q5_K_f32")]]    kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q5_K_f32_impl   <N_R0_Q5_K>>>;
 template [[host_name("kernel_mul_mv_id_q6_K_f32")]]    kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q6_K_f32_impl   <N_R0_Q6_K>>>;
 template [[host_name("kernel_mul_mv_id_iq1_s_f32")]]   kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_iq1_s_f32_impl  <N_R0_IQ1_S>>>;

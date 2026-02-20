@@ -5,6 +5,31 @@
 
 #include "ggml.h"
 
+// =============================================================================
+// Quantization block parameters
+// =============================================================================
+
+// Standard K-quants
+#define QK_K 256
+#define QR_K 16
+
+// HIFI variants: outlier counts per block
+// These must match the design of your block structures in ggml.h
+#define Q3_K_HIFI_OUTFIERS_PER_BLOCK     16
+#define Q4_K_HIFI_OUTFIERS_PER_BLOCK     16
+#define Q5_K_HIFI_OUTFIERS_PER_BLOCK      8
+#define Q6_K_HIFI_OUTFIERS_PER_BLOCK      4
+
+// For dynamic/residual variants, we define max possible outliers
+// (actual count may be lower per tensor/block)
+#define Q6_K_HIFI_DYNAMIC_MAX_OUTLIERS    8
+#define Q6_K_HIFI_RES8_MAX_OUTLIERS       8
+#define Q5_K_HIFI_RES8_MAX_OUTLIERS       8
+
+// Optional: if you use packed index encoding (e.g., 4-bit indices),
+// you might also define index bit width — though usually implicit.
+// Not required unless used in kernels.
+
 // GGML internal header
 
 #ifdef __cplusplus
@@ -29,6 +54,8 @@ GGML_API void quantize_row_q4_K_ref(const float * GGML_RESTRICT x, block_q4_K * 
 GGML_API void quantize_row_q5_K_ref(const float * GGML_RESTRICT x, block_q5_K * GGML_RESTRICT y, int64_t k);
 GGML_API void quantize_row_q6_K_ref(const float * GGML_RESTRICT x, block_q6_K * GGML_RESTRICT y, int64_t k);
 GGML_API void quantize_row_q8_K_ref(const float * GGML_RESTRICT x, block_q8_K * GGML_RESTRICT y, int64_t k);
+
+GGML_API void quantize_row_q3_k_hifi_ref(const float * GGML_RESTRICT x, block_q3_k_hifi * GGML_RESTRICT y, int64_t k);
 
 GGML_API void quantize_row_tq1_0_ref(const float * GGML_RESTRICT x, block_tq1_0 * GGML_RESTRICT y, int64_t k);
 GGML_API void quantize_row_tq2_0_ref(const float * GGML_RESTRICT x, block_tq2_0 * GGML_RESTRICT y, int64_t k);
@@ -100,6 +127,43 @@ GGML_API void iq2xs_init_impl(enum ggml_type type);
 GGML_API void iq2xs_free_impl(enum ggml_type type);
 GGML_API void iq3xs_init_impl(int grid_size);
 GGML_API void iq3xs_free_impl(int grid_size);
+
+GGML_API void dequantize_row_q3_k_hifi(const block_q3_k_hifi * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API size_t quantize_q3_k_hifi(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
+
+// Q4_K_HIFI: Q4_K with 8 FP16 outliers for high-fidelity 4-bit quantization
+GGML_API void quantize_row_q4_k_hifi_ref(const float * GGML_RESTRICT x, block_q4_k_hifi * GGML_RESTRICT y, int64_t k);
+GGML_API void dequantize_row_q4_k_hifi(const block_q4_k_hifi * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API size_t quantize_q4_k_hifi(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
+
+// Q3_K_HIFI_RES8: Lean INT8 residual version for imatrix use
+GGML_API void quantize_row_q3_k_hifi_res8_ref(const float * GGML_RESTRICT x, block_q3_k_hifi_res8 * GGML_RESTRICT y, int64_t k);
+GGML_API void dequantize_row_q3_k_hifi_res8(const block_q3_k_hifi_res8 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API size_t quantize_q3_k_hifi_res8(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
+
+// Q6_K_HIFI: Q6_K with 4 FP16 outliers for critical tensors
+GGML_API void quantize_row_q6_k_hifi_ref(const float * GGML_RESTRICT x, block_q6_k_hifi * GGML_RESTRICT y, int64_t k);
+GGML_API void dequantize_row_q6_k_hifi(const block_q6_k_hifi * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API size_t quantize_q6_k_hifi(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
+
+// Q6_K_HIFI_DYNAMIC: Dynamic outlier count (2-8) based on layer sensitivity + early exit optimization
+GGML_API void quantize_row_q6_k_hifi_dynamic_ref(const float * GGML_RESTRICT x, block_q6_k_hifi_dynamic * GGML_RESTRICT y, int64_t k);
+GGML_API void quantize_row_q6_k_hifi_dynamic_ref_ex(const float * GGML_RESTRICT x, block_q6_k_hifi_dynamic * GGML_RESTRICT y, int64_t k, int outlier_count);
+GGML_API void dequantize_row_q6_k_hifi_dynamic(const block_q6_k_hifi_dynamic * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API size_t quantize_q6_k_hifi_dynamic(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
+
+// Q6_K_HIFI_RES8: Compact format with INT8 residuals
+GGML_API void quantize_row_q6_k_hifi_res8_ref(const float * GGML_RESTRICT x, block_q6_k_hifi_res8 * GGML_RESTRICT y, int64_t k);
+GGML_API void quantize_row_q6_k_hifi_res8_ref_ex(const float * GGML_RESTRICT x, block_q6_k_hifi_res8 * GGML_RESTRICT y, int64_t k, int outlier_count);
+GGML_API void dequantize_row_q6_k_hifi_res8(const block_q6_k_hifi_res8 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API size_t quantize_q6_k_hifi_res8(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
+
+// Q5_K_HIFI_RES8: Efficient Q5_K with INT8 residuals for 4B-10B models
+// Uses Q5_K base (176 bytes) instead of Q6_K (210 bytes) for better BPW efficiency
+GGML_API void quantize_row_q5_k_hifi_res8_ref(const float * GGML_RESTRICT x, block_q5_k_hifi_res8 * GGML_RESTRICT y, int64_t k);
+GGML_API void quantize_row_q5_k_hifi_res8_ref_ex(const float * GGML_RESTRICT x, block_q5_k_hifi_res8 * GGML_RESTRICT y, int64_t k, int outlier_count);
+GGML_API void dequantize_row_q5_k_hifi_res8(const block_q5_k_hifi_res8 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API size_t quantize_q5_k_hifi_res8(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
 
 #ifdef __cplusplus
 }

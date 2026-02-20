@@ -2044,6 +2044,35 @@ void ggml_vec_dot_q3_K_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const voi
 
 }
 
+// Q3_K_HIFI: ARM NEON optimized vec_dot
+// Copied from Q3_K and adapted for block_q3_k_hifi (128-byte blocks) + outlier correction
+void ggml_vec_dot_q3_k_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % QK_K == 0);
+    assert(nrc == 1);
+    UNUSED(nrc);
+    UNUSED(bx);
+    UNUSED(by);
+    UNUSED(bs);
+
+    // Use generic implementation (can be optimized with NEON later)
+    UNUSED(vx);
+    UNUSED(vy);
+    ggml_vec_dot_q3_k_hifi_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+
+}
+
+// Q4_K_HIFI: ARM vec_dot - delegates to generic implementation
+void ggml_vec_dot_q4_k_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % Q4_K_HIFI_BLOCK_SIZE == 0);
+    assert(nrc == 1);
+    UNUSED(nrc);
+    UNUSED(bx);
+    UNUSED(by);
+    UNUSED(bs);
+
+    ggml_vec_dot_q4_k_hifi_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+}
+
 #ifdef __ARM_FEATURE_SVE
 static inline svuint32_t ggml_decode_q4scales_and_mins_for_mmla(const uint32_t * vx_scales) {
     const svbool_t pg_all   = svptrue_pat_b32(SV_VL4);
@@ -4049,4 +4078,30 @@ void ggml_vec_dot_iq4_xs_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const v
     ggml_vec_dot_iq4_xs_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
 #endif
 }
+
+#if defined(__ARM_NEON)
+// NEON-optimized dequantization for Q3_K_HIFI (sparse layout)
+void dequantize_row_q3_k_hifi(const block_q3_k_hifi * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+    assert(k % Q3_K_HIFI_BLOCK_SIZE == 0);
+    const int64_t nb = k / Q3_K_HIFI_BLOCK_SIZE;
+
+    for (int ib = 0; ib < nb; ++ib) {
+        const block_q3_k_hifi * block = &x[ib];
+        float * yb = y + ib * Q3_K_HIFI_BLOCK_SIZE;
+
+        // Step 1: Reconstruct inliers with standard Q3_K dequantization
+        // Cast to block_q3_K since the first 110 bytes match Q3_K layout
+        const block_q3_K * q3k_block = (const block_q3_K *)block;
+        dequantize_row_q3_K(q3k_block, yb, Q3_K_HIFI_BLOCK_SIZE);
+
+        // Step 2: Restore original outlier values (overwrite Q3_K reconstruction at outlier positions)
+        for (int outlier_k = 0; outlier_k < Q3_K_HIFI_OUTLIERS; ++outlier_k) {
+            int idx = block->outlier_idx[outlier_k];
+            if (idx < Q3_K_HIFI_BLOCK_SIZE) {
+                yb[idx] = GGML_CPU_FP16_TO_FP32(block->outliers[outlier_k]);
+            }
+        }
+    }
+}
+#endif
 

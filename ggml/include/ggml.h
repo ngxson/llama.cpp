@@ -381,6 +381,9 @@ extern "C" {
     GGML_API void        ggml_fp32_to_bf16_row_ref(const float *, ggml_bf16_t *, int64_t);
     GGML_API void        ggml_fp32_to_bf16_row(const float *, ggml_bf16_t *, int64_t);
 
+    // Q3_K_HIFI block structure is defined in ggml-common.h for GPU backend compatibility
+    // Uses Q3_K-compatible layout with 6 FP16 outliers for improved accuracy
+
     struct ggml_object;
     struct ggml_context;
     struct ggml_cgraph;
@@ -427,7 +430,14 @@ extern "C" {
         // GGML_TYPE_IQ4_NL_4_8 = 37,
         // GGML_TYPE_IQ4_NL_8_8 = 38,
         GGML_TYPE_MXFP4   = 39, // MXFP4 (1 block)
-        GGML_TYPE_COUNT   = 40,
+        GGML_TYPE_Q3_K_HIFI = 40, // Q3_K_HIFI: Q3_K layout + 8 FP16 outliers per block
+        GGML_TYPE_Q6_K_HIFI = 41, // Q6_K_HIFI: Q6_K layout + 4 FP16 outliers for critical tensors
+        GGML_TYPE_Q6_K_HIFI_DYNAMIC = 42, // Q6_K_HIFI_DYNAMIC: Q6_K + 2-8 outliers based on layer sensitivity
+        GGML_TYPE_Q6_K_HIFI_RES8 = 43, // Q6_K_HIFI_RES8: Q6_K + INT8 residuals (compact format)
+        GGML_TYPE_Q5_K_HIFI_RES8 = 44, // Q5_K_HIFI_RES8: Q5_K + INT8 residuals (efficient for 4B-10B models)
+        GGML_TYPE_Q3_K_HIFI_RES8 = 45, // Q3_K_HIFI_RES8: Q3_K + INT8 residuals (lean version for imatrix use)
+        GGML_TYPE_Q4_K_HIFI = 46, // Q4_K_HIFI: Q4_K layout + 8 FP16 outliers per block (high-fidelity 4-bit)
+        GGML_TYPE_COUNT   = 47,
     };
 
     // precision

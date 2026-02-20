@@ -472,6 +472,37 @@ class Q3_K(__Quant, qtype=GGMLQuantizationType.Q3_K):
         return (dl * q).reshape((n_blocks, QK_K))
 
 
+class Q3_K_HIFI(__Quant, qtype=GGMLQuantizationType.Q3_K_HIFI):
+    @classmethod
+    def dequantize_blocks(cls, blocks: np.ndarray) -> np.ndarray:
+        n_blocks = blocks.shape[0]
+        
+        # Q3_K_HIFI structure: Q3_K base (110 bytes) + extension (50 bytes)
+        # Base: hmask[32] + qs[64] + scales[12] + d[2] = 110 bytes
+        # Extension: outlier_count[1] + _pad[1] + outlier_idx[16] + outlier_vals[32] = 50 bytes
+        base_size = QK_K // 8 + QK_K // 4 + 12 + 2  # 110 bytes
+        base_blocks = blocks[:, :base_size]
+        
+        # Dequantize base Q3_K part
+        q3k_result = Q3_K.dequantize_blocks(base_blocks)
+        
+        # Extract outlier data
+        outlier_count = blocks[:, base_size:base_size+1].astype(np.uint8)
+        outlier_idx = blocks[:, base_size+2:base_size+18].astype(np.uint8)  # Skip _pad
+        outlier_vals = blocks[:, base_size+18:base_size+50].view(np.float16).astype(np.float32)  # 16 FP16 values = 32 bytes
+        
+        # Apply outlier corrections
+        result = q3k_result.copy()
+        for i in range(n_blocks):
+            n_outliers = min(int(outlier_count[i, 0]), 16)
+            for k in range(n_outliers):
+                idx = int(outlier_idx[i, k])
+                if idx < QK_K:
+                    result[i, idx] += float(outlier_vals[i, k])
+        
+        return result
+
+
 class Q4_K(__Quant, qtype=GGMLQuantizationType.Q4_K):
     K_SCALE_SIZE = 12
 
