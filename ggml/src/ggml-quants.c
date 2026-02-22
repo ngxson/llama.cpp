@@ -7073,6 +7073,19 @@ bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbyte
                 }
             } break;
 
+        case GGML_TYPE_Q2_K_HIFI:
+            {
+                const block_q2_k_hifi * q = (const block_q2_k_hifi *) data;
+                for (size_t i = 0; i < nb; ++i) {
+                    if (!validate_fp16(q[i].d, i)) {
+                        return false;
+                    }
+                    if (!validate_fp16(q[i].dmin, i)) {
+                        return false;
+                    }
+                }
+            } break;
+
         case GGML_TYPE_I8:
         case GGML_TYPE_I16:
         case GGML_TYPE_I32:
