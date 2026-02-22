@@ -1082,7 +1082,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
     }
 
     // === Q2_K_HIFI: Upgrade Q2_K to Q2_K_HIFI for critical input-heavy layers ===
-    // At 2-bit precision, the residual correction budget is tiny (3 INT8 values/block).
+    // Protects top-3 outliers per superblock BEFORE Q2_K quantization (stored as FP16).
     // Concentrate enhancement on tensors where quantization error causes the most PPL damage.
     if (ftype == LLAMA_FTYPE_MOSTLY_Q2_K_HIFI && new_type == GGML_TYPE_Q2_K) {
         bool is_output_projection =

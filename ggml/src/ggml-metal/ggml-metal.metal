@@ -568,7 +568,9 @@ void dequantize_q2_K(device const block_q2_K *xb, short il, thread type4x4 & reg
     }
 }
 
-// Q2_K_HIFI: base Q2_K dequantization + INT8 residual corrections
+// Q2_K_HIFI: base Q2_K dequantization + FP16 outlier value replacement
+// Outliers were zeroed before Q2_K quantization, so base produces ~0 at those positions.
+// We overwrite with the true FP16 values for perfect reconstruction.
 template <typename type4x4>
 void dequantize_q2_k_hifi(device const block_q2_k_hifi *xb, short il, thread type4x4 & reg) {
     dequantize_q2_K((device const block_q2_K *)xb, il, reg);
@@ -576,7 +578,6 @@ void dequantize_q2_k_hifi(device const block_q2_k_hifi *xb, short il, thread typ
     const int base_pos = il * 16;
     const int end_pos = base_pos + 16;
     const int count = xb->outlier_count;
-    const float rscale = xb->residual_scale;
 
     #pragma unroll
     for (int k = 0; k < Q2_K_HIFI_MAX_OUTLIERS; ++k) {
@@ -584,7 +585,7 @@ void dequantize_q2_k_hifi(device const block_q2_k_hifi *xb, short il, thread typ
         const int idx = xb->outlier_idx[k];
         if (idx >= base_pos && idx < end_pos) {
             const int local_pos = idx - base_pos;
-            reg[local_pos / 4][local_pos % 4] += rscale * (float)xb->residual_vals[k];
+            reg[local_pos / 4][local_pos % 4] = (float)xb->outlier_vals[k];
         }
     }
 }
@@ -7133,7 +7134,9 @@ kernel void kernel_mul_mv_q2_K_f32(
     kernel_mul_mv_q2_K_f32_impl<N_R0_Q2_K, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
 }
 
-// Q2_K_HIFI: Q2_K base dot product + INT8 residual corrections
+// Q2_K_HIFI: Q2_K base dot product + FP16 outlier value corrections
+// Outliers were zeroed before Q2_K quantization -> base contributes ~0 at those positions.
+// We add the true FP16 outlier × activation to recover precision.
 template<int nr0, typename args_t>
 void kernel_mul_mv_q2_k_hifi_f32_impl(
         args_t args,
@@ -7208,14 +7211,13 @@ void kernel_mul_mv_q2_k_hifi_f32_impl(
                                  (acc1[3] + 1.f/256.f * acc2[3]) * (sc[6] & 0xF) * 1.f/64.f) -
                          dmin * (sumy[0] * (sc[0] & 0xF0) + sumy[1] * (sc[2] & 0xF0) + sumy[2] * (sc[4] & 0xF0) + sumy[3] * (sc[6] & 0xF0));
 
-            // INT8 residual corrections (one thread per block to avoid double-counting)
+            // FP16 outlier corrections (one thread per block to avoid double-counting)
             if (it == 0) {
                 device const block_q2_k_hifi * xb = (device const block_q2_k_hifi *)((device const char *)&x[ib] + row * args.nb01);
                 const int count = xb->outlier_count;
                 if (count > 0) {
-                    const float rscale = xb->residual_scale;
                     for (int k = 0; k < Q2_K_HIFI_MAX_OUTLIERS && k < count; ++k) {
-                        sumf[row] += rscale * (float)xb->residual_vals[k] * y[ib * QK_K + xb->outlier_idx[k]];
+                        sumf[row] += (float)xb->outlier_vals[k] * y[ib * QK_K + xb->outlier_idx[k]];
                     }
                 }
             }

@@ -499,7 +499,9 @@ void ggml_vec_dot_q2_K_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, c
     *s = sumf;
 }
 
-// Q2_K_HIFI: Q2_K base dot product + INT8 residual correction
+// Q2_K_HIFI: Q2_K base dot product + FP16 outlier value corrections
+// Outliers were zeroed before Q2_K quantization, so base contributes ~0 at those positions.
+// We add the true FP16 outlier values × quantized activations to recover precision.
 void ggml_vec_dot_q2_k_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);
     assert(nrc == 1);
@@ -516,7 +518,6 @@ void ggml_vec_dot_q2_k_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t 
     float sumf = 0;
 
     for (int i = 0; i < nb; ++i) {
-        // === Q2_K bulk dot product (same as ggml_vec_dot_q2_K_q8_K_generic) ===
         const uint8_t * q2 = x[i].qs;
         const  int8_t * q8 = y[i].qs;
         const uint8_t * sc = x[i].scales;
@@ -550,17 +551,15 @@ void ggml_vec_dot_q2_k_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t 
         }
         sumf += dall * isum - dmin_val * summs;
 
-        // === INT8 RESIDUAL CORRECTION ===
+        // FP16 outlier corrections: add true_value × activation for protected weights
         const int outlier_count = x[i].outlier_count;
         if (outlier_count > 0) {
-            const float res_scale = x[i].residual_scale;
             const float d8 = y[i].d;
-            const int n_outliers = outlier_count <= Q2_K_HIFI_MAX_OUTLIERS ? outlier_count : Q2_K_HIFI_MAX_OUTLIERS;
-            for (int k_idx = 0; k_idx < n_outliers; ++k_idx) {
+            const int n_out = outlier_count <= Q2_K_HIFI_MAX_OUTLIERS ? outlier_count : Q2_K_HIFI_MAX_OUTLIERS;
+            for (int k_idx = 0; k_idx < n_out; ++k_idx) {
                 const int idx = x[i].outlier_idx[k_idx];
-                const int8_t activation = y[i].qs[idx];
-                const float residual = res_scale * (float)x[i].residual_vals[k_idx];
-                sumf += residual * (float)activation * d8;
+                const float outlier_val = GGML_CPU_FP16_TO_FP32(x[i].outlier_vals[k_idx]);
+                sumf += outlier_val * (float)y[i].qs[idx] * d8;
             }
         }
     }
