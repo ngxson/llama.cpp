@@ -499,6 +499,34 @@ typedef struct {
 // Total: 200 bytes (176 + 24) - 14% smaller than Q6_K_HIFI_RES8
 static_assert(sizeof(block_q5_k_hifi_res8) == 200, "wrong q5_k_hifi_res8 block size/padding");
 
+// Q2_K_HIFI: Q2_K base + INT8 residual corrections for critical tensors
+// At 2-bit precision, quantization error is catastrophic for outlier weights.
+// This stores the top-3 largest residuals (true_weight - q2k_reconstructed) per superblock
+// as INT8 values with a shared scale, concentrating correction on the worst errors.
+// Block is 96 bytes (84 Q2_K + 12 extension) = 3.0 BPW — tight budget for 2-bit.
+#define Q2_K_HIFI_BLOCK_SIZE 256
+#define Q2_K_HIFI_MAX_OUTLIERS 3
+typedef struct {
+    // === Q2_K-COMPATIBLE REGION (84 bytes) - DO NOT REORDER ===
+    uint8_t scales[QK_K/16];   // 16 bytes: scales and mins, quantized with 4 bits
+    uint8_t qs[QK_K/4];        // 64 bytes: quants (2-bit packed)
+    GGML_EXTENSION union {
+        struct {
+            ggml_half d;       // 2 bytes: super-block scale for quantized scales
+            ggml_half dmin;    // 2 bytes: super-block scale for quantized mins
+        } GGML_COMMON_AGGR_S;
+        ggml_half2 dm;
+    } GGML_COMMON_AGGR_U;
+    // === INT8 RESIDUAL EXTENSION (12 bytes) ===
+    uint8_t outlier_count;                            // 1 byte: actual outliers stored (0-3)
+    uint8_t _pad1;                                    // 1 byte: alignment padding
+    uint8_t outlier_idx[Q2_K_HIFI_MAX_OUTLIERS];      // 3 bytes: outlier positions (0-255)
+    int8_t  residual_vals[Q2_K_HIFI_MAX_OUTLIERS];    // 3 bytes: INT8 residual corrections
+    float   residual_scale;                           // 4 bytes: scale for INT8 residuals
+} block_q2_k_hifi;
+// Total: 84 (Q2_K) + 12 (extension) = 96 bytes → 3.0 BPW
+static_assert(sizeof(block_q2_k_hifi) == sizeof(block_q2_K) + 2 + Q2_K_HIFI_MAX_OUTLIERS + Q2_K_HIFI_MAX_OUTLIERS + sizeof(float), "wrong q2_k_hifi block size/padding");
+
 // This is only used for intermediate quantization and dot products
 typedef struct {
     float   d;              // delta
