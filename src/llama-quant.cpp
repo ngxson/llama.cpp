@@ -1098,54 +1098,46 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
 
             bool upgrade_to_hifi = false;
 
+            // HIFI enhancement targets attention Q/K projections, which are
+            // high-impact for model quality but relatively small tensors.
+            // FFN gate/up are excluded: they are 4-8x larger than attention tensors
+            // and enhancing them causes ~50% of the model to use Q2_K_HIFI,
+            // creating severe speed regression with minimal PPL benefit per byte.
             if (model_params_b <= 2.0f) {
-                // Tiny models (<=1.7B): only enhance q/k projections (minimal budget)
+                // Tiny models (<=2B): only Q/K projections
                 upgrade_to_hifi =
                     name.find("q_proj") != std::string::npos ||
                     name.find("k_proj") != std::string::npos ||
                     name.find("attn_q") != std::string::npos ||
                     name.find("attn_k") != std::string::npos;
             } else if (model_params_b <= 10.0f) {
-                // Medium models (3B-8B): enhance attention + FFN gate/up (Tier 1+2)
+                // Medium models (3B-8B): Q/K projections only
+                // ffn_gate/ffn_up are too large — 2×47.50 MiB/layer dominates the model
                 upgrade_to_hifi =
                     name.find("q_proj") != std::string::npos ||
                     name.find("k_proj") != std::string::npos ||
-                    name.find("v_proj") != std::string::npos ||
-                    name.find("gate_proj") != std::string::npos ||
-                    name.find("up_proj") != std::string::npos ||
                     name.find("attn_q") != std::string::npos ||
                     name.find("attn_k") != std::string::npos ||
-                    name.find("attn_v") != std::string::npos ||
-                    name.find("ffn_gate") != std::string::npos ||
-                    name.find("ffn_up") != std::string::npos ||
                     name.find("wqkv") != std::string::npos ||
                     name.find("qkv") != std::string::npos;
             } else {
-                // Large models (13B+): broad protection — all Q2_K input tensors benefit
+                // Large models (13B+): Q/K/V projections (still exclude FFN for speed)
                 upgrade_to_hifi =
                     name.find("q_proj") != std::string::npos ||
                     name.find("k_proj") != std::string::npos ||
                     name.find("v_proj") != std::string::npos ||
-                    name.find("gate_proj") != std::string::npos ||
-                    name.find("up_proj") != std::string::npos ||
                     name.find("attn_q") != std::string::npos ||
                     name.find("attn_k") != std::string::npos ||
                     name.find("attn_v") != std::string::npos ||
-                    name.find("ffn_gate") != std::string::npos ||
-                    name.find("ffn_up") != std::string::npos ||
                     name.find("wqkv") != std::string::npos ||
                     name.find("qkv") != std::string::npos;
             }
 
             if (upgrade_to_hifi) {
                 new_type = GGML_TYPE_Q2_K_HIFI;
-                const char * debug_env = getenv("Q2_K_HIFI_DEBUG");
-                if (debug_env) {
-                    static int upgrade_count = 0;
-                    if (upgrade_count++ < 15) {
-                        LLAMA_LOG_INFO("Q2_K_HIFI: Upgraded '%s' from Q2_K to Q2_K_HIFI (model=%.1fB)\n",
-                                      name.c_str(), model_params_b);
-                    }
+                if (getenv("Q2_K_HIFI_DEBUG")) {
+                    LLAMA_LOG_INFO("Q2_K_HIFI: Upgraded '%s' from Q2_K to Q2_K_HIFI (model=%.1fB)\n",
+                                  name.c_str(), model_params_b);
                 }
             }
         }
