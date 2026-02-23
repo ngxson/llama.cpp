@@ -1792,82 +1792,160 @@ size_t quantize_q3_k_hifi_res8(const float * GGML_RESTRICT src, void * GGML_REST
 // Stores residual corrections (true_weight - q2k_reconstructed) for the 3 largest errors
 // per superblock. At 2-bit precision, this targets catastrophic outlier distortion.
 
+// Q2_K_HIFI dual-mode quantization:
+//
+// WITHOUT imatrix (outlier-first mode, outlier_count bit 7 = 0):
+//   1. Identify top-3 outliers by |weight|
+//   2. Zero them before Q2_K quantization (so Q2_K only sees well-behaved weights)
+//   3. Store TRUE outlier values as FP16
+//   Result: base Q2_K is more accurate for remaining weights, outliers perfectly preserved
+//
+// WITH imatrix (residual mode, outlier_count bit 7 = 1):
+//   1. Q2_K quantize ALL weights normally with imatrix guidance (NO disruption!)
+//   2. Compute residuals (true_weight - q2k_reconstructed)
+//   3. Store top-3 residuals as FP16 (sorted by |residual| × imatrix_importance)
+//   Result: preserves imatrix-aware Q2_K quality + adds FP16 residual corrections on top
+//
+// The mode flag (bit 7 of outlier_count) tells inference kernels:
+//   - bit 7 clear: REPLACE base Q2_K value with FP16 value (outlier-first mode)
+//   - bit 7 set:   ADD FP16 residual to base Q2_K value (residual mode)
+
 static void quantize_row_q2_k_hifi_impl(const float * GGML_RESTRICT x, block_q2_k_hifi * GGML_RESTRICT y,
                                          int64_t k, int n_outliers, const float * GGML_RESTRICT imatrix) {
     assert(k % Q2_K_HIFI_BLOCK_SIZE == 0);
     const int64_t nb = k / Q2_K_HIFI_BLOCK_SIZE;
     const int actual_outliers = n_outliers < Q2_K_HIFI_MAX_OUTLIERS ? n_outliers : Q2_K_HIFI_MAX_OUTLIERS;
 
-    // Per-block outlier info, gathered in pass 1
     int * all_outlier_indices = (int *)malloc(nb * Q2_K_HIFI_MAX_OUTLIERS * sizeof(int));
-
-    // --- Pass 1: Identify outliers per block and build cleaned weight buffer ---
-    // Use a temporary buffer for the full row with outliers zeroed
-    float * cleaned = (float *)malloc(k * sizeof(float));
-    memcpy(cleaned, x, k * sizeof(float));
-
-    for (int64_t ib = 0; ib < nb; ++ib) {
-        const float * xb = x + ib * Q2_K_HIFI_BLOCK_SIZE;
-        const float * iw = imatrix ? imatrix + ib * Q2_K_HIFI_BLOCK_SIZE : NULL;
-        int * out_idx = &all_outlier_indices[ib * Q2_K_HIFI_MAX_OUTLIERS];
-
-        float importance[Q2_K_HIFI_BLOCK_SIZE];
-        for (int i = 0; i < Q2_K_HIFI_BLOCK_SIZE; ++i) {
-            importance[i] = fabsf(xb[i]) * (iw ? iw[i] : 1.0f);
-        }
-
-        for (int k_idx = 0; k_idx < actual_outliers; ++k_idx) {
-            int best_i = 0;
-            for (int i = 1; i < Q2_K_HIFI_BLOCK_SIZE; ++i) {
-                if (importance[i] > importance[best_i]) {
-                    best_i = i;
-                }
-            }
-            out_idx[k_idx] = best_i;
-            importance[best_i] = -1.0f;
-            cleaned[ib * Q2_K_HIFI_BLOCK_SIZE + best_i] = 0.0f;
-        }
-        for (int k_idx = actual_outliers; k_idx < Q2_K_HIFI_MAX_OUTLIERS; ++k_idx) {
-            out_idx[k_idx] = 0;
-        }
-    }
-
-    // --- Pass 2: Quantize the full cleaned row using imatrix-aware Q2_K ---
-    // Allocate temporary Q2_K blocks for the full row
     block_q2_K * q2k_blocks = (block_q2_K *)calloc(nb, sizeof(block_q2_K));
+
     if (imatrix) {
-        quantize_row_q2_K_impl(cleaned, q2k_blocks, (int)k, imatrix);
+        // === RESIDUAL MODE: don't disrupt imatrix-aware Q2_K quantization ===
+
+        // Step 1: Quantize ALL weights normally with imatrix
+        quantize_row_q2_K_impl(x, q2k_blocks, (int)k, imatrix);
+
+        // Step 2: Compute residuals and find top-N by |residual| × importance
+        for (int64_t ib = 0; ib < nb; ++ib) {
+            const float * xb = x + ib * Q2_K_HIFI_BLOCK_SIZE;
+            const float * iw = imatrix + ib * Q2_K_HIFI_BLOCK_SIZE;
+            int * out_idx = &all_outlier_indices[ib * Q2_K_HIFI_MAX_OUTLIERS];
+
+            float x_recon[Q2_K_HIFI_BLOCK_SIZE];
+            dequantize_row_q2_K(&q2k_blocks[ib], x_recon, Q2_K_HIFI_BLOCK_SIZE);
+
+            float importance[Q2_K_HIFI_BLOCK_SIZE];
+            for (int i = 0; i < Q2_K_HIFI_BLOCK_SIZE; ++i) {
+                float residual = xb[i] - x_recon[i];
+                importance[i] = fabsf(residual) * iw[i];
+            }
+
+            for (int k_idx = 0; k_idx < actual_outliers; ++k_idx) {
+                int best_i = 0;
+                for (int i = 1; i < Q2_K_HIFI_BLOCK_SIZE; ++i) {
+                    if (importance[i] > importance[best_i]) {
+                        best_i = i;
+                    }
+                }
+                out_idx[k_idx] = best_i;
+                importance[best_i] = -1.0f;
+            }
+            for (int k_idx = actual_outliers; k_idx < Q2_K_HIFI_MAX_OUTLIERS; ++k_idx) {
+                out_idx[k_idx] = 0;
+            }
+        }
+
+        // Step 3: Assemble blocks with RESIDUAL values
+        for (int64_t ib = 0; ib < nb; ++ib) {
+            block_q2_k_hifi * block = &y[ib];
+            const int * out_idx = &all_outlier_indices[ib * Q2_K_HIFI_MAX_OUTLIERS];
+            const float * xb = x + ib * Q2_K_HIFI_BLOCK_SIZE;
+
+            float x_recon[Q2_K_HIFI_BLOCK_SIZE];
+            dequantize_row_q2_K(&q2k_blocks[ib], x_recon, Q2_K_HIFI_BLOCK_SIZE);
+
+            memcpy(block->scales, q2k_blocks[ib].scales, sizeof(block->scales));
+            memcpy(block->qs, q2k_blocks[ib].qs, sizeof(block->qs));
+            block->d    = q2k_blocks[ib].d;
+            block->dmin = q2k_blocks[ib].dmin;
+
+            block->outlier_count = actual_outliers | Q2_K_HIFI_RESIDUAL_MODE_FLAG;
+            for (int k_idx = 0; k_idx < actual_outliers; ++k_idx) {
+                const int idx = out_idx[k_idx];
+                block->outlier_idx[k_idx] = (uint8_t)idx;
+                block->outlier_vals[k_idx] = GGML_FP32_TO_FP16(xb[idx] - x_recon[idx]);
+            }
+            for (int k_idx = actual_outliers; k_idx < Q2_K_HIFI_MAX_OUTLIERS; ++k_idx) {
+                block->outlier_idx[k_idx] = 0;
+                block->outlier_vals[k_idx] = GGML_FP32_TO_FP16(0.0f);
+            }
+            block->_pad[0] = 0;
+            block->_pad[1] = 0;
+        }
     } else {
+        // === OUTLIER-FIRST MODE: zero outliers before Q2_K quantization ===
+
+        float * cleaned = (float *)malloc(k * sizeof(float));
+        memcpy(cleaned, x, k * sizeof(float));
+
+        // Step 1: Identify outliers by |weight| and zero them
+        for (int64_t ib = 0; ib < nb; ++ib) {
+            const float * xb = x + ib * Q2_K_HIFI_BLOCK_SIZE;
+            int * out_idx = &all_outlier_indices[ib * Q2_K_HIFI_MAX_OUTLIERS];
+
+            float importance[Q2_K_HIFI_BLOCK_SIZE];
+            for (int i = 0; i < Q2_K_HIFI_BLOCK_SIZE; ++i) {
+                importance[i] = fabsf(xb[i]);
+            }
+
+            for (int k_idx = 0; k_idx < actual_outliers; ++k_idx) {
+                int best_i = 0;
+                for (int i = 1; i < Q2_K_HIFI_BLOCK_SIZE; ++i) {
+                    if (importance[i] > importance[best_i]) {
+                        best_i = i;
+                    }
+                }
+                out_idx[k_idx] = best_i;
+                importance[best_i] = -1.0f;
+                cleaned[ib * Q2_K_HIFI_BLOCK_SIZE + best_i] = 0.0f;
+            }
+            for (int k_idx = actual_outliers; k_idx < Q2_K_HIFI_MAX_OUTLIERS; ++k_idx) {
+                out_idx[k_idx] = 0;
+            }
+        }
+
+        // Step 2: Quantize cleaned weights
         quantize_row_q2_K_ref(cleaned, q2k_blocks, k);
-    }
 
-    // --- Pass 3: Assemble Q2_K_HIFI blocks ---
-    for (int64_t ib = 0; ib < nb; ++ib) {
-        block_q2_k_hifi * block = &y[ib];
-        const int * out_idx = &all_outlier_indices[ib * Q2_K_HIFI_MAX_OUTLIERS];
-        const float * xb = x + ib * Q2_K_HIFI_BLOCK_SIZE;
+        // Step 3: Assemble blocks with TRUE outlier values
+        for (int64_t ib = 0; ib < nb; ++ib) {
+            block_q2_k_hifi * block = &y[ib];
+            const int * out_idx = &all_outlier_indices[ib * Q2_K_HIFI_MAX_OUTLIERS];
+            const float * xb = x + ib * Q2_K_HIFI_BLOCK_SIZE;
 
-        memcpy(block->scales, q2k_blocks[ib].scales, sizeof(block->scales));
-        memcpy(block->qs, q2k_blocks[ib].qs, sizeof(block->qs));
-        block->d    = q2k_blocks[ib].d;
-        block->dmin = q2k_blocks[ib].dmin;
+            memcpy(block->scales, q2k_blocks[ib].scales, sizeof(block->scales));
+            memcpy(block->qs, q2k_blocks[ib].qs, sizeof(block->qs));
+            block->d    = q2k_blocks[ib].d;
+            block->dmin = q2k_blocks[ib].dmin;
 
-        block->outlier_count = actual_outliers;
-        for (int k_idx = 0; k_idx < actual_outliers; ++k_idx) {
-            const int idx = out_idx[k_idx];
-            block->outlier_idx[k_idx] = (uint8_t)idx;
-            block->outlier_vals[k_idx] = GGML_FP32_TO_FP16(xb[idx]);
+            block->outlier_count = actual_outliers;
+            for (int k_idx = 0; k_idx < actual_outliers; ++k_idx) {
+                const int idx = out_idx[k_idx];
+                block->outlier_idx[k_idx] = (uint8_t)idx;
+                block->outlier_vals[k_idx] = GGML_FP32_TO_FP16(xb[idx]);
+            }
+            for (int k_idx = actual_outliers; k_idx < Q2_K_HIFI_MAX_OUTLIERS; ++k_idx) {
+                block->outlier_idx[k_idx] = 0;
+                block->outlier_vals[k_idx] = GGML_FP32_TO_FP16(0.0f);
+            }
+            block->_pad[0] = 0;
+            block->_pad[1] = 0;
         }
-        for (int k_idx = actual_outliers; k_idx < Q2_K_HIFI_MAX_OUTLIERS; ++k_idx) {
-            block->outlier_idx[k_idx] = 0;
-            block->outlier_vals[k_idx] = GGML_FP32_TO_FP16(0.0f);
-        }
-        block->_pad[0] = 0;
-        block->_pad[1] = 0;
+
+        free(cleaned);
     }
 
     free(q2k_blocks);
-    free(cleaned);
     free(all_outlier_indices);
 }
 
@@ -1883,15 +1961,20 @@ void dequantize_row_q2_k_hifi(const block_q2_k_hifi * GGML_RESTRICT x, float * G
         const block_q2_k_hifi * block = &x[ib];
         float * yb = y + ib * Q2_K_HIFI_BLOCK_SIZE;
 
-        // Step 1: Dequantize base Q2_K (outlier positions produce ~0 since they were zeroed)
         dequantize_row_q2_K((const block_q2_K *)block, yb, Q2_K_HIFI_BLOCK_SIZE);
 
-        // Step 2: Overwrite outlier positions with true FP16 values
-        const int n_outliers = block->outlier_count <= Q2_K_HIFI_MAX_OUTLIERS ? block->outlier_count : Q2_K_HIFI_MAX_OUTLIERS;
-        for (int k_idx = 0; k_idx < n_outliers; ++k_idx) {
+        const bool residual_mode = (block->outlier_count & Q2_K_HIFI_RESIDUAL_MODE_FLAG) != 0;
+        const int n_outliers = (block->outlier_count & 0x7F);
+        const int n_out = n_outliers <= Q2_K_HIFI_MAX_OUTLIERS ? n_outliers : Q2_K_HIFI_MAX_OUTLIERS;
+        for (int k_idx = 0; k_idx < n_out; ++k_idx) {
             const int idx = block->outlier_idx[k_idx];
             if (idx < Q2_K_HIFI_BLOCK_SIZE) {
-                yb[idx] = GGML_FP16_TO_FP32(block->outlier_vals[k_idx]);
+                const float val = GGML_FP16_TO_FP32(block->outlier_vals[k_idx]);
+                if (residual_mode) {
+                    yb[idx] += val;
+                } else {
+                    yb[idx] = val;
+                }
             }
         }
     }
@@ -7093,8 +7176,9 @@ bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbyte
                     if (!validate_fp16(q[i].dmin, i)) {
                         return false;
                     }
-                    const int n_out = q[i].outlier_count <= Q2_K_HIFI_MAX_OUTLIERS ? q[i].outlier_count : Q2_K_HIFI_MAX_OUTLIERS;
-                    for (int k = 0; k < n_out; ++k) {
+                    const int n_out = (q[i].outlier_count & 0x7F);
+                    const int n = n_out <= Q2_K_HIFI_MAX_OUTLIERS ? n_out : Q2_K_HIFI_MAX_OUTLIERS;
+                    for (int k = 0; k < n; ++k) {
                         if (!validate_fp16(q[i].outlier_vals[k], i)) {
                             return false;
                         }

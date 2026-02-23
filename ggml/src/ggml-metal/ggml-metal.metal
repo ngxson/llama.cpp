@@ -568,24 +568,30 @@ void dequantize_q2_K(device const block_q2_K *xb, short il, thread type4x4 & reg
     }
 }
 
-// Q2_K_HIFI: base Q2_K dequantization + FP16 outlier value replacement
-// Outliers were zeroed before Q2_K quantization, so base produces ~0 at those positions.
-// We overwrite with the true FP16 values for perfect reconstruction.
+// Q2_K_HIFI: base Q2_K dequantization + FP16 correction (dual-mode)
+// Bit 7 of outlier_count signals the mode:
+//   0 = outlier-first: REPLACE base value with FP16 (outliers were zeroed before Q2_K)
+//   1 = residual:      ADD FP16 residual to base value (imatrix-aware Q2_K undisturbed)
 template <typename type4x4>
 void dequantize_q2_k_hifi(device const block_q2_k_hifi *xb, short il, thread type4x4 & reg) {
     dequantize_q2_K((device const block_q2_K *)xb, il, reg);
 
     const int base_pos = il * 16;
-    const int end_pos = base_pos + 16;
-    const int count = xb->outlier_count;
+    const int raw_count = xb->outlier_count;
+    const bool residual_mode = (raw_count & Q2_K_HIFI_RESIDUAL_MODE_FLAG) != 0;
+    const int count = raw_count & 0x7F;
 
     #pragma unroll
     for (int k = 0; k < Q2_K_HIFI_MAX_OUTLIERS; ++k) {
         if (k >= count) break;
         const int idx = xb->outlier_idx[k];
-        if (idx >= base_pos && idx < end_pos) {
-            const int local_pos = idx - base_pos;
-            reg[local_pos / 4][local_pos % 4] = (float)xb->outlier_vals[k];
+        const int local_pos = idx - base_pos;
+        if (local_pos >= 0 && local_pos < 16) {
+            if (residual_mode) {
+                reg[local_pos / 4][local_pos % 4] += (float)xb->outlier_vals[k];
+            } else {
+                reg[local_pos / 4][local_pos % 4] = (float)xb->outlier_vals[k];
+            }
         }
     }
 }
@@ -7211,10 +7217,10 @@ void kernel_mul_mv_q2_k_hifi_f32_impl(
                                  (acc1[3] + 1.f/256.f * acc2[3]) * (sc[6] & 0xF) * 1.f/64.f) -
                          dmin * (sumy[0] * (sc[0] & 0xF0) + sumy[1] * (sc[2] & 0xF0) + sumy[2] * (sc[4] & 0xF0) + sumy[3] * (sc[6] & 0xF0));
 
-            // FP16 outlier corrections (one thread per block to avoid double-counting)
+            // FP16 corrections (works for both outlier-first and residual modes)
             if (it == 0) {
                 device const block_q2_k_hifi * xb = (device const block_q2_k_hifi *)((device const char *)&x[ib] + row * args.nb01);
-                const int count = xb->outlier_count;
+                const int count = xb->outlier_count & 0x7F;
                 if (count > 0) {
                     for (int k = 0; k < Q2_K_HIFI_MAX_OUTLIERS && k < count; ++k) {
                         sumf[row] += (float)xb->outlier_vals[k] * y[ib * QK_K + xb->outlier_idx[k]];

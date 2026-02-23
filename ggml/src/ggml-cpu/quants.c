@@ -551,15 +551,15 @@ void ggml_vec_dot_q2_k_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t 
         }
         sumf += dall * isum - dmin_val * summs;
 
-        // FP16 outlier corrections: add true_value × activation for protected weights
-        const int outlier_count = x[i].outlier_count;
-        if (outlier_count > 0) {
+        // FP16 outlier/residual corrections (works for both outlier-first and residual modes)
+        const int n_out = (x[i].outlier_count & 0x7F);
+        if (n_out > 0) {
             const float d8 = y[i].d;
-            const int n_out = outlier_count <= Q2_K_HIFI_MAX_OUTLIERS ? outlier_count : Q2_K_HIFI_MAX_OUTLIERS;
-            for (int k_idx = 0; k_idx < n_out; ++k_idx) {
+            const int n = n_out <= Q2_K_HIFI_MAX_OUTLIERS ? n_out : Q2_K_HIFI_MAX_OUTLIERS;
+            for (int k_idx = 0; k_idx < n; ++k_idx) {
                 const int idx = x[i].outlier_idx[k_idx];
-                const float outlier_val = GGML_CPU_FP16_TO_FP32(x[i].outlier_vals[k_idx]);
-                sumf += outlier_val * (float)y[i].qs[idx] * d8;
+                const float val = GGML_CPU_FP16_TO_FP32(x[i].outlier_vals[k_idx]);
+                sumf += val * (float)y[i].qs[idx] * d8;
             }
         }
     }

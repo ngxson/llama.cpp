@@ -508,6 +508,7 @@ static_assert(sizeof(block_q5_k_hifi_res8) == 200, "wrong q5_k_hifi_res8 block s
 // Block is 96 bytes (84 Q2_K + 12 extension) = 3.0 BPW
 #define Q2_K_HIFI_BLOCK_SIZE 256
 #define Q2_K_HIFI_MAX_OUTLIERS 3
+#define Q2_K_HIFI_RESIDUAL_MODE_FLAG 0x80
 typedef struct {
     // === Q2_K-COMPATIBLE REGION (84 bytes) - DO NOT REORDER ===
     uint8_t scales[QK_K/16];   // 16 bytes: scales and mins, quantized with 4 bits
