@@ -256,6 +256,42 @@ struct block_q2_K_packed32
 #define DATA_A_QUANT_K
 #endif
 
+// Q2_K_HIFI: Q2_K with up to 3 FP16 outlier corrections per block
+#define QUANT_K_Q2_K_HIFI 256
+#define Q2_K_HIFI_MAX_OUTLIERS 3
+#define Q2_K_HIFI_RESIDUAL_MODE_FLAG 0x80
+
+struct block_q2_k_hifi
+{
+    uint8_t scales[QUANT_K_Q2_K_HIFI/16]; // 16 bytes
+    uint8_t qs[QUANT_K_Q2_K_HIFI/4];      // 64 bytes
+    f16vec2 dm;                            // 4 bytes
+    uint8_t outlier_count;                 // 1 byte
+    uint8_t outlier_idx[Q2_K_HIFI_MAX_OUTLIERS]; // 3 bytes
+    float16_t outlier_vals[Q2_K_HIFI_MAX_OUTLIERS]; // 6 bytes
+    uint8_t _pad[2];                       // 2 bytes
+};
+
+struct block_q2_k_hifi_packed16
+{
+    uint16_t scales[QUANT_K_Q2_K_HIFI/16/2];
+    uint16_t qs[QUANT_K_Q2_K_HIFI/4/2];
+    f16vec2 dm;
+    uint8_t outlier_count;
+    uint8_t outlier_idx[Q2_K_HIFI_MAX_OUTLIERS];
+    float16_t outlier_vals[Q2_K_HIFI_MAX_OUTLIERS];
+    uint8_t _pad[2];
+};
+
+#if defined(DATA_A_Q2_K_HIFI)
+#define QUANT_K QUANT_K_Q2_K_HIFI
+#define QUANT_R 1
+#define A_TYPE block_q2_k_hifi
+#define A_TYPE_PACKED16 block_q2_k_hifi_packed16
+#define SCALES_PER_32 2
+#define DATA_A_QUANT_K
+#endif
+
 #define QUANT_K_Q3_K 256
 
 struct block_q3_K

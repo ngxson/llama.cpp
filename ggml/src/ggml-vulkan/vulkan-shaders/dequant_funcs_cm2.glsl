@@ -135,6 +135,46 @@ float16_t dequantFuncQ2_K(const in decodeBufQ2_K bl, const in uint blockCoords[2
     return ret;
 }
 
+// Q2_K_HIFI: Q2_K with up to 3 FP16 outlier corrections
+layout(buffer_reference, std430, buffer_reference_align = 4) buffer decodeBufQ2_K_HIFI {
+   block_q2_k_hifi block;
+};
+
+layout(buffer_reference, std430, buffer_reference_align = 16) buffer decodeBufQ2_K_HIFI_packed16 {
+   block_q2_k_hifi_packed16 block;
+};
+
+float16_t dequantFuncQ2_K_HIFI(const in decodeBufQ2_K_HIFI bl, const in uint blockCoords[2], const in uint coordInBlock[2])
+{
+    decodeBufQ2_K_HIFI_packed16 bl16 = decodeBufQ2_K_HIFI_packed16(bl);
+    const f16vec2 dm = bl.block.dm;
+    const uint idx = coordInBlock[1];
+
+    const uint scalesi = (idx & 0xF0) >> 4;
+    const uint qsshift = (idx & 0x60) >> 4;
+
+    uint qs = uint32_t(bl16.block.qs[((idx & 0x80) >> 3) + ((idx & 0x1E) >> 1)]);
+    qs = (qs >> qsshift) & 0x0303;
+    qs = unpack8(qs)[idx & 1];
+
+    const uint scales = bl.block.scales[scalesi];
+    float16_t ret = dm.x * float16_t(scales & 0xF) * float16_t(qs) - dm.y * float16_t(scales >> 4);
+
+    const uint raw_count = bl.block.outlier_count;
+    const bool residual_mode = (raw_count & Q2_K_HIFI_RESIDUAL_MODE_FLAG) != 0;
+    const uint count = raw_count & 0x7F;
+    const uint n_out = min(count, Q2_K_HIFI_MAX_OUTLIERS);
+
+    for (uint k = 0; k < n_out; ++k) {
+        if (uint(bl.block.outlier_idx[k]) == idx) {
+            float16_t val = bl.block.outlier_vals[k];
+            ret = residual_mode ? (ret + val) : val;
+        }
+    }
+
+    return ret;
+}
+
 layout(buffer_reference, std430, buffer_reference_align = 2) buffer decodeBufQ3_K {
    block_q3_K block;
 };
@@ -780,6 +820,8 @@ float16_t dequantFuncMXFP4(const in decodeBufMXFP4 bl, const in uint blockCoords
 #define dequantFuncA dequantFuncQ8_0
 #elif defined(DATA_A_Q2_K)
 #define dequantFuncA dequantFuncQ2_K
+#elif defined(DATA_A_Q2_K_HIFI)
+#define dequantFuncA dequantFuncQ2_K_HIFI
 #elif defined(DATA_A_Q3_K)
 #define dequantFuncA dequantFuncQ3_K
 #elif defined(DATA_A_Q3_K_HIFI)
