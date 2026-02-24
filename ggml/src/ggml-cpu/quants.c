@@ -555,8 +555,8 @@ void ggml_vec_dot_q2_k_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t 
         const int n_out = (x[i].outlier_count & 0x7F);
         if (n_out > 0) {
             const float d8 = y[i].d;
-            const int n = n_out <= Q2_K_HIFI_MAX_OUTLIERS ? n_out : Q2_K_HIFI_MAX_OUTLIERS;
-            for (int k_idx = 0; k_idx < n; ++k_idx) {
+            const int n_corr = n_out <= Q2_K_HIFI_MAX_OUTLIERS ? n_out : Q2_K_HIFI_MAX_OUTLIERS;
+            for (int k_idx = 0; k_idx < n_corr; ++k_idx) {
                 const int idx = x[i].outlier_idx[k_idx];
                 const float val = GGML_CPU_FP16_TO_FP32(x[i].outlier_vals[k_idx]);
                 sumf += val * (float)y[i].qs[idx] * d8;
