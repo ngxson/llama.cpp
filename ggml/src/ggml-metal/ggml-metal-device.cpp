@@ -547,8 +547,9 @@ static const char * ggml_metal_type_name_for_kernel(ggml_type type) {
             return "q4_k_hifi";
         case GGML_TYPE_Q6_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
-        case GGML_TYPE_Q6_K_HIFI_RES8:
             return "q6_K";
+        case GGML_TYPE_Q6_K_HIFI_RES8:
+            return "q6_K_hifi_res8";
         case GGML_TYPE_Q5_K_HIFI_RES8:
             return "q5_K_hifi_res8";
         default:
