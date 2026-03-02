@@ -55,14 +55,14 @@ static float compute_model_params_b(const llama_hparams & hparams, int64_t n_voc
     const int64_t n_embd = hparams.n_embd;
     const int64_t n_ff = hparams.n_ff();
     const int64_t n_layer = hparams.n_layer;
-    
+
     // Attention: 4 weight matrices per layer (Q, K, V, O) each ~d*d
     const int64_t attn_params = 4 * n_embd * n_embd * n_layer;
     // FFN: 3 weight matrices per layer (gate, up, down) each ~d*n_ff
     const int64_t ffn_params = 3 * n_embd * n_ff * n_layer;
     // Embeddings: input + output
     const int64_t emb_params = 2 * n_vocab * n_embd;
-    
+
     return (float)(attn_params + ffn_params + emb_params) / 1e9f;
 }
 
@@ -141,7 +141,7 @@ static float compute_outlier_ratio(const float * weights, int64_t n) {
     if (weights == nullptr || n <= 0) {
         return 0.0f;
     }
-    
+
     // Compute mean and stddev in one pass using Welford's algorithm
     double mean = 0.0;
     double m2 = 0.0;
@@ -152,13 +152,13 @@ static float compute_outlier_ratio(const float * weights, int64_t n) {
         double delta2 = x - mean;
         m2 += delta * delta2;
     }
-    
+
     double variance = m2 / (double)n;
     if (variance <= 0.0) return 0.0f;
-    
+
     double stddev = sqrt(variance);
     double threshold = 3.0 * stddev;
-    
+
     // Count outliers (weights beyond 3σ from mean)
     int64_t outlier_count = 0;
     for (int64_t i = 0; i < n; ++i) {
@@ -166,7 +166,7 @@ static float compute_outlier_ratio(const float * weights, int64_t n) {
             outlier_count++;
         }
     }
-    
+
     return (float)outlier_count / (float)n;
 }
 
@@ -278,12 +278,12 @@ static ggml_type get_q3_hifi_ffn_down_type(float model_params_b, int i_layer, in
     if (i_layer < n_layer / 16) {
         return GGML_TYPE_Q5_K;
     }
-    
+
     // Tiny models: use Q4_K for middle layers (match Q3_K_M behavior)
     if (model_params_b <= 1.7f) {
         return GGML_TYPE_Q4_K;
     }
-    
+
     // Medium/large models: use Q4_K for most layers
     return GGML_TYPE_Q4_K;
 }
@@ -734,7 +734,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
             const float enhancement_threshold = get_hifi_enhancement_threshold(model_params_b);
             const ggml_type hifi_type = get_hifi_enhanced_type(model_params_b);
-            
+
             if (qs.i_attention_wv <= qs.n_attention_wv * enhancement_threshold) {
                 new_type = hifi_type;  // Use size-appropriate HIFI type
             } else if (use_more_bits(qs.i_attention_wv, qs.n_attention_wv)) {
@@ -753,7 +753,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             // Lever 3: Only enhance if tensor has high outlier ratio (pending weight access)
             const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
             const float enhancement_threshold = get_q5_hifi_attn_v_threshold(model_params_b);
-            
+
             // For tiny models (≤1.7B), skip ALL attn_v HIFI enhancement - only use Q5_K_M logic
             // This matches Q5_K_M BPW while still getting HIFI benefit on token_embd/output
             if (enhancement_threshold > 0.0f && qs.i_attention_wv <= qs.n_attention_wv * enhancement_threshold) {
@@ -903,7 +903,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             // ffn_gate is critical for reasoning paths in small models
             const float model_params_b = compute_model_params_b(qs.model.hparams, qs.model.vocab.n_tokens());
             const float ffn_gate_threshold = get_hifi_ffn_gate_threshold(model_params_b);
-            
+
             if (ffn_gate_threshold > 0.0f && i_layer <= n_layer * ffn_gate_threshold) {
                 const ggml_type hifi_type = get_hifi_enhanced_type(model_params_b);
                 new_type = hifi_type;  // Use HIFI type for early ffn_gate layers
@@ -942,7 +942,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
     // Only apply Q3_K_HIFI to input projections that tolerate 3-bit well.
     if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_HIFI && new_type == GGML_TYPE_Q3_K) {
         // First, check if this is an output projection (EXCLUDE these)
-        bool is_output_projection = 
+        bool is_output_projection =
             name.find("o_proj") != std::string::npos ||
             name.find("attn_output") != std::string::npos ||
             name.find("down_proj") != std::string::npos ||
@@ -951,7 +951,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             name == "output.weight" ||
             name.find("lm_head") != std::string::npos ||
             name.find("ssm_out") != std::string::npos;  // Qwen3Next linear attention output
-        
+
         if (is_output_projection) {
             // Output projections: use Q4_K instead of Q3_K_HIFI
             new_type = GGML_TYPE_Q4_K;
@@ -960,7 +960,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 static int skip_count = 0;
                 skip_count++;
                 if (skip_count <= 10) {
-                    LLAMA_LOG_INFO("Q3_K_HIFI: Excluding output projection '%s' from Q3_K_HIFI, using Q4_K instead (count: %d)\n", 
+                    LLAMA_LOG_INFO("Q3_K_HIFI: Excluding output projection '%s' from Q3_K_HIFI, using Q4_K instead (count: %d)\n",
                                   name.c_str(), skip_count);
                 }
             }
@@ -1062,7 +1062,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 new_type = GGML_TYPE_Q3_K_HIFI;
                 upgrade_count++;
                 if (debug_env && upgrade_count <= 10) {
-                    LLAMA_LOG_INFO("Q3_K_HIFI: Upgraded tensor '%s' from Q3_K to Q3_K_HIFI (count: %d)\n", 
+                    LLAMA_LOG_INFO("Q3_K_HIFI: Upgraded tensor '%s' from Q3_K to Q3_K_HIFI (count: %d)\n",
                                   name.c_str(), upgrade_count);
                 }
             } else {
@@ -1073,7 +1073,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                     static int unknown_count = 0;
                     unknown_count++;
                     if (unknown_count <= 10) {
-                        LLAMA_LOG_INFO("Q3_K_HIFI: Unknown tensor '%s' - using Q4_K instead of Q3_K_HIFI (count: %d)\n", 
+                        LLAMA_LOG_INFO("Q3_K_HIFI: Unknown tensor '%s' - using Q4_K instead of Q3_K_HIFI (count: %d)\n",
                                       name.c_str(), unknown_count);
                     }
                 }
@@ -1954,7 +1954,7 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
 
                 // Compute adaptive outlier count
                 // Use the appropriate max outliers constant based on type
-                const int max_outliers = (new_type == GGML_TYPE_Q5_K_HIFI_RES8) 
+                const int max_outliers = (new_type == GGML_TYPE_Q5_K_HIFI_RES8)
                     ? Q5_K_HIFI_RES8_MAX_OUTLIERS : Q6_K_HIFI_RES8_MAX_OUTLIERS;
                 int outlier_count;
                 if (layer_idx < 0) {

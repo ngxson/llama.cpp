@@ -1197,10 +1197,10 @@ static __device__ __forceinline__ float vec_dot_q6_k_hifi_res8_q8_1(
     // We use warp-level reduction: all threads compute corrections for all outliers,
     // but only add them once via warp shuffle to avoid double-counting.
     const int outlier_count = bq6_hifi->outlier_count;
-    
+
     if (outlier_count > 0) {
         const float res_scale = bq6_hifi->residual_scale * (1.0f / 127.0f);
-        
+
         // Only thread 0 in the warp group for this block computes the residual correction
         // to avoid multiple threads adding the same correction
         if (iqs == 0) {
@@ -1208,7 +1208,7 @@ static __device__ __forceinline__ float vec_dot_q6_k_hifi_res8_q8_1(
                 const int idx = bq6_hifi->outlier_idx[k];
                 const int idx_bq8 = idx / QK8_1;
                 const int idx_in_bq8 = idx % QK8_1;
-                
+
                 const int8_t q8_val = ((const int8_t*)bq8_1[idx_bq8].qs)[idx_in_bq8];
                 const float d8_val = __low2float(bq8_1[idx_bq8].ds);
                 const float residual = res_scale * bq6_hifi->residual_vals[k];

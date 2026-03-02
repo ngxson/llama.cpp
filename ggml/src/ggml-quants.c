@@ -3506,7 +3506,7 @@ void quantize_row_q5_k_hifi_res8_ref_ex(const float * GGML_RESTRICT x, block_q5_
         for (int k_idx = 0; k_idx < outlier_count; ++k_idx) {
             tmp[outlier_indices[k_idx]] = 0.0f;
         }
-        
+
         // Quantize the Q5_K base (this fills dm, scales, qh, qs)
         quantize_row_q5_K_ref(tmp, (block_q5_K *)block, QK_K);
 

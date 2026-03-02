@@ -101,7 +101,7 @@ GGML_API int ggml_hifi_compute_block_outlier_count(
 // ===========================================================================
 
 // Q6_K_HIFI_RES8: 232 bytes total (210 base + 22 extension)
-// Layout: ql[128] + qh[64] + scales[16] + d[2] + outlier_count[1] + 
+// Layout: ql[128] + qh[64] + scales[16] + d[2] + outlier_count[1] +
 //         outlier_idx[8] + residual_vals[8] + _padding[1] + residual_scale[4]
 #define Q6_K_HIFI_RES8_BLOCK_SIZE 232
 
