@@ -672,12 +672,12 @@ void ggml_vec_dot_q3_k_hifi_q8_K_generic(int n, float * GGML_RESTRICT s, size_t 
         // Step 1: Compute Q3_K dot product from Q3_K fields (first 110 bytes)
         const block_q3_K * q3k_block = (const block_q3_K *)xb;
         float q3k_sum = 0.0f;
-        
+
         // Use Q3_K's dot product logic
         // For now, we'll dequantize Q3_K and compute dot product manually
         float q3k_weights[Q3_K_HIFI_BLOCK_SIZE];
         dequantize_row_q3_K(q3k_block, q3k_weights, Q3_K_HIFI_BLOCK_SIZE);
-        
+
         const float d_y = yb->d;
         const int8_t * GGML_RESTRICT q8 = yb->qs;
         for (int j = 0; j < Q3_K_HIFI_BLOCK_SIZE; ++j) {
