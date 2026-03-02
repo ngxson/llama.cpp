@@ -146,11 +146,15 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_pool_2d(ggml_met
     return res;
 }
 
+static const char * ggml_metal_type_name_for_kernel(ggml_type type); // forward declaration
+
 ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_get_rows(ggml_metal_library_t lib, ggml_type tsrc) {
     char base[256];
     char name[256];
 
-    snprintf(base, 256, "kernel_get_rows_%s", ggml_type_name(tsrc));
+    // Use ggml_metal_type_name_for_kernel for HIFI types so the kernel name matches
+    // the dedicated kernels registered in ggml-metal.metal (e.g. "q5_K_hifi_res8")
+    snprintf(base, 256, "kernel_get_rows_%s", ggml_metal_type_name_for_kernel(tsrc));
     snprintf(name, 256, "%s", base);
 
     ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
@@ -577,9 +581,9 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_rwkv(ggml_metal_
     return res;
 }
 
-// Map HIFI types to their base types for kernel name generation
-// Since HIFI types are based on Q6_K/Q5_K, they can use the same kernels
-// Q3_K_HIFI has its own dedicated kernel, so it needs its own name
+// Map HIFI types to their kernel name counterparts
+// Q3_K_HIFI, Q4_K_HIFI, Q5_K_HIFI_RES8 have dedicated kernels with correct block strides
+// Q6_K HIFI variants reuse Q6_K kernels (TODO: fix stride mismatch for Q6_K HIFI types)
 static const char * ggml_metal_type_name_for_kernel(ggml_type type) {
     switch (type) {
         case GGML_TYPE_Q2_K_HIFI:
@@ -590,10 +594,11 @@ static const char * ggml_metal_type_name_for_kernel(ggml_type type) {
             return "q4_k_hifi";
         case GGML_TYPE_Q6_K_HIFI:
         case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
-        case GGML_TYPE_Q6_K_HIFI_RES8:
             return "q6_K";
+        case GGML_TYPE_Q6_K_HIFI_RES8:
+            return "q6_K_hifi_res8";
         case GGML_TYPE_Q5_K_HIFI_RES8:
-            return "q5_K";
+            return "q5_K_hifi_res8";
         default:
             return ggml_type_name(type);
     }

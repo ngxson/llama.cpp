@@ -3,6 +3,78 @@
 #include "quantize.cuh"
 #include "mmid.cuh"
 
+// Copy Q5_K base (176 bytes) from each Q5_K_HIFI_RES8 block (196 bytes) for MMQ path.
+// Uses vectorized 4-byte loads: 176/4=44 words, 196/4=49 words (both divisible by 4 so every
+// block-start is uint32_t-aligned regardless of block index).
+static_assert(sizeof(block_q5_K)           % sizeof(uint32_t) == 0, "Q5_K size not a multiple of 4");
+static_assert(sizeof(block_q5_k_hifi_res8) % sizeof(uint32_t) == 0, "Q5_K_HIFI_RES8 size not a multiple of 4");
+static __global__ void ggml_cuda_compact_q5_k_hifi_res8_to_q5_k(
+    const void * __restrict__ src, void * __restrict__ dst, int64_t n_blocks) {
+    const int64_t i = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
+    if (i >= n_blocks) return;
+    const uint32_t * s = (const uint32_t *)((const char *)src + i * sizeof(block_q5_k_hifi_res8));
+    uint32_t       * d = (uint32_t       *)((char       *)dst + i * sizeof(block_q5_K));
+    #pragma unroll
+    for (int j = 0; j < (int)(sizeof(block_q5_K) / sizeof(uint32_t)); ++j) {
+        d[j] = s[j];
+    }
+}
+
+// Add Q5_K_HIFI_RES8 INT8 residual corrections to MMQ output using F32 activations.
+// Parallelised at the (row, block) level rather than (row, batch):
+//   - 92% of threads hit the early-exit (outlier_count==0) before touching src1 or dst.
+//   - The 8% of threads that do have outliers loop over all batch slots and atomicAdd
+//     their contribution.  Contention is negligible (~1 writer per output cell on average).
+static __global__ void ggml_cuda_add_q5_k_hifi_res8_residuals(
+    const block_q5_k_hifi_res8 * __restrict__ x,
+    const float * __restrict__ src1, float * __restrict__ dst,
+    int64_t nrows_x, int64_t ncols_x, int64_t ncols_dst,
+    int64_t stride_row_x, int64_t stride_src1, int64_t stride_dst) {
+
+    const int64_t n_blocks = ncols_x / QK_K;
+    const int64_t rb = (int64_t)blockIdx.x * blockDim.x + threadIdx.x;
+    if (rb >= nrows_x * n_blocks) return;
+
+    const int64_t row = rb / n_blocks;
+    const int64_t b   = rb % n_blocks;
+
+    const block_q5_k_hifi_res8 * block = x + row * stride_row_x + b;
+    const int n_out = (block->outlier_count & 0x7F);
+    if (n_out == 0) return;           // fast path: ~92% of blocks exit here
+
+    const uint8_t e4m3 = block->residual_scale_e4m3;
+    if (e4m3 == 0) return;
+
+    // Decode E4M3 FP8 residual scale once, in registers
+    const int   sign     = (e4m3 >> 7) & 0x01;
+    const int   exp      = (e4m3 >> 3) & 0x0F;
+    const int   mantissa =  e4m3       & 0x07;
+    const float res_scale = (1.0f + (float)mantissa * 0.125f)
+                          * exp2f((float)exp - 7.0f)
+                          * (sign ? -1.0f : 1.0f)
+                          * (1.0f / 127.0f);
+
+    // Cache per-outlier column indices and scaled residual values in registers
+    // so the inner batch loop only reads src1 (no repeated block struct accesses).
+    const int n_valid = (n_out < Q5_K_HIFI_RES8_MAX_OUTLIERS) ? n_out : Q5_K_HIFI_RES8_MAX_OUTLIERS;
+    int   cols [Q5_K_HIFI_RES8_MAX_OUTLIERS];
+    float rvals[Q5_K_HIFI_RES8_MAX_OUTLIERS];
+    for (int k = 0; k < n_valid; ++k) {
+        cols [k] = (int)b * QK_K + block->outlier_idx[k];
+        rvals[k] = res_scale * (float)block->residual_vals[k];
+    }
+
+    // Accumulate residual dot-products over all batch slots and atomicAdd to dst.
+    // Low contention: at most ~1.3 enhanced blocks per row on average.
+    for (int64_t batch = 0; batch < ncols_dst; ++batch) {
+        float sum = 0.0f;
+        for (int k = 0; k < n_valid; ++k) {
+            sum += rvals[k] * src1[batch * stride_src1 + cols[k]];
+        }
+        atomicAdd(&dst[batch * stride_dst + row], sum);
+    }
+}
+
 static void ggml_cuda_mul_mat_q_switch_type(ggml_backend_cuda_context & ctx, const mmq_args & args, cudaStream_t stream) {
     switch (args.type_x) {
         case GGML_TYPE_Q4_0:
@@ -147,6 +219,33 @@ void ggml_cuda_mul_mat_q(
                                 ne11 * ne10_padded * sizeof(block_q8_1) / (QK8_1 * sizeof(int));
         const int64_t s13 = ne12*s12;
 
+        if (src0->type == GGML_TYPE_Q5_K_HIFI_RES8) {
+            const int64_t n_blocks = (ne00 / QK_K) * ne01;
+            ggml_cuda_pool_alloc<char> q5_k_compact(ctx.pool(), n_blocks * sizeof(block_q5_K));
+            const int nth = 256;
+            ggml_cuda_compact_q5_k_hifi_res8_to_q5_k<<<(n_blocks + nth - 1) / nth, nth, 0, stream>>>
+                (src0_d, q5_k_compact.get(), n_blocks);
+            CUDA_CHECK(cudaGetLastError());
+            const mmq_args args_q5 = {
+                q5_k_compact.get(), GGML_TYPE_Q5_K, (const int *) src1_q8_1.ptr, nullptr, nullptr, dst_d,
+                ne00, ne01, ne1, s01, ne11, s1,
+                ne02, ne12, s02, s12, s2,
+                ne03, ne13, s03, s13, s3,
+                use_stream_k, ne1};
+            ggml_cuda_mul_mat_q_switch_type(ctx, args_q5, stream);
+            const int64_t stride_src1 = src1->nb[1] / (int64_t)sizeof(float);
+            const int64_t stride_dst  = dst->nb[1]  / (int64_t)sizeof(float);
+            // Launch one thread per (weight-row, block) pair.
+            // ~92% of threads exit immediately (no outliers); only ~8% touch src1/dst.
+            const int64_t n_blocks_per_row = ne00 / QK_K;
+            const int64_t n_rb = ne01 * n_blocks_per_row;
+            ggml_cuda_add_q5_k_hifi_res8_residuals<<<(n_rb + 255) / 256, 256, 0, stream>>>
+                ((const block_q5_k_hifi_res8 *)src0_d, (const float *)src1_d, dst_d,
+                 ne01, ne00, ne1, s01, stride_src1, stride_dst);
+            CUDA_CHECK(cudaGetLastError());
+            return;
+        }
+
         const mmq_args args = {
             src0_d, src0->type, (const int *) src1_q8_1.ptr, nullptr, nullptr, dst_d,
             ne00, ne01, ne1, s01, ne11, s1,
@@ -279,6 +378,7 @@ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11, int64_t
         // Q3_K_HIFI excluded - uses MMVQ/dequant path instead
         case GGML_TYPE_Q4_K:
         case GGML_TYPE_Q5_K:
+        case GGML_TYPE_Q5_K_HIFI_RES8:  // Use Q5_K MMQ path (compact copy + residual kernel)
         case GGML_TYPE_Q6_K:
         case GGML_TYPE_IQ2_XXS:
         case GGML_TYPE_IQ2_XS:
