@@ -781,6 +781,58 @@ static __device__ __forceinline__ float vec_dot_q3_K_q8_1(
     return vec_dot_q3_K_q8_1_impl_mmvq(vl, vh, u, bq3_K->scales, scale_offset, d, d8);
 }
 
+// Q2_K_HIFI: Q2_K layout + up to 3 FP16 outlier/residual corrections per block
+// Dual mode via bit 7 of outlier_count (both modes use ADD in dot product)
+#define VDR_Q2_K_HIFI_Q8_1_MMVQ VDR_Q2_K_Q8_1_MMVQ
+
+static __device__ __forceinline__ float vec_dot_q2_k_hifi_q8_1(
+    const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
+
+    const block_q2_k_hifi * bq2_k_hifi = (const block_q2_k_hifi *) vbq + kbx;
+
+    // === Base Q2_K dot product (first 84 bytes are binary-compatible with block_q2_K) ===
+    const block_q2_K * bq2_K = (const block_q2_K *) bq2_k_hifi;
+
+    const int bq8_offset = QR2_K * (iqs / QI8_1);
+    const int scale_offset = iqs - iqs % QI8_1 + (iqs % QI8_1) / (QI8_1/2);
+
+    const uint8_t * scales = bq2_K->scales + scale_offset;
+
+    const int v = get_int_b4(bq2_K->qs, iqs);
+    int    u[QR2_K];
+    float d8[QR2_K];
+
+#pragma unroll
+    for (int i = 0; i < QR2_K; ++ i) {
+        u[i]  = get_int_b4(bq8_1[bq8_offset + i].qs, iqs % QI8_1);
+        d8[i] = __low2float(bq8_1[bq8_offset + i].ds);
+    }
+
+    float sum = vec_dot_q2_K_q8_1_impl_mmvq(v, u, scales, bq2_K->dm, d8);
+
+    // === FP16 outlier/residual corrections ===
+    // Works for both modes: outlier-first stores true values (base ≈ 0), residual stores corrections
+    const int n_out = (bq2_k_hifi->outlier_count & 0x7F);
+
+    for (int k = 0; k < Q2_K_HIFI_MAX_OUTLIERS && k < n_out; ++k) {
+        const int idx = bq2_k_hifi->outlier_idx[k];
+        const int idx_bq8 = idx / QK8_1;
+        const int idx_in_bq8 = idx % QK8_1;
+
+        if (idx_bq8 >= bq8_offset && idx_bq8 < bq8_offset + QR2_K) {
+            const int pos_in_q8_group = idx_in_bq8 / 4;
+            if (pos_in_q8_group == (int)(iqs % QI8_1)) {
+                const float val = __half2float(bq2_k_hifi->outlier_vals[k]);
+                const int8_t q8_val = ((const int8_t*)bq8_1[idx_bq8].qs)[idx_in_bq8];
+                const float d8_val = __low2float(bq8_1[idx_bq8].ds);
+                sum += val * q8_val * d8_val;
+            }
+        }
+    }
+
+    return sum;
+}
+
 // Q3_K_HIFI: Q3_K layout + 16 FP16 residual corrections per block
 // Residual-based outlier selection corrects weights Q3_K fails to represent
 // VDR (vector dot reduction) same as Q3_K since layout is compatible

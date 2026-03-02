@@ -504,6 +504,36 @@ typedef struct {
 // Total: 196 bytes (176 + 20) - 15.5% smaller than Q6_K_HIFI_RES8
 static_assert(sizeof(block_q5_k_hifi_res8) == 196, "wrong q5_k_hifi_res8 block size/padding");
 
+// Q2_K_HIFI: Q2_K base + FP16 outlier preservation for critical tensors
+// At 2-bit precision, outlier weights suffer catastrophic quantization error.
+// Key insight: protect outliers BEFORE quantization, not after.
+// 1. Identify top-3 outliers by |weight| * imatrix_importance
+// 2. Zero them before Q2_K quantization (so Q2_K only sees well-behaved weights)
+// 3. Store true outlier values as FP16 for perfect reconstruction
+// Block is 96 bytes (84 Q2_K + 12 extension) = 3.0 BPW
+#define Q2_K_HIFI_BLOCK_SIZE 256
+#define Q2_K_HIFI_MAX_OUTLIERS 3
+#define Q2_K_HIFI_RESIDUAL_MODE_FLAG 0x80
+typedef struct {
+    // === Q2_K-COMPATIBLE REGION (84 bytes) - DO NOT REORDER ===
+    uint8_t scales[QK_K/16];   // 16 bytes: scales and mins, quantized with 4 bits
+    uint8_t qs[QK_K/4];        // 64 bytes: quants (2-bit packed)
+    GGML_EXTENSION union {
+        struct {
+            ggml_half d;       // 2 bytes: super-block scale for quantized scales
+            ggml_half dmin;    // 2 bytes: super-block scale for quantized mins
+        } GGML_COMMON_AGGR_S;
+        ggml_half2 dm;
+    } GGML_COMMON_AGGR_U;
+    // === FP16 OUTLIER EXTENSION (12 bytes) ===
+    uint8_t   outlier_count;                          // 1 byte: actual outliers stored (0-3)
+    uint8_t   outlier_idx[Q2_K_HIFI_MAX_OUTLIERS];   // 3 bytes: outlier positions (0-255)
+    ggml_half outlier_vals[Q2_K_HIFI_MAX_OUTLIERS];   // 6 bytes: true FP16 outlier values
+    uint8_t   _pad[2];                                // 2 bytes: alignment to 96
+} block_q2_k_hifi;
+// Total: 84 (Q2_K) + 12 (extension) = 96 bytes → 3.0 BPW
+static_assert(sizeof(block_q2_k_hifi) == 96, "wrong q2_k_hifi block size/padding");
+
 // This is only used for intermediate quantization and dot products
 typedef struct {
     float   d;              // delta

@@ -76,6 +76,49 @@ static __device__ __forceinline__ void dequantize_q8_0(const void * vx, const in
     v.y *= d;
 }
 
+// Q2_K_HIFI: Q2_K layout + up to 3 FP16 outlier corrections per block
+// Dual mode: bit 7 of outlier_count = 0 → replace (outlier-first), 1 → add (residual)
+static __device__ __forceinline__ void dequantize_q2_k_hifi(const void * vx, const int64_t ib, const int iqs, float2 & v){
+    const block_q2_k_hifi * x = (const block_q2_k_hifi *) vx;
+
+    const int idx0 = iqs * 2;
+    const int idx1 = iqs * 2 + 1;
+
+    const float dall = __low2half(x[ib].dm);
+    const float dmin = __high2half(x[ib].dm);
+
+    const int qs_byte0 = idx0 / 4;
+    const int qs_shift0 = (idx0 % 4) * 2;
+    const int sc_idx0 = idx0 / 16;
+
+    const int qs_byte1 = idx1 / 4;
+    const int qs_shift1 = (idx1 % 4) * 2;
+    const int sc_idx1 = idx1 / 16;
+
+    const int q0 = (x[ib].qs[qs_byte0] >> qs_shift0) & 3;
+    const int q1 = (x[ib].qs[qs_byte1] >> qs_shift1) & 3;
+
+    v.x = dall * (x[ib].scales[sc_idx0] & 0xF) * q0 - dmin * (x[ib].scales[sc_idx0] >> 4);
+    v.y = dall * (x[ib].scales[sc_idx1] & 0xF) * q1 - dmin * (x[ib].scales[sc_idx1] >> 4);
+
+    const int raw_count = x[ib].outlier_count;
+    const bool residual_mode = (raw_count & 0x80) != 0;
+    const int count = raw_count & 0x7F;
+
+    #pragma unroll
+    for (int k = 0; k < Q2_K_HIFI_MAX_OUTLIERS; ++k) {
+        if (k >= count) break;
+        if (x[ib].outlier_idx[k] == idx0) {
+            const float val = __half2float(x[ib].outlier_vals[k]);
+            v.x = residual_mode ? (v.x + val) : val;
+        }
+        if (x[ib].outlier_idx[k] == idx1) {
+            const float val = __half2float(x[ib].outlier_vals[k]);
+            v.y = residual_mode ? (v.y + val) : val;
+        }
+    }
+}
+
 // Q3_K_HIFI: Q3_K layout + up to 8 FP16 exact outlier values
 // Uses Q3_K block in first 110 bytes (q3_k_data)
 // Outliers REPLACE the Q3_K value at specified positions (not residual add)

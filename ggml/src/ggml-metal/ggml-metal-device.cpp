@@ -582,6 +582,8 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_rwkv(ggml_metal_
 // Q3_K_HIFI has its own dedicated kernel, so it needs its own name
 static const char * ggml_metal_type_name_for_kernel(ggml_type type) {
     switch (type) {
+        case GGML_TYPE_Q2_K_HIFI:
+            return "q2_k_hifi";
         case GGML_TYPE_Q3_K_HIFI:
             return "q3_k_hifi";
         case GGML_TYPE_Q4_K_HIFI:
@@ -753,6 +755,11 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv(ggml_meta
             {
                 nsg = N_SG_Q2_K;
                 nr0 = N_R0_Q2_K;
+            } break;
+        case GGML_TYPE_Q2_K_HIFI:
+            {
+                nsg = N_SG_Q2_K_HIFI;
+                nr0 = N_R0_Q2_K_HIFI;
             } break;
         case GGML_TYPE_Q3_K:
             {
@@ -995,6 +1002,11 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv_id(ggml_m
             {
                 nsg = N_SG_Q2_K;
                 nr0 = N_R0_Q2_K;
+            } break;
+        case GGML_TYPE_Q2_K_HIFI:
+            {
+                nsg = N_SG_Q2_K_HIFI;
+                nr0 = N_R0_Q2_K_HIFI;
             } break;
         case GGML_TYPE_Q3_K:
             {
