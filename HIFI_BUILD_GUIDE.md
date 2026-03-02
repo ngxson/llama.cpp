@@ -2,7 +2,7 @@
 
 transformers: pip install transformers
 torch: pip install torch
-huggingface-cli: curl -LsSf https://hf.co/cli/install.sh | bash 
+huggingface-cli: curl -LsSf https://hf.co/cli/install.sh | bash
 sentencepiece: pip install sentencepiece
 
 # How to build a HIFI model
