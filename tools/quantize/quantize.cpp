@@ -255,7 +255,7 @@ static int load_imatrix(const std::string & imatrix_file, std::vector<std::strin
         fprintf(stderr, "%s: imatrix path '%s' is not a regular file\n", __func__, imatrix_file.c_str());
         exit(1);
     }
-    
+
     struct ggml_context * ctx = nullptr;
     struct gguf_init_params meta_gguf_params = {
         /* .no_alloc = */ false, // the data is needed
