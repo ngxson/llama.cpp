@@ -438,7 +438,12 @@ extern "C" {
         GGML_TYPE_Q3_K_HIFI_RES8 = 45, // Q3_K_HIFI_RES8: Q3_K + INT8 residuals (lean version for imatrix use)
         GGML_TYPE_Q4_K_HIFI = 46, // Q4_K_HIFI: Q4_K layout + 8 FP16 outliers per block (high-fidelity 4-bit)
         GGML_TYPE_Q2_K_HIFI = 47, // Q2_K_HIFI: Q2_K layout + 3 INT8 residuals per block (high-fidelity 2-bit)
-        GGML_TYPE_COUNT   = 48,
+        GGML_TYPE_Q2_K_TURBO = 48, // Q2_K_TURBO: Q2_K + 3 INT8 residuals, residual-only encoding (96 bytes, ~3.0 BPW)
+        GGML_TYPE_Q3_K_TURBO = 49, // Q3_K_TURBO: Q3_K + 8 INT8 residuals (132 bytes, ~4.13 BPW)
+        GGML_TYPE_Q4_K_TURBO = 50, // Q4_K_TURBO: Q4_K + 8 INT8 residuals (168 bytes, ~5.25 BPW)
+        GGML_TYPE_Q5_K_TURBO = 51, // Q5_K_TURBO: Q5_K + 8 INT8 residuals (200 bytes, ~6.25 BPW)
+        GGML_TYPE_Q6_K_TURBO = 52, // Q6_K_TURBO: Q6_K + 8 INT8 residuals (232 bytes, ~7.25 BPW)
+        GGML_TYPE_COUNT   = 53,
     };
 
     // precision
