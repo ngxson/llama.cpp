@@ -1160,15 +1160,6 @@ bool ggml_metal_device_supports_op(ggml_metal_device_t dev, const struct ggml_te
         case GGML_OP_MUL_MAT:
         case GGML_OP_MUL_MAT_ID:
             {
-                // K_TURBO types have no Metal kernels yet (Phase 4 pending) -- fall back to CPU
-                if (op->src[0] != NULL) {
-                    const enum ggml_type t = op->src[0]->type;
-                    if (t == GGML_TYPE_Q2_K_TURBO || t == GGML_TYPE_Q3_K_TURBO ||
-                        t == GGML_TYPE_Q4_K_TURBO || t == GGML_TYPE_Q5_K_TURBO ||
-                        t == GGML_TYPE_Q6_K_TURBO) {
-                        return false;
-                    }
-                }
                 return has_simdgroup_reduction;
             }
         case GGML_OP_SET:

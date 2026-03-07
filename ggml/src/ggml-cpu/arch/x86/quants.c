@@ -2350,6 +2350,34 @@ void ggml_vec_dot_q2_k_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, cons
     ggml_vec_dot_q2_k_hifi_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
 }
 
+// ---------------------------------------------------------------------------
+// K_TURBO vec_dot - x86 forwarding stubs (delegate to generic; TODO: AVX2)
+// ---------------------------------------------------------------------------
+void ggml_vec_dot_q2_k_turbo_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    // TODO: AVX2 optimization
+    ggml_vec_dot_q2_k_turbo_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+}
+
+void ggml_vec_dot_q3_k_turbo_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    // TODO: AVX2 optimization
+    ggml_vec_dot_q3_k_turbo_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+}
+
+void ggml_vec_dot_q4_k_turbo_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    // TODO: AVX2 optimization
+    ggml_vec_dot_q4_k_turbo_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+}
+
+void ggml_vec_dot_q5_k_turbo_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    // TODO: AVX2 optimization
+    ggml_vec_dot_q5_k_turbo_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+}
+
+void ggml_vec_dot_q6_k_turbo_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    // TODO: AVX2 optimization
+    ggml_vec_dot_q6_k_turbo_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+}
+
 #if defined (__AVX__) || defined (__AVX2__)
 static const int8_t keven_signs_q2xs[1024] = {
      1,  1,  1,  1,  1,  1,  1,  1, -1,  1,  1,  1,  1,  1,  1, -1,  1, -1,  1,  1,  1,  1,  1, -1, -1, -1,  1,  1,  1,  1,  1,  1,
