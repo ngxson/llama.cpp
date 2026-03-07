@@ -158,6 +158,12 @@ extern "C" {
         LLAMA_FTYPE_MOSTLY_Q5_K_HIFI     = 46, // Q5_K_M base + Q6_K_HIFI_RES8 on top 10-15% tensors (best 5-bit quality)
         LLAMA_FTYPE_MOSTLY_Q2_K_HIFI     = 47, // Q2_K base + INT8 residuals on critical tensors (best 2-bit quality)
 
+        LLAMA_FTYPE_MOSTLY_Q2_K_TURBO    = 48, // Q2_K + INT8 residuals (96 bytes/block, ~3.0 bpw)
+        LLAMA_FTYPE_MOSTLY_Q3_K_TURBO    = 49, // Q3_K + INT8 residuals (132 bytes/block, ~4.13 bpw)
+        LLAMA_FTYPE_MOSTLY_Q4_K_TURBO    = 50, // Q4_K + INT8 residuals (168 bytes/block, ~5.25 bpw)
+        LLAMA_FTYPE_MOSTLY_Q5_K_TURBO    = 51, // Q5_K + INT8 residuals (200 bytes/block, ~6.25 bpw)
+        LLAMA_FTYPE_MOSTLY_Q6_K_TURBO    = 52, // Q6_K + INT8 residuals (232 bytes/block, ~7.25 bpw)
+
         LLAMA_FTYPE_GUESSED = 1024, // not specified in the model file
     };
 

@@ -170,6 +170,39 @@ GGML_API void quantize_row_q5_k_hifi_res8_ref_ex(const float * GGML_RESTRICT x, 
 GGML_API void dequantize_row_q5_k_hifi_res8(const block_q5_k_hifi_res8 * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
 GGML_API size_t quantize_q5_k_hifi_res8(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
 
+// =============================================================================
+// K_TURBO family: Q*_K + INT8 residual corrections (imatrix-driven tiered allocation)
+// Tier 1 (~top 4-5% by imatrix importance): max residuals per block
+// Tier 2 (~next 8-10%): half max residuals per block
+// Tier 0 (all others): 0 residuals (pure base quantization)
+// All types use FP32 shared residual_scale (simpler than E4M3 used by HIFI_RES8)
+// =============================================================================
+
+// Q2_K_TURBO: 84-byte Q2_K base + 3 INT8 residuals = 96 bytes total
+GGML_API void quantize_row_q2_k_turbo_ref(const float * GGML_RESTRICT x, block_q2_k_turbo * GGML_RESTRICT y, int64_t k);
+GGML_API void dequantize_row_q2_k_turbo(const block_q2_k_turbo * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API size_t quantize_q2_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
+
+// Q3_K_TURBO: 110-byte Q3_K base + 8 INT8 residuals = 132 bytes total
+GGML_API void quantize_row_q3_k_turbo_ref(const float * GGML_RESTRICT x, block_q3_k_turbo * GGML_RESTRICT y, int64_t k);
+GGML_API void dequantize_row_q3_k_turbo(const block_q3_k_turbo * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API size_t quantize_q3_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
+
+// Q4_K_TURBO: 144-byte Q4_K base + 8 INT8 residuals = 168 bytes total
+GGML_API void quantize_row_q4_k_turbo_ref(const float * GGML_RESTRICT x, block_q4_k_turbo * GGML_RESTRICT y, int64_t k);
+GGML_API void dequantize_row_q4_k_turbo(const block_q4_k_turbo * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API size_t quantize_q4_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
+
+// Q5_K_TURBO: 176-byte Q5_K base + 8 INT8 residuals = 200 bytes total
+GGML_API void quantize_row_q5_k_turbo_ref(const float * GGML_RESTRICT x, block_q5_k_turbo * GGML_RESTRICT y, int64_t k);
+GGML_API void dequantize_row_q5_k_turbo(const block_q5_k_turbo * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API size_t quantize_q5_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
+
+// Q6_K_TURBO: 210-byte Q6_K base + 8 INT8 residuals = 232 bytes total
+GGML_API void quantize_row_q6_k_turbo_ref(const float * GGML_RESTRICT x, block_q6_k_turbo * GGML_RESTRICT y, int64_t k);
+GGML_API void dequantize_row_q6_k_turbo(const block_q6_k_turbo * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k);
+GGML_API size_t quantize_q6_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst, int64_t nrows, int64_t n_per_row, const float * imatrix);
+
 #ifdef __cplusplus
 }
 #endif

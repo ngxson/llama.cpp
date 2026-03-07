@@ -803,40 +803,40 @@ static const struct ggml_type_traits type_traits[GGML_TYPE_COUNT] = {
         .blck_size                = Q2_K_TURBO_BLOCK_SIZE,
         .type_size                = sizeof(block_q2_k_turbo),
         .is_quantized             = true,
-        .to_float                 = NULL, // Phase 2: dequantize_row_q2_k_turbo
-        .from_float_ref           = NULL, // Phase 2: quantize_row_q2_k_turbo_ref
+        .to_float                 = (ggml_to_float_t) dequantize_row_q2_k_turbo,
+        .from_float_ref           = (ggml_from_float_t) quantize_row_q2_k_turbo_ref,
     },
     [GGML_TYPE_Q3_K_TURBO] = {
         .type_name                = "Q3_K_TURBO",
         .blck_size                = Q3_K_TURBO_BLOCK_SIZE,
         .type_size                = sizeof(block_q3_k_turbo),
         .is_quantized             = true,
-        .to_float                 = NULL, // Phase 2: dequantize_row_q3_k_turbo
-        .from_float_ref           = NULL, // Phase 2: quantize_row_q3_k_turbo_ref
+        .to_float                 = (ggml_to_float_t) dequantize_row_q3_k_turbo,
+        .from_float_ref           = (ggml_from_float_t) quantize_row_q3_k_turbo_ref,
     },
     [GGML_TYPE_Q4_K_TURBO] = {
         .type_name                = "Q4_K_TURBO",
         .blck_size                = Q4_K_TURBO_BLOCK_SIZE,
         .type_size                = sizeof(block_q4_k_turbo),
         .is_quantized             = true,
-        .to_float                 = NULL, // Phase 2: dequantize_row_q4_k_turbo
-        .from_float_ref           = NULL, // Phase 2: quantize_row_q4_k_turbo_ref
+        .to_float                 = (ggml_to_float_t) dequantize_row_q4_k_turbo,
+        .from_float_ref           = (ggml_from_float_t) quantize_row_q4_k_turbo_ref,
     },
     [GGML_TYPE_Q5_K_TURBO] = {
         .type_name                = "Q5_K_TURBO",
         .blck_size                = Q5_K_TURBO_BLOCK_SIZE,
         .type_size                = sizeof(block_q5_k_turbo),
         .is_quantized             = true,
-        .to_float                 = NULL, // Phase 2: dequantize_row_q5_k_turbo
-        .from_float_ref           = NULL, // Phase 2: quantize_row_q5_k_turbo_ref
+        .to_float                 = (ggml_to_float_t) dequantize_row_q5_k_turbo,
+        .from_float_ref           = (ggml_from_float_t) quantize_row_q5_k_turbo_ref,
     },
     [GGML_TYPE_Q6_K_TURBO] = {
         .type_name                = "Q6_K_TURBO",
         .blck_size                = Q6_K_TURBO_BLOCK_SIZE,
         .type_size                = sizeof(block_q6_k_turbo),
         .is_quantized             = true,
-        .to_float                 = NULL, // Phase 2: dequantize_row_q6_k_turbo
-        .from_float_ref           = NULL, // Phase 2: quantize_row_q6_k_turbo_ref
+        .to_float                 = (ggml_to_float_t) dequantize_row_q6_k_turbo,
+        .from_float_ref           = (ggml_from_float_t) quantize_row_q6_k_turbo_ref,
     },
     [GGML_TYPE_Q4_K] = {
         .type_name                = "q4_K",
@@ -7718,11 +7718,11 @@ size_t ggml_quantize_chunk(
         case GGML_TYPE_Q3_K_HIFI_RES8: result = quantize_q3_k_hifi_res8(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
         case GGML_TYPE_Q4_K_HIFI: result = quantize_q4_k_hifi(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
         case GGML_TYPE_Q2_K_HIFI: result = quantize_q2_k_hifi(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
-        case GGML_TYPE_Q2_K_TURBO: GGML_ABORT("Q2_K_TURBO quantization not yet implemented (Phase 2)"); break;
-        case GGML_TYPE_Q3_K_TURBO: GGML_ABORT("Q3_K_TURBO quantization not yet implemented (Phase 2)"); break;
-        case GGML_TYPE_Q4_K_TURBO: GGML_ABORT("Q4_K_TURBO quantization not yet implemented (Phase 2)"); break;
-        case GGML_TYPE_Q5_K_TURBO: GGML_ABORT("Q5_K_TURBO quantization not yet implemented (Phase 2)"); break;
-        case GGML_TYPE_Q6_K_TURBO: GGML_ABORT("Q6_K_TURBO quantization not yet implemented (Phase 2)"); break;
+        case GGML_TYPE_Q2_K_TURBO: result = quantize_q2_k_turbo(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
+        case GGML_TYPE_Q3_K_TURBO: result = quantize_q3_k_turbo(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
+        case GGML_TYPE_Q4_K_TURBO: result = quantize_q4_k_turbo(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
+        case GGML_TYPE_Q5_K_TURBO: result = quantize_q5_k_turbo(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
+        case GGML_TYPE_Q6_K_TURBO: result = quantize_q6_k_turbo(src + start, (char *) dst + start_row * row_size, nrows, n_per_row, imatrix); break;
         case GGML_TYPE_F16:
             {
                 size_t elemsize = sizeof(ggml_fp16_t);

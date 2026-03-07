@@ -1315,6 +1315,11 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
         case LLAMA_FTYPE_MOSTLY_IQ3_M:   default_type = GGML_TYPE_IQ3_S;   break;
         case LLAMA_FTYPE_MOSTLY_Q4_K_HIFI: default_type = GGML_TYPE_Q4_K; break; // Q4_K_M + dynamic outliers + early exit
         case LLAMA_FTYPE_MOSTLY_Q5_K_HIFI: default_type = GGML_TYPE_Q5_K; break; // Q5_K_M base + Q6_K_HIFI_RES8 on critical tensors
+        case LLAMA_FTYPE_MOSTLY_Q2_K_TURBO: default_type = GGML_TYPE_Q2_K_TURBO; break;
+        case LLAMA_FTYPE_MOSTLY_Q3_K_TURBO: default_type = GGML_TYPE_Q3_K_TURBO; break;
+        case LLAMA_FTYPE_MOSTLY_Q4_K_TURBO: default_type = GGML_TYPE_Q4_K_TURBO; break;
+        case LLAMA_FTYPE_MOSTLY_Q5_K_TURBO: default_type = GGML_TYPE_Q5_K_TURBO; break;
+        case LLAMA_FTYPE_MOSTLY_Q6_K_TURBO: default_type = GGML_TYPE_Q6_K_TURBO; break;
 
         default: throw std::runtime_error(format("invalid output file type %d\n", ftype));
     }

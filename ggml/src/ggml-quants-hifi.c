@@ -602,3 +602,34 @@ int ggml_q4_hifi_get_max_outliers(float model_params_b) {
     }
 }
 
+
+// ===========================================================================
+// K_TURBO Tier-Based Residual Budget
+// Determines how many INT8 residuals a tensor receives based on imatrix importance
+// ===========================================================================
+
+int ggml_turbo_get_residual_budget(float tensor_importance, float model_params_b, int max_residuals) {
+    // Tier thresholds are model-size adjusted to approximately hit the target percentile cuts:
+    //   <=1B:  Top 2% / Next 5%  -> high thresholds (importance scores are tightly clustered)
+    //   3B-7B: Top 4% / Next 8%  -> moderate thresholds
+    //   >=13B: Top 5% / Next 10% -> lower thresholds (more tensors benefit at large scale)
+    float tier1_threshold, tier2_threshold;
+    if (model_params_b <= 1.0f) {
+        tier1_threshold = 0.90f;  // ~top 2%
+        tier2_threshold = 0.75f;  // ~next 5%
+    } else if (model_params_b <= 7.0f) {
+        tier1_threshold = 0.80f;  // ~top 4%
+        tier2_threshold = 0.60f;  // ~next 8%
+    } else {
+        tier1_threshold = 0.75f;  // ~top 5%
+        tier2_threshold = 0.55f;  // ~next 10%
+    }
+
+    if (tensor_importance >= tier1_threshold) {
+        return max_residuals;              // Tier 1: full residual budget
+    } else if (tensor_importance >= tier2_threshold) {
+        return (max_residuals + 1) / 2;   // Tier 2: half budget (rounded up)
+    } else {
+        return 0;                          // Tier 0: no residuals (pure base type)
+    }
+}

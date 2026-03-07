@@ -253,6 +253,23 @@ GGML_API int ggml_q3_hifi_compute_block_outliers(
 //   - ≥30B: 8 outliers (outlier concentration increases with scale)
 GGML_API int ggml_q4_hifi_get_max_outliers(float model_params_b);
 
+// ===========================================================================
+// K_TURBO Tier-Based Residual Budget API
+// Implements tiered INT8 residual allocation based on imatrix importance scores
+// ===========================================================================
+
+// Get residual budget for a K_TURBO tensor based on imatrix importance score
+// Implements the tiered allocation strategy:
+//   Tier 1 (top ~4-5% by importance): max_residuals
+//   Tier 2 (next ~8-10%):             max_residuals / 2
+//   Tier 0 (all others):              0  (pure base type, no residuals)
+// Parameters:
+//   tensor_importance: Normalized importance score (0.0-1.0), from ggml_hifi_compute_tensor_importance
+//   model_params_b:    Model size in billions (e.g., 0.6, 1.7, 4.0, 8.0)
+//   max_residuals:     Maximum residuals for this type (e.g., Q4_K_TURBO_MAX_RESIDUALS = 8)
+// Returns: Residual budget (0, max_residuals/2, or max_residuals)
+GGML_API int ggml_turbo_get_residual_budget(float tensor_importance, float model_params_b, int max_residuals);
+
 #ifdef __cplusplus
 }
 #endif
