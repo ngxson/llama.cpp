@@ -803,6 +803,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         int i_layer = info.first, n_layer = info.second;
         if      (ftype == LLAMA_FTYPE_MOSTLY_Q2_K) new_type = GGML_TYPE_Q3_K;
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q2_K_HIFI) new_type = GGML_TYPE_Q3_K;
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q2_K_TURBO) new_type = GGML_TYPE_Q3_K_TURBO;
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q2_K_S) {
             if (i_layer < n_layer/8) new_type = GGML_TYPE_Q4_K;
         }
@@ -1170,12 +1171,17 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             case GGML_TYPE_IQ1_M:
             case GGML_TYPE_Q2_K:
             case GGML_TYPE_Q2_K_HIFI:
+            case GGML_TYPE_Q2_K_TURBO:
             case GGML_TYPE_Q3_K:
             case GGML_TYPE_Q3_K_HIFI:
+            case GGML_TYPE_Q3_K_TURBO:
             case GGML_TYPE_IQ4_XS: new_type = GGML_TYPE_IQ4_NL; break;
-            case GGML_TYPE_Q4_K:   new_type = GGML_TYPE_Q5_0;   break;
-            case GGML_TYPE_Q5_K:   new_type = GGML_TYPE_Q5_1;   break;
-            case GGML_TYPE_Q6_K:   new_type = GGML_TYPE_Q8_0;   break;
+            case GGML_TYPE_Q4_K:
+            case GGML_TYPE_Q4_K_TURBO: new_type = GGML_TYPE_Q5_0; break;
+            case GGML_TYPE_Q5_K:
+            case GGML_TYPE_Q5_K_TURBO: new_type = GGML_TYPE_Q5_1; break;
+            case GGML_TYPE_Q6_K:
+            case GGML_TYPE_Q6_K_TURBO: new_type = GGML_TYPE_Q8_0; break;
             default: throw std::runtime_error("\nUnsupported tensor size encountered\n");
         }
         if (tensor->ne[0] % ggml_blck_size(new_type) != 0) {
