@@ -3836,7 +3836,7 @@ static void turbo_select_top_n(const float * score, int n_elements, int * out_in
 // residuals[]: pre-computed (weight - reconstructed) for selected positions
 // n: number of residuals to store, max_n: array capacity
 static void turbo_encode_residuals(const float * residuals, const int * indices, int n, int max_n,
-                                   uint8_t * out_count, uint8_t * out_idx, int8_t * out_vals, float * out_scale) {
+                                   uint8_t * out_count, uint8_t * out_idx, int8_t * out_vals, ggml_half * out_scale) {
     float max_err = 0.0f;
     for (int k = 0; k < n; ++k) {
         float e = fabsf(residuals[k]);
@@ -3844,13 +3844,13 @@ static void turbo_encode_residuals(const float * residuals, const int * indices,
     }
     if (max_err == 0.0f) {
         *out_count = 0;
-        *out_scale = 0.0f;
+        *out_scale = GGML_FP32_TO_FP16(0.0f);
         memset(out_idx, 0, max_n);
         memset(out_vals, 0, max_n);
         return;
     }
     *out_count  = (uint8_t)n;
-    *out_scale  = max_err / 127.0f;
+    *out_scale  = GGML_FP32_TO_FP16(max_err / 127.0f);
     for (int k = 0; k < n; ++k) {
         out_idx[k]  = (uint8_t)indices[k];
         out_vals[k] = (int8_t)roundf(residuals[k] / max_err * 127.0f);
@@ -3882,19 +3882,19 @@ static void quantize_row_q4_k_turbo_inner(const float * GGML_RESTRICT x, block_q
         const float * xb = x + ib * QK_K;
         block_q4_k_turbo * block = &y[ib];
 
-        // Quantize Q4_K base (writes d, dmin, scales, qs)
-        quantize_row_q4_K_ref(xb, (block_q4_K *)block, QK_K);
+        // Quantize Q3_K base (writes hmask, qs, scales, d)
+        quantize_row_q3_K_ref(xb, (block_q3_K *)block, QK_K);
 
         if (residual_budget == 0) {
             block->residual_count = 0;
-            block->residual_scale = 0.0f;
+            block->residual_scale = GGML_FP32_TO_FP16(0.0f);
             memset(block->residual_idx,  0, Q4_K_TURBO_MAX_RESIDUALS);
             memset(block->residual_vals, 0, Q4_K_TURBO_MAX_RESIDUALS);
             continue;
         }
 
         // Dequantize to measure error
-        dequantize_row_q4_K((const block_q4_K *)block, dequant, QK_K);
+        dequantize_row_q3_K((const block_q3_K *)block, dequant, QK_K);
 
         // Score: |error| × imatrix_weight (or just |error| without imatrix)
         for (int i = 0; i < QK_K; ++i) {
@@ -3922,10 +3922,10 @@ void dequantize_row_q4_k_turbo(const block_q4_k_turbo * GGML_RESTRICT x, float *
     const int64_t nb = k / QK_K;
     for (int64_t ib = 0; ib < nb; ++ib) {
         float * yb = y + ib * QK_K;
-        dequantize_row_q4_K((const block_q4_K *)&x[ib], yb, QK_K);
+        dequantize_row_q3_K((const block_q3_K *)&x[ib], yb, QK_K);
         const int rc = x[ib].residual_count;
         if (rc > 0) {
-            const float scale = x[ib].residual_scale;
+            const float scale = GGML_FP16_TO_FP32(x[ib].residual_scale);
             for (int r = 0; r < rc; ++r) {
                 yb[x[ib].residual_idx[r]] += scale * (float)x[ib].residual_vals[r];
             }
@@ -3980,17 +3980,17 @@ static void quantize_row_q5_k_turbo_inner(const float * GGML_RESTRICT x, block_q
         const float * xb = x + ib * QK_K;
         block_q5_k_turbo * block = &y[ib];
 
-        quantize_row_q5_K_ref(xb, (block_q5_K *)block, QK_K);
+        quantize_row_q4_K_ref(xb, (block_q4_K *)block, QK_K);
 
         if (residual_budget == 0) {
             block->residual_count = 0;
-            block->residual_scale = 0.0f;
+            block->residual_scale = GGML_FP32_TO_FP16(0.0f);
             memset(block->residual_idx,  0, Q5_K_TURBO_MAX_RESIDUALS);
             memset(block->residual_vals, 0, Q5_K_TURBO_MAX_RESIDUALS);
             continue;
         }
 
-        dequantize_row_q5_K((const block_q5_K *)block, dequant, QK_K);
+        dequantize_row_q4_K((const block_q4_K *)block, dequant, QK_K);
 
         for (int i = 0; i < QK_K; ++i) {
             float err = xb[i] - dequant[i];
@@ -4017,10 +4017,10 @@ void dequantize_row_q5_k_turbo(const block_q5_k_turbo * GGML_RESTRICT x, float *
     const int64_t nb = k / QK_K;
     for (int64_t ib = 0; ib < nb; ++ib) {
         float * yb = y + ib * QK_K;
-        dequantize_row_q5_K((const block_q5_K *)&x[ib], yb, QK_K);
+        dequantize_row_q4_K((const block_q4_K *)&x[ib], yb, QK_K);
         const int rc = x[ib].residual_count;
         if (rc > 0) {
-            const float scale = x[ib].residual_scale;
+            const float scale = GGML_FP16_TO_FP32(x[ib].residual_scale);
             for (int r = 0; r < rc; ++r) {
                 yb[x[ib].residual_idx[r]] += scale * (float)x[ib].residual_vals[r];
             }
@@ -4075,17 +4075,17 @@ static void quantize_row_q6_k_turbo_inner(const float * GGML_RESTRICT x, block_q
         const float * xb = x + ib * QK_K;
         block_q6_k_turbo * block = &y[ib];
 
-        quantize_row_q6_K_ref(xb, (block_q6_K *)block, QK_K);
+        quantize_row_q5_K_ref(xb, (block_q5_K *)block, QK_K);
 
         if (residual_budget == 0) {
             block->residual_count = 0;
-            block->residual_scale = 0.0f;
+            block->residual_scale = GGML_FP32_TO_FP16(0.0f);
             memset(block->residual_idx,  0, Q6_K_TURBO_MAX_RESIDUALS);
             memset(block->residual_vals, 0, Q6_K_TURBO_MAX_RESIDUALS);
             continue;
         }
 
-        dequantize_row_q6_K((const block_q6_K *)block, dequant, QK_K);
+        dequantize_row_q5_K((const block_q5_K *)block, dequant, QK_K);
 
         for (int i = 0; i < QK_K; ++i) {
             float err = xb[i] - dequant[i];
@@ -4112,10 +4112,10 @@ void dequantize_row_q6_k_turbo(const block_q6_k_turbo * GGML_RESTRICT x, float *
     const int64_t nb = k / QK_K;
     for (int64_t ib = 0; ib < nb; ++ib) {
         float * yb = y + ib * QK_K;
-        dequantize_row_q6_K((const block_q6_K *)&x[ib], yb, QK_K);
+        dequantize_row_q5_K((const block_q5_K *)&x[ib], yb, QK_K);
         const int rc = x[ib].residual_count;
         if (rc > 0) {
-            const float scale = x[ib].residual_scale;
+            const float scale = GGML_FP16_TO_FP32(x[ib].residual_scale);
             for (int r = 0; r < rc; ++r) {
                 yb[x[ib].residual_idx[r]] += scale * (float)x[ib].residual_vals[r];
             }
@@ -4170,17 +4170,17 @@ static void quantize_row_q3_k_turbo_inner(const float * GGML_RESTRICT x, block_q
         const float * xb = x + ib * QK_K;
         block_q3_k_turbo * block = &y[ib];
 
-        quantize_row_q3_K_ref(xb, (block_q3_K *)block, QK_K);
+        quantize_row_q2_K_ref(xb, (block_q2_K *)block, QK_K);
 
         if (residual_budget == 0) {
             block->residual_count = 0;
-            block->residual_scale = 0.0f;
+            block->residual_scale = GGML_FP32_TO_FP16(0.0f);
             memset(block->residual_idx,  0, Q3_K_TURBO_MAX_RESIDUALS);
             memset(block->residual_vals, 0, Q3_K_TURBO_MAX_RESIDUALS);
             continue;
         }
 
-        dequantize_row_q3_K((const block_q3_K *)block, dequant, QK_K);
+        dequantize_row_q2_K((const block_q2_K *)block, dequant, QK_K);
 
         for (int i = 0; i < QK_K; ++i) {
             float err = xb[i] - dequant[i];
@@ -4207,10 +4207,10 @@ void dequantize_row_q3_k_turbo(const block_q3_k_turbo * GGML_RESTRICT x, float *
     const int64_t nb = k / QK_K;
     for (int64_t ib = 0; ib < nb; ++ib) {
         float * yb = y + ib * QK_K;
-        dequantize_row_q3_K((const block_q3_K *)&x[ib], yb, QK_K);
+        dequantize_row_q2_K((const block_q2_K *)&x[ib], yb, QK_K);
         const int rc = x[ib].residual_count;
         if (rc > 0) {
-            const float scale = x[ib].residual_scale;
+            const float scale = GGML_FP16_TO_FP32(x[ib].residual_scale);
             for (int r = 0; r < rc; ++r) {
                 yb[x[ib].residual_idx[r]] += scale * (float)x[ib].residual_vals[r];
             }
@@ -4269,7 +4269,7 @@ static void quantize_row_q2_k_turbo_inner(const float * GGML_RESTRICT x, block_q
 
         if (residual_budget == 0) {
             block->residual_count = 0;
-            block->residual_scale = 0.0f;
+            block->residual_scale = GGML_FP32_TO_FP16(0.0f);
             memset(block->residual_idx,  0, Q2_K_TURBO_MAX_RESIDUALS);
             memset(block->residual_vals, 0, Q2_K_TURBO_MAX_RESIDUALS);
             continue;
@@ -4305,7 +4305,7 @@ void dequantize_row_q2_k_turbo(const block_q2_k_turbo * GGML_RESTRICT x, float *
         dequantize_row_q2_K((const block_q2_K *)&x[ib], yb, QK_K);
         const int rc = x[ib].residual_count;
         if (rc > 0) {
-            const float scale = x[ib].residual_scale;
+            const float scale = GGML_FP16_TO_FP32(x[ib].residual_scale);
             for (int r = 0; r < rc; ++r) {
                 yb[x[ib].residual_idx[r]] += scale * (float)x[ib].residual_vals[r];
             }
@@ -7836,23 +7836,28 @@ bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbyte
 
         case GGML_TYPE_Q2_K_TURBO:
             {
+                // Q2_K base: has d and dmin
                 VALIDATE_ROW_DATA_DM_F16_IMPL(block_q2_k_turbo, data, nb, d, dmin);
             } break;
         case GGML_TYPE_Q3_K_TURBO:
             {
-                VALIDATE_ROW_DATA_D_F16_IMPL(block_q3_k_turbo, data, nb);
+                // Q2_K base: has d and dmin
+                VALIDATE_ROW_DATA_DM_F16_IMPL(block_q3_k_turbo, data, nb, d, dmin);
             } break;
         case GGML_TYPE_Q4_K_TURBO:
             {
-                VALIDATE_ROW_DATA_DM_F16_IMPL(block_q4_k_turbo, data, nb, d, dmin);
+                // Q3_K base: has only d
+                VALIDATE_ROW_DATA_D_F16_IMPL(block_q4_k_turbo, data, nb);
             } break;
         case GGML_TYPE_Q5_K_TURBO:
             {
+                // Q4_K base: has d and dmin
                 VALIDATE_ROW_DATA_DM_F16_IMPL(block_q5_k_turbo, data, nb, d, dmin);
             } break;
         case GGML_TYPE_Q6_K_TURBO:
             {
-                VALIDATE_ROW_DATA_D_F16_IMPL(block_q6_k_turbo, data, nb);
+                // Q5_K base: has d and dmin
+                VALIDATE_ROW_DATA_DM_F16_IMPL(block_q6_k_turbo, data, nb, d, dmin);
             } break;
 
         case GGML_TYPE_I8:

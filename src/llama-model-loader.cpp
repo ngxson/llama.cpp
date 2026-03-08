@@ -63,11 +63,11 @@ static std::string llama_model_ftype_name(llama_ftype ftype) {
         case LLAMA_FTYPE_MOSTLY_IQ3_M:    return "IQ3_S mix - 3.66 bpw";
         case LLAMA_FTYPE_MOSTLY_Q4_K_HIFI: return "Q4_K_HIFI - ~4.95 bpw (Q4_K base + FP16 outliers, tiered)";
         case LLAMA_FTYPE_MOSTLY_Q2_K_HIFI: return "Q2_K_HIFI - ~3.0 bpw (Q2_K base + INT8 residuals on critical tensors)";
-        case LLAMA_FTYPE_MOSTLY_Q2_K_TURBO: return "Q2_K_TURBO - ~3.0 bpw (Q2_K + INT8 residuals)";
-        case LLAMA_FTYPE_MOSTLY_Q3_K_TURBO: return "Q3_K_TURBO - ~4.13 bpw (Q3_K + INT8 residuals)";
-        case LLAMA_FTYPE_MOSTLY_Q4_K_TURBO: return "Q4_K_TURBO - ~5.25 bpw (Q4_K + INT8 residuals)";
-        case LLAMA_FTYPE_MOSTLY_Q5_K_TURBO: return "Q5_K_TURBO - ~6.25 bpw (Q5_K + INT8 residuals)";
-        case LLAMA_FTYPE_MOSTLY_Q6_K_TURBO: return "Q6_K_TURBO - ~7.25 bpw (Q6_K + INT8 residuals)";
+        case LLAMA_FTYPE_MOSTLY_Q2_K_TURBO: return "Q2_K_TURBO - 3.0 bpw  (Q2_K base + INT8 residuals)";
+        case LLAMA_FTYPE_MOSTLY_Q3_K_TURBO: return "Q3_K_TURBO - 3.25 bpw (Q2_K base + INT8 residuals)";
+        case LLAMA_FTYPE_MOSTLY_Q4_K_TURBO: return "Q4_K_TURBO - 4.0 bpw  (Q3_K base + INT8 residuals)";
+        case LLAMA_FTYPE_MOSTLY_Q5_K_TURBO: return "Q5_K_TURBO - 5.13 bpw (Q4_K base + INT8 residuals)";
+        case LLAMA_FTYPE_MOSTLY_Q6_K_TURBO: return "Q6_K_TURBO - 6.13 bpw (Q5_K base + INT8 residuals)";
 
         default: return "unknown, may not work";
     }

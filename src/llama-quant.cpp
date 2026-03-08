@@ -612,6 +612,12 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 new_type = GGML_TYPE_Q6_K;
                 (void)model_params_b; // Suppress unused warning - kept for future tuning
             }
+            // K_TURBO output.weight: bump one tier higher within TURBO family
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q2_K_TURBO) { new_type = GGML_TYPE_Q3_K_TURBO; }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_TURBO) { new_type = GGML_TYPE_Q4_K_TURBO; }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_TURBO) { new_type = GGML_TYPE_Q5_K_TURBO; }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_TURBO) { new_type = GGML_TYPE_Q6_K_TURBO; }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q6_K_TURBO) { new_type = GGML_TYPE_Q8_0; }
             else if (new_type != GGML_TYPE_Q8_0) {
                 new_type = GGML_TYPE_Q6_K;
             }
@@ -670,6 +676,12 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 }
                 // else: tiny models skip - use default_type (Q3_K), matching Q3_K_M
             }
+            // K_TURBO token_embd: bump one tier higher within TURBO family
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q2_K_TURBO) { new_type = GGML_TYPE_Q3_K_TURBO; }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_TURBO) { new_type = GGML_TYPE_Q4_K_TURBO; }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_TURBO) { new_type = GGML_TYPE_Q5_K_TURBO; }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_TURBO) { new_type = GGML_TYPE_Q6_K_TURBO; }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q6_K_TURBO) { new_type = GGML_TYPE_Q8_0; }
         }
     } else if (ftype == LLAMA_FTYPE_MOSTLY_IQ2_XXS || ftype == LLAMA_FTYPE_MOSTLY_IQ2_XS || ftype == LLAMA_FTYPE_MOSTLY_IQ1_S ||
                ftype == LLAMA_FTYPE_MOSTLY_IQ2_S || ftype == LLAMA_FTYPE_MOSTLY_IQ2_M    || ftype == LLAMA_FTYPE_MOSTLY_IQ1_M) {

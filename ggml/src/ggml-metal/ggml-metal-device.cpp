@@ -879,28 +879,28 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv(ggml_meta
             } break;
         case GGML_TYPE_Q2_K_TURBO:
             {
-                nsg = N_SG_Q2_K;
+                nsg = N_SG_Q2_K;  // Q2_K base
                 nr0 = N_R0_Q2_K;
             } break;
         case GGML_TYPE_Q3_K_TURBO:
             {
-                nsg = N_SG_Q3_K;
-                nr0 = N_R0_Q3_K;
+                nsg = N_SG_Q2_K;  // Q2_K base (shifted down from Q3_K)
+                nr0 = N_R0_Q2_K;
             } break;
         case GGML_TYPE_Q4_K_TURBO:
             {
-                nsg = N_SG_Q4_K;
-                nr0 = N_R0_Q4_K;
+                nsg = N_SG_Q3_K;  // Q3_K base (shifted down from Q4_K)
+                nr0 = N_R0_Q3_K;
             } break;
         case GGML_TYPE_Q5_K_TURBO:
             {
-                nsg = N_SG_Q5_K;
-                nr0 = N_R0_Q5_K;
+                nsg = N_SG_Q4_K;  // Q4_K base (shifted down from Q5_K)
+                nr0 = N_R0_Q4_K;
             } break;
         case GGML_TYPE_Q6_K_TURBO:
             {
-                nsg = N_SG_Q6_K;
-                nr0 = N_R0_Q6_K;
+                nsg = N_SG_Q5_K;  // Q5_K base (shifted down from Q6_K)
+                nr0 = N_R0_Q5_K;
             } break;
         default:
             {
@@ -1151,28 +1151,28 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv_id(ggml_m
             } break;
         case GGML_TYPE_Q2_K_TURBO:
             {
-                nsg = N_SG_Q2_K;
+                nsg = N_SG_Q2_K;  // Q2_K base
                 nr0 = N_R0_Q2_K;
             } break;
         case GGML_TYPE_Q3_K_TURBO:
             {
-                nsg = N_SG_Q3_K;
-                nr0 = N_R0_Q3_K;
+                nsg = N_SG_Q2_K;  // Q2_K base (shifted down from Q3_K)
+                nr0 = N_R0_Q2_K;
             } break;
         case GGML_TYPE_Q4_K_TURBO:
             {
-                nsg = N_SG_Q4_K;
-                nr0 = N_R0_Q4_K;
+                nsg = N_SG_Q3_K;  // Q3_K base (shifted down from Q4_K)
+                nr0 = N_R0_Q3_K;
             } break;
         case GGML_TYPE_Q5_K_TURBO:
             {
-                nsg = N_SG_Q5_K;
-                nr0 = N_R0_Q5_K;
+                nsg = N_SG_Q4_K;  // Q4_K base (shifted down from Q5_K)
+                nr0 = N_R0_Q4_K;
             } break;
         case GGML_TYPE_Q6_K_TURBO:
             {
-                nsg = N_SG_Q6_K;
-                nr0 = N_R0_Q6_K;
+                nsg = N_SG_Q5_K;  // Q5_K base (shifted down from Q6_K)
+                nr0 = N_R0_Q5_K;
             } break;
         default:
             {

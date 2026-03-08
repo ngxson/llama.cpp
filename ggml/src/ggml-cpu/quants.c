@@ -1230,14 +1230,95 @@ void quantize_row_q5_k_hifi_res8(const float * GGML_RESTRICT x, void * GGML_REST
 // =============================================================================
 
 // ---------------------------------------------------------------------------
-// Q4_K_TURBO vec_dot
+// Q4_K_TURBO vec_dot  (Q3_K base: hmask + qs[64] 3-bit, scales[12], d only)
 // ---------------------------------------------------------------------------
 void ggml_vec_dot_q4_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);
     assert(nrc == 1);
     UNUSED(nrc); UNUSED(bx); UNUSED(by); UNUSED(bs);
 
+    const uint32_t kmask1 = 0x03030303;
+    const uint32_t kmask2 = 0x0f0f0f0f;
+
     const block_q4_k_turbo * GGML_RESTRICT x = vx;
+    const block_q8_K        * GGML_RESTRICT y = vy;
+    const int nb = n / QK_K;
+
+    int8_t  aux8[QK_K];
+    int16_t aux16[8];
+    float   sums[8];
+    int32_t aux32[8];
+    memset(sums, 0, 8 * sizeof(float));
+    uint32_t auxs[4];
+    const int8_t * scales_q3 = (const int8_t *)auxs;
+
+    float sumf = 0;
+    for (int i = 0; i < nb; ++i) {
+        const uint8_t * GGML_RESTRICT q3 = x[i].qs;
+        const uint8_t * GGML_RESTRICT hm = x[i].hmask;
+        const  int8_t * GGML_RESTRICT q8 = y[i].qs;
+        memset(aux32, 0, 8 * sizeof(int32_t));
+        int8_t * GGML_RESTRICT a = aux8;
+        uint8_t m = 1;
+        for (int j = 0; j < QK_K; j += 128) {
+            for (int l = 0; l < 32; ++l) a[l] = q3[l] & 3;
+            for (int l = 0; l < 32; ++l) a[l] -= (hm[l] & m ? 0 : 4);
+            a += 32; m <<= 1;
+            for (int l = 0; l < 32; ++l) a[l] = (q3[l] >> 2) & 3;
+            for (int l = 0; l < 32; ++l) a[l] -= (hm[l] & m ? 0 : 4);
+            a += 32; m <<= 1;
+            for (int l = 0; l < 32; ++l) a[l] = (q3[l] >> 4) & 3;
+            for (int l = 0; l < 32; ++l) a[l] -= (hm[l] & m ? 0 : 4);
+            a += 32; m <<= 1;
+            for (int l = 0; l < 32; ++l) a[l] = (q3[l] >> 6) & 3;
+            for (int l = 0; l < 32; ++l) a[l] -= (hm[l] & m ? 0 : 4);
+            a += 32; m <<= 1;
+            q3 += 32;
+        }
+        a = aux8;
+        memcpy(auxs, x[i].scales, 12);
+        uint32_t tmp = auxs[2];
+        auxs[2] = ((auxs[0] >> 4) & kmask2) | (((tmp >> 4) & kmask1) << 4);
+        auxs[3] = ((auxs[1] >> 4) & kmask2) | (((tmp >> 6) & kmask1) << 4);
+        auxs[0] = (auxs[0] & kmask2) | (((tmp >> 0) & kmask1) << 4);
+        auxs[1] = (auxs[1] & kmask2) | (((tmp >> 2) & kmask1) << 4);
+        for (int j = 0; j < QK_K/16; ++j) {
+            for (int l = 0; l < 8; ++l) aux16[l] = q8[l] * a[l];
+            for (int l = 0; l < 8; ++l) aux32[l] += (scales_q3[j] - 32) * aux16[l];
+            q8 += 8; a += 8;
+            for (int l = 0; l < 8; ++l) aux16[l] = q8[l] * a[l];
+            for (int l = 0; l < 8; ++l) aux32[l] += (scales_q3[j] - 32) * aux16[l];
+            q8 += 8; a += 8;
+        }
+        const float d = GGML_CPU_FP16_TO_FP32(x[i].d) * y[i].d;
+        for (int l = 0; l < 8; ++l) sums[l] += d * aux32[l];
+
+        const int rc = x[i].residual_count;
+        if (rc > 0) {
+            const float rscale = GGML_CPU_FP16_TO_FP32(x[i].residual_scale) * y[i].d;
+            for (int k = 0; k < rc; ++k) {
+                sumf += rscale * (float)x[i].residual_vals[k] * (float)y[i].qs[x[i].residual_idx[k]];
+            }
+        }
+    }
+    for (int l = 0; l < 8; ++l) sumf += sums[l];
+    *s = sumf;
+}
+
+// Wrapper (3-arg from_float for CPU backend)
+void quantize_row_q4_k_turbo(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
+    quantize_row_q4_k_turbo_ref(x, (block_q4_k_turbo *)y, k);
+}
+
+// ---------------------------------------------------------------------------
+// Q5_K_TURBO vec_dot  (Q4_K base: d, dmin, scales[12], qs[128] 4-bit)
+// ---------------------------------------------------------------------------
+void ggml_vec_dot_q5_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    assert(n % QK_K == 0);
+    assert(nrc == 1);
+    UNUSED(nrc); UNUSED(bx); UNUSED(by); UNUSED(bs);
+
+    const block_q5_k_turbo * GGML_RESTRICT x = vx;
     const block_q8_K        * GGML_RESTRICT y = vy;
     const int nb = n / QK_K;
 
@@ -1297,7 +1378,7 @@ void ggml_vec_dot_q4_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t
 
         const int rc = x[i].residual_count;
         if (rc > 0) {
-            const float rscale = x[i].residual_scale * y[i].d;
+            const float rscale = GGML_CPU_FP16_TO_FP32(x[i].residual_scale) * y[i].d;
             for (int k = 0; k < rc; ++k) {
                 sumf += rscale * (float)x[i].residual_vals[k] * (float)y[i].qs[x[i].residual_idx[k]];
             }
@@ -1307,20 +1388,19 @@ void ggml_vec_dot_q4_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t
     *s = sumf;
 }
 
-// Wrapper (3-arg from_float for CPU backend)
-void quantize_row_q4_k_turbo(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
-    quantize_row_q4_k_turbo_ref(x, (block_q4_k_turbo *)y, k);
+void quantize_row_q5_k_turbo(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
+    quantize_row_q5_k_turbo_ref(x, (block_q5_k_turbo *)y, k);
 }
 
 // ---------------------------------------------------------------------------
-// Q5_K_TURBO vec_dot
+// Q6_K_TURBO vec_dot  (Q5_K base: d, dmin, scales[12], qh[32], qs[128] 5-bit)
 // ---------------------------------------------------------------------------
-void ggml_vec_dot_q5_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+void ggml_vec_dot_q6_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);
     assert(nrc == 1);
     UNUSED(nrc); UNUSED(bx); UNUSED(by); UNUSED(bs);
 
-    const block_q5_k_turbo * GGML_RESTRICT x = vx;
+    const block_q6_k_turbo * GGML_RESTRICT x = vx;
     const block_q8_K        * GGML_RESTRICT y = vy;
     const int nb = n / QK_K;
 
@@ -1383,71 +1463,7 @@ void ggml_vec_dot_q5_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t
 
         const int rc = x[i].residual_count;
         if (rc > 0) {
-            const float rscale = x[i].residual_scale * y[i].d;
-            for (int k = 0; k < rc; ++k) {
-                sumf += rscale * (float)x[i].residual_vals[k] * (float)y[i].qs[x[i].residual_idx[k]];
-            }
-        }
-    }
-    for (int l = 0; l < 8; ++l) sumf += sums[l];
-    *s = sumf;
-}
-
-void quantize_row_q5_k_turbo(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
-    quantize_row_q5_k_turbo_ref(x, (block_q5_k_turbo *)y, k);
-}
-
-// ---------------------------------------------------------------------------
-// Q6_K_TURBO vec_dot
-// ---------------------------------------------------------------------------
-void ggml_vec_dot_q6_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
-    assert(n % QK_K == 0);
-    assert(nrc == 1);
-    UNUSED(nrc); UNUSED(bx); UNUSED(by); UNUSED(bs);
-
-    const block_q6_k_turbo * GGML_RESTRICT x = vx;
-    const block_q8_K        * GGML_RESTRICT y = vy;
-    const int nb = n / QK_K;
-
-    int8_t  aux8[QK_K];
-    int16_t aux16[8];
-    float   sums[8];
-    int32_t aux32[8];
-    memset(sums, 0, 8 * sizeof(float));
-
-    float sumf = 0;
-    for (int i = 0; i < nb; ++i) {
-        const uint8_t * GGML_RESTRICT q4 = x[i].ql;
-        const uint8_t * GGML_RESTRICT qh = x[i].qh;
-        const  int8_t * GGML_RESTRICT q8 = y[i].qs;
-        memset(aux32, 0, 8 * sizeof(int32_t));
-        int8_t * GGML_RESTRICT a = aux8;
-        for (int j = 0; j < QK_K; j += 128) {
-            for (int l = 0; l < 32; ++l) {
-                a[l +  0] = (int8_t)((q4[l +  0] & 0xF) | (((qh[l] >> 0) & 3) << 4)) - 32;
-                a[l + 32] = (int8_t)((q4[l + 32] & 0xF) | (((qh[l] >> 2) & 3) << 4)) - 32;
-                a[l + 64] = (int8_t)((q4[l +  0] >>  4) | (((qh[l] >> 4) & 3) << 4)) - 32;
-                a[l + 96] = (int8_t)((q4[l + 32] >>  4) | (((qh[l] >> 6) & 3) << 4)) - 32;
-            }
-            a += 128; q4 += 64; qh += 32;
-        }
-        a = aux8;
-        int is = 0;
-        for (int j = 0; j < QK_K/16; ++j) {
-            int scale = x[i].scales[is++];
-            for (int l = 0; l < 8; ++l) aux16[l] = q8[l] * a[l];
-            for (int l = 0; l < 8; ++l) aux32[l] += scale * aux16[l];
-            q8 += 8; a += 8;
-            for (int l = 0; l < 8; ++l) aux16[l] = q8[l] * a[l];
-            for (int l = 0; l < 8; ++l) aux32[l] += scale * aux16[l];
-            q8 += 8; a += 8;
-        }
-        const float d = GGML_CPU_FP16_TO_FP32(x[i].d) * y[i].d;
-        for (int l = 0; l < 8; ++l) sums[l] += d * aux32[l];
-
-        const int rc = x[i].residual_count;
-        if (rc > 0) {
-            const float rscale = x[i].residual_scale * y[i].d;
+            const float rscale = GGML_CPU_FP16_TO_FP32(x[i].residual_scale) * y[i].d;
             for (int k = 0; k < rc; ++k) {
                 sumf += rscale * (float)x[i].residual_vals[k] * (float)y[i].qs[x[i].residual_idx[k]];
             }
@@ -1462,78 +1478,56 @@ void quantize_row_q6_k_turbo(const float * GGML_RESTRICT x, void * GGML_RESTRICT
 }
 
 // ---------------------------------------------------------------------------
-// Q3_K_TURBO vec_dot
+// Q3_K_TURBO vec_dot  (Q2_K base: d, dmin, scales[16], qs[64] 2-bit)
 // ---------------------------------------------------------------------------
 void ggml_vec_dot_q3_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);
     assert(nrc == 1);
     UNUSED(nrc); UNUSED(bx); UNUSED(by); UNUSED(bs);
 
-    const uint32_t kmask1 = 0x03030303;
-    const uint32_t kmask2 = 0x0f0f0f0f;
-
     const block_q3_k_turbo * GGML_RESTRICT x = vx;
     const block_q8_K        * GGML_RESTRICT y = vy;
     const int nb = n / QK_K;
 
-    int8_t  aux8[QK_K];
-    int16_t aux16[8];
-    float   sums[8];
-    int32_t aux32[8];
-    memset(sums, 0, 8 * sizeof(float));
-    uint32_t auxs[4];
-    const int8_t * scales_q3 = (const int8_t *)auxs;
-
     float sumf = 0;
     for (int i = 0; i < nb; ++i) {
-        const uint8_t * GGML_RESTRICT q3 = x[i].qs;
-        const uint8_t * GGML_RESTRICT hm = x[i].hmask;
-        const  int8_t * GGML_RESTRICT q8 = y[i].qs;
-        memset(aux32, 0, 8 * sizeof(int32_t));
-        int8_t * GGML_RESTRICT a = aux8;
-        uint8_t m = 1;
-        for (int j = 0; j < QK_K; j += 128) {
-            for (int l = 0; l < 32; ++l) a[l] = q3[l] & 3;
-            for (int l = 0; l < 32; ++l) a[l] -= (hm[l] & m ? 0 : 4);
-            a += 32; m <<= 1;
-            for (int l = 0; l < 32; ++l) a[l] = (q3[l] >> 2) & 3;
-            for (int l = 0; l < 32; ++l) a[l] -= (hm[l] & m ? 0 : 4);
-            a += 32; m <<= 1;
-            for (int l = 0; l < 32; ++l) a[l] = (q3[l] >> 4) & 3;
-            for (int l = 0; l < 32; ++l) a[l] -= (hm[l] & m ? 0 : 4);
-            a += 32; m <<= 1;
-            for (int l = 0; l < 32; ++l) a[l] = (q3[l] >> 6) & 3;
-            for (int l = 0; l < 32; ++l) a[l] -= (hm[l] & m ? 0 : 4);
-            a += 32; m <<= 1;
-            q3 += 32;
+        const uint8_t * q2  = x[i].qs;
+        const int8_t  * q8  = y[i].qs;
+        const uint8_t * sc  = x[i].scales;
+
+        int summs = 0;
+        for (int j = 0; j < 16; ++j) summs += y[i].bsums[j] * (sc[j] >> 4);
+
+        const float dall = y[i].d * GGML_CPU_FP16_TO_FP32(x[i].d);
+        const float dmin = y[i].d * GGML_CPU_FP16_TO_FP32(x[i].dmin);
+
+        int isum = 0, is = 0;
+        for (int k = 0; k < QK_K/128; ++k) {
+            int shift = 0;
+            for (int j = 0; j < 4; ++j) {
+                int d = sc[is++] & 0xF;
+                int isuml = 0;
+                for (int l =  0; l < 16; ++l) isuml += q8[l] * ((q2[l] >> shift) & 3);
+                isum += d * isuml;
+                d = sc[is++] & 0xF;
+                isuml = 0;
+                for (int l = 16; l < 32; ++l) isuml += q8[l] * ((q2[l] >> shift) & 3);
+                isum += d * isuml;
+                shift += 2;
+                q8 += 32;
+            }
+            q2 += 32;
         }
-        a = aux8;
-        memcpy(auxs, x[i].scales, 12);
-        uint32_t tmp = auxs[2];
-        auxs[2] = ((auxs[0] >> 4) & kmask2) | (((tmp >> 4) & kmask1) << 4);
-        auxs[3] = ((auxs[1] >> 4) & kmask2) | (((tmp >> 6) & kmask1) << 4);
-        auxs[0] = (auxs[0] & kmask2) | (((tmp >> 0) & kmask1) << 4);
-        auxs[1] = (auxs[1] & kmask2) | (((tmp >> 2) & kmask1) << 4);
-        for (int j = 0; j < QK_K/16; ++j) {
-            for (int l = 0; l < 8; ++l) aux16[l] = q8[l] * a[l];
-            for (int l = 0; l < 8; ++l) aux32[l] += (scales_q3[j] - 32) * aux16[l];
-            q8 += 8; a += 8;
-            for (int l = 0; l < 8; ++l) aux16[l] = q8[l] * a[l];
-            for (int l = 0; l < 8; ++l) aux32[l] += (scales_q3[j] - 32) * aux16[l];
-            q8 += 8; a += 8;
-        }
-        const float d = GGML_CPU_FP16_TO_FP32(x[i].d) * y[i].d;
-        for (int l = 0; l < 8; ++l) sums[l] += d * aux32[l];
+        sumf += dall * isum - dmin * summs;
 
         const int rc = x[i].residual_count;
         if (rc > 0) {
-            const float rscale = x[i].residual_scale * y[i].d;
-            for (int k = 0; k < rc; ++k) {
-                sumf += rscale * (float)x[i].residual_vals[k] * (float)y[i].qs[x[i].residual_idx[k]];
+            const float rscale = GGML_CPU_FP16_TO_FP32(x[i].residual_scale) * y[i].d;
+            for (int r = 0; r < rc; ++r) {
+                sumf += rscale * (float)x[i].residual_vals[r] * (float)y[i].qs[x[i].residual_idx[r]];
             }
         }
     }
-    for (int l = 0; l < 8; ++l) sumf += sums[l];
     *s = sumf;
 }
 
@@ -1542,8 +1536,7 @@ void quantize_row_q3_k_turbo(const float * GGML_RESTRICT x, void * GGML_RESTRICT
 }
 
 // ---------------------------------------------------------------------------
-// Q2_K_TURBO vec_dot  (3 residuals max)
-// Uses the same scale decode as ggml_vec_dot_q2_K_q8_K_generic
+// Q2_K_TURBO vec_dot  (Q2_K base: d, dmin, scales[16], qs[64] 2-bit)
 // ---------------------------------------------------------------------------
 void ggml_vec_dot_q2_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);
@@ -1589,7 +1582,7 @@ void ggml_vec_dot_q2_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t
 
         const int rc = x[i].residual_count;
         if (rc > 0) {
-            const float rscale = x[i].residual_scale * y[i].d;
+            const float rscale = GGML_CPU_FP16_TO_FP32(x[i].residual_scale) * y[i].d;
             for (int r = 0; r < rc; ++r) {
                 sumf += rscale * (float)x[i].residual_vals[r] * (float)y[i].qs[x[i].residual_idx[r]];
             }
