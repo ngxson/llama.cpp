@@ -83,7 +83,7 @@ static std::pair<httplib::Client, common_http_url> common_http_client(const std:
     }
 #endif
 
-    httplib::Client cli(parts.scheme + "://" + parts.host);
+    httplib::Client cli(parts.scheme + "://" + parts.host + ":" + std::to_string(parts.port));
 
     if (!parts.user.empty()) {
         cli.set_basic_auth(parts.user, parts.password);
