@@ -467,7 +467,7 @@ void ggml_cuda_op_mul_mat_q(
             use_stream_k, src1_ncols}; \
         ggml_cuda_mul_mat_q_switch_type(ctx, args_base, stream); \
         if (src1_ddf_i) { \
-            const int64_t stride_src1 = src1_padded_row_size / (int64_t)sizeof(float); \
+            const int64_t stride_src1 = src1->ne[0]; \
             ggml_cuda_add_turbo_residuals<TURBO_T, (MAX_RES)><<<(n_blocks + 255) / 256, 256, 0, stream>>>( \
                 (const TURBO_T *)src0_dd_i, src1_ddf_i, dst_dd_i, \
                 row_diff, ne00, src1_ncols, stride01, stride_src1, nrows_dst); \
