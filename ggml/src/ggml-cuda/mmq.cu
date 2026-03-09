@@ -448,6 +448,41 @@ void ggml_cuda_op_mul_mat_q(
     const bool use_stream_k = ((GGML_CUDA_CC_IS_NVIDIA(cc) && ggml_cuda_highest_compiled_arch(cc) >= GGML_CUDA_CC_VOLTA)
                             || GGML_CUDA_CC_IS_CDNA(cc))
                             && src1_ncols == ne11;
+
+    // TURBO types need compact copy + base MMQ + residual correction (same as TURBO_MMQ_PATH but
+    // operating on a row slice src0_dd_i in the split/op path).
+#define TURBO_OP_MMQ_PATH(TNAME, TURBO_T, BASE_SIZE, BASE_GGML_TYPE, MAX_RES) \
+    if (src0->type == GGML_TYPE_##TNAME) { \
+        const int64_t n_blocks = row_diff * stride01; \
+        ggml_cuda_pool_alloc<char> base_compact(ctx.pool(), n_blocks * (BASE_SIZE)); \
+        const int nth = 256; \
+        ggml_cuda_compact_##TNAME##_to_base<<<(n_blocks + nth - 1) / nth, nth, 0, stream>>>( \
+            src0_dd_i, base_compact.get(), n_blocks); \
+        CUDA_CHECK(cudaGetLastError()); \
+        const mmq_args args_base = { \
+            base_compact.get(), (BASE_GGML_TYPE), (const int *) src1_ddq_i, nullptr, nullptr, dst_dd_i, \
+            ne00, row_diff, src1_ncols, stride01, ne11, nrows_dst, \
+            1, 1, 0, 0, 0, \
+            1, 1, 0, 0, 0, \
+            use_stream_k, src1_ncols}; \
+        ggml_cuda_mul_mat_q_switch_type(ctx, args_base, stream); \
+        if (src1_ddf_i) { \
+            const int64_t stride_src1 = src1_padded_row_size / (int64_t)sizeof(float); \
+            ggml_cuda_add_turbo_residuals<TURBO_T, (MAX_RES)><<<(n_blocks + 255) / 256, 256, 0, stream>>>( \
+                (const TURBO_T *)src0_dd_i, src1_ddf_i, dst_dd_i, \
+                row_diff, ne00, src1_ncols, stride01, stride_src1, nrows_dst); \
+            CUDA_CHECK(cudaGetLastError()); \
+        } \
+        return; \
+    }
+
+    TURBO_OP_MMQ_PATH(Q2_K_TURBO, block_q2_k_turbo, sizeof(block_q2_K), GGML_TYPE_Q2_K, Q2_K_TURBO_MAX_RESIDUALS)
+    TURBO_OP_MMQ_PATH(Q3_K_TURBO, block_q3_k_turbo, sizeof(block_q2_K), GGML_TYPE_Q2_K, Q3_K_TURBO_MAX_RESIDUALS)
+    TURBO_OP_MMQ_PATH(Q4_K_TURBO, block_q4_k_turbo, sizeof(block_q3_K), GGML_TYPE_Q3_K, Q4_K_TURBO_MAX_RESIDUALS)
+    TURBO_OP_MMQ_PATH(Q5_K_TURBO, block_q5_k_turbo, sizeof(block_q4_K), GGML_TYPE_Q4_K, Q5_K_TURBO_MAX_RESIDUALS)
+    TURBO_OP_MMQ_PATH(Q6_K_TURBO, block_q6_k_turbo, sizeof(block_q5_K), GGML_TYPE_Q5_K, Q6_K_TURBO_MAX_RESIDUALS)
+#undef TURBO_OP_MMQ_PATH
+
     const mmq_args args = {
         src0_dd_i, src0->type, (const int *) src1_ddq_i, nullptr, nullptr, dst_dd_i,
         ne00, row_diff, src1_ncols, stride01, ne11, nrows_dst,

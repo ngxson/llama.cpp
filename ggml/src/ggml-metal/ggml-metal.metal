@@ -1001,35 +1001,85 @@ void dequantize_q5_k_hifi_res8(device const block_q5_k_hifi_res8 * xb, short il,
 }
 
 // K_TURBO: base fields at identical byte offsets → cast to the NEW shifted-down base type.
-// Residual corrections are not applied in the Metal path (base reconstruction only).
+// Residual corrections are applied after the base dequantize call.
 // Q2_K_TURBO: Q2_K base (unchanged)
 template <typename type4x4>
 void dequantize_q2_k_turbo(device const block_q2_k_turbo * xb, short il, thread type4x4 & reg) {
     dequantize_q2_K((device const block_q2_K *)xb, il, reg);
+    const int base_pos = il * 16;
+    const float rscale = (float)xb->residual_scale;
+    const int rc = (int)xb->residual_count;
+    for (int r = 0; r < Q2_K_TURBO_MAX_RESIDUALS; ++r) {
+        if (r >= rc) break;
+        const int local_pos = (int)xb->residual_idx[r] - base_pos;
+        if (local_pos >= 0 && local_pos < 16) {
+            reg[local_pos / 4][local_pos % 4] += rscale * (float)xb->residual_vals[r];
+        }
+    }
 }
 
 // Q3_K_TURBO: Q2_K base (was Q3_K)
 template <typename type4x4>
 void dequantize_q3_k_turbo(device const block_q3_k_turbo * xb, short il, thread type4x4 & reg) {
     dequantize_q2_K((device const block_q2_K *)xb, il, reg);
+    const int base_pos = il * 16;
+    const float rscale = (float)xb->residual_scale;
+    const int rc = (int)xb->residual_count;
+    for (int r = 0; r < Q3_K_TURBO_MAX_RESIDUALS; ++r) {
+        if (r >= rc) break;
+        const int local_pos = (int)xb->residual_idx[r] - base_pos;
+        if (local_pos >= 0 && local_pos < 16) {
+            reg[local_pos / 4][local_pos % 4] += rscale * (float)xb->residual_vals[r];
+        }
+    }
 }
 
 // Q4_K_TURBO: Q3_K base (was Q4_K)
 template <typename type4x4>
 void dequantize_q4_k_turbo(device const block_q4_k_turbo * xb, short il, thread type4x4 & reg) {
     dequantize_q3_K((device const block_q3_K *)xb, il, reg);
+    const int base_pos = il * 16;
+    const float rscale = (float)xb->residual_scale;
+    const int rc = (int)xb->residual_count;
+    for (int r = 0; r < Q4_K_TURBO_MAX_RESIDUALS; ++r) {
+        if (r >= rc) break;
+        const int local_pos = (int)xb->residual_idx[r] - base_pos;
+        if (local_pos >= 0 && local_pos < 16) {
+            reg[local_pos / 4][local_pos % 4] += rscale * (float)xb->residual_vals[r];
+        }
+    }
 }
 
 // Q5_K_TURBO: Q4_K base (was Q5_K)
 template <typename type4x4>
 void dequantize_q5_k_turbo(device const block_q5_k_turbo * xb, short il, thread type4x4 & reg) {
     dequantize_q4_K((device const block_q4_K *)xb, il, reg);
+    const int base_pos = il * 16;
+    const float rscale = (float)xb->residual_scale;
+    const int rc = (int)xb->residual_count;
+    for (int r = 0; r < Q5_K_TURBO_MAX_RESIDUALS; ++r) {
+        if (r >= rc) break;
+        const int local_pos = (int)xb->residual_idx[r] - base_pos;
+        if (local_pos >= 0 && local_pos < 16) {
+            reg[local_pos / 4][local_pos % 4] += rscale * (float)xb->residual_vals[r];
+        }
+    }
 }
 
 // Q6_K_TURBO: Q5_K base (was Q6_K)
 template <typename type4x4>
 void dequantize_q6_k_turbo(device const block_q6_k_turbo * xb, short il, thread type4x4 & reg) {
     dequantize_q5_K((device const block_q5_K *)xb, il, reg);
+    const int base_pos = il * 16;
+    const float rscale = (float)xb->residual_scale;
+    const int rc = (int)xb->residual_count;
+    for (int r = 0; r < Q6_K_TURBO_MAX_RESIDUALS; ++r) {
+        if (r >= rc) break;
+        const int local_pos = (int)xb->residual_idx[r] - base_pos;
+        if (local_pos >= 0 && local_pos < 16) {
+            reg[local_pos / 4][local_pos % 4] += rscale * (float)xb->residual_vals[r];
+        }
+    }
 }
 
 enum ggml_sort_order {
@@ -8190,8 +8240,7 @@ kernel void kernel_mul_mv_q6_K_hifi_res8_f32(
     kernel_mul_mv_q6_K_hifi_res8_f32_impl<N_R0_Q6_K, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
 }
 
-// K_TURBO mul_mv impls: identical to base type but use TURBO block pointer for correct stride.
-// Residual corrections not applied in Metal path (CPU path handles them).
+// K_TURBO mul_mv impls: use TURBO block pointer for correct stride + apply INT8 residual corrections.
 
 template<int nr0, typename args_t>
 void kernel_mul_mv_q2_K_turbo_f32_impl(
@@ -8266,6 +8315,27 @@ void kernel_mul_mv_q2_K_turbo_f32_impl(
                                  (acc1[2] + 1.f/256.f * acc2[2]) * (sc[4] & 0xF) * 1.f/16.f +
                                  (acc1[3] + 1.f/256.f * acc2[3]) * (sc[6] & 0xF) * 1.f/64.f) -
                          dmin * (sumy[0] * (sc[0] & 0xF0) + sumy[1] * (sc[2] & 0xF0) + sumy[2] * (sc[4] & 0xF0) + sumy[3] * (sc[6] & 0xF0));
+
+            // Apply INT8 residual corrections for Q2_K_TURBO
+            {
+                device const block_q2_k_turbo * xb_row = (device const block_q2_k_turbo *)((device const char *)&x[ib] + (uint64_t)row * args.nb01);
+                const int rc = (int)xb_row->residual_count;
+                if (rc > 0) {
+                    const float rscale = (float)xb_row->residual_scale;
+                    const short pos_base = 128*iq + 8*ir;
+                    for (int r = 0; r < Q2_K_TURBO_MAX_RESIDUALS; ++r) {
+                        if (r >= rc) break;
+                        const short delta = (short)xb_row->residual_idx[r] - pos_base;
+                        float y_val;
+                        if      (delta >= 0  && delta < 8)   y_val = yl[delta];
+                        else if (delta >= 32 && delta < 40)  y_val = yl[8  + (delta - 32)];
+                        else if (delta >= 64 && delta < 72)  y_val = yl[16 + (delta - 64)];
+                        else if (delta >= 96 && delta < 104) y_val = yl[24 + (delta - 96)];
+                        else continue;
+                        sumf[row] += rscale * (float)xb_row->residual_vals[r] * y_val;
+                    }
+                }
+            }
 
             qs += args.nb01/2;
             sc += args.nb01;
@@ -8373,6 +8443,27 @@ void kernel_mul_mv_q3_K_turbo_f32_impl(
                                  (acc1[3] + 1.f/256.f * acc2[3]) * (sc[6] & 0xF) * 1.f/64.f) -
                          dmin * (sumy[0] * (sc[0] & 0xF0) + sumy[1] * (sc[2] & 0xF0) + sumy[2] * (sc[4] & 0xF0) + sumy[3] * (sc[6] & 0xF0));
 
+            // Apply INT8 residual corrections for Q3_K_TURBO
+            {
+                device const block_q3_k_turbo * xb_row = (device const block_q3_k_turbo *)((device const char *)&x[ib] + (uint64_t)row * args.nb01);
+                const int rc = (int)xb_row->residual_count;
+                if (rc > 0) {
+                    const float rscale = (float)xb_row->residual_scale;
+                    const short pos_base = 128*iq + 8*ir;
+                    for (int r = 0; r < Q3_K_TURBO_MAX_RESIDUALS; ++r) {
+                        if (r >= rc) break;
+                        const short delta = (short)xb_row->residual_idx[r] - pos_base;
+                        float y_val;
+                        if      (delta >= 0  && delta < 8)   y_val = yl[delta];
+                        else if (delta >= 32 && delta < 40)  y_val = yl[8  + (delta - 32)];
+                        else if (delta >= 64 && delta < 72)  y_val = yl[16 + (delta - 64)];
+                        else if (delta >= 96 && delta < 104) y_val = yl[24 + (delta - 96)];
+                        else continue;
+                        sumf[row] += rscale * (float)xb_row->residual_vals[r] * y_val;
+                    }
+                }
+            }
+
             qs += args.nb01/2;
             sc += args.nb01;
             dh += args.nb01/2;
@@ -8471,6 +8562,7 @@ void kernel_mul_mv_q4_K_turbo_f32_impl(
 
     float sumf1[nr0] = {0.f};
     float sumf2[nr0] = {0.f};
+    float sumf_res[nr0] = {0.f};
 
     for (int i = ix; i < nb; i += 4) {
         for (short l = 0; l < 8; ++l) {
@@ -8525,6 +8617,28 @@ void kernel_mul_mv_q4_K_turbo_f32_impl(
             sumf1[row] += d1 * (scales[1] - 32);
             sumf2[row] += d2 * (scales[3] - 32);
 
+            // Apply INT8 residual corrections for Q4_K_TURBO
+            // pos_base = y_offset = 128*ip + 32*il + l0; yl groups: +0..7, +16..23, +32..39, +48..55
+            {
+                device const block_q4_k_turbo * xb_row = (device const block_q4_k_turbo *)((device const char *)&x[i] + (uint64_t)row * args.nb01);
+                const int rc = (int)xb_row->residual_count;
+                if (rc > 0) {
+                    const float rscale = (float)xb_row->residual_scale;
+                    const short pos_base = y_offset;
+                    for (int r = 0; r < Q4_K_TURBO_MAX_RESIDUALS; ++r) {
+                        if (r >= rc) break;
+                        const short delta = (short)xb_row->residual_idx[r] - pos_base;
+                        float y_val;
+                        if      (delta >= 0  && delta < 8)   y_val = yl[delta];
+                        else if (delta >= 16 && delta < 24)  y_val = yl[8  + (delta - 16)];
+                        else if (delta >= 32 && delta < 40)  y_val = yl[16 + (delta - 32)];
+                        else if (delta >= 48 && delta < 56)  y_val = yl[24 + (delta - 48)];
+                        else continue;
+                        sumf_res[row] += rscale * (float)xb_row->residual_vals[r] * y_val;
+                    }
+                }
+            }
+
             q  += args.nb01/2;
             h  += args.nb01/2;
             a  += args.nb01/2;
@@ -8535,7 +8649,7 @@ void kernel_mul_mv_q4_K_turbo_f32_impl(
     }
 
     for (int row = 0; row < nr0; ++row) {
-        const float sumf = (sumf1[row] + 0.25f * sumf2[row]) / (1 << shift);
+        const float sumf = (sumf1[row] + 0.25f * sumf2[row]) / (1 << shift) + sumf_res[row];
         sumf1[row] = simd_sum(sumf);
     }
 
@@ -8651,6 +8765,28 @@ void kernel_mul_mv_q5_K_turbo_f32_impl(
                                   (acc2[0] + 1.f/256.f * acc2[1]) * sc8[4] +
                                   (acc2[2] + 1.f/256.f * acc2[3]) * sc8[5] * 1.f/16.f) -
                          dh[1] * (sumy[0] * sc8[2] + sumy[1] * sc8[3] + sumy[2] * sc8[6] + sumy[3] * sc8[7]);
+
+            // Apply INT8 residual corrections for Q5_K_TURBO
+            // pos_base = 64*iq + 8*ir; yl groups: +0..7, +32..39; yh groups: +128..135, +160..167
+            {
+                device const block_q5_k_turbo * xb_row = (device const block_q5_k_turbo *)((device const char *)&x[ib] + (uint64_t)row * args.nb01);
+                const int rc = (int)xb_row->residual_count;
+                if (rc > 0) {
+                    const float rscale = (float)xb_row->residual_scale;
+                    const short pos_base = 64*iq + 8*ir;
+                    for (int r = 0; r < Q5_K_TURBO_MAX_RESIDUALS; ++r) {
+                        if (r >= rc) break;
+                        const short delta = (short)xb_row->residual_idx[r] - pos_base;
+                        float y_val;
+                        if      (delta >= 0   && delta < 8)   y_val = yl[delta];
+                        else if (delta >= 32  && delta < 40)  y_val = yl[8 + (delta - 32)];
+                        else if (delta >= 128 && delta < 136) y_val = yh[delta - 128];
+                        else if (delta >= 160 && delta < 168) y_val = yh[8 + (delta - 160)];
+                        else continue;
+                        sumf[row] += rscale * (float)xb_row->residual_vals[r] * y_val;
+                    }
+                }
+            }
 
             q1 += args.nb01/2;
             sc += args.nb01/2;
@@ -8782,6 +8918,28 @@ void kernel_mul_mv_q6_K_turbo_f32_impl(
                                   sc8[4] * (acc1[2]      + 16.f*acc2[2]) +
                                   sc8[5] * (acc1[3]/16.f + 16.f*acc2[3])) -
                          dh[1] * (sumy[0] * sc8[2] + sumy[1] * sc8[3] + sumy[2] * sc8[6] + sumy[3] * sc8[7]);
+
+            // Apply INT8 residual corrections for Q6_K_TURBO
+            // pos_base = 64*iq + l0; yl groups: +0..7, +32..39; yh groups: +128..135, +160..167
+            {
+                device const block_q6_k_turbo * xb_row = (device const block_q6_k_turbo *)((device const char *)&x[i] + (uint64_t)row * args.nb01);
+                const int rc = (int)xb_row->residual_count;
+                if (rc > 0) {
+                    const float rscale = (float)xb_row->residual_scale;
+                    const short pos_base = 64*iq + l0;
+                    for (int r = 0; r < Q6_K_TURBO_MAX_RESIDUALS; ++r) {
+                        if (r >= rc) break;
+                        const short delta = (short)xb_row->residual_idx[r] - pos_base;
+                        float y_val;
+                        if      (delta >= 0   && delta < 8)   y_val = yl[delta];
+                        else if (delta >= 32  && delta < 40)  y_val = yl[8 + (delta - 32)];
+                        else if (delta >= 128 && delta < 136) y_val = yh[delta - 128];
+                        else if (delta >= 160 && delta < 168) y_val = yh[8 + (delta - 160)];
+                        else continue;
+                        sumf[row] += rscale * (float)xb_row->residual_vals[r] * y_val;
+                    }
+                }
+            }
 
             q1 += args.nb01;
             qh += args.nb01;
