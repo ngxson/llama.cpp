@@ -1540,12 +1540,12 @@ size_t llama_kv_cache::size_v_bytes() const {
 ggml_tensor * llama_kv_cache::build_rope_shift(
         const llama_cparams & cparams,
                ggml_context * ctx,
-                   uint32_t   il,
                 ggml_tensor * cur,
                 ggml_tensor * shift,
                 ggml_tensor * factors,
                       float   freq_base,
-                      float   freq_scale) const {
+                      float   freq_scale,
+                   uint32_t   il) const {
     const auto & n_ctx_orig = cparams.n_ctx_orig_yarn;
 
     const auto & yarn_ext_factor  = cparams.yarn_ext_factor;
@@ -1636,7 +1636,7 @@ ggml_cgraph * llama_kv_cache::build_graph_shift(llm_graph_result * res, llama_co
                 ggml_row_size(layer.k->type, n_embd_k_gqa),
                 ggml_row_size(layer.k->type, n_embd_nope));
 
-        ggml_tensor * cur = build_rope_shift(cparams, ctx, il, k, inp->k_shift, rope_factors, freq_base_l, freq_scale_l);
+        ggml_tensor * cur = build_rope_shift(cparams, ctx, k, inp->k_shift, rope_factors, freq_base_l, freq_scale_l, il);
 
         ggml_build_forward_expand(gf, cur);
     }
