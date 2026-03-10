@@ -104,6 +104,7 @@ enum llama_example {
     LLAMA_EXAMPLE_DIFFUSION,
     LLAMA_EXAMPLE_FINETUNE,
     LLAMA_EXAMPLE_FIT_PARAMS,
+    LLAMA_EXAMPLE_RESULTS,
 
     LLAMA_EXAMPLE_COUNT,
 };
@@ -410,7 +411,8 @@ struct common_params {
 
     struct common_params_model model;
 
-    std::string model_alias          = ""; // model alias                                                   // NOLINT
+    std::set<std::string> model_alias;     // model aliases                                                 // NOLINT
+    std::set<std::string> model_tags;      // model tags (informational, not used for routing)              // NOLINT
     std::string hf_token             = ""; // HF token                                                      // NOLINT
     std::string prompt               = "";                                                                  // NOLINT
     std::string system_prompt        = "";                                                                  // NOLINT
@@ -454,6 +456,8 @@ struct common_params {
     size_t multiple_choice_tasks = 0; // number of tasks to use when computing the TruthfulQA score. If 0, all tasks will be computed
 
     bool   kl_divergence    = false; // compute KL divergence
+
+    bool check             = false; // check rather than generate results for llama-results
 
     bool usage             = false; // print usage
     bool completion        = false; // print source-able completion script
@@ -515,14 +519,15 @@ struct common_params {
     std::string cls_sep    = "\t";  // separator of classification sequences
 
     // server params
-    int32_t port              = 8080;         // server listens on this network port
-    int32_t timeout_read      = 600;          // http read timeout in seconds
-    int32_t timeout_write     = timeout_read; // http write timeout in seconds
-    int32_t n_threads_http    = -1;           // number of threads to process HTTP requests (TODO: support threadpool)
-    int32_t n_cache_reuse     = 0;            // min chunk size to reuse from the cache via KV shifting
-    bool    cache_prompt      = true;         // whether to enable prompt caching
-    int32_t n_ctx_checkpoints = 8;            // max number of context checkpoints per slot
-    int32_t cache_ram_mib     = 8192;         // -1 = no limit, 0 - disable, 1 = 1 MiB, etc.
+    int32_t port                = 8080;          // server listens on this network port
+    int32_t timeout_read        = 600;           // http read timeout in seconds
+    int32_t timeout_write       = timeout_read;  // http write timeout in seconds
+    int32_t n_threads_http      = -1;    // number of threads to process HTTP requests (TODO: support threadpool)
+    int32_t n_cache_reuse       = 0;     // min chunk size to reuse from the cache via KV shifting
+    bool    cache_prompt        = true;  // whether to enable prompt caching
+    int32_t n_ctx_checkpoints   = 32;     // max number of context checkpoints per slot
+    int32_t checkpoint_every_nt = 8192;   // make a checkpoint every n tokens during prefill
+    int32_t cache_ram_mib       = 8192;  // -1 = no limit, 0 - disable, 1 = 1 MiB, etc.
 
     std::string hostname      = "127.0.0.1";
     std::string public_path   = "";                                                                         // NOLINT
@@ -544,6 +549,7 @@ struct common_params {
 
     // webui configs
     bool webui = true;
+    bool webui_mcp_proxy = false;
     std::string webui_config_json;
 
     // "advanced" endpoints are disabled by default for better security
@@ -868,7 +874,7 @@ std::string common_detokenize(
 // Embedding utils
 //
 
-// TODO: repace embd_norm with an enum
+// TODO: replace embd_norm with an enum
 void common_embd_normalize(const float * inp, float * out, int n, int embd_norm);
 
 float common_embd_similarity_cos(const float * embd1, const float * embd2, int n);
