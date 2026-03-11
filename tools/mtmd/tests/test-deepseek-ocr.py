@@ -83,7 +83,7 @@ def read_expected_output(file_path: str) -> str:
 
 def main():
     ap = argparse.ArgumentParser(description="Compare llama.cpp and HuggingFace DeepSeek-OCR outputs")
-    ap.add_argument("--llama-model", default="gguf_models/deepseek-ai/deepseek-ocr-q8_0.gguf",
+    ap.add_argument("--llama-model", default="gguf_models/deepseek-ai/deepseek-ocr-f16.gguf",
                     help="Path to llama.cpp GGUF model")
     ap.add_argument("--mmproj", default="gguf_models/deepseek-ai/mmproj-deepseek-ocr-f16.gguf",
                     help="Path to mmproj GGUF file")
