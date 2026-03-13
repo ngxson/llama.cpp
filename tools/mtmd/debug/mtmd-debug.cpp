@@ -213,7 +213,7 @@ int main(int argc, char ** argv) {
             mtmd_debug_preprocess_audio(ctx_mtmd.get(), pcm_samples);
         } else {
             LOG_INF("Input image with dimensions %d x %d, type: %s\n", inp_size, inp_size, input.c_str());
-            mtmd_debug_preprocess_image(ctx_mtmd.get(), rgb_values);
+            mtmd_debug_preprocess_image(ctx_mtmd.get(), rgb_values, inp_size, inp_size);
         }
 
     } else {

@@ -1206,22 +1206,22 @@ void mtmd_debug_encode_audio(mtmd_context * ctx, const std::vector<float> & inpu
     inp_audio.buf.resize(input.size() * n_mel);
     for (size_t i = 0; i < input.size(); i++) {
         for (int j = 0; j < n_mel; j++) {
-            inp_audio.buf[i*n_mel + j] = input[i];
+            inp_audio.buf[j * inp_audio.nx + i] = input[i];
         }
     }
     LOG_INF("%s: created input audio with nx=%d, ny=%d\n", __func__, inp_audio.nx, inp_audio.ny);
     mtmd_debug_encode_impl(ctx, ctx->ctx_a, inp_audio);
 }
 
-void mtmd_debug_preprocess_image(mtmd_context * ctx, const std::vector<uint8_t> & rgb_values) {
+void mtmd_debug_preprocess_image(mtmd_context * ctx, const std::vector<uint8_t> & rgb_values, int nx, int ny) {
     if (!ctx->ctx_v) {
         LOG_ERR("%s: model does not support vision input\n", __func__);
         return;
     }
     clip_image_u8 img_u8;
-    img_u8.nx = 1;
-    img_u8.ny = rgb_values.size() / 3;
-    img_u8.buf = std::move(rgb_values);
+    img_u8.nx = nx;
+    img_u8.ny = ny;
+    img_u8.buf = rgb_values;
     clip_image_f32_batch batch_f32;
     bool ok = clip_image_preprocess(ctx->ctx_v, &img_u8, &batch_f32);
     if (!ok) {
@@ -1250,11 +1250,11 @@ void mtmd_debug_preprocess_audio(mtmd_context * ctx, const std::vector<float> & 
     for (size_t i = 0; i < mel_spec_chunks.size(); i++) {
         LOG_INF("%s: mel spec chunk %zu has n_len=%d, n_mel=%d\n", __func__, i, mel_spec_chunks[i].n_len, mel_spec_chunks[i].n_mel);
 
-        // dump mel entries: data is stored as [n_len][n_mel] (time-major)
+        // dump mel entries: data is stored as [n_mel][n_len] (mel-major)
         const auto & mel = mel_spec_chunks[i];
-        for (int t = 0; t < mel.n_len; t++) {
-            for (int m = 0; m < mel.n_mel; m++) {
-                LOG_INF("mel[%zu][t=%d][m=%d] = %f\n", i, t, m, mel.data[t * mel.n_mel + m]);
+        for (int m = 0; m < mel.n_mel; m++) {
+            for (int t = 0; t < mel.n_len; t++) {
+                LOG_INF("mel[%zu][m=%d][t=%d] = %f\n", i, m, t, mel.data[m * mel.n_len + t]);
             }
         }
     }

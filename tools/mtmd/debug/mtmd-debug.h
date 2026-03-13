@@ -2,6 +2,8 @@
 
 #include "mtmd.h"
 
+#include <vector>
+
 // INTERNAL HEADER FOR DEBUGGING PURPOSES ONLY
 // NOT INTENDED FOR PUBLIC USE
 // Do not raise issues related to this debugging API
@@ -11,5 +13,5 @@ void mtmd_debug_encode_image(mtmd_context * ctx, const std::vector<std::vector<f
 void mtmd_debug_encode_audio(mtmd_context * ctx, const std::vector<float> & input); // will be broadcasted to fit n_mel
 
 // preprocess take the raw input values
-void mtmd_debug_preprocess_image(mtmd_context * ctx, const std::vector<uint8_t> & rgb_values);
+void mtmd_debug_preprocess_image(mtmd_context * ctx, const std::vector<uint8_t> & rgb_values, int nx, int ny);
 void mtmd_debug_preprocess_audio(mtmd_context * ctx, const std::vector<float> & pcm_samples);
