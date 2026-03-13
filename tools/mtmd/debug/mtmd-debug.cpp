@@ -196,7 +196,7 @@ int main(int argc, char ** argv) {
         } else if (input == "440") {
             pcm_samples.resize(inp_size);
             float freq = 440.0f;
-            float sample_rate = mtmd_get_audio_bitrate(ctx_mtmd.get());
+            float sample_rate = mtmd_get_audio_sample_rate(ctx_mtmd.get());
             for (int i = 0; i < inp_size; ++i) {
                 pcm_samples[i] = sinf(2 * M_PI * freq * i / sample_rate);
             }
