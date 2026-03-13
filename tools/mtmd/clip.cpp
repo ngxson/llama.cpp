@@ -2197,8 +2197,6 @@ struct clip_init_result clip_init(const char * fname, struct clip_context_params
             // TODO: we don't support audio for Gemma 3N, but GGUF contains audio tensors
             // we can remove this check when we implement audio support for Gemma 3N
             skip_audio = ctx_vision->model.proj_type == PROJECTOR_TYPE_GEMMA3NV;
-
-            // clip_debug_encode(ctx_vision, 24*14, 24*14, 0.5f);
         }
 
         if (loader.has_audio && !skip_audio) {
@@ -4164,17 +4162,6 @@ const clip_hparams * clip_get_hparams(const struct clip_ctx * ctx) {
 //
 // API for debugging
 //
-void clip_debug_encode(clip_ctx * ctx, int h, int w, float fill_value) {
-    clip_image_f32 img;
-    img.nx = w;
-    img.ny = h;
-    img.buf.resize(h * w * 3);
-    for (int i = 0; i < h * w * 3; i++) {
-        img.buf[i] = static_cast<float>(fill_value);
-    }
-    clip_image_encode(ctx, 1, &img, nullptr);
-    GGML_ASSERT(img.buf.empty() && "expected, always stop here");
-}
 
 void clip_set_debug_output_embeddings(clip_ctx * ctx, bool enable) {
     ctx->debug_output_embeddings = enable;
