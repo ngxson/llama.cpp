@@ -198,8 +198,9 @@ int main(int argc, char ** argv) {
             pcm_samples.resize(inp_size);
             float freq = 440.0f;
             float sample_rate = mtmd_get_audio_sample_rate(ctx_mtmd.get());
+            float pi = 3.14159265f;
             for (int i = 0; i < inp_size; ++i) {
-                pcm_samples[i] = sinf(2 * M_PI * freq * i / sample_rate);
+                pcm_samples[i] = sinf(2 * pi * freq * i / sample_rate);
             }
         } else {
             LOG_ERR("ERR: Invalid input specified with --image/--audio\n");
