@@ -10,6 +10,7 @@
 #include "mtmd-helper.h"
 
 #include <vector>
+#include <cmath>
 #include <limits.h>
 #include <cinttypes>
 #include <clocale>
