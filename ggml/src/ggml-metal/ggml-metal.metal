@@ -11264,7 +11264,7 @@ template [[host_name("kernel_mul_mv_id_q5_K_hifi_res8_f32")]] kernel kernel_mul_
 template [[host_name("kernel_mul_mv_id_q6_K_f32")]]    kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q6_K_f32_impl   <N_R0_Q6_K>>>;
 template [[host_name("kernel_mul_mv_id_q6_K_hifi_res8_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q6_K_hifi_res8_f32_impl<N_R0_Q6_K>>>;
 template [[host_name("kernel_mul_mv_id_q2_k_turbo_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q2_K_turbo_f32_impl<N_R0_Q2_K>>>;
-template [[host_name("kernel_mul_mv_id_q3_k_turbo_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q3_K_turbo_f32_impl<N_R0_Q3_K>>>;
+template [[host_name("kernel_mul_mv_id_q3_k_turbo_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q3_K_turbo_f32_impl<N_R0_Q2_K>>>;
 template [[host_name("kernel_mul_mv_id_q4_k_turbo_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q4_K_turbo_f32_impl<N_R0_Q4_K>>>;
 template [[host_name("kernel_mul_mv_id_q5_k_turbo_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q5_K_turbo_f32_impl<N_R0_Q5_K>>>;
 template [[host_name("kernel_mul_mv_id_q6_k_turbo_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q6_K_turbo_f32_impl<N_R0_Q6_K>>>;

@@ -1528,6 +1528,7 @@ void ggml_vec_dot_q3_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t
             }
         }
     }
+
     *s = sumf;
 }
 
@@ -1553,14 +1554,12 @@ void ggml_vec_dot_q2_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t
         const int8_t  * q8  = y[i].qs;
         const uint8_t * sc  = x[i].scales;
 
-        // Compute min contribution (high 4 bits of scale bytes)
         int summs = 0;
         for (int j = 0; j < 16; ++j) summs += y[i].bsums[j] * (sc[j] >> 4);
 
         const float dall = y[i].d * GGML_CPU_FP16_TO_FP32(x[i].d);
         const float dmin = y[i].d * GGML_CPU_FP16_TO_FP32(x[i].dmin);
 
-        // Q2_K dot product (matches generic implementation exactly)
         int isum = 0, is = 0;
         for (int k = 0; k < QK_K/128; ++k) {
             int shift = 0;
@@ -1588,6 +1587,7 @@ void ggml_vec_dot_q2_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t
             }
         }
     }
+
     *s = sumf;
 }
 
