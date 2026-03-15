@@ -125,6 +125,7 @@ class Keys:
         EXPERT_GROUP_SCALE                = "{arch}.expert_group_scale"
         EXPERTS_PER_GROUP                 = "{arch}.experts_per_group"
         MOE_EVERY_N_LAYERS                = "{arch}.moe_every_n_layers"
+        MOE_LATENT_SIZE                   = "{arch}.moe_latent_size"
         NEXTN_PREDICT_LAYERS              = "{arch}.nextn_predict_layers"
         NUM_DEEPSTACK_LAYERS              = "{arch}.n_deepstack_layers"
         POOLING_TYPE                      = "{arch}.pooling_type"
@@ -177,6 +178,8 @@ class Keys:
         TEMPERATURE_LENGTH           = "{arch}.attention.temperature_length"
         KEY_LENGTH_MLA               = "{arch}.attention.key_length_mla"
         VALUE_LENGTH_MLA             = "{arch}.attention.value_length_mla"
+        KEY_LENGTH_SWA               = "{arch}.attention.key_length_swa"
+        VALUE_LENGTH_SWA             = "{arch}.attention.value_length_swa"
         SHARED_KV_LAYERS             = "{arch}.attention.shared_kv_layers"
         SLIDING_WINDOW_PATTERN       = "{arch}.attention.sliding_window_pattern"
         TEMPERATURE_SCALE            = "{arch}.attention.temperature_scale"
@@ -188,6 +191,7 @@ class Keys:
 
     class Rope:
         DIMENSION_COUNT           = "{arch}.rope.dimension_count"
+        DIMENSION_COUNT_SWA       = "{arch}.rope.dimension_count_swa"
         DIMENSION_SECTIONS        = "{arch}.rope.dimension_sections"
         FREQ_BASE                 = "{arch}.rope.freq_base"
         FREQ_BASE_SWA             = "{arch}.rope.freq_base_swa"
@@ -540,6 +544,8 @@ class MODEL_TENSOR(IntEnum):
     FFN_DOWN_CHEXP       = auto()
     FFN_UP_CHEXP         = auto()
     FFN_EXP_PROBS_B      = auto()
+    MOE_LATENT_DOWN      = auto() # nemotron 3 super
+    MOE_LATENT_UP        = auto() # nemotron 3 super
     ATTN_Q_NORM          = auto()
     ATTN_K_NORM          = auto()
     LAYER_OUT_NORM       = auto()
@@ -983,6 +989,8 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.FFN_UP_EXP:                "blk.{bid}.ffn_up_exps",
     MODEL_TENSOR.FFN_GATE_UP_EXP:           "blk.{bid}.ffn_gate_up_exps",
     MODEL_TENSOR.FFN_EXP_PROBS_B:           "blk.{bid}.exp_probs_b",
+    MODEL_TENSOR.MOE_LATENT_DOWN:           "blk.{bid}.ffn_latent_down",      # nemotron 3 super
+    MODEL_TENSOR.MOE_LATENT_UP:             "blk.{bid}.ffn_latent_up",        # nemotron 3 super
     MODEL_TENSOR.LAYER_OUT_NORM:            "blk.{bid}.layer_output_norm",
     MODEL_TENSOR.PER_LAYER_TOKEN_EMBD:      "per_layer_token_embd",           # gemma3n
     MODEL_TENSOR.PER_LAYER_MODEL_PROJ:      "per_layer_model_proj",           # gemma3n
@@ -2910,6 +2918,9 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.FFN_GATE_INP,
         MODEL_TENSOR.FFN_UP_EXP,
         MODEL_TENSOR.FFN_DOWN_EXP,
+        # expert latent
+        MODEL_TENSOR.MOE_LATENT_DOWN,
+        MODEL_TENSOR.MOE_LATENT_UP,
         # shared expert
         MODEL_TENSOR.FFN_DOWN_SHEXP,
         MODEL_TENSOR.FFN_UP_SHEXP,
@@ -3780,6 +3791,13 @@ class GGMLQuantizationType(IntEnum):
     Q5_K_HIFI_RES8 = 44       # Q5_K + INT8 residuals (efficient for 4B-10B models)
     Q3_K_HIFI_RES8 = 45       # Q3_K + INT8 residuals (lean version for imatrix use)
     Q4_K_HIFI = 46             # Q4_K layout + 8 FP16 outliers per block (high-fidelity 4-bit)
+    Q2_K_HIFI = 47
+    Q2_K_LITE = 48
+    Q3_K_LITE = 49
+    Q4_K_LITE = 50
+    Q5_K_LITE = 51
+    Q6_K_LITE = 52
+    NVFP4   = 53
 
 
 class ExpertGatingFuncType(IntEnum):
@@ -3888,6 +3906,7 @@ class VisionProjectorType:
     GEMMA3 = "gemma3"
     GEMMA3NV = "gemma3nv"
     GEMMA3NA = "gemma3na"
+    PHI4 = "phi4"
     IDEFICS3 = "idefics3"
     PIXTRAL = "pixtral"
     LLAMA4 = "llama4"
@@ -3956,6 +3975,13 @@ GGML_QUANT_SIZES: dict[GGMLQuantizationType, tuple[int, int]] = {
     GGMLQuantizationType.Q5_K_HIFI_RES8: (256, 200),  # Q5_K (176) + INT8 residuals (24)
     GGMLQuantizationType.Q3_K_HIFI_RES8: (256, 132),  # Q3_K (110) + INT8 residuals (22)
     GGMLQuantizationType.Q4_K_HIFI: (256, 168),  # Q4_K (144) + outlier_idx[8] + outlier_vals[16] = 168 bytes
+    GGMLQuantizationType.Q2_K_HIFI: (256, 99),   # Q2_K + INT8 residuals
+    GGMLQuantizationType.Q2_K_LITE: (256, 96),
+    GGMLQuantizationType.Q3_K_LITE: (256, 132),
+    GGMLQuantizationType.Q4_K_LITE: (256, 168),
+    GGMLQuantizationType.Q5_K_LITE: (256, 200),
+    GGMLQuantizationType.Q6_K_LITE: (256, 232),
+    GGMLQuantizationType.NVFP4:   (64, 4 + 32),
 }
 
 
