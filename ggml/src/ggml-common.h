@@ -534,6 +534,166 @@ typedef struct {
 // Total: 84 (Q2_K) + 12 (extension) = 96 bytes → 3.0 BPW
 static_assert(sizeof(block_q2_k_hifi) == 96, "wrong q2_k_hifi block size/padding");
 
+// ===========================================================================
+// K_LITE Family: INT8 residual corrections after base quantization
+// All types use the same extension pattern:
+//   residual_count (1) + residual_idx[N] (N) + residual_vals[N] (N) + _pad + residual_scale (4)
+// residual[i] = true_weight[i] - reconstructed_weight[i], quantized to INT8
+// Dot product: base_dot + sum_i(residual_scale * residual_vals[i] * activation[residual_idx[i]])
+// Tier 0 blocks (residual_count=0) fast-path through unchanged at base type speed.
+// ===========================================================================
+
+// Q2_K_LITE: Q2_K base + 4 INT8 residuals (96 bytes = 84 + 12)
+// Base shifted down to Q2_K; residual_scale stored as ggml_half for memory efficiency.
+#define Q2_K_LITE_BLOCK_SIZE    256
+#define Q2_K_LITE_MAX_RESIDUALS 4
+#if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
+#pragma pack(push, 1)
+#endif
+typedef struct {
+    // === Q2_K-COMPATIBLE BASE (84 bytes) ===
+    uint8_t scales[QK_K/16];   // 16 bytes: scales and mins, quantized with 4 bits
+    uint8_t qs[QK_K/4];        // 64 bytes: quants (2-bit packed)
+    GGML_EXTENSION union {
+        struct {
+            ggml_half d;       // 2 bytes: super-block scale for quantized scales
+            ggml_half dmin;    // 2 bytes: super-block scale for quantized mins
+        } GGML_COMMON_AGGR_S;
+        ggml_half2 dm;
+    } GGML_COMMON_AGGR_U;
+    // === INT8 RESIDUAL EXTENSION (12 bytes) ===
+    uint8_t   residual_count;                            // 1 byte: actual residuals stored (0-4)
+    uint8_t   residual_idx[Q2_K_LITE_MAX_RESIDUALS];   // 4 bytes: positions (0-255)
+    int8_t    residual_vals[Q2_K_LITE_MAX_RESIDUALS];  // 4 bytes: INT8 corrections
+    uint8_t   _pad;                                      // 1 byte: align residual_scale to 2 bytes
+    ggml_half residual_scale;                            // 2 bytes: shared scale (max_err / 127)
+} block_q2_k_lite;
+#if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
+#pragma pack(pop)
+#endif
+// Total: 84 (Q2_K) + 1 + 4 + 4 + 1 + 2 = 96 bytes → 3.0 BPW
+static_assert(sizeof(block_q2_k_lite) == 96, "wrong q2_k_lite block size/padding");
+
+// Q3_K_LITE: Q2_K base + 8 INT8 residuals (104 bytes = 84 + 20)
+// Base shifted down from Q3_K (110B) to Q2_K (84B); smaller block = faster than Q3_K_S.
+#define Q3_K_LITE_BLOCK_SIZE    256
+#define Q3_K_LITE_MAX_RESIDUALS 8
+#if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
+#pragma pack(push, 1)
+#endif
+typedef struct {
+    // === Q2_K-COMPATIBLE BASE (84 bytes) ===
+    uint8_t scales[QK_K/16];   // 16 bytes: scales and mins, quantized with 4 bits
+    uint8_t qs[QK_K/4];        // 64 bytes: quants (2-bit packed)
+    GGML_EXTENSION union {
+        struct {
+            ggml_half d;       // 2 bytes: super-block scale for quantized scales
+            ggml_half dmin;    // 2 bytes: super-block scale for quantized mins
+        } GGML_COMMON_AGGR_S;
+        ggml_half2 dm;
+    } GGML_COMMON_AGGR_U;
+    // === INT8 RESIDUAL EXTENSION (20 bytes) ===
+    uint8_t   residual_count;                            // 1 byte: actual residuals stored (0-8)
+    uint8_t   residual_idx[Q3_K_LITE_MAX_RESIDUALS];   // 8 bytes: positions (0-255)
+    int8_t    residual_vals[Q3_K_LITE_MAX_RESIDUALS];  // 8 bytes: INT8 corrections
+    uint8_t   _pad;                                      // 1 byte: align residual_scale to 2 bytes
+    ggml_half residual_scale;                            // 2 bytes: shared scale (max_err / 127)
+} block_q3_k_lite;
+#if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
+#pragma pack(pop)
+#endif
+// Total: 84 (Q2_K) + 1 + 8 + 8 + 1 + 2 = 104 bytes → 3.25 BPW  (Q3_K_S = 110 bytes)
+static_assert(sizeof(block_q3_k_lite) == 104, "wrong q3_k_lite block size/padding");
+
+// Q4_K_LITE: Q3_K base + 7 INT8 residuals (128 bytes = 110 + 18)
+// Base shifted down from Q4_K (144B) to Q3_K (110B); smaller block = faster than Q4_K_S.
+#define Q4_K_LITE_BLOCK_SIZE    256
+#define Q4_K_LITE_MAX_RESIDUALS 7
+#if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
+#pragma pack(push, 1)
+#endif
+typedef struct {
+    // === Q3_K-COMPATIBLE BASE (110 bytes) ===
+    uint8_t  hmask[QK_K/8];         // 32 bytes: high bits of quants
+    uint8_t  qs[QK_K/4];            // 64 bytes: quants (2-bit low bits)
+    uint8_t  scales[K_SCALE_SIZE];  // 12 bytes: scales, quantized with 6 bits
+    ggml_half d;                    // 2 bytes: super-block scale
+    // === INT8 RESIDUAL EXTENSION (18 bytes) ===
+    uint8_t   residual_count;                            // 1 byte: actual residuals stored (0-7)
+    uint8_t   residual_idx[Q4_K_LITE_MAX_RESIDUALS];   // 7 bytes: positions (0-255)
+    int8_t    residual_vals[Q4_K_LITE_MAX_RESIDUALS];  // 7 bytes: INT8 corrections
+    uint8_t   _pad;                                      // 1 byte: align residual_scale to 2 bytes
+    ggml_half residual_scale;                            // 2 bytes: shared scale (max_err / 127)
+} block_q4_k_lite;
+#if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
+#pragma pack(pop)
+#endif
+// Total: 110 (Q3_K) + 1 + 7 + 7 + 1 + 2 = 128 bytes → 4.0 BPW  (Q4_K_S = 144 bytes)
+static_assert(sizeof(block_q4_k_lite) == 128, "wrong q4_k_lite block size/padding");
+
+// Q5_K_LITE: Q4_K base + 8 INT8 residuals (164 bytes = 144 + 20)
+// Base shifted down from Q5_K (176B) to Q4_K (144B); smaller block = faster than Q5_K_S.
+#define Q5_K_LITE_BLOCK_SIZE    256
+#define Q5_K_LITE_MAX_RESIDUALS 8
+#if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
+#pragma pack(push, 1)
+#endif
+typedef struct {
+    // === Q4_K-COMPATIBLE BASE (144 bytes) ===
+    GGML_EXTENSION union {
+        struct {
+            ggml_half d;       // 2 bytes: super-block scale for quantized scales
+            ggml_half dmin;    // 2 bytes: super-block scale for quantized mins
+        } GGML_COMMON_AGGR_S;
+        ggml_half2 dm;
+    } GGML_COMMON_AGGR_U;
+    uint8_t  scales[3*QK_K/64]; // 12 bytes: scales and mins, quantized with 6 bits
+    uint8_t  qs[QK_K/2];        // 128 bytes: quants (4-bit packed)
+    // === INT8 RESIDUAL EXTENSION (20 bytes) ===
+    uint8_t   residual_count;                            // 1 byte: actual residuals stored (0-8)
+    uint8_t   residual_idx[Q5_K_LITE_MAX_RESIDUALS];   // 8 bytes: positions (0-255)
+    int8_t    residual_vals[Q5_K_LITE_MAX_RESIDUALS];  // 8 bytes: INT8 corrections
+    uint8_t   _pad;                                      // 1 byte: align residual_scale to 2 bytes
+    ggml_half residual_scale;                            // 2 bytes: shared scale (max_err / 127)
+} block_q5_k_lite;
+#if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
+#pragma pack(pop)
+#endif
+// Total: 144 (Q4_K) + 1 + 8 + 8 + 1 + 2 = 164 bytes → 5.125 BPW  (Q5_K_S = 176 bytes)
+static_assert(sizeof(block_q5_k_lite) == 164, "wrong q5_k_lite block size/padding");
+
+// Q6_K_LITE: Q5_K base + 8 INT8 residuals (196 bytes = 176 + 20)
+// Base shifted down from Q6_K (210B) to Q5_K (176B); smaller block = faster than Q6_K_S.
+#define Q6_K_LITE_BLOCK_SIZE    256
+#define Q6_K_LITE_MAX_RESIDUALS 8
+#if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
+#pragma pack(push, 1)
+#endif
+typedef struct {
+    // === Q5_K-COMPATIBLE BASE (176 bytes) ===
+    GGML_EXTENSION union {
+        struct {
+            ggml_half d;       // 2 bytes: super-block scale for quantized scales
+            ggml_half dmin;    // 2 bytes: super-block scale for quantized mins
+        } GGML_COMMON_AGGR_S;
+        ggml_half2 dm;
+    } GGML_COMMON_AGGR_U;
+    uint8_t  scales[3*QK_K/64]; // 12 bytes: scales and mins
+    uint8_t  qh[QK_K/8];        // 32 bytes: high bits of quants
+    uint8_t  qs[QK_K/2];        // 128 bytes: quants (4-bit low bits)
+    // === INT8 RESIDUAL EXTENSION (20 bytes) ===
+    uint8_t   residual_count;                            // 1 byte: actual residuals stored (0-8)
+    uint8_t   residual_idx[Q6_K_LITE_MAX_RESIDUALS];   // 8 bytes: positions (0-255)
+    int8_t    residual_vals[Q6_K_LITE_MAX_RESIDUALS];  // 8 bytes: INT8 corrections
+    uint8_t   _pad;                                      // 1 byte: align residual_scale to 2 bytes
+    ggml_half residual_scale;                            // 2 bytes: shared scale (max_err / 127)
+} block_q6_k_lite;
+#if !defined(GGML_COMMON_DECL_METAL) && !defined(GGML_COMMON_DECL_CUDA) && !defined(GGML_COMMON_DECL_HIP)
+#pragma pack(pop)
+#endif
+// Total: 176 (Q5_K) + 1 + 8 + 8 + 1 + 2 = 196 bytes → 6.125 BPW  (Q6_K_S = 210 bytes)
+static_assert(sizeof(block_q6_k_lite) == 196, "wrong q6_k_lite block size/padding");
+
 // This is only used for intermediate quantization and dot products
 typedef struct {
     float   d;              // delta

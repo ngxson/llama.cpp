@@ -599,6 +599,16 @@ static const char * ggml_metal_type_name_for_kernel(ggml_type type) {
             return "q6_K_hifi_res8";
         case GGML_TYPE_Q5_K_HIFI_RES8:
             return "q5_K_hifi_res8";
+        case GGML_TYPE_Q2_K_LITE:
+            return "q2_k_lite";
+        case GGML_TYPE_Q3_K_LITE:
+            return "q3_k_lite";
+        case GGML_TYPE_Q4_K_LITE:
+            return "q4_k_lite";
+        case GGML_TYPE_Q5_K_LITE:
+            return "q5_k_lite";
+        case GGML_TYPE_Q6_K_LITE:
+            return "q6_k_lite";
         default:
             return ggml_type_name(type);
     }
@@ -867,6 +877,31 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv(ggml_meta
                 nsg = N_SG_Q5_K;
                 nr0 = N_R0_Q5_K;
             } break;
+        case GGML_TYPE_Q2_K_LITE:
+            {
+                nsg = N_SG_Q2_K;  // Q2_K base
+                nr0 = N_R0_Q2_K;
+            } break;
+        case GGML_TYPE_Q3_K_LITE:
+            {
+                nsg = N_SG_Q2_K;  // Q2_K base (shifted down from Q3_K)
+                nr0 = N_R0_Q2_K;
+            } break;
+        case GGML_TYPE_Q4_K_LITE:
+            {
+                nsg = N_SG_Q3_K;  // Q3_K base (shifted down from Q4_K)
+                nr0 = N_R0_Q3_K;
+            } break;
+        case GGML_TYPE_Q5_K_LITE:
+            {
+                nsg = N_SG_Q4_K;  // Q4_K base (shifted down from Q5_K)
+                nr0 = N_R0_Q4_K;
+            } break;
+        case GGML_TYPE_Q6_K_LITE:
+            {
+                nsg = N_SG_Q5_K;  // Q5_K base (shifted down from Q6_K)
+                nr0 = N_R0_Q5_K;
+            } break;
         default:
             {
                 GGML_LOG_ERROR("Asserting on type %d\n", (int) tsrc0);
@@ -1112,6 +1147,31 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv_id(ggml_m
         case GGML_TYPE_Q5_K_HIFI_RES8:
             {
                 nsg = N_SG_Q5_K;
+                nr0 = N_R0_Q5_K;
+            } break;
+        case GGML_TYPE_Q2_K_LITE:
+            {
+                nsg = N_SG_Q2_K;  // Q2_K base
+                nr0 = N_R0_Q2_K;
+            } break;
+        case GGML_TYPE_Q3_K_LITE:
+            {
+                nsg = N_SG_Q2_K;  // Q2_K base (shifted down from Q3_K)
+                nr0 = N_R0_Q2_K;
+            } break;
+        case GGML_TYPE_Q4_K_LITE:
+            {
+                nsg = N_SG_Q3_K;  // Q3_K base (shifted down from Q4_K)
+                nr0 = N_R0_Q3_K;
+            } break;
+        case GGML_TYPE_Q5_K_LITE:
+            {
+                nsg = N_SG_Q4_K;  // Q4_K base (shifted down from Q5_K)
+                nr0 = N_R0_Q4_K;
+            } break;
+        case GGML_TYPE_Q6_K_LITE:
+            {
+                nsg = N_SG_Q5_K;  // Q5_K base (shifted down from Q6_K)
                 nr0 = N_R0_Q5_K;
             } break;
         default:
