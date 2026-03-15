@@ -1008,11 +1008,11 @@ static void dequantize_row_q5_k_hifi_res8_cuda(const void * vx, dst_t * y, const
     dequantize_block_q5_k_hifi_res8<<<nb, 64, 0, stream>>>(vx, y);
 }
 
-// Q2_K_TURBO: Q2_K bulk dequantization + INT8 residual corrections (pre-divided scale)
+// Q2_K_LITE: Q2_K bulk dequantization + INT8 residual corrections (pre-divided scale)
 template<typename dst_t>
-static __global__ void dequantize_block_q2_k_turbo(const void * __restrict__ vx, dst_t * __restrict__ yy) {
+static __global__ void dequantize_block_q2_k_lite(const void * __restrict__ vx, dst_t * __restrict__ yy) {
     const int64_t i   = blockIdx.x;
-    const block_q2_k_turbo * x = (const block_q2_k_turbo *) vx;
+    const block_q2_k_lite * x = (const block_q2_k_lite *) vx;
 
     const int64_t tid = threadIdx.x;
     const int64_t n   = tid/32;
@@ -1034,23 +1034,23 @@ static __global__ void dequantize_block_q2_k_turbo(const void * __restrict__ vx,
         dst_t * yb = yy + i*QK_K;
         const int rc = x[i].residual_count;
         const float rscale = __half2float(x[i].residual_scale);
-        for (int k = 0; k < rc && k < Q2_K_TURBO_MAX_RESIDUALS; ++k) {
+        for (int k = 0; k < rc && k < Q2_K_LITE_MAX_RESIDUALS; ++k) {
             yb[x[i].residual_idx[k]] += (dst_t)(rscale * (float)x[i].residual_vals[k]);
         }
     }
 }
 
 template<typename dst_t>
-static void dequantize_row_q2_k_turbo_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
+static void dequantize_row_q2_k_lite_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
     const int nb = k / QK_K;
-    dequantize_block_q2_k_turbo<<<nb, 64, 0, stream>>>(vx, y);
+    dequantize_block_q2_k_lite<<<nb, 64, 0, stream>>>(vx, y);
 }
 
-// Q3_K_TURBO: Q2_K bulk dequantization + INT8 residual corrections (base shifted down to Q2_K)
+// Q3_K_LITE: Q2_K bulk dequantization + INT8 residual corrections (base shifted down to Q2_K)
 template<typename dst_t>
-static __global__ void dequantize_block_q3_k_turbo(const void * __restrict__ vx, dst_t * __restrict__ yy) {
+static __global__ void dequantize_block_q3_k_lite(const void * __restrict__ vx, dst_t * __restrict__ yy) {
     const int64_t i   = blockIdx.x;
-    const block_q3_k_turbo * x = (const block_q3_k_turbo *) vx;
+    const block_q3_k_lite * x = (const block_q3_k_lite *) vx;
 
     const int64_t tid = threadIdx.x;
     const int64_t n   = tid/32;
@@ -1072,23 +1072,23 @@ static __global__ void dequantize_block_q3_k_turbo(const void * __restrict__ vx,
         dst_t * yb = yy + i*QK_K;
         const int rc = x[i].residual_count;
         const float rscale = __half2float(x[i].residual_scale);
-        for (int k = 0; k < rc && k < Q3_K_TURBO_MAX_RESIDUALS; ++k) {
+        for (int k = 0; k < rc && k < Q3_K_LITE_MAX_RESIDUALS; ++k) {
             yb[x[i].residual_idx[k]] += (dst_t)(rscale * (float)x[i].residual_vals[k]);
         }
     }
 }
 
 template<typename dst_t>
-static void dequantize_row_q3_k_turbo_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
+static void dequantize_row_q3_k_lite_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
     const int nb = k / QK_K;
-    dequantize_block_q3_k_turbo<<<nb, 64, 0, stream>>>(vx, y);
+    dequantize_block_q3_k_lite<<<nb, 64, 0, stream>>>(vx, y);
 }
 
-// Q4_K_TURBO: Q3_K bulk dequantization + INT8 residual corrections (base shifted down to Q3_K)
+// Q4_K_LITE: Q3_K bulk dequantization + INT8 residual corrections (base shifted down to Q3_K)
 template<typename dst_t>
-static __global__ void dequantize_block_q4_k_turbo(const void * __restrict__ vx, dst_t * __restrict__ yy) {
+static __global__ void dequantize_block_q4_k_lite(const void * __restrict__ vx, dst_t * __restrict__ yy) {
     const int64_t i = blockIdx.x;
-    const block_q4_k_turbo * x = (const block_q4_k_turbo *) vx;
+    const block_q4_k_lite * x = (const block_q4_k_lite *) vx;
 
     // Q3_K computation: 64 threads
     const int64_t r = threadIdx.x/4;
@@ -1120,22 +1120,22 @@ static __global__ void dequantize_block_q4_k_turbo(const void * __restrict__ vx,
         dst_t * yb = yy + i*QK_K;
         const int rc = x[i].residual_count;
         const float rscale = __half2float(x[i].residual_scale);
-        for (int k = 0; k < rc && k < Q4_K_TURBO_MAX_RESIDUALS; ++k) {
+        for (int k = 0; k < rc && k < Q4_K_LITE_MAX_RESIDUALS; ++k) {
             yb[x[i].residual_idx[k]] += (dst_t)(rscale * (float)x[i].residual_vals[k]);
         }
     }
 }
 
 template<typename dst_t>
-static void dequantize_row_q4_k_turbo_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
+static void dequantize_row_q4_k_lite_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
     const int nb = k / QK_K;
-    dequantize_block_q4_k_turbo<<<nb, 64, 0, stream>>>(vx, y);  // 64 threads for Q3_K computation
+    dequantize_block_q4_k_lite<<<nb, 64, 0, stream>>>(vx, y);  // 64 threads for Q3_K computation
 }
 
-// Q5_K_TURBO: Q4_K bulk dequantization + INT8 residual corrections (base shifted down to Q4_K)
+// Q5_K_LITE: Q4_K bulk dequantization + INT8 residual corrections (base shifted down to Q4_K)
 template<typename dst_t>
-static __global__ void dequantize_block_q5_k_turbo(const void * __restrict__ vx, dst_t * __restrict__ yy) {
-    const block_q5_k_turbo * x = (const block_q5_k_turbo *) vx;
+static __global__ void dequantize_block_q5_k_lite(const void * __restrict__ vx, dst_t * __restrict__ yy) {
+    const block_q5_k_lite * x = (const block_q5_k_lite *) vx;
 
     const int64_t i = blockIdx.x;
 
@@ -1168,22 +1168,22 @@ static __global__ void dequantize_block_q5_k_turbo(const void * __restrict__ vx,
         dst_t * yb = yy + i*QK_K;
         const int rc = x[i].residual_count;
         const float rscale = __half2float(x[i].residual_scale);
-        for (int k = 0; k < rc && k < Q5_K_TURBO_MAX_RESIDUALS; ++k) {
+        for (int k = 0; k < rc && k < Q5_K_LITE_MAX_RESIDUALS; ++k) {
             yb[x[i].residual_idx[k]] += (dst_t)(rscale * (float)x[i].residual_vals[k]);
         }
     }
 }
 
 template<typename dst_t>
-static void dequantize_row_q5_k_turbo_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
+static void dequantize_row_q5_k_lite_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
     const int nb = k / QK_K;
-    dequantize_block_q5_k_turbo<<<nb, 32, 0, stream>>>(vx, y);  // 32 threads for Q4_K computation
+    dequantize_block_q5_k_lite<<<nb, 32, 0, stream>>>(vx, y);  // 32 threads for Q4_K computation
 }
 
-// Q6_K_TURBO: Q5_K bulk dequantization + INT8 residual corrections (base shifted down to Q5_K)
+// Q6_K_LITE: Q5_K bulk dequantization + INT8 residual corrections (base shifted down to Q5_K)
 template<typename dst_t>
-static __global__ void dequantize_block_q6_k_turbo(const void * __restrict__ vx, dst_t * __restrict__ yy) {
-    const block_q6_k_turbo * x = (const block_q6_k_turbo *) vx;
+static __global__ void dequantize_block_q6_k_lite(const void * __restrict__ vx, dst_t * __restrict__ yy) {
+    const block_q6_k_lite * x = (const block_q6_k_lite *) vx;
 
     const int64_t i = blockIdx.x;
 
@@ -1219,16 +1219,16 @@ static __global__ void dequantize_block_q6_k_turbo(const void * __restrict__ vx,
         dst_t * yb = yy + i*QK_K;
         const int rc = x[i].residual_count;
         const float rscale = __half2float(x[i].residual_scale);
-        for (int k = 0; k < rc && k < Q6_K_TURBO_MAX_RESIDUALS; ++k) {
+        for (int k = 0; k < rc && k < Q6_K_LITE_MAX_RESIDUALS; ++k) {
             yb[x[i].residual_idx[k]] += (dst_t)(rscale * (float)x[i].residual_vals[k]);
         }
     }
 }
 
 template<typename dst_t>
-static void dequantize_row_q6_k_turbo_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
+static void dequantize_row_q6_k_lite_cuda(const void * vx, dst_t * y, const int64_t k, cudaStream_t stream) {
     const int nb = k / QK_K;
-    dequantize_block_q6_k_turbo<<<nb, 64, 0, stream>>>(vx, y);
+    dequantize_block_q6_k_lite<<<nb, 64, 0, stream>>>(vx, y);
 }
 
 template<typename dst_t>
@@ -1385,16 +1385,16 @@ to_fp16_cuda_t ggml_get_to_fp16_cuda(ggml_type type) {
             return dequantize_row_q5_K_cuda;
         case GGML_TYPE_Q6_K:
             return dequantize_row_q6_K_cuda;
-        case GGML_TYPE_Q2_K_TURBO:
-            return dequantize_row_q2_k_turbo_cuda;
-        case GGML_TYPE_Q3_K_TURBO:
-            return dequantize_row_q3_k_turbo_cuda;
-        case GGML_TYPE_Q4_K_TURBO:
-            return dequantize_row_q4_k_turbo_cuda;
-        case GGML_TYPE_Q5_K_TURBO:
-            return dequantize_row_q5_k_turbo_cuda;
-        case GGML_TYPE_Q6_K_TURBO:
-            return dequantize_row_q6_k_turbo_cuda;
+        case GGML_TYPE_Q2_K_LITE:
+            return dequantize_row_q2_k_lite_cuda;
+        case GGML_TYPE_Q3_K_LITE:
+            return dequantize_row_q3_k_lite_cuda;
+        case GGML_TYPE_Q4_K_LITE:
+            return dequantize_row_q4_k_lite_cuda;
+        case GGML_TYPE_Q5_K_LITE:
+            return dequantize_row_q5_k_lite_cuda;
+        case GGML_TYPE_Q6_K_LITE:
+            return dequantize_row_q6_k_lite_cuda;
         case GGML_TYPE_IQ2_XXS:
             return dequantize_row_iq2_xxs_cuda;
         case GGML_TYPE_IQ2_XS:
@@ -1462,16 +1462,16 @@ to_fp32_cuda_t ggml_get_to_fp32_cuda(ggml_type type) {
             return dequantize_row_q5_K_cuda;
         case GGML_TYPE_Q6_K:
             return dequantize_row_q6_K_cuda;
-        case GGML_TYPE_Q2_K_TURBO:
-            return dequantize_row_q2_k_turbo_cuda;
-        case GGML_TYPE_Q3_K_TURBO:
-            return dequantize_row_q3_k_turbo_cuda;
-        case GGML_TYPE_Q4_K_TURBO:
-            return dequantize_row_q4_k_turbo_cuda;
-        case GGML_TYPE_Q5_K_TURBO:
-            return dequantize_row_q5_k_turbo_cuda;
-        case GGML_TYPE_Q6_K_TURBO:
-            return dequantize_row_q6_k_turbo_cuda;
+        case GGML_TYPE_Q2_K_LITE:
+            return dequantize_row_q2_k_lite_cuda;
+        case GGML_TYPE_Q3_K_LITE:
+            return dequantize_row_q3_k_lite_cuda;
+        case GGML_TYPE_Q4_K_LITE:
+            return dequantize_row_q4_k_lite_cuda;
+        case GGML_TYPE_Q5_K_LITE:
+            return dequantize_row_q5_k_lite_cuda;
+        case GGML_TYPE_Q6_K_LITE:
+            return dequantize_row_q6_k_lite_cuda;
         case GGML_TYPE_IQ2_XXS:
             return dequantize_row_iq2_xxs_cuda;
         case GGML_TYPE_IQ2_XS:

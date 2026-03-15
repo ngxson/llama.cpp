@@ -612,12 +612,12 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 new_type = GGML_TYPE_Q6_K;
                 (void)model_params_b; // Suppress unused warning - kept for future tuning
             }
-            // K_TURBO output.weight: bump one tier higher within TURBO family
-            else if (ftype == LLAMA_FTYPE_MOSTLY_Q2_K_TURBO) { new_type = GGML_TYPE_Q3_K_TURBO; }
-            else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_TURBO) { new_type = GGML_TYPE_Q4_K_TURBO; }
-            else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_TURBO) { new_type = GGML_TYPE_Q5_K_TURBO; }
-            else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_TURBO) { new_type = GGML_TYPE_Q6_K_TURBO; }
-            else if (ftype == LLAMA_FTYPE_MOSTLY_Q6_K_TURBO) { new_type = GGML_TYPE_Q8_0; }
+            // K_LITE output.weight: bump one tier higher within LITE family
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q2_K_LITE) { new_type = GGML_TYPE_Q3_K_LITE; }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_LITE) { new_type = GGML_TYPE_Q4_K_LITE; }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_LITE) { new_type = GGML_TYPE_Q5_K_LITE; }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_LITE) { new_type = GGML_TYPE_Q6_K_LITE; }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q6_K_LITE) { new_type = GGML_TYPE_Q8_0; }
             else if (new_type != GGML_TYPE_Q8_0) {
                 new_type = GGML_TYPE_Q6_K;
             }
@@ -676,12 +676,12 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
                 }
                 // else: tiny models skip - use default_type (Q3_K), matching Q3_K_M
             }
-            // K_TURBO token_embd: bump one tier higher within TURBO family
-            else if (ftype == LLAMA_FTYPE_MOSTLY_Q2_K_TURBO) { new_type = GGML_TYPE_Q3_K_TURBO; }
-            else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_TURBO) { new_type = GGML_TYPE_Q4_K_TURBO; }
-            else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_TURBO) { new_type = GGML_TYPE_Q5_K_TURBO; }
-            else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_TURBO) { new_type = GGML_TYPE_Q6_K_TURBO; }
-            else if (ftype == LLAMA_FTYPE_MOSTLY_Q6_K_TURBO) { new_type = GGML_TYPE_Q8_0; }
+            // K_LITE token_embd: bump one tier higher within LITE family
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q2_K_LITE) { new_type = GGML_TYPE_Q3_K_LITE; }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q3_K_LITE) { new_type = GGML_TYPE_Q4_K_LITE; }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q4_K_LITE) { new_type = GGML_TYPE_Q5_K_LITE; }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q5_K_LITE) { new_type = GGML_TYPE_Q6_K_LITE; }
+            else if (ftype == LLAMA_FTYPE_MOSTLY_Q6_K_LITE) { new_type = GGML_TYPE_Q8_0; }
         }
     } else if (ftype == LLAMA_FTYPE_MOSTLY_IQ2_XXS || ftype == LLAMA_FTYPE_MOSTLY_IQ2_XS || ftype == LLAMA_FTYPE_MOSTLY_IQ1_S ||
                ftype == LLAMA_FTYPE_MOSTLY_IQ2_S || ftype == LLAMA_FTYPE_MOSTLY_IQ2_M    || ftype == LLAMA_FTYPE_MOSTLY_IQ1_M) {
@@ -815,7 +815,7 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
         int i_layer = info.first, n_layer = info.second;
         if      (ftype == LLAMA_FTYPE_MOSTLY_Q2_K) new_type = GGML_TYPE_Q3_K;
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q2_K_HIFI) new_type = GGML_TYPE_Q3_K;
-        else if (ftype == LLAMA_FTYPE_MOSTLY_Q2_K_TURBO) new_type = GGML_TYPE_Q3_K_TURBO;
+        else if (ftype == LLAMA_FTYPE_MOSTLY_Q2_K_LITE) new_type = GGML_TYPE_Q3_K_LITE;
         else if (ftype == LLAMA_FTYPE_MOSTLY_Q2_K_S) {
             if (i_layer < n_layer/8) new_type = GGML_TYPE_Q4_K;
         }
@@ -1183,17 +1183,17 @@ static ggml_type llama_tensor_get_type(quantize_state_impl & qs, ggml_type new_t
             case GGML_TYPE_IQ1_M:
             case GGML_TYPE_Q2_K:
             case GGML_TYPE_Q2_K_HIFI:
-            case GGML_TYPE_Q2_K_TURBO:
+            case GGML_TYPE_Q2_K_LITE:
             case GGML_TYPE_Q3_K:
             case GGML_TYPE_Q3_K_HIFI:
-            case GGML_TYPE_Q3_K_TURBO:
+            case GGML_TYPE_Q3_K_LITE:
             case GGML_TYPE_IQ4_XS: new_type = GGML_TYPE_IQ4_NL; break;
             case GGML_TYPE_Q4_K:
-            case GGML_TYPE_Q4_K_TURBO: new_type = GGML_TYPE_Q5_0; break;
+            case GGML_TYPE_Q4_K_LITE: new_type = GGML_TYPE_Q5_0; break;
             case GGML_TYPE_Q5_K:
-            case GGML_TYPE_Q5_K_TURBO: new_type = GGML_TYPE_Q5_1; break;
+            case GGML_TYPE_Q5_K_LITE: new_type = GGML_TYPE_Q5_1; break;
             case GGML_TYPE_Q6_K:
-            case GGML_TYPE_Q6_K_TURBO: new_type = GGML_TYPE_Q8_0; break;
+            case GGML_TYPE_Q6_K_LITE: new_type = GGML_TYPE_Q8_0; break;
             default: throw std::runtime_error("\nUnsupported tensor size encountered\n");
         }
         if (tensor->ne[0] % ggml_blck_size(new_type) != 0) {
@@ -1333,11 +1333,11 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
         case LLAMA_FTYPE_MOSTLY_IQ3_M:   default_type = GGML_TYPE_IQ3_S;   break;
         case LLAMA_FTYPE_MOSTLY_Q4_K_HIFI: default_type = GGML_TYPE_Q4_K; break; // Q4_K_M + dynamic outliers + early exit
         case LLAMA_FTYPE_MOSTLY_Q5_K_HIFI: default_type = GGML_TYPE_Q5_K; break; // Q5_K_M base + Q6_K_HIFI_RES8 on critical tensors
-        case LLAMA_FTYPE_MOSTLY_Q2_K_TURBO: default_type = GGML_TYPE_Q2_K_TURBO; break;
-        case LLAMA_FTYPE_MOSTLY_Q3_K_TURBO: default_type = GGML_TYPE_Q3_K_TURBO; break;
-        case LLAMA_FTYPE_MOSTLY_Q4_K_TURBO: default_type = GGML_TYPE_Q4_K_TURBO; break;
-        case LLAMA_FTYPE_MOSTLY_Q5_K_TURBO: default_type = GGML_TYPE_Q5_K_TURBO; break;
-        case LLAMA_FTYPE_MOSTLY_Q6_K_TURBO: default_type = GGML_TYPE_Q6_K_TURBO; break;
+        case LLAMA_FTYPE_MOSTLY_Q2_K_LITE: default_type = GGML_TYPE_Q2_K_LITE; break;
+        case LLAMA_FTYPE_MOSTLY_Q3_K_LITE: default_type = GGML_TYPE_Q3_K_LITE; break;
+        case LLAMA_FTYPE_MOSTLY_Q4_K_LITE: default_type = GGML_TYPE_Q4_K_LITE; break;
+        case LLAMA_FTYPE_MOSTLY_Q5_K_LITE: default_type = GGML_TYPE_Q5_K_LITE; break;
+        case LLAMA_FTYPE_MOSTLY_Q6_K_LITE: default_type = GGML_TYPE_Q6_K_LITE; break;
 
         default: throw std::runtime_error(format("invalid output file type %d\n", ftype));
     }

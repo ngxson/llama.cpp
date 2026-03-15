@@ -1000,16 +1000,16 @@ void dequantize_q5_k_hifi_res8(device const block_q5_k_hifi_res8 * xb, short il,
     dequantize_q5_K((device const block_q5_K *)xb, il, reg);
 }
 
-// K_TURBO: base fields at identical byte offsets → cast to the NEW shifted-down base type.
+// K_LITE: base fields at identical byte offsets → cast to the NEW shifted-down base type.
 // Residual corrections are applied after the base dequantize call.
-// Q2_K_TURBO: Q2_K base (unchanged)
+// Q2_K_LITE: Q2_K base (unchanged)
 template <typename type4x4>
-void dequantize_q2_k_turbo(device const block_q2_k_turbo * xb, short il, thread type4x4 & reg) {
+void dequantize_q2_k_lite(device const block_q2_k_lite * xb, short il, thread type4x4 & reg) {
     dequantize_q2_K((device const block_q2_K *)xb, il, reg);
     const int base_pos = il * 16;
     const float rscale = (float)xb->residual_scale;
     const int rc = (int)xb->residual_count;
-    for (int r = 0; r < Q2_K_TURBO_MAX_RESIDUALS; ++r) {
+    for (int r = 0; r < Q2_K_LITE_MAX_RESIDUALS; ++r) {
         if (r >= rc) break;
         const int local_pos = (int)xb->residual_idx[r] - base_pos;
         if (local_pos >= 0 && local_pos < 16) {
@@ -1018,14 +1018,14 @@ void dequantize_q2_k_turbo(device const block_q2_k_turbo * xb, short il, thread 
     }
 }
 
-// Q3_K_TURBO: Q2_K base (was Q3_K)
+// Q3_K_LITE: Q2_K base (was Q3_K)
 template <typename type4x4>
-void dequantize_q3_k_turbo(device const block_q3_k_turbo * xb, short il, thread type4x4 & reg) {
+void dequantize_q3_k_lite(device const block_q3_k_lite * xb, short il, thread type4x4 & reg) {
     dequantize_q2_K((device const block_q2_K *)xb, il, reg);
     const int base_pos = il * 16;
     const float rscale = (float)xb->residual_scale;
     const int rc = (int)xb->residual_count;
-    for (int r = 0; r < Q3_K_TURBO_MAX_RESIDUALS; ++r) {
+    for (int r = 0; r < Q3_K_LITE_MAX_RESIDUALS; ++r) {
         if (r >= rc) break;
         const int local_pos = (int)xb->residual_idx[r] - base_pos;
         if (local_pos >= 0 && local_pos < 16) {
@@ -1034,14 +1034,14 @@ void dequantize_q3_k_turbo(device const block_q3_k_turbo * xb, short il, thread 
     }
 }
 
-// Q4_K_TURBO: Q3_K base (was Q4_K)
+// Q4_K_LITE: Q3_K base (was Q4_K)
 template <typename type4x4>
-void dequantize_q4_k_turbo(device const block_q4_k_turbo * xb, short il, thread type4x4 & reg) {
+void dequantize_q4_k_lite(device const block_q4_k_lite * xb, short il, thread type4x4 & reg) {
     dequantize_q3_K((device const block_q3_K *)xb, il, reg);
     const int base_pos = il * 16;
     const float rscale = (float)xb->residual_scale;
     const int rc = (int)xb->residual_count;
-    for (int r = 0; r < Q4_K_TURBO_MAX_RESIDUALS; ++r) {
+    for (int r = 0; r < Q4_K_LITE_MAX_RESIDUALS; ++r) {
         if (r >= rc) break;
         const int local_pos = (int)xb->residual_idx[r] - base_pos;
         if (local_pos >= 0 && local_pos < 16) {
@@ -1050,14 +1050,14 @@ void dequantize_q4_k_turbo(device const block_q4_k_turbo * xb, short il, thread 
     }
 }
 
-// Q5_K_TURBO: Q4_K base (was Q5_K)
+// Q5_K_LITE: Q4_K base (was Q5_K)
 template <typename type4x4>
-void dequantize_q5_k_turbo(device const block_q5_k_turbo * xb, short il, thread type4x4 & reg) {
+void dequantize_q5_k_lite(device const block_q5_k_lite * xb, short il, thread type4x4 & reg) {
     dequantize_q4_K((device const block_q4_K *)xb, il, reg);
     const int base_pos = il * 16;
     const float rscale = (float)xb->residual_scale;
     const int rc = (int)xb->residual_count;
-    for (int r = 0; r < Q5_K_TURBO_MAX_RESIDUALS; ++r) {
+    for (int r = 0; r < Q5_K_LITE_MAX_RESIDUALS; ++r) {
         if (r >= rc) break;
         const int local_pos = (int)xb->residual_idx[r] - base_pos;
         if (local_pos >= 0 && local_pos < 16) {
@@ -1066,14 +1066,14 @@ void dequantize_q5_k_turbo(device const block_q5_k_turbo * xb, short il, thread 
     }
 }
 
-// Q6_K_TURBO: Q5_K base (was Q6_K)
+// Q6_K_LITE: Q5_K base (was Q6_K)
 template <typename type4x4>
-void dequantize_q6_k_turbo(device const block_q6_k_turbo * xb, short il, thread type4x4 & reg) {
+void dequantize_q6_k_lite(device const block_q6_k_lite * xb, short il, thread type4x4 & reg) {
     dequantize_q5_K((device const block_q5_K *)xb, il, reg);
     const int base_pos = il * 16;
     const float rscale = (float)xb->residual_scale;
     const int rc = (int)xb->residual_count;
-    for (int r = 0; r < Q6_K_TURBO_MAX_RESIDUALS; ++r) {
+    for (int r = 0; r < Q6_K_LITE_MAX_RESIDUALS; ++r) {
         if (r >= rc) break;
         const int local_pos = (int)xb->residual_idx[r] - base_pos;
         if (local_pos >= 0 && local_pos < 16) {
@@ -3736,35 +3736,35 @@ template [[host_name("kernel_mul_mv_ext_q6_K_hifi_res8_f32_r1_3")]] kernel mul_m
 template [[host_name("kernel_mul_mv_ext_q6_K_hifi_res8_f32_r1_4")]] kernel mul_mv_ext_q6_K_hifi_res8_f32_t kernel_mul_mv_ext_q4x4_f32_disp<4, block_q6_k_hifi_res8, 256, dequantize_q6_k_hifi_res8>;
 template [[host_name("kernel_mul_mv_ext_q6_K_hifi_res8_f32_r1_5")]] kernel mul_mv_ext_q6_K_hifi_res8_f32_t kernel_mul_mv_ext_q4x4_f32_disp<5, block_q6_k_hifi_res8, 256, dequantize_q6_k_hifi_res8>;
 
-typedef decltype(kernel_mul_mv_ext_q4x4_f32_disp<2, block_q2_k_turbo, 256, dequantize_q2_k_turbo>) mul_mv_ext_q2_k_turbo_f32_t;
-template [[host_name("kernel_mul_mv_ext_q2_k_turbo_f32_r1_2")]] kernel mul_mv_ext_q2_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<2, block_q2_k_turbo, 256, dequantize_q2_k_turbo>;
-template [[host_name("kernel_mul_mv_ext_q2_k_turbo_f32_r1_3")]] kernel mul_mv_ext_q2_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<3, block_q2_k_turbo, 256, dequantize_q2_k_turbo>;
-template [[host_name("kernel_mul_mv_ext_q2_k_turbo_f32_r1_4")]] kernel mul_mv_ext_q2_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<4, block_q2_k_turbo, 256, dequantize_q2_k_turbo>;
-template [[host_name("kernel_mul_mv_ext_q2_k_turbo_f32_r1_5")]] kernel mul_mv_ext_q2_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<5, block_q2_k_turbo, 256, dequantize_q2_k_turbo>;
+typedef decltype(kernel_mul_mv_ext_q4x4_f32_disp<2, block_q2_k_lite, 256, dequantize_q2_k_lite>) mul_mv_ext_q2_k_lite_f32_t;
+template [[host_name("kernel_mul_mv_ext_q2_k_lite_f32_r1_2")]] kernel mul_mv_ext_q2_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<2, block_q2_k_lite, 256, dequantize_q2_k_lite>;
+template [[host_name("kernel_mul_mv_ext_q2_k_lite_f32_r1_3")]] kernel mul_mv_ext_q2_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<3, block_q2_k_lite, 256, dequantize_q2_k_lite>;
+template [[host_name("kernel_mul_mv_ext_q2_k_lite_f32_r1_4")]] kernel mul_mv_ext_q2_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<4, block_q2_k_lite, 256, dequantize_q2_k_lite>;
+template [[host_name("kernel_mul_mv_ext_q2_k_lite_f32_r1_5")]] kernel mul_mv_ext_q2_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<5, block_q2_k_lite, 256, dequantize_q2_k_lite>;
 
-typedef decltype(kernel_mul_mv_ext_q4x4_f32_disp<2, block_q3_k_turbo, 256, dequantize_q3_k_turbo>) mul_mv_ext_q3_k_turbo_f32_t;
-template [[host_name("kernel_mul_mv_ext_q3_k_turbo_f32_r1_2")]] kernel mul_mv_ext_q3_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<2, block_q3_k_turbo, 256, dequantize_q3_k_turbo>;
-template [[host_name("kernel_mul_mv_ext_q3_k_turbo_f32_r1_3")]] kernel mul_mv_ext_q3_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<3, block_q3_k_turbo, 256, dequantize_q3_k_turbo>;
-template [[host_name("kernel_mul_mv_ext_q3_k_turbo_f32_r1_4")]] kernel mul_mv_ext_q3_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<4, block_q3_k_turbo, 256, dequantize_q3_k_turbo>;
-template [[host_name("kernel_mul_mv_ext_q3_k_turbo_f32_r1_5")]] kernel mul_mv_ext_q3_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<5, block_q3_k_turbo, 256, dequantize_q3_k_turbo>;
+typedef decltype(kernel_mul_mv_ext_q4x4_f32_disp<2, block_q3_k_lite, 256, dequantize_q3_k_lite>) mul_mv_ext_q3_k_lite_f32_t;
+template [[host_name("kernel_mul_mv_ext_q3_k_lite_f32_r1_2")]] kernel mul_mv_ext_q3_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<2, block_q3_k_lite, 256, dequantize_q3_k_lite>;
+template [[host_name("kernel_mul_mv_ext_q3_k_lite_f32_r1_3")]] kernel mul_mv_ext_q3_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<3, block_q3_k_lite, 256, dequantize_q3_k_lite>;
+template [[host_name("kernel_mul_mv_ext_q3_k_lite_f32_r1_4")]] kernel mul_mv_ext_q3_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<4, block_q3_k_lite, 256, dequantize_q3_k_lite>;
+template [[host_name("kernel_mul_mv_ext_q3_k_lite_f32_r1_5")]] kernel mul_mv_ext_q3_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<5, block_q3_k_lite, 256, dequantize_q3_k_lite>;
 
-typedef decltype(kernel_mul_mv_ext_q4x4_f32_disp<2, block_q4_k_turbo, 256, dequantize_q4_k_turbo>) mul_mv_ext_q4_k_turbo_f32_t;
-template [[host_name("kernel_mul_mv_ext_q4_k_turbo_f32_r1_2")]] kernel mul_mv_ext_q4_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<2, block_q4_k_turbo, 256, dequantize_q4_k_turbo>;
-template [[host_name("kernel_mul_mv_ext_q4_k_turbo_f32_r1_3")]] kernel mul_mv_ext_q4_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<3, block_q4_k_turbo, 256, dequantize_q4_k_turbo>;
-template [[host_name("kernel_mul_mv_ext_q4_k_turbo_f32_r1_4")]] kernel mul_mv_ext_q4_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<4, block_q4_k_turbo, 256, dequantize_q4_k_turbo>;
-template [[host_name("kernel_mul_mv_ext_q4_k_turbo_f32_r1_5")]] kernel mul_mv_ext_q4_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<5, block_q4_k_turbo, 256, dequantize_q4_k_turbo>;
+typedef decltype(kernel_mul_mv_ext_q4x4_f32_disp<2, block_q4_k_lite, 256, dequantize_q4_k_lite>) mul_mv_ext_q4_k_lite_f32_t;
+template [[host_name("kernel_mul_mv_ext_q4_k_lite_f32_r1_2")]] kernel mul_mv_ext_q4_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<2, block_q4_k_lite, 256, dequantize_q4_k_lite>;
+template [[host_name("kernel_mul_mv_ext_q4_k_lite_f32_r1_3")]] kernel mul_mv_ext_q4_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<3, block_q4_k_lite, 256, dequantize_q4_k_lite>;
+template [[host_name("kernel_mul_mv_ext_q4_k_lite_f32_r1_4")]] kernel mul_mv_ext_q4_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<4, block_q4_k_lite, 256, dequantize_q4_k_lite>;
+template [[host_name("kernel_mul_mv_ext_q4_k_lite_f32_r1_5")]] kernel mul_mv_ext_q4_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<5, block_q4_k_lite, 256, dequantize_q4_k_lite>;
 
-typedef decltype(kernel_mul_mv_ext_q4x4_f32_disp<2, block_q5_k_turbo, 256, dequantize_q5_k_turbo>) mul_mv_ext_q5_k_turbo_f32_t;
-template [[host_name("kernel_mul_mv_ext_q5_k_turbo_f32_r1_2")]] kernel mul_mv_ext_q5_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<2, block_q5_k_turbo, 256, dequantize_q5_k_turbo>;
-template [[host_name("kernel_mul_mv_ext_q5_k_turbo_f32_r1_3")]] kernel mul_mv_ext_q5_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<3, block_q5_k_turbo, 256, dequantize_q5_k_turbo>;
-template [[host_name("kernel_mul_mv_ext_q5_k_turbo_f32_r1_4")]] kernel mul_mv_ext_q5_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<4, block_q5_k_turbo, 256, dequantize_q5_k_turbo>;
-template [[host_name("kernel_mul_mv_ext_q5_k_turbo_f32_r1_5")]] kernel mul_mv_ext_q5_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<5, block_q5_k_turbo, 256, dequantize_q5_k_turbo>;
+typedef decltype(kernel_mul_mv_ext_q4x4_f32_disp<2, block_q5_k_lite, 256, dequantize_q5_k_lite>) mul_mv_ext_q5_k_lite_f32_t;
+template [[host_name("kernel_mul_mv_ext_q5_k_lite_f32_r1_2")]] kernel mul_mv_ext_q5_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<2, block_q5_k_lite, 256, dequantize_q5_k_lite>;
+template [[host_name("kernel_mul_mv_ext_q5_k_lite_f32_r1_3")]] kernel mul_mv_ext_q5_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<3, block_q5_k_lite, 256, dequantize_q5_k_lite>;
+template [[host_name("kernel_mul_mv_ext_q5_k_lite_f32_r1_4")]] kernel mul_mv_ext_q5_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<4, block_q5_k_lite, 256, dequantize_q5_k_lite>;
+template [[host_name("kernel_mul_mv_ext_q5_k_lite_f32_r1_5")]] kernel mul_mv_ext_q5_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<5, block_q5_k_lite, 256, dequantize_q5_k_lite>;
 
-typedef decltype(kernel_mul_mv_ext_q4x4_f32_disp<2, block_q6_k_turbo, 256, dequantize_q6_k_turbo>) mul_mv_ext_q6_k_turbo_f32_t;
-template [[host_name("kernel_mul_mv_ext_q6_k_turbo_f32_r1_2")]] kernel mul_mv_ext_q6_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<2, block_q6_k_turbo, 256, dequantize_q6_k_turbo>;
-template [[host_name("kernel_mul_mv_ext_q6_k_turbo_f32_r1_3")]] kernel mul_mv_ext_q6_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<3, block_q6_k_turbo, 256, dequantize_q6_k_turbo>;
-template [[host_name("kernel_mul_mv_ext_q6_k_turbo_f32_r1_4")]] kernel mul_mv_ext_q6_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<4, block_q6_k_turbo, 256, dequantize_q6_k_turbo>;
-template [[host_name("kernel_mul_mv_ext_q6_k_turbo_f32_r1_5")]] kernel mul_mv_ext_q6_k_turbo_f32_t kernel_mul_mv_ext_q4x4_f32_disp<5, block_q6_k_turbo, 256, dequantize_q6_k_turbo>;
+typedef decltype(kernel_mul_mv_ext_q4x4_f32_disp<2, block_q6_k_lite, 256, dequantize_q6_k_lite>) mul_mv_ext_q6_k_lite_f32_t;
+template [[host_name("kernel_mul_mv_ext_q6_k_lite_f32_r1_2")]] kernel mul_mv_ext_q6_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<2, block_q6_k_lite, 256, dequantize_q6_k_lite>;
+template [[host_name("kernel_mul_mv_ext_q6_k_lite_f32_r1_3")]] kernel mul_mv_ext_q6_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<3, block_q6_k_lite, 256, dequantize_q6_k_lite>;
+template [[host_name("kernel_mul_mv_ext_q6_k_lite_f32_r1_4")]] kernel mul_mv_ext_q6_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<4, block_q6_k_lite, 256, dequantize_q6_k_lite>;
+template [[host_name("kernel_mul_mv_ext_q6_k_lite_f32_r1_5")]] kernel mul_mv_ext_q6_k_lite_f32_t kernel_mul_mv_ext_q4x4_f32_disp<5, block_q6_k_lite, 256, dequantize_q6_k_lite>;
 
 template<typename T0, typename T1, short NR0, typename args_t>
 void kernel_mul_mv_t_t_impl(
@@ -8240,10 +8240,10 @@ kernel void kernel_mul_mv_q6_K_hifi_res8_f32(
     kernel_mul_mv_q6_K_hifi_res8_f32_impl<N_R0_Q6_K, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
 }
 
-// K_TURBO mul_mv impls: use TURBO block pointer for correct stride + apply INT8 residual corrections.
+// K_LITE mul_mv impls: use LITE block pointer for correct stride + apply INT8 residual corrections.
 
 template<int nr0, typename args_t>
-void kernel_mul_mv_q2_K_turbo_f32_impl(
+void kernel_mul_mv_q2_K_lite_f32_impl(
         args_t args,
         device const char * src0,
         device const char * src1,
@@ -8268,7 +8268,7 @@ void kernel_mul_mv_q2_K_turbo_f32_impl(
     const uint64_t offset0 = first_row*args.nb01 + (i12/args.r2)*args.nb02 + (i13/args.r3)*args.nb03;
     const uint64_t offset1 =        r1*args.nb11 + (i12        )*args.nb12 + (i13        )*args.nb13;
 
-    device const block_q2_k_turbo * x = (device const block_q2_k_turbo *) (src0 + offset0);
+    device const block_q2_k_lite * x = (device const block_q2_k_lite *) (src0 + offset0);
     device const float             * y = (device const float             *) (src1 + offset1);
 
     float yl[32];
@@ -8316,14 +8316,14 @@ void kernel_mul_mv_q2_K_turbo_f32_impl(
                                  (acc1[3] + 1.f/256.f * acc2[3]) * (sc[6] & 0xF) * 1.f/64.f) -
                          dmin * (sumy[0] * (sc[0] & 0xF0) + sumy[1] * (sc[2] & 0xF0) + sumy[2] * (sc[4] & 0xF0) + sumy[3] * (sc[6] & 0xF0));
 
-            // Apply INT8 residual corrections for Q2_K_TURBO
+            // Apply INT8 residual corrections for Q2_K_LITE
             {
-                device const block_q2_k_turbo * xb_row = (device const block_q2_k_turbo *)((device const char *)&x[ib] + (uint64_t)row * args.nb01);
+                device const block_q2_k_lite * xb_row = (device const block_q2_k_lite *)((device const char *)&x[ib] + (uint64_t)row * args.nb01);
                 const int rc = (int)xb_row->residual_count;
                 if (rc > 0) {
                     const float rscale = (float)xb_row->residual_scale;
                     const short pos_base = 128*iq + 8*ir;
-                    for (int r = 0; r < Q2_K_TURBO_MAX_RESIDUALS; ++r) {
+                    for (int r = 0; r < Q2_K_LITE_MAX_RESIDUALS; ++r) {
                         if (r >= rc) break;
                         const short delta = (short)xb_row->residual_idx[r] - pos_base;
                         float y_val;
@@ -8355,8 +8355,8 @@ void kernel_mul_mv_q2_K_turbo_f32_impl(
     }
 }
 
-[[host_name("kernel_mul_mv_q2_k_turbo_f32")]]
-kernel void kernel_mul_mv_q2_K_turbo_f32(
+[[host_name("kernel_mul_mv_q2_k_lite_f32")]]
+kernel void kernel_mul_mv_q2_K_lite_f32(
         constant ggml_metal_kargs_mul_mv & args,
         device const char * src0,
         device const char * src1,
@@ -8365,12 +8365,12 @@ kernel void kernel_mul_mv_q2_K_turbo_f32(
         ushort tiisg[[thread_index_in_simdgroup]],
         ushort sgitg[[simdgroup_index_in_threadgroup]]) {
 
-    kernel_mul_mv_q2_K_turbo_f32_impl<N_R0_Q2_K, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
+    kernel_mul_mv_q2_K_lite_f32_impl<N_R0_Q2_K, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
 }
 
-// Q3_K_TURBO mul_mv: Q2_K base computation (d, dmin, scales[16], qs[64] 2-bit)
+// Q3_K_LITE mul_mv: Q2_K base computation (d, dmin, scales[16], qs[64] 2-bit)
 template<int nr0, typename args_t>
-void kernel_mul_mv_q3_K_turbo_f32_impl(
+void kernel_mul_mv_q3_K_lite_f32_impl(
         args_t args,
         device const char * src0,
         device const char * src1,
@@ -8395,7 +8395,7 @@ void kernel_mul_mv_q3_K_turbo_f32_impl(
     const uint64_t offset0 = first_row*args.nb01 + (i12/args.r2)*args.nb02 + (i13/args.r3)*args.nb03;
     const uint64_t offset1 =        r1*args.nb11 + (i12        )*args.nb12 + (i13        )*args.nb13;
 
-    device const block_q3_k_turbo * x = (device const block_q3_k_turbo *) (src0 + offset0);
+    device const block_q3_k_lite * x = (device const block_q3_k_lite *) (src0 + offset0);
     device const float             * y = (device const float             *) (src1 + offset1);
 
     float yl[32];
@@ -8443,14 +8443,14 @@ void kernel_mul_mv_q3_K_turbo_f32_impl(
                                  (acc1[3] + 1.f/256.f * acc2[3]) * (sc[6] & 0xF) * 1.f/64.f) -
                          dmin * (sumy[0] * (sc[0] & 0xF0) + sumy[1] * (sc[2] & 0xF0) + sumy[2] * (sc[4] & 0xF0) + sumy[3] * (sc[6] & 0xF0));
 
-            // Apply INT8 residual corrections for Q3_K_TURBO
+            // Apply INT8 residual corrections for Q3_K_LITE
             {
-                device const block_q3_k_turbo * xb_row = (device const block_q3_k_turbo *)((device const char *)&x[ib] + (uint64_t)row * args.nb01);
+                device const block_q3_k_lite * xb_row = (device const block_q3_k_lite *)((device const char *)&x[ib] + (uint64_t)row * args.nb01);
                 const int rc = (int)xb_row->residual_count;
                 if (rc > 0) {
                     const float rscale = (float)xb_row->residual_scale;
                     const short pos_base = 128*iq + 8*ir;
-                    for (int r = 0; r < Q3_K_TURBO_MAX_RESIDUALS; ++r) {
+                    for (int r = 0; r < Q3_K_LITE_MAX_RESIDUALS; ++r) {
                         if (r >= rc) break;
                         const short delta = (short)xb_row->residual_idx[r] - pos_base;
                         float y_val;
@@ -8482,8 +8482,8 @@ void kernel_mul_mv_q3_K_turbo_f32_impl(
     }
 }
 
-[[host_name("kernel_mul_mv_q3_k_turbo_f32")]]
-kernel void kernel_mul_mv_q3_K_turbo_f32(
+[[host_name("kernel_mul_mv_q3_k_lite_f32")]]
+kernel void kernel_mul_mv_q3_K_lite_f32(
         constant ggml_metal_kargs_mul_mv & args,
         device const char * src0,
         device const char * src1,
@@ -8492,12 +8492,12 @@ kernel void kernel_mul_mv_q3_K_turbo_f32(
         ushort tiisg[[thread_index_in_simdgroup]],
         ushort sgitg[[simdgroup_index_in_threadgroup]]) {
 
-    kernel_mul_mv_q3_K_turbo_f32_impl<N_R0_Q2_K, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
+    kernel_mul_mv_q3_K_lite_f32_impl<N_R0_Q2_K, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
 }
 
-// Q4_K_TURBO mul_mv: Q3_K base computation (hmask + qs 3-bit, scales[12], d only)
+// Q4_K_LITE mul_mv: Q3_K base computation (hmask + qs 3-bit, scales[12], d only)
 template<int nr0, typename args_t>
-void kernel_mul_mv_q4_K_turbo_f32_impl(
+void kernel_mul_mv_q4_K_lite_f32_impl(
         args_t args,
         device const char * src0,
         device const char * src1,
@@ -8522,7 +8522,7 @@ void kernel_mul_mv_q4_K_turbo_f32_impl(
     const uint64_t offset0 = first_row*args.nb01 + (i12/args.r2)*args.nb02 + (i13/args.r3)*args.nb03;
     const uint64_t offset1 =        r1*args.nb11 + (i12        )*args.nb12 + (i13        )*args.nb13;
 
-    device const block_q4_k_turbo * x = (device const block_q4_k_turbo *) (src0 + offset0);
+    device const block_q4_k_lite * x = (device const block_q4_k_lite *) (src0 + offset0);
     device const float            * yy = (device const float             *) (src1 + offset1);
 
     float yl[32];
@@ -8617,15 +8617,15 @@ void kernel_mul_mv_q4_K_turbo_f32_impl(
             sumf1[row] += d1 * (scales[1] - 32);
             sumf2[row] += d2 * (scales[3] - 32);
 
-            // Apply INT8 residual corrections for Q4_K_TURBO
+            // Apply INT8 residual corrections for Q4_K_LITE
             // pos_base = y_offset = 128*ip + 32*il + l0; yl groups: +0..7, +16..23, +32..39, +48..55
             {
-                device const block_q4_k_turbo * xb_row = (device const block_q4_k_turbo *)((device const char *)&x[i] + (uint64_t)row * args.nb01);
+                device const block_q4_k_lite * xb_row = (device const block_q4_k_lite *)((device const char *)&x[i] + (uint64_t)row * args.nb01);
                 const int rc = (int)xb_row->residual_count;
                 if (rc > 0) {
                     const float rscale = (float)xb_row->residual_scale;
                     const short pos_base = y_offset;
-                    for (int r = 0; r < Q4_K_TURBO_MAX_RESIDUALS; ++r) {
+                    for (int r = 0; r < Q4_K_LITE_MAX_RESIDUALS; ++r) {
                         if (r >= rc) break;
                         const short delta = (short)xb_row->residual_idx[r] - pos_base;
                         float y_val;
@@ -8662,8 +8662,8 @@ void kernel_mul_mv_q4_K_turbo_f32_impl(
     }
 }
 
-[[host_name("kernel_mul_mv_q4_k_turbo_f32")]]
-kernel void kernel_mul_mv_q4_K_turbo_f32(
+[[host_name("kernel_mul_mv_q4_k_lite_f32")]]
+kernel void kernel_mul_mv_q4_K_lite_f32(
         constant ggml_metal_kargs_mul_mv & args,
         device const char * src0,
         device const char * src1,
@@ -8672,12 +8672,12 @@ kernel void kernel_mul_mv_q4_K_turbo_f32(
         ushort tiisg[[thread_index_in_simdgroup]],
         ushort sgitg[[simdgroup_index_in_threadgroup]]) {
 
-    kernel_mul_mv_q4_K_turbo_f32_impl<N_R0_Q3_K, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
+    kernel_mul_mv_q4_K_lite_f32_impl<N_R0_Q3_K, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
 }
 
-// Q5_K_TURBO mul_mv: Q4_K base computation (d, dmin, scales[12], qs[128] 4-bit)
+// Q5_K_LITE mul_mv: Q4_K base computation (d, dmin, scales[12], qs[128] 4-bit)
 template<int nr0, typename args_t>
-void kernel_mul_mv_q5_K_turbo_f32_impl(
+void kernel_mul_mv_q5_K_lite_f32_impl(
         args_t args,
         device const char * src0,
         device const char * src1,
@@ -8711,7 +8711,7 @@ void kernel_mul_mv_q5_K_turbo_f32_impl(
     const uint64_t offset0 = first_row*args.nb01 + (i12/args.r2)*args.nb02 + (i13/args.r3)*args.nb03;
     const uint64_t offset1 =        r1*args.nb11 + (i12        )*args.nb12 + (i13        )*args.nb13;
 
-    device const block_q5_k_turbo * x = (device const block_q5_k_turbo *) (src0 + offset0);
+    device const block_q5_k_lite * x = (device const block_q5_k_lite *) (src0 + offset0);
     device const float             * y = (device const float             *) (src1 + offset1);
 
     float yl[16];
@@ -8766,15 +8766,15 @@ void kernel_mul_mv_q5_K_turbo_f32_impl(
                                   (acc2[2] + 1.f/256.f * acc2[3]) * sc8[5] * 1.f/16.f) -
                          dh[1] * (sumy[0] * sc8[2] + sumy[1] * sc8[3] + sumy[2] * sc8[6] + sumy[3] * sc8[7]);
 
-            // Apply INT8 residual corrections for Q5_K_TURBO
+            // Apply INT8 residual corrections for Q5_K_LITE
             // pos_base = 64*iq + 8*ir; yl groups: +0..7, +32..39; yh groups: +128..135, +160..167
             {
-                device const block_q5_k_turbo * xb_row = (device const block_q5_k_turbo *)((device const char *)&x[ib] + (uint64_t)row * args.nb01);
+                device const block_q5_k_lite * xb_row = (device const block_q5_k_lite *)((device const char *)&x[ib] + (uint64_t)row * args.nb01);
                 const int rc = (int)xb_row->residual_count;
                 if (rc > 0) {
                     const float rscale = (float)xb_row->residual_scale;
                     const short pos_base = 64*iq + 8*ir;
-                    for (int r = 0; r < Q5_K_TURBO_MAX_RESIDUALS; ++r) {
+                    for (int r = 0; r < Q5_K_LITE_MAX_RESIDUALS; ++r) {
                         if (r >= rc) break;
                         const short delta = (short)xb_row->residual_idx[r] - pos_base;
                         float y_val;
@@ -8806,8 +8806,8 @@ void kernel_mul_mv_q5_K_turbo_f32_impl(
     }
 }
 
-[[host_name("kernel_mul_mv_q5_k_turbo_f32")]]
-kernel void kernel_mul_mv_q5_K_turbo_f32(
+[[host_name("kernel_mul_mv_q5_k_lite_f32")]]
+kernel void kernel_mul_mv_q5_K_lite_f32(
         constant ggml_metal_kargs_mul_mv & args,
         device const char * src0,
         device const char * src1,
@@ -8816,12 +8816,12 @@ kernel void kernel_mul_mv_q5_K_turbo_f32(
         ushort tiisg[[thread_index_in_simdgroup]],
         ushort sgitg[[simdgroup_index_in_threadgroup]]) {
 
-    kernel_mul_mv_q5_K_turbo_f32_impl<N_R0_Q4_K, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
+    kernel_mul_mv_q5_K_lite_f32_impl<N_R0_Q4_K, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
 }
 
-// Q6_K_TURBO mul_mv: Q5_K base computation (d, dmin, scales[12], qh[32], qs[128] 5-bit)
+// Q6_K_LITE mul_mv: Q5_K base computation (d, dmin, scales[12], qh[32], qs[128] 5-bit)
 template<int nr0, typename args_t>
-void kernel_mul_mv_q6_K_turbo_f32_impl(
+void kernel_mul_mv_q6_K_lite_f32_impl(
         args_t args,
         device const char * src0,
         device const char * src1,
@@ -8846,7 +8846,7 @@ void kernel_mul_mv_q6_K_turbo_f32_impl(
     const uint64_t offset0 = first_row*args.nb01 + (i12/args.r2)*args.nb02 + (i13/args.r3)*args.nb03;
     const uint64_t offset1 =        r1*args.nb11 + (i12        )*args.nb12 + (i13        )*args.nb13;
 
-    device const block_q6_k_turbo * x = (device const block_q6_k_turbo *) (src0 + offset0);
+    device const block_q6_k_lite * x = (device const block_q6_k_lite *) (src0 + offset0);
     device const float             * yy = (device const float            *) (src1 + offset1);
 
     float sumf[nr0]={0.f};
@@ -8919,15 +8919,15 @@ void kernel_mul_mv_q6_K_turbo_f32_impl(
                                   sc8[5] * (acc1[3]/16.f + 16.f*acc2[3])) -
                          dh[1] * (sumy[0] * sc8[2] + sumy[1] * sc8[3] + sumy[2] * sc8[6] + sumy[3] * sc8[7]);
 
-            // Apply INT8 residual corrections for Q6_K_TURBO
+            // Apply INT8 residual corrections for Q6_K_LITE
             // pos_base = 64*iq + l0; yl groups: +0..7, +32..39; yh groups: +128..135, +160..167
             {
-                device const block_q6_k_turbo * xb_row = (device const block_q6_k_turbo *)((device const char *)&x[i] + (uint64_t)row * args.nb01);
+                device const block_q6_k_lite * xb_row = (device const block_q6_k_lite *)((device const char *)&x[i] + (uint64_t)row * args.nb01);
                 const int rc = (int)xb_row->residual_count;
                 if (rc > 0) {
                     const float rscale = (float)xb_row->residual_scale;
                     const short pos_base = 64*iq + l0;
-                    for (int r = 0; r < Q6_K_TURBO_MAX_RESIDUALS; ++r) {
+                    for (int r = 0; r < Q6_K_LITE_MAX_RESIDUALS; ++r) {
                         if (r >= rc) break;
                         const short delta = (short)xb_row->residual_idx[r] - pos_base;
                         float y_val;
@@ -8960,8 +8960,8 @@ void kernel_mul_mv_q6_K_turbo_f32_impl(
     }
 }
 
-[[host_name("kernel_mul_mv_q6_k_turbo_f32")]]
-kernel void kernel_mul_mv_q6_K_turbo_f32(
+[[host_name("kernel_mul_mv_q6_k_lite_f32")]]
+kernel void kernel_mul_mv_q6_K_lite_f32(
         constant ggml_metal_kargs_mul_mv & args,
         device const char * src0,
         device const char * src1,
@@ -8970,7 +8970,7 @@ kernel void kernel_mul_mv_q6_K_turbo_f32(
         ushort tiisg[[thread_index_in_simdgroup]],
         ushort sgitg[[simdgroup_index_in_threadgroup]]) {
 
-    kernel_mul_mv_q6_K_turbo_f32_impl<N_R0_Q5_K, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
+    kernel_mul_mv_q6_K_lite_f32_impl<N_R0_Q5_K, constant ggml_metal_kargs_mul_mv &>(args, src0, src1, dst, nullptr, tgpig, tiisg, sgitg);
 }
 
 // ======================= "True" 2-bit
@@ -10918,11 +10918,11 @@ template [[host_name("kernel_get_rows_q5_K")]]    kernel get_rows_q_t kernel_get
 template [[host_name("kernel_get_rows_q5_k_hifi_res8")]] kernel get_rows_q_t kernel_get_rows_q<block_q5_k_hifi_res8, QK_NL, dequantize_q5_k_hifi_res8>;
 template [[host_name("kernel_get_rows_q6_K")]]    kernel get_rows_q_t kernel_get_rows_q<block_q6_K,    QK_NL, dequantize_q6_K>;
 template [[host_name("kernel_get_rows_q6_K_hifi_res8")]] kernel get_rows_q_t kernel_get_rows_q<block_q6_k_hifi_res8, QK_NL, dequantize_q6_k_hifi_res8>;
-template [[host_name("kernel_get_rows_q2_k_turbo")]] kernel get_rows_q_t kernel_get_rows_q<block_q2_k_turbo, QK_NL, dequantize_q2_k_turbo>;
-template [[host_name("kernel_get_rows_q3_k_turbo")]] kernel get_rows_q_t kernel_get_rows_q<block_q3_k_turbo, QK_NL, dequantize_q3_k_turbo>;
-template [[host_name("kernel_get_rows_q4_k_turbo")]] kernel get_rows_q_t kernel_get_rows_q<block_q4_k_turbo, QK_NL, dequantize_q4_k_turbo>;
-template [[host_name("kernel_get_rows_q5_k_turbo")]] kernel get_rows_q_t kernel_get_rows_q<block_q5_k_turbo, QK_NL, dequantize_q5_k_turbo>;
-template [[host_name("kernel_get_rows_q6_k_turbo")]] kernel get_rows_q_t kernel_get_rows_q<block_q6_k_turbo, QK_NL, dequantize_q6_k_turbo>;
+template [[host_name("kernel_get_rows_q2_k_lite")]] kernel get_rows_q_t kernel_get_rows_q<block_q2_k_lite, QK_NL, dequantize_q2_k_lite>;
+template [[host_name("kernel_get_rows_q3_k_lite")]] kernel get_rows_q_t kernel_get_rows_q<block_q3_k_lite, QK_NL, dequantize_q3_k_lite>;
+template [[host_name("kernel_get_rows_q4_k_lite")]] kernel get_rows_q_t kernel_get_rows_q<block_q4_k_lite, QK_NL, dequantize_q4_k_lite>;
+template [[host_name("kernel_get_rows_q5_k_lite")]] kernel get_rows_q_t kernel_get_rows_q<block_q5_k_lite, QK_NL, dequantize_q5_k_lite>;
+template [[host_name("kernel_get_rows_q6_k_lite")]] kernel get_rows_q_t kernel_get_rows_q<block_q6_k_lite, QK_NL, dequantize_q6_k_lite>;
 template [[host_name("kernel_get_rows_iq2_xxs")]] kernel get_rows_q_t kernel_get_rows_q<block_iq2_xxs, QK_NL, dequantize_iq2_xxs>;
 template [[host_name("kernel_get_rows_iq2_xs")]]  kernel get_rows_q_t kernel_get_rows_q<block_iq2_xs,  QK_NL, dequantize_iq2_xs>;
 template [[host_name("kernel_get_rows_iq3_xxs")]] kernel get_rows_q_t kernel_get_rows_q<block_iq3_xxs, QK_NL, dequantize_iq3_xxs>;
@@ -10990,11 +10990,11 @@ template [[host_name("kernel_mul_mm_q5_K_f32")]]    kernel mul_mm_t kernel_mul_m
 template [[host_name("kernel_mul_mm_q5_K_hifi_res8_f32")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q5_k_hifi_res8, QK_NL, dequantize_q5_k_hifi_res8, float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_q6_K_f32")]]    kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_K,    QK_NL, dequantize_q6_K,    float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_q6_K_hifi_res8_f32")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_k_hifi_res8, QK_NL, dequantize_q6_k_hifi_res8, float,  float4x4,  float, float2x4>;
-template [[host_name("kernel_mul_mm_q2_k_turbo_f32")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q2_k_turbo, QK_NL, dequantize_q2_k_turbo, float,  float4x4,  float, float2x4>;
-template [[host_name("kernel_mul_mm_q3_k_turbo_f32")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q3_k_turbo, QK_NL, dequantize_q3_k_turbo, float,  float4x4,  float, float2x4>;
-template [[host_name("kernel_mul_mm_q4_k_turbo_f32")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q4_k_turbo, QK_NL, dequantize_q4_k_turbo, float,  float4x4,  float, float2x4>;
-template [[host_name("kernel_mul_mm_q5_k_turbo_f32")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q5_k_turbo, QK_NL, dequantize_q5_k_turbo, float,  float4x4,  float, float2x4>;
-template [[host_name("kernel_mul_mm_q6_k_turbo_f32")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_k_turbo, QK_NL, dequantize_q6_k_turbo, float,  float4x4,  float, float2x4>;
+template [[host_name("kernel_mul_mm_q2_k_lite_f32")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q2_k_lite, QK_NL, dequantize_q2_k_lite, float,  float4x4,  float, float2x4>;
+template [[host_name("kernel_mul_mm_q3_k_lite_f32")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q3_k_lite, QK_NL, dequantize_q3_k_lite, float,  float4x4,  float, float2x4>;
+template [[host_name("kernel_mul_mm_q4_k_lite_f32")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q4_k_lite, QK_NL, dequantize_q4_k_lite, float,  float4x4,  float, float2x4>;
+template [[host_name("kernel_mul_mm_q5_k_lite_f32")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q5_k_lite, QK_NL, dequantize_q5_k_lite, float,  float4x4,  float, float2x4>;
+template [[host_name("kernel_mul_mm_q6_k_lite_f32")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_k_lite, QK_NL, dequantize_q6_k_lite, float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_iq2_xxs_f32")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_iq2_xxs, QK_NL, dequantize_iq2_xxs, float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_iq2_xs_f32")]]  kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_iq2_xs,  QK_NL, dequantize_iq2_xs,  float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_iq3_xxs_f32")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_iq3_xxs, QK_NL, dequantize_iq3_xxs, float,  float4x4,  float, float2x4>;
@@ -11023,11 +11023,11 @@ template [[host_name("kernel_mul_mm_q5_K_f16")]]    kernel mul_mm_t kernel_mul_m
 template [[host_name("kernel_mul_mm_q5_K_hifi_res8_f16")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q5_k_hifi_res8, QK_NL, dequantize_q5_k_hifi_res8, float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_q6_K_f16")]]    kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_K,    QK_NL, dequantize_q6_K,    float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_q6_K_hifi_res8_f16")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_k_hifi_res8, QK_NL, dequantize_q6_k_hifi_res8, float,  float4x4,  half, half2x4>;
-template [[host_name("kernel_mul_mm_q2_k_turbo_f16")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q2_k_turbo, QK_NL, dequantize_q2_k_turbo, float,  float4x4,  half, half2x4>;
-template [[host_name("kernel_mul_mm_q3_k_turbo_f16")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q3_k_turbo, QK_NL, dequantize_q3_k_turbo, float,  float4x4,  half, half2x4>;
-template [[host_name("kernel_mul_mm_q4_k_turbo_f16")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q4_k_turbo, QK_NL, dequantize_q4_k_turbo, float,  float4x4,  half, half2x4>;
-template [[host_name("kernel_mul_mm_q5_k_turbo_f16")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q5_k_turbo, QK_NL, dequantize_q5_k_turbo, float,  float4x4,  half, half2x4>;
-template [[host_name("kernel_mul_mm_q6_k_turbo_f16")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_k_turbo, QK_NL, dequantize_q6_k_turbo, float,  float4x4,  half, half2x4>;
+template [[host_name("kernel_mul_mm_q2_k_lite_f16")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q2_k_lite, QK_NL, dequantize_q2_k_lite, float,  float4x4,  half, half2x4>;
+template [[host_name("kernel_mul_mm_q3_k_lite_f16")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q3_k_lite, QK_NL, dequantize_q3_k_lite, float,  float4x4,  half, half2x4>;
+template [[host_name("kernel_mul_mm_q4_k_lite_f16")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q4_k_lite, QK_NL, dequantize_q4_k_lite, float,  float4x4,  half, half2x4>;
+template [[host_name("kernel_mul_mm_q5_k_lite_f16")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q5_k_lite, QK_NL, dequantize_q5_k_lite, float,  float4x4,  half, half2x4>;
+template [[host_name("kernel_mul_mm_q6_k_lite_f16")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_k_lite, QK_NL, dequantize_q6_k_lite, float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_iq2_xxs_f16")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_iq2_xxs, QK_NL, dequantize_iq2_xxs, float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_iq2_xs_f16")]]  kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_iq2_xs,  QK_NL, dequantize_iq2_xs,  float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_iq3_xxs_f16")]] kernel mul_mm_t kernel_mul_mm<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_iq3_xxs, QK_NL, dequantize_iq3_xxs, float,  float4x4,  half, half2x4>;
@@ -11065,11 +11065,11 @@ template [[host_name("kernel_mul_mm_id_q5_K_f32")]]    kernel mul_mm_id kernel_m
 template [[host_name("kernel_mul_mm_id_q5_K_hifi_res8_f32")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q5_k_hifi_res8, QK_NL, dequantize_q5_k_hifi_res8, float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_id_q6_K_f32")]]    kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_K,    QK_NL, dequantize_q6_K,    float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_id_q6_K_hifi_res8_f32")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_k_hifi_res8, QK_NL, dequantize_q6_k_hifi_res8, float,  float4x4,  float, float2x4>;
-template [[host_name("kernel_mul_mm_id_q2_k_turbo_f32")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q2_k_turbo, QK_NL, dequantize_q2_k_turbo, float,  float4x4,  float, float2x4>;
-template [[host_name("kernel_mul_mm_id_q3_k_turbo_f32")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q3_k_turbo, QK_NL, dequantize_q3_k_turbo, float,  float4x4,  float, float2x4>;
-template [[host_name("kernel_mul_mm_id_q4_k_turbo_f32")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q4_k_turbo, QK_NL, dequantize_q4_k_turbo, float,  float4x4,  float, float2x4>;
-template [[host_name("kernel_mul_mm_id_q5_k_turbo_f32")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q5_k_turbo, QK_NL, dequantize_q5_k_turbo, float,  float4x4,  float, float2x4>;
-template [[host_name("kernel_mul_mm_id_q6_k_turbo_f32")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_k_turbo, QK_NL, dequantize_q6_k_turbo, float,  float4x4,  float, float2x4>;
+template [[host_name("kernel_mul_mm_id_q2_k_lite_f32")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q2_k_lite, QK_NL, dequantize_q2_k_lite, float,  float4x4,  float, float2x4>;
+template [[host_name("kernel_mul_mm_id_q3_k_lite_f32")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q3_k_lite, QK_NL, dequantize_q3_k_lite, float,  float4x4,  float, float2x4>;
+template [[host_name("kernel_mul_mm_id_q4_k_lite_f32")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q4_k_lite, QK_NL, dequantize_q4_k_lite, float,  float4x4,  float, float2x4>;
+template [[host_name("kernel_mul_mm_id_q5_k_lite_f32")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q5_k_lite, QK_NL, dequantize_q5_k_lite, float,  float4x4,  float, float2x4>;
+template [[host_name("kernel_mul_mm_id_q6_k_lite_f32")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_k_lite, QK_NL, dequantize_q6_k_lite, float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_id_iq2_xxs_f32")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_iq2_xxs, QK_NL, dequantize_iq2_xxs, float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_id_iq2_xs_f32")]]  kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_iq2_xs,  QK_NL, dequantize_iq2_xs,  float,  float4x4,  float, float2x4>;
 template [[host_name("kernel_mul_mm_id_iq3_xxs_f32")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_iq3_xxs, QK_NL, dequantize_iq3_xxs, float,  float4x4,  float, float2x4>;
@@ -11098,11 +11098,11 @@ template [[host_name("kernel_mul_mm_id_q5_K_f16")]]    kernel mul_mm_id kernel_m
 template [[host_name("kernel_mul_mm_id_q5_K_hifi_res8_f16")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q5_k_hifi_res8, QK_NL, dequantize_q5_k_hifi_res8, float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_id_q6_K_f16")]]    kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_K,    QK_NL, dequantize_q6_K,    float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_id_q6_K_hifi_res8_f16")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_k_hifi_res8, QK_NL, dequantize_q6_k_hifi_res8, float,  float4x4,  half, half2x4>;
-template [[host_name("kernel_mul_mm_id_q2_k_turbo_f16")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q2_k_turbo, QK_NL, dequantize_q2_k_turbo, float,  float4x4,  half, half2x4>;
-template [[host_name("kernel_mul_mm_id_q3_k_turbo_f16")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q3_k_turbo, QK_NL, dequantize_q3_k_turbo, float,  float4x4,  half, half2x4>;
-template [[host_name("kernel_mul_mm_id_q4_k_turbo_f16")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q4_k_turbo, QK_NL, dequantize_q4_k_turbo, float,  float4x4,  half, half2x4>;
-template [[host_name("kernel_mul_mm_id_q5_k_turbo_f16")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q5_k_turbo, QK_NL, dequantize_q5_k_turbo, float,  float4x4,  half, half2x4>;
-template [[host_name("kernel_mul_mm_id_q6_k_turbo_f16")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_k_turbo, QK_NL, dequantize_q6_k_turbo, float,  float4x4,  half, half2x4>;
+template [[host_name("kernel_mul_mm_id_q2_k_lite_f16")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q2_k_lite, QK_NL, dequantize_q2_k_lite, float,  float4x4,  half, half2x4>;
+template [[host_name("kernel_mul_mm_id_q3_k_lite_f16")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q3_k_lite, QK_NL, dequantize_q3_k_lite, float,  float4x4,  half, half2x4>;
+template [[host_name("kernel_mul_mm_id_q4_k_lite_f16")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q4_k_lite, QK_NL, dequantize_q4_k_lite, float,  float4x4,  half, half2x4>;
+template [[host_name("kernel_mul_mm_id_q5_k_lite_f16")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q5_k_lite, QK_NL, dequantize_q5_k_lite, float,  float4x4,  half, half2x4>;
+template [[host_name("kernel_mul_mm_id_q6_k_lite_f16")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_q6_k_lite, QK_NL, dequantize_q6_k_lite, float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_id_iq2_xxs_f16")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_iq2_xxs, QK_NL, dequantize_iq2_xxs, float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_id_iq2_xs_f16")]]  kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_iq2_xs,  QK_NL, dequantize_iq2_xs,  float,  float4x4,  half, half2x4>;
 template [[host_name("kernel_mul_mm_id_iq3_xxs_f16")]] kernel mul_mm_id kernel_mul_mm_id<half,   half4x4,   simdgroup_half8x8,   half,   half2x4,   simdgroup_half8x8,   block_iq3_xxs, QK_NL, dequantize_iq3_xxs, float,  float4x4,  half, half2x4>;
@@ -11263,11 +11263,11 @@ template [[host_name("kernel_mul_mv_id_q5_K_f32")]]    kernel kernel_mul_mv_id_t
 template [[host_name("kernel_mul_mv_id_q5_K_hifi_res8_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q5_K_hifi_res8_f32_impl<N_R0_Q5_K>>>;
 template [[host_name("kernel_mul_mv_id_q6_K_f32")]]    kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q6_K_f32_impl   <N_R0_Q6_K>>>;
 template [[host_name("kernel_mul_mv_id_q6_K_hifi_res8_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q6_K_hifi_res8_f32_impl<N_R0_Q6_K>>>;
-template [[host_name("kernel_mul_mv_id_q2_k_turbo_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q2_K_turbo_f32_impl<N_R0_Q2_K>>>;
-template [[host_name("kernel_mul_mv_id_q3_k_turbo_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q3_K_turbo_f32_impl<N_R0_Q2_K>>>;
-template [[host_name("kernel_mul_mv_id_q4_k_turbo_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q4_K_turbo_f32_impl<N_R0_Q4_K>>>;
-template [[host_name("kernel_mul_mv_id_q5_k_turbo_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q5_K_turbo_f32_impl<N_R0_Q5_K>>>;
-template [[host_name("kernel_mul_mv_id_q6_k_turbo_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q6_K_turbo_f32_impl<N_R0_Q6_K>>>;
+template [[host_name("kernel_mul_mv_id_q2_k_lite_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q2_K_lite_f32_impl<N_R0_Q2_K>>>;
+template [[host_name("kernel_mul_mv_id_q3_k_lite_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q3_K_lite_f32_impl<N_R0_Q2_K>>>;
+template [[host_name("kernel_mul_mv_id_q4_k_lite_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q4_K_lite_f32_impl<N_R0_Q4_K>>>;
+template [[host_name("kernel_mul_mv_id_q5_k_lite_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q5_K_lite_f32_impl<N_R0_Q5_K>>>;
+template [[host_name("kernel_mul_mv_id_q6_k_lite_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_q6_K_lite_f32_impl<N_R0_Q6_K>>>;
 template [[host_name("kernel_mul_mv_id_iq1_s_f32")]]   kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_iq1_s_f32_impl  <N_R0_IQ1_S>>>;
 template [[host_name("kernel_mul_mv_id_iq1_m_f32")]]   kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_iq1_m_f32_impl  <N_R0_IQ1_M>>>;
 template [[host_name("kernel_mul_mv_id_iq2_xxs_f32")]] kernel kernel_mul_mv_id_t kernel_mul_mv_id<mmv_fn<kernel_mul_mv_iq2_xxs_f32_impl<N_R0_IQ2_XXS>>>;

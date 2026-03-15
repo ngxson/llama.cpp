@@ -1223,16 +1223,16 @@ void quantize_row_q5_k_hifi_res8(const float * GGML_RESTRICT x, void * GGML_REST
 }
 
 // =============================================================================
-// K_TURBO vec_dot implementations
+// K_LITE vec_dot implementations
 // Each type: replicate the base K-quant dot product, then apply residual correction.
 // Residual correction: sum += residual_scale * residual_vals[k] * activation[idx]
 // Fast path: skip correction loop when residual_count == 0 (Tier 0 blocks).
 // =============================================================================
 
 // ---------------------------------------------------------------------------
-// Q4_K_TURBO vec_dot  (Q3_K base: hmask + qs[64] 3-bit, scales[12], d only)
+// Q4_K_LITE vec_dot  (Q3_K base: hmask + qs[64] 3-bit, scales[12], d only)
 // ---------------------------------------------------------------------------
-void ggml_vec_dot_q4_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+void ggml_vec_dot_q4_k_lite_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);
     assert(nrc == 1);
     UNUSED(nrc); UNUSED(bx); UNUSED(by); UNUSED(bs);
@@ -1240,7 +1240,7 @@ void ggml_vec_dot_q4_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t
     const uint32_t kmask1 = 0x03030303;
     const uint32_t kmask2 = 0x0f0f0f0f;
 
-    const block_q4_k_turbo * GGML_RESTRICT x = vx;
+    const block_q4_k_lite * GGML_RESTRICT x = vx;
     const block_q8_K        * GGML_RESTRICT y = vy;
     const int nb = n / QK_K;
 
@@ -1306,19 +1306,19 @@ void ggml_vec_dot_q4_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t
 }
 
 // Wrapper (3-arg from_float for CPU backend)
-void quantize_row_q4_k_turbo(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
-    quantize_row_q4_k_turbo_ref(x, (block_q4_k_turbo *)y, k);
+void quantize_row_q4_k_lite(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
+    quantize_row_q4_k_lite_ref(x, (block_q4_k_lite *)y, k);
 }
 
 // ---------------------------------------------------------------------------
-// Q5_K_TURBO vec_dot  (Q4_K base: d, dmin, scales[12], qs[128] 4-bit)
+// Q5_K_LITE vec_dot  (Q4_K base: d, dmin, scales[12], qs[128] 4-bit)
 // ---------------------------------------------------------------------------
-void ggml_vec_dot_q5_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+void ggml_vec_dot_q5_k_lite_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);
     assert(nrc == 1);
     UNUSED(nrc); UNUSED(bx); UNUSED(by); UNUSED(bs);
 
-    const block_q5_k_turbo * GGML_RESTRICT x = vx;
+    const block_q5_k_lite * GGML_RESTRICT x = vx;
     const block_q8_K        * GGML_RESTRICT y = vy;
     const int nb = n / QK_K;
 
@@ -1388,19 +1388,19 @@ void ggml_vec_dot_q5_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t
     *s = sumf;
 }
 
-void quantize_row_q5_k_turbo(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
-    quantize_row_q5_k_turbo_ref(x, (block_q5_k_turbo *)y, k);
+void quantize_row_q5_k_lite(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
+    quantize_row_q5_k_lite_ref(x, (block_q5_k_lite *)y, k);
 }
 
 // ---------------------------------------------------------------------------
-// Q6_K_TURBO vec_dot  (Q5_K base: d, dmin, scales[12], qh[32], qs[128] 5-bit)
+// Q6_K_LITE vec_dot  (Q5_K base: d, dmin, scales[12], qh[32], qs[128] 5-bit)
 // ---------------------------------------------------------------------------
-void ggml_vec_dot_q6_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+void ggml_vec_dot_q6_k_lite_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);
     assert(nrc == 1);
     UNUSED(nrc); UNUSED(bx); UNUSED(by); UNUSED(bs);
 
-    const block_q6_k_turbo * GGML_RESTRICT x = vx;
+    const block_q6_k_lite * GGML_RESTRICT x = vx;
     const block_q8_K        * GGML_RESTRICT y = vy;
     const int nb = n / QK_K;
 
@@ -1473,19 +1473,19 @@ void ggml_vec_dot_q6_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t
     *s = sumf;
 }
 
-void quantize_row_q6_k_turbo(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
-    quantize_row_q6_k_turbo_ref(x, (block_q6_k_turbo *)y, k);
+void quantize_row_q6_k_lite(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
+    quantize_row_q6_k_lite_ref(x, (block_q6_k_lite *)y, k);
 }
 
 // ---------------------------------------------------------------------------
-// Q3_K_TURBO vec_dot  (Q2_K base: d, dmin, scales[16], qs[64] 2-bit)
+// Q3_K_LITE vec_dot  (Q2_K base: d, dmin, scales[16], qs[64] 2-bit)
 // ---------------------------------------------------------------------------
-void ggml_vec_dot_q3_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+void ggml_vec_dot_q3_k_lite_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);
     assert(nrc == 1);
     UNUSED(nrc); UNUSED(bx); UNUSED(by); UNUSED(bs);
 
-    const block_q3_k_turbo * GGML_RESTRICT x = vx;
+    const block_q3_k_lite * GGML_RESTRICT x = vx;
     const block_q8_K        * GGML_RESTRICT y = vy;
     const int nb = n / QK_K;
 
@@ -1532,19 +1532,19 @@ void ggml_vec_dot_q3_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t
     *s = sumf;
 }
 
-void quantize_row_q3_k_turbo(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
-    quantize_row_q3_k_turbo_ref(x, (block_q3_k_turbo *)y, k);
+void quantize_row_q3_k_lite(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
+    quantize_row_q3_k_lite_ref(x, (block_q3_k_lite *)y, k);
 }
 
 // ---------------------------------------------------------------------------
-// Q2_K_TURBO vec_dot  (Q2_K base: d, dmin, scales[16], qs[64] 2-bit)
+// Q2_K_LITE vec_dot  (Q2_K base: d, dmin, scales[16], qs[64] 2-bit)
 // ---------------------------------------------------------------------------
-void ggml_vec_dot_q2_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+void ggml_vec_dot_q2_k_lite_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
     assert(n % QK_K == 0);
     assert(nrc == 1);
     UNUSED(nrc); UNUSED(bx); UNUSED(by); UNUSED(bs);
 
-    const block_q2_k_turbo * GGML_RESTRICT x = vx;
+    const block_q2_k_lite * GGML_RESTRICT x = vx;
     const block_q8_K        * GGML_RESTRICT y = vy;
     const int nb = n / QK_K;
 
@@ -1591,8 +1591,8 @@ void ggml_vec_dot_q2_k_turbo_q8_K_generic(int n, float * GGML_RESTRICT s, size_t
     *s = sumf;
 }
 
-void quantize_row_q2_k_turbo(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
-    quantize_row_q2_k_turbo_ref(x, (block_q2_k_turbo *)y, k);
+void quantize_row_q2_k_lite(const float * GGML_RESTRICT x, void * GGML_RESTRICT y, int64_t k) {
+    quantize_row_q2_k_lite_ref(x, (block_q2_k_lite *)y, k);
 }
 
 void ggml_vec_dot_iq2_xxs_q8_K_generic(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {

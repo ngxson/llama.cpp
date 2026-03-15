@@ -75,40 +75,40 @@ static __global__ void ggml_cuda_add_q5_k_hifi_res8_residuals(
     }
 }
 
-// K_TURBO compact-copy kernels: strip residual extension, produce base-type blocks for MMQ.
-// All TURBO types have base fields at identical byte offsets as the base type.
+// K_LITE compact-copy kernels: strip residual extension, produce base-type blocks for MMQ.
+// All LITE types have base fields at identical byte offsets as the base type.
 // Note: Q3_K = 110 bytes (not 4-aligned), so we use byte-by-byte copy to handle all cases.
 static_assert(sizeof(block_q2_K)         % sizeof(uint32_t) == 0, "Q2_K size not a multiple of 4");
-static_assert(sizeof(block_q2_k_turbo)   % sizeof(uint32_t) == 0, "Q2_K_TURBO size not a multiple of 4");
-static_assert(sizeof(block_q3_k_turbo)   % sizeof(uint32_t) == 0, "Q3_K_TURBO size not a multiple of 4");
+static_assert(sizeof(block_q2_k_lite)   % sizeof(uint32_t) == 0, "Q2_K_LITE size not a multiple of 4");
+static_assert(sizeof(block_q3_k_lite)   % sizeof(uint32_t) == 0, "Q3_K_LITE size not a multiple of 4");
 static_assert(sizeof(block_q4_K)         % sizeof(uint32_t) == 0, "Q4_K size not a multiple of 4");
-static_assert(sizeof(block_q4_k_turbo)   % sizeof(uint32_t) == 0, "Q4_K_TURBO size not a multiple of 4");
-static_assert(sizeof(block_q5_k_turbo)   % sizeof(uint32_t) == 0, "Q5_K_TURBO size not a multiple of 4");
-static_assert(sizeof(block_q6_k_turbo)   % sizeof(uint32_t) == 0, "Q6_K_TURBO size not a multiple of 4");
+static_assert(sizeof(block_q4_k_lite)   % sizeof(uint32_t) == 0, "Q4_K_LITE size not a multiple of 4");
+static_assert(sizeof(block_q5_k_lite)   % sizeof(uint32_t) == 0, "Q5_K_LITE size not a multiple of 4");
+static_assert(sizeof(block_q6_k_lite)   % sizeof(uint32_t) == 0, "Q6_K_LITE size not a multiple of 4");
 
-#define DEFINE_COMPACT_TURBO_KERNEL(TNAME, TURBO_T, BASE_T) \
+#define DEFINE_COMPACT_LITE_KERNEL(TNAME, LITE_T, BASE_T) \
 static __global__ void ggml_cuda_compact_##TNAME##_to_base( \
     const void * __restrict__ src, void * __restrict__ dst, int64_t n_blocks) { \
     const int64_t i = (int64_t)blockIdx.x * blockDim.x + threadIdx.x; \
     if (i >= n_blocks) return; \
-    const uint8_t * s = (const uint8_t *)((const char *)src + i * sizeof(TURBO_T)); \
+    const uint8_t * s = (const uint8_t *)((const char *)src + i * sizeof(LITE_T)); \
     uint8_t       * d = (uint8_t       *)((char       *)dst + i * sizeof(BASE_T)); \
     _Pragma("unroll") \
     for (int j = 0; j < (int)sizeof(BASE_T); ++j) { d[j] = s[j]; } \
 }
 
-DEFINE_COMPACT_TURBO_KERNEL(Q2_K_TURBO, block_q2_k_turbo, block_q2_K)
-DEFINE_COMPACT_TURBO_KERNEL(Q3_K_TURBO, block_q3_k_turbo, block_q2_K)  // Q3_K_TURBO base = Q2_K
-DEFINE_COMPACT_TURBO_KERNEL(Q4_K_TURBO, block_q4_k_turbo, block_q3_K)  // Q4_K_TURBO base = Q3_K (110 bytes)
-DEFINE_COMPACT_TURBO_KERNEL(Q5_K_TURBO, block_q5_k_turbo, block_q4_K)  // Q5_K_TURBO base = Q4_K
-DEFINE_COMPACT_TURBO_KERNEL(Q6_K_TURBO, block_q6_k_turbo, block_q5_K)  // Q6_K_TURBO base = Q5_K
+DEFINE_COMPACT_LITE_KERNEL(Q2_K_LITE, block_q2_k_lite, block_q2_K)
+DEFINE_COMPACT_LITE_KERNEL(Q3_K_LITE, block_q3_k_lite, block_q2_K)  // Q3_K_LITE base = Q2_K
+DEFINE_COMPACT_LITE_KERNEL(Q4_K_LITE, block_q4_k_lite, block_q3_K)  // Q4_K_LITE base = Q3_K (110 bytes)
+DEFINE_COMPACT_LITE_KERNEL(Q5_K_LITE, block_q5_k_lite, block_q4_K)  // Q5_K_LITE base = Q4_K
+DEFINE_COMPACT_LITE_KERNEL(Q6_K_LITE, block_q6_k_lite, block_q5_K)  // Q6_K_LITE base = Q5_K
 
-// Generic TURBO residual correction kernel.
-// TURBO residual_scale = max_err / 127.0f (pre-divided), so correction = rscale * residual_vals[k].
+// Generic LITE residual correction kernel.
+// LITE residual_scale = max_err / 127.0f (pre-divided), so correction = rscale * residual_vals[k].
 // Launches one thread per (weight-row, block) pair; loops over batch dimension inside.
-template<typename TURBO_T, int MAX_RESIDUALS>
-static __global__ void ggml_cuda_add_turbo_residuals(
-    const TURBO_T * __restrict__ x,
+template<typename LITE_T, int MAX_RESIDUALS>
+static __global__ void ggml_cuda_add_lite_residuals(
+    const LITE_T * __restrict__ x,
     const float * __restrict__ src1, float * __restrict__ dst,
     int64_t nrows_x, int64_t ncols_x, int64_t ncols_dst,
     int64_t stride_row_x, int64_t stride_src1, int64_t stride_dst) {
@@ -120,7 +120,7 @@ static __global__ void ggml_cuda_add_turbo_residuals(
     const int64_t row = rb / n_blocks;
     const int64_t b   = rb % n_blocks;
 
-    const TURBO_T * block = x + row * stride_row_x + b;
+    const LITE_T * block = x + row * stride_row_x + b;
     const int rc = block->residual_count;
     if (rc == 0) return;  // fast path: most blocks have no residuals
 
@@ -316,7 +316,7 @@ void ggml_cuda_mul_mat_q(
             return;
         }
 
-#define TURBO_MMQ_PATH(TNAME, TURBO_T, BASE_SIZE, BASE_GGML_TYPE, MAX_RES) \
+#define LITE_MMQ_PATH(TNAME, LITE_T, BASE_SIZE, BASE_GGML_TYPE, MAX_RES) \
         if (src0->type == GGML_TYPE_##TNAME) { \
             const int64_t n_blocks = (ne00 / QK_K) * ne01; \
             ggml_cuda_pool_alloc<char> base_compact(ctx.pool(), n_blocks * BASE_SIZE); \
@@ -335,18 +335,18 @@ void ggml_cuda_mul_mat_q(
             const int64_t stride_dst  = dst->nb[1]  / (int64_t)sizeof(float); \
             const int64_t n_blocks_per_row = ne00 / QK_K; \
             const int64_t n_rb = ne01 * n_blocks_per_row; \
-            ggml_cuda_add_turbo_residuals<TURBO_T, MAX_RES><<<(n_rb + 255) / 256, 256, 0, stream>>>( \
-                (const TURBO_T *)src0_d, (const float *)src1_d, dst_d, \
+            ggml_cuda_add_lite_residuals<LITE_T, MAX_RES><<<(n_rb + 255) / 256, 256, 0, stream>>>( \
+                (const LITE_T *)src0_d, (const float *)src1_d, dst_d, \
                 ne01, ne00, ne1, s01, stride_src1, stride_dst); \
             CUDA_CHECK(cudaGetLastError()); \
             return; \
         }
 
-        TURBO_MMQ_PATH(Q2_K_TURBO, block_q2_k_turbo, sizeof(block_q2_K), GGML_TYPE_Q2_K, Q2_K_TURBO_MAX_RESIDUALS)
-        TURBO_MMQ_PATH(Q3_K_TURBO, block_q3_k_turbo, sizeof(block_q2_K), GGML_TYPE_Q2_K, Q3_K_TURBO_MAX_RESIDUALS)  // base = Q2_K
-        TURBO_MMQ_PATH(Q4_K_TURBO, block_q4_k_turbo, sizeof(block_q3_K), GGML_TYPE_Q3_K, Q4_K_TURBO_MAX_RESIDUALS)  // base = Q3_K
-        TURBO_MMQ_PATH(Q5_K_TURBO, block_q5_k_turbo, sizeof(block_q4_K), GGML_TYPE_Q4_K, Q5_K_TURBO_MAX_RESIDUALS)  // base = Q4_K
-        TURBO_MMQ_PATH(Q6_K_TURBO, block_q6_k_turbo, sizeof(block_q5_K), GGML_TYPE_Q5_K, Q6_K_TURBO_MAX_RESIDUALS)  // base = Q5_K
+        LITE_MMQ_PATH(Q2_K_LITE, block_q2_k_lite, sizeof(block_q2_K), GGML_TYPE_Q2_K, Q2_K_LITE_MAX_RESIDUALS)
+        LITE_MMQ_PATH(Q3_K_LITE, block_q3_k_lite, sizeof(block_q2_K), GGML_TYPE_Q2_K, Q3_K_LITE_MAX_RESIDUALS)  // base = Q2_K
+        LITE_MMQ_PATH(Q4_K_LITE, block_q4_k_lite, sizeof(block_q3_K), GGML_TYPE_Q3_K, Q4_K_LITE_MAX_RESIDUALS)  // base = Q3_K
+        LITE_MMQ_PATH(Q5_K_LITE, block_q5_k_lite, sizeof(block_q4_K), GGML_TYPE_Q4_K, Q5_K_LITE_MAX_RESIDUALS)  // base = Q4_K
+        LITE_MMQ_PATH(Q6_K_LITE, block_q6_k_lite, sizeof(block_q5_K), GGML_TYPE_Q5_K, Q6_K_LITE_MAX_RESIDUALS)  // base = Q5_K
 
         const mmq_args args = {
             src0_d, src0->type, (const int *) src1_q8_1.ptr, nullptr, nullptr, dst_d,
@@ -449,9 +449,9 @@ void ggml_cuda_op_mul_mat_q(
                             || GGML_CUDA_CC_IS_CDNA(cc))
                             && src1_ncols == ne11;
 
-    // TURBO types need compact copy + base MMQ + residual correction (same as TURBO_MMQ_PATH but
+    // LITE types need compact copy + base MMQ + residual correction (same as LITE_MMQ_PATH but
     // operating on a row slice src0_dd_i in the split/op path).
-#define TURBO_OP_MMQ_PATH(TNAME, TURBO_T, BASE_SIZE, BASE_GGML_TYPE, MAX_RES) \
+#define LITE_OP_MMQ_PATH(TNAME, LITE_T, BASE_SIZE, BASE_GGML_TYPE, MAX_RES) \
     if (src0->type == GGML_TYPE_##TNAME) { \
         const int64_t n_blocks = row_diff * stride01; \
         ggml_cuda_pool_alloc<char> base_compact(ctx.pool(), n_blocks * (BASE_SIZE)); \
@@ -468,20 +468,20 @@ void ggml_cuda_op_mul_mat_q(
         ggml_cuda_mul_mat_q_switch_type(ctx, args_base, stream); \
         if (src1_ddf_i) { \
             const int64_t stride_src1 = src1->ne[0]; \
-            ggml_cuda_add_turbo_residuals<TURBO_T, (MAX_RES)><<<(n_blocks + 255) / 256, 256, 0, stream>>>( \
-                (const TURBO_T *)src0_dd_i, src1_ddf_i, dst_dd_i, \
+            ggml_cuda_add_lite_residuals<LITE_T, (MAX_RES)><<<(n_blocks + 255) / 256, 256, 0, stream>>>( \
+                (const LITE_T *)src0_dd_i, src1_ddf_i, dst_dd_i, \
                 row_diff, ne00, src1_ncols, stride01, stride_src1, nrows_dst); \
             CUDA_CHECK(cudaGetLastError()); \
         } \
         return; \
     }
 
-    TURBO_OP_MMQ_PATH(Q2_K_TURBO, block_q2_k_turbo, sizeof(block_q2_K), GGML_TYPE_Q2_K, Q2_K_TURBO_MAX_RESIDUALS)
-    TURBO_OP_MMQ_PATH(Q3_K_TURBO, block_q3_k_turbo, sizeof(block_q2_K), GGML_TYPE_Q2_K, Q3_K_TURBO_MAX_RESIDUALS)
-    TURBO_OP_MMQ_PATH(Q4_K_TURBO, block_q4_k_turbo, sizeof(block_q3_K), GGML_TYPE_Q3_K, Q4_K_TURBO_MAX_RESIDUALS)
-    TURBO_OP_MMQ_PATH(Q5_K_TURBO, block_q5_k_turbo, sizeof(block_q4_K), GGML_TYPE_Q4_K, Q5_K_TURBO_MAX_RESIDUALS)
-    TURBO_OP_MMQ_PATH(Q6_K_TURBO, block_q6_k_turbo, sizeof(block_q5_K), GGML_TYPE_Q5_K, Q6_K_TURBO_MAX_RESIDUALS)
-#undef TURBO_OP_MMQ_PATH
+    LITE_OP_MMQ_PATH(Q2_K_LITE, block_q2_k_lite, sizeof(block_q2_K), GGML_TYPE_Q2_K, Q2_K_LITE_MAX_RESIDUALS)
+    LITE_OP_MMQ_PATH(Q3_K_LITE, block_q3_k_lite, sizeof(block_q2_K), GGML_TYPE_Q2_K, Q3_K_LITE_MAX_RESIDUALS)
+    LITE_OP_MMQ_PATH(Q4_K_LITE, block_q4_k_lite, sizeof(block_q3_K), GGML_TYPE_Q3_K, Q4_K_LITE_MAX_RESIDUALS)
+    LITE_OP_MMQ_PATH(Q5_K_LITE, block_q5_k_lite, sizeof(block_q4_K), GGML_TYPE_Q4_K, Q5_K_LITE_MAX_RESIDUALS)
+    LITE_OP_MMQ_PATH(Q6_K_LITE, block_q6_k_lite, sizeof(block_q5_K), GGML_TYPE_Q5_K, Q6_K_LITE_MAX_RESIDUALS)
+#undef LITE_OP_MMQ_PATH
 
     const mmq_args args = {
         src0_dd_i, src0->type, (const int *) src1_ddq_i, nullptr, nullptr, dst_dd_i,
@@ -516,11 +516,11 @@ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11, int64_t
         case GGML_TYPE_Q4_K:
         case GGML_TYPE_Q5_K:
         case GGML_TYPE_Q5_K_HIFI_RES8:  // Use Q5_K MMQ path (compact copy + residual kernel)
-        case GGML_TYPE_Q2_K_TURBO:  // compact copy to Q2_K + residual correction
-        case GGML_TYPE_Q3_K_TURBO:  // compact copy to Q2_K + residual correction (base shifted down)
-        case GGML_TYPE_Q4_K_TURBO:  // compact copy to Q3_K + residual correction (base shifted down)
-        case GGML_TYPE_Q5_K_TURBO:  // compact copy to Q4_K + residual correction (base shifted down)
-        case GGML_TYPE_Q6_K_TURBO:  // compact copy to Q5_K + residual correction (base shifted down)
+        case GGML_TYPE_Q2_K_LITE:  // compact copy to Q2_K + residual correction
+        case GGML_TYPE_Q3_K_LITE:  // compact copy to Q2_K + residual correction (base shifted down)
+        case GGML_TYPE_Q4_K_LITE:  // compact copy to Q3_K + residual correction (base shifted down)
+        case GGML_TYPE_Q5_K_LITE:  // compact copy to Q4_K + residual correction (base shifted down)
+        case GGML_TYPE_Q6_K_LITE:  // compact copy to Q5_K + residual correction (base shifted down)
         case GGML_TYPE_Q6_K:
         case GGML_TYPE_IQ2_XXS:
         case GGML_TYPE_IQ2_XS:

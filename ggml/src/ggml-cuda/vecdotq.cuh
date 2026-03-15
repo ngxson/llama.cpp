@@ -1301,18 +1301,18 @@ static __device__ __forceinline__ float vec_dot_q5_k_hifi_res8_q8_1(
     return sum;
 }
 
-// K_TURBO: Shifted-down base Qn_K dot product + INT8 residual corrections (FP16 scale)
-// Each TURBO type uses base one level BELOW its target quality for smaller blocks.
+// K_LITE: Shifted-down base Qn_K dot product + INT8 residual corrections (FP16 scale)
+// Each LITE type uses base one level BELOW its target quality for smaller blocks.
 // residual_scale stored as ggml_half (FP16); use __half2float() to convert.
 
-// Q2_K_TURBO: Q2_K base (unchanged)
-#define VDR_Q2_K_TURBO_Q8_1_MMVQ VDR_Q2_K_Q8_1_MMVQ
+// Q2_K_LITE: Q2_K base (unchanged)
+#define VDR_Q2_K_LITE_Q8_1_MMVQ VDR_Q2_K_Q8_1_MMVQ
 
-static __device__ __forceinline__ float vec_dot_q2_k_turbo_q8_1(
+static __device__ __forceinline__ float vec_dot_q2_k_lite_q8_1(
     const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
 
-    const block_q2_k_turbo * bq_turbo = (const block_q2_k_turbo *) vbq + kbx;
-    const block_q2_K * bq2_K = (const block_q2_K *) bq_turbo;
+    const block_q2_k_lite * bq_lite = (const block_q2_k_lite *) vbq + kbx;
+    const block_q2_K * bq2_K = (const block_q2_K *) bq_lite;
 
     const int bq8_offset = QR2_K * (iqs / QI8_1);
     const int scale_offset = iqs - iqs % QI8_1 + (iqs % QI8_1) / (QI8_1/2);
@@ -1331,27 +1331,27 @@ static __device__ __forceinline__ float vec_dot_q2_k_turbo_q8_1(
     float sum = vec_dot_q2_K_q8_1_impl_mmvq(v, u, scales, bq2_K->dm, d8);
 
     if (iqs == 0) {
-        const int rc = bq_turbo->residual_count;
-        const float rscale = __half2float(bq_turbo->residual_scale);
-        for (int k = 0; k < rc && k < Q2_K_TURBO_MAX_RESIDUALS; ++k) {
-            const int idx = bq_turbo->residual_idx[k];
+        const int rc = bq_lite->residual_count;
+        const float rscale = __half2float(bq_lite->residual_scale);
+        for (int k = 0; k < rc && k < Q2_K_LITE_MAX_RESIDUALS; ++k) {
+            const int idx = bq_lite->residual_idx[k];
             const int8_t q8_val = ((const int8_t*)bq8_1[idx / QK8_1].qs)[idx % QK8_1];
             const float d8_val = __low2float(bq8_1[idx / QK8_1].ds);
-            sum += rscale * (float)bq_turbo->residual_vals[k] * q8_val * d8_val;
+            sum += rscale * (float)bq_lite->residual_vals[k] * q8_val * d8_val;
         }
     }
 
     return sum;
 }
 
-// Q3_K_TURBO: Q2_K base (shifted down from Q3_K)
-#define VDR_Q3_K_TURBO_Q8_1_MMVQ VDR_Q2_K_Q8_1_MMVQ
+// Q3_K_LITE: Q2_K base (shifted down from Q3_K)
+#define VDR_Q3_K_LITE_Q8_1_MMVQ VDR_Q2_K_Q8_1_MMVQ
 
-static __device__ __forceinline__ float vec_dot_q3_k_turbo_q8_1(
+static __device__ __forceinline__ float vec_dot_q3_k_lite_q8_1(
     const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
 
-    const block_q3_k_turbo * bq_turbo = (const block_q3_k_turbo *) vbq + kbx;
-    const block_q2_K * bq2_K = (const block_q2_K *) bq_turbo;
+    const block_q3_k_lite * bq_lite = (const block_q3_k_lite *) vbq + kbx;
+    const block_q2_K * bq2_K = (const block_q2_K *) bq_lite;
 
     const int bq8_offset = QR2_K * (iqs / QI8_1);
     const int scale_offset = iqs - iqs % QI8_1 + (iqs % QI8_1) / (QI8_1/2);
@@ -1370,27 +1370,27 @@ static __device__ __forceinline__ float vec_dot_q3_k_turbo_q8_1(
     float sum = vec_dot_q2_K_q8_1_impl_mmvq(v, u, scales, bq2_K->dm, d8);
 
     if (iqs == 0) {
-        const int rc = bq_turbo->residual_count;
-        const float rscale = __half2float(bq_turbo->residual_scale);
-        for (int k = 0; k < rc && k < Q3_K_TURBO_MAX_RESIDUALS; ++k) {
-            const int idx = bq_turbo->residual_idx[k];
+        const int rc = bq_lite->residual_count;
+        const float rscale = __half2float(bq_lite->residual_scale);
+        for (int k = 0; k < rc && k < Q3_K_LITE_MAX_RESIDUALS; ++k) {
+            const int idx = bq_lite->residual_idx[k];
             const int8_t q8_val = ((const int8_t*)bq8_1[idx / QK8_1].qs)[idx % QK8_1];
             const float d8_val = __low2float(bq8_1[idx / QK8_1].ds);
-            sum += rscale * (float)bq_turbo->residual_vals[k] * q8_val * d8_val;
+            sum += rscale * (float)bq_lite->residual_vals[k] * q8_val * d8_val;
         }
     }
 
     return sum;
 }
 
-// Q4_K_TURBO: Q3_K base (shifted down from Q4_K)
-#define VDR_Q4_K_TURBO_Q8_1_MMVQ VDR_Q3_K_Q8_1_MMVQ
+// Q4_K_LITE: Q3_K base (shifted down from Q4_K)
+#define VDR_Q4_K_LITE_Q8_1_MMVQ VDR_Q3_K_Q8_1_MMVQ
 
-static __device__ __forceinline__ float vec_dot_q4_k_turbo_q8_1(
+static __device__ __forceinline__ float vec_dot_q4_k_lite_q8_1(
     const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
 
-    const block_q4_k_turbo * bq_turbo = (const block_q4_k_turbo *) vbq + kbx;
-    const block_q3_K * bq3_K = (const block_q3_K *) bq_turbo;
+    const block_q4_k_lite * bq_lite = (const block_q4_k_lite *) vbq + kbx;
+    const block_q3_K * bq3_K = (const block_q3_K *) bq_lite;
 
     const int bq8_offset = QR3_K * (iqs / (QI3_K/2));
     const int scale_offset = iqs - iqs % QI8_1 + (iqs % QI8_1) / (QI8_1/2);
@@ -1411,27 +1411,27 @@ static __device__ __forceinline__ float vec_dot_q4_k_turbo_q8_1(
     float sum = vec_dot_q3_K_q8_1_impl_mmvq(vl, vh, u, bq3_K->scales, scale_offset, d, d8);
 
     if (iqs == 0) {
-        const int rc = bq_turbo->residual_count;
-        const float rscale = __half2float(bq_turbo->residual_scale);
-        for (int k = 0; k < rc && k < Q4_K_TURBO_MAX_RESIDUALS; ++k) {
-            const int idx = bq_turbo->residual_idx[k];
+        const int rc = bq_lite->residual_count;
+        const float rscale = __half2float(bq_lite->residual_scale);
+        for (int k = 0; k < rc && k < Q4_K_LITE_MAX_RESIDUALS; ++k) {
+            const int idx = bq_lite->residual_idx[k];
             const int8_t q8_val = ((const int8_t*)bq8_1[idx / QK8_1].qs)[idx % QK8_1];
             const float d8_val = __low2float(bq8_1[idx / QK8_1].ds);
-            sum += rscale * (float)bq_turbo->residual_vals[k] * q8_val * d8_val;
+            sum += rscale * (float)bq_lite->residual_vals[k] * q8_val * d8_val;
         }
     }
 
     return sum;
 }
 
-// Q5_K_TURBO: Q4_K base (shifted down from Q5_K)
-#define VDR_Q5_K_TURBO_Q8_1_MMVQ VDR_Q4_K_Q8_1_MMVQ
+// Q5_K_LITE: Q4_K base (shifted down from Q5_K)
+#define VDR_Q5_K_LITE_Q8_1_MMVQ VDR_Q4_K_Q8_1_MMVQ
 
-static __device__ __forceinline__ float vec_dot_q5_k_turbo_q8_1(
+static __device__ __forceinline__ float vec_dot_q5_k_lite_q8_1(
     const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
 
-    const block_q5_k_turbo * bq_turbo = (const block_q5_k_turbo *) vbq + kbx;
-    const block_q4_K * bq4_K = (const block_q4_K *) bq_turbo;
+    const block_q5_k_lite * bq_lite = (const block_q5_k_lite *) vbq + kbx;
+    const block_q4_K * bq4_K = (const block_q4_K *) bq_lite;
 
     int    v[2];
     int    u[2*QR4_K];
@@ -1466,27 +1466,27 @@ static __device__ __forceinline__ float vec_dot_q5_k_turbo_q8_1(
     float sum = vec_dot_q4_K_q8_1_impl_vmmq(v, u, sc, m, bq4_K->dm, d8);
 
     if (iqs == 0) {
-        const int rc = bq_turbo->residual_count;
-        const float rscale = __half2float(bq_turbo->residual_scale);
-        for (int k = 0; k < rc && k < Q5_K_TURBO_MAX_RESIDUALS; ++k) {
-            const int idx = bq_turbo->residual_idx[k];
+        const int rc = bq_lite->residual_count;
+        const float rscale = __half2float(bq_lite->residual_scale);
+        for (int k = 0; k < rc && k < Q5_K_LITE_MAX_RESIDUALS; ++k) {
+            const int idx = bq_lite->residual_idx[k];
             const int8_t q8_val = ((const int8_t*)bq8_1[idx / QK8_1].qs)[idx % QK8_1];
             const float d8_val = __low2float(bq8_1[idx / QK8_1].ds);
-            sum += rscale * (float)bq_turbo->residual_vals[k] * q8_val * d8_val;
+            sum += rscale * (float)bq_lite->residual_vals[k] * q8_val * d8_val;
         }
     }
 
     return sum;
 }
 
-// Q6_K_TURBO: Q5_K base (shifted down from Q6_K)
-#define VDR_Q6_K_TURBO_Q8_1_MMVQ VDR_Q5_K_Q8_1_MMVQ
+// Q6_K_LITE: Q5_K base (shifted down from Q6_K)
+#define VDR_Q6_K_LITE_Q8_1_MMVQ VDR_Q5_K_Q8_1_MMVQ
 
-static __device__ __forceinline__ float vec_dot_q6_k_turbo_q8_1(
+static __device__ __forceinline__ float vec_dot_q6_k_lite_q8_1(
     const void * __restrict__ vbq, const block_q8_1 * __restrict__ bq8_1, const int & kbx, const int & iqs) {
 
-    const block_q6_k_turbo * bq_turbo = (const block_q6_k_turbo *) vbq + kbx;
-    const block_q5_K * bq5_K = (const block_q5_K *) bq_turbo;
+    const block_q6_k_lite * bq_lite = (const block_q6_k_lite *) vbq + kbx;
+    const block_q5_K * bq5_K = (const block_q5_K *) bq_lite;
 
     int   vl[2];
     int   vh[2];
@@ -1527,13 +1527,13 @@ static __device__ __forceinline__ float vec_dot_q6_k_turbo_q8_1(
     float sum = vec_dot_q5_K_q8_1_impl_vmmq(vl, vh, u, sc, m, bq5_K->dm, d8);
 
     if (iqs == 0) {
-        const int rc = bq_turbo->residual_count;
-        const float rscale = __half2float(bq_turbo->residual_scale);
-        for (int k = 0; k < rc && k < Q6_K_TURBO_MAX_RESIDUALS; ++k) {
-            const int idx = bq_turbo->residual_idx[k];
+        const int rc = bq_lite->residual_count;
+        const float rscale = __half2float(bq_lite->residual_scale);
+        for (int k = 0; k < rc && k < Q6_K_LITE_MAX_RESIDUALS; ++k) {
+            const int idx = bq_lite->residual_idx[k];
             const int8_t q8_val = ((const int8_t*)bq8_1[idx / QK8_1].qs)[idx % QK8_1];
             const float d8_val = __low2float(bq8_1[idx / QK8_1].ds);
-            sum += rscale * (float)bq_turbo->residual_vals[k] * q8_val * d8_val;
+            sum += rscale * (float)bq_lite->residual_vals[k] * q8_val * d8_val;
         }
     }
 

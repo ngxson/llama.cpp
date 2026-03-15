@@ -604,11 +604,11 @@ int ggml_q4_hifi_get_max_outliers(float model_params_b) {
 
 
 // ===========================================================================
-// K_TURBO Tier-Based Residual Budget
+// K_LITE Tier-Based Residual Budget
 // Determines how many INT8 residuals a tensor receives based on imatrix importance
 // ===========================================================================
 
-int ggml_turbo_get_residual_budget(float tensor_importance, float model_params_b, int max_residuals) {
+int ggml_lite_get_residual_budget(float tensor_importance, float model_params_b, int max_residuals) {
     // Tier thresholds are model-size adjusted to approximately hit the target percentile cuts:
     //   <=1B:  Top 2% / Next 5%  -> high thresholds (importance scores are tightly clustered)
     //   3B-7B: Top 4% / Next 8%  -> moderate thresholds

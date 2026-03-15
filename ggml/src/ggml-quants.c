@@ -3810,13 +3810,13 @@ size_t quantize_q5_k_hifi_res8(const float * GGML_RESTRICT src, void * GGML_REST
 }
 
 // =============================================================================
-// K_TURBO quantization family
+// K_LITE quantization family
 // Q*_K base + INT8 residual corrections, imatrix-driven tier allocation
 // Tier 1: full residuals, Tier 2: half residuals, Tier 0: none (FP32 shared scale)
 // =============================================================================
 
 // Helper: select top-N indices by score (score array is modified in-place, use a copy)
-static void turbo_select_top_n(const float * score, int n_elements, int * out_indices, int n_select) {
+static void lite_select_top_n(const float * score, int n_elements, int * out_indices, int n_select) {
     // Fixed-size copy -- QK_K is always 256 for K-quant blocks
     assert(n_elements <= QK_K);
     float tmp[QK_K];
@@ -3832,10 +3832,10 @@ static void turbo_select_top_n(const float * score, int n_elements, int * out_in
     }
 }
 
-// Helper: encode residuals into a TURBO block extension
+// Helper: encode residuals into a LITE block extension
 // residuals[]: pre-computed (weight - reconstructed) for selected positions
 // n: number of residuals to store, max_n: array capacity
-static void turbo_encode_residuals(const float * residuals, const int * indices, int n, int max_n,
+static void lite_encode_residuals(const float * residuals, const int * indices, int n, int max_n,
                                    uint8_t * out_count, uint8_t * out_idx, int8_t * out_vals, ggml_half * out_scale) {
     float max_err = 0.0f;
     for (int k = 0; k < n; ++k) {
@@ -3862,25 +3862,25 @@ static void turbo_encode_residuals(const float * residuals, const int * indices,
 }
 
 // ---------------------------------------------------------------------------
-// Q4_K_TURBO
+// Q4_K_LITE
 // ---------------------------------------------------------------------------
 
 // Inner quantize: fixed residual_budget per block (0 = no residuals stored)
-static void quantize_row_q4_k_turbo_inner(const float * GGML_RESTRICT x, block_q4_k_turbo * GGML_RESTRICT y,
+static void quantize_row_q4_k_lite_inner(const float * GGML_RESTRICT x, block_q4_k_lite * GGML_RESTRICT y,
                                            int64_t k, const float * qw, int residual_budget) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;
     if (residual_budget < 0) residual_budget = 0;
-    if (residual_budget > Q4_K_TURBO_MAX_RESIDUALS) residual_budget = Q4_K_TURBO_MAX_RESIDUALS;
+    if (residual_budget > Q4_K_LITE_MAX_RESIDUALS) residual_budget = Q4_K_LITE_MAX_RESIDUALS;
 
     float dequant[QK_K];
     float score[QK_K];
-    int   indices[Q4_K_TURBO_MAX_RESIDUALS];
-    float residuals[Q4_K_TURBO_MAX_RESIDUALS];
+    int   indices[Q4_K_LITE_MAX_RESIDUALS];
+    float residuals[Q4_K_LITE_MAX_RESIDUALS];
 
     for (int64_t ib = 0; ib < nb; ++ib) {
         const float * xb = x + ib * QK_K;
-        block_q4_k_turbo * block = &y[ib];
+        block_q4_k_lite * block = &y[ib];
 
         // Quantize Q3_K base (writes hmask, qs, scales, d)
         quantize_row_q3_K_ref(xb, (block_q3_K *)block, QK_K);
@@ -3888,8 +3888,8 @@ static void quantize_row_q4_k_turbo_inner(const float * GGML_RESTRICT x, block_q
         if (residual_budget == 0) {
             block->residual_count = 0;
             block->residual_scale = GGML_FP32_TO_FP16(0.0f);
-            memset(block->residual_idx,  0, Q4_K_TURBO_MAX_RESIDUALS);
-            memset(block->residual_vals, 0, Q4_K_TURBO_MAX_RESIDUALS);
+            memset(block->residual_idx,  0, Q4_K_LITE_MAX_RESIDUALS);
+            memset(block->residual_vals, 0, Q4_K_LITE_MAX_RESIDUALS);
             continue;
         }
 
@@ -3902,22 +3902,22 @@ static void quantize_row_q4_k_turbo_inner(const float * GGML_RESTRICT x, block_q
             score[i] = fabsf(err) * (qw ? qw[i + ib * QK_K] : 1.0f);
         }
 
-        turbo_select_top_n(score, QK_K, indices, residual_budget);
+        lite_select_top_n(score, QK_K, indices, residual_budget);
 
         for (int k_idx = 0; k_idx < residual_budget; ++k_idx) {
             residuals[k_idx] = xb[indices[k_idx]] - dequant[indices[k_idx]];
         }
 
-        turbo_encode_residuals(residuals, indices, residual_budget, Q4_K_TURBO_MAX_RESIDUALS,
+        lite_encode_residuals(residuals, indices, residual_budget, Q4_K_LITE_MAX_RESIDUALS,
                                &block->residual_count, block->residual_idx, block->residual_vals, &block->residual_scale);
     }
 }
 
-void quantize_row_q4_k_turbo_ref(const float * GGML_RESTRICT x, block_q4_k_turbo * GGML_RESTRICT y, int64_t k) {
-    quantize_row_q4_k_turbo_inner(x, y, k, NULL, Q4_K_TURBO_MAX_RESIDUALS);
+void quantize_row_q4_k_lite_ref(const float * GGML_RESTRICT x, block_q4_k_lite * GGML_RESTRICT y, int64_t k) {
+    quantize_row_q4_k_lite_inner(x, y, k, NULL, Q4_K_LITE_MAX_RESIDUALS);
 }
 
-void dequantize_row_q4_k_turbo(const block_q4_k_turbo * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+void dequantize_row_q4_k_lite(const block_q4_k_lite * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;
     for (int64_t ib = 0; ib < nb; ++ib) {
@@ -3933,9 +3933,9 @@ void dequantize_row_q4_k_turbo(const block_q4_k_turbo * GGML_RESTRICT x, float *
     }
 }
 
-size_t quantize_q4_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
+size_t quantize_q4_k_lite(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
                              int64_t nrow, int64_t n_per_row, const float * quant_weights) {
-    const size_t row_size = ggml_row_size(GGML_TYPE_Q4_K_TURBO, n_per_row);
+    const size_t row_size = ggml_row_size(GGML_TYPE_Q4_K_LITE, n_per_row);
 
     float model_params_b = 4.0f;
     const ggml_hifi_quant_context * hifi_ctx = ggml_hifi_get_context();
@@ -3943,15 +3943,15 @@ size_t quantize_q4_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT
         model_params_b = hifi_ctx->model_params_b;
     }
 
-    int residual_budget = Q4_K_TURBO_MAX_RESIDUALS;
+    int residual_budget = Q4_K_LITE_MAX_RESIDUALS;
     if (quant_weights) {
         float importance = ggml_hifi_compute_tensor_importance(quant_weights, nrow * n_per_row);
-        residual_budget = ggml_turbo_get_residual_budget(importance, model_params_b, Q4_K_TURBO_MAX_RESIDUALS);
+        residual_budget = ggml_lite_get_residual_budget(importance, model_params_b, Q4_K_LITE_MAX_RESIDUALS);
     }
 
     char * qrow = (char *)dst;
     for (int64_t row = 0; row < nrow; ++row) {
-        quantize_row_q4_k_turbo_inner(src, (block_q4_k_turbo *)qrow, n_per_row,
+        quantize_row_q4_k_lite_inner(src, (block_q4_k_lite *)qrow, n_per_row,
                                       quant_weights ? quant_weights + row * n_per_row : NULL,
                                       residual_budget);
         src  += n_per_row;
@@ -3961,32 +3961,32 @@ size_t quantize_q4_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT
 }
 
 // ---------------------------------------------------------------------------
-// Q5_K_TURBO
+// Q5_K_LITE
 // ---------------------------------------------------------------------------
 
-static void quantize_row_q5_k_turbo_inner(const float * GGML_RESTRICT x, block_q5_k_turbo * GGML_RESTRICT y,
+static void quantize_row_q5_k_lite_inner(const float * GGML_RESTRICT x, block_q5_k_lite * GGML_RESTRICT y,
                                            int64_t k, const float * qw, int residual_budget) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;
     if (residual_budget < 0) residual_budget = 0;
-    if (residual_budget > Q5_K_TURBO_MAX_RESIDUALS) residual_budget = Q5_K_TURBO_MAX_RESIDUALS;
+    if (residual_budget > Q5_K_LITE_MAX_RESIDUALS) residual_budget = Q5_K_LITE_MAX_RESIDUALS;
 
     float dequant[QK_K];
     float score[QK_K];
-    int   indices[Q5_K_TURBO_MAX_RESIDUALS];
-    float residuals[Q5_K_TURBO_MAX_RESIDUALS];
+    int   indices[Q5_K_LITE_MAX_RESIDUALS];
+    float residuals[Q5_K_LITE_MAX_RESIDUALS];
 
     for (int64_t ib = 0; ib < nb; ++ib) {
         const float * xb = x + ib * QK_K;
-        block_q5_k_turbo * block = &y[ib];
+        block_q5_k_lite * block = &y[ib];
 
         quantize_row_q4_K_ref(xb, (block_q4_K *)block, QK_K);
 
         if (residual_budget == 0) {
             block->residual_count = 0;
             block->residual_scale = GGML_FP32_TO_FP16(0.0f);
-            memset(block->residual_idx,  0, Q5_K_TURBO_MAX_RESIDUALS);
-            memset(block->residual_vals, 0, Q5_K_TURBO_MAX_RESIDUALS);
+            memset(block->residual_idx,  0, Q5_K_LITE_MAX_RESIDUALS);
+            memset(block->residual_vals, 0, Q5_K_LITE_MAX_RESIDUALS);
             continue;
         }
 
@@ -3997,22 +3997,22 @@ static void quantize_row_q5_k_turbo_inner(const float * GGML_RESTRICT x, block_q
             score[i] = fabsf(err) * (qw ? qw[i + ib * QK_K] : 1.0f);
         }
 
-        turbo_select_top_n(score, QK_K, indices, residual_budget);
+        lite_select_top_n(score, QK_K, indices, residual_budget);
 
         for (int k_idx = 0; k_idx < residual_budget; ++k_idx) {
             residuals[k_idx] = xb[indices[k_idx]] - dequant[indices[k_idx]];
         }
 
-        turbo_encode_residuals(residuals, indices, residual_budget, Q5_K_TURBO_MAX_RESIDUALS,
+        lite_encode_residuals(residuals, indices, residual_budget, Q5_K_LITE_MAX_RESIDUALS,
                                &block->residual_count, block->residual_idx, block->residual_vals, &block->residual_scale);
     }
 }
 
-void quantize_row_q5_k_turbo_ref(const float * GGML_RESTRICT x, block_q5_k_turbo * GGML_RESTRICT y, int64_t k) {
-    quantize_row_q5_k_turbo_inner(x, y, k, NULL, Q5_K_TURBO_MAX_RESIDUALS);
+void quantize_row_q5_k_lite_ref(const float * GGML_RESTRICT x, block_q5_k_lite * GGML_RESTRICT y, int64_t k) {
+    quantize_row_q5_k_lite_inner(x, y, k, NULL, Q5_K_LITE_MAX_RESIDUALS);
 }
 
-void dequantize_row_q5_k_turbo(const block_q5_k_turbo * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+void dequantize_row_q5_k_lite(const block_q5_k_lite * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;
     for (int64_t ib = 0; ib < nb; ++ib) {
@@ -4028,9 +4028,9 @@ void dequantize_row_q5_k_turbo(const block_q5_k_turbo * GGML_RESTRICT x, float *
     }
 }
 
-size_t quantize_q5_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
+size_t quantize_q5_k_lite(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
                              int64_t nrow, int64_t n_per_row, const float * quant_weights) {
-    const size_t row_size = ggml_row_size(GGML_TYPE_Q5_K_TURBO, n_per_row);
+    const size_t row_size = ggml_row_size(GGML_TYPE_Q5_K_LITE, n_per_row);
 
     float model_params_b = 4.0f;
     const ggml_hifi_quant_context * hifi_ctx = ggml_hifi_get_context();
@@ -4038,15 +4038,15 @@ size_t quantize_q5_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT
         model_params_b = hifi_ctx->model_params_b;
     }
 
-    int residual_budget = Q5_K_TURBO_MAX_RESIDUALS;
+    int residual_budget = Q5_K_LITE_MAX_RESIDUALS;
     if (quant_weights) {
         float importance = ggml_hifi_compute_tensor_importance(quant_weights, nrow * n_per_row);
-        residual_budget = ggml_turbo_get_residual_budget(importance, model_params_b, Q5_K_TURBO_MAX_RESIDUALS);
+        residual_budget = ggml_lite_get_residual_budget(importance, model_params_b, Q5_K_LITE_MAX_RESIDUALS);
     }
 
     char * qrow = (char *)dst;
     for (int64_t row = 0; row < nrow; ++row) {
-        quantize_row_q5_k_turbo_inner(src, (block_q5_k_turbo *)qrow, n_per_row,
+        quantize_row_q5_k_lite_inner(src, (block_q5_k_lite *)qrow, n_per_row,
                                       quant_weights ? quant_weights + row * n_per_row : NULL,
                                       residual_budget);
         src  += n_per_row;
@@ -4056,32 +4056,32 @@ size_t quantize_q5_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT
 }
 
 // ---------------------------------------------------------------------------
-// Q6_K_TURBO
+// Q6_K_LITE
 // ---------------------------------------------------------------------------
 
-static void quantize_row_q6_k_turbo_inner(const float * GGML_RESTRICT x, block_q6_k_turbo * GGML_RESTRICT y,
+static void quantize_row_q6_k_lite_inner(const float * GGML_RESTRICT x, block_q6_k_lite * GGML_RESTRICT y,
                                            int64_t k, const float * qw, int residual_budget) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;
     if (residual_budget < 0) residual_budget = 0;
-    if (residual_budget > Q6_K_TURBO_MAX_RESIDUALS) residual_budget = Q6_K_TURBO_MAX_RESIDUALS;
+    if (residual_budget > Q6_K_LITE_MAX_RESIDUALS) residual_budget = Q6_K_LITE_MAX_RESIDUALS;
 
     float dequant[QK_K];
     float score[QK_K];
-    int   indices[Q6_K_TURBO_MAX_RESIDUALS];
-    float residuals[Q6_K_TURBO_MAX_RESIDUALS];
+    int   indices[Q6_K_LITE_MAX_RESIDUALS];
+    float residuals[Q6_K_LITE_MAX_RESIDUALS];
 
     for (int64_t ib = 0; ib < nb; ++ib) {
         const float * xb = x + ib * QK_K;
-        block_q6_k_turbo * block = &y[ib];
+        block_q6_k_lite * block = &y[ib];
 
         quantize_row_q5_K_ref(xb, (block_q5_K *)block, QK_K);
 
         if (residual_budget == 0) {
             block->residual_count = 0;
             block->residual_scale = GGML_FP32_TO_FP16(0.0f);
-            memset(block->residual_idx,  0, Q6_K_TURBO_MAX_RESIDUALS);
-            memset(block->residual_vals, 0, Q6_K_TURBO_MAX_RESIDUALS);
+            memset(block->residual_idx,  0, Q6_K_LITE_MAX_RESIDUALS);
+            memset(block->residual_vals, 0, Q6_K_LITE_MAX_RESIDUALS);
             continue;
         }
 
@@ -4092,22 +4092,22 @@ static void quantize_row_q6_k_turbo_inner(const float * GGML_RESTRICT x, block_q
             score[i] = fabsf(err) * (qw ? qw[i + ib * QK_K] : 1.0f);
         }
 
-        turbo_select_top_n(score, QK_K, indices, residual_budget);
+        lite_select_top_n(score, QK_K, indices, residual_budget);
 
         for (int k_idx = 0; k_idx < residual_budget; ++k_idx) {
             residuals[k_idx] = xb[indices[k_idx]] - dequant[indices[k_idx]];
         }
 
-        turbo_encode_residuals(residuals, indices, residual_budget, Q6_K_TURBO_MAX_RESIDUALS,
+        lite_encode_residuals(residuals, indices, residual_budget, Q6_K_LITE_MAX_RESIDUALS,
                                &block->residual_count, block->residual_idx, block->residual_vals, &block->residual_scale);
     }
 }
 
-void quantize_row_q6_k_turbo_ref(const float * GGML_RESTRICT x, block_q6_k_turbo * GGML_RESTRICT y, int64_t k) {
-    quantize_row_q6_k_turbo_inner(x, y, k, NULL, Q6_K_TURBO_MAX_RESIDUALS);
+void quantize_row_q6_k_lite_ref(const float * GGML_RESTRICT x, block_q6_k_lite * GGML_RESTRICT y, int64_t k) {
+    quantize_row_q6_k_lite_inner(x, y, k, NULL, Q6_K_LITE_MAX_RESIDUALS);
 }
 
-void dequantize_row_q6_k_turbo(const block_q6_k_turbo * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+void dequantize_row_q6_k_lite(const block_q6_k_lite * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;
     for (int64_t ib = 0; ib < nb; ++ib) {
@@ -4123,9 +4123,9 @@ void dequantize_row_q6_k_turbo(const block_q6_k_turbo * GGML_RESTRICT x, float *
     }
 }
 
-size_t quantize_q6_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
+size_t quantize_q6_k_lite(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
                              int64_t nrow, int64_t n_per_row, const float * quant_weights) {
-    const size_t row_size = ggml_row_size(GGML_TYPE_Q6_K_TURBO, n_per_row);
+    const size_t row_size = ggml_row_size(GGML_TYPE_Q6_K_LITE, n_per_row);
 
     float model_params_b = 4.0f;
     const ggml_hifi_quant_context * hifi_ctx = ggml_hifi_get_context();
@@ -4133,15 +4133,15 @@ size_t quantize_q6_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT
         model_params_b = hifi_ctx->model_params_b;
     }
 
-    int residual_budget = Q6_K_TURBO_MAX_RESIDUALS;
+    int residual_budget = Q6_K_LITE_MAX_RESIDUALS;
     if (quant_weights) {
         float importance = ggml_hifi_compute_tensor_importance(quant_weights, nrow * n_per_row);
-        residual_budget = ggml_turbo_get_residual_budget(importance, model_params_b, Q6_K_TURBO_MAX_RESIDUALS);
+        residual_budget = ggml_lite_get_residual_budget(importance, model_params_b, Q6_K_LITE_MAX_RESIDUALS);
     }
 
     char * qrow = (char *)dst;
     for (int64_t row = 0; row < nrow; ++row) {
-        quantize_row_q6_k_turbo_inner(src, (block_q6_k_turbo *)qrow, n_per_row,
+        quantize_row_q6_k_lite_inner(src, (block_q6_k_lite *)qrow, n_per_row,
                                       quant_weights ? quant_weights + row * n_per_row : NULL,
                                       residual_budget);
         src  += n_per_row;
@@ -4151,32 +4151,32 @@ size_t quantize_q6_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT
 }
 
 // ---------------------------------------------------------------------------
-// Q3_K_TURBO
+// Q3_K_LITE
 // ---------------------------------------------------------------------------
 
-static void quantize_row_q3_k_turbo_inner(const float * GGML_RESTRICT x, block_q3_k_turbo * GGML_RESTRICT y,
+static void quantize_row_q3_k_lite_inner(const float * GGML_RESTRICT x, block_q3_k_lite * GGML_RESTRICT y,
                                            int64_t k, const float * qw, int residual_budget) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;
     if (residual_budget < 0) residual_budget = 0;
-    if (residual_budget > Q3_K_TURBO_MAX_RESIDUALS) residual_budget = Q3_K_TURBO_MAX_RESIDUALS;
+    if (residual_budget > Q3_K_LITE_MAX_RESIDUALS) residual_budget = Q3_K_LITE_MAX_RESIDUALS;
 
     float dequant[QK_K];
     float score[QK_K];
-    int   indices[Q3_K_TURBO_MAX_RESIDUALS];
-    float residuals[Q3_K_TURBO_MAX_RESIDUALS];
+    int   indices[Q3_K_LITE_MAX_RESIDUALS];
+    float residuals[Q3_K_LITE_MAX_RESIDUALS];
 
     for (int64_t ib = 0; ib < nb; ++ib) {
         const float * xb = x + ib * QK_K;
-        block_q3_k_turbo * block = &y[ib];
+        block_q3_k_lite * block = &y[ib];
 
         quantize_row_q2_K_ref(xb, (block_q2_K *)block, QK_K);
 
         if (residual_budget == 0) {
             block->residual_count = 0;
             block->residual_scale = GGML_FP32_TO_FP16(0.0f);
-            memset(block->residual_idx,  0, Q3_K_TURBO_MAX_RESIDUALS);
-            memset(block->residual_vals, 0, Q3_K_TURBO_MAX_RESIDUALS);
+            memset(block->residual_idx,  0, Q3_K_LITE_MAX_RESIDUALS);
+            memset(block->residual_vals, 0, Q3_K_LITE_MAX_RESIDUALS);
             continue;
         }
 
@@ -4187,22 +4187,22 @@ static void quantize_row_q3_k_turbo_inner(const float * GGML_RESTRICT x, block_q
             score[i] = fabsf(err) * (qw ? qw[i + ib * QK_K] : 1.0f);
         }
 
-        turbo_select_top_n(score, QK_K, indices, residual_budget);
+        lite_select_top_n(score, QK_K, indices, residual_budget);
 
         for (int k_idx = 0; k_idx < residual_budget; ++k_idx) {
             residuals[k_idx] = xb[indices[k_idx]] - dequant[indices[k_idx]];
         }
 
-        turbo_encode_residuals(residuals, indices, residual_budget, Q3_K_TURBO_MAX_RESIDUALS,
+        lite_encode_residuals(residuals, indices, residual_budget, Q3_K_LITE_MAX_RESIDUALS,
                                &block->residual_count, block->residual_idx, block->residual_vals, &block->residual_scale);
     }
 }
 
-void quantize_row_q3_k_turbo_ref(const float * GGML_RESTRICT x, block_q3_k_turbo * GGML_RESTRICT y, int64_t k) {
-    quantize_row_q3_k_turbo_inner(x, y, k, NULL, Q3_K_TURBO_MAX_RESIDUALS);
+void quantize_row_q3_k_lite_ref(const float * GGML_RESTRICT x, block_q3_k_lite * GGML_RESTRICT y, int64_t k) {
+    quantize_row_q3_k_lite_inner(x, y, k, NULL, Q3_K_LITE_MAX_RESIDUALS);
 }
 
-void dequantize_row_q3_k_turbo(const block_q3_k_turbo * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+void dequantize_row_q3_k_lite(const block_q3_k_lite * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;
     for (int64_t ib = 0; ib < nb; ++ib) {
@@ -4218,9 +4218,9 @@ void dequantize_row_q3_k_turbo(const block_q3_k_turbo * GGML_RESTRICT x, float *
     }
 }
 
-size_t quantize_q3_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
+size_t quantize_q3_k_lite(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
                              int64_t nrow, int64_t n_per_row, const float * quant_weights) {
-    const size_t row_size = ggml_row_size(GGML_TYPE_Q3_K_TURBO, n_per_row);
+    const size_t row_size = ggml_row_size(GGML_TYPE_Q3_K_LITE, n_per_row);
 
     float model_params_b = 4.0f;
     const ggml_hifi_quant_context * hifi_ctx = ggml_hifi_get_context();
@@ -4228,15 +4228,15 @@ size_t quantize_q3_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT
         model_params_b = hifi_ctx->model_params_b;
     }
 
-    int residual_budget = Q3_K_TURBO_MAX_RESIDUALS;
+    int residual_budget = Q3_K_LITE_MAX_RESIDUALS;
     if (quant_weights) {
         float importance = ggml_hifi_compute_tensor_importance(quant_weights, nrow * n_per_row);
-        residual_budget = ggml_turbo_get_residual_budget(importance, model_params_b, Q3_K_TURBO_MAX_RESIDUALS);
+        residual_budget = ggml_lite_get_residual_budget(importance, model_params_b, Q3_K_LITE_MAX_RESIDUALS);
     }
 
     char * qrow = (char *)dst;
     for (int64_t row = 0; row < nrow; ++row) {
-        quantize_row_q3_k_turbo_inner(src, (block_q3_k_turbo *)qrow, n_per_row,
+        quantize_row_q3_k_lite_inner(src, (block_q3_k_lite *)qrow, n_per_row,
                                       quant_weights ? quant_weights + row * n_per_row : NULL,
                                       residual_budget);
         src  += n_per_row;
@@ -4246,32 +4246,32 @@ size_t quantize_q3_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT
 }
 
 // ---------------------------------------------------------------------------
-// Q2_K_TURBO  (only 3 residuals -- same pattern, smaller budget)
+// Q2_K_LITE  (only 3 residuals -- same pattern, smaller budget)
 // ---------------------------------------------------------------------------
 
-static void quantize_row_q2_k_turbo_inner(const float * GGML_RESTRICT x, block_q2_k_turbo * GGML_RESTRICT y,
+static void quantize_row_q2_k_lite_inner(const float * GGML_RESTRICT x, block_q2_k_lite * GGML_RESTRICT y,
                                            int64_t k, const float * qw, int residual_budget) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;
     if (residual_budget < 0) residual_budget = 0;
-    if (residual_budget > Q2_K_TURBO_MAX_RESIDUALS) residual_budget = Q2_K_TURBO_MAX_RESIDUALS;
+    if (residual_budget > Q2_K_LITE_MAX_RESIDUALS) residual_budget = Q2_K_LITE_MAX_RESIDUALS;
 
     float dequant[QK_K];
     float score[QK_K];
-    int   indices[Q2_K_TURBO_MAX_RESIDUALS];
-    float residuals[Q2_K_TURBO_MAX_RESIDUALS];
+    int   indices[Q2_K_LITE_MAX_RESIDUALS];
+    float residuals[Q2_K_LITE_MAX_RESIDUALS];
 
     for (int64_t ib = 0; ib < nb; ++ib) {
         const float * xb = x + ib * QK_K;
-        block_q2_k_turbo * block = &y[ib];
+        block_q2_k_lite * block = &y[ib];
 
         quantize_row_q2_K_ref(xb, (block_q2_K *)block, QK_K);
 
         if (residual_budget == 0) {
             block->residual_count = 0;
             block->residual_scale = GGML_FP32_TO_FP16(0.0f);
-            memset(block->residual_idx,  0, Q2_K_TURBO_MAX_RESIDUALS);
-            memset(block->residual_vals, 0, Q2_K_TURBO_MAX_RESIDUALS);
+            memset(block->residual_idx,  0, Q2_K_LITE_MAX_RESIDUALS);
+            memset(block->residual_vals, 0, Q2_K_LITE_MAX_RESIDUALS);
             continue;
         }
 
@@ -4282,22 +4282,22 @@ static void quantize_row_q2_k_turbo_inner(const float * GGML_RESTRICT x, block_q
             score[i] = fabsf(err) * (qw ? qw[i + ib * QK_K] : 1.0f);
         }
 
-        turbo_select_top_n(score, QK_K, indices, residual_budget);
+        lite_select_top_n(score, QK_K, indices, residual_budget);
 
         for (int k_idx = 0; k_idx < residual_budget; ++k_idx) {
             residuals[k_idx] = xb[indices[k_idx]] - dequant[indices[k_idx]];
         }
 
-        turbo_encode_residuals(residuals, indices, residual_budget, Q2_K_TURBO_MAX_RESIDUALS,
+        lite_encode_residuals(residuals, indices, residual_budget, Q2_K_LITE_MAX_RESIDUALS,
                                &block->residual_count, block->residual_idx, block->residual_vals, &block->residual_scale);
     }
 }
 
-void quantize_row_q2_k_turbo_ref(const float * GGML_RESTRICT x, block_q2_k_turbo * GGML_RESTRICT y, int64_t k) {
-    quantize_row_q2_k_turbo_inner(x, y, k, NULL, Q2_K_TURBO_MAX_RESIDUALS);
+void quantize_row_q2_k_lite_ref(const float * GGML_RESTRICT x, block_q2_k_lite * GGML_RESTRICT y, int64_t k) {
+    quantize_row_q2_k_lite_inner(x, y, k, NULL, Q2_K_LITE_MAX_RESIDUALS);
 }
 
-void dequantize_row_q2_k_turbo(const block_q2_k_turbo * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
+void dequantize_row_q2_k_lite(const block_q2_k_lite * GGML_RESTRICT x, float * GGML_RESTRICT y, int64_t k) {
     assert(k % QK_K == 0);
     const int64_t nb = k / QK_K;
     for (int64_t ib = 0; ib < nb; ++ib) {
@@ -4313,9 +4313,9 @@ void dequantize_row_q2_k_turbo(const block_q2_k_turbo * GGML_RESTRICT x, float *
     }
 }
 
-size_t quantize_q2_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
+size_t quantize_q2_k_lite(const float * GGML_RESTRICT src, void * GGML_RESTRICT dst,
                              int64_t nrow, int64_t n_per_row, const float * quant_weights) {
-    const size_t row_size = ggml_row_size(GGML_TYPE_Q2_K_TURBO, n_per_row);
+    const size_t row_size = ggml_row_size(GGML_TYPE_Q2_K_LITE, n_per_row);
 
     float model_params_b = 4.0f;
     const ggml_hifi_quant_context * hifi_ctx = ggml_hifi_get_context();
@@ -4323,15 +4323,15 @@ size_t quantize_q2_k_turbo(const float * GGML_RESTRICT src, void * GGML_RESTRICT
         model_params_b = hifi_ctx->model_params_b;
     }
 
-    int residual_budget = Q2_K_TURBO_MAX_RESIDUALS;
+    int residual_budget = Q2_K_LITE_MAX_RESIDUALS;
     if (quant_weights) {
         float importance = ggml_hifi_compute_tensor_importance(quant_weights, nrow * n_per_row);
-        residual_budget = ggml_turbo_get_residual_budget(importance, model_params_b, Q2_K_TURBO_MAX_RESIDUALS);
+        residual_budget = ggml_lite_get_residual_budget(importance, model_params_b, Q2_K_LITE_MAX_RESIDUALS);
     }
 
     char * qrow = (char *)dst;
     for (int64_t row = 0; row < nrow; ++row) {
-        quantize_row_q2_k_turbo_inner(src, (block_q2_k_turbo *)qrow, n_per_row,
+        quantize_row_q2_k_lite_inner(src, (block_q2_k_lite *)qrow, n_per_row,
                                       quant_weights ? quant_weights + row * n_per_row : NULL,
                                       residual_budget);
         src  += n_per_row;
@@ -7834,30 +7834,30 @@ bool ggml_validate_row_data(enum ggml_type type, const void * data, size_t nbyte
                 }
             } break;
 
-        case GGML_TYPE_Q2_K_TURBO:
+        case GGML_TYPE_Q2_K_LITE:
             {
                 // Q2_K base: has d and dmin
-                VALIDATE_ROW_DATA_DM_F16_IMPL(block_q2_k_turbo, data, nb, d, dmin);
+                VALIDATE_ROW_DATA_DM_F16_IMPL(block_q2_k_lite, data, nb, d, dmin);
             } break;
-        case GGML_TYPE_Q3_K_TURBO:
+        case GGML_TYPE_Q3_K_LITE:
             {
                 // Q2_K base: has d and dmin
-                VALIDATE_ROW_DATA_DM_F16_IMPL(block_q3_k_turbo, data, nb, d, dmin);
+                VALIDATE_ROW_DATA_DM_F16_IMPL(block_q3_k_lite, data, nb, d, dmin);
             } break;
-        case GGML_TYPE_Q4_K_TURBO:
+        case GGML_TYPE_Q4_K_LITE:
             {
                 // Q3_K base: has only d
-                VALIDATE_ROW_DATA_D_F16_IMPL(block_q4_k_turbo, data, nb);
+                VALIDATE_ROW_DATA_D_F16_IMPL(block_q4_k_lite, data, nb);
             } break;
-        case GGML_TYPE_Q5_K_TURBO:
+        case GGML_TYPE_Q5_K_LITE:
             {
                 // Q4_K base: has d and dmin
-                VALIDATE_ROW_DATA_DM_F16_IMPL(block_q5_k_turbo, data, nb, d, dmin);
+                VALIDATE_ROW_DATA_DM_F16_IMPL(block_q5_k_lite, data, nb, d, dmin);
             } break;
-        case GGML_TYPE_Q6_K_TURBO:
+        case GGML_TYPE_Q6_K_LITE:
             {
                 // Q5_K base: has d and dmin
-                VALIDATE_ROW_DATA_DM_F16_IMPL(block_q6_k_turbo, data, nb, d, dmin);
+                VALIDATE_ROW_DATA_DM_F16_IMPL(block_q6_k_lite, data, nb, d, dmin);
             } break;
 
         case GGML_TYPE_I8:
