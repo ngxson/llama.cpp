@@ -146,11 +146,15 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_pool_2d(ggml_met
     return res;
 }
 
+static const char * ggml_metal_type_name_for_kernel(ggml_type type); // forward declaration
+
 ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_get_rows(ggml_metal_library_t lib, ggml_type tsrc) {
     char base[256];
     char name[256];
 
-    snprintf(base, 256, "kernel_get_rows_%s", ggml_type_name(tsrc));
+    // Use ggml_metal_type_name_for_kernel for HIFI types so the kernel name matches
+    // the dedicated kernels registered in ggml-metal.metal (e.g. "q5_K_hifi_res8")
+    snprintf(base, 256, "kernel_get_rows_%s", ggml_metal_type_name_for_kernel(tsrc));
     snprintf(name, 256, "%s", base);
 
     ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
@@ -577,6 +581,39 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_rwkv(ggml_metal_
     return res;
 }
 
+// Map HIFI types to their kernel name counterparts
+// Q3_K_HIFI, Q4_K_HIFI, Q5_K_HIFI_RES8 have dedicated kernels with correct block strides
+// Q6_K HIFI variants reuse Q6_K kernels (TODO: fix stride mismatch for Q6_K HIFI types)
+static const char * ggml_metal_type_name_for_kernel(ggml_type type) {
+    switch (type) {
+        case GGML_TYPE_Q2_K_HIFI:
+            return "q2_k_hifi";
+        case GGML_TYPE_Q3_K_HIFI:
+            return "q3_k_hifi";
+        case GGML_TYPE_Q4_K_HIFI:
+            return "q4_k_hifi";
+        case GGML_TYPE_Q6_K_HIFI:
+        case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
+            return "q6_K";
+        case GGML_TYPE_Q6_K_HIFI_RES8:
+            return "q6_K_hifi_res8";
+        case GGML_TYPE_Q5_K_HIFI_RES8:
+            return "q5_K_hifi_res8";
+        case GGML_TYPE_Q2_K_LITE:
+            return "q2_k_lite";
+        case GGML_TYPE_Q3_K_LITE:
+            return "q3_k_lite";
+        case GGML_TYPE_Q4_K_LITE:
+            return "q4_k_lite";
+        case GGML_TYPE_Q5_K_LITE:
+            return "q5_k_lite";
+        case GGML_TYPE_Q6_K_LITE:
+            return "q6_k_lite";
+        default:
+            return ggml_type_name(type);
+    }
+}
+
 ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_gated_delta_net(ggml_metal_library_t lib, const ggml_tensor * op) {
     char base[256];
     char name[256];
@@ -646,7 +683,7 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv_ext(ggml_
     char base[256];
     char name[256];
 
-    snprintf(base, 256, "kernel_mul_mv_ext_%s_%s_r1_%d", ggml_type_name(tsrc0), ggml_type_name(tsrc1), r1ptg);
+    snprintf(base, 256, "kernel_mul_mv_ext_%s_%s_r1_%d", ggml_metal_type_name_for_kernel(tsrc0), ggml_metal_type_name_for_kernel(tsrc1), r1ptg);
     snprintf(name, 256, "%s_nsg=%d_nxpsg=%d", base, nsg, nxpsg);
 
     ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
@@ -674,7 +711,7 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mm(ggml_meta
     const bool bc_inp = op->src[0]->ne[0] % 32 != 0;
     const bool bc_out = op->ne[0] % 64 != 0 || op->ne[1] % 32 != 0;
 
-    snprintf(base, 256, "kernel_mul_mm_%s_%s", ggml_type_name(tsrc0), ggml_type_name(tsrc1));
+    snprintf(base, 256, "kernel_mul_mm_%s_%s", ggml_metal_type_name_for_kernel(tsrc0), ggml_metal_type_name_for_kernel(tsrc1));
     snprintf(name, 256, "%s_bci=%d_bco=%d", base, bc_inp, bc_out);
 
     ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
@@ -769,15 +806,30 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv(ggml_meta
                 nsg = N_SG_Q2_K;
                 nr0 = N_R0_Q2_K;
             } break;
+        case GGML_TYPE_Q2_K_HIFI:
+            {
+                nsg = N_SG_Q2_K_HIFI;
+                nr0 = N_R0_Q2_K_HIFI;
+            } break;
         case GGML_TYPE_Q3_K:
             {
                 nsg = N_SG_Q3_K;
                 nr0 = N_R0_Q3_K;
             } break;
+        case GGML_TYPE_Q3_K_HIFI:
+            {
+                nsg = N_SG_Q3_K_HIFI;
+                nr0 = N_R0_Q3_K_HIFI;
+            } break;
         case GGML_TYPE_Q4_K:
             {
                 nsg = N_SG_Q4_K;
                 nr0 = N_R0_Q4_K;
+            } break;
+        case GGML_TYPE_Q4_K_HIFI:
+            {
+                nsg = N_SG_Q4_K_HIFI;
+                nr0 = N_R0_Q4_K_HIFI;
             } break;
         case GGML_TYPE_Q5_K:
             {
@@ -840,6 +892,51 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv(ggml_meta
                 nr0 = N_R0_IQ4_XS;
                 smem = 32*sizeof(float);
             } break;
+        case GGML_TYPE_Q6_K_HIFI:
+            {
+                nsg = N_SG_Q6_K;
+                nr0 = N_R0_Q6_K;
+            } break;
+        case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
+            {
+                nsg = N_SG_Q6_K;
+                nr0 = N_R0_Q6_K;
+            } break;
+        case GGML_TYPE_Q6_K_HIFI_RES8:
+            {
+                nsg = N_SG_Q6_K;
+                nr0 = N_R0_Q6_K;
+            } break;
+        case GGML_TYPE_Q5_K_HIFI_RES8:
+            {
+                nsg = N_SG_Q5_K;
+                nr0 = N_R0_Q5_K;
+            } break;
+        case GGML_TYPE_Q2_K_LITE:
+            {
+                nsg = N_SG_Q2_K;  // Q2_K base
+                nr0 = N_R0_Q2_K;
+            } break;
+        case GGML_TYPE_Q3_K_LITE:
+            {
+                nsg = N_SG_Q2_K;  // Q2_K base (shifted down from Q3_K)
+                nr0 = N_R0_Q2_K;
+            } break;
+        case GGML_TYPE_Q4_K_LITE:
+            {
+                nsg = N_SG_Q3_K;  // Q3_K base (shifted down from Q4_K)
+                nr0 = N_R0_Q3_K;
+            } break;
+        case GGML_TYPE_Q5_K_LITE:
+            {
+                nsg = N_SG_Q4_K;  // Q4_K base (shifted down from Q5_K)
+                nr0 = N_R0_Q4_K;
+            } break;
+        case GGML_TYPE_Q6_K_LITE:
+            {
+                nsg = N_SG_Q5_K;  // Q5_K base (shifted down from Q6_K)
+                nr0 = N_R0_Q5_K;
+            } break;
         default:
             {
                 GGML_LOG_ERROR("Asserting on type %d\n", (int) tsrc0);
@@ -847,7 +944,7 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv(ggml_meta
             }
     };
 
-    snprintf(base, 256, "kernel_mul_mv_%s_%s%s", ggml_type_name(tsrc0), ggml_type_name(tsrc1), suffix);
+    snprintf(base, 256, "kernel_mul_mv_%s_%s%s", ggml_metal_type_name_for_kernel(tsrc0), ggml_metal_type_name_for_kernel(tsrc1), suffix);
     snprintf(name, 256, "%s_nsg=%d", base, nsg);
 
     ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
@@ -895,7 +992,7 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mm_id(ggml_m
 
     const bool bc_inp = op->src[0]->ne[0] % 32 != 0;
 
-    snprintf(base, 256, "kernel_mul_mm_id_%s_%s", ggml_type_name(tsrc0), ggml_type_name(tsrc1));
+    snprintf(base, 256, "kernel_mul_mm_id_%s_%s", ggml_metal_type_name_for_kernel(tsrc0), ggml_metal_type_name_for_kernel(tsrc1));
     snprintf(name, 256, "%s_bci=%d", base, bc_inp);
 
     ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);
@@ -981,15 +1078,30 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv_id(ggml_m
                 nsg = N_SG_Q2_K;
                 nr0 = N_R0_Q2_K;
             } break;
+        case GGML_TYPE_Q2_K_HIFI:
+            {
+                nsg = N_SG_Q2_K_HIFI;
+                nr0 = N_R0_Q2_K_HIFI;
+            } break;
         case GGML_TYPE_Q3_K:
             {
                 nsg = N_SG_Q3_K;
                 nr0 = N_R0_Q3_K;
             } break;
+        case GGML_TYPE_Q3_K_HIFI:
+            {
+                nsg = N_SG_Q3_K_HIFI;
+                nr0 = N_R0_Q3_K_HIFI;
+            } break;
         case GGML_TYPE_Q4_K:
             {
                 nsg = N_SG_Q4_K;
                 nr0 = N_R0_Q4_K;
+            } break;
+        case GGML_TYPE_Q4_K_HIFI:
+            {
+                nsg = N_SG_Q4_K_HIFI;
+                nr0 = N_R0_Q4_K_HIFI;
             } break;
         case GGML_TYPE_Q5_K:
             {
@@ -1052,6 +1164,51 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv_id(ggml_m
                 nr0 = N_R0_IQ4_XS;
                 smem = 32*sizeof(float);
             } break;
+        case GGML_TYPE_Q6_K_HIFI:
+            {
+                nsg = N_SG_Q6_K;
+                nr0 = N_R0_Q6_K;
+            } break;
+        case GGML_TYPE_Q6_K_HIFI_DYNAMIC:
+            {
+                nsg = N_SG_Q6_K;
+                nr0 = N_R0_Q6_K;
+            } break;
+        case GGML_TYPE_Q6_K_HIFI_RES8:
+            {
+                nsg = N_SG_Q6_K;
+                nr0 = N_R0_Q6_K;
+            } break;
+        case GGML_TYPE_Q5_K_HIFI_RES8:
+            {
+                nsg = N_SG_Q5_K;
+                nr0 = N_R0_Q5_K;
+            } break;
+        case GGML_TYPE_Q2_K_LITE:
+            {
+                nsg = N_SG_Q2_K;  // Q2_K base
+                nr0 = N_R0_Q2_K;
+            } break;
+        case GGML_TYPE_Q3_K_LITE:
+            {
+                nsg = N_SG_Q2_K;  // Q2_K base (shifted down from Q3_K)
+                nr0 = N_R0_Q2_K;
+            } break;
+        case GGML_TYPE_Q4_K_LITE:
+            {
+                nsg = N_SG_Q3_K;  // Q3_K base (shifted down from Q4_K)
+                nr0 = N_R0_Q3_K;
+            } break;
+        case GGML_TYPE_Q5_K_LITE:
+            {
+                nsg = N_SG_Q4_K;  // Q4_K base (shifted down from Q5_K)
+                nr0 = N_R0_Q4_K;
+            } break;
+        case GGML_TYPE_Q6_K_LITE:
+            {
+                nsg = N_SG_Q5_K;  // Q5_K base (shifted down from Q6_K)
+                nr0 = N_R0_Q5_K;
+            } break;
         default:
             {
                 GGML_LOG_ERROR("Asserting on type %d\n", (int)op->src[2]->type);
@@ -1059,7 +1216,7 @@ ggml_metal_pipeline_with_params ggml_metal_library_get_pipeline_mul_mv_id(ggml_m
             }
     };
 
-    snprintf(base, 256, "kernel_mul_mv_id_%s_%s%s", ggml_type_name(tsrc0), ggml_type_name(tsrc1), suffix);
+    snprintf(base, 256, "kernel_mul_mv_id_%s_%s%s", ggml_metal_type_name_for_kernel(tsrc0), ggml_metal_type_name_for_kernel(tsrc1), suffix);
     snprintf(name, 256, "%s_nsg=%d", base, nsg);
 
     ggml_metal_pipeline_with_params res = ggml_metal_library_get_pipeline(lib, name);

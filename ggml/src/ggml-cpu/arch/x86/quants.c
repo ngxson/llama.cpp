@@ -2332,6 +2332,52 @@ void ggml_vec_dot_q6_K_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const voi
 #endif
 }
 
+// Q3_K_HIFI vec_dot - AVX2 optimized implementation
+// Copied from Q3_K AVX2 kernel and adapted for block_q3_k_hifi + outlier correction
+void ggml_vec_dot_q3_k_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    // TODO: Optimize AVX2 implementation for sparse layout
+    // For now, fall back to generic implementation which handles sparse layout correctly
+    ggml_vec_dot_q3_k_hifi_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+}
+
+// Q4_K_HIFI vec_dot - delegates to generic implementation
+void ggml_vec_dot_q4_k_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    ggml_vec_dot_q4_k_hifi_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+}
+
+// Q2_K_HIFI vec_dot - delegates to generic implementation
+void ggml_vec_dot_q2_k_hifi_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    ggml_vec_dot_q2_k_hifi_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+}
+
+// ---------------------------------------------------------------------------
+// K_LITE vec_dot - x86 forwarding stubs (delegate to generic; TODO: AVX2)
+// ---------------------------------------------------------------------------
+void ggml_vec_dot_q2_k_lite_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    // TODO: AVX2 optimization
+    ggml_vec_dot_q2_k_lite_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+}
+
+void ggml_vec_dot_q3_k_lite_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    // TODO: AVX2 optimization
+    ggml_vec_dot_q3_k_lite_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+}
+
+void ggml_vec_dot_q4_k_lite_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    // TODO: AVX2 optimization
+    ggml_vec_dot_q4_k_lite_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+}
+
+void ggml_vec_dot_q5_k_lite_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    // TODO: AVX2 optimization
+    ggml_vec_dot_q5_k_lite_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+}
+
+void ggml_vec_dot_q6_k_lite_q8_K(int n, float * GGML_RESTRICT s, size_t bs, const void * GGML_RESTRICT vx, size_t bx, const void * GGML_RESTRICT vy, size_t by, int nrc) {
+    // TODO: AVX2 optimization
+    ggml_vec_dot_q6_k_lite_q8_K_generic(n, s, bs, vx, bx, vy, by, nrc);
+}
+
 #if defined (__AVX__) || defined (__AVX2__)
 static const int8_t keven_signs_q2xs[1024] = {
      1,  1,  1,  1,  1,  1,  1,  1, -1,  1,  1,  1,  1,  1,  1, -1,  1, -1,  1,  1,  1,  1,  1, -1, -1, -1,  1,  1,  1,  1,  1,  1,

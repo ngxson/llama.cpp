@@ -67,6 +67,13 @@ static std::string llama_model_ftype_name(llama_ftype ftype) {
         case LLAMA_FTYPE_MOSTLY_IQ4_XS:   return "IQ4_XS - 4.25 bpw";
         case LLAMA_FTYPE_MOSTLY_IQ3_S:    return "IQ3_S - 3.4375 bpw";
         case LLAMA_FTYPE_MOSTLY_IQ3_M:    return "IQ3_S mix - 3.66 bpw";
+        case LLAMA_FTYPE_MOSTLY_Q4_K_HIFI: return "Q4_K_HIFI - ~4.95 bpw (Q4_K base + FP16 outliers, tiered)";
+        case LLAMA_FTYPE_MOSTLY_Q2_K_HIFI: return "Q2_K_HIFI - ~3.0 bpw (Q2_K base + INT8 residuals on critical tensors)";
+        case LLAMA_FTYPE_MOSTLY_Q2_K_LITE: return "Q2_K_LITE - 3.0 bpw  (Q2_K base + INT8 residuals)";
+        case LLAMA_FTYPE_MOSTLY_Q3_K_LITE: return "Q3_K_LITE - 3.25 bpw (Q2_K base + INT8 residuals)";
+        case LLAMA_FTYPE_MOSTLY_Q4_K_LITE: return "Q4_K_LITE - 4.0 bpw  (Q3_K base + INT8 residuals)";
+        case LLAMA_FTYPE_MOSTLY_Q5_K_LITE: return "Q5_K_LITE - 5.13 bpw (Q4_K base + INT8 residuals)";
+        case LLAMA_FTYPE_MOSTLY_Q6_K_LITE: return "Q6_K_LITE - 6.13 bpw (Q5_K base + INT8 residuals)";
 
         default: return "unknown, may not work";
     }
@@ -700,6 +707,19 @@ llama_model_loader::llama_model_loader(
             }
         }
 
+        // Log Q3_K_HIFI tensor count if debug is enabled
+        if (getenv("Q3_K_HIFI_DEBUG") != NULL) {
+            uint32_t q3_k_hifi_count = n_type[GGML_TYPE_Q3_K_HIFI];
+            uint32_t q3_k_count = n_type[GGML_TYPE_Q3_K];
+            if (q3_k_hifi_count > 0) {
+                LLAMA_LOG_INFO("%s: Q3_K_HIFI DEBUG: Found %u Q3_K_HIFI tensors and %u Q3_K tensors in model\n",
+                             __func__, q3_k_hifi_count, q3_k_count);
+            } else if (q3_k_count > 0) {
+                LLAMA_LOG_INFO("%s: Q3_K_HIFI DEBUG: Model uses Q3_K (not Q3_K_HIFI): %u Q3_K tensors found\n",
+                             __func__, q3_k_count);
+            }
+        }
+
         switch (type_max) {
             case GGML_TYPE_F32:     ftype = LLAMA_FTYPE_ALL_F32;        break;
             case GGML_TYPE_F16:     ftype = LLAMA_FTYPE_MOSTLY_F16;     break;
@@ -711,6 +731,7 @@ llama_model_loader::llama_model_loader(
             case GGML_TYPE_Q8_0:    ftype = LLAMA_FTYPE_MOSTLY_Q8_0;    break;
             case GGML_TYPE_Q2_K:    ftype = LLAMA_FTYPE_MOSTLY_Q2_K;    break;
             case GGML_TYPE_Q3_K:    ftype = LLAMA_FTYPE_MOSTLY_Q3_K_M;  break;
+            case GGML_TYPE_Q3_K_HIFI: ftype = LLAMA_FTYPE_MOSTLY_Q3_K_HIFI; break;
             case GGML_TYPE_Q4_K:    ftype = LLAMA_FTYPE_MOSTLY_Q4_K_M;  break;
             case GGML_TYPE_Q5_K:    ftype = LLAMA_FTYPE_MOSTLY_Q5_K_M;  break;
             case GGML_TYPE_Q6_K:    ftype = LLAMA_FTYPE_MOSTLY_Q6_K;    break;
@@ -725,6 +746,16 @@ llama_model_loader::llama_model_loader(
             case GGML_TYPE_IQ4_NL:  ftype = LLAMA_FTYPE_MOSTLY_IQ4_NL;  break;
             case GGML_TYPE_IQ4_XS:  ftype = LLAMA_FTYPE_MOSTLY_IQ4_XS;  break;
             case GGML_TYPE_IQ3_S:   ftype = LLAMA_FTYPE_MOSTLY_IQ3_S;   break;
+            case GGML_TYPE_Q6_K_HIFI_DYNAMIC: ftype = LLAMA_FTYPE_MOSTLY_Q4_K_HIFI; break;
+            case GGML_TYPE_Q6_K_HIFI_RES8: ftype = LLAMA_FTYPE_MOSTLY_Q4_K_HIFI; break;
+            case GGML_TYPE_Q5_K_HIFI_RES8: ftype = LLAMA_FTYPE_MOSTLY_Q4_K_HIFI; break;
+            case GGML_TYPE_Q4_K_HIFI: ftype = LLAMA_FTYPE_MOSTLY_Q4_K_HIFI; break;
+            case GGML_TYPE_Q2_K_HIFI: ftype = LLAMA_FTYPE_MOSTLY_Q2_K_HIFI; break;
+            case GGML_TYPE_Q2_K_LITE: ftype = LLAMA_FTYPE_MOSTLY_Q2_K_LITE; break;
+            case GGML_TYPE_Q3_K_LITE: ftype = LLAMA_FTYPE_MOSTLY_Q3_K_LITE; break;
+            case GGML_TYPE_Q4_K_LITE: ftype = LLAMA_FTYPE_MOSTLY_Q4_K_LITE; break;
+            case GGML_TYPE_Q5_K_LITE: ftype = LLAMA_FTYPE_MOSTLY_Q5_K_LITE; break;
+            case GGML_TYPE_Q6_K_LITE: ftype = LLAMA_FTYPE_MOSTLY_Q6_K_LITE; break;
             case GGML_TYPE_NVFP4:   ftype = LLAMA_FTYPE_MOSTLY_NVFP4;   break;
             default:
                 {

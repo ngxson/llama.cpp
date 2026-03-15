@@ -55,6 +55,15 @@ static const std::vector<quant_option> QUANT_OPTIONS = {
     { "Q3_K_S",   LLAMA_FTYPE_MOSTLY_Q3_K_S,   " 3.41G, +1.6321 ppl @ Llama-3-8B",  },
     { "Q3_K_M",   LLAMA_FTYPE_MOSTLY_Q3_K_M,   " 3.74G, +0.6569 ppl @ Llama-3-8B",  },
     { "Q3_K_L",   LLAMA_FTYPE_MOSTLY_Q3_K_L,   " 4.03G, +0.5562 ppl @ Llama-3-8B",  },
+    { "Q2_K_HIFI",  LLAMA_FTYPE_MOSTLY_Q2_K_HIFI,  " ~3.0 bpw Q2_K base + INT8 residuals on critical tensors", },
+    { "Q3_K_HIFI",  LLAMA_FTYPE_MOSTLY_Q3_K_HIFI,  " ~3.7G Q3_K_M base + scale-aware FP16 outlier enhancement", },
+    { "Q4_K_HIFI",  LLAMA_FTYPE_MOSTLY_Q4_K_HIFI,  " ~4.95 bpw Q4_K base + FP16 outliers on medium tensors, tiered enhancement", },
+    { "Q5_K_HIFI",  LLAMA_FTYPE_MOSTLY_Q5_K_HIFI,  " ~5.4 bpw Q5_K_M base + Q6_K_HIFI_RES8 on critical tensors", },
+    { "Q2_K_LITE", LLAMA_FTYPE_MOSTLY_Q2_K_LITE, " 3.0 bpw  Q2_K base + INT8 residuals, faster than Q2_K_S (imatrix recommended)", },
+    { "Q3_K_LITE", LLAMA_FTYPE_MOSTLY_Q3_K_LITE, " 3.25 bpw Q2_K base + INT8 residuals, faster than Q3_K_S (imatrix recommended)", },
+    { "Q4_K_LITE", LLAMA_FTYPE_MOSTLY_Q4_K_LITE, " 4.0 bpw  Q3_K base + INT8 residuals, faster than Q4_K_S (imatrix recommended)", },
+    { "Q5_K_LITE", LLAMA_FTYPE_MOSTLY_Q5_K_LITE, " 5.13 bpw Q4_K base + INT8 residuals, faster than Q5_K_S (imatrix recommended)", },
+    { "Q6_K_LITE", LLAMA_FTYPE_MOSTLY_Q6_K_LITE, " 6.13 bpw Q5_K base + INT8 residuals, faster than Q6_K_S (imatrix recommended)", },
     { "IQ4_NL",   LLAMA_FTYPE_MOSTLY_IQ4_NL,   " 4.50 bpw non-linear quantization", },
     { "IQ4_XS",   LLAMA_FTYPE_MOSTLY_IQ4_XS,   " 4.25 bpw non-linear quantization", },
     { "Q4_K",     LLAMA_FTYPE_MOSTLY_Q4_K_M,   "alias for Q4_K_M",                  },
@@ -247,6 +256,15 @@ static int load_legacy_imatrix(const std::string & imatrix_file, std::vector<std
 }
 
 static int load_imatrix(const std::string & imatrix_file, std::vector<std::string> & imatrix_datasets, std::unordered_map<std::string, std::vector<float>> & imatrix_data) {
+
+    if (!std::filesystem::exists(imatrix_file)) {
+        fprintf(stderr, "%s: imatrix file '%s' not found\n", __func__, imatrix_file.c_str());
+        exit(1);
+    }
+    if (!std::filesystem::is_regular_file(imatrix_file)) {
+        fprintf(stderr, "%s: imatrix path '%s' is not a regular file\n", __func__, imatrix_file.c_str());
+        exit(1);
+    }
 
     struct ggml_context * ctx = nullptr;
     struct gguf_init_params meta_gguf_params = {

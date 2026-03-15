@@ -939,10 +939,102 @@ struct ggml_cuda_type_traits<GGML_TYPE_Q2_K> {
 };
 
 template<>
+struct ggml_cuda_type_traits<GGML_TYPE_Q2_K_HIFI> {
+    static constexpr int qk = QK_K;
+    static constexpr int qr = QR2_K;
+    static constexpr int qi = QI2_K;
+};
+
+template<>
 struct ggml_cuda_type_traits<GGML_TYPE_Q3_K> {
     static constexpr int qk = QK_K;
     static constexpr int qr = QR3_K;
     static constexpr int qi = QI3_K;
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_Q3_K_HIFI> {
+    static constexpr int qk = QK_K;
+    static constexpr int qr = QR3_K;
+    static constexpr int qi = QI3_K;
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_Q3_K_HIFI_RES8> {
+    static constexpr int qk = QK_K;
+    static constexpr int qr = QR3_K;
+    static constexpr int qi = QI3_K;
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_Q4_K_HIFI> {
+    static constexpr int qk = QK_K;
+    static constexpr int qr = QR4_K;
+    static constexpr int qi = QI4_K;
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_Q6_K_HIFI> {
+    static constexpr int qk = QK_K;
+    static constexpr int qr = QR6_K;
+    static constexpr int qi = QI6_K;
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_Q6_K_HIFI_DYNAMIC> {
+    static constexpr int qk = QK_K;
+    static constexpr int qr = QR6_K;
+    static constexpr int qi = QI6_K;
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_Q6_K_HIFI_RES8> {
+    static constexpr int qk = QK_K;
+    static constexpr int qr = QR6_K;
+    static constexpr int qi = QI6_K;
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_Q5_K_HIFI_RES8> {
+    static constexpr int qk = QK_K;
+    static constexpr int qr = QR5_K;
+    static constexpr int qi = QI5_K;
+};
+
+// K_LITE types: use shifted-down base's qk/qi for MMVQ template dispatch.
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_Q2_K_LITE> {
+    static constexpr int qk = QK_K;
+    static constexpr int qr = QR2_K;
+    static constexpr int qi = QI2_K;
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_Q3_K_LITE> {
+    static constexpr int qk = QK_K;
+    static constexpr int qr = QR2_K;  // Q2_K base
+    static constexpr int qi = QI2_K;
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_Q4_K_LITE> {
+    static constexpr int qk = QK_K;
+    static constexpr int qr = QR3_K;  // Q3_K base
+    static constexpr int qi = QI3_K;
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_Q5_K_LITE> {
+    static constexpr int qk = QK_K;
+    static constexpr int qr = QR4_K;  // Q4_K base
+    static constexpr int qi = QI4_K;
+};
+
+template<>
+struct ggml_cuda_type_traits<GGML_TYPE_Q6_K_LITE> {
+    static constexpr int qk = QK_K;
+    static constexpr int qr = QR5_K;  // Q5_K base
+    static constexpr int qi = QI5_K;
 };
 
 template<>

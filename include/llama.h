@@ -154,6 +154,17 @@ extern "C" {
         LLAMA_FTYPE_MOSTLY_TQ2_0         = 37, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_MXFP4_MOE     = 38, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_NVFP4         = 39, // except 1d tensors
+        // Legacy HIFI types (39-43) removed - consolidated into Q4_K_HIFI (44)
+        LLAMA_FTYPE_MOSTLY_Q4_K_HIFI     = 44, // Q4_K_M + 2-8 dynamic outliers + early exit (best quality/size ratio)
+        LLAMA_FTYPE_MOSTLY_Q3_K_HIFI     = 45, // Q3_K_M base + Q6_K_HIFI on critical tensors
+        LLAMA_FTYPE_MOSTLY_Q5_K_HIFI     = 46, // Q5_K_M base + Q6_K_HIFI_RES8 on top 10-15% tensors (best 5-bit quality)
+        LLAMA_FTYPE_MOSTLY_Q2_K_HIFI     = 47, // Q2_K base + INT8 residuals on critical tensors (best 2-bit quality)
+
+        LLAMA_FTYPE_MOSTLY_Q2_K_LITE    = 48, // Q2_K base + INT8 residuals (96 bytes/block, ~3.0 bpw)
+        LLAMA_FTYPE_MOSTLY_Q3_K_LITE    = 49, // Q2_K base + INT8 residuals (104 bytes/block, ~3.25 bpw)
+        LLAMA_FTYPE_MOSTLY_Q4_K_LITE    = 50, // Q3_K base + INT8 residuals (128 bytes/block, ~4.0 bpw)
+        LLAMA_FTYPE_MOSTLY_Q5_K_LITE    = 51, // Q4_K base + INT8 residuals (164 bytes/block, ~5.13 bpw)
+        LLAMA_FTYPE_MOSTLY_Q6_K_LITE    = 52, // Q5_K base + INT8 residuals (196 bytes/block, ~6.13 bpw)
 
         LLAMA_FTYPE_GUESSED = 1024, // not specified in the model file
     };

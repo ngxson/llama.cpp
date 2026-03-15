@@ -74,7 +74,14 @@ static mmq_q8_1_ds_layout mmq_get_q8_1_ds_layout(const ggml_type type_x) {
             return MMQ_Q8_1_DS_LAYOUT_D4;
         case GGML_TYPE_Q4_K:
         case GGML_TYPE_Q5_K:
+        case GGML_TYPE_Q5_K_HIFI_RES8:  // uses Q5_K MMQ kernel after compact copy
+        case GGML_TYPE_Q5_K_LITE:  // base = Q4_K → DS4
+        case GGML_TYPE_Q6_K_LITE:  // base = Q5_K → DS4
             return MMQ_Q8_1_DS_LAYOUT_DS4;
+        case GGML_TYPE_Q2_K_LITE:  // base = Q2_K → D2S6
+        case GGML_TYPE_Q3_K_LITE:  // base = Q2_K → D2S6
+            return MMQ_Q8_1_DS_LAYOUT_D2S6;
+        case GGML_TYPE_Q4_K_LITE:  // base = Q3_K → D4
         case GGML_TYPE_Q6_K:
         case GGML_TYPE_IQ2_XXS:
         case GGML_TYPE_IQ2_XS:
