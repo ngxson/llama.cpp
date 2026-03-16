@@ -8488,6 +8488,7 @@ class Mistral3Model(TextModel):
 
     model_arch = gguf.MODEL_ARCH.MISTRAL3 # unused
     impl: TextModel
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.hparams.get("model_type") == "mistral4":
