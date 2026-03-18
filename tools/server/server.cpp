@@ -2,6 +2,7 @@
 #include "server-http.h"
 #include "server-models.h"
 #include "server-cors-proxy.h"
+#include "server-tools.h"
 
 #include "arg.h"
 #include "common.h"
@@ -210,6 +211,15 @@ int main(int argc, char ** argv) {
         SRV_WRN("%s", "-----------------\n");
         ctx_http.get ("/cors-proxy",      ex_wrapper(proxy_handler_get));
         ctx_http.post("/cors-proxy",      ex_wrapper(proxy_handler_post));
+    }
+    // EXPERIMENTAL built-in tools
+    if (params.server_tools) {
+        SRV_WRN("%s", "-----------------\n");
+        SRV_WRN("%s", "Built-in tools are enabled, do not expose server to untrusted environments\n");
+        SRV_WRN("%s", "This feature is EXPERIMENTAL and may be changed in the future\n");
+        SRV_WRN("%s", "-----------------\n");
+        ctx_http.get ("/tools",           ex_wrapper(server_tools_get));
+        ctx_http.post("/tools",           ex_wrapper(server_tools_post));
     }
 
     //

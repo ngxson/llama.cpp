@@ -1433,6 +1433,14 @@ curl http://localhost:8080/v1/messages/count_tokens \
 {"input_tokens": 10}
 ```
 
+## Server built-in tools
+
+The server exposes a REST API under `/tools` that allows the Web UI to call built-in tools. This endpoint is intended to be used internally by the Web UI and subject to change or to be removed in the future.
+
+**Please do NOT use this endpoint in a downstream application**
+
+For further documentation about this endpoint, please refer to [server internal documentation](./README-dev.md)
+
 ## Using multiple models
 
 `llama-server` can be launched in a **router mode** that exposes an API for dynamically loading and unloading models. The main process (the "router") automatically forwards each request to the appropriate model instance.

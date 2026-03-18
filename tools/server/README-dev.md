@@ -95,6 +95,22 @@ The framework automatically starts a `llama-server` instance, sends requests, an
 
 For detailed instructions, see the [test documentation](./tests/README.md).
 
+### API for tools
+
+This endpoint is intended to be used internally by the Web UI and subject to change or to be removed in the future.
+
+**GET /tools**
+
+Get a list of tools, the tool definition is in OAI-compat format.
+
+**POST /tools**
+
+Invoke a tool call, request body is a JSON object with:
+- `tool` (string): the name of the tool
+- `params` (object): a mapping from argument name (string) to argument value
+
+Returns JSON object, the schema depends on the tool itself.
+
 ### Notable Related PRs
 
 - Initial server implementation: https://github.com/ggml-org/llama.cpp/pull/1443
