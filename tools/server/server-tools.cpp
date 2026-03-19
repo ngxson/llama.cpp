@@ -140,8 +140,7 @@ static bool glob_match(const std::string & pattern, const std::string & str) {
 struct server_tool {
     std::string name;
     std::string display_name;
-    json        definition;
-    bool        permission_write = false;
+    bool permission_write = false;
 
     virtual ~server_tool() = default;
     virtual json get_definition() = 0;
@@ -592,8 +591,8 @@ struct server_tool_edit_file : server_tool {
         // validate and collect changes, then sort descending by line_start
         struct change_entry {
             std::string mode;
-            int         line_start; // 1-based
-            int         line_end;   // 1-based inclusive
+            int line_start; // 1-based
+            int line_end;   // 1-based inclusive
             std::string content;
         };
         std::vector<change_entry> entries;
