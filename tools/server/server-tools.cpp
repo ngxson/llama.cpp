@@ -539,8 +539,8 @@ struct server_tool_edit_file : server_tool {
                     "Each change targets a 1-based inclusive line range and has a mode: "
                     "\"replace\" (replace lines with content), "
                     "\"delete\" (remove lines, content must be empty string), "
-                    "\"append\" (insert content after lineEnd). "
-                    "Set lineStart to -1 to target the end of file (lineEnd is ignored in that case). "
+                    "\"append\" (insert content after line_end). "
+                    "Set line_start to -1 to target the end of file (line_end is ignored in that case). "
                     "Changes must not overlap. They are applied in reverse line order automatically."},
                 {"parameters", {
                     {"type", "object"},
@@ -552,12 +552,12 @@ struct server_tool_edit_file : server_tool {
                             {"items", {
                                 {"type", "object"},
                                 {"properties", {
-                                    {"mode",      {{"type", "string"},  {"description", "\"replace\", \"delete\", or \"append\""}}},
-                                    {"lineStart", {{"type", "integer"}, {"description", "First line of the range (1-based); use -1 for end of file"}}},
-                                    {"lineEnd",   {{"type", "integer"}, {"description", "Last line of the range (1-based, inclusive); ignored when lineStart is -1"}}},
-                                    {"content",   {{"type", "string"},  {"description", "Content to insert; must be empty string for delete mode"}}},
+                                    {"mode",       {{"type", "string"},  {"description", "\"replace\", \"delete\", or \"append\""}}},
+                                    {"line_start", {{"type", "integer"}, {"description", "First line of the range (1-based); use -1 for end of file"}}},
+                                    {"line_end",   {{"type", "integer"}, {"description", "Last line of the range (1-based, inclusive); ignored when line_start is -1"}}},
+                                    {"content",    {{"type", "string"},  {"description", "Content to insert; must be empty string for delete mode"}}},
                                 }},
-                                {"required", json::array({"mode", "lineStart", "lineEnd", "content"})},
+                                {"required", json::array({"mode", "line_start", "line_end", "content"})},
                             }},
                         }},
                     }},
@@ -589,7 +589,7 @@ struct server_tool_edit_file : server_tool {
         }
         fin.close();
 
-        // validate and collect changes, then sort descending by lineStart
+        // validate and collect changes, then sort descending by line_start
         struct change_entry {
             std::string mode;
             int         line_start; // 1-based
@@ -602,8 +602,8 @@ struct server_tool_edit_file : server_tool {
         for (const auto & ch : changes) {
             change_entry e;
             e.mode       = ch.at("mode").get<std::string>();
-            e.line_start = ch.at("lineStart").get<int>();
-            e.line_end   = ch.at("lineEnd").get<int>();
+            e.line_start = ch.at("line_start").get<int>();
+            e.line_end   = ch.at("line_end").get<int>();
             e.content    = ch.at("content").get<std::string>();
 
             if (e.mode != "replace" && e.mode != "delete" && e.mode != "append") {
@@ -614,7 +614,7 @@ struct server_tool_edit_file : server_tool {
             }
             int n = (int) lines.size();
             if (e.line_start == -1) {
-                // -1 means end of file; lineEnd is ignored — normalize to point past last line
+                // -1 means end of file; line_end is ignored — normalize to point past last line
                 e.line_start = n + 1;
                 e.line_end   = n + 1;
             } else {
@@ -622,7 +622,7 @@ struct server_tool_edit_file : server_tool {
                     return {{"error", string_format("invalid line range [%d, %d]", e.line_start, e.line_end)}};
                 }
                 if (e.line_end > n) {
-                    return {{"error", string_format("lineEnd %d exceeds file length %d", e.line_end, n)}};
+                    return {{"error", string_format("line_end %d exceeds file length %d", e.line_end, n)}};
                 }
             }
             entries.push_back(std::move(e));
@@ -657,7 +657,7 @@ struct server_tool_edit_file : server_tool {
             } else if (e.mode == "delete") {
                 lines.erase(lines.begin() + idx_start, lines.begin() + idx_end + 1);
             } else { // append
-                // idx_end + 1 may equal lines.size() when lineStart == -1 (end of file)
+                // idx_end + 1 may equal lines.size() when line_start == -1 (end of file)
                 lines.insert(lines.begin() + idx_end + 1, new_lines.begin(), new_lines.end());
             }
         }
