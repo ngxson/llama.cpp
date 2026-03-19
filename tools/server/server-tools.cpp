@@ -139,7 +139,7 @@ static bool glob_match(const std::string & pattern, const std::string & str) {
 
 struct server_tool {
     std::string name;
-    std::string displayName;
+    std::string display_name;
     json        definition;
     bool        permission_write = false;
 
@@ -149,7 +149,7 @@ struct server_tool {
 
     json to_json() {
         return {
-            {"displayName", displayName},
+            {"display_name", display_name},
             {"tool", name},
             {"type", "builtin"},
             {"permissions", json{
@@ -169,7 +169,7 @@ static constexpr size_t SERVER_TOOL_READ_FILE_MAX_SIZE = 16 * 1024; // 16 KB
 struct server_tool_read_file : server_tool {
     server_tool_read_file() {
         name = "read_file";
-        displayName = "Read file";
+        display_name = "Read file";
         permission_write = false;
     }
 
@@ -252,7 +252,7 @@ static constexpr size_t SERVER_TOOL_FILE_SEARCH_MAX_RESULTS = 100;
 struct server_tool_file_glob_search : server_tool {
     server_tool_file_glob_search() {
         name = "file_glob_search";
-        displayName = "File search";
+        display_name = "File search";
         permission_write = false;
     }
 
@@ -316,7 +316,7 @@ static constexpr size_t SERVER_TOOL_GREP_SEARCH_MAX_RESULTS = 100;
 struct server_tool_grep_search : server_tool {
     server_tool_grep_search() {
         name = "grep_search";
-        displayName = "Grep search";
+        display_name = "Grep search";
         permission_write = false;
     }
 
@@ -414,7 +414,7 @@ static constexpr int    SERVER_TOOL_EXEC_SHELL_COMMAND_MAX_TIMEOUT     = 60;    
 struct server_tool_exec_shell_command : server_tool {
     server_tool_exec_shell_command() {
         name = "exec_shell_command";
-        displayName = "Execute shell command";
+        display_name = "Execute shell command";
         permission_write = true;
     }
 
@@ -470,7 +470,7 @@ struct server_tool_exec_shell_command : server_tool {
 struct server_tool_write_file : server_tool {
     server_tool_write_file() {
         name = "write_file";
-        displayName = "Write file";
+        display_name = "Write file";
         permission_write = true;
     }
 
@@ -525,7 +525,7 @@ struct server_tool_write_file : server_tool {
 struct server_tool_edit_file : server_tool {
     server_tool_edit_file() {
         name = "edit_file";
-        displayName = "Edit file";
+        display_name = "Edit file";
         permission_write = true;
     }
 
@@ -691,7 +691,7 @@ struct server_tool_edit_file : server_tool {
 struct server_tool_apply_diff : server_tool {
     server_tool_apply_diff() {
         name = "apply_diff";
-        displayName = "Apply diff";
+        display_name = "Apply diff";
         permission_write = true;
     }
 
