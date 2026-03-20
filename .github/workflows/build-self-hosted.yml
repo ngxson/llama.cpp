@@ -97,19 +97,21 @@ jobs:
           vulkaninfo --summary
           GG_BUILD_VULKAN=1 bash ./ci/run.sh ~/results/llama.cpp /mnt/llama.cpp
 
-  ggml-ci-cpu-amx:
-    runs-on: [self-hosted, Linux, CPU, AMX]
+  # TODO: provision AMX-compatible machine
+  #ggml-ci-cpu-amx:
+  #  runs-on: [self-hosted, Linux, CPU, AMX]
 
-    steps:
-      - name: Clone
-        id: checkout
-        uses: actions/checkout@v6
+  #  steps:
+  #    - name: Clone
+  #      id: checkout
+  #      uses: actions/checkout@v6
 
-      - name: Test
-        id: ggml-ci
-        run: |
-          bash ./ci/run.sh ~/results/llama.cpp /mnt/llama.cpp
+  #    - name: Test
+  #      id: ggml-ci
+  #      run: |
+  #        bash ./ci/run.sh ~/results/llama.cpp /mnt/llama.cpp
 
+  # TODO: provision AMD GPU machine
   # ggml-ci-amd-vulkan:
   #   runs-on: [self-hosted, Linux, AMD]
 
@@ -124,6 +126,7 @@ jobs:
   #         vulkaninfo --summary
   #         GG_BUILD_VULKAN=1 bash ./ci/run.sh ~/results/llama.cpp /mnt/llama.cpp
 
+  # TODO: provision AMD GPU machine
   # ggml-ci-amd-rocm:
   #   runs-on: [self-hosted, Linux, AMD]
 
@@ -222,15 +225,7 @@ jobs:
         id: checkout
         uses: actions/checkout@v6
 
-      - name: Use OpenVINO Toolkit Cache
-        uses: actions/cache@v5
-        id: cache-openvino
-        with:
-          path: ./openvino_toolkit
-          key: openvino-toolkit-v${{ env.OPENVINO_VERSION_FULL }}-${{ runner.os }}
-
       - name: Setup OpenVINO Toolkit
-        if: steps.cache-openvino.outputs.cache-hit != 'true'
         uses: ./.github/actions/linux-setup-openvino
         with:
           path: ./openvino_toolkit
