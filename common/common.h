@@ -614,7 +614,7 @@ struct common_params {
     bool endpoint_metrics = false;
 
     // enable built-in tools
-    bool server_tools = false;
+    std::vector<std::string> server_tools;
 
     // router server configs
     std::string models_dir    = ""; // directory containing models for the router server
