@@ -290,6 +290,12 @@ It is currently available in the following endpoints:
 
 For more details, please refer to [multimodal documentation](../../docs/multimodal.md)
 
+### Built-in tools support
+
+The server includes a set of built-in tools that enable the LLM to access the local file system directly from the Web UI.
+
+To use this feature, start the server with `--tools all`. You can also enable only specific tools by passing a comma-separated list: `--tools name1,name2,...`. Run `--help` for the full list of available tool names.
+
 ## Build
 
 `llama-server` is built alongside everything else from the root of the project
