@@ -6981,6 +6981,7 @@ class DeepseekOCRVisionModel(MmprojModel):
         return vision_config
 
     def tensor_force_quant(self, name, new_name, bid, n_dims):
+        del new_name, bid, n_dims # unused
         if ".embeddings." in name or 'pos_embed' in name:
             return gguf.GGMLQuantizationType.F32
         if ".rel_pos_h" in name or '.rel_pos_w' in name:
@@ -6993,6 +6994,9 @@ class DeepseekOCRVisionModel(MmprojModel):
         # Language model components to skip: lm_head, embed_tokens, layers, norm
         if name.startswith(("lm_head.", "model.embed_tokens.", "model.layers.", "model.norm.")):
             return
+
+        if name.endswith("pos_embed") or name.endswith("rel_pos_h") or name.endswith("rel_pos_w"):
+            name += ".weight"
 
         yield from super().modify_tensors(data_torch, name, bid)
 

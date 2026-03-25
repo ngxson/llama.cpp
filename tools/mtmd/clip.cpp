@@ -1899,7 +1899,7 @@ struct clip_model_loader {
                 } break;
             case PROJECTOR_TYPE_DEEPSEEKOCR:
                 {
-                    model.pos_embed          = get_tensor(TN_SAM_POS_EMBD);
+                    model.pos_embed          = get_tensor(string_format(TN_SAM_POS_EMBD,   "weight"));
                     model.patch_embed_proj_w = get_tensor(string_format(TN_SAM_PATCH_EMBD, "weight"));
                     model.patch_embed_proj_b = get_tensor(string_format(TN_SAM_PATCH_EMBD, "bias"));
                     model.sam_layers.resize(model.n_sam_layers);
@@ -1913,8 +1913,8 @@ struct clip_model_loader {
                         layer.ln_1_b    = get_tensor(string_format(TN_SAM_PRE_NORM, il, "bias"));
                         layer.ln_2_w    = get_tensor(string_format(TN_SAM_POST_NORM, il, "weight"));
                         layer.ln_2_b    = get_tensor(string_format(TN_SAM_POST_NORM, il, "bias"));
-                        layer.rel_pos_h = get_tensor(string_format(TN_SAM_ATTN_POS_H, il));
-                        layer.rel_pos_w = get_tensor(string_format(TN_SAM_ATTN_POS_W, il));
+                        layer.rel_pos_h = get_tensor(string_format(TN_SAM_ATTN_POS_H, il, "weight"));
+                        layer.rel_pos_w = get_tensor(string_format(TN_SAM_ATTN_POS_W, il, "weight"));
                         layer.ff_up_w   = get_tensor(string_format(TN_SAM_FFN_UP, il, "weight"));
                         layer.ff_up_b   = get_tensor(string_format(TN_SAM_FFN_UP, il, "bias"));
                         layer.ff_down_w = get_tensor(string_format(TN_SAM_FFN_DOWN, il, "weight"));
