@@ -8351,10 +8351,13 @@ class DeepseekV2Model(TextModel):
         hparams: dict = ModelBase.load_hparams(self.dir_model, is_mistral_format=False)
         self.origin_hf_arch = hparams.get('architectures', [None])[0]
 
+        # special handling for Deepseek OCR
         if self.origin_hf_arch == "DeepseekOCRForCausalLM":
             self.model_arch = gguf.MODEL_ARCH.DEEPSEEK2OCR
             self.gguf_writer.arch = gguf.MODEL_ARCH_NAMES[self.model_arch]
             self.gguf_writer.add_architecture()
+            # default jinja template
+            self.gguf_writer.add_chat_template("{% for m in messages %}{{m['content']}}{% endfor %}")
 
     def set_vocab(self):
         try:
