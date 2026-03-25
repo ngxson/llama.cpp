@@ -1641,7 +1641,7 @@ struct clip_model_loader {
                 } break;
             case PROJECTOR_TYPE_GLM4V:
                 {
-                    model.fc_w           = get_tensor(string_format(TN_MM_PROJECTOR, "weight"));
+                    model.mm_fc_w        = get_tensor(string_format(TN_MM_PROJECTOR, "weight"));
                     model.mm_ffn_up_w    = get_tensor(string_format(TN_MM_UP,        "weight"));
                     model.mm_ffn_up_b    = get_tensor(string_format(TN_MM_UP,        "bias"), false);
                     model.mm_ffn_gate_w  = get_tensor(string_format(TN_MM_GATE,      "weight"));
@@ -1753,7 +1753,7 @@ struct clip_model_loader {
                 } break;
             case PROJECTOR_TYPE_IDEFICS3:
                 {
-                    model.fc_w = get_tensor(string_format(TN_MM_PROJECTOR, "weight"));
+                    model.mm_fc_w = get_tensor(string_format(TN_MM_PROJECTOR, "weight"));
                 } break;
             case PROJECTOR_TYPE_LFM2:
                 {
@@ -1930,8 +1930,8 @@ struct clip_model_loader {
                     model.net_3          = get_tensor(string_format(TN_SAM_NET, 3, "weight"));
                     model.image_newline  = get_tensor(TN_IMAGE_NEWLINE);
                     model.view_seperator = get_tensor(TN_IMAGE_SEPERATOR);
-                    model.fc_w           = get_tensor(string_format(TN_MM_PROJECTOR, "weight"));
-                    model.fc_b           = get_tensor(string_format(TN_MM_PROJECTOR, "bias"));
+                    model.mm_fc_w        = get_tensor(string_format(TN_MM_PROJECTOR, "weight"));
+                    model.mm_fc_b        = get_tensor(string_format(TN_MM_PROJECTOR, "bias"));
                  } break;
             case PROJECTOR_TYPE_LFM2A:
                 {
@@ -4555,7 +4555,7 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
         case PROJECTOR_TYPE_GEMMA3NV:
             return ctx->model.mm_input_proj_w->ne[0];
         case PROJECTOR_TYPE_IDEFICS3:
-            return ctx->model.fc_w->ne[1];
+            return ctx->model.mm_fc_w->ne[1];
         case PROJECTOR_TYPE_ULTRAVOX:
         case PROJECTOR_TYPE_VOXTRAL:
         case PROJECTOR_TYPE_MUSIC_FLAMINGO:
@@ -4577,7 +4577,7 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
         case PROJECTOR_TYPE_COGVLM:
             return ctx->model.mm_4h_to_h_w->ne[1];
         case PROJECTOR_TYPE_DEEPSEEKOCR:
-            return ctx->model.fc_w->ne[1];
+            return ctx->model.mm_fc_w->ne[1];
         case PROJECTOR_TYPE_LFM2A:
             return ctx->model.position_embeddings->ne[0];
         case PROJECTOR_TYPE_GLM4V:

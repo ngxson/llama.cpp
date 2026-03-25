@@ -263,8 +263,6 @@ struct clip_model {
     ggml_tensor * post_ln_w;
     ggml_tensor * post_ln_b;
 
-    ggml_tensor * fc_w;
-    ggml_tensor * fc_b;
     ggml_tensor * mm_fc_w;
     ggml_tensor * mm_fc_b;
     ggml_tensor * mm_ffn_up_w = nullptr;

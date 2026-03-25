@@ -301,8 +301,8 @@ ggml_cgraph * clip_graph_deepseekocr::build() {
     cur = ggml_concat(ctx0, clip_out, sam_out, 0);
     cur = ggml_reshape_2d(ctx0, cur, 2 * n_embd, clip_n_patches);
     cur = ggml_cont(ctx0, cur);
-    cur = ggml_mul_mat(ctx0, model.fc_w, cur);
-    cur = ggml_add(ctx0, cur, model.fc_b);
+    cur = ggml_mul_mat(ctx0, model.mm_fc_w, cur);
+    cur = ggml_add(ctx0, cur, model.mm_fc_b);
 
     const auto h     = static_cast<int>(std::sqrt(static_cast<float>(cur->ne[1])));
     const auto w     = h;
