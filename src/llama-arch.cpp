@@ -1572,6 +1572,7 @@ static std::set<llm_tensor> llm_get_tensor_names(llm_arch arch) {
                 LLM_TENSOR_FFN_UP_SHEXP,
             };
         case LLM_ARCH_DEEPSEEK2:
+        case LLM_ARCH_DEEPSEEK2OCR:
         case LLM_ARCH_MISTRAL4:
             return {
                 LLM_TENSOR_TOKEN_EMBD,
@@ -1580,6 +1581,8 @@ static std::set<llm_tensor> llm_get_tensor_names(llm_arch arch) {
                 LLM_TENSOR_ATTN_NORM,
                 LLM_TENSOR_ATTN_Q_A_NORM,
                 LLM_TENSOR_ATTN_KV_A_NORM,
+                LLM_TENSOR_ATTN_K, // deepseek-ocr
+                LLM_TENSOR_ATTN_V, // deepseek-ocr
                 LLM_TENSOR_ATTN_Q,
                 LLM_TENSOR_ATTN_Q_A,
                 LLM_TENSOR_ATTN_Q_B,
@@ -1597,38 +1600,6 @@ static std::set<llm_tensor> llm_get_tensor_names(llm_arch arch) {
                 LLM_TENSOR_FFN_DOWN_EXPS,
                 LLM_TENSOR_FFN_UP_EXPS,
                 LLM_TENSOR_FFN_GATE_UP_EXPS,
-                LLM_TENSOR_FFN_GATE_INP_SHEXP,
-                LLM_TENSOR_FFN_GATE_SHEXP,
-                LLM_TENSOR_FFN_DOWN_SHEXP,
-                LLM_TENSOR_FFN_UP_SHEXP,
-                LLM_TENSOR_FFN_EXP_PROBS_B,
-            };
-        case LLM_ARCH_DEEPSEEK2OCR:
-            return {
-                LLM_TENSOR_TOKEN_EMBD,
-                LLM_TENSOR_OUTPUT_NORM,
-                LLM_TENSOR_OUTPUT,
-                LLM_TENSOR_ATTN_NORM,
-                LLM_TENSOR_ATTN_Q_A_NORM,
-                LLM_TENSOR_ATTN_KV_A_NORM,
-                LLM_TENSOR_ATTN_Q,
-                LLM_TENSOR_ATTN_K,
-                LLM_TENSOR_ATTN_V,
-                LLM_TENSOR_ATTN_Q_A,
-                LLM_TENSOR_ATTN_Q_B,
-                LLM_TENSOR_ATTN_KV_A_MQA,
-                LLM_TENSOR_ATTN_KV_B,
-                LLM_TENSOR_ATTN_K_B,
-                LLM_TENSOR_ATTN_V_B,
-                LLM_TENSOR_ATTN_OUT,
-                LLM_TENSOR_FFN_NORM,
-                LLM_TENSOR_FFN_GATE,
-                LLM_TENSOR_FFN_UP,
-                LLM_TENSOR_FFN_DOWN,
-                LLM_TENSOR_FFN_GATE_INP,
-                LLM_TENSOR_FFN_GATE_EXPS,
-                LLM_TENSOR_FFN_DOWN_EXPS,
-                LLM_TENSOR_FFN_UP_EXPS,
                 LLM_TENSOR_FFN_GATE_INP_SHEXP,
                 LLM_TENSOR_FFN_GATE_SHEXP,
                 LLM_TENSOR_FFN_DOWN_SHEXP,
