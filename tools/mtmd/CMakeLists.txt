@@ -16,6 +16,7 @@ add_library(mtmd
             models/models.h
             models/cogvlm.cpp
             models/conformer.cpp
+            models/exaone4_5.cpp
             models/glm4v.cpp
             models/internvl.cpp
             models/kimivl.cpp

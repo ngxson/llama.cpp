@@ -27,7 +27,11 @@ llm_build_exaone4<iswa>::llm_build_exaone4(const llama_model & model, const llm_
     }
     ggml_tensor * inp_out_ids = build_inp_out_ids();
 
-    for (int il = 0; il < n_layer; ++il) {
+    // MTP / NextN tail blocks are loaded for compatibility but not executed (same as exaone-moe).
+    const int n_layer_main = int(n_layer) - int(hparams.nextn_predict_layers);
+    GGML_ASSERT(n_layer_main > 0);
+
+    for (int il = 0; il < n_layer_main; ++il) {
         ggml_tensor * inpSA = inpL;
 
         // use RoPE for SWA layers or non-SWA models
@@ -73,7 +77,7 @@ llm_build_exaone4<iswa>::llm_build_exaone4(const llama_model & model, const llm_
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f / sqrtf(float(n_embd_head)), il);
             cb(cur, "attn_out", il);
         }
-        if (il == n_layer - 1 && inp_out_ids) {
+        if (il == n_layer_main - 1 && inp_out_ids) {
             cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
             inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
         }

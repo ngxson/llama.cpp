@@ -2178,6 +2178,9 @@ class MmprojModel(ModelBase):
             self.gguf_writer.add_vision_feed_forward_length(self.find_vparam(["intermediate_size", "vt_intermediate_size"]))
             self.gguf_writer.add_vision_block_count(self.find_vparam(self.n_block_keys))
             self.gguf_writer.add_vision_head_count(self.find_vparam(["num_attention_heads", "num_heads", "vt_num_attention_heads"]))
+            n_kv = self.find_vparam(["num_key_value_heads"], optional=True)
+            if n_kv is not None:
+                self.gguf_writer.add_vision_head_count_kv(n_kv)
 
             # preprocessor config
             image_mean = _MISTRAL_COMMON_DATASET_MEAN if self.is_mistral_format else self.preprocessor_config["image_mean"]
@@ -9852,6 +9855,118 @@ class ExaoneMoEModel(Exaone4Model):
                 raise ValueError(f"Unprocessed experts: {experts}")
 
 
+@ModelBase.register("Exaone4_5_ForConditionalGeneration")
+class Exaone4_5_VLTextModel(Exaone4Model):
+    """Text tower of [`Exaone4_5_ForConditionalGeneration`](modeling_exaone4_5.py). Tensors match EXAONE4 / Olmo2-style blocks."""
+
+    # Same layout as EXAONE4; main llama.cpp binary expects arch string "exaone4".
+    model_arch = gguf.MODEL_ARCH.EXAONE4
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        n_nextn = int(self.hparams.get("num_nextn_predict_layers", 0) or 0)
+        if n_nextn > 0:
+            self.block_count = self.hparams["num_hidden_layers"] + n_nextn
+            self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        n_nextn = int(self.hparams.get("num_nextn_predict_layers", 0) or 0)
+        if n_nextn > 0:
+            self.gguf_writer.add_nextn_predict_layers(n_nextn)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        if name.startswith("model.visual."):
+            return
+        if name.startswith("model.language_model."):
+            name = name.replace("model.language_model.", "model.", 1)
+
+        if name.startswith("mtp."):
+            n_nextn = int(self.hparams.get("num_nextn_predict_layers", 0) or 0)
+            if n_nextn <= 0:
+                return
+            nh = self.hparams["num_hidden_layers"]
+            if ".layers." in name:
+                share = self.hparams.get("mtp_share_layers", False)
+                mtp_bid = bid if bid is not None else 0
+                if share:
+                    for k in range(n_nextn):
+                        nn = name.replace(f"mtp.layers.{mtp_bid}", f"model.layers.{nh + k}")
+                        yield from super().modify_tensors(data_torch, nn, nh + k)
+                    return
+                name = name.replace(f"mtp.layers.{mtp_bid}", f"model.layers.{mtp_bid + nh}")
+            else:
+                remapper = {
+                    "mtp.fc": "model.layers.{bid}.eh_proj",
+                    "mtp.pre_fc_norm_embedding": "model.layers.{bid}.enorm",
+                    "mtp.pre_fc_norm_hidden": "model.layers.{bid}.hnorm",
+                    "mtp.norm": "model.layers.{bid}.shared_head.norm",
+                }
+                _n = Path(name)
+                key = _n.stem
+                if key not in remapper:
+                    return
+                new_name = remapper[key] + _n.suffix
+                for bid_mtp in range(nh, self.block_count):
+                    yield from super().modify_tensors(data_torch, new_name.format(bid=bid_mtp), bid_mtp)
+                return
+
+        yield from super().modify_tensors(data_torch, name, bid)
+
+
+@ModelBase.register("Exaone4_5_ForConditionalGeneration")
+class Exaone4_5VLVisionModel(Qwen2VLVisionModel):
+    """Vision tower for EXAONE 4.5 (Qwen2-VL-style ViT + patch merger); HF weights under `model.visual.*`.
+
+    Does not write sliding/window-attention GGUF metadata for the ViT (clip `n_wa_pattern` stays unset);
+    text sliding-window remains on the LLM GGUF via `Exaone4Model`.
+    """
+
+    def set_gguf_parameters(self):
+        MmprojModel.set_gguf_parameters(self)
+        assert self.hparams_vision is not None
+        hparams = self.hparams_vision
+        self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.EXAONE4_5)
+        self.gguf_writer.add_vision_use_silu(True)
+        eps = hparams.get("rms_norm_eps", self.global_config.get("rms_norm_eps", 1e-6))
+        self.gguf_writer.add_vision_attention_layernorm_eps(eps)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        if name.startswith("model.language_model.") or name.startswith("lm_head."):
+            return
+        if name.startswith("mtp."):
+            return
+        if name.startswith("model.visual."):
+            name = name.replace("model.visual.", "visual.", 1)
+
+        # blueprint_exaone4_5: ViT uses GQA (HF fused qkv = q_dim + kv_dim + kv_dim), not MQA / equal thirds.
+        if name.startswith("visual.") and ".qkv." in name:
+            assert self.hparams_vision is not None
+            hv = self.hparams_vision
+            n_heads = hv["num_heads"]
+            n_kv = int(hv.get("num_key_value_heads", n_heads))
+            hidden = hv["hidden_size"]
+            head_dim = hidden // n_heads
+            q_dim = n_heads * head_dim
+            kv_dim = n_kv * head_dim
+            total_out = q_dim + 2 * kv_dim
+            out_dim = data_torch.shape[0]
+            if out_dim != total_out:
+                raise ValueError(f"EXAONE 4.5 vision qkv out dim mismatch: got {out_dim}, expected {total_out} ({name})")
+            wq = data_torch[:q_dim]
+            wk = data_torch[q_dim : q_dim + kv_dim]
+            wv = data_torch[q_dim + kv_dim :]
+            nq = name.replace("qkv", "q", 1)
+            nk = name.replace("qkv", "k", 1)
+            nv = name.replace("qkv", "v", 1)
+            yield from ModelBase.modify_tensors(self, wq, nq, bid)
+            yield from ModelBase.modify_tensors(self, wk, nk, bid)
+            yield from ModelBase.modify_tensors(self, wv, nv, bid)
+            return
+
+        yield from Qwen2VLVisionModel.modify_tensors(self, data_torch, name, bid)
+
+
 @ModelBase.register("GraniteForCausalLM")
 class GraniteModel(LlamaModel):
     """Conversion for IBM's GraniteForCausalLM"""
@@ -12418,7 +12533,9 @@ def get_model_architecture(hparams: dict[str, Any], model_type: ModelType) -> st
 
     # if "architectures" is found in the sub-config, use that instead
     if model_type == ModelType.TEXT and text_config.get("architectures") is not None:
-        arch = text_config["architectures"][0]
+        # Multimodal EXAONE 4.5 stores the inner causal LM class in text_config; HF→GGUF must use the VL root arch.
+        if hparams.get("model_type") != "exaone4_5":
+            arch = text_config["architectures"][0]
     elif model_type == ModelType.MMPROJ and vision_config.get("architectures") is not None:
         arch = vision_config["architectures"][0]
     if arch is None:
