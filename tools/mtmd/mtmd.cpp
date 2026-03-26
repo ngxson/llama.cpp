@@ -396,6 +396,7 @@ struct mtmd_context {
                 } break;
             case PROJECTOR_TYPE_DEEPSEEKOCR:
                 {
+                    img_end = "\n"; // prevent empty batch on llama-server
                     image_preproc = std::make_unique<mtmd_image_preprocessor_deepseekocr>(ctx_v);
                 } break;
             default:
