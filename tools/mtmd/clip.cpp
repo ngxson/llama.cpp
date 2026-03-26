@@ -1133,10 +1133,9 @@ struct clip_model_loader {
                 case PROJECTOR_TYPE_MLP_NORM:
                 case PROJECTOR_TYPE_LDP:
                 case PROJECTOR_TYPE_LDPV2:
-                case PROJECTOR_TYPE_GLM_EDGE:
                 case PROJECTOR_TYPE_COGVLM:
                     {
-                        hparams.has_llava_projector = true;
+                        hparams.has_llava_projector = model.proj_type != PROJECTOR_TYPE_COGVLM;
                         hparams.image_pad_color     = {122, 116, 104};
                         if (!hparams.image_res_candidates.empty()) {
                             hparams.image_resize_pad  = true;
@@ -1149,6 +1148,11 @@ struct clip_model_loader {
                             hparams.image_resize_algo_rf = RESIZE_ALGO_BICUBIC;
                             hparams.image_resize_algo_ov = RESIZE_ALGO_BILINEAR;
                         }
+                    } break;
+                case PROJECTOR_TYPE_GLM_EDGE:
+                    {
+                        hparams.image_resize_pad  = true;
+                        hparams.image_resize_algo = RESIZE_ALGO_BILINEAR;
                     } break;
                 case PROJECTOR_TYPE_MINICPMV:
                     {

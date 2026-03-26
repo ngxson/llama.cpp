@@ -1097,17 +1097,9 @@ bool mtmd_image_preprocessor_deepseekocr::preprocess(const clip_image_u8 & img, 
     /* Native Resolution (Base/Large) */
     const int image_size = native_resolutions[mode_i];
 
-    // Resize maintaining an aspect ratio, then pad to square
-    float scale = std::min(
-        static_cast<float>(image_size) / orig_w,
-        static_cast<float>(image_size) / orig_h
-    );
-    int new_w = static_cast<int>(orig_w * scale);
-    int new_h = static_cast<int>(orig_h * scale);
-
     // scaled and padded image
     clip_image_u8_ptr scaled_img(clip_image_u8_init());
-    img_tool::resize(img, *scaled_img, clip_image_size{new_w, new_h}, hparams.image_resize_algo);
+    img_tool::resize(img, *scaled_img, clip_image_size{image_size, image_size}, hparams.image_resize_algo);
 
     clip_image_f32_ptr res(clip_image_f32_init());
     img_u8_to_f32(*scaled_img, *res, hparams.image_mean, hparams.image_std);
