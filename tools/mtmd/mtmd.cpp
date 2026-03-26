@@ -378,7 +378,7 @@ struct mtmd_context {
                     sli_img_start_tmpl = "<|img_row_%d_col_%d|>";
                     tok_ov_img_start   = {lookup_token("<|img_thumbnail|>")};
                     ov_img_first       = false;
-                    image_preproc = std::make_unique<mtmd_image_preprocessor_llava_uhd>(ctx_v);
+                    image_preproc = std::make_unique<mtmd_image_preprocessor_lfm2>(ctx_v);
                 } break;
             case PROJECTOR_TYPE_GLM4V:
                 {
