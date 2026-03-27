@@ -38,7 +38,7 @@ set(TARGET_SRCS
     server-models.h
 )
 set(PUBLIC_ASSETS
-    index.html.gz
+    index.html
     loading.html
 )
 

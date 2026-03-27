@@ -83,7 +83,7 @@ if [ -n "$WEBUI_CHANGES" ]; then
     fi
     
     # Check if build output exists and is newer than source files
-    BUILD_FILE="../public/index.html.gz"
+    BUILD_FILE="../public/index.html"
     NEEDS_BUILD=false
     
     if [ ! -f "$BUILD_FILE" ]; then
@@ -127,9 +127,9 @@ if [ -n "$WEBUI_CHANGES" ]; then
         cd ../../..
         
         # Check if build output was created/updated
-        if [ -f "tools/server/public/index.html.gz" ]; then
+        if [ -f "tools/server/public/index.html" ]; then
             # Add the build output and commit it
-            git add tools/server/public/index.html.gz
+            git add tools/server/public/index.html
             if ! git diff --cached --quiet; then
                 echo "Committing updated build output..."
                 git commit -m "chore: update webui build output"

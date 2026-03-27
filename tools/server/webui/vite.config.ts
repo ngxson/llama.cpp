@@ -1,6 +1,5 @@
 import tailwindcss from '@tailwindcss/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
-import * as fflate from 'fflate';
 import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
@@ -20,15 +19,13 @@ const GUIDE_FOR_FRONTEND = `
 -->
 `.trim();
 
-const MAX_BUNDLE_SIZE = 2 * 1024 * 1024;
-
 /**
  * the maximum size of an embedded asset in bytes,
  * e.g. maximum size of embedded font (see node_modules/katex/dist/fonts/*.woff2)
  */
 const MAX_ASSET_SIZE = 32000;
 
-/** public/index.html.gz minified flag */
+/** public/index.html minified flag */
 const ENABLE_JS_MINIFICATION = true;
 
 function llamaCppBuildPlugin() {
@@ -40,7 +37,6 @@ function llamaCppBuildPlugin() {
 			setTimeout(() => {
 				try {
 					const indexPath = resolve('../public/index.html');
-					const gzipPath = resolve('../public/index.html.gz');
 
 					if (!existsSync(indexPath)) {
 						return;
@@ -62,25 +58,10 @@ function llamaCppBuildPlugin() {
 					content = content.replace(/\r/g, '');
 					content = GUIDE_FOR_FRONTEND + '\n' + content;
 
-					const compressed = fflate.gzipSync(Buffer.from(content, 'utf-8'), { level: 9 });
-
-					compressed[0x4] = 0;
-					compressed[0x5] = 0;
-					compressed[0x6] = 0;
-					compressed[0x7] = 0;
-					compressed[0x9] = 0;
-
-					if (compressed.byteLength > MAX_BUNDLE_SIZE) {
-						throw new Error(
-							`Bundle size is too large (${Math.ceil(compressed.byteLength / 1024)} KB).\n` +
-								`Please reduce the size of the frontend or increase MAX_BUNDLE_SIZE in vite.config.ts.\n`
-						);
-					}
-
-					writeFileSync(gzipPath, compressed);
-					console.log('✓ Created index.html.gz');
+					writeFileSync(indexPath, content, 'utf-8');
+					console.log('✓ Updated index.html');
 				} catch (error) {
-					console.error('Failed to create gzip file:', error);
+					console.error('Failed to update index.html:', error);
 				}
 			}, 100);
 		}
