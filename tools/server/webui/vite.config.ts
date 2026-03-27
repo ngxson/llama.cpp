@@ -1,6 +1,6 @@
 import tailwindcss from '@tailwindcss/vite';
 import { sveltekit } from '@sveltejs/kit/vite';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, readdirSync, copyFileSync } from 'fs';
 import { dirname, resolve } from 'path';
 import { fileURLToPath } from 'url';
 
@@ -57,9 +57,30 @@ function llamaCppBuildPlugin() {
 
 					content = content.replace(/\r/g, '');
 					content = GUIDE_FOR_FRONTEND + '\n' + content;
+					content = content.replace(/\/_app\/immutable\/bundle\.[^"]+\.js/g, './bundle.js');
+					content = content.replace(/\/_app\/immutable\/assets\/bundle\.[^"]+\.css/g, './bundle.css');
 
 					writeFileSync(indexPath, content, 'utf-8');
 					console.log('✓ Updated index.html');
+
+					// Copy bundle.*.js -> ../public/bundle.js
+					const immutableDir = resolve('../public/_app/immutable');
+					const bundleDir = resolve('../public/_app/immutable/assets');
+					if (existsSync(immutableDir)) {
+						const jsFiles = readdirSync(immutableDir).filter(f => f.match(/^bundle\..+\.js$/));
+						if (jsFiles.length > 0) {
+							copyFileSync(resolve(immutableDir, jsFiles[0]), resolve('../public/bundle.js'));
+							console.log(`✓ Copied ${jsFiles[0]} -> bundle.js`);
+						}
+					}
+					// Copy bundle.*.css -> ../public/bundle.css
+					if (existsSync(bundleDir)) {
+						const cssFiles = readdirSync(bundleDir).filter(f => f.match(/^bundle\..+\.css$/));
+						if (cssFiles.length > 0) {
+							copyFileSync(resolve(bundleDir, cssFiles[0]), resolve('../public/bundle.css'));
+							console.log(`✓ Copied ${cssFiles[0]} -> bundle.css`);
+						}
+					}
 				} catch (error) {
 					console.error('Failed to update index.html:', error);
 				}

@@ -43,6 +43,8 @@ option(LLAMA_BUILD_WEBUI "Build the embedded Web UI" ON)
 if (LLAMA_BUILD_WEBUI)
     set(PUBLIC_ASSETS
         index.html
+        bundle.js
+        bundle.css
         loading.html
     )
 

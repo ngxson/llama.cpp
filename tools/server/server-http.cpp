@@ -11,6 +11,8 @@
 #ifdef LLAMA_BUILD_WEBUI
 // auto generated files (see README.md for details)
 #include "index.html.hpp"
+#include "bundle.js.hpp"
+#include "bundle.css.hpp"
 #include "loading.html.hpp"
 #endif
 
@@ -267,6 +269,14 @@ bool server_http_context::init(const common_params & params) {
                 res.set_header("Cross-Origin-Embedder-Policy", "require-corp");
                 res.set_header("Cross-Origin-Opener-Policy", "same-origin");
                 res.set_content(reinterpret_cast<const char*>(index_html), index_html_len, "text/html; charset=utf-8");
+                return false;
+            });
+            srv->Get(params.api_prefix + "/bundle.js", [](const httplib::Request & /*req*/, httplib::Response & res) {
+                res.set_content(reinterpret_cast<const char*>(bundle_js), bundle_js_len, "application/javascript; charset=utf-8");
+                return false;
+            });
+            srv->Get(params.api_prefix + "/bundle.css", [](const httplib::Request & /*req*/, httplib::Response & res) {
+                res.set_content(reinterpret_cast<const char*>(bundle_css), bundle_css_len, "text/css; charset=utf-8");
                 return false;
             });
 #endif
