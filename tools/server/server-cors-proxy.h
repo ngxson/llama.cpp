@@ -34,10 +34,11 @@ static server_http_res_ptr proxy_request(const server_http_req & req, std::strin
 
     std::map<std::string, std::string> headers;
     for (auto [key, value] : req.headers) {
-        if (string_starts_with(key, "X-Proxy-Header-")) {
-            string_replace_all(key, "X-Proxy-Header-", "");
+        auto new_key = key;
+        if (string_starts_with(new_key, "X-Proxy-Header-")) {
+            string_replace_all(new_key, "X-Proxy-Header-", "");
         }
-        headers[key] = std::move(value);
+        headers[new_key] = value;
     }
 
     auto proxy = std::make_unique<server_http_proxy>(
