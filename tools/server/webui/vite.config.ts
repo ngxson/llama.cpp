@@ -58,7 +58,10 @@ function llamaCppBuildPlugin() {
 					content = content.replace(/\r/g, '');
 					content = GUIDE_FOR_FRONTEND + '\n' + content;
 					content = content.replace(/\/_app\/immutable\/bundle\.[^"]+\.js/g, './bundle.js');
-					content = content.replace(/\/_app\/immutable\/assets\/bundle\.[^"]+\.css/g, './bundle.css');
+					content = content.replace(
+						/\/_app\/immutable\/assets\/bundle\.[^"]+\.css/g,
+						'./bundle.css'
+					);
 
 					writeFileSync(indexPath, content, 'utf-8');
 					console.log('✓ Updated index.html');
@@ -67,7 +70,7 @@ function llamaCppBuildPlugin() {
 					const immutableDir = resolve('../public/_app/immutable');
 					const bundleDir = resolve('../public/_app/immutable/assets');
 					if (existsSync(immutableDir)) {
-						const jsFiles = readdirSync(immutableDir).filter(f => f.match(/^bundle\..+\.js$/));
+						const jsFiles = readdirSync(immutableDir).filter((f) => f.match(/^bundle\..+\.js$/));
 						if (jsFiles.length > 0) {
 							copyFileSync(resolve(immutableDir, jsFiles[0]), resolve('../public/bundle.js'));
 							console.log(`✓ Copied ${jsFiles[0]} -> bundle.js`);
@@ -75,7 +78,7 @@ function llamaCppBuildPlugin() {
 					}
 					// Copy bundle.*.css -> ../public/bundle.css
 					if (existsSync(bundleDir)) {
-						const cssFiles = readdirSync(bundleDir).filter(f => f.match(/^bundle\..+\.css$/));
+						const cssFiles = readdirSync(bundleDir).filter((f) => f.match(/^bundle\..+\.css$/));
 						if (cssFiles.length > 0) {
 							copyFileSync(resolve(bundleDir, cssFiles[0]), resolve('../public/bundle.css'));
 							console.log(`✓ Copied ${cssFiles[0]} -> bundle.css`);
