@@ -5,4 +5,4 @@ export const API_MODELS = {
 };
 
 /** CORS proxy endpoint path */
-export const CORS_PROXY_ENDPOINT = '/cors-proxy-test';
+export const CORS_PROXY_ENDPOINT = '/cors-proxy';
