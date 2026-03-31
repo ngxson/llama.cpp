@@ -2,7 +2,7 @@
 
 # Script to install pre-commit and pre-push hooks for webui
 # Pre-commit: formats code and runs checks
-# Pre-push: builds the project, stashes unstaged changes
+# Pre-push: always builds webui and stages tools/server/public/
 
 REPO_ROOT=$(git rev-parse --show-toplevel)
 PRE_COMMIT_HOOK="$REPO_ROOT/.git/hooks/pre-commit"
@@ -67,135 +67,81 @@ EOF
 cat > "$PRE_PUSH_HOOK" << 'EOF'
 #!/bin/bash
 
-# Check if there are any webui changes that need building
-WEBUI_CHANGES=$(git diff --name-only @{push}..HEAD | grep "^tools/server/webui/" || true)
-
-if [ -n "$WEBUI_CHANGES" ]; then
-    echo "Webui changes detected, checking if build is up-to-date..."
-    
-    # Change to webui directory
-    cd tools/server/webui
-    
-    # Check if npm is available and package.json exists
-    if [ ! -f "package.json" ]; then
-        echo "Error: package.json not found in tools/server/webui"
-        exit 1
-    fi
-    
-    # Check if build output exists and is newer than source files
-    BUILD_FILE="../public/index.html"
-    NEEDS_BUILD=false
-    
-    if [ ! -f "$BUILD_FILE" ]; then
-        echo "Build output not found, building..."
-        NEEDS_BUILD=true
-    else
-        # Check if any source files are newer than the build output
-        if find src -newer "$BUILD_FILE" -type f | head -1 | grep -q .; then
-            echo "Source files are newer than build output, rebuilding..."
-            NEEDS_BUILD=true
-        fi
-    fi
-    
-    if [ "$NEEDS_BUILD" = true ]; then
-        echo "Building webui..."
-        
-        # Stash any unstaged changes to avoid conflicts during build
-        echo "Checking for unstaged changes..."
-        if ! git diff --quiet || ! git diff --cached --quiet --diff-filter=A; then
-            echo "Stashing unstaged changes..."
-            git stash push --include-untracked -m "Pre-push hook: stashed unstaged changes"
-            STASH_CREATED=$?
-        else
-            echo "No unstaged changes to stash"
-            STASH_CREATED=1
-        fi
-        
-        # Run the build command
-        npm run build
-        
-        # Check if build command succeeded
-        if [ $? -ne 0 ]; then
-            echo "Error: npm run build failed"
-            if [ $STASH_CREATED -eq 0 ]; then
-                echo "You can restore your unstaged changes with: git stash pop"
-            fi
-            exit 1
-        fi
-
-        # Go back to repo root
-        cd ../../..
-        
-        # Check if build output was created/updated
-        if [ -f "tools/server/public/index.html" ]; then
-            # Add the build output and commit it
-            git add tools/server/public/index.html
-            if ! git diff --cached --quiet; then
-                echo "Committing updated build output..."
-                git commit -m "chore: update webui build output"
-                echo "✅ Build output committed successfully"
-            else
-                echo "Build output unchanged"
-            fi
-        else
-            echo "Error: Build output not found after build"
-            if [ $STASH_CREATED -eq 0 ]; then
-                echo "You can restore your unstaged changes with: git stash pop"
-            fi
-            exit 1
-        fi
-        
-        if [ $STASH_CREATED -eq 0 ]; then
-            echo "✅ Build completed. Your unstaged changes have been stashed."
-            echo "They will be automatically restored after the push."
-            # Create a marker file to indicate stash was created by pre-push hook
-            touch .git/WEBUI_PUSH_STASH_MARKER
-        fi
-    else
-        echo "✅ Build output is up-to-date"
-    fi
-    
-    echo "✅ Webui ready for push"
+# Skip if already running from our own recursive push
+if [ "$WEBUI_PRE_PUSH_RUNNING" = "1" ]; then
+    exit 0
 fi
 
+REMOTE="$1"
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+cd "$REPO_ROOT"
+
+echo "Pre-push: building webui..."
+
+# Change to webui directory
+cd tools/server/webui
+
+# Check if package.json exists
+if [ ! -f "package.json" ]; then
+    echo "Error: package.json not found in tools/server/webui"
+    exit 1
+fi
+
+# Always run the build
+npm run build
+
+if [ $? -ne 0 ]; then
+    echo "❌ npm run build failed"
+    exit 1
+fi
+
+# Go back to repo root
+cd "$REPO_ROOT"
+
+# Stage all build output in tools/server/public/
+git add tools/server/public/
+
+# Check if the build produced any changes compared to what's already committed
+if ! git diff --cached --quiet -- tools/server/public/; then
+    echo ""
+    echo "⚠️  Build output in tools/server/public/ has changed."
+    echo "   Committing updated build output..."
+    git commit -m "server: update webui build output"
+
+    # Push the updated branch ourselves (env var prevents recursion)
+    CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+    echo "   Pushing $CURRENT_BRANCH to $REMOTE..."
+    WEBUI_PRE_PUSH_RUNNING=1 git push "$REMOTE" "$CURRENT_BRANCH"
+    PUSH_RESULT=$?
+
+    if [ $PUSH_RESULT -eq 0 ]; then
+        echo "✅ Build output committed and pushed successfully."
+    else
+        echo "❌ Push failed"
+    fi
+
+    # Cancel the original push — it has a stale SHA, we already pushed the updated one
+    exit 1
+fi
+
+echo "✅ Build output is up-to-date, pushing..."
 exit 0
 EOF
 
-# Create the post-push hook (for restoring stashed changes after push)
-cat > "$REPO_ROOT/.git/hooks/post-push" << 'EOF'
-#!/bin/bash
-
-# Check if we have a stash marker from the pre-push hook
-if [ -f .git/WEBUI_PUSH_STASH_MARKER ]; then
-    echo "Restoring your unstaged changes after push..."
-    git stash pop
-    rm -f .git/WEBUI_PUSH_STASH_MARKER
-    echo "✅ Your unstaged changes have been restored."
-fi
-
-exit 0
-EOF
-
-# Make all hooks executable
+# Make hooks executable
 chmod +x "$PRE_COMMIT_HOOK"
 chmod +x "$PRE_PUSH_HOOK"
-chmod +x "$REPO_ROOT/.git/hooks/post-push"
 
 if [ $? -eq 0 ]; then
     echo "✅ Git hooks installed successfully!"
     echo "   Pre-commit: $PRE_COMMIT_HOOK"
     echo "   Pre-push:   $PRE_PUSH_HOOK"
-    echo "   Post-push:  $REPO_ROOT/.git/hooks/post-push"
     echo ""
     echo "The hooks will automatically:"
     echo "  • Format and check webui code before commits (pre-commit)"
-    echo "  • Build webui code before pushes (pre-push)"
-    echo "  • Stash unstaged changes during build process"
-    echo "  • Restore your unstaged changes after the push"
-    echo ""
-    echo "To test the hooks:"
-    echo "  • Make a change to a file in the webui directory and commit it (triggers format/check)"
-    echo "  • Push your commits to trigger the build process"
+    echo "  • Build webui and stage tools/server/public/ before pushes (pre-push)"
+    echo "  • If build output changed, commit it and abort push (just push again)"
 else
     echo "❌ Failed to make hooks executable"
     exit 1
