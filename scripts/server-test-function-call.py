@@ -85,6 +85,7 @@ def chat_completion(url, messages, tools=None, stream=False):
         return None
 
     full_content = ""
+    reasoning_content = ""
     tool_calls: list[dict] = []
 
     if stream:
@@ -105,6 +106,8 @@ def chat_completion(url, messages, tools=None, stream=False):
             if not choices:
                 continue
             delta = choices[0].get("delta", {})
+            if delta.get("reasoning_content"):
+                reasoning_content += delta["reasoning_content"]
             if delta.get("content"):
                 full_content += delta["content"]
                 print_model_output(delta["content"])
@@ -125,11 +128,15 @@ def chat_completion(url, messages, tools=None, stream=False):
         if choices:
             msg = choices[0].get("message", {})
             full_content = msg.get("content") or ""
+            reasoning_content = msg.get("reasoning_content") or ""
             tool_calls = msg.get("tool_calls") or []
             if full_content:
                 print_model_output(full_content)
 
-    return {"content": full_content, "tool_calls": tool_calls}
+    result = {"content": full_content, "tool_calls": tool_calls}
+    if reasoning_content:
+        result["reasoning_content"] = reasoning_content
+    return result
 
 
 def run_agentic_loop(url, messages, tools, mock_tool_responses, stream, max_turns=6):
@@ -164,6 +171,9 @@ def run_agentic_loop(url, messages, tools, mock_tool_responses, stream, max_turn
 
         # Append assistant message with tool calls
         assistant_msg: dict = {"role": "assistant", "content": content, "tool_calls": tcs}
+        reasoning = result.get("reasoning_content")
+        if reasoning:
+            assistant_msg["reasoning_content"] = reasoning
         msgs.append(assistant_msg)
 
         # Execute each tool call via mock and append tool result messages
