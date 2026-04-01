@@ -17,6 +17,8 @@ Maintainers receive numerous pull requests weekly, many of which are AI-generate
 
 **A pull request represents a long-term commitment.** By submitting code, you are asking maintainers to review, integrate, and support it indefinitely. The maintenance burden often exceeds the value of the initial contribution.
 
+Most maintainers already have access to AI tools. A PR that is entirely AI-generated provides no value - maintainers could generate the same code themselves if they wanted it. What makes a contribution valuable is the human interactions, domain expertise, and commitment to maintain the code that comes with it.
+
 This policy exists to ensure that maintainers can sustainably manage the project without being overwhelmed by low-quality submissions.
 
 ---
@@ -43,6 +45,7 @@ AI tools may be used responsibly for:
 - **Code review assistance**: Obtaining suggestions on human-written code
 - **Mechanical tasks**: Formatting, generating repetitive patterns from established designs, completing code based on existing patterns
 - **Documentation drafts**: For components the contributor already understands thoroughly
+- **Writing code**: Only when the contributor has already designed the solution and can implement it themselves - AI accelerates, not replaces, the contributor's work
 
 AI-generated code may be accepted if you (1) fully understand the output, (2) can debug issues independently, and (3) can discuss it directly with reviewers without AI assistance.
 
