@@ -18,12 +18,15 @@ ggml_cgraph * clip_graph_qwen3a::build() {
         inp = ggml_add(ctx0, inp, model.conv2d_3_b);
         inp = ggml_gelu_erf(ctx0, inp);
 
-        // inp is now [time, frames, channels]
+        // inp [n_pos, n_mels/8, channels, 1] (W, H, C, N)
         cb(inp, "after_conv_blocks", -1);
 
-        inp = ggml_permute(ctx0, inp, 2, 1, 0, 3); // [channels, frames, time]
-        inp = ggml_cont(ctx0, inp);
-        inp = ggml_reshape_2d(ctx0, inp, inp->ne[0] * inp->ne[1], inp->ne[2]); // [channels * time, frames]
+        const int64_t n_pos_after_conv = inp->ne[0];
+        const int64_t n_mel_after_conv = inp->ne[1]; // 128/8 = 16
+
+        inp = ggml_cont(ctx0, ggml_permute(ctx0, inp, 0, 2, 3, 1));
+        inp = ggml_reshape_2d(ctx0, inp, n_pos_after_conv, n_mel_after_conv * inp->ne[3]); // [n_pos, 7680]
+        inp = ggml_cont(ctx0, ggml_transpose(ctx0, inp)); // [7680, n_pos]
 
         // project to n_embd
         inp = ggml_mul_mat(ctx0, model.conv_out_w, inp);
@@ -58,10 +61,6 @@ ggml_cgraph * clip_graph_qwen3a::build() {
         -1);
 
     cb(cur, "projected", -1);
-
-    // pad deepstack if needed
-    // TODO: do NOT hard code 3 here
-    cur = ggml_pad(ctx0, cur, cur->ne[0] * 3, 0, 0, 0);
 
     ggml_build_forward_expand(gf, cur);
 
