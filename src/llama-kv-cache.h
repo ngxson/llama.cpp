@@ -264,7 +264,8 @@ private:
                     ggml_tensor * shift,
                     ggml_tensor * factors,
                           float   freq_base,
-                          float   freq_scale) const;
+                          float   freq_scale,
+                       uint32_t   il) const;
 
     ggml_cgraph * build_graph_shift(
                llm_graph_result * res,
@@ -332,7 +333,7 @@ public:
     ggml_tensor * get_v(ggml_context * ctx, int32_t il) const;
 
     // store k_cur and v_cur in the cache based on the provided head location
-    // note: the heads in k_cur and v_cur should be layed out contiguously in memory
+    // note: the heads in k_cur and v_cur should be laid out contiguously in memory
     //   - k_cur  [n_embd_head_k, n_head_k, n_tokens]
     //   - k_idxs [n_tokens]
     //   - v_cur  [n_embd_head_v, n_head_v, n_tokens]
