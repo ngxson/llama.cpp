@@ -2669,7 +2669,12 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
             } break;
         case PROJECTOR_TYPE_QWEN3A:
             {
-                return 375; // TODO: calculate this
+                // 3x stride-2 conv2d: each step is floor((n-1)/2)+1
+                int n = img->nx;
+                n = (n - 1) / 2 + 1;
+                n = (n - 1) / 2 + 1;
+                n = (n - 1) / 2 + 1;
+                n_patches = n;
             } break;
         case PROJECTOR_TYPE_GLMA:
             {
@@ -3256,7 +3261,7 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
         case PROJECTOR_TYPE_QWEN2A:
             return ctx->model.mm_fc_w->ne[1];
         case PROJECTOR_TYPE_QWEN3A:
-            return ctx->model.mm_2_w->ne[1] * 4; // 4 for deepstack, TODO: do NOT hardcode
+            return ctx->model.mm_2_w->ne[1];
         case PROJECTOR_TYPE_GLMA:
         case PROJECTOR_TYPE_LFM2:
         case PROJECTOR_TYPE_KIMIVL:

@@ -4936,7 +4936,7 @@ class Qwen3VLVisionModel(MmprojModel):
             return
 
         if name.startswith("visual."):
-            return [(self.map_tensor_name(name), data_torch)]
+            yield (self.map_tensor_name(name), data_torch)
         return [] # skip other tensors
 
 
@@ -4975,7 +4975,6 @@ class Qwen3OmniMmprojModel(Qwen3VLVisionModel, Qwen25AudioModel):
                 # transform conv2d bias [n_embd] --> [1, 1, n_embd]
                 data_torch = data_torch.unsqueeze(-1).unsqueeze(-1)
             yield from Qwen25AudioModel.modify_tensors(self, data_torch, name, bid)
-        return []
 
 
 @ModelBase.register("Glm4vForConditionalGeneration", "Glm4vMoeForConditionalGeneration", "GlmOcrForConditionalGeneration")
@@ -5028,14 +5027,20 @@ class Qwen3VLTextModel(Qwen3Model):
 class Qwen3VLMoeTextModel(Qwen3MoeModel):
     model_arch = gguf.MODEL_ARCH.QWEN3VLMOE
 
+    def set_vocab(self):
+        super().set_vocab()
+        # correct BOS/EOS tokens
+        with open(self.dir_model / "tokenizer_config.json", "r", encoding="utf-8") as f:
+            tokenizer_config = json.load(f)
+            added_tokens = tokenizer_config.get("added_tokens_decoder", {})
+            for token_id, data in added_tokens.items():
+                if data.get("content") == "<|im_end|>":
+                    self.gguf_writer.add_bos_token_id(int(token_id))
+                    self.gguf_writer.add_eos_token_id(int(token_id))
+
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
-        if "thinker_config" in self.hparams:
-            vision_config = self.hparams["thinker_config"].get("vision_config", {})
-        else:
-            vision_config = self.hparams.get("vision_config", {})
-        deepstack_layer_num = len(vision_config.get("deepstack_visual_indexes", []))
-        self.gguf_writer.add_num_deepstack_layers(deepstack_layer_num)
+        self.gguf_writer.add_num_deepstack_layers(0)
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         # Skip vision tensors - they go in the mmproj file
