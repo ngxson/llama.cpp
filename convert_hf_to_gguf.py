@@ -9918,8 +9918,8 @@ class Exaone4_5_VLTextModel(Exaone4Model):
 class Exaone4_5VLVisionModel(Qwen2VLVisionModel):
     """Vision tower for EXAONE 4.5 (Qwen2-VL-style ViT + patch merger); HF weights under `model.visual.*`.
 
-    Does not write sliding/window-attention GGUF metadata for the ViT (clip `n_wa_pattern` stays unset);
-    text sliding-window remains on the LLM GGUF via `Exaone4Model`.
+    Writes ViT window-attention metadata (`window_size`, `n_wa_pattern`) when available so
+    mtmd follows HF full/window attention alternation.
     """
 
     def set_gguf_parameters(self):
@@ -9930,6 +9930,15 @@ class Exaone4_5VLVisionModel(Qwen2VLVisionModel):
         self.gguf_writer.add_vision_use_silu(True)
         eps = hparams.get("rms_norm_eps", self.global_config.get("rms_norm_eps", 1e-6))
         self.gguf_writer.add_vision_attention_layernorm_eps(eps)
+        if (window_size := hparams.get("window_size")) is not None:
+            self.gguf_writer.add_vision_window_size(window_size)
+        fullatt_block_indexes = hparams.get("fullatt_block_indexes")
+        if fullatt_block_indexes:
+            n_wa_pattern = fullatt_block_indexes[0] + 1
+            for i in range(1, len(fullatt_block_indexes)):
+                if fullatt_block_indexes[i] - fullatt_block_indexes[i - 1] != n_wa_pattern:
+                    raise ValueError(f"Invalid EXAONE4.5 fullatt_block_indexes: {fullatt_block_indexes}")
+            self.gguf_writer.add_vision_n_wa_pattern(n_wa_pattern)
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         if name.startswith("model.language_model.") or name.startswith("lm_head."):
@@ -9962,6 +9971,12 @@ class Exaone4_5VLVisionModel(Qwen2VLVisionModel):
             yield from ModelBase.modify_tensors(self, wq, nq, bid)
             yield from ModelBase.modify_tensors(self, wk, nk, bid)
             yield from ModelBase.modify_tensors(self, wv, nv, bid)
+            return
+
+        # EXAONE4.5 PatchMerger includes ln_q (RMSNorm), but generic Qwen2-VL mapping can miss it.
+        # Keep explicit mapping to mm.input_norm for activation-level parity with HF.
+        if name == "visual.merger.ln_q.weight":
+            yield ("mm.input_norm.weight", data_torch)
             return
 
         yield from Qwen2VLVisionModel.modify_tensors(self, data_torch, name, bid)

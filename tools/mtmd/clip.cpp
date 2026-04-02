@@ -1221,7 +1221,7 @@ struct clip_model_loader {
                     {
                         hparams.n_merge = 2; // default value for Qwen 2 and 2.5
                         get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.n_merge, false);
-                        get_u32(KEY_WIN_ATTN_PATTERN, hparams.n_wa_pattern, model.proj_type == PROJECTOR_TYPE_QWEN25VL); // only 2.5 requires it
+                        get_u32(KEY_WIN_ATTN_PATTERN, hparams.n_wa_pattern, model.proj_type == PROJECTOR_TYPE_QWEN25VL);
                         // ref: https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct/blob/main/preprocessor_config.json
                         hparams.set_limit_image_tokens(8, 4096);
                         hparams.set_warmup_n_tokens(46*46); // avoid OOM on warmup
@@ -1301,6 +1301,7 @@ struct clip_model_loader {
                     {
                         hparams.n_merge = 2;
                         get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.n_merge, false);
+                        get_u32(KEY_WIN_ATTN_PATTERN, hparams.n_wa_pattern, false);
                         hparams.set_limit_image_tokens(8, 4096);
                         hparams.set_warmup_n_tokens(46 * 46);
                         if (hparams.rope_theta <= 0.0f) {
@@ -1606,6 +1607,9 @@ struct clip_model_loader {
             case PROJECTOR_TYPE_QWEN25VL:
             case PROJECTOR_TYPE_EXAONE4_5:
                 {
+                    if (model.proj_type == PROJECTOR_TYPE_EXAONE4_5) {
+                        model.mm_input_norm_w = get_tensor(TN_MM_INP_NORM, false);
+                    }
                     model.mm_0_w = get_tensor(string_format(TN_LLAVA_PROJ, 0, "weight"));
                     model.mm_0_b = get_tensor(string_format(TN_LLAVA_PROJ, 0, "bias"));
                     model.mm_1_w = get_tensor(string_format(TN_LLAVA_PROJ, 2, "weight"));
@@ -3739,7 +3743,6 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
             } break;
         case PROJECTOR_TYPE_QWEN2VL:
         case PROJECTOR_TYPE_QWEN3VL:
-        case PROJECTOR_TYPE_EXAONE4_5:
         case PROJECTOR_TYPE_GLM4V:
             {
                 const int merge_ratio = hparams.n_merge;
@@ -3788,11 +3791,15 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 set_input_i32("positions", positions);
             } break;
         case PROJECTOR_TYPE_QWEN25VL:
+        case PROJECTOR_TYPE_EXAONE4_5:
         case PROJECTOR_TYPE_YOUTUVL:
             {
                 // pw * ph = number of tokens output by ViT after apply patch merger
                 // ipw * ipw = number of vision token been processed inside ViT
-                const bool use_window_attn = ctx->model.proj_type == PROJECTOR_TYPE_QWEN25VL ? hparams.n_wa_pattern > 0 : !hparams.wa_layer_indexes.empty();
+                const bool use_window_attn =
+                    (ctx->model.proj_type == PROJECTOR_TYPE_QWEN25VL || ctx->model.proj_type == PROJECTOR_TYPE_EXAONE4_5)
+                        ? hparams.n_wa_pattern > 0
+                        : !hparams.wa_layer_indexes.empty();
                 const int merge_ratio = 2;
                 const int pw  = image_size_width  / patch_size / merge_ratio;
                 const int ph  = image_size_height / patch_size / merge_ratio;

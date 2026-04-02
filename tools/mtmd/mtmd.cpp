@@ -286,10 +286,15 @@ struct mtmd_context {
             // https://github.com/huggingface/transformers/blob/1cd110c6cb6a6237614130c470e9a902dbc1a4bd/docs/source/en/model_doc/pixtral.md
             img_end = "[IMG_END]";
 
-        } else if (proj == PROJECTOR_TYPE_QWEN2VL || proj == PROJECTOR_TYPE_QWEN25VL || proj == PROJECTOR_TYPE_QWEN3VL || proj == PROJECTOR_TYPE_EXAONE4_5 || proj == PROJECTOR_TYPE_YOUTUVL) {
+        } else if (proj == PROJECTOR_TYPE_QWEN2VL || proj == PROJECTOR_TYPE_QWEN25VL || proj == PROJECTOR_TYPE_QWEN3VL || proj == PROJECTOR_TYPE_YOUTUVL) {
             // <|vision_start|> ... (image embeddings) ... <|vision_end|>
             img_beg = "<|vision_start|>";
             img_end = "<|vision_end|>";
+
+        } else if (proj == PROJECTOR_TYPE_EXAONE4_5) {
+            // <vision> ... (image embeddings) ... </vision>
+            img_beg = "<vision>";
+            img_end = "</vision>";
 
         } else if (proj == PROJECTOR_TYPE_PHI4) {
             // Phi-4 uses media marker insertion only. Keep image boundary text empty.
