@@ -1,11 +1,22 @@
 <script lang="ts">
-	import { ChatAttachmentThumbnailImage, ChatAttachmentThumbnailFile } from '$lib/components/app';
+	import {
+		ChatAttachmentMcpPrompt,
+		ChatAttachmentMcpResource,
+		ChatAttachmentThumbnailImage,
+		ChatAttachmentThumbnailFile,
+		HorizontalScrollCarousel,
+		DialogChatAttachmentPreview,
+		DialogChatAttachmentsViewAll,
+		DialogMcpResourcePreview
+	} from '$lib/components/app';
 	import { Button } from '$lib/components/ui/button';
-	import { ChevronLeft, ChevronRight } from '@lucide/svelte';
-	import { FileTypeCategory } from '$lib/enums/files';
-	import { getFileTypeCategory } from '$lib/utils/file-type';
-	import { DialogChatAttachmentPreview, DialogChatAttachmentsViewAll } from '$lib/components/app';
-	import type { ChatAttachmentDisplayItem, ChatAttachmentPreviewItem } from '$lib/types/chat';
+	import { AttachmentType } from '$lib/enums';
+	import type {
+		DatabaseMessageExtraMcpPrompt,
+		DatabaseMessageExtraMcpResource,
+		MCPResourceAttachment
+	} from '$lib/types';
+	import { getAttachmentDisplayItems } from '$lib/utils';
 
 	interface Props {
 		class?: string;
@@ -22,6 +33,8 @@
 		imageWidth?: string;
 		// Limit display to single row with "+ X more" button
 		limitToSingleRow?: boolean;
+		// For vision modality check
+		activeModelId?: string;
 	}
 
 	let {
@@ -35,94 +48,20 @@
 		imageClass = '',
 		imageHeight = 'h-24',
 		imageWidth = 'w-auto',
-		limitToSingleRow = false
+		limitToSingleRow = false,
+		activeModelId
 	}: Props = $props();
 
-	let displayItems = $derived(getDisplayItems());
+	let displayItems = $derived(getAttachmentDisplayItems({ uploadedFiles, attachments }));
 
-	let canScrollLeft = $state(false);
-	let canScrollRight = $state(false);
+	let carouselRef: HorizontalScrollCarousel | undefined = $state();
 	let isScrollable = $state(false);
 	let previewDialogOpen = $state(false);
 	let previewItem = $state<ChatAttachmentPreviewItem | null>(null);
-	let scrollContainer: HTMLDivElement | undefined = $state();
+	let mcpResourcePreviewOpen = $state(false);
+	let mcpResourcePreviewExtra = $state<DatabaseMessageExtraMcpResource | null>(null);
 	let showViewAll = $derived(limitToSingleRow && displayItems.length > 0 && isScrollable);
 	let viewAllDialogOpen = $state(false);
-
-	function getDisplayItems(): ChatAttachmentDisplayItem[] {
-		const items: ChatAttachmentDisplayItem[] = [];
-
-		// Add uploaded files (ChatForm)
-		for (const file of uploadedFiles) {
-			items.push({
-				id: file.id,
-				name: file.name,
-				size: file.size,
-				preview: file.preview,
-				type: file.type,
-				isImage: getFileTypeCategory(file.type) === FileTypeCategory.IMAGE,
-				uploadedFile: file,
-				textContent: file.textContent
-			});
-		}
-
-		// Add stored attachments (ChatMessage)
-		for (const [index, attachment] of attachments.entries()) {
-			if (attachment.type === 'imageFile') {
-				items.push({
-					id: `attachment-${index}`,
-					name: attachment.name,
-					preview: attachment.base64Url,
-					type: 'image',
-					isImage: true,
-					attachment,
-					attachmentIndex: index
-				});
-			} else if (attachment.type === 'textFile') {
-				items.push({
-					id: `attachment-${index}`,
-					name: attachment.name,
-					type: 'text',
-					isImage: false,
-					attachment,
-					attachmentIndex: index,
-					textContent: attachment.content
-				});
-			} else if (attachment.type === 'context') {
-				// Legacy format from old webui - treat as text file
-				items.push({
-					id: `attachment-${index}`,
-					name: attachment.name,
-					type: 'text',
-					isImage: false,
-					attachment,
-					attachmentIndex: index,
-					textContent: attachment.content
-				});
-			} else if (attachment.type === 'audioFile') {
-				items.push({
-					id: `attachment-${index}`,
-					name: attachment.name,
-					type: attachment.mimeType || 'audio',
-					isImage: false,
-					attachment,
-					attachmentIndex: index
-				});
-			} else if (attachment.type === 'pdfFile') {
-				items.push({
-					id: `attachment-${index}`,
-					name: attachment.name,
-					type: 'application/pdf',
-					isImage: false,
-					attachment,
-					attachmentIndex: index,
-					textContent: attachment.content
-				});
-			}
-		}
-
-		return items.reverse();
-	}
 
 	function openPreview(item: ChatAttachmentDisplayItem, event?: MouseEvent) {
 		event?.stopPropagation();
@@ -133,72 +72,82 @@
 			attachment: item.attachment,
 			preview: item.preview,
 			name: item.name,
-			type: item.type,
 			size: item.size,
 			textContent: item.textContent
 		};
 		previewDialogOpen = true;
 	}
 
-	function scrollLeft(event?: MouseEvent) {
-		event?.stopPropagation();
-		event?.preventDefault();
-
-		if (!scrollContainer) return;
-
-		scrollContainer.scrollBy({ left: scrollContainer.clientWidth * -0.67, behavior: 'smooth' });
+	function openMcpResourcePreview(extra: DatabaseMessageExtraMcpResource) {
+		mcpResourcePreviewExtra = extra;
+		mcpResourcePreviewOpen = true;
 	}
 
-	function scrollRight(event?: MouseEvent) {
-		event?.stopPropagation();
-		event?.preventDefault();
-
-		if (!scrollContainer) return;
-
-		scrollContainer.scrollBy({ left: scrollContainer.clientWidth * 0.67, behavior: 'smooth' });
-	}
-
-	function updateScrollButtons() {
-		if (!scrollContainer) return;
-
-		const { scrollLeft, scrollWidth, clientWidth } = scrollContainer;
-
-		canScrollLeft = scrollLeft > 0;
-		canScrollRight = scrollLeft < scrollWidth - clientWidth - 1;
-		isScrollable = scrollWidth > clientWidth;
+	function toMcpResourceAttachment(
+		extra: DatabaseMessageExtraMcpResource,
+		id: string
+	): MCPResourceAttachment {
+		return {
+			id,
+			resource: {
+				uri: extra.uri,
+				name: extra.name,
+				title: extra.name,
+				serverName: extra.serverName
+			}
+		};
 	}
 
 	$effect(() => {
-		if (scrollContainer && displayItems.length) {
-			scrollContainer.scrollLeft = 0;
-
-			setTimeout(() => {
-				updateScrollButtons();
-			}, 0);
+		if (carouselRef && displayItems.length) {
+			carouselRef.resetScroll();
 		}
 	});
 </script>
 
 {#if displayItems.length > 0}
 	<div class={className} {style}>
-		<div class="relative">
-			<button
-				class="absolute top-1/2 left-4 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-foreground/15 shadow-md backdrop-blur-xs transition-opacity hover:bg-foreground/35 {canScrollLeft
-					? 'opacity-100'
-					: 'pointer-events-none opacity-0'}"
-				onclick={scrollLeft}
-				aria-label="Scroll left"
-			>
-				<ChevronLeft class="h-4 w-4" />
-			</button>
-
-			<div
-				class="scrollbar-hide flex items-start gap-3 overflow-x-auto"
-				bind:this={scrollContainer}
-				onscroll={updateScrollButtons}
+		{#if limitToSingleRow}
+			<HorizontalScrollCarousel
+				bind:this={carouselRef}
+				onScrollableChange={(scrollable) => (isScrollable = scrollable)}
 			>
 				{#each displayItems as item (item.id)}
-					{#if item.isImage && item.preview}
+					{#if item.isMcpPrompt}
+						{@const mcpPrompt =
+							item.attachment?.type === AttachmentType.MCP_PROMPT
+								? (item.attachment as DatabaseMessageExtraMcpPrompt)
+								: item.uploadedFile?.mcpPrompt
+									? {
+											type: AttachmentType.MCP_PROMPT as const,
+											name: item.name,
+											serverName: item.uploadedFile.mcpPrompt.serverName,
+											promptName: item.uploadedFile.mcpPrompt.promptName,
+											content: item.textContent ?? '',
+											arguments: item.uploadedFile.mcpPrompt.arguments
+										}
+									: null}
+						{#if mcpPrompt}
+							<ChatAttachmentMcpPrompt
+								class="max-w-[300px] min-w-[200px] flex-shrink-0 {limitToSingleRow
+									? 'first:ml-4 last:mr-4'
+									: ''}"
+								prompt={mcpPrompt}
+								{readonly}
+								isLoading={item.isLoading}
+								loadError={item.loadError}
+								onRemove={onFileRemove ? () => onFileRemove(item.id) : undefined}
+							/>
+						{/if}
+					{:else if item.isMcpResource && item.attachment?.type === AttachmentType.MCP_RESOURCE}
+						{@const mcpResource = item.attachment as DatabaseMessageExtraMcpResource}
+
+						<ChatAttachmentMcpResource
+							class="flex-shrink-0 {limitToSingleRow ? 'first:ml-4 last:mr-4' : ''}"
+							attachment={toMcpResourceAttachment(mcpResource, item.id)}
+							onClick={() => openMcpResourcePreview(mcpResource)}
+						/>
+					{:else if item.isImage && item.preview}
 						<ChatAttachmentThumbnailImage
 							class="flex-shrink-0 cursor-pointer {limitToSingleRow ? 'first:ml-4 last:mr-4' : ''}"
 							id={item.id}
@@ -216,39 +165,94 @@
 							class="flex-shrink-0 cursor-pointer {limitToSingleRow ? 'first:ml-4 last:mr-4' : ''}"
 							id={item.id}
 							name={item.name}
-							type={item.type}
 							size={item.size}
 							{readonly}
 							onRemove={onFileRemove}
 							textContent={item.textContent}
+							attachment={item.attachment}
+							uploadedFile={item.uploadedFile}
 							onClick={(event) => openPreview(item, event)}
 						/>
 					{/if}
 				{/each}
-			</div>
+			</HorizontalScrollCarousel>
 
-			<button
-				class="absolute top-1/2 right-4 z-10 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-full bg-foreground/15 shadow-md backdrop-blur-xs transition-opacity hover:bg-foreground/35 {canScrollRight
-					? 'opacity-100'
-					: 'pointer-events-none opacity-0'}"
-				onclick={scrollRight}
-				aria-label="Scroll right"
-			>
-				<ChevronRight class="h-4 w-4" />
-			</button>
-		</div>
+			{#if showViewAll}
+				<div class="mt-2 -mr-2 flex justify-end px-4">
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						class="h-6 text-xs text-muted-foreground hover:text-foreground"
+						onclick={() => (viewAllDialogOpen = true)}
+					>
+						View all ({displayItems.length})
+					</Button>
+				</div>
+			{/if}
+		{:else}
+			<div class="flex flex-wrap items-start justify-end gap-3">
+				{#each displayItems as item (item.id)}
+					{#if item.isMcpPrompt}
+						{@const mcpPrompt =
+							item.attachment?.type === AttachmentType.MCP_PROMPT
+								? (item.attachment as DatabaseMessageExtraMcpPrompt)
+								: item.uploadedFile?.mcpPrompt
+									? {
+											type: AttachmentType.MCP_PROMPT as const,
+											name: item.name,
+											serverName: item.uploadedFile.mcpPrompt.serverName,
+											promptName: item.uploadedFile.mcpPrompt.promptName,
+											content: item.textContent ?? '',
+											arguments: item.uploadedFile.mcpPrompt.arguments
+										}
+									: null}
 
-		{#if showViewAll}
-			<div class="mt-2 -mr-2 flex justify-end px-4">
-				<Button
-					type="button"
-					variant="ghost"
-					size="sm"
-					class="h-6 text-xs text-muted-foreground hover:text-foreground"
-					onclick={() => (viewAllDialogOpen = true)}
-				>
-					View all
-				</Button>
+						{#if mcpPrompt}
+							<ChatAttachmentMcpPrompt
+								class="max-w-[300px] min-w-[200px]"
+								prompt={mcpPrompt}
+								{readonly}
+								isLoading={item.isLoading}
+								loadError={item.loadError}
+								onRemove={onFileRemove ? () => onFileRemove(item.id) : undefined}
+							/>
+						{/if}
+					{:else if item.isMcpResource && item.attachment?.type === AttachmentType.MCP_RESOURCE}
+						{@const mcpResource = item.attachment as DatabaseMessageExtraMcpResource}
+
+						<ChatAttachmentMcpResource
+							attachment={toMcpResourceAttachment(mcpResource, item.id)}
+							onClick={() => openMcpResourcePreview(mcpResource)}
+						/>
+					{:else if item.isImage && item.preview}
+						<ChatAttachmentThumbnailImage
+							class="cursor-pointer"
+							id={item.id}
+							name={item.name}
+							preview={item.preview}
+							{readonly}
+							onRemove={onFileRemove}
+							height={imageHeight}
+							width={imageWidth}
+							{imageClass}
+							onClick={(event) => openPreview(item, event)}
+						/>
+					{:else}
+						<ChatAttachmentThumbnailFile
+							class="cursor-pointer"
+							id={item.id}
+							name={item.name}
+							size={item.size}
+							{readonly}
+							onRemove={onFileRemove}
+							textContent={item.textContent}
+							attachment={item.attachment}
+							uploadedFile={item.uploadedFile}
+							onClick={(event?: MouseEvent) => openPreview(item, event)}
+						/>
+					{/if}
+				{/each}
 			</div>
 		{/if}
 	</div>
@@ -261,9 +265,9 @@
 		attachment={previewItem.attachment}
 		preview={previewItem.preview}
 		name={previewItem.name}
-		type={previewItem.type}
 		size={previewItem.size}
 		textContent={previewItem.textContent}
+		{activeModelId}
 	/>
 {/if}
 
@@ -275,4 +279,9 @@
 	{onFileRemove}
 	imageHeight="h-64"
 	{imageClass}
+	{activeModelId}
 />
+
+{#if mcpResourcePreviewExtra}
+	<DialogMcpResourcePreview bind:open={mcpResourcePreviewOpen} extra={mcpResourcePreviewExtra} />
+{/if}

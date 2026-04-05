@@ -8,9 +8,13 @@
 #include <string>
 #include <thread>
 
+#ifdef LLAMA_BUILD_WEBUI
 // auto generated files (see README.md for details)
-#include "index.html.gz.hpp"
+#include "index.html.hpp"
+#include "bundle.js.hpp"
+#include "bundle.css.hpp"
 #include "loading.html.hpp"
+#endif
 
 //
 // HTTP implementation using cpp-httplib
@@ -28,14 +32,20 @@ server_http_context::server_http_context()
 server_http_context::~server_http_context() = default;
 
 static void log_server_request(const httplib::Request & req, const httplib::Response & res) {
-    // skip GH copilot requests when using default port
-    if (req.path == "/v1/health") {
+    // skip logging requests that are regularly sent, to avoid log spam
+    if (req.path == "/health"
+        || req.path == "/v1/health"
+        || req.path == "/models"
+        || req.path == "/v1/models"
+        || req.path == "/props"
+        || req.path == "/metrics"
+    ) {
         return;
     }
 
     // reminder: this function is not covered by httplib's exception handler; if someone does more complicated stuff, think about wrapping it in try-catch
 
-    SRV_INF("request: %s %s %s %d\n", req.method.c_str(), req.path.c_str(), req.remote_addr.c_str(), res.status);
+    SRV_INF("done request: %s %s %s %d\n", req.method.c_str(), req.path.c_str(), req.remote_addr.c_str(), res.status);
 
     SRV_DBG("request:  %s\n", req.body.c_str());
     SRV_DBG("response: %s\n", res.body.c_str());
@@ -104,6 +114,16 @@ bool server_http_context::init(const common_params & params) {
     // set timeouts and change hostname and port
     srv->set_read_timeout (params.timeout_read);
     srv->set_write_timeout(params.timeout_write);
+    srv->set_socket_options([reuse_port = params.reuse_port](socket_t sock) {
+        httplib::set_socket_opt(sock, SOL_SOCKET, SO_REUSEADDR, 1);
+        if (reuse_port) {
+#ifdef SO_REUSEPORT
+            httplib::set_socket_opt(sock, SOL_SOCKET, SO_REUSEPORT, 1);
+#else
+            LOG_WRN("%s: SO_REUSEPORT is not supported\n", __func__);
+#endif
+        }
+    });
 
     if (params.api_keys.size() == 1) {
         auto key = params.api_keys[0];
@@ -123,7 +143,11 @@ bool server_http_context::init(const common_params & params) {
             "/v1/health",
             "/models",
             "/v1/models",
-            "/api/tags"
+            "/api/tags",
+            "/",
+            "/index.html",
+            "/bundle.js",
+            "/bundle.css",
         };
 
         // If API key is not set, skip validation
@@ -131,8 +155,8 @@ bool server_http_context::init(const common_params & params) {
             return true;
         }
 
-        // If path is public or is static file, skip validation
-        if (public_endpoints.find(req.path) != public_endpoints.end() || req.path == "/") {
+        // If path is public or static file, skip validation
+        if (public_endpoints.find(req.path) != public_endpoints.end()) {
             return true;
         }
 
@@ -175,14 +199,16 @@ bool server_http_context::init(const common_params & params) {
     auto middleware_server_state = [this](const httplib::Request & req, httplib::Response & res) {
         bool ready = is_ready.load();
         if (!ready) {
+#ifdef LLAMA_BUILD_WEBUI
             auto tmp = string_split<std::string>(req.path, '.');
             if (req.path == "/" || tmp.back() == "html") {
-                res.set_content(reinterpret_cast<const char*>(loading_html), loading_html_len, "text/html; charset=utf-8");
                 res.status = 503;
-            } else if (req.path == "/models" || req.path == "/v1/models" || req.path == "/api/tags") {
-                // allow the models endpoint to be accessed during loading
-                return true;
-            } else {
+                res.set_content(reinterpret_cast<const char*>(loading_html), loading_html_len, "text/html; charset=utf-8");
+            } else
+#endif
+            {
+                // no endpoints is allowed to be accessed when the server is not ready
+                // this is to prevent any data races or inconsistent states
                 res.status = 503;
                 res.set_content(
                     safe_json_to_str(json {
@@ -222,11 +248,17 @@ bool server_http_context::init(const common_params & params) {
 
     int n_threads_http = params.n_threads_http;
     if (n_threads_http < 1) {
-        // +2 threads for monitoring endpoints
-        n_threads_http = std::max(params.n_parallel + 2, (int32_t) std::thread::hardware_concurrency() - 1);
+        // +4 threads for monitoring, health and some threads reserved for MCP and other tasks in the future
+        n_threads_http = std::max(params.n_parallel + 4, (int32_t) std::thread::hardware_concurrency() - 1);
     }
     LOG_INF("%s: using %d threads for HTTP server\n", __func__, n_threads_http);
-    srv->new_task_queue = [n_threads_http] { return new httplib::ThreadPool(n_threads_http); };
+    srv->new_task_queue = [n_threads_http] {
+        // spawn n_threads_http fixed thread (always alive), while allow up to 1024 max possible additional threads
+        // when n_threads_http is used, server will create new "dynamic" threads that will be destroyed after processing each request
+        // ref: https://github.com/yhirose/cpp-httplib/pull/2368
+        size_t max_threads = (size_t)n_threads_http + 1024;
+        return new httplib::ThreadPool(n_threads_http, max_threads);
+    };
 
     //
     // Web UI setup
@@ -244,19 +276,24 @@ bool server_http_context::init(const common_params & params) {
                 return 1;
             }
         } else {
+#ifdef LLAMA_BUILD_WEBUI
             // using embedded static index.html
-            srv->Get(params.api_prefix + "/", [](const httplib::Request & req, httplib::Response & res) {
-                if (req.get_header_value("Accept-Encoding").find("gzip") == std::string::npos) {
-                    res.set_content("Error: gzip is not supported by this browser", "text/plain");
-                } else {
-                    res.set_header("Content-Encoding", "gzip");
-                    // COEP and COOP headers, required by pyodide (python interpreter)
-                    res.set_header("Cross-Origin-Embedder-Policy", "require-corp");
-                    res.set_header("Cross-Origin-Opener-Policy", "same-origin");
-                    res.set_content(reinterpret_cast<const char*>(index_html_gz), index_html_gz_len, "text/html; charset=utf-8");
-                }
+            srv->Get(params.api_prefix + "/", [](const httplib::Request & /*req*/, httplib::Response & res) {
+                // COEP and COOP headers, required by pyodide (python interpreter)
+                res.set_header("Cross-Origin-Embedder-Policy", "require-corp");
+                res.set_header("Cross-Origin-Opener-Policy", "same-origin");
+                res.set_content(reinterpret_cast<const char*>(index_html), index_html_len, "text/html; charset=utf-8");
                 return false;
             });
+            srv->Get(params.api_prefix + "/bundle.js", [](const httplib::Request & /*req*/, httplib::Response & res) {
+                res.set_content(reinterpret_cast<const char*>(bundle_js), bundle_js_len, "application/javascript; charset=utf-8");
+                return false;
+            });
+            srv->Get(params.api_prefix + "/bundle.css", [](const httplib::Request & /*req*/, httplib::Response & res) {
+                res.set_content(reinterpret_cast<const char*>(bundle_css), bundle_css_len, "text/css; charset=utf-8");
+                return false;
+            });
+#endif
         }
     }
     return true;
@@ -334,12 +371,27 @@ static std::map<std::string, std::string> get_headers(const httplib::Request & r
     return headers;
 }
 
-static void process_handler_response(server_http_res_ptr & response, httplib::Response & res) {
+static std::string build_query_string(const httplib::Request & req) {
+    std::string qs;
+    for (const auto & [key, value] : req.params) {
+        if (!qs.empty()) {
+            qs += '&';
+        }
+        qs += httplib::encode_query_component(key) + "=" + httplib::encode_query_component(value);
+    }
+    return qs;
+}
+
+// using unique_ptr for request to allow safe capturing in lambdas
+using server_http_req_ptr = std::unique_ptr<server_http_req>;
+
+static void process_handler_response(server_http_req_ptr && request, server_http_res_ptr & response, httplib::Response & res) {
     if (response->is_stream()) {
         res.status = response->status;
         set_headers(res, response->headers);
         std::string content_type = response->content_type;
         // convert to shared_ptr as both chunked_content_provider() and on_complete() need to use it
+        std::shared_ptr<server_http_req> q_ptr = std::move(request);
         std::shared_ptr<server_http_res> r_ptr = std::move(response);
         const auto chunked_content_provider = [response = r_ptr](size_t, httplib::DataSink & sink) -> bool {
             std::string chunk;
@@ -355,8 +407,9 @@ static void process_handler_response(server_http_res_ptr & response, httplib::Re
             }
             return has_next;
         };
-        const auto on_complete = [response = r_ptr](bool) mutable {
+        const auto on_complete = [request = q_ptr, response = r_ptr](bool) mutable {
             response.reset(); // trigger the destruction of the response object
+            request.reset();  // trigger the destruction of the request object
         };
         res.set_chunked_content_provider(content_type, chunked_content_provider, on_complete);
     } else {
@@ -368,27 +421,31 @@ static void process_handler_response(server_http_res_ptr & response, httplib::Re
 
 void server_http_context::get(const std::string & path, const server_http_context::handler_t & handler) const {
     pimpl->srv->Get(path_prefix + path, [handler](const httplib::Request & req, httplib::Response & res) {
-        server_http_res_ptr response = handler(server_http_req{
+        server_http_req_ptr request = std::make_unique<server_http_req>(server_http_req{
             get_params(req),
             get_headers(req),
             req.path,
+            build_query_string(req),
             req.body,
             req.is_connection_closed
         });
-        process_handler_response(response, res);
+        server_http_res_ptr response = handler(*request);
+        process_handler_response(std::move(request), response, res);
     });
 }
 
 void server_http_context::post(const std::string & path, const server_http_context::handler_t & handler) const {
     pimpl->srv->Post(path_prefix + path, [handler](const httplib::Request & req, httplib::Response & res) {
-        server_http_res_ptr response = handler(server_http_req{
+        server_http_req_ptr request = std::make_unique<server_http_req>(server_http_req{
             get_params(req),
             get_headers(req),
             req.path,
+            build_query_string(req),
             req.body,
             req.is_connection_closed
         });
-        process_handler_response(response, res);
+        server_http_res_ptr response = handler(*request);
+        process_handler_response(std::move(request), response, res);
     });
 }
 

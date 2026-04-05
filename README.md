@@ -17,6 +17,7 @@ LLM inference in C/C++
 
 ## Hot topics
 
+- **Hugging Face cache migration: models downloaded with `-hf` are now stored in the standard Hugging Face cache directory, enabling sharing with other HF tools.**
 - **[guide : using the new WebUI of llama.cpp](https://github.com/ggml-org/llama.cpp/discussions/16938)**
 - [guide : running gpt-oss with llama.cpp](https://github.com/ggml-org/llama.cpp/discussions/15396)
 - [[FEEDBACK] Better packaging for llama.cpp to support downstream consumers 🤗](https://github.com/ggml-org/llama.cpp/discussions/15313)
@@ -61,7 +62,7 @@ range of hardware - locally and in the cloud.
 - Plain C/C++ implementation without any dependencies
 - Apple silicon is a first-class citizen - optimized via ARM NEON, Accelerate and Metal frameworks
 - AVX, AVX2, AVX512 and AMX support for x86 architectures
-- RVV, ZVFH, ZFH and ZICBOP support for RISC-V architectures
+- RVV, ZVFH, ZFH, ZICBOP and ZIHINTPAUSE support for RISC-V architectures
 - 1.5-bit, 2-bit, 3-bit, 4-bit, 5-bit, 6-bit, and 8-bit integer quantization for faster inference and reduced memory use
 - Custom CUDA kernels for running LLMs on NVIDIA GPUs (support for AMD GPUs via HIP and Moore Threads GPUs via MUSA)
 - Vulkan and SYCL backend support
@@ -132,6 +133,7 @@ Instructions for adding support for new models: [HOWTO-add-model.md](docs/develo
 - [x] [FalconMamba Models](https://huggingface.co/collections/tiiuae/falconmamba-7b-66b9a580324dd1598b0f6d4a)
 - [x] [Jais](https://huggingface.co/inceptionai/jais-13b-chat)
 - [x] [Bielik-11B-v2.3](https://huggingface.co/collections/speakleash/bielik-11b-v23-66ee813238d9b526a072408a)
+- [x] [RWKV-7](https://huggingface.co/collections/shoumenchougou/rwkv7-gxx-gguf)
 - [x] [RWKV-6](https://github.com/BlinkDL/RWKV-LM)
 - [x] [QRWKV-6](https://huggingface.co/recursal/QRWKV6-32B-Instruct-Preview-v0.1)
 - [x] [GigaChat-20B-A3B](https://huggingface.co/ai-sage/GigaChat-20B-A3B-instruct)
@@ -190,6 +192,7 @@ Instructions for adding support for new models: [HOWTO-add-model.md](docs/develo
 - Swift [ShenghaiWang/SwiftLlama](https://github.com/ShenghaiWang/SwiftLlama)
 - Delphi [Embarcadero/llama-cpp-delphi](https://github.com/Embarcadero/llama-cpp-delphi)
 - Go (no CGo needed): [hybridgroup/yzma](https://github.com/hybridgroup/yzma)
+- Android: [llama.android](/examples/llama.android)
 
 </details>
 
@@ -199,6 +202,7 @@ Instructions for adding support for new models: [HOWTO-add-model.md](docs/develo
 *(to have a project listed here, it should clearly state that it depends on `llama.cpp`)*
 
 - [AI Sublime Text plugin](https://github.com/yaroslavyaroslav/OpenAI-sublime-text) (MIT)
+- [BonzAI App](https://apps.apple.com/us/app/bonzai-your-local-ai-agent/id6752847988) (proprietary)
 - [cztomsik/ava](https://github.com/cztomsik/ava) (MIT)
 - [Dot](https://github.com/alexpinel/Dot) (GPL)
 - [eva](https://github.com/ylsdamxssjxxdd/eva) (MIT)
@@ -210,6 +214,7 @@ Instructions for adding support for new models: [HOWTO-add-model.md](docs/develo
 - [llama.vim](https://github.com/ggml-org/llama.vim) (MIT)
 - [LARS](https://github.com/abgulati/LARS) (AGPL)
 - [Llama Assistant](https://github.com/vietanhdev/llama-assistant) (GPL)
+- [LlamaLib](https://github.com/undreamai/LlamaLib) (Apache-2.0)
 - [LLMFarm](https://github.com/guinmoon/LLMFarm?tab=readme-ov-file) (MIT)
 - [LLMUnity](https://github.com/undreamai/LLMUnity) (MIT)
 - [LMStudio](https://lmstudio.ai/) (proprietary)
@@ -237,7 +242,7 @@ Instructions for adding support for new models: [HOWTO-add-model.md](docs/develo
 <details>
 <summary>Tools</summary>
 
-- [akx/ggify](https://github.com/akx/ggify) – download PyTorch models from HuggingFace Hub and convert them to GGML
+- [akx/ggify](https://github.com/akx/ggify) – download PyTorch models from Hugging Face Hub and convert them to GGML
 - [akx/ollama-dl](https://github.com/akx/ollama-dl) – download models from the Ollama library to be used directly with llama.cpp
 - [crashr/gppm](https://github.com/crashr/gppm) – launch llama.cpp instances utilizing NVIDIA Tesla P40 or P100 GPUs with reduced idle power consumption
 - [gpustack/gguf-parser](https://github.com/gpustack/gguf-parser-go/tree/main/cmd/gguf-parser) - review/check the GGUF file and estimate the memory usage
@@ -255,6 +260,8 @@ Instructions for adding support for new models: [HOWTO-add-model.md](docs/develo
 - [llama-swap](https://github.com/mostlygeek/llama-swap) - transparent proxy that adds automatic model switching with llama-server
 - [Kalavai](https://github.com/kalavai-net/kalavai-client) - Crowdsource end to end LLM deployment at any scale
 - [llmaz](https://github.com/InftyAI/llmaz) - ☸️ Easy, advanced inference platform for large language models on Kubernetes.
+- [LLMKube](https://github.com/defilantech/llmkube) - Kubernetes operator for llama.cpp with multi-GPU and Apple Silicon Metal
+  support"
 </details>
 
 <details>
@@ -273,16 +280,19 @@ Instructions for adding support for new models: [HOWTO-add-model.md](docs/develo
 | [BLAS](docs/build.md#blas-build) | All |
 | [BLIS](docs/backend/BLIS.md) | All |
 | [SYCL](docs/backend/SYCL.md) | Intel and Nvidia GPU |
+| [OpenVINO [In Progress]](docs/backend/OPENVINO.md) | Intel CPUs, GPUs, and NPUs |
 | [MUSA](docs/build.md#musa) | Moore Threads GPU |
 | [CUDA](docs/build.md#cuda) | Nvidia GPU |
 | [HIP](docs/build.md#hip) | AMD GPU |
+| [ZenDNN](docs/build.md#zendnn) | AMD CPU |
 | [Vulkan](docs/build.md#vulkan) | GPU |
 | [CANN](docs/build.md#cann) | Ascend NPU |
 | [OpenCL](docs/backend/OPENCL.md) | Adreno GPU |
 | [IBM zDNN](docs/backend/zDNN.md) | IBM Z & LinuxONE |
 | [WebGPU [In Progress]](docs/build.md#webgpu) | All |
 | [RPC](https://github.com/ggml-org/llama.cpp/tree/master/tools/rpc) | All |
-| [Hexagon [In Progress]](docs/backend/hexagon/README.md) | Snapdragon |
+| [Hexagon [In Progress]](docs/backend/snapdragon/README.md) | Snapdragon |
+| [VirtGPU](docs/backend/VirtGPU.md) | VirtGPU APIR |
 
 ## Obtaining and quantizing models
 
@@ -291,13 +301,13 @@ The [Hugging Face](https://huggingface.co) platform hosts a [number of LLMs](htt
 - [Trending](https://huggingface.co/models?library=gguf&sort=trending)
 - [LLaMA](https://huggingface.co/models?sort=trending&search=llama+gguf)
 
-You can either manually download the GGUF file or directly use any `llama.cpp`-compatible models from [Hugging Face](https://huggingface.co/) or other model hosting sites, such as [ModelScope](https://modelscope.cn/), by using this CLI argument: `-hf <user>/<model>[:quant]`. For example:
+You can either manually download the GGUF file or directly use any `llama.cpp`-compatible models from [Hugging Face](https://huggingface.co/) or other model hosting sites, by using this CLI argument: `-hf <user>/<model>[:quant]`. For example:
 
 ```sh
 llama-cli -hf ggml-org/gemma-3-1b-it-GGUF
 ```
 
-By default, the CLI would download from Hugging Face, you can switch to other options with the environment variable `MODEL_ENDPOINT`. For example, you may opt to downloading model checkpoints from ModelScope or other model sharing communities by setting the environment variable, e.g. `MODEL_ENDPOINT=https://www.modelscope.cn/`.
+By default, the CLI would download from Hugging Face, you can switch to other options with the environment variable `MODEL_ENDPOINT`. The `MODEL_ENDPOINT` must point to a Hugging Face compatible API endpoint.
 
 After downloading a model, use the CLI tools to run it locally - see below.
 
@@ -312,7 +322,7 @@ The Hugging Face platform provides a variety of online tools for converting, qua
 
 To learn more about model quantization, [read this documentation](tools/quantize/README.md)
 
-## [`llama-cli`](tools/main)
+## [`llama-cli`](tools/cli)
 
 #### A CLI tool for accessing and experimenting with most of `llama.cpp`'s functionality.
 
@@ -342,19 +352,6 @@ To learn more about model quantization, [read this documentation](tools/quantize
 
     # use a custom template
     llama-cli -m model.gguf -cnv --in-prefix 'User: ' --reverse-prompt 'User:'
-    ```
-
-    </details>
-
-- <details>
-    <summary>Run simple text completion</summary>
-
-    To disable conversation mode explicitly, use `-no-cnv`
-
-    ```bash
-    llama-cli -m model.gguf -p "I believe the meaning of life is" -n 128 -no-cnv
-
-    # I believe the meaning of life is to find your own truth and to live in accordance with it. For me, this means being true to myself and following my passions, even if they don't align with societal expectations. I think that's what I love about yoga – it's not just a physical practice, but a spiritual one too. It's about connecting with yourself, listening to your inner voice, and honoring your own unique journey.
     ```
 
     </details>
@@ -493,21 +490,6 @@ To learn more about model quantization, [read this documentation](tools/quantize
 
     </details>
 
-## [`llama-run`](tools/run)
-
-#### A comprehensive example for running `llama.cpp` models. Useful for inferencing. Used with RamaLama [^3].
-
-- <details>
-    <summary>Run a model with a specific prompt (by default it's pulled from Ollama registry)</summary>
-
-    ```bash
-    llama-run granite-code
-    ```
-
-    </details>
-
-[^3]: [RamaLama](https://github.com/containers/ramalama)
-
 ## [`llama-simple`](examples/simple)
 
 #### A minimal example for implementing apps with `llama.cpp`. Useful for developers.
@@ -537,7 +519,8 @@ To learn more about model quantization, [read this documentation](tools/quantize
 
 ## Other documentation
 
-- [main (cli)](tools/main/README.md)
+- [cli](tools/cli/README.md)
+- [completion](tools/completion/README.md)
 - [server](tools/server/README.md)
 - [GBNF grammars](grammars/README.md)
 
@@ -609,7 +592,5 @@ $ echo "source ~/.llama-completion.bash" >> ~/.bashrc
 - [yhirose/cpp-httplib](https://github.com/yhirose/cpp-httplib) - Single-header HTTP server, used by `llama-server` - MIT license
 - [stb-image](https://github.com/nothings/stb) - Single-header image format decoder, used by multimodal subsystem - Public domain
 - [nlohmann/json](https://github.com/nlohmann/json) - Single-header JSON library, used by various tools/examples - MIT License
-- [minja](https://github.com/google/minja) - Minimal Jinja parser in C++, used by various tools/examples - MIT License
-- [linenoise.cpp](./tools/run/linenoise.cpp/linenoise.cpp) - C++ library that provides readline-like line editing capabilities, used by `llama-run` - BSD 2-Clause License
-- [curl](https://curl.se/) - Client-side URL transfer library, used by various tools/examples - [CURL License](https://curl.se/docs/copyright.html)
 - [miniaudio.h](https://github.com/mackron/miniaudio) - Single-header audio format decoder, used by multimodal subsystem - Public domain
+- [subprocess.h](https://github.com/sheredom/subprocess.h) - Single-header process launching solution for C and C++ - Public domain

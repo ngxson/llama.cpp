@@ -32,34 +32,54 @@ enum htp_status {
 // Duplicated here because we can't include full ggml.h in the htp build.
 // We have some static_asserts in the cpp code to ensure things are in sync.
 enum htp_data_type {
-    HTP_TYPE_F32   = 0,
-    HTP_TYPE_F16   = 1,
-    HTP_TYPE_Q4_0  = 2,
-    HTP_TYPE_Q8_0  = 8,
-    HTP_TYPE_MXFP4 = 39,
+    HTP_TYPE_F32    = 0,
+    HTP_TYPE_F16    = 1,
+    HTP_TYPE_Q4_0   = 2,
+    HTP_TYPE_Q8_0   = 8,
+    HTP_TYPE_IQ4_NL = 20,
+    HTP_TYPE_I32    = 26,
+    HTP_TYPE_I64    = 27,
+    HTP_TYPE_MXFP4  = 39,
     HTP_TYPE_COUNT
 };
 
-// These values are manually translated over to HTP
-// !!!! DO NOT ALTER THE ORDER OF THE FIRST FOUR ENUMS !!!!
+// Do not reorder first 4 (used as an index)
 enum htp_op {
-    HTP_OP_MUL            = 0,
-    HTP_OP_ADD            = 1,
-    HTP_OP_SUB            = 2,
-    HTP_OP_DIV            = 3,
-    HTP_OP_MUL_MAT        = 4,
-    HTP_OP_MUL_MAT_ID     = 5,
-    HTP_OP_RMS_NORM       = 6,
-    HTP_OP_UNARY_SILU     = 7,
-    HTP_OP_GLU_SWIGLU     = 8,
-    HTP_OP_GLU_SWIGLU_OAI = 9,
-    HTP_OP_SOFTMAX        = 10,
-    HTP_OP_ADD_ID         = 11,
-    HTP_OP_ROPE           = 12,
+    HTP_OP_MUL = 0,
+    HTP_OP_ADD = 1,
+    HTP_OP_SUB = 2,
+    HTP_OP_DIV = 3,
+    HTP_OP_MUL_MAT,
+    HTP_OP_MUL_MAT_ID,
+    HTP_OP_RMS_NORM,
+    HTP_OP_UNARY_SILU,
+    HTP_OP_UNARY_GELU,
+    HTP_OP_UNARY_SIGMOID,
+    HTP_OP_UNARY_EXP,
+    HTP_OP_UNARY_NEG,
+    HTP_OP_UNARY_SOFTPLUS,
+    HTP_OP_GLU_SWIGLU,
+    HTP_OP_GLU_SWIGLU_OAI,
+    HTP_OP_GLU_GEGLU,
+    HTP_OP_SOFTMAX,
+    HTP_OP_ADD_ID,
+    HTP_OP_ROPE,
+    HTP_OP_FLASH_ATTN_EXT,
+    HTP_OP_SET_ROWS,
+    HTP_OP_GET_ROWS,
+    HTP_OP_SCALE,
+    HTP_OP_CPY,
+    HTP_OP_ARGSORT,
+    HTP_OP_SQR,
+    HTP_OP_SQRT,
+    HTP_OP_SUM_ROWS,
+    HTP_OP_SSM_CONV,
+    HTP_OP_REPEAT,
+    HTP_OP_CUMSUM,
     INVALID
 };
 
-static inline size_t htp_type_block_size(uint32_t t) {
+static inline size_t htp_t_block_size(uint32_t t) {
     switch (t) {
         case HTP_TYPE_F32:
             return 1;
@@ -69,6 +89,8 @@ static inline size_t htp_type_block_size(uint32_t t) {
             return QK4_0;
         case HTP_TYPE_Q8_0:
             return QK8_0;
+        case HTP_TYPE_IQ4_NL:
+            return QK4_NL;
         case HTP_TYPE_MXFP4:
             return QK_MXFP4;
         default:
@@ -87,26 +109,12 @@ static inline size_t htp_type_nbytes(uint32_t t) {
             return sizeof(block_q4_0);
         case HTP_TYPE_Q8_0:
             return sizeof(block_q8_0);
+        case HTP_TYPE_IQ4_NL:
+            return sizeof(block_iq4_nl);
         case HTP_TYPE_MXFP4:
             return sizeof(block_mxfp4);
         default:
             assert(0 && "unsupported HTP data type");
-    }
-    return 0;
-}
-
-static const char * htp_type_name(uint32_t t) {
-    switch (t) {
-        case HTP_TYPE_F32:
-            return "fp32";
-        case HTP_TYPE_F16:
-            return "fp16";
-        case HTP_TYPE_Q4_0:
-            return "q4_0";
-        case HTP_TYPE_Q8_0:
-            return "q8_0";
-        case HTP_TYPE_MXFP4:
-            return "mxfp4";
     }
     return 0;
 }
@@ -136,6 +144,8 @@ struct htp_general_req {
     struct htp_tensor src0;  // Input0 tensor
     struct htp_tensor src1;  // Input1 tensor
     struct htp_tensor src2;  // Input2 tensor
+    struct htp_tensor src3;  // Input3 tensor
+    struct htp_tensor src4;  // Input4 tensor
     struct htp_tensor dst;   // Output tensor
 
     // should be multiple of 64 bytes (cacheline)
@@ -151,6 +161,6 @@ struct htp_general_rsp {
 };
 
 #define HTP_MAX_MESSAGE_SIZE   sizeof(struct htp_general_req)
-#define HTP_MAX_PACKET_BUFFERS 4
+#define HTP_MAX_PACKET_BUFFERS 8
 
 #endif /* HTP_MSG_H */

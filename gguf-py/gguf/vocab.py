@@ -11,25 +11,33 @@ from typing import Any, Callable, Sequence, Mapping, Iterable, Protocol, ClassVa
 try:
     from sentencepiece import SentencePieceProcessor
 except ImportError:
-    SentencePieceProcessor = None
+    SentencePieceProcessor: Any = None
 
 try:
-    from mistral_common.tokens.tokenizers.mistral import MistralTokenizer # pyright: ignore[reportMissingImports]
-    from mistral_common.tokens.tokenizers.tekken import Tekkenizer # pyright: ignore[reportMissingImports]
-    from mistral_common.tokens.tokenizers.utils import ( # pyright: ignore[reportMissingImports]
+    from mistral_common.tokens.tokenizers.mistral import MistralTokenizer # type: ignore[import-not-found, ty:unresolved-import]
+    from mistral_common.tokens.tokenizers.tekken import Tekkenizer # type: ignore[import-not-found, ty:unresolved-import]
+    from mistral_common.tokens.tokenizers.utils import ( # type: ignore[import-not-found, ty:unresolved-import]
         _filter_valid_tokenizer_files,
     )
-    from mistral_common.tokens.tokenizers.sentencepiece import ( # pyright: ignore[reportMissingImports]
+    from mistral_common.tokens.tokenizers.sentencepiece import ( # type: ignore[import-not-found, ty:unresolved-import]
         SentencePieceTokenizer,
     )
 except ImportError:
     _mistral_common_installed = False
-    MistralTokenizer = None
-    Tekkenizer = None
-    SentencePieceTokenizer = None
-    _filter_valid_tokenizer_files = None
+    MistralTokenizer: Any = None
+    Tekkenizer: Any = None
+    SentencePieceTokenizer: Any = None
+    _filter_valid_tokenizer_files: Any = None
 else:
     _mistral_common_installed = True
+
+try:
+    from mistral_common.tokens.tokenizers.utils import ( # type: ignore[import-not-found, ty:unresolved-import]
+        get_one_valid_tokenizer_file,
+    )
+except ImportError:
+    # We still want the conversion to work with older mistral-common versions.
+    get_one_valid_tokenizer_file: Any = None
 
 
 import gguf
@@ -673,24 +681,30 @@ class MistralVocab(Vocab):
 
         # Find the tokenizer files
         all_files = [f.as_posix() for f in base_path.glob("**/*") if f.is_file()]
-        valid_tokenizer_files = _filter_valid_tokenizer_files(all_files)
 
-        if len(valid_tokenizer_files) == 0:
-            raise ValueError(f"No tokenizer file found in the directory: {base_path}")
-        # If there are multiple tokenizer files, we use tekken.json if it exists, otherwise the versioned one.
-        if len(valid_tokenizer_files) > 1:
-            if "tekken.json" in valid_tokenizer_files:
-                tokenizer_file = "tekken.json"
-            else:
-                tokenizer_file = sorted(valid_tokenizer_files)[-1]
-            logger.warning(
-                f"Multiple tokenizer files found in {base_path}. Using {tokenizer_file}"
-            )
+        if get_one_valid_tokenizer_file is not None:
+            tokenizer_file_path = get_one_valid_tokenizer_file(all_files)
         else:
-            tokenizer_file = valid_tokenizer_files[0]
+            valid_tokenizer_files = _filter_valid_tokenizer_files(all_files)
 
-        self.tokenizer = MistralTokenizer.from_file(
-            base_path / tokenizer_file
+            if len(valid_tokenizer_files) == 0:
+                raise ValueError(f"No tokenizer file found in the directory: {base_path}")
+            # If there are multiple tokenizer files, we use tekken.json if it exists, otherwise the versioned one.
+            if len(valid_tokenizer_files) > 1:
+                if "tekken.json" in valid_tokenizer_files:
+                    tokenizer_file = "tekken.json"
+                else:
+                    tokenizer_file = sorted(valid_tokenizer_files)[-1]
+                logger.warning(
+                    f"Multiple tokenizer files found in {base_path}. Using {tokenizer_file}"
+                )
+            else:
+                tokenizer_file = valid_tokenizer_files[0]
+
+            tokenizer_file_path = base_path / tokenizer_file
+
+        self.tokenizer: Any = MistralTokenizer.from_file(
+            tokenizer_file_path
         ).instruct_tokenizer.tokenizer
         self.tokenizer_type = (
             MistralTokenizerType.tekken
@@ -698,7 +712,7 @@ class MistralVocab(Vocab):
             else MistralTokenizerType.spm
         )
         self.vocab_size = self.tokenizer.n_words
-        self.fname_tokenizer = base_path / tokenizer_file
+        self.fname_tokenizer = tokenizer_file_path
         self._name = (
             "mistral-" + self.tokenizer_type.value + "-" + self.tokenizer.version
         )

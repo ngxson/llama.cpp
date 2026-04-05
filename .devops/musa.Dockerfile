@@ -18,7 +18,7 @@ RUN apt-get update && \
     python3 \
     python3-pip \
     git \
-    libcurl4-openssl-dev \
+    libssl-dev \
     libgomp1
 
 WORKDIR /app
@@ -46,7 +46,7 @@ RUN mkdir -p /app/full \
 FROM ${BASE_MUSA_RUN_CONTAINER} AS base
 
 RUN apt-get update \
-    && apt-get install -y libgomp1 curl\
+    && apt-get install -y libgomp1 curl \
     && apt autoremove -y \
     && apt clean -y \
     && rm -rf /tmp/* /var/tmp/* \
@@ -81,7 +81,7 @@ ENTRYPOINT ["/app/tools.sh"]
 ### Light, CLI only
 FROM base AS light
 
-COPY --from=build /app/full/llama-cli /app
+COPY --from=build /app/full/llama-cli /app/full/llama-completion /app
 
 WORKDIR /app
 

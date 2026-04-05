@@ -1,71 +1,53 @@
 <script lang="ts">
-	import { Check, X, Send } from '@lucide/svelte';
 	import { Card } from '$lib/components/ui/card';
-	import { Button } from '$lib/components/ui/button';
 	import { ChatAttachmentsList, MarkdownContent } from '$lib/components/app';
-	import { INPUT_CLASSES } from '$lib/constants/input-classes';
+	import { getMessageEditContext } from '$lib/contexts';
 	import { config } from '$lib/stores/settings.svelte';
-	import autoResizeTextarea from '$lib/utils/autoresize-textarea';
 	import ChatMessageActions from './ChatMessageActions.svelte';
+	import ChatMessageEditForm from './ChatMessageEditForm.svelte';
+	import { MessageRole } from '$lib/enums';
 
 	interface Props {
 		class?: string;
 		message: DatabaseMessage;
-		isEditing: boolean;
-		editedContent: string;
 		siblingInfo?: ChatMessageSiblingInfo | null;
-		showDeleteDialog: boolean;
 		deletionInfo: {
 			totalCount: number;
 			userMessages: number;
 			assistantMessages: number;
 			messageTypes: string[];
 		} | null;
-		onCancelEdit: () => void;
-		onSaveEdit: () => void;
-		onSaveEditOnly?: () => void;
-		onEditKeydown: (event: KeyboardEvent) => void;
-		onEditedContentChange: (content: string) => void;
-		onCopy: () => void;
+		showDeleteDialog: boolean;
 		onEdit: () => void;
 		onDelete: () => void;
 		onConfirmDelete: () => void;
-		onNavigateToSibling?: (siblingId: string) => void;
+		onForkConversation?: (options: { name: string; includeAttachments: boolean }) => void;
 		onShowDeleteDialogChange: (show: boolean) => void;
-		textareaElement?: HTMLTextAreaElement;
+		onNavigateToSibling?: (siblingId: string) => void;
+		onCopy: () => void;
 	}
 
 	let {
 		class: className = '',
 		message,
-		isEditing,
-		editedContent,
 		siblingInfo = null,
-		showDeleteDialog,
 		deletionInfo,
-		onCancelEdit,
-		onSaveEdit,
-		onSaveEditOnly,
-		onEditKeydown,
-		onEditedContentChange,
-		onCopy,
+		showDeleteDialog,
 		onEdit,
 		onDelete,
 		onConfirmDelete,
-		onNavigateToSibling,
+		onForkConversation,
 		onShowDeleteDialogChange,
-		textareaElement = $bindable()
+		onNavigateToSibling,
+		onCopy
 	}: Props = $props();
+
+	// Get contexts
+	const editCtx = getMessageEditContext();
 
 	let isMultiline = $state(false);
 	let messageElement: HTMLElement | undefined = $state();
 	const currentConfig = config();
-
-	$effect(() => {
-		if (isEditing && textareaElement) {
-			autoResizeTextarea(textareaElement);
-		}
-	});
 
 	$effect(() => {
 		if (!messageElement || !message.content.trim()) return;
@@ -97,63 +79,24 @@
 	class="group flex flex-col items-end gap-3 md:gap-2 {className}"
 	role="group"
 >
-	{#if isEditing}
-		<div class="w-full max-w-[80%]">
-			<textarea
-				bind:this={textareaElement}
-				bind:value={editedContent}
-				class="min-h-[60px] w-full resize-none rounded-2xl px-3 py-2 text-sm {INPUT_CLASSES}"
-				onkeydown={onEditKeydown}
-				oninput={(e) => {
-					autoResizeTextarea(e.currentTarget);
-					onEditedContentChange(e.currentTarget.value);
-				}}
-				placeholder="Edit your message..."
-			></textarea>
-
-			<div class="mt-2 flex justify-end gap-2">
-				<Button class="h-8 px-3" onclick={onCancelEdit} size="sm" variant="ghost">
-					<X class="mr-1 h-3 w-3" />
-					Cancel
-				</Button>
-
-				{#if onSaveEditOnly}
-					<Button
-						class="h-8 px-3"
-						onclick={onSaveEditOnly}
-						disabled={!editedContent.trim()}
-						size="sm"
-						variant="outline"
-					>
-						<Check class="mr-1 h-3 w-3" />
-						Save
-					</Button>
-				{/if}
-
-				<Button class="h-8 px-3" onclick={onSaveEdit} disabled={!editedContent.trim()} size="sm">
-					<Send class="mr-1 h-3 w-3" />
-					Send
-				</Button>
-			</div>
-		</div>
+	{#if editCtx.isEditing}
+		<ChatMessageEditForm />
 	{:else}
 		{#if message.extra && message.extra.length > 0}
 			<div class="mb-2 max-w-[80%]">
-				<ChatAttachmentsList attachments={message.extra} readonly={true} imageHeight="h-80" />
+				<ChatAttachmentsList attachments={message.extra} readonly imageHeight="h-80" />
 			</div>
 		{/if}
 
 		{#if message.content.trim()}
 			<Card
-				class="max-w-[80%] rounded-[1.125rem] bg-primary px-3.75 py-1.5 text-primary-foreground data-[multiline]:py-2.5"
+				class="max-w-[80%] overflow-y-auto rounded-[1.125rem] border-none bg-primary/5 px-3.75 py-1.5 text-foreground backdrop-blur-md data-[multiline]:py-2.5 dark:bg-primary/15"
 				data-multiline={isMultiline ? '' : undefined}
+				style="max-height: var(--max-message-height); overflow-wrap: anywhere; word-break: break-word;"
 			>
 				{#if currentConfig.renderUserContentAsMarkdown}
-					<div bind:this={messageElement} class="text-md">
-						<MarkdownContent
-							class="markdown-user-content text-primary-foreground"
-							content={message.content}
-						/>
+					<div bind:this={messageElement}>
+						<MarkdownContent class="markdown-user-content -my-4" content={message.content} />
 					</div>
 				{:else}
 					<span bind:this={messageElement} class="text-md whitespace-pre-wrap">
@@ -173,11 +116,12 @@
 					{onCopy}
 					{onDelete}
 					{onEdit}
+					{onForkConversation}
 					{onNavigateToSibling}
 					{onShowDeleteDialogChange}
 					{siblingInfo}
 					{showDeleteDialog}
-					role="user"
+					role={MessageRole.USER}
 				/>
 			</div>
 		{/if}

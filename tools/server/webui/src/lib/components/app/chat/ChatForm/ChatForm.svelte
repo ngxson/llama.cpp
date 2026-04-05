@@ -1,122 +1,304 @@
 <script lang="ts">
-	import { afterNavigate } from '$app/navigation';
 	import {
 		ChatAttachmentsList,
+		ChatAttachmentMcpResources,
 		ChatFormActions,
 		ChatFormFileInputInvisible,
-		ChatFormHelperText,
+		ChatFormPromptPicker,
+		ChatFormResourcePicker,
 		ChatFormTextarea
 	} from '$lib/components/app';
-	import { INPUT_CLASSES } from '$lib/constants/input-classes';
+	import { DialogMcpResources } from '$lib/components/app/dialogs';
+	import {
+		CLIPBOARD_CONTENT_QUOTE_PREFIX,
+		INPUT_CLASSES,
+		SETTING_CONFIG_DEFAULT,
+		INITIAL_FILE_SIZE,
+		PROMPT_CONTENT_SEPARATOR,
+		PROMPT_TRIGGER_PREFIX,
+		RESOURCE_TRIGGER_PREFIX
+	} from '$lib/constants';
+	import {
+		ContentPartType,
+		FileExtensionText,
+		KeyboardKey,
+		MimeTypeText,
+		SpecialFileType
+	} from '$lib/enums';
 	import { config } from '$lib/stores/settings.svelte';
-	import { FileTypeCategory, MimeTypeApplication } from '$lib/enums/files';
+	import { modelOptions, selectedModelId } from '$lib/stores/models.svelte';
+	import { isRouterMode } from '$lib/stores/server.svelte';
+	import { chatStore } from '$lib/stores/chat.svelte';
+	import { mcpStore } from '$lib/stores/mcp.svelte';
+	import { mcpHasResourceAttachments } from '$lib/stores/mcp-resources.svelte';
+	import { conversationsStore, activeMessages } from '$lib/stores/conversations.svelte';
+	import type { GetPromptResult, MCPPromptInfo, MCPResourceInfo, PromptMessage } from '$lib/types';
+	import { isIMEComposing, parseClipboardContent, uuid } from '$lib/utils';
 	import {
 		AudioRecorder,
 		convertToWav,
 		createAudioFile,
 		isAudioRecordingSupported
-	} from '$lib/utils/audio-recording';
+	} from '$lib/utils/browser-only';
 	import { onMount } from 'svelte';
-	import {
-		FileExtensionAudio,
-		FileExtensionImage,
-		FileExtensionPdf,
-		FileExtensionText,
-		MimeTypeAudio,
-		MimeTypeImage,
-		MimeTypeText
-	} from '$lib/enums/files';
-	import { isIMEComposing } from '$lib/utils/is-ime-composing';
 
 	interface Props {
+		// Data
+		attachments?: DatabaseMessageExtra[];
+		uploadedFiles?: ChatUploadedFile[];
+		value?: string;
+
+		// UI State
 		class?: string;
 		disabled?: boolean;
 		isLoading?: boolean;
-		onFileRemove?: (fileId: string) => void;
-		onFileUpload?: (files: File[]) => void;
-		onSend?: (message: string, files?: ChatUploadedFile[]) => Promise<boolean>;
+		placeholder?: string;
+		showMcpPromptButton?: boolean;
+
+		// Event Handlers
+		onAttachmentRemove?: (index: number) => void;
+		onFilesAdd?: (files: File[]) => void;
 		onStop?: () => void;
-		showHelperText?: boolean;
-		uploadedFiles?: ChatUploadedFile[];
+		onSubmit?: () => void;
+		onSystemPromptClick?: (draft: { message: string; files: ChatUploadedFile[] }) => void;
+		onUploadedFileRemove?: (fileId: string) => void;
+		onUploadedFilesChange?: (files: ChatUploadedFile[]) => void;
+		onValueChange?: (value: string) => void;
 	}
 
 	let {
-		class: className,
+		attachments = [],
+		class: className = '',
 		disabled = false,
 		isLoading = false,
-		onFileRemove,
-		onFileUpload,
-		onSend,
+		placeholder = 'Type a message...',
+		showMcpPromptButton = false,
+		uploadedFiles = $bindable([]),
+		value = $bindable(''),
+		onAttachmentRemove,
+		onFilesAdd,
 		onStop,
-		showHelperText = true,
-		uploadedFiles = $bindable([])
+		onSubmit,
+		onSystemPromptClick,
+		onUploadedFileRemove,
+		onUploadedFilesChange,
+		onValueChange
 	}: Props = $props();
 
+	/**
+	 *
+	 *
+	 * STATE
+	 *
+	 *
+	 */
+
+	// Component References
 	let audioRecorder: AudioRecorder | undefined;
-	let currentConfig = $derived(config());
-	let fileAcceptString = $state<string | undefined>(undefined);
+	let chatFormActionsRef: ChatFormActions | undefined = $state(undefined);
 	let fileInputRef: ChatFormFileInputInvisible | undefined = $state(undefined);
-	let isRecording = $state(false);
-	let message = $state('');
-	let pasteLongTextToFileLength = $derived(Number(currentConfig.pasteLongTextToFileLen) || 2500);
-	let previousIsLoading = $state(isLoading);
-	let recordingSupported = $state(false);
+	let promptPickerRef: ChatFormPromptPicker | undefined = $state(undefined);
+	let resourcePickerRef: ChatFormResourcePicker | undefined = $state(undefined);
 	let textareaRef: ChatFormTextarea | undefined = $state(undefined);
 
-	function getAcceptStringForFileType(fileType: FileTypeCategory): string {
-		switch (fileType) {
-			case FileTypeCategory.IMAGE:
-				return [...Object.values(FileExtensionImage), ...Object.values(MimeTypeImage)].join(',');
-			case FileTypeCategory.AUDIO:
-				return [...Object.values(FileExtensionAudio), ...Object.values(MimeTypeAudio)].join(',');
-			case FileTypeCategory.PDF:
-				return [...Object.values(FileExtensionPdf), ...Object.values(MimeTypeApplication)].join(
-					','
-				);
-			case FileTypeCategory.TEXT:
-				return [...Object.values(FileExtensionText), MimeTypeText.PLAIN].join(',');
-			default:
-				return '';
+	// Audio Recording State
+	let isRecording = $state(false);
+	let recordingSupported = $state(false);
+
+	// Prompt Picker State
+	let isPromptPickerOpen = $state(false);
+	let promptSearchQuery = $state('');
+
+	// Inline Resource Picker State (triggered by @)
+	let isInlineResourcePickerOpen = $state(false);
+	let resourceSearchQuery = $state('');
+
+	// Resource Dialog State
+	let isResourceDialogOpen = $state(false);
+	let preSelectedResourceUri = $state<string | undefined>(undefined);
+
+	/**
+	 *
+	 *
+	 * DERIVED STATE
+	 *
+	 *
+	 */
+
+	// Configuration
+	let currentConfig = $derived(config());
+	let pasteLongTextToFileLength = $derived.by(() => {
+		const n = Number(currentConfig.pasteLongTextToFileLen);
+		return Number.isNaN(n) ? Number(SETTING_CONFIG_DEFAULT.pasteLongTextToFileLen) : n;
+	});
+
+	// Model Selection Logic
+	let isRouter = $derived(isRouterMode());
+	let conversationModel = $derived(
+		chatStore.getConversationModel(activeMessages() as DatabaseMessage[])
+	);
+	let activeModelId = $derived.by(() => {
+		const options = modelOptions();
+
+		if (!isRouter) {
+			return options.length > 0 ? options[0].model : null;
 		}
+
+		const selectedId = selectedModelId();
+		if (selectedId) {
+			const model = options.find((m) => m.id === selectedId);
+			if (model) return model.model;
+		}
+
+		if (conversationModel) {
+			const model = options.find((m) => m.model === conversationModel);
+			if (model) return model.model;
+		}
+
+		return null;
+	});
+
+	// Form Validation State
+	let hasModelSelected = $derived(!isRouter || !!conversationModel || !!selectedModelId());
+	let hasLoadingAttachments = $derived(uploadedFiles.some((f) => f.isLoading));
+	let hasAttachments = $derived(
+		(attachments && attachments.length > 0) || (uploadedFiles && uploadedFiles.length > 0)
+	);
+	let canSubmit = $derived(value.trim().length > 0 || hasAttachments);
+
+	/**
+	 *
+	 *
+	 * LIFECYCLE
+	 *
+	 *
+	 */
+
+	onMount(() => {
+		recordingSupported = isAudioRecordingSupported();
+		audioRecorder = new AudioRecorder();
+	});
+
+	/**
+	 *
+	 *
+	 * PUBLIC API
+	 *
+	 *
+	 */
+
+	export function focus() {
+		textareaRef?.focus();
 	}
+
+	export function resetTextareaHeight() {
+		textareaRef?.resetHeight();
+	}
+
+	export function openModelSelector() {
+		chatFormActionsRef?.openModelSelector();
+	}
+
+	/**
+	 * Check if a model is selected, open selector if not
+	 * @returns true if model is selected, false otherwise
+	 */
+	export function checkModelSelected(): boolean {
+		if (!hasModelSelected) {
+			chatFormActionsRef?.openModelSelector();
+			return false;
+		}
+		return true;
+	}
+
+	/**
+	 *
+	 *
+	 * EVENT HANDLERS - File Management
+	 *
+	 *
+	 */
 
 	function handleFileSelect(files: File[]) {
-		onFileUpload?.(files);
+		onFilesAdd?.(files);
 	}
 
-	function handleFileUpload(fileType?: FileTypeCategory) {
-		if (fileType) {
-			fileAcceptString = getAcceptStringForFileType(fileType);
+	function handleFileUpload() {
+		fileInputRef?.click();
+	}
+
+	function handleFileRemove(fileId: string) {
+		if (fileId.startsWith('attachment-')) {
+			const index = parseInt(fileId.replace('attachment-', ''), 10);
+			if (!isNaN(index) && index >= 0 && index < attachments.length) {
+				onAttachmentRemove?.(index);
+			}
 		} else {
-			fileAcceptString = undefined;
+			onUploadedFileRemove?.(fileId);
+		}
+	}
+
+	/**
+	 *
+	 *
+	 * EVENT HANDLERS - Input & Keyboard
+	 *
+	 *
+	 */
+
+	function handleInput() {
+		const perChatOverrides = conversationsStore.getAllMcpServerOverrides();
+		const hasServers = mcpStore.hasEnabledServers(perChatOverrides);
+
+		if (value.startsWith(PROMPT_TRIGGER_PREFIX) && hasServers) {
+			isPromptPickerOpen = true;
+			promptSearchQuery = value.slice(1);
+			isInlineResourcePickerOpen = false;
+			resourceSearchQuery = '';
+		} else if (
+			value.startsWith(RESOURCE_TRIGGER_PREFIX) &&
+			hasServers &&
+			mcpStore.hasResourcesCapability(perChatOverrides)
+		) {
+			isInlineResourcePickerOpen = true;
+			resourceSearchQuery = value.slice(1);
+			isPromptPickerOpen = false;
+			promptSearchQuery = '';
+		} else {
+			isPromptPickerOpen = false;
+			promptSearchQuery = '';
+			isInlineResourcePickerOpen = false;
+			resourceSearchQuery = '';
+		}
+	}
+
+	function handleKeydown(event: KeyboardEvent) {
+		if (isPromptPickerOpen && promptPickerRef?.handleKeydown(event)) {
+			return;
 		}
 
-		// Use setTimeout to ensure the accept attribute is applied before opening dialog
-		setTimeout(() => {
-			fileInputRef?.click();
-		}, 10);
-	}
+		if (isInlineResourcePickerOpen && resourcePickerRef?.handleKeydown(event)) {
+			return;
+		}
 
-	async function handleKeydown(event: KeyboardEvent) {
-		if (event.key === 'Enter' && !event.shiftKey && !isIMEComposing(event)) {
+		if (event.key === KeyboardKey.ESCAPE && isPromptPickerOpen) {
+			isPromptPickerOpen = false;
+			promptSearchQuery = '';
+			return;
+		}
+
+		if (event.key === KeyboardKey.ESCAPE && isInlineResourcePickerOpen) {
+			isInlineResourcePickerOpen = false;
+			resourceSearchQuery = '';
+			return;
+		}
+
+		if (event.key === KeyboardKey.ENTER && !event.shiftKey && !isIMEComposing(event)) {
 			event.preventDefault();
 
-			if ((!message.trim() && uploadedFiles.length === 0) || disabled || isLoading) return;
+			if (!canSubmit || disabled || isLoading || hasLoadingAttachments) return;
 
-			const messageToSend = message.trim();
-			const filesToSend = [...uploadedFiles];
-
-			message = '';
-			uploadedFiles = [];
-
-			textareaRef?.resetHeight();
-
-			const success = await onSend?.(messageToSend, filesToSend);
-
-			if (!success) {
-				message = messageToSend;
-				uploadedFiles = filesToSend;
-			}
+			onSubmit?.();
 		}
 	}
 
@@ -130,11 +312,61 @@
 
 		if (files.length > 0) {
 			event.preventDefault();
-			onFileUpload?.(files);
+			onFilesAdd?.(files);
 			return;
 		}
 
 		const text = event.clipboardData.getData(MimeTypeText.PLAIN);
+
+		if (text.startsWith(CLIPBOARD_CONTENT_QUOTE_PREFIX)) {
+			const parsed = parseClipboardContent(text);
+
+			if (parsed.textAttachments.length > 0 || parsed.mcpPromptAttachments.length > 0) {
+				event.preventDefault();
+				value = parsed.message;
+				onValueChange?.(parsed.message);
+
+				// Handle text attachments as files
+				if (parsed.textAttachments.length > 0) {
+					const attachmentFiles = parsed.textAttachments.map(
+						(att) =>
+							new File([att.content], att.name, {
+								type: MimeTypeText.PLAIN
+							})
+					);
+					onFilesAdd?.(attachmentFiles);
+				}
+
+				// Handle MCP prompt attachments as ChatUploadedFile with mcpPrompt data
+				if (parsed.mcpPromptAttachments.length > 0) {
+					const mcpPromptFiles: ChatUploadedFile[] = parsed.mcpPromptAttachments.map((att) => ({
+						id: uuid(),
+						name: att.name,
+						size: att.content.length,
+						type: SpecialFileType.MCP_PROMPT,
+						file: new File([att.content], `${att.name}${FileExtensionText.TXT}`, {
+							type: MimeTypeText.PLAIN
+						}),
+						isLoading: false,
+						textContent: att.content,
+						mcpPrompt: {
+							serverName: att.serverName,
+							promptName: att.promptName,
+							arguments: att.arguments
+						}
+					}));
+
+					uploadedFiles = [...uploadedFiles, ...mcpPromptFiles];
+					onUploadedFilesChange?.(uploadedFiles);
+				}
+
+				setTimeout(() => {
+					textareaRef?.focus();
+				}, 10);
+
+				return;
+			}
+		}
 
 		if (
 			text.length > 0 &&
@@ -147,9 +379,141 @@
 				type: MimeTypeText.PLAIN
 			});
 
-			onFileUpload?.([textFile]);
+			onFilesAdd?.([textFile]);
 		}
 	}
+
+	/**
+	 *
+	 *
+	 * EVENT HANDLERS - Prompt Picker
+	 *
+	 *
+	 */
+
+	function handlePromptLoadStart(
+		placeholderId: string,
+		promptInfo: MCPPromptInfo,
+		args?: Record<string, string>
+	) {
+		// Only clear the value if the prompt was triggered by typing '/'
+		if (value.startsWith(PROMPT_TRIGGER_PREFIX)) {
+			value = '';
+			onValueChange?.('');
+		}
+		isPromptPickerOpen = false;
+		promptSearchQuery = '';
+
+		const promptName = promptInfo.title || promptInfo.name;
+		const placeholder: ChatUploadedFile = {
+			id: placeholderId,
+			name: promptName,
+			size: INITIAL_FILE_SIZE,
+			type: SpecialFileType.MCP_PROMPT,
+			file: new File([], 'loading'),
+			isLoading: true,
+			mcpPrompt: {
+				serverName: promptInfo.serverName,
+				promptName: promptInfo.name,
+				arguments: args ? { ...args } : undefined
+			}
+		};
+
+		uploadedFiles = [...uploadedFiles, placeholder];
+		onUploadedFilesChange?.(uploadedFiles);
+		textareaRef?.focus();
+	}
+
+	function handlePromptLoadComplete(placeholderId: string, result: GetPromptResult) {
+		const promptText = result.messages
+			?.map((msg: PromptMessage) => {
+				if (typeof msg.content === 'string') {
+					return msg.content;
+				}
+
+				if (msg.content.type === ContentPartType.TEXT) {
+					return msg.content.text;
+				}
+
+				return '';
+			})
+			.filter(Boolean)
+			.join(PROMPT_CONTENT_SEPARATOR);
+
+		uploadedFiles = uploadedFiles.map((f) =>
+			f.id === placeholderId
+				? {
+						...f,
+						isLoading: false,
+						textContent: promptText,
+						size: promptText.length,
+						file: new File([promptText], `${f.name}${FileExtensionText.TXT}`, {
+							type: MimeTypeText.PLAIN
+						})
+					}
+				: f
+		);
+		onUploadedFilesChange?.(uploadedFiles);
+	}
+
+	function handlePromptLoadError(placeholderId: string, error: string) {
+		uploadedFiles = uploadedFiles.map((f) =>
+			f.id === placeholderId ? { ...f, isLoading: false, loadError: error } : f
+		);
+		onUploadedFilesChange?.(uploadedFiles);
+	}
+
+	function handlePromptPickerClose() {
+		isPromptPickerOpen = false;
+		promptSearchQuery = '';
+		textareaRef?.focus();
+	}
+
+	/**
+	 *
+	 *
+	 * EVENT HANDLERS - Inline Resource Picker
+	 *
+	 *
+	 */
+
+	function handleInlineResourcePickerClose() {
+		isInlineResourcePickerOpen = false;
+		resourceSearchQuery = '';
+		textareaRef?.focus();
+	}
+
+	function handleInlineResourceSelect() {
+		// Clear the @query from input after resource is attached
+		if (value.startsWith(RESOURCE_TRIGGER_PREFIX)) {
+			value = '';
+			onValueChange?.('');
+		}
+
+		isInlineResourcePickerOpen = false;
+		resourceSearchQuery = '';
+		textareaRef?.focus();
+	}
+
+	function handleBrowseResources() {
+		isInlineResourcePickerOpen = false;
+		resourceSearchQuery = '';
+
+		if (value.startsWith(RESOURCE_TRIGGER_PREFIX)) {
+			value = '';
+			onValueChange?.('');
+		}
+
+		isResourceDialogOpen = true;
+	}
+
+	/**
+	 *
+	 *
+	 * EVENT HANDLERS - Audio Recording
+	 *
+	 *
+	 */
 
 	async function handleMicClick() {
 		if (!audioRecorder || !recordingSupported) {
@@ -163,7 +527,7 @@
 				const wavBlob = await convertToWav(audioBlob);
 				const audioFile = createAudioFile(wavBlob);
 
-				onFileUpload?.([audioFile]);
+				onFilesAdd?.([audioFile]);
 				isRecording = false;
 			} catch (error) {
 				console.error('Failed to stop recording:', error);
@@ -178,89 +542,109 @@
 			}
 		}
 	}
-
-	function handleStop() {
-		onStop?.();
-	}
-
-	async function handleSubmit(event: SubmitEvent) {
-		event.preventDefault();
-		if ((!message.trim() && uploadedFiles.length === 0) || disabled || isLoading) return;
-
-		const messageToSend = message.trim();
-		const filesToSend = [...uploadedFiles];
-
-		message = '';
-		uploadedFiles = [];
-
-		textareaRef?.resetHeight();
-
-		const success = await onSend?.(messageToSend, filesToSend);
-
-		if (!success) {
-			message = messageToSend;
-			uploadedFiles = filesToSend;
-		}
-	}
-
-	onMount(() => {
-		setTimeout(() => textareaRef?.focus(), 10);
-		recordingSupported = isAudioRecordingSupported();
-		audioRecorder = new AudioRecorder();
-	});
-
-	afterNavigate(() => {
-		setTimeout(() => textareaRef?.focus(), 10);
-	});
-
-	$effect(() => {
-		if (previousIsLoading && !isLoading) {
-			setTimeout(() => textareaRef?.focus(), 10);
-		}
-
-		previousIsLoading = isLoading;
-	});
 </script>
 
-<ChatFormFileInputInvisible
-	bind:this={fileInputRef}
-	bind:accept={fileAcceptString}
-	onFileSelect={handleFileSelect}
-/>
+<ChatFormFileInputInvisible bind:this={fileInputRef} onFileSelect={handleFileSelect} />
 
 <form
-	onsubmit={handleSubmit}
-	class="{INPUT_CLASSES} border-radius-bottom-none mx-auto max-w-[48rem] overflow-hidden rounded-3xl backdrop-blur-md {className}"
+	class="relative {className}"
+	onsubmit={(e) => {
+		e.preventDefault();
+		if (!canSubmit || disabled || isLoading || hasLoadingAttachments) return;
+		onSubmit?.();
+	}}
 >
-	<ChatAttachmentsList
-		bind:uploadedFiles
-		{onFileRemove}
-		limitToSingleRow
-		class="py-5"
-		style="scroll-padding: 1rem;"
+	<ChatFormPromptPicker
+		bind:this={promptPickerRef}
+		isOpen={isPromptPickerOpen}
+		searchQuery={promptSearchQuery}
+		onClose={handlePromptPickerClose}
+		onPromptLoadStart={handlePromptLoadStart}
+		onPromptLoadComplete={handlePromptLoadComplete}
+		onPromptLoadError={handlePromptLoadError}
+	/>
+
+	<ChatFormResourcePicker
+		bind:this={resourcePickerRef}
+		isOpen={isInlineResourcePickerOpen}
+		searchQuery={resourceSearchQuery}
+		onClose={handleInlineResourcePickerClose}
+		onResourceSelect={handleInlineResourceSelect}
+		onBrowse={handleBrowseResources}
 	/>
 
 	<div
-		class="flex-column relative min-h-[48px] items-center rounded-3xl px-5 py-3 shadow-sm transition-all focus-within:shadow-md"
-		onpaste={handlePaste}
+		class="{INPUT_CLASSES} overflow-hidden rounded-3xl backdrop-blur-md {disabled
+			? 'cursor-not-allowed opacity-60'
+			: ''}"
+		data-slot="input-area"
 	>
-		<ChatFormTextarea
-			bind:this={textareaRef}
-			bind:value={message}
-			onKeydown={handleKeydown}
-			{disabled}
+		<ChatAttachmentsList
+			{attachments}
+			bind:uploadedFiles
+			onFileRemove={handleFileRemove}
+			limitToSingleRow
+			class="py-5"
+			style="scroll-padding: 1rem;"
+			activeModelId={activeModelId ?? undefined}
 		/>
 
-		<ChatFormActions
-			canSend={message.trim().length > 0 || uploadedFiles.length > 0}
-			{disabled}
-			{isLoading}
-			{isRecording}
-			onFileUpload={handleFileUpload}
-			onMicClick={handleMicClick}
-			onStop={handleStop}
-		/>
+		<div
+			class="flex-column relative min-h-[48px] items-center rounded-3xl py-2 pb-2.25 shadow-sm transition-all focus-within:shadow-md md:!py-3"
+			onpaste={handlePaste}
+		>
+			<ChatFormTextarea
+				class="px-5 py-1.5 md:pt-0"
+				bind:this={textareaRef}
+				bind:value
+				onKeydown={handleKeydown}
+				onInput={() => {
+					handleInput();
+					onValueChange?.(value);
+				}}
+				{disabled}
+				{placeholder}
+			/>
+
+			{#if mcpHasResourceAttachments()}
+				<ChatAttachmentMcpResources
+					class="mb-3"
+					onResourceClick={(uri) => {
+						preSelectedResourceUri = uri;
+						isResourceDialogOpen = true;
+					}}
+				/>
+			{/if}
+
+			<ChatFormActions
+				class="px-3"
+				bind:this={chatFormActionsRef}
+				canSend={canSubmit}
+				hasText={value.trim().length > 0}
+				{disabled}
+				{isLoading}
+				{isRecording}
+				{uploadedFiles}
+				onFileUpload={handleFileUpload}
+				onMicClick={handleMicClick}
+				{onStop}
+				onSystemPromptClick={() => onSystemPromptClick?.({ message: value, files: uploadedFiles })}
+				onMcpPromptClick={showMcpPromptButton ? () => (isPromptPickerOpen = true) : undefined}
+				onMcpResourcesClick={() => (isResourceDialogOpen = true)}
+			/>
+		</div>
 	</div>
 </form>
 
-<ChatFormHelperText show={showHelperText} />
+<DialogMcpResources
+	bind:open={isResourceDialogOpen}
+	preSelectedUri={preSelectedResourceUri}
+	onAttach={(resource: MCPResourceInfo) => {
+		mcpStore.attachResource(resource.uri);
+	}}
+	onOpenChange={(newOpen: boolean) => {
+		if (!newOpen) {
+			preSelectedResourceUri = undefined;
+		}
+	}}
+/>

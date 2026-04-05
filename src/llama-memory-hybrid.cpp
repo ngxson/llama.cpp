@@ -73,9 +73,9 @@ llama_memory_context_ptr llama_memory_hybrid::init_batch(llama_batch_allocr & ba
                 // if all tokens are output, split by sequence
                 ubatch = balloc.split_seq(n_ubatch);
             } else {
-                // TODO: non-sequential equal split can be done if using unified KV cache
-                //       for simplicity, we always use sequential equal split for now
-                ubatch = balloc.split_equal(n_ubatch, true);
+                // Use non-sequential split when KV cache is unified (needed for hellaswag/winogrande/multiple-choice)
+                const bool unified = (mem_attn->get_n_stream() == 1);
+                ubatch = balloc.split_equal(n_ubatch, !unified);
             }
 
             if (ubatch.n_tokens == 0) {
@@ -222,7 +222,7 @@ llama_memory_hybrid_context::llama_memory_hybrid_context(
     ubatches(std::move(ubatches)),
     // note: here we copy the ubatches. not sure if this is ideal
     ctx_attn(new llama_kv_cache_context(mem->get_mem_attn(), std::move(sinfos_attn), this->ubatches)),
-    ctx_recr(new llama_memory_recurrent_context(mem->get_mem_recr(),                        this->ubatches)),
+    ctx_recr(new llama_memory_recurrent_context(mem->get_mem_recr(), this->ubatches)),
     status(llama_memory_status_combine(ctx_attn->get_status(), ctx_recr->get_status())) {
 }
 
