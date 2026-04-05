@@ -1404,11 +1404,12 @@ class TensorNameMap:
             "siglip2.vision_model.embeddings.patch_embedding",
             "vision_model.radio_model.model.patch_generator.embedder", # Nemotron Nano v2 VL
             "model.vision_tower.patch_embedder.input_proj", # gemma4
+            "vision_tower.patch_embed.patchifier.proj", # dots.ocr
         ),
 
         MODEL_TENSOR.V_ENC_EMBD_NORM: (
             "visual.post_conv_layernorm", # glm4v
-            "vision_tower.patch_embed.patchifier.proj", # dots.ocr
+            "vision_tower.patch_embed.patchifier.norm", # dots.ocr
         ),
 
         MODEL_TENSOR.V_ENC_EMBD_POS: (

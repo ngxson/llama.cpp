@@ -12690,12 +12690,14 @@ class DotsOCRVisionModel(MmprojModel):
         if name.startswith("vision_tower."):
             if "vision_tower.blocks." in name and ".mlp." in name:
                 # note: to avoid naming conflicts in tensor_mapping.py, we need to handle FFN renaming here
-                # fc1 -> gate, fc2 -> up, fc3 -> down
+                # x = F.silu(self.fc1(x)) * self.fc3(x)
+                # x = self.fc2(x)
+                # fc1 -> gate, fc2 -> down, fc3 -> up
                 # mapping original names to Qwen2.5 naming scheme
                 name = name.replace("vision_tower.blocks.", "visual.blocks.")
                 name = name.replace(".fc1", ".gate_proj")
-                name = name.replace(".fc2", ".up_proj")
-                name = name.replace(".fc3", ".down_proj")
+                name = name.replace(".fc2", ".down_proj")
+                name = name.replace(".fc3", ".up_proj")
             yield from super().modify_tensors(data_torch, name, bid)
 
 
