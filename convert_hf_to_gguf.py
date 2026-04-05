@@ -12680,19 +12680,23 @@ class DotsOCRVisionModel(MmprojModel):
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
         self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.DOTSOCR)
-        self.gguf_writer.add_vision_image_min_pixels(self.preprocessor_config["min_pixels"])
-        self.gguf_writer.add_vision_image_max_pixels(self.preprocessor_config["max_pixels"])
+        self.gguf_writer.add_vision_min_pixels(self.preprocessor_config["min_pixels"])
+        self.gguf_writer.add_vision_max_pixels(self.preprocessor_config["max_pixels"])
         self.gguf_writer.add_vision_attention_layernorm_eps(self.find_vparam(["rms_norm_eps"]))
         self.gguf_writer.add_vision_projector_scale_factor(self.find_vparam(["spatial_merge_size"]))
         self.gguf_writer.add_vision_use_silu(True)
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
-        del bid  # unused
-
         if name.startswith("vision_tower."):
-            return [(self.map_tensor_name(name), data_torch)]
-
-        return [] # skip other tensors
+            if "vision_tower.blocks." in name and ".mlp." in name:
+                # note: to avoid naming conflicts in tensor_mapping.py, we need to handle FFN renaming here
+                # fc1 -> gate, fc2 -> up, fc3 -> down
+                # mapping original names to Qwen2.5 naming scheme
+                name = name.replace("vision_tower.blocks.", "visual.blocks.")
+                name = name.replace(".fc1", ".gate_proj")
+                name = name.replace(".fc2", ".up_proj")
+                name = name.replace(".fc3", ".down_proj")
+            yield from super().modify_tensors(data_torch, name, bid)
 
 
 ###### CONVERSION LOGIC ######
