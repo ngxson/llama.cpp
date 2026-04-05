@@ -21,7 +21,7 @@ ggml_cgraph * clip_graph_dotsocr::build() {
     ggml_tensor * inp = build_inp();
     ggml_tensor * cur = build_vit(
                             inp, n_patches,
-                            NORM_TYPE_NORMAL,
+                            NORM_TYPE_RMS,
                             hparams.ffn_op,
                             nullptr,
                             add_pos);
@@ -32,13 +32,13 @@ ggml_cgraph * clip_graph_dotsocr::build() {
     {
         GGML_ASSERT(hparams.n_merge > 0);
         cur = build_norm(cur, model.mm_input_norm_w, model.mm_input_norm_b, NORM_TYPE_NORMAL, 1e-6, -1);
-        cur = build_stack(cur, hparams.n_merge * hparams.n_merge, n_embd);
+        cur = build_patch_merge_permute(cur, hparams.n_merge);
         cb(cur, "after_patch_merger", -1);
         cur = build_ffn(cur,
             model.mm_0_w, model.mm_0_b,
             nullptr, nullptr, // no gate
             model.mm_2_w, model.mm_2_b,
-            FFN_GELU, -1);
+            FFN_GELU_ERF, -1); // nn.GELU() defaults to exact erf-based GELU
         cb(cur, "after_projector", -1);
     }
 

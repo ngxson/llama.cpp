@@ -1968,6 +1968,8 @@ struct clip_model_loader {
                     model.mm_2_b = get_tensor(string_format(TN_LLAVA_PROJ, 2, "bias"));
                     model.mm_input_norm_w = get_tensor(TN_MM_INP_NORM);
                     model.mm_input_norm_b = get_tensor(TN_MM_INP_NORM_B);
+                    // post_trunk_norm: applied after all ViT blocks, before the merger
+                    model.post_ln_w = get_tensor(string_format(TN_MM_POST_NORM, "weight"));
                 } break;
             case PROJECTOR_TYPE_ULTRAVOX:
                 {
@@ -3016,29 +3018,21 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
             } break;
         case PROJECTOR_TYPE_DOTS_OCR:
             {
-                const int merge_ratio = hparams.n_merge;
                 const int pw = image_size_width / patch_size;
                 const int ph = image_size_height / patch_size;
-
-                // For dots.ocr we need [total_patches, 2] -> flattened as (h_pos, w_pos) pairs
                 const int n_pos = ph * pw;
                 std::vector<int> positions(n_pos * 4);
                 int ptr = 0;
 
-                // 4 nested loops like GLM-4V, but emitting (y, x) pairs instead of duplicating
-                for (int y = 0; y < ph; y += merge_ratio) {
-                    for (int x = 0; x < pw; x += merge_ratio) {
-                        for (int dy = 0; dy < merge_ratio; dy++) {
-                            for (int dx = 0; dx < merge_ratio; dx++) {
-                                const int ypos = y + dy;
-                                const int xpos = x + dx;
-                                positions[ptr * 2 + 0] = ypos; // height position
-                                positions[ptr * 2 + 1] = xpos; // width position
-                                positions[ptr * 2 + 2] = ypos;
-                                positions[ptr * 2 + 3] = xpos;
-                                ptr++;
-                            }
-                        }
+                // flat layout: [h, w, h, w] for each patch
+                // patches are in raster order (matching conv2d output)
+                for (int y = 0; y < ph; y++) {
+                    for (int x = 0; x < pw; x++) {
+                        positions[          ptr] = y;
+                        positions[  n_pos + ptr] = x;
+                        positions[2*n_pos + ptr] = y;
+                        positions[3*n_pos + ptr] = x;
+                        ptr++;
                     }
                 }
 
