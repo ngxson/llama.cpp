@@ -639,6 +639,31 @@ private:
 
         params_base = params;
 
+        std::string & mmproj_path = params_base.mmproj.path;
+        bool has_mmproj = !mmproj_path.empty();
+        mtmd_context_params mparams = mtmd_context_params_default();
+        if (has_mmproj) {
+            mparams.use_gpu          = params_base.mmproj_use_gpu;
+            mparams.print_timings    = false;
+            mparams.n_threads        = params_base.cpuparams.n_threads;
+            mparams.flash_attn_type  = params_base.flash_attn_type;
+            mparams.warmup           = params_base.warmup;
+            mparams.image_min_tokens = params_base.image_min_tokens;
+            mparams.image_max_tokens = params_base.image_max_tokens;
+        }
+
+        // optionally get the memory usage of mmproj
+        if (has_mmproj && params_base.fit_params) {
+            size_t mmproj_mem = mtmd_get_memory_usage(mmproj_path.c_str(), mparams);
+            if (mmproj_mem > 0) {
+                SRV_INF("[mtmd] estimated memory usage of mmproj is %.2f MiB\n", mmproj_mem / (1024.0 * 1024.0));
+            } else {
+                SRV_ERR("%s", "[mtmd] failed to get memory usage of mmproj\n");
+            }
+            GGML_ASSERT(!params_base.fit_params_target.empty());
+            params_base.fit_params_target[0] += mmproj_mem;
+        }
+
         llama_init = common_init_from_params(params_base);
 
         model = llama_init->model();
@@ -690,21 +715,10 @@ private:
             params_base.speculative.cparams_dft = common_context_params_to_llama(params_dft);
         }
 
-        std::string & mmproj_path = params_base.mmproj.path;
-        if (!mmproj_path.empty()) {
+        if (has_mmproj) {
             if (!is_resume) {
                 mtmd_helper_log_set(common_log_default_callback, nullptr);
             }
-
-            mtmd_context_params mparams = mtmd_context_params_default();
-
-            mparams.use_gpu          = params_base.mmproj_use_gpu;
-            mparams.print_timings    = false;
-            mparams.n_threads        = params_base.cpuparams.n_threads;
-            mparams.flash_attn_type  = params_base.flash_attn_type;
-            mparams.warmup           = params_base.warmup;
-            mparams.image_min_tokens = params_base.image_min_tokens;
-            mparams.image_max_tokens = params_base.image_max_tokens;
 
             mctx = mtmd_init_from_file(mmproj_path.c_str(), model, mparams);
             if (mctx == nullptr) {

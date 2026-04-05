@@ -231,6 +231,11 @@ MTMD_API float * mtmd_get_output_embd(mtmd_context * ctx);
 // If this is not called, or NULL is supplied, everything is output on stderr.
 MTMD_API void mtmd_log_set(ggml_log_callback log_callback, void * user_data);
 
+// Get memory usage of the current model in bytes
+// Note: this is an unstable API, used internally by fit_params; it may be removed or changed without deprecation
+MTMD_API size_t mtmd_get_memory_usage(const char * mmproj_fname,
+                                      struct mtmd_context_params ctx_params);
+
 /////////////////////////////////////////
 
 // test function, to be used in test-mtmd-c-api.c
