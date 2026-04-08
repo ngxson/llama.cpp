@@ -255,9 +255,9 @@ ggml_tensor * llm_build_gemma3n_iswa::build_inp_per_layer() {
         inp->tokens = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, ubatch.n_tokens);
         ggml_set_input(inp->tokens);
         res->t_inp_tokens = inp->tokens;
-        inp_per_layer = ggml_get_rows(ctx0, model.per_layer_tok_embd, inp->tokens);
+        inp_per_layer = ggml_get_rows  (ctx0, model.per_layer_tok_embd, inp->tokens);
         inp_per_layer = ggml_reshape_3d(ctx0, inp_per_layer, n_embd_altup, n_layer, n_tokens);
-        inp_per_layer = ggml_scale(ctx0, inp_per_layer, tok_embd_scale);
+        inp_per_layer = ggml_scale     (ctx0, inp_per_layer, tok_embd_scale);
         cb(inp_per_layer, "inp_per_layer_selected", -1);
         res->add_input(std::move(inp));
     } else {
@@ -267,7 +267,7 @@ ggml_tensor * llm_build_gemma3n_iswa::build_inp_per_layer() {
 
         // Extract and dequantize padding token embedding (row 0)
         ggml_tensor * padding = ggml_view_1d(ctx0, model.per_layer_tok_embd, embd_size, 0);
-        inp_per_layer = ggml_cast(ctx0, padding, GGML_TYPE_F32);
+        inp_per_layer = ggml_cast (ctx0, padding, GGML_TYPE_F32);
         inp_per_layer = ggml_scale(ctx0, inp_per_layer, tok_embd_scale);
 
         // Reshape to [n_embd_altup, n_layer, 1]
