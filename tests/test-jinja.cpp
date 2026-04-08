@@ -732,6 +732,12 @@ static void test_filters(testing & t) {
         "{\"emoji\": \"\\ud83d\\ude00\", \"line\": \"a\\nb\"}"
     );
 
+    test_template(t, "tojson ensure_ascii=true with invalid utf-8",
+        "{{ data|tojson(ensure_ascii=true) }}",
+        {{"data", std::string("hello\xfe\xffworld")}},
+        "\"hello\\ufffd\\ufffdworld\""
+    );
+
     test_template(t, "tojson sort_keys=true",
         "{{ data|tojson(sort_keys=true) }}",
         {{"data", {{"b", 2}, {"a", 1}}}},

@@ -220,7 +220,7 @@ static std::string json_ensure_ascii_preserving_format(const std::string & json_
 
         auto parsed = common_parse_utf8_codepoint(json_str, pos);
         if (parsed.status != utf8_parse_result::SUCCESS) {
-            output.push_back(ch);
+            output += "\\ufffd";
             ++pos;
             continue;
         }
