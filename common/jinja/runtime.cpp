@@ -252,6 +252,7 @@ value binary_expression::execute_impl(context & ctx) {
     }
 
     // Python-style string repetition
+    // TODO: support array/tuple repetition (e.g., [1, 2] * 3 → [1, 2, 1, 2, 1, 2])
     if (op.value == "*" &&
             ((is_val<value_string>(left_val) && is_val<value_int>(right_val)) ||
              (is_val<value_int>(left_val) && is_val<value_string>(right_val)))) {

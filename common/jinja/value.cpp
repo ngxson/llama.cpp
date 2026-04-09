@@ -569,6 +569,10 @@ const func_builtins & value_float_t::get_builtins() const {
             int64_t val = static_cast<int64_t>(args.get_pos(0)->as_float());
             return mk_val<value_int>(val);
         }},
+        {"float", [](const func_args & args) -> value {
+            args.ensure_vals<value_float>();
+            return mk_val<value_float>(args.get_pos(0)->as_float());
+        }},
         {"safe", tojson},
         {"string", tojson},
         {"tojson", tojson},

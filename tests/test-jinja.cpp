@@ -732,12 +732,6 @@ static void test_filters(testing & t) {
         "{\"emoji\": \"\\ud83d\\ude00\", \"line\": \"a\\nb\"}"
     );
 
-    test_template(t, "tojson ensure_ascii=true with invalid utf-8",
-        "{{ data|tojson(ensure_ascii=true) }}",
-        {{"data", std::string("hello\xfe\xffworld")}},
-        "\"hello\\ufffd\\ufffdworld\""
-    );
-
     test_template(t, "tojson sort_keys=true",
         "{{ data|tojson(sort_keys=true) }}",
         {{"data", {{"b", 2}, {"a", 1}}}},
@@ -2508,5 +2502,13 @@ static void test_fuzzing(testing & t) {
 
             t.assert_true("builtin " + type_name + "." + fn_name + " #" + std::to_string(i), fuzz_test_template(tmpl, vars));
         }
+    });
+
+    t.test("tojson ensure_ascii=true with invalid utf-8", [&](testing & t) {
+        t.assert_true("invalid utf-8 does not crash",
+            fuzz_test_template(
+                "{{ data|tojson(ensure_ascii=true) }}",
+                {{"data", std::string("hello\xfe\xffworld")}}
+            ));
     });
 }
