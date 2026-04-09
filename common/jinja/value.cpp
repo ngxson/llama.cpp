@@ -157,7 +157,7 @@ static value test_compare_fn(const func_args & args) {
 
 static void append_codepoint_as_ascii_json_escape(std::string & out, uint32_t codepoint) {
     auto append_u16 = [&out](uint32_t value) {
-        char buf[7];
+        char buf[8];
         snprintf(buf, sizeof(buf), "\\u%04x", static_cast<unsigned int>(value));
         out += buf;
     };
