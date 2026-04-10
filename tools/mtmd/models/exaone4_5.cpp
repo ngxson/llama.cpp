@@ -1,9 +1,5 @@
 #include "models.h"
 
-// ExaONE 4.5 ViT (modeling_exaone4_5.py): patch embed -> RMS pre-norm -> alternating blocks only; no trunk post-LN
-// (PatchMerger MLP is mm_0/mm_1 below). Vision 2D RoPE matches rot_pos_emb + VisionRotaryEmbedding (Qwen2-VL-style);
-// positions: 4×int32/patch, filled in clip.cpp (y,x,y,x).
-
 static ggml_tensor * clip_repeat_kv_heads(
         ggml_context * ctx,
         ggml_tensor * cur,

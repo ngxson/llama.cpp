@@ -9857,9 +9857,8 @@ class ExaoneMoEModel(Exaone4Model):
 
 @ModelBase.register("Exaone4_5_ForConditionalGeneration")
 class Exaone4_5_VLTextModel(Exaone4Model):
-    """Text tower of [`Exaone4_5_ForConditionalGeneration`](modeling_exaone4_5.py). Tensors match EXAONE4 / Olmo2-style blocks."""
+    """Text tower of EXAONE 4.5; Tensors match EXAONE4"""
 
-    # Same layout as EXAONE4; main llama.cpp binary expects arch string "exaone4".
     model_arch = gguf.MODEL_ARCH.EXAONE4
 
     def __init__(self, *args, **kwargs):
@@ -9916,11 +9915,7 @@ class Exaone4_5_VLTextModel(Exaone4Model):
 
 @ModelBase.register("Exaone4_5_ForConditionalGeneration")
 class Exaone4_5VLVisionModel(Qwen2VLVisionModel):
-    """Vision tower for EXAONE 4.5 (Qwen2-VL-style ViT + patch merger); HF weights under `model.visual.*`.
-
-    Writes ViT window-attention metadata (`window_size`, `n_wa_pattern`) when available so
-    mtmd follows HF full/window attention alternation.
-    """
+    """Vision tower for EXAONE 4.5; Qwen2-VL-style ViT (GQA) + patch merger"""
 
     def set_gguf_parameters(self):
         MmprojModel.set_gguf_parameters(self)

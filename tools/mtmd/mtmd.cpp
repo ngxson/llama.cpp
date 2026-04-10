@@ -902,9 +902,6 @@ bool mtmd_decode_use_mrope(mtmd_context * ctx) {
         case PROJECTOR_TYPE_QWEN2VL:
         case PROJECTOR_TYPE_QWEN25VL:
         case PROJECTOR_TYPE_QWEN3VL:
-        // EXAONE 4.5: language model uses standard 1D positions (see modeling_exaone4_5.py cache_position);
-        // Qwen-style M-RoPE here leaves KV seq_pos_max at the last text pos while n_past jumps by max(nx,ny),
-        // breaking the next text chunk (Y != X+1).
         case PROJECTOR_TYPE_GLM4V:
         case PROJECTOR_TYPE_PADDLEOCR:
             return true;
