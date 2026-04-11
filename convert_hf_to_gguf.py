@@ -6978,20 +6978,18 @@ class Gemma3Model(TextModel):
         super().set_gguf_parameters()
         hparams = self.hparams
 
-        # some default values are not specified in the hparams
-        self.gguf_writer.add_context_length(hparams.get("max_position_embeddings", 131072))
-        self.gguf_writer.add_head_count(hparams.get("num_attention_heads", 8))
-        self.gguf_writer.add_layer_norm_rms_eps(self.hparams.get("rms_norm_eps", 1e-6))
-        self.gguf_writer.add_key_length(hparams.get("head_dim", 256))
-        self.gguf_writer.add_value_length(hparams.get("head_dim", 256))
-        self.gguf_writer.add_rope_freq_base(self.rope_parameters.get("full_attention", self.rope_parameters).get("rope_theta", 1_000_000.0)) # for global layers
+        # provide fallback defaults for keys that TextModel only writes when present in hparams
+        if self.find_hparam(["rms_norm_eps", "norm_eps"], optional=True) is None:
+            self.gguf_writer.add_layer_norm_rms_eps(1e-6)
+        rope_params = self.rope_parameters.get("full_attention", self.rope_parameters)
+        if rope_params.get("rope_theta") is None:
+            self.gguf_writer.add_rope_freq_base(1_000_000.0)  # for global layers
         # attn_logit_softcapping is removed in Gemma3
         assert hparams.get("attn_logit_softcapping") is None
         if (final_logit_softcap := hparams.get("final_logit_softcapping")):
             self.gguf_writer.add_final_logit_softcapping(final_logit_softcap)
         if hparams.get("sliding_window_pattern") != 1:
             self.gguf_writer.add_sliding_window(hparams["sliding_window"])
-        self.gguf_writer.add_head_count_kv(hparams.get("num_key_value_heads", 4))
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         if "language_model." in name:
@@ -7557,7 +7555,6 @@ class Gemma4Model(Gemma3Model):
         special_vocab = gguf.SpecialVocab(self.dir_model, load_merges=True)
         special_vocab.add_to_gguf(self.gguf_writer)
         self.gguf_writer.add_add_space_prefix(False)
-        self.gguf_writer.add_add_bos_token(True)
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
