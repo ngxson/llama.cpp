@@ -6,6 +6,28 @@ This is a fork of the [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp
 
 The HIFI quantisation types aim to deliver better quality at the same (or similar) model sizes compared to the standard quantisation options. This is an **ongoing, actively developed project** and public contributions are welcome.
 
+Upstream `llama.cpp` is **LLM inference in C/C++**. Highlights from upstream:
+
+## Recent API changes
+
+- [Changelog for `libllama` API](https://github.com/ggml-org/llama.cpp/issues/9289)
+- [Changelog for `llama-server` REST API](https://github.com/ggml-org/llama.cpp/issues/9291)
+
+## Hot topics
+
+- **Hugging Face cache migration: models downloaded with `-hf` are now stored in the standard Hugging Face cache directory, enabling sharing with other HF tools.**
+- **[guide : using the new WebUI of llama.cpp](https://github.com/ggml-org/llama.cpp/discussions/16938)**
+- [guide : running gpt-oss with llama.cpp](https://github.com/ggml-org/llama.cpp/discussions/15396)
+- [[FEEDBACK] Better packaging for llama.cpp to support downstream consumers 🤗](https://github.com/ggml-org/llama.cpp/discussions/15313)
+- Support for the `gpt-oss` model with native MXFP4 format has been added | [PR](https://github.com/ggml-org/llama.cpp/pull/15091) | [Collaboration with NVIDIA](https://blogs.nvidia.com/blog/rtx-ai-garage-openai-oss) | [Comment](https://github.com/ggml-org/llama.cpp/discussions/15095)
+- Multimodal support arrived in `llama-server`: [#12898](https://github.com/ggml-org/llama.cpp/pull/12898) | [documentation](./docs/multimodal.md)
+- VS Code extension for FIM completions: https://github.com/ggml-org/llama.vscode
+- Vim/Neovim plugin for FIM completions: https://github.com/ggml-org/llama.vim
+- Hugging Face Inference Endpoints now support GGUF out of the box! https://github.com/ggml-org/llama.cpp/discussions/9669
+- Hugging Face GGUF editor: [discussion](https://github.com/ggml-org/llama.cpp/discussions/9268) | [tool](https://huggingface.co/spaces/CISCai/gguf-editor)
+
+----
+
 ## Quick start
 
 To build and use HIFI quantised models, follow the detailed instructions in the **[HIFI Build Guide](HIFI_BUILD_GUIDE.md)**, which covers:
@@ -165,7 +187,7 @@ Typically finetunes of the base models below are supported as well.
 <details>
 <summary>Tools</summary>
 
-- [akx/ggify](https://github.com/akx/ggify) – download PyTorch models from HuggingFace Hub and convert them to GGML
+- [akx/ggify](https://github.com/akx/ggify) – download PyTorch models from Hugging Face Hub and convert them to GGML
 - [akx/ollama-dl](https://github.com/akx/ollama-dl) – download models from the Ollama library to be used directly with llama.cpp
 - [crashr/gppm](https://github.com/crashr/gppm) – launch llama.cpp instances utilizing NVIDIA Tesla P40 or P100 GPUs with reduced idle power consumption
 - [gpustack/gguf-parser](https://github.com/gpustack/gguf-parser-go/tree/main/cmd/gguf-parser) - review/check the GGUF file and estimate the memory usage
@@ -220,6 +242,16 @@ Typically finetunes of the base models below are supported as well.
 ### [`llama-cli`](tools/cli)
 
 A CLI tool for accessing and experimenting with most of `llama.cpp`'s functionality.
+
+You can either manually download the GGUF file or directly use any `llama.cpp`-compatible models from [Hugging Face](https://huggingface.co/) or other model hosting sites, by using this CLI argument: `-hf <user>/<model>[:quant]`. For example:
+
+```sh
+llama-cli -hf ggml-org/gemma-3-1b-it-GGUF
+```
+
+By default, the CLI would download from Hugging Face, you can switch to other options with the environment variable `MODEL_ENDPOINT`. The `MODEL_ENDPOINT` must point to a Hugging Face compatible API endpoint.
+
+With a local GGUF file:
 
 ```bash
 llama-cli -m model.gguf

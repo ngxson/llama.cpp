@@ -430,21 +430,22 @@ extern "C" {
         // GGML_TYPE_IQ4_NL_4_8 = 37,
         // GGML_TYPE_IQ4_NL_8_8 = 38,
         GGML_TYPE_MXFP4   = 39, // MXFP4 (1 block)
-        GGML_TYPE_Q3_K_HIFI = 40, // Q3_K_HIFI: Q3_K layout + 8 FP16 outliers per block
-        GGML_TYPE_Q6_K_HIFI = 41, // Q6_K_HIFI: Q6_K layout + 4 FP16 outliers for critical tensors
-        GGML_TYPE_Q6_K_HIFI_DYNAMIC = 42, // Q6_K_HIFI_DYNAMIC: Q6_K + 2-8 outliers based on layer sensitivity
-        GGML_TYPE_Q6_K_HIFI_RES8 = 43, // Q6_K_HIFI_RES8: Q6_K + INT8 residuals (compact format)
-        GGML_TYPE_Q5_K_HIFI_RES8 = 44, // Q5_K_HIFI_RES8: Q5_K + INT8 residuals (efficient for 4B-10B models)
-        GGML_TYPE_Q3_K_HIFI_RES8 = 45, // Q3_K_HIFI_RES8: Q3_K + INT8 residuals (lean version for imatrix use)
-        GGML_TYPE_Q4_K_HIFI = 46, // Q4_K_HIFI: Q4_K layout + 8 FP16 outliers per block (high-fidelity 4-bit)
-        GGML_TYPE_Q2_K_HIFI = 47, // Q2_K_HIFI: Q2_K layout + 3 INT8 residuals per block (high-fidelity 2-bit)
-        GGML_TYPE_Q2_K_LITE = 48, // Q2_K_LITE: Q2_K + 3 INT8 residuals, residual-only encoding (96 bytes, ~3.0 BPW)
-        GGML_TYPE_Q3_K_LITE = 49, // Q3_K_LITE: Q3_K + 8 INT8 residuals (132 bytes, ~4.13 BPW)
-        GGML_TYPE_Q4_K_LITE = 50, // Q4_K_LITE: Q4_K + 8 INT8 residuals (168 bytes, ~5.25 BPW)
-        GGML_TYPE_Q5_K_LITE = 51, // Q5_K_LITE: Q5_K + 8 INT8 residuals (200 bytes, ~6.25 BPW)
-        GGML_TYPE_Q6_K_LITE = 52, // Q6_K_LITE: Q6_K + 8 INT8 residuals (232 bytes, ~7.25 BPW)
-        GGML_TYPE_NVFP4   = 53, // NVFP4 (4 blocks, E4M3 scale)
-        GGML_TYPE_COUNT   = 54,
+        GGML_TYPE_NVFP4   = 40, // NVFP4 (4 blocks, E4M3 scale)
+        GGML_TYPE_Q1_0    = 41,
+        GGML_TYPE_Q3_K_HIFI = 42, // Q3_K_HIFI: Q3_K layout + 8 FP16 outliers per block
+        GGML_TYPE_Q6_K_HIFI = 43, // Q6_K_HIFI: Q6_K layout + 4 FP16 outliers for critical tensors
+        GGML_TYPE_Q6_K_HIFI_DYNAMIC = 44, // Q6_K_HIFI_DYNAMIC: Q6_K + 2-8 outliers based on layer sensitivity
+        GGML_TYPE_Q6_K_HIFI_RES8 = 45, // Q6_K_HIFI_RES8: Q6_K + INT8 residuals (compact format)
+        GGML_TYPE_Q5_K_HIFI_RES8 = 46, // Q5_K_HIFI_RES8: Q5_K + INT8 residuals (efficient for 4B-10B models)
+        GGML_TYPE_Q3_K_HIFI_RES8 = 47, // Q3_K_HIFI_RES8: Q3_K + INT8 residuals (lean version for imatrix use)
+        GGML_TYPE_Q4_K_HIFI = 48, // Q4_K_HIFI: Q4_K layout + 8 FP16 outliers per block (high-fidelity 4-bit)
+        GGML_TYPE_Q2_K_HIFI = 49, // Q2_K_HIFI: Q2_K layout + 3 INT8 residuals per block (high-fidelity 2-bit)
+        GGML_TYPE_Q2_K_LITE = 50, // Q2_K_LITE: Q2_K + 3 INT8 residuals, residual-only encoding (96 bytes, ~3.0 BPW)
+        GGML_TYPE_Q3_K_LITE = 51, // Q3_K_LITE: Q3_K + 8 INT8 residuals (132 bytes, ~4.13 BPW)
+        GGML_TYPE_Q4_K_LITE = 52, // Q4_K_LITE: Q4_K + 8 INT8 residuals (168 bytes, ~5.25 BPW)
+        GGML_TYPE_Q5_K_LITE = 53, // Q5_K_LITE: Q5_K + 8 INT8 residuals (200 bytes, ~6.25 BPW)
+        GGML_TYPE_Q6_K_LITE = 54, // Q6_K_LITE: Q6_K + 8 INT8 residuals (232 bytes, ~7.25 BPW)
+        GGML_TYPE_COUNT   = 55,
     };
 
     // precision
@@ -481,6 +482,7 @@ extern "C" {
         GGML_FTYPE_MOSTLY_BF16    = 24, // except 1d tensors
         GGML_FTYPE_MOSTLY_MXFP4   = 25, // except 1d tensors
         GGML_FTYPE_MOSTLY_NVFP4   = 26, // except 1d tensors
+        GGML_FTYPE_MOSTLY_Q1_0    = 27, // except 1d tensors
     };
 
     // available tensor operations:
@@ -916,15 +918,17 @@ extern "C" {
             struct ggml_tensor  * b,
             struct ggml_tensor  * ids);
 
-    GGML_API struct ggml_tensor * ggml_add1(
+    GGML_DEPRECATED(GGML_API struct ggml_tensor * ggml_add1(
             struct ggml_context * ctx,
             struct ggml_tensor  * a,
-            struct ggml_tensor  * b);
+            struct ggml_tensor  * b),
+        "use ggml_add instead");
 
-    GGML_API struct ggml_tensor * ggml_add1_inplace(
+    GGML_DEPRECATED(GGML_API struct ggml_tensor * ggml_add1_inplace(
             struct ggml_context * ctx,
             struct ggml_tensor  * a,
-            struct ggml_tensor  * b);
+            struct ggml_tensor  * b),
+        "use ggml_add_inplace instead");
 
     // dst = a
     // view(dst, nb1, nb2, nb3, offset) += b

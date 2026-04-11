@@ -154,7 +154,8 @@ extern "C" {
         LLAMA_FTYPE_MOSTLY_TQ2_0         = 37, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_MXFP4_MOE     = 38, // except 1d tensors
         LLAMA_FTYPE_MOSTLY_NVFP4         = 39, // except 1d tensors
-        // Legacy HIFI types (39-43) removed - consolidated into Q4_K_HIFI (44)
+        LLAMA_FTYPE_MOSTLY_Q1_0          = 40, // except 1d tensors
+        // HIFI / LITE ftypes (44–52; 41–43 reserved — legacy HIFI ids removed)
         LLAMA_FTYPE_MOSTLY_Q4_K_HIFI     = 44, // Q4_K_M + 2-8 dynamic outliers + early exit (best quality/size ratio)
         LLAMA_FTYPE_MOSTLY_Q3_K_HIFI     = 45, // Q3_K_M base + Q6_K_HIFI on critical tensors
         LLAMA_FTYPE_MOSTLY_Q5_K_HIFI     = 46, // Q5_K_M base + Q6_K_HIFI_RES8 on top 10-15% tensors (best 5-bit quality)
@@ -202,9 +203,10 @@ extern "C" {
     LLAMA_API const char * llama_flash_attn_type_name(enum llama_flash_attn_type flash_attn_type);
 
     enum llama_split_mode {
-        LLAMA_SPLIT_MODE_NONE  = 0, // single GPU
-        LLAMA_SPLIT_MODE_LAYER = 1, // split layers and KV across GPUs
-        LLAMA_SPLIT_MODE_ROW   = 2, // split layers and KV across GPUs, use tensor parallelism if supported
+        LLAMA_SPLIT_MODE_NONE   = 0, // single GPU
+        LLAMA_SPLIT_MODE_LAYER  = 1, // split layers and KV across GPUs
+        LLAMA_SPLIT_MODE_ROW    = 2, // split layers and KV across GPUs, use tensor parallelism if supported
+        LLAMA_SPLIT_MODE_TENSOR = 3,
     };
 
     // TODO: simplify (https://github.com/ggml-org/llama.cpp/pull/9294#pullrequestreview-2286561979)
@@ -391,22 +393,33 @@ extern "C" {
         size_t                            n_samplers;
     };
 
+    struct llama_model_tensor_override {
+        const char * pattern;
+        enum ggml_type type;
+    };
+
+    struct llama_model_imatrix_data {
+        const char * name;
+        const float * data;
+        size_t size;
+    };
+
     // model quantization parameters
     typedef struct llama_model_quantize_params {
-        int32_t nthread;                      // number of threads to use for quantizing, if <=0 will use std::thread::hardware_concurrency()
-        enum llama_ftype ftype;               // quantize to this llama_ftype
-        enum ggml_type output_tensor_type;    // output tensor type
-        enum ggml_type token_embedding_type;  // token embeddings tensor type
-        bool allow_requantize;                // allow quantizing non-f32/f16 tensors
-        bool quantize_output_tensor;          // quantize output.weight
-        bool only_copy;                       // only copy tensors - ftype, allow_requantize and quantize_output_tensor are ignored
-        bool pure;                            // quantize all tensors to the default type
-        bool keep_split;                      // quantize to the same number of shards
-        bool dry_run;                         // calculate and show the final quantization size without performing quantization
-        void * imatrix;                       // pointer to importance matrix data
-        void * kv_overrides;                  // pointer to vector containing overrides
-        void * tensor_types;                  // pointer to vector containing tensor types
-        void * prune_layers;                  // pointer to vector containing layer indices to prune
+        int32_t nthread;                                            // number of threads to use for quantizing, if <=0 will use std::thread::hardware_concurrency()
+        enum llama_ftype ftype;                                     // quantize to this llama_ftype
+        enum ggml_type output_tensor_type;                          // output tensor type
+        enum ggml_type token_embedding_type;                        // token embeddings tensor type
+        bool allow_requantize;                                      // allow quantizing non-f32/f16 tensors
+        bool quantize_output_tensor;                                // quantize output.weight
+        bool only_copy;                                             // only copy tensors - ftype, allow_requantize and quantize_output_tensor are ignored
+        bool pure;                                                  // quantize all tensors to the default type
+        bool keep_split;                                            // quantize to the same number of shards
+        bool dry_run;                                               // calculate and show the final quantization size without performing quantization
+        const struct llama_model_imatrix_data * imatrix;            // pointer to importance matrix data
+        const struct llama_model_kv_override * kv_overrides;        // pointer to kv overrides
+        const struct llama_model_tensor_override * tt_overrides;    // pointer to tensor overrides
+        const int32_t * prune_layers;                               // pointer to layer indices to prune
     } llama_model_quantize_params;
 
     typedef struct llama_logit_bias {
@@ -474,6 +487,11 @@ extern "C" {
     // If the split file name does not follow this pattern, use llama_model_load_from_splits
     LLAMA_API struct llama_model * llama_model_load_from_file(
                              const char * path_model,
+              struct llama_model_params   params);
+
+    // Load a model from an open FILE pointer
+    LLAMA_API struct llama_model * llama_model_load_from_file_ptr(
+                                   FILE * file,
               struct llama_model_params   params);
 
     // Load a model from multiple splits (support custom naming scheme)
