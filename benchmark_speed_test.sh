@@ -138,7 +138,7 @@ START_TIME=$(date +%s)
 TOTAL_RUNS=$((ITERATIONS * ${#MODEL_NAMES[@]}))
 
 echo -e "${GREEN}Starting benchmark at $(date '+%H:%M:%S')...${NC}"
-EST_MINUTES=$(echo "scale=1; $TOTAL_RUNS * 5 / 60" | bc)
+EST_MINUTES=$(awk "BEGIN {printf \"%.1f\", $TOTAL_RUNS * 5 / 60}")
 echo -e "${GRAY}Total runs: $TOTAL_RUNS (estimated time: ${EST_MINUTES} minutes)${NC}"
 echo ""
 
@@ -204,7 +204,7 @@ for ((i = 1; i <= ITERATIONS; i++)); do
                     mem_unit="${BASH_REMATCH[2]}"
                     # Convert GiB to MiB for consistency
                     if [[ "$mem_unit" == "GiB" ]]; then
-                        mem_value=$(echo "scale=2; $mem_value * 1024" | bc)
+                        mem_value=$(awk "BEGIN {printf \"%.2f\", $mem_value * 1024}")
                     fi
                     echo "$mem_value" > "$TEMP_DIR/${name}_memory.txt"
                 fi
@@ -220,7 +220,7 @@ for ((i = 1; i <= ITERATIONS; i++)); do
                     mem_value="${BASH_REMATCH[1]}"
                     mem_unit="${BASH_REMATCH[2]}"
                     if [[ "$mem_unit" == "GiB" ]]; then
-                        mem_value=$(echo "scale=2; $mem_value * 1024" | bc)
+                        mem_value=$(awk "BEGIN {printf \"%.2f\", $mem_value * 1024}")
                     fi
                     echo "$mem_value" > "$TEMP_DIR/${name}_memory.txt"
                 fi
@@ -343,7 +343,7 @@ for name in "${MODEL_NAMES[@]}"; do
     stats=$(calc_stats "$name")
     STATS[$name]="$stats"
     mean=$(echo "$stats" | awk '{print $1}')
-    if (( $(echo "$mean > $FASTEST_MEAN" | bc -l) )); then
+    if awk "BEGIN {exit !($mean > $FASTEST_MEAN)}"; then
         FASTEST_MEAN=$mean
     fi
 done
@@ -358,11 +358,11 @@ print_dash
 for name in "${MODEL_NAMES[@]}"; do
     read -r mean stddev median min max p5 p95 count <<< "${STATS[$name]}"
 
-    if (( $(echo "$mean == $FASTEST_MEAN" | bc -l) )); then
+    if awk "BEGIN {exit !($mean == $FASTEST_MEAN)}"; then
         vs_best="FASTEST"
         color="${GREEN}"
     else
-        diff_pct=$(echo "scale=1; (1 - $mean / $FASTEST_MEAN) * 100" | bc)
+        diff_pct=$(awk "BEGIN {printf \"%.1f\", (1 - $mean / $FASTEST_MEAN) * 100}")
         vs_best="-${diff_pct}%"
         color="${NC}"
     fi
@@ -388,7 +388,7 @@ for name in "${MODEL_NAMES[@]}"; do
     mem=$(cat "$TEMP_DIR/${name}_memory.txt" 2>/dev/null | head -1)
     if [[ -n "$mem" && "$mem" != "" ]]; then
         MEMORY[$name]=$mem
-        if (( $(echo "$mem < $SMALLEST_MEM" | bc -l) )); then
+        if awk "BEGIN {exit !($mem < $SMALLEST_MEM)}"; then
             SMALLEST_MEM=$mem
         fi
     else
@@ -399,13 +399,13 @@ done
 for name in "${MODEL_NAMES[@]}"; do
     mem="${MEMORY[$name]}"
     if [[ "$mem" != "N/A" && -n "$mem" ]]; then
-        mem_gib=$(echo "scale=2; $mem / 1024" | bc)
+        mem_gib=$(awk "BEGIN {printf \"%.2f\", $mem / 1024}")
 
-        if (( $(echo "$mem == $SMALLEST_MEM" | bc -l) )); then
+        if awk "BEGIN {exit !($mem == $SMALLEST_MEM)}"; then
             color="${GREEN}"
             suffix=" (smallest)"
         else
-            diff_pct=$(echo "scale=1; ($mem - $SMALLEST_MEM) / $SMALLEST_MEM * 100" | bc)
+            diff_pct=$(awk "BEGIN {printf \"%.1f\", ($mem - $SMALLEST_MEM) / $SMALLEST_MEM * 100}")
             color="${NC}"
             suffix=" (+${diff_pct}%)"
         fi
@@ -464,8 +464,8 @@ for entry in "${SORTED_RANKING[@]}"; do
         FIRST_MEAN=$mean
         speed_diff=""
     else
-        diff_tps=$(echo "scale=2; $FIRST_MEAN - $mean" | bc)
-        diff_pct=$(echo "scale=1; ($diff_tps / $FIRST_MEAN) * 100" | bc)
+        diff_tps=$(awk "BEGIN {printf \"%.2f\", $FIRST_MEAN - $mean}")
+        diff_pct=$(awk "BEGIN {printf \"%.1f\", ($diff_tps / $FIRST_MEAN) * 100}")
         speed_diff="($diff_tps t/s slower, -${diff_pct}%)"
     fi
 
@@ -520,8 +520,8 @@ for entry in "${SORTED_MEM_RANKING[@]}"; do
         FIRST_MEM=$mem
         mem_diff=""
     else
-        diff_mib=$(echo "scale=2; $mem - $FIRST_MEM" | bc)
-        diff_pct=$(echo "scale=1; ($diff_mib / $FIRST_MEM) * 100" | bc)
+        diff_mib=$(awk "BEGIN {printf \"%.2f\", $mem - $FIRST_MEM}")
+        diff_pct=$(awk "BEGIN {printf \"%.1f\", ($diff_mib / $FIRST_MEM) * 100}")
         mem_diff="(+$diff_mib MiB, +${diff_pct}%)"
     fi
 
@@ -533,7 +533,7 @@ for entry in "${SORTED_MEM_RANKING[@]}"; do
     esac
 
     mem_fmt=$(printf "%.2f" "$mem")
-    mem_gib=$(echo "scale=2; $mem / 1024" | bc)
+    mem_gib=$(awk "BEGIN {printf \"%.2f\", $mem / 1024}")
     mean_fmt=$(printf "%.2f" "$mean")
 
     echo "$medal #$RANK $name: $mem_fmt MiB ($mem_gib GiB) | $mean_fmt t/s $mem_diff"
