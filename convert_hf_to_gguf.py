@@ -4295,10 +4295,10 @@ class Qwen25AudioModel(MmprojModel):
             if "audio_bos_eos_token" in name:
                 # this tensor is left unused in transformers code
                 # https://github.com/huggingface/transformers/blob/6e3063422c4b1c014aa60c32b9254fd2902f0f28/src/transformers/models/qwen2_5_omni/modular_qwen2_5_omni.py#L1809
-                return []
-            return [(self.map_tensor_name(name), data_torch)]
+                return
+            yield from super().modify_tensors(data_torch, name, bid)
 
-        return [] # skip other tensors
+        return  # skip other tensors
 
 
 @ModelBase.register("Qwen2_5OmniModel")
@@ -4321,7 +4321,7 @@ class Qwen25OmniModel(Qwen2VLVisionModel, Qwen25AudioModel):
             yield from Qwen2VLVisionModel.modify_tensors(self, data_torch, name, bid)
         elif "audio_tower." in name:
             yield from Qwen25AudioModel.modify_tensors(self, data_torch, name, bid)
-        return [] # skip other tensors
+        return  # skip other tensors
 
 
 @ModelBase.register("InternVisionModel")
@@ -4939,8 +4939,8 @@ class Qwen3VLVisionModel(MmprojModel):
             return
 
         if name.startswith("visual."):
-            yield (self.map_tensor_name(name), data_torch)
-        return [] # skip other tensors
+            yield from super().modify_tensors(data_torch, name, bid)
+        return  # skip other tensors
 
 
 @ModelBase.register("Qwen3OmniMoeForConditionalGeneration")
