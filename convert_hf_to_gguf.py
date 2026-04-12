@@ -4304,7 +4304,7 @@ class Qwen25AudioModel(MmprojModel):
                 # this tensor is left unused in transformers code
                 # https://github.com/huggingface/transformers/blob/6e3063422c4b1c014aa60c32b9254fd2902f0f28/src/transformers/models/qwen2_5_omni/modular_qwen2_5_omni.py#L1809
                 return
-            yield from super().modify_tensors(data_torch, name, bid)
+            yield from MmprojModel.modify_tensors(self, data_torch, name, bid)
 
         return  # skip other tensors
 
@@ -4947,7 +4947,7 @@ class Qwen3VLVisionModel(MmprojModel):
             return
 
         if name.startswith("visual."):
-            yield from super().modify_tensors(data_torch, name, bid)
+            yield from MmprojModel.modify_tensors(self, data_torch, name, bid)
         return  # skip other tensors
 
 
