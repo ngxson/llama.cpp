@@ -37,19 +37,22 @@ const char * LLAMA_ASCII_LOGO = R"(
 
 static std::atomic<bool> g_is_interrupted = false;
 static bool should_stop() {
-    return g_is_interrupted.load();
+    return g_is_interrupted.load(std::memory_order_acquire);
+}
+static void reset_stop() {
+    g_is_interrupted.store(false, std::memory_order_release);
 }
 
 #if defined (__unix__) || (defined (__APPLE__) && defined (__MACH__)) || defined (_WIN32)
 static void signal_handler(int) {
-    if (g_is_interrupted.load()) {
+    const bool already_interrupted = g_is_interrupted.exchange(true, std::memory_order_acq_rel);
+    if (already_interrupted) {
         // second Ctrl+C - exit immediately
         // make sure to clear colors before exiting (not using LOG or console.cpp here to avoid deadlock)
         fprintf(stdout, "\033[0m\n");
         fflush(stdout);
         std::exit(130);
     }
-    g_is_interrupted.store(true);
 }
 #endif
 
@@ -59,9 +62,6 @@ struct cli_context {
     std::vector<raw_buffer> input_files;
     task_params defaults;
     bool verbose_prompt;
-
-    // thread for showing "loading" animation
-    std::atomic<bool> loading_show;
 
     cli_context(const common_params & params) {
         defaults.sampling    = params.sampling;
@@ -150,10 +150,7 @@ struct cli_context {
         std::string curr_content;
         bool is_thinking = false;
 
-        while (result) {
-            if (should_stop()) {
-                break;
-            }
+        while (result && !should_stop()) {
             if (result->is_error()) {
                 json err_data = result->to_json();
                 if (err_data.contains("message")) {
@@ -195,7 +192,7 @@ struct cli_context {
             }
             result = rd.next(should_stop);
         }
-        g_is_interrupted.store(false);
+        reset_stop();
         // server_response_reader automatically cancels pending tasks upon destruction
         return curr_content;
     }
@@ -527,7 +524,7 @@ int llama_cli(int argc, char ** argv) {
         console::log("\n");
 
         if (should_stop()) {
-            g_is_interrupted.store(false);
+            reset_stop();
             break;
         }
 
