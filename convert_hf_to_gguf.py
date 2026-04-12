@@ -5144,6 +5144,7 @@ class Qwen3VLMoeTextModel(Qwen3MoeModel):
                 if data.get("content") == "<|im_end|>":
                     self.gguf_writer.add_bos_token_id(int(token_id))
                     self.gguf_writer.add_eos_token_id(int(token_id))
+                    break
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
@@ -5204,6 +5205,7 @@ class Qwen3OmniMoeTextModel(Qwen3VLMoeTextModel):
                 if data.get("content") == "<|im_end|>":
                     self.gguf_writer.add_bos_token_id(int(token_id))
                     self.gguf_writer.add_eos_token_id(int(token_id))
+                    break
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
@@ -5230,6 +5232,7 @@ class Qwen3ASRTextModel(Qwen3VLTextModel):
                 if data.get("content") == "<|im_end|>":
                     self.gguf_writer.add_bos_token_id(int(token_id))
                     self.gguf_writer.add_eos_token_id(int(token_id))
+                    break
 
     def modify_tensors(self, data_torch, name, bid):
         # qwen3-omni
