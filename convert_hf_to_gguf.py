@@ -5153,7 +5153,7 @@ class Qwen3VLMoeTextModel(Qwen3MoeModel):
         # Skip vision tensors - they go in the mmproj file
         if "visual." in name or "audio_tower." in name \
                 or "talker." in name or "code2wav." in name:
-            return []
+            return
 
         # qwen3-omni
         name = name.replace("thinker.", "")
