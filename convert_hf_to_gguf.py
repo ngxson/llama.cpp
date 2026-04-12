@@ -5130,34 +5130,20 @@ class Step3VLTextModel(Qwen3Model):
         yield from super().modify_tensors(data_torch, name, bid)
 
 
-@ModelBase.register("Qwen3VLMoeForConditionalGeneration", "Qwen3OmniMoeForConditionalGeneration")
+@ModelBase.register("Qwen3VLMoeForConditionalGeneration")
 class Qwen3VLMoeTextModel(Qwen3MoeModel):
     model_arch = gguf.MODEL_ARCH.QWEN3VLMOE
 
-    def set_vocab(self):
-        super().set_vocab()
-        # correct BOS/EOS tokens
-        with open(self.dir_model / "tokenizer_config.json", "r", encoding="utf-8") as f:
-            tokenizer_config = json.load(f)
-            added_tokens = tokenizer_config.get("added_tokens_decoder", {})
-            for token_id, data in added_tokens.items():
-                if data.get("content") == "<|im_end|>":
-                    self.gguf_writer.add_bos_token_id(int(token_id))
-                    self.gguf_writer.add_eos_token_id(int(token_id))
-                    break
-
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
-        self.gguf_writer.add_num_deepstack_layers(0)
+        vision_config = self.hparams.get("vision_config", {})
+        deepstack_layer_num = len(vision_config.get("deepstack_visual_indexes", []))
+        self.gguf_writer.add_num_deepstack_layers(deepstack_layer_num)
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         # Skip vision tensors - they go in the mmproj file
-        if "visual." in name or "audio_tower." in name \
-                or "talker." in name or "code2wav." in name:
+        if name.startswith("model.visual."):
             return
-
-        # qwen3-omni
-        name = name.replace("thinker.", "")
 
         # Qwen3VL has transposed packed tensors, so we treat it differently from general Qwen2MoE packed tensors
         if name.endswith("mlp.experts.down_proj") or name.endswith("mlp.experts.down_proj.weight"):
@@ -5210,6 +5196,15 @@ class Qwen3OmniMoeTextModel(Qwen3VLMoeTextModel):
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
         self.gguf_writer.add_num_deepstack_layers(0)
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        # Skip vision and audio tensors - they go in the mmproj file
+        if "visual." in name or "audio_tower." in name \
+                or "talker." in name or "code2wav." in name:
+            return
+
+        name = name.replace("thinker.", "")
+        yield from super().modify_tensors(data_torch, name, bid)
 
 
 @ModelBase.register("Qwen3ASRForConditionalGeneration")
