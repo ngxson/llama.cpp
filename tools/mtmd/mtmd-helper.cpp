@@ -114,7 +114,7 @@ llama_pos mtmd_helper_get_n_pos(const mtmd_input_chunks * chunks) {
     return n_pos;
 }
 
-void mtmd_helper_get_decoder_pos(const mtmd_image_tokens * chunks, mtmd_decoder_pos * out_pos) {
+void mtmd_helper_image_get_decoder_pos(const mtmd_image_tokens * chunks, mtmd_decoder_pos * out_pos) {
     size_t n_tokens = mtmd_image_tokens_get_n_tokens(chunks);
     for (size_t i = 0; i < n_tokens; i++) {
         out_pos[i] = mtmd_image_tokens_get_decoder_pos(chunks, i);
