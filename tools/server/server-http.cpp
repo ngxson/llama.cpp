@@ -445,7 +445,16 @@ void server_http_context::post(const std::string & path, const server_http_conte
             // translate text fields to a JSON object and use it as the body
             json form_json = json::object();
             for (const auto & [key, field] : req.form.fields) {
-                form_json[key] = field.content;
+                if (form_json.contains(key)) {
+                    // if the key already exists, convert it to an array
+                    if (!form_json[key].is_array()) {
+                        json existing_value = form_json[key];
+                        form_json[key] = json::array({existing_value});
+                    }
+                    form_json[key].push_back(field.content);
+                } else {
+                    form_json[key] = field.content;
+                }
             }
             body = form_json.dump();
 

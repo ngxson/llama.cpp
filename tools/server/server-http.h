@@ -5,6 +5,8 @@
 #include <map>
 #include <string>
 #include <thread>
+#include <vector>
+#include <cstdint>
 
 struct common_params;
 

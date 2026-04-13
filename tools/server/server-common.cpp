@@ -1451,8 +1451,8 @@ json convert_transcriptions_to_chatcmpl(
     std::string prompt = json_value(inp_body, "prompt", std::string());
     std::string language = json_value(inp_body, "language", std::string());
     std::string response_format = json_value(inp_body, "response_format", std::string("text"));
-    if (response_format != "text") {
-        throw std::invalid_argument("Only 'text' response_format is supported for transcription");
+    if (response_format != "json") {
+        throw std::invalid_argument("Only 'json' response_format is supported for transcription");
     }
     if (prompt.empty()) {
         prompt = "Transcribe audio to text";
