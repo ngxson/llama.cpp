@@ -1450,7 +1450,7 @@ json convert_transcriptions_to_chatcmpl(
     // handle input data
     std::string prompt = json_value(inp_body, "prompt", std::string());
     std::string language = json_value(inp_body, "language", std::string());
-    std::string response_format = json_value(inp_body, "response_format", std::string("text"));
+    std::string response_format = json_value(inp_body, "response_format", std::string("json"));
     if (response_format != "json") {
         throw std::invalid_argument("Only 'json' response_format is supported for transcription");
     }
