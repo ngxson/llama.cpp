@@ -1264,15 +1264,16 @@ size_t mtmd_image_tokens_get_ny(const mtmd_image_tokens * image_tokens) {
 
 mtmd_decoder_pos mtmd_image_tokens_get_decoder_pos(const mtmd_image_tokens * image_tokens, size_t i) {
     mtmd_decoder_pos pos;
-    if (image_tokens->n_boi > 0) {
+    auto n_boi = image_tokens->n_boi;
+    if (n_boi > 0) {
         // falcon-ocr style
-        if (i < image_tokens->n_boi) {
-            pos.t = 0;
+        if (i < n_boi) {
+            pos.t = i;
             pos.x = 0;
             pos.y = 0;
         } else {
-            pos.t = 0;
-            size_t idx = i - image_tokens->n_boi;
+            size_t idx = i - n_boi;
+            pos.t = n_boi; // all image tokens share the same temporal pos
             pos.x = idx % image_tokens->nx;
             pos.y = idx / image_tokens->nx;
         }

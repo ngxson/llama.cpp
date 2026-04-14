@@ -3043,12 +3043,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
             } break;
         case PROJECTOR_TYPE_FALCON_OCR:
             {
-                // dynamic size with multiple begin-of-image tokens
-                GGML_ASSERT(params.n_merge == 1);
-                int out_patch_size = params.patch_size;
-                int x_patch = CLIP_ALIGN(img->nx, out_patch_size) / out_patch_size;
-                int y_patch = CLIP_ALIGN(img->ny, out_patch_size) / out_patch_size;
-                n_patches = (x_patch * y_patch) + ctx->model.mm_img_begin->ne[2]; // add number of BOI tokens
+                n_patches += clip_get_n_boi(ctx); // add number of BOI tokens
             } break;
         default:
             GGML_ABORT("unsupported projector type");
@@ -3490,6 +3485,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_PHI4:
         case PROJECTOR_TYPE_COGVLM:
         case PROJECTOR_TYPE_HUNYUANOCR:
+        case PROJECTOR_TYPE_FALCON_OCR:
             {
                 // do nothing
             } break;
@@ -3729,6 +3725,8 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
             return ctx->model.hparams.projection_dim;
         case PROJECTOR_TYPE_GLM4V:
             return ctx->model.mm_ffn_down_w->ne[1];
+        case PROJECTOR_TYPE_FALCON_OCR:
+            return ctx->model.mm_0_w->ne[1];
         default:
             GGML_ABORT("Unknown projector type");
     }

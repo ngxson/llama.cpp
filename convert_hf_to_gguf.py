@@ -2749,7 +2749,7 @@ class FalconOCRMmprojModel(MmprojModel):
             ids = tokenizer.encode(prefix_str, add_special_tokens=False)
             prefix_embd = data_torch[ids].contiguous()
             logger.info(f"Extracted {len(ids)} prefix embeddings (token IDs: {ids})")
-            yield (self.format_tensor_name(gguf.MODEL_TENSOR.V_TOK_IMG_BEGIN), prefix_embd)
+            yield (self.format_tensor_name(gguf.MODEL_TENSOR.V_TOK_IMG_BEGIN, suffix=""), prefix_embd)
             return
 
         return

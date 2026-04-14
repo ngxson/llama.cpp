@@ -235,7 +235,7 @@ struct llm_build_falcon_h1 : public llm_build_mamba_base {
     llm_build_falcon_h1(const llama_model & model, const llm_graph_params & params);
 };
 
-struct llm_build_falcon_ocr : public llm_build_mamba_base {
+struct llm_build_falcon_ocr : public llm_graph_context {
     llm_build_falcon_ocr(const llama_model & model, const llm_graph_params & params);
 };
 

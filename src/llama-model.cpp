@@ -9295,6 +9295,10 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
             {
                 llm = std::make_unique<llm_build_step35_iswa>(*this, params);
             } break;
+        case LLM_ARCH_FALCON_OCR:
+            {
+                llm = std::make_unique<llm_build_falcon_ocr>(*this, params);
+            } break;
         default:
             GGML_ABORT("fatal error");
     }
