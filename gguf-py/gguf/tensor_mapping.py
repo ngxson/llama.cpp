@@ -357,6 +357,7 @@ class TensorNameMap:
         MODEL_TENSOR.ATTN_SINKS: (
             "model.layers.{bid}.self_attn.sinks", # openai-moe
             "model.layers.{bid}.self_attn.attention_sink_bias", # mimov2
+            "layers.{bid}.attention.sinks", # falcon_ocr
         ),
 
         MODEL_TENSOR.ATTN_GATE: (
