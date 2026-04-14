@@ -2653,25 +2653,17 @@ class FalconOCRModel(TextModel):
         self.gguf_writer.add_rope_dimension_count(hparams["head_dim"] // 2)
         self.gguf_writer.add_add_bos_token(False)
 
+    def tensor_force_quant(self, name, new_name, bid, n_dims):
+        if "freqs" in name:
+            return gguf.GGMLQuantizationType.F32
+        return super().tensor_force_quant(name, new_name, bid, n_dims)
+
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         if "img_projector" in name:
             return
 
         if name == "freqs_cis_golden":
             yield (self.format_tensor_name(gguf.MODEL_TENSOR.ROPE_FREQS), data_torch)
-            return
-
-        # Split fused QKV into separate Q, K, V
-        if "attention.wqkv" in name:
-            n_heads = self.hparams["n_heads"]
-            n_kv_heads = self.hparams["n_kv_heads"]
-            head_dim = self.hparams["head_dim"]
-            q_dim = n_heads * head_dim      # 16 * 64 = 1024
-            kv_dim = n_kv_heads * head_dim  # 8 * 64 = 512
-            q, k, v = data_torch.split([q_dim, kv_dim, kv_dim], dim=0)
-            yield from super().modify_tensors(q, name.replace("wqkv", "wq"), bid)
-            yield from super().modify_tensors(k, name.replace("wqkv", "wk"), bid)
-            yield from super().modify_tensors(v, name.replace("wqkv", "wv"), bid)
             return
 
         # Deinterleave fused w13 into separate gate (even rows) and up (odd rows)
@@ -2729,6 +2721,11 @@ class FalconOCRMmprojModel(MmprojModel):
         self.gguf_writer.add_vision_feed_forward_length(1)
         self.gguf_writer.add_vision_block_count(0)
         self.gguf_writer.add_vision_attention_layernorm_eps(1e-5)
+
+    def tensor_force_quant(self, name, new_name, bid, n_dims):
+        if "tok_embeddings" in name:
+            return gguf.GGMLQuantizationType.F32
+        return super().tensor_force_quant(name, new_name, bid, n_dims)
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         if name == "img_projector.weight":

@@ -230,6 +230,7 @@ class TensorNameMap:
             "layers.{bid}.attn.Wqkv",                                              # modern-bert
             "model.layers.{bid}.self_attn.language_expert_query_key_value",        # cogvlm
             "model.layers.{bid}.linear_attn.in_proj_qkv",                          # qwen3.5
+            "layers.{bid}.attention.wqkv",                                         # falcon-ocr
         ),
 
         # Attention query
