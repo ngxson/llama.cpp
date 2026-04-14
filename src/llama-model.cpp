@@ -18,9 +18,6 @@
 #include "ggml.h"
 #include "ggml-cpp.h"
 
-// TODO: tmp until the ggml meta backend matures and becomes public
-#include "ggml-ext.h"
-
 #include <algorithm>
 #include <cassert>
 #include <cfloat>
