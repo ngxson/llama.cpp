@@ -2,12 +2,108 @@
 
 #include <vector>
 
-llm_build_falcon_ocr::llm_build_falcon_ocr(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
-    const int64_t n_embd      = hparams.n_embd;
-    const int64_t n_embd_head = hparams.n_embd_head_v();
-    const int64_t n_embd_gqa  = hparams.n_embd_v_gqa();
+static ggml_tensor * rope_golden_axis(
+        ggml_context * ctx0,
+        ggml_tensor * cur,   // [n_embd/2]
+        ggml_tensor * freqs, // [n_embd/4]
+        ggml_tensor * pos    // [n_token]
+) {
+    auto n_dim = cur->ne[0];
+    return ggml_rope_ext(
+        ctx0, cur, pos, freqs,
+        n_dim, 0, 0,
+        1.0f, // freq_base (ignored because we provide freqs directly)
+        1.0f, // freq_scale
+        0.0f, 1.0f, 0.0f, 0.0f
+    );
+}
 
+static ggml_tensor * rope_falcon(
+    ggml_context * ctx0,
+    ggml_tensor * cur,
+    ggml_tensor * freqs,
+    ggml_tensor * pos,
+    float freq_base,
+    float freq_scale
+) {
+    // falcon-ocr style RoPE:
+    // - first half of head_dim rotates as normal (1D temporal RoPE)
+    // - second half of head_dim rotates with "golden" RoPE (2D RoPE with freq_h and freq_w)
+    //   theta = freq_h * pos_h + freq_w * pos_w
+
+    // the tricks for "golden" rope are:
+    // - we decompose it into 2 rotations: first rotate by freq_h * pos_h, then rotate by freq_w * pos_w
+    // - instead of rotating per-head, we rotate the whole n_embd_half (because "golden" freq different for each head, but ggml_rope only supports one set of freqs broadcasted across all heads)
+
+    const int64_t n_dim  = cur->ne[0];
+    const int64_t n_head = cur->ne[1];
+    const int64_t n_pos  = cur->ne[2];
+
+    GGML_ASSERT(pos->type == GGML_TYPE_I32);
+    GGML_ASSERT(pos->ne[0] == n_pos * 4); // must be m-rope format
+    ggml_tensor * pos_t = ggml_view_1d(ctx0, pos, n_pos, 0);
+    ggml_tensor * pos_y = ggml_view_1d(ctx0, pos, n_pos, ggml_row_size(pos->type, n_pos));
+    ggml_tensor * pos_x = ggml_view_1d(ctx0, pos, n_pos, ggml_row_size(pos->type, n_pos * 2));
+
+    // first half
+    ggml_tensor * first;
+    {
+        first = ggml_view_3d(ctx0, cur,
+            n_dim/2, n_head, n_pos,
+            cur->nb[1],
+            cur->nb[2],
+            0);
+        first = ggml_rope_ext(
+            ctx0, first, pos_t, nullptr,
+            n_dim/2, GGML_ROPE_TYPE_NORMAL,
+            0,
+            freq_base,
+            freq_scale,
+            0.0f, 1.0f, 0.0f, 0.0f
+        );
+    }
+
+    // second half
+    ggml_tensor * second;
+    {
+        const int64_t n_embd_half = n_dim * n_head / 2;
+        // printf("shape of cur: %d x %d x %d\n", (int)cur->ne[0], (int)cur->ne[1], (int)cur->ne[2]);
+        // printf("shape of freqs: %d x %d x %d\n", (int)freqs->ne[0], (int)freqs->ne[1], (int)freqs->ne[2]);
+        // printf("n_embd_half: %d\n", (int)n_embd_half);
+        // freqs shape: ne[0]=n_head*n_rot/2, ne[1]=2
+        // layout: all h-freqs contiguous first, then all w-freqs
+        GGML_ASSERT(freqs->type == GGML_TYPE_F32);
+        GGML_ASSERT(freqs->ne[0] == n_embd_half / 2 && freqs->ne[1] == 2);
+        // n_embd_half/2 = n_head * n_rot/2 (matches conversion: permute(2,0,1).reshape(2,-1))
+        ggml_tensor * freqs_h = ggml_view_1d(ctx0, freqs, n_embd_half / 2, 0);
+        ggml_tensor * freqs_w = ggml_view_1d(ctx0, freqs, n_embd_half / 2, ggml_row_size(freqs->type, n_embd_half / 2));
+
+        second = ggml_view_3d(ctx0, cur,
+            n_dim/2, n_head, n_pos,
+            cur->nb[1],
+            cur->nb[2],
+            ggml_row_size(cur->type, n_dim/2));
+
+        // flatten head dim; keep n_pos on ne[2] so ggml_rope_ext sees a->ne[2] == pos->ne[0]
+        second = ggml_cont(ctx0, second);
+        second = ggml_reshape_3d(ctx0, second, n_embd_half, 1, n_pos);
+
+        // apply each axis sequentially
+        second = rope_golden_axis(ctx0, second, freqs_w, pos_x);
+        second = rope_golden_axis(ctx0, second, freqs_h, pos_y);
+
+        // unflatten head dim
+        second = ggml_reshape_3d(ctx0, second, n_dim/2, n_head, n_pos);
+    }
+
+    cur = ggml_concat(ctx0, first, second, 0);
+    return cur;
+}
+
+llm_build_falcon_ocr::llm_build_falcon_ocr(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
+    const int64_t n_embd_head = hparams.n_embd_head_v();
     GGML_ASSERT(n_embd_head == hparams.n_embd_head_k());
+    GGML_ASSERT(n_embd_head == n_rot * 2);
 
     ggml_tensor * cur;
     ggml_tensor * inpL;
@@ -30,18 +126,25 @@ llm_build_falcon_ocr::llm_build_falcon_ocr(const llama_model & model, const llm_
         cb(cur, "attn_norm", il);
 
         {
+            // note: model doesn't actually use GQA due to "golden" rope enforcing Q dimension
+            const int64_t n_head_kv_ratio = 2;
+            const int64_t n_head_kv = n_head / n_head_kv_ratio;
+            const int64_t n_embd_q = n_embd_head * n_head;
+            const int64_t n_embd_k = n_embd_head * n_head_kv;
+            const int64_t n_embd_v = n_embd_head * n_head_kv;
+
             cur = build_lora_mm(model.layers[il].wqkv, cur);
             cb(cur, "wqkv", il);
 
             ggml_tensor * Qcur = ggml_view_3d(ctx0, cur,
-                                    n_embd_head, n_head, n_tokens, n_embd_head * sizeof(float), cur->nb[1],
-                                    0 * sizeof(float) * (n_embd));
+                                    n_embd_head, n_head,    n_tokens, n_embd_head * sizeof(float),
+                                    cur->nb[1], ggml_row_size(cur->type, n_embd_q));
             ggml_tensor * Kcur = ggml_view_3d(ctx0, cur,
                                     n_embd_head, n_head_kv, n_tokens, n_embd_head * sizeof(float),
-                                    cur->nb[1], 1 * sizeof(float) * (n_embd));
+                                    cur->nb[1], ggml_row_size(cur->type, n_embd_k));
             ggml_tensor * Vcur = ggml_view_3d(ctx0, cur,
                                     n_embd_head, n_head_kv, n_tokens, n_embd_head * sizeof(float),
-                                    cur->nb[1], 1 * sizeof(float) * (n_embd + n_embd_gqa));
+                                    cur->nb[1], ggml_row_size(cur->type, n_embd_v));
 
             // Parameterless QK-norm (before RoPE)
             Qcur = ggml_rms_norm(ctx0, Qcur, hparams.f_norm_rms_eps);
@@ -50,16 +153,13 @@ llm_build_falcon_ocr::llm_build_falcon_ocr(const llama_model & model, const llm_
             Kcur = ggml_rms_norm(ctx0, Kcur, hparams.f_norm_rms_eps);
             cb(Kcur, "Kcur_normed", il);
 
-            // 1D temporal RoPE (first half of head_dim; n_rot = head_dim/2)
-            Qcur = ggml_rope_ext(
-                    ctx0, Qcur, inp_pos, nullptr,
-                    n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
-                    ext_factor, attn_factor, beta_fast, beta_slow);
+            // repeat K and V to match shape of Q (required by rope_falcon)
+            Kcur = ggml_repeat(ctx0, Kcur, Qcur);
+            Vcur = ggml_repeat(ctx0, Vcur, Qcur);
 
-            Kcur = ggml_rope_ext(
-                    ctx0, Kcur, inp_pos, nullptr,
-                    n_rot, rope_type, n_ctx_orig, freq_base, freq_scale,
-                    ext_factor, attn_factor, beta_fast, beta_slow);
+            // rope
+            Qcur = rope_falcon(ctx0, Qcur, model.layers[il].rope_freqs, inp_pos, freq_base, freq_scale);
+            Kcur = rope_falcon(ctx0, Kcur, model.layers[il].rope_freqs, inp_pos, freq_base, freq_scale);
 
             cb(Qcur, "Qcur", il);
             cb(Kcur, "Kcur", il);

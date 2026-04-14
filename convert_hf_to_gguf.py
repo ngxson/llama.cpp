@@ -2636,6 +2636,8 @@ class FalconOCRModel(TextModel):
 
     def set_vocab(self):
         self._set_vocab_gpt2()
+        # this model does not actually use the chat template, but we need to make sure to avoid any additional formatting
+        self.gguf_writer.add_chat_template("{% for m in messages %}{{ m['content'] + '\\n' }}{% endfor %}")
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
@@ -2653,6 +2655,10 @@ class FalconOCRModel(TextModel):
         self.gguf_writer.add_rope_dimension_count(hparams["head_dim"] // 2)
         self.gguf_writer.add_add_bos_token(False)
 
+        # important: because "golden" rope must be applied to fit Q shape,
+        # we must force number of KV heads to be the same as number of Q heads
+        self.gguf_writer.add_head_count_kv(hparams["n_heads"]) # not n_kv_heads
+
     def tensor_force_quant(self, name, new_name, bid, n_dims):
         if "freqs" in name:
             return gguf.GGMLQuantizationType.F32
@@ -2663,6 +2669,16 @@ class FalconOCRModel(TextModel):
             return
 
         if name == "freqs_cis_golden":
+            # original shape: [n_heads, rope_dim // 2, 2]
+            # permute to [2, n_heads, rope_dim//2] so h-freqs and w-freqs are contiguous,
+            # then flatten to [2, n_heads * rope_dim//2]
+            # ggml loads this as ne[0]=n_heads*rope_dim//2, ne[1]=2
+            data_torch = data_torch.permute(2, 0, 1).contiguous().reshape(2, -1)
+            # ggml_rope_ext computes theta = pos_int / freq_factor (freq_base=1.0)
+            # pos_int is fixed-point: pos_int = actual_pos * 1e6
+            # golden rope needs theta = freqs_actual * actual_pos = freqs_actual * pos_int / 1e6
+            # => freq_factor = 1e6 / freqs_actual
+            data_torch = 1e6 / data_torch
             yield (self.format_tensor_name(gguf.MODEL_TENSOR.ROPE_FREQS), data_torch)
             return
 

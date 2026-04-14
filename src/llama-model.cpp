@@ -7990,12 +7990,16 @@ bool llama_model::load_tensors(llama_model_loader & ml) {
                     output_norm = create_tensor(tn(LLM_TENSOR_OUTPUT_NORM, "weight"), {n_embd}, 0);
                     output      = create_tensor(tn(LLM_TENSOR_OUTPUT,      "weight"), {n_embd, n_vocab}, 0);
 
-                    const int64_t n_embd_qkv = (n_embd_head_k * n_head) + n_embd_k_gqa + n_embd_v_gqa;
+                    // note: the model doesn't actually use GQA due to "golden" rope enforcing Q dimension
+                    const int64_t n_head_kv_ratio = 2;
+                    const int64_t n_embd_qkv = (n_embd_head_k * n_head)
+                                                + n_embd_k_gqa / n_head_kv_ratio
+                                                + n_embd_v_gqa / n_head_kv_ratio;
 
                     for (int i = 0; i < n_layer; ++i) {
                         auto & layer = layers[i];
 
-                        layer.rope_freqs = create_tensor(tn(LLM_TENSOR_ROPE_FREQS, "weight", i), {2, n_rot/2, n_head}, TENSOR_NOT_REQUIRED | (i != 0 ? TENSOR_DUPLICATED : 0));
+                        layer.rope_freqs = create_tensor(tn(LLM_TENSOR_ROPE_FREQS, "weight", i), {n_head * n_rot/2, 2}, TENSOR_NOT_REQUIRED | (i != 0 ? TENSOR_DUPLICATED : 0));
 
                         layer.wqkv = create_tensor(tn(LLM_TENSOR_ATTN_QKV, "weight", i), {n_embd, n_embd_qkv}, 0);
                         layer.wo   = create_tensor(tn(LLM_TENSOR_ATTN_OUT, "weight", i), {n_embd_head_k * n_head, n_embd}, 0);

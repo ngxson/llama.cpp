@@ -1037,6 +1037,7 @@ bool mtmd_decode_use_non_causal(mtmd_context * ctx, const mtmd_input_chunk * chu
     switch (proj_type) {
         case PROJECTOR_TYPE_GEMMA3:
         case PROJECTOR_TYPE_GEMMA4V:
+        case PROJECTOR_TYPE_FALCON_OCR:
             return true;
         default:
             return false;
@@ -1295,6 +1296,10 @@ llama_pos mtmd_image_tokens_get_n_pos(const mtmd_image_tokens * image_tokens) {
         // for M-RoPE, temporal dimension = max(t,h,w)
         // t is omitted as we don't support video input
         return std::max(image_tokens->nx, image_tokens->ny);
+    }
+    if (image_tokens->n_boi > 0) {
+        // for falcon-ocr, temporal dimension = n_boi + 1 (for all image tokens)
+        return image_tokens->n_boi + 1;
     }
     return image_tokens->n_tokens();
 }
