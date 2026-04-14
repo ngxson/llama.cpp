@@ -4154,7 +4154,7 @@ class VisionProjectorType:
     YOUTUVL = "youtuvl"
     NEMOTRON_V2_VL = "nemotron_v2_vl"
     HUNYUANOCR = "hunyuanocr"
-    FALCON_OCR = "falcon_ocr"
+    FALCON_OCR = "falcon-ocr"
 
 
 # Items here are (block size, type size)
