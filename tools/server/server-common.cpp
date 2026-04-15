@@ -61,8 +61,15 @@ json format_error_response(const std::string & message, const enum error_type ty
 // random string / id
 //
 
-std::string random_string() {
-    static const std::string str("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz");
+std::string random_string(bool include_special) {
+    static const std::string str_no_special(
+        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+    );
+    static const std::string str_with_special(
+        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%^&*()-_=+[]{}|;:,.<>?/~`"
+    );
+
+    auto & str = include_special ? str_with_special : str_no_special;
 
     std::random_device rd;
     std::mt19937 generator(rd());
@@ -81,7 +88,15 @@ std::string gen_chatcmplid() {
 }
 
 std::string gen_tool_call_id() {
-    return random_string();
+    return random_string(true);
+}
+
+static std::string media_marker = "";
+const char * get_media_marker() {
+    if (media_marker.empty()) {
+        media_marker = "<__media_" + random_string() + "__>";
+    }
+    return media_marker.c_str();
 }
 
 //
@@ -975,7 +990,7 @@ json oaicompat_chat_params_parse(
                 handle_media(out_files, image_url, opt.media_path);
 
                 p["type"] = "media_marker";
-                p["text"] = mtmd_default_marker();
+                p["text"] = get_media_marker();
                 p.erase("image_url");
 
             } else if (type == "input_audio") {
@@ -996,7 +1011,7 @@ json oaicompat_chat_params_parse(
                 // TODO: add audio_url support by reusing handle_media()
 
                 p["type"] = "media_marker";
-                p["text"] = mtmd_default_marker();
+                p["text"] = get_media_marker();
                 p.erase("input_audio");
 
             } else if (type != "text") {
@@ -1460,7 +1475,7 @@ json convert_transcriptions_to_chatcmpl(
     if (!language.empty()) {
         prompt += string_format(" (language: %s)", language.c_str());
     }
-    prompt += mtmd_default_marker();
+    prompt += get_media_marker();
 
     json chatcmpl_body = inp_body; // copy all fields
     chatcmpl_body["messages"] = json::array({
