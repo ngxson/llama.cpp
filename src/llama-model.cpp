@@ -8775,7 +8775,27 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, 
 }
 
 ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
-    std::unique_ptr<llm_graph_context> llm;
+    std::unique_ptr<llm_graph_context> llm = build_graph_context(params);
+
+    // add on pooling layer
+    llm->build_pooling(cls, cls_b, cls_out, cls_out_b, cls_norm);
+
+    // add backend sampling layers (if any)
+    llm->build_sampling();
+
+    // if the gguf model was converted with --sentence-transformers-dense-modules
+    // there will be two additional dense projection layers
+    // dense linear projections are applied after pooling
+    // TODO: move reranking logic here and generalize
+    llm->build_dense_out(dense_2_out_layers, dense_2_out_layers_b, dense_3_out_layers);
+
+    llm->res->set_outputs();
+
+    return llm->res->get_gf();
+}
+
+static ggml_cgraph * build_graph_to_be_migrated(const llm_graph_params & params) {
+    // MARKER_START_MIGRATION_LOAD_HPARAMS
 
     switch (arch) {
         case LLM_ARCH_LLAMA:
@@ -9282,21 +9302,7 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
             GGML_ABORT("fatal error");
     }
 
-    // add on pooling layer
-    llm->build_pooling(cls, cls_b, cls_out, cls_out_b, cls_norm);
-
-    // add backend sampling layers (if any)
-    llm->build_sampling();
-
-    // if the gguf model was converted with --sentence-transformers-dense-modules
-    // there will be two additional dense projection layers
-    // dense linear projections are applied after pooling
-    // TODO: move reranking logic here and generalize
-    llm->build_dense_out(dense_2_out_layers, dense_2_out_layers_b, dense_3_out_layers);
-
-    llm->res->set_outputs();
-
-    return llm->res->get_gf();
+    // MARKER_END_MIGRATION_LOAD_HPARAMS
 }
 
 
