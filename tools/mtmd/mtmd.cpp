@@ -92,7 +92,8 @@ enum mtmd_slice_tmpl {
 };
 
 const char * mtmd_default_marker() {
-    return "<__media__>";
+    const char * env_marker = std::getenv("MTMD_DEFAULT_MARKER");
+    return env_marker ? env_marker : "<__media__>";
 }
 
 static clip_flash_attn_type mtmd_get_clip_flash_attn_type(enum llama_flash_attn_type flash_attn_type) {

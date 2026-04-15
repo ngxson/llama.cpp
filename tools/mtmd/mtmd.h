@@ -101,6 +101,7 @@ struct mtmd_context_params {
     void * cb_eval_user_data;
 };
 
+// get the default marker string, which can be customized via MTMD_DEFAULT_MARKER environment variable
 MTMD_API const char * mtmd_default_marker(void);
 
 MTMD_API struct mtmd_context_params mtmd_context_params_default(void);
