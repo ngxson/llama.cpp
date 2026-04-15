@@ -1842,6 +1842,8 @@ extern "C" {
     //  given a single head with size = 8 --> [00000000]
     //  GGML_ROPE_TYPE_VISION  n_dims = 4 --> [yyyyxxxx]
     //  other values of n_dims are untested and is undefined behavior
+    //  note: unlike MROPE, the theta for each dim is computed differently for each section
+    //        in other words, idx used for theta: [0123] for y section, then [0123] for x section
     GGML_API struct ggml_tensor * ggml_rope_multi(
             struct ggml_context * ctx,
             struct ggml_tensor  * a,
