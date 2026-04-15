@@ -581,13 +581,13 @@ struct llama_model {
     int64_t t_start_us = 0;
 
     explicit llama_model(const struct llama_model_params & params);
-    ~llama_model();
+    virtual ~llama_model();
 
-    void load_stats  (llama_model_loader & ml);
-    void load_arch   (llama_model_loader & ml);
-    void load_hparams(llama_model_loader & ml);
-    void load_vocab  (llama_model_loader & ml);
-    bool load_tensors(llama_model_loader & ml); // returns false if cancelled by progress_callback
+    void load_stats           (llama_model_loader & ml);
+    void load_arch            (llama_model_loader & ml);
+    void load_hparams_internal(llama_model_loader & ml);
+    void load_vocab           (llama_model_loader & ml);
+    bool load_tensors_internal(llama_model_loader & ml); // returns false if cancelled by progress_callback
 
     std::string arch_name() const;
     std::string type_name() const;
@@ -626,8 +626,12 @@ struct llama_model {
     // TODO: move this to new llm_arch_model_i interface
     llama_memory_i * create_memory(const llama_memory_params & params, const llama_cparams & cparams) const;
 
-    // TODO: move this to new llm_arch_model_i interface
     ggml_cgraph * build_graph(const llm_graph_params & params) const;
+
+    // model must define these
+    virtual void load_hparams(llama_model_loader & ml) = 0;
+    virtual void load_tensors(llama_model_loader & ml) = 0;
+    virtual std::unique_ptr<llm_graph_context> build_graph_context(const llm_graph_params & params) const = 0;
 
 private:
     llama_model_params params;
@@ -641,3 +645,25 @@ const char * llm_type_name(llm_type type);
 // For internal test use
 // TODO: remove
 const std::vector<std::pair<std::string, ggml_tensor *>> & llama_internal_get_tensor_map(const llama_model * model);
+
+
+
+
+// DEMO (to be removed)
+struct llama_model_demo : public llama_model {
+    llama_model_demo(const struct llama_model_params & params) : llama_model(params) {}
+    void load_hparams(llama_model_loader & ml) override {
+        hparams.n_layer = 100;
+    }
+    void load_tensors(llama_model_loader & ml) override {
+        output = nullptr;
+    }
+    struct graph : public llm_graph_context {
+        graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
+            ggml_build_forward_expand(gf, nullptr);
+        }
+    };
+    std::unique_ptr<llm_graph_context> build_graph_context(const llm_graph_params & params) const override {
+        return std::make_unique<graph>(*this, params);
+    }
+};
