@@ -12,17 +12,21 @@
 #include <array>
 #include <atomic>
 #include <algorithm>
+#include <csignal>
 #include <filesystem>
 #include <fstream>
 #include <thread>
-#include <signal.h>
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX
 #   define NOMINMAX
 #endif
+#include <io.h>
+#include <stdio.h>
 #include <windows.h>
+#elif defined (__unix__) || (defined (__APPLE__) && defined (__MACH__))
+#include <unistd.h>
 #endif
 
 const char * LLAMA_ASCII_LOGO = R"(
@@ -49,9 +53,13 @@ static void signal_handler(int) {
     if (already_interrupted) {
         // second Ctrl+C - exit immediately
         // make sure to clear colors before exiting (not using LOG or console.cpp here to avoid deadlock)
-        fprintf(stdout, "\033[0m\n");
-        fflush(stdout);
-        std::exit(130);
+        static constexpr char color_reset[] = "\033[0m\n";
+#if defined(_WIN32)
+        _write(_fileno(stdout), color_reset, sizeof(color_reset) - 1);
+#else
+        [[maybe_unused]] ssize_t ret = write(STDOUT_FILENO, color_reset, sizeof(color_reset) - 1);
+#endif
+        _exit(128 + SIGINT);
     }
 }
 #endif
