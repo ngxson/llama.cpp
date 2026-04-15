@@ -8795,7 +8795,7 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
 }
 
 static ggml_cgraph * build_graph_to_be_migrated(const llm_graph_params & params) {
-    // MARKER_START_MIGRATION_LOAD_HPARAMS
+    // MARKER_START_MIGRATION_BUILD_GRAPH
 
     switch (arch) {
         case LLM_ARCH_LLAMA:
@@ -9302,7 +9302,7 @@ static ggml_cgraph * build_graph_to_be_migrated(const llm_graph_params & params)
             GGML_ABORT("fatal error");
     }
 
-    // MARKER_END_MIGRATION_LOAD_HPARAMS
+    // MARKER_END_MIGRATION_BUILD_GRAPH
 }
 
 
