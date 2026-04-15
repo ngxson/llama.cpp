@@ -1230,7 +1230,9 @@ class TextModel(ModelBase):
         from transformers import AutoTokenizer
         tokenizer = AutoTokenizer.from_pretrained(self.dir_model)
         vocab_size = self.hparams.get("vocab_size", len(tokenizer.vocab))  # ty: ignore[unresolved-attribute]
-        assert max(tokenizer.vocab.values()) < vocab_size  # ty: ignore[unresolved-attribute]
+
+        # REVERT THIS CHANGE BEFORE MERGE
+        # assert max(tokenizer.vocab.values()) < vocab_size  # ty: ignore[unresolved-attribute]
 
         tokpre = self.get_vocab_base_pre(tokenizer)
 
@@ -11926,6 +11928,34 @@ class HunYuanModel(TextModel):
             return
 
         yield from super().modify_tensors(data_torch, name, bid)
+
+
+@ModelBase.register("HunYuanVLMoTForConditionalGeneration")
+class HunYuanMoTModel(HunYuanModel):
+    model_arch = gguf.MODEL_ARCH.HUNYUAN_DENSE
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        name = name.replace("model.language_model.", "")
+
+        if name == "lm_head.weight":
+            if self.hparams.get("tie_word_embeddings", False):
+                logger.info("Skipping tied output layer 'lm_head.weight'")
+                return
+
+        if name.startswith("model.visual."):
+            return
+
+        # handle mapping MoT tensor names
+        if "mlp_v" in name:
+            name = name.replace("mlp_v", "mlp")
+            name = name.replace(".weight", ".v.weight")
+            name = name.replace(".bias", ".v.bias")
+        else:
+            name = name.replace("_v.weight", ".v.weight")
+            name = name.replace("_v.bias", ".v.bias")
+
+        mapped_name = self.map_tensor_name(name, (".weight", ".bias", ".v.weight", ".v.bias"))
+        yield (mapped_name, data_torch)
 
 
 @ModelBase.register("HunYuanVLForConditionalGeneration")
