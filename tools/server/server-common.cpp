@@ -61,15 +61,8 @@ json format_error_response(const std::string & message, const enum error_type ty
 // random string / id
 //
 
-std::string random_string(bool include_special) {
-    static const std::string str_no_special(
-        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
-    );
-    static const std::string str_with_special(
-        "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz!@#$%^&*()-_=+[]{}|;:,.<>?/~`"
-    );
-
-    auto & str = include_special ? str_with_special : str_no_special;
+std::string random_string() {
+    static const std::string str("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz");
 
     std::random_device rd;
     std::mt19937 generator(rd());
@@ -94,7 +87,7 @@ std::string gen_tool_call_id() {
 static std::string media_marker = "";
 const char * get_media_marker() {
     if (media_marker.empty()) {
-        media_marker = "<__media_" + random_string(true) + "__>";
+        media_marker = "<__media_" + random_string() + "__>";
     }
     return media_marker.c_str();
 }
