@@ -1783,7 +1783,7 @@ extern "C" {
     //   for i in [0, n_dims/2):
     //     theta[i] = b[i] * powf(freq_base, -2.0 * i / n_dims);
     //     theta[i] = theta[i] / c[i];  # if c is provided, divide theta by c
-    //     theta[i] = rope_yarn(theta[i], ...);
+    //     theta[i] = rope_yarn(theta[i], ...);  # note: theta = theta * freq_scale is applied here
     //
     // other params are used by YaRN RoPE scaling, these default values will disable YaRN:
     //   freq_scale  = 1.0f
