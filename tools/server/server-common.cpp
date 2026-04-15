@@ -88,13 +88,13 @@ std::string gen_chatcmplid() {
 }
 
 std::string gen_tool_call_id() {
-    return random_string(true);
+    return random_string();
 }
 
 static std::string media_marker = "";
 const char * get_media_marker() {
     if (media_marker.empty()) {
-        media_marker = "<__media_" + random_string() + "__>";
+        media_marker = "<__media_" + random_string(true) + "__>";
     }
     return media_marker.c_str();
 }
