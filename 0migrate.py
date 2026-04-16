@@ -206,7 +206,7 @@ assign_code_blocks(
 for arch, info in mapping.items():
   if len(info.llm_builds) != 1:
     print(f"warning: expected exactly one llm_build for {arch}, found: {info.llm_builds}")
-    continue
+    raise ValueError(f"expected exactly one llm_build for {arch}, found: {info.llm_builds}")
 
   info.llm_build_name = next(iter(info.llm_builds))
   print(f"{arch} -> {info.llm_build_name}")
