@@ -34,24 +34,13 @@ llm_build_t5_dec::llm_build_t5_dec(const llama_model & model, const llm_graph_pa
 
         // self-attention
         {
-            ggml_tensor * Qcur = build_lora_mm(model.layers[il].wq, cur);
-            cb(Qcur, "Qcur", il);
-
-            ggml_tensor * Kcur = build_lora_mm(model.layers[il].wk, cur);
-            cb(Kcur, "Kcur", il);
-
-            ggml_tensor * Vcur = build_lora_mm(model.layers[il].wv, cur);
-            cb(Vcur, "Vcur", il);
-
-            Qcur = ggml_reshape_3d(ctx0, Qcur, n_embd_head, n_head,    n_tokens);
-            Kcur = ggml_reshape_3d(ctx0, Kcur, n_embd_head, n_head_kv, n_tokens);
-            Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head, n_head_kv, n_tokens);
+            auto [Qcur, Kcur, Vcur] = build_qkv(model.layers[il], cur, n_embd_head, n_head, n_head_kv, il);
 
             ggml_tensor * attn_rel_b = model.layers[il].attn_rel_b ? model.layers[il].attn_rel_b : model.layers[0].attn_rel_b;
             ggml_tensor * kq_b = build_pos_bias(pos_bucket_dec, attn_rel_b);
 
             cur = build_attn(inp_attn_self,
-                    model.layers[il].wo, model.layers[il].bo,
+                    model.layers[il].wo, model.layers[il].bo, model.layers[il].wo_s,
                     Qcur, Kcur, Vcur, kq_b, nullptr, nullptr, 1.0f, il);
             cb(cur, "kqv_out", il);
         }
@@ -82,7 +71,7 @@ llm_build_t5_dec::llm_build_t5_dec(const llama_model & model, const llm_graph_pa
             Vcur = ggml_reshape_3d(ctx0, Vcur, n_embd_head, n_head_kv, n_outputs_enc);
 
             cur = build_attn(inp_attn_cross,
-                    model.layers[il].wo_cross, nullptr,
+                    model.layers[il].wo_cross, nullptr, nullptr,
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, 1.0f, il);
             cb(cur, "kqv_out", il);
 
