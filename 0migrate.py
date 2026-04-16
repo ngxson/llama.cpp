@@ -456,6 +456,8 @@ for arch, info in mapping.items():
       code_impl_lines.append(line)
   code_includes = "\n".join(code_includes).strip()
   code_impl = "\n".join(code_impl_lines).strip()
+  # if no code_includes, make one
+  code_includes = '#include "models.h"' if not code_includes else code_includes
   info.new_impl = code_includes + "\n" + info.new_impl + "\n" + code_impl
   # rename graph building in impl
   # handles template: llm_build_plamo3<iswa>::llm_build_plamo3 -> llama_model_plamo3::graph<iswa>::graph
@@ -478,6 +480,9 @@ for arch, info in mapping.items():
   )
   # the rest, if any
   info.new_impl = info.new_impl.replace(" ::", "::")
+  # make sure to add a trailing newline
+  if not info.new_impl.endswith("\n"):
+    info.new_impl += "\n"
 
 
 
