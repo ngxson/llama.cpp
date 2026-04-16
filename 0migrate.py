@@ -2,8 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import re
+import os
 
 # IMPORTANT: REMOVE THIS FILE BEFORE MERGING THE PR
+
+# Reset any changes in src/models before running to avoid reading already modified files
+print("Resetting src/models/* ...")
+os.system("git checkout src/models")
+os.system("git clean -fd src/models")
 
 # this script is partially vibe-coded
 
@@ -31,8 +37,12 @@ class ModelInfo:
   code_hparams: str = ""
   code_tensors: str = ""
   model_header: str = ""
+  reuse_graph_from_arch: str = ""
+  reuse_graph_from_model: str = ""
   # transformed code
   new_struct_name: str = ""
+  new_header: str = ""
+  new_impl: str = ""
 
 
 with open(MODEL_H, "r") as f:
@@ -196,6 +206,19 @@ for arch, info in mapping.items():
   print(f"{arch} -> {info.llm_build_name}")
   info.new_struct_name = info.llm_build_name.replace("llm_build_", "llama_model_")
 
+graph_owner_by_build_name: dict[str, str] = {}
+for arch, info in mapping.items():
+  if not info.llm_build_name:
+    continue
+
+  owner_arch = graph_owner_by_build_name.get(info.llm_build_name)
+  if owner_arch is None:
+    graph_owner_by_build_name[info.llm_build_name] = arch
+    continue
+
+  info.reuse_graph_from_arch = owner_arch
+  info.reuse_graph_from_model = mapping[owner_arch].new_struct_name
+
 
 
 
@@ -269,23 +292,40 @@ def add_indent(code: str, indent: str) -> str:
 def remove_indent(code: str, num_spaces: int) -> str:
   return "\n".join(line[num_spaces:] if len(line) > num_spaces else line for line in code.splitlines())
 
-tmp = ""
 
-for line in models_h_content.splitlines():
-  tmp += line + "\n"
-  if line == "// models":
-    tmp += "//\n\n"
-    break
 
-tmp = tmp.replace('#include "llama-graph.h"',
-                  '#include "llama-graph.h"\n#include "llama-model-loader.h"')
-
+seen = set()
 for arch, info in mapping.items():
-  new_graph_struct = info.model_header
-  use_base = "_base" in new_graph_struct
-  new_graph_struct = new_graph_struct.replace(info.llm_build_name, "graph")
-  if use_base:
-    new_graph_struct = new_graph_struct.replace("public graph_base", "public " + info.llm_build_name + "_base")
+  if info.new_struct_name in seen:
+    nnn = arch.replace("LLM_ARCH_", "").lower()
+    new_name = "llama_model_" + nnn
+    print(f"warning: duplicate {info.new_struct_name}, renamed to {new_name}")
+    info.new_struct_name = new_name
+  seen.add(info.new_struct_name)
+
+  if info.reuse_graph_from_model:
+    if info.model_header and info.model_header.strip().startswith("template"):
+      template_line = info.model_header.strip().splitlines()[0]
+      
+      template_args_match = re.search(r'<(.+)>', template_line)
+      if template_args_match:
+        args_str = template_args_match.group(1)
+        args_list = []
+        for arg in args_str.split(','):
+          name = arg.strip().split()[-1]
+          args_list.append(name)
+        args_joined = ", ".join(args_list)
+        new_graph_struct = template_line + "\nusing graph = " + info.reuse_graph_from_model + "::graph<" + args_joined + ">;"
+      else:
+        new_graph_struct = template_line + "\nusing graph = " + info.reuse_graph_from_model + "::graph;"
+    else:
+      new_graph_struct = "using graph = " + info.reuse_graph_from_model + "::graph;"
+  else:
+    new_graph_struct = info.model_header
+    use_base = "_base" in new_graph_struct
+    new_graph_struct = new_graph_struct.replace(info.llm_build_name, "graph")
+    if use_base:
+      new_graph_struct = new_graph_struct.replace("public graph_base", "public " + info.llm_build_name + "_base")
 
   new_struct_code = """struct MODEL_NAME : public llm_arch_model_i {
     MODEL_NAME(const struct llama_model_params & params) : llm_arch_model_i(params) {};
@@ -298,17 +338,15 @@ GRAPH_STRUCT
 };"""
   new_struct_code = new_struct_code.replace("MODEL_NAME", info.new_struct_name)
   new_struct_code = new_struct_code.replace("GRAPH_STRUCT", add_indent(new_graph_struct, "    "))
-
-  tmp += "{}\n\n\n".format(new_struct_code)
-
+  info.new_header = new_struct_code
 
 
 
 
 
 
-# this will go to model file, but for debugging, we write to tmp for now
-tmp += "\n\n\n\n\n\n"
+
+
 
 for arch, info in mapping.items():
   new_model_code = """
@@ -338,17 +376,58 @@ std::unique_ptr<llm_graph_context> MODEL_NAME::build_graph_context(const llm_gra
   # if last line has break; we remove it
   if code_graph.endswith("break;"):
     code_graph = code_graph[:-len("break;")].strip()
+
+  if info.reuse_graph_from_model:
+    print(f"{arch} will reuse graph from {info.reuse_graph_from_arch} ({info.reuse_graph_from_model})")
+
   code_graph = code_graph.replace("llm = ", "return ")
+  #code_graph = code_graph.replace(info.llm_build_name, info.new_struct_name + "::graph")
   code_graph = code_graph.replace(info.llm_build_name, "graph")
 
   new_model_code = new_model_code.replace("MODEL_NAME", info.new_struct_name)
   new_model_code = new_model_code.replace("HPARAMS_CODE", code_hparams)
   new_model_code = new_model_code.replace("TENSORS_CODE", code_tensors)
   new_model_code = new_model_code.replace("GRAPH_CODE", remove_indent(code_graph, 4*3))
+  info.new_impl = new_model_code
 
-  tmp += "{}\n\n\n".format(new_model_code)
 
 
-with open("src/models/models_new.h", "w") as f:
-  f.write(tmp)
+
+
+
+header_file = ""
+for line in models_h_content.splitlines():
+  header_file += line + "\n"
+  if line == "// models":
+    header_file += "//\n\n"
+    break
+header_file = header_file.replace('#include "llama-graph.h"',
+                                  '#include "llama-graph.h"\n#include "llama-model-loader.h"')
+for arch, info in mapping.items():
+  header_file += "\n\n" + info.new_header + "\n"
+
+tmp_impl = ""
+tmp_impl += "\n\n\n\n\n\n"
+for arch, info in mapping.items():
+  tmp_impl += info.new_impl + "\n"
+
+
+
+DO_IT_FOR_REAL = True
+if DO_IT_FOR_REAL:
+  # remove all from src/models/*.cpp
+  os.system("rm src/models/*.cpp")
+  with open("src/models/models.h", "w") as f:
+    f.write(header_file)
+  for arch, info in mapping.items():
+    fname = info.new_struct_name
+    fname = fname.replace("llama_model_", "")
+    fname = fname.replace("_", "-")
+    impl_filename = f"src/models/{fname}.cpp"
+    with open(impl_filename, "w") as f:
+      f.write("#include \"models.h\"\n\n" + info.new_impl)
+      print("writing {}...".format(impl_filename))
+else:
+  with open("src/models/models_new.h", "w") as f:
+    f.write(header_file + tmp_impl)
 
