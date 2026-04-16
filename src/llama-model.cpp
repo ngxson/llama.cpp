@@ -3060,10 +3060,7 @@ bool llama_model::load_tensors_internal(llama_model_loader & ml) {
     // assign the output layer
     pimpl->dev_output = get_layer_buft_list(n_layer);
 
-    const auto TENSOR_DUPLICATED      = llama_model_loader::TENSOR_DUPLICATED;
-    const auto TENSOR_NOT_REQUIRED    = llama_model_loader::TENSOR_NOT_REQUIRED;
-    const auto TENSOR_SKIP            = llama_model_loader::TENSOR_SKIP;
-    const auto TENSOR_SKIP_IF_VIRTUAL = llama_model_loader::TENSOR_SKIP_IF_VIRTUAL;
+    const auto TENSOR_NOT_REQUIRED = llama_model_loader::TENSOR_NOT_REQUIRED;
 
     // create tensors for the weights
     // TODO: clean this up in the future
@@ -9466,8 +9463,8 @@ llm_arch_model_i::llm_arch_model_i(const struct llama_model_params & params) : l
     n_expert         (model->hparams.n_expert),
     n_expert_used    (model->hparams.n_expert_used),
     n_ctx_train      (model->hparams.n_ctx_train),
-    TENSOR_NOT_REQUIRED   (llama_model_loader::TENSOR_NOT_REQUIRED),
     TENSOR_DUPLICATED     (llama_model_loader::TENSOR_DUPLICATED),
+    TENSOR_NOT_REQUIRED   (llama_model_loader::TENSOR_NOT_REQUIRED),
     TENSOR_SKIP           (llama_model_loader::TENSOR_SKIP),
     TENSOR_SKIP_IF_VIRTUAL(llama_model_loader::TENSOR_SKIP_IF_VIRTUAL) {}
 
