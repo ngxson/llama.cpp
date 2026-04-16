@@ -1,0 +1,59 @@
+#version 450
+
+#include "dequant_head.glsl"
+
+layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
+
+layout (binding = 0) readonly buffer A {A_TYPE data_a[];};
+layout (binding = 1) writeonly buffer D {D_TYPE data_b[];};
+
+void main() {
+    [[unroll]] for (uint wgy = 0; wgy < 256; wgy++) {
+        const uint i = gl_WorkGroupID.x * 256 + wgy;
+        if (i >= p.nel / QUANT_K) {
+            return;
+        }
+
+        const uint tid = gl_LocalInvocationID.x;
+        const uint ip = tid / 32;
+        const uint il = tid - 32 * ip;
+        const uint is = 8 * ip + il / 16;
+
+        const uint y_idx = i * QUANT_K + 128 * ip + il;
+
+        const uint8_t qs = data_a[i].qs[32 * ip + il];
+
+        FLOAT_TYPE dall = FLOAT_TYPE(data_a[i].dm.x);
+        FLOAT_TYPE dmin = FLOAT_TYPE(data_a[i].dm.y);
+
+        FLOAT_TYPE v0 = dall * FLOAT_TYPE((data_a[i].scales[is+0] & 0xF) * ((qs >> 0) & 3)) - dmin * FLOAT_TYPE(data_a[i].scales[is+0] >> 4);
+        FLOAT_TYPE v1 = dall * FLOAT_TYPE((data_a[i].scales[is+2] & 0xF) * ((qs >> 2) & 3)) - dmin * FLOAT_TYPE(data_a[i].scales[is+2] >> 4);
+        FLOAT_TYPE v2 = dall * FLOAT_TYPE((data_a[i].scales[is+4] & 0xF) * ((qs >> 4) & 3)) - dmin * FLOAT_TYPE(data_a[i].scales[is+4] >> 4);
+        FLOAT_TYPE v3 = dall * FLOAT_TYPE((data_a[i].scales[is+6] & 0xF) * ((qs >> 6) & 3)) - dmin * FLOAT_TYPE(data_a[i].scales[is+6] >> 4);
+
+        const uint local0 = 128 * ip + il;
+        const uint local1 = local0 + 32;
+        const uint local2 = local0 + 64;
+        const uint local3 = local0 + 96;
+
+        const uint raw_count = data_a[i].outlier_count;
+        const bool residual_mode = (raw_count & Q2_K_HIFI_RESIDUAL_MODE_FLAG) != 0;
+        const uint count = raw_count & 0x7F;
+        const uint n_out = min(count, Q2_K_HIFI_MAX_OUTLIERS);
+
+        [[unroll]] for (uint k = 0; k < Q2_K_HIFI_MAX_OUTLIERS; ++k) {
+            if (k >= n_out) break;
+            const uint idx = data_a[i].outlier_idx[k];
+            const FLOAT_TYPE val = FLOAT_TYPE(data_a[i].outlier_vals[k]);
+            if (idx == local0) { v0 = residual_mode ? (v0 + val) : val; }
+            if (idx == local1) { v1 = residual_mode ? (v1 + val) : val; }
+            if (idx == local2) { v2 = residual_mode ? (v2 + val) : val; }
+            if (idx == local3) { v3 = residual_mode ? (v3 + val) : val; }
+        }
+
+        data_b[y_idx +  0] = D_TYPE(v0);
+        data_b[y_idx + 32] = D_TYPE(v1);
+        data_b[y_idx + 64] = D_TYPE(v2);
+        data_b[y_idx + 96] = D_TYPE(v3);
+    }
+}

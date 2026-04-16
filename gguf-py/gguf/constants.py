@@ -4006,6 +4006,19 @@ class GGMLQuantizationType(IntEnum):
     MXFP4   = 39
     NVFP4   = 40
     Q1_0    = 41
+    Q3_K_HIFI = 42              # Q3_K layout + 8 FP16 outliers per block
+    Q6_K_HIFI = 43            # Q6_K layout + 4 FP16 outliers
+    Q6_K_HIFI_DYNAMIC = 44    # Q6_K + 2-8 dynamic outliers
+    Q6_K_HIFI_RES8 = 45       # Q6_K + INT8 residuals (compact format)
+    Q5_K_HIFI_RES8 = 46       # Q5_K + INT8 residuals (efficient for 4B-10B models)
+    Q3_K_HIFI_RES8 = 47       # Q3_K + INT8 residuals (lean version for imatrix use)
+    Q4_K_HIFI = 48             # Q4_K layout + 8 FP16 outliers per block (high-fidelity 4-bit)
+    Q2_K_HIFI = 49
+    Q2_K_LITE = 50
+    Q3_K_LITE = 51
+    Q4_K_LITE = 52
+    Q5_K_LITE = 53
+    Q6_K_LITE = 54
 
 
 class ExpertGatingFuncType(IntEnum):
@@ -4060,6 +4073,16 @@ class LlamaFileType(IntEnum):
     MOSTLY_MXFP4_MOE     = 38  # except 1d tensors
     MOSTLY_NVFP4         = 39  # except 1d tensors
     MOSTLY_Q1_0          = 40  # except 1d tensors
+    MOSTLY_Q4_K_HIFI     = 44  # Q4_K_M + 2-8 dynamic outliers + early exit (best quality/size ratio)
+    MOSTLY_Q3_K_HIFI     = 45  # Q3_K_M base + Q6_K_HIFI on critical tensors
+    MOSTLY_Q5_K_HIFI     = 46  # Q5_K_M base + Q6_K_HIFI_RES8 on top 10-15% tensors (best 5-bit quality)
+    MOSTLY_Q2_K_HIFI     = 47  # Q2_K base + INT8 residuals on critical tensors (best 2-bit quality)
+
+    MOSTLY_Q2_K_LITE     = 48  # Q2_K base + INT8 residuals (96 bytes/block, ~3.0 bpw)
+    MOSTLY_Q3_K_LITE     = 49  # Q2_K base + INT8 residuals (104 bytes/block, ~3.25 bpw)
+    MOSTLY_Q4_K_LITE     = 50  # Q3_K base + INT8 residuals (128 bytes/block, ~4.0 bpw)
+    MOSTLY_Q5_K_LITE     = 51  # Q4_K base + INT8 residuals (164 bytes/block, ~5.13 bpw)
+    MOSTLY_Q6_K_LITE     = 52  # Q5_K base + INT8 residuals (196 bytes/block, ~6.13 bpw)
 
     GUESSED              = 1024  # not specified in the model file
 
@@ -4175,6 +4198,19 @@ GGML_QUANT_SIZES: dict[GGMLQuantizationType, tuple[int, int]] = {
     GGMLQuantizationType.TQ1_0:   (256, 2 + 4 * 13),
     GGMLQuantizationType.TQ2_0:   (256, 2 + 64),
     GGMLQuantizationType.MXFP4:   (32, 1 + 16),
+    GGMLQuantizationType.Q3_K_HIFI: (256, 160),  # Q3_K (110 bytes) + outlier_count(1) + _pad(1) + outlier_idx[16] + outlier_vals[16] = 160 bytes
+    GGMLQuantizationType.Q6_K_HIFI: (256, 222),  # Q6_K (210) + idx[4] + vals[8]
+    GGMLQuantizationType.Q6_K_HIFI_DYNAMIC: (256, 236),  # Q6_K (210) + dynamic outliers (26)
+    GGMLQuantizationType.Q6_K_HIFI_RES8: (256, 232),  # Q6_K (210) + INT8 residuals (22)
+    GGMLQuantizationType.Q5_K_HIFI_RES8: (256, 200),  # Q5_K (176) + INT8 residuals (24)
+    GGMLQuantizationType.Q3_K_HIFI_RES8: (256, 132),  # Q3_K (110) + INT8 residuals (22)
+    GGMLQuantizationType.Q4_K_HIFI: (256, 168),  # Q4_K (144) + outlier_idx[8] + outlier_vals[16] = 168 bytes
+    GGMLQuantizationType.Q2_K_HIFI: (256, 99),   # Q2_K + INT8 residuals
+    GGMLQuantizationType.Q2_K_LITE: (256, 96),
+    GGMLQuantizationType.Q3_K_LITE: (256, 132),
+    GGMLQuantizationType.Q4_K_LITE: (256, 168),
+    GGMLQuantizationType.Q5_K_LITE: (256, 200),
+    GGMLQuantizationType.Q6_K_LITE: (256, 232),
     GGMLQuantizationType.NVFP4:   (64, 4 + 32),
     GGMLQuantizationType.Q1_0:    (128, 2 + 16),
 }
