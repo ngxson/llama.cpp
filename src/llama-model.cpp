@@ -33,10 +33,12 @@
 #include <string>
 #include <vector>
 
-llama_model * llama_model_create(llm_arch arch, const llama_model_params & params) {
-    llama_model * model = nullptr;
-
+static llama_model * llama_model_mapping(llm_arch arch, const llama_model_params & params) {
     // SELECT_ARCH_FN
+}
+
+llama_model * llama_model_create(llm_arch arch, const llama_model_params & params) {
+    llama_model * model = llama_model_mapping(arch, params);
 
     if (model != nullptr) {
         model->arch = arch;

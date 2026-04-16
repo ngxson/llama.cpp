@@ -261,9 +261,7 @@ for arch, info in mapping.items():
     continue
 
   output_select_arch_fn += "        case {}:\n".format(arch)
-  output_select_arch_fn += "            {\n"
-  output_select_arch_fn += "                model = new {}(params);\n".format(info.new_struct_name)
-  output_select_arch_fn += "            } break;\n"
+  output_select_arch_fn += "            return new {}(params);\n".format(info.new_struct_name)
 
 output_select_arch_fn += "        default:\n"
 output_select_arch_fn += "            GGML_ABORT(\"unimplemented model class\");\n"
