@@ -989,7 +989,7 @@ static std::pair<int, llama_model *> llama_model_load(struct gguf_context * meta
             params.check_tensors, params.no_alloc, params.kv_overrides, params.tensor_buft_overrides);
 
         ml.print_info();
-        std::unique_ptr<llama_model> model(llama_model_create(ml));
+        std::unique_ptr<llama_model> model(llama_model_create(ml, params));
 
         bool ok = llama_prepare_model_devices(params, model.get());
         if (!ok) {

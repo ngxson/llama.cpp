@@ -580,7 +580,7 @@ struct llama_model {
     int64_t t_load_us  = 0;
     int64_t t_start_us = 0;
 
-    explicit llama_model(const struct llama_model_params & params);
+    explicit llama_model(const llama_model_params & params);
     virtual ~llama_model();
 
     void load_stats           (llama_model_loader & ml);
@@ -642,8 +642,8 @@ private:
     std::unique_ptr<impl> pimpl;
 };
 
-llama_model * llama_model_create(llm_arch arch);
-llama_model * llama_model_create(llama_model_loader & ml);
+llama_model * llama_model_create(llm_arch arch, const llama_model_params & params);
+llama_model * llama_model_create(llama_model_loader & ml, const llama_model_params & params);
 
 // provide addition context for loading
 // model must inherit from this
@@ -675,7 +675,7 @@ struct llm_arch_model_i : public llama_model {
     const int TENSOR_SKIP;
     const int TENSOR_SKIP_IF_VIRTUAL;
 
-    explicit llm_arch_model_i(const struct llama_model_params & params);
+    explicit llm_arch_model_i(const llama_model_params & params);
     virtual ~llm_arch_model_i() = default;
 
     ggml_tensor * create_tensor(const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags);

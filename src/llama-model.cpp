@@ -33,7 +33,7 @@
 #include <string>
 #include <vector>
 
-llama_model * llama_model_create(llm_arch arch) {
+llama_model * llama_model_create(llm_arch arch, const llama_model_params & params) {
     llama_model * model = nullptr;
 
     // SELECT_ARCH_FN
@@ -49,13 +49,13 @@ llama_model * llama_model_create(llm_arch arch) {
     return model;
 }
 
-llama_model * llama_model_create(llama_model_loader & ml) {
+llama_model * llama_model_create(llama_model_loader & ml, const llama_model_params & params) {
     llm_arch arch = ml.get_arch();
     if (arch == LLM_ARCH_UNKNOWN) {
         throw std::runtime_error("unknown model architecture: '" + ml.get_arch_name() + "'");
     }
 
-    return llama_model_create(arch);
+    return llama_model_create(arch, params);
 }
 
 struct ggml_backend_meta_split_state llama_meta_device_get_split_state(const struct ggml_tensor * tensor, void * userdata) {
@@ -8033,7 +8033,7 @@ ggml_tensor * llama_model::create_tensor(llama_model_loader & ml, const LLM_TN_I
     return ml.create_tensor(
         hparams, &pimpl->cpu_buft_list, pimpl->dev_input.buft_list, pimpl->dev_output.buft_list, buft_list_layer,
         tn, ne, flags);
-};
+}
 
 std::string llama_model::arch_name() const {
     return llm_arch_name(arch);
@@ -9482,7 +9482,7 @@ ggml_tensor * llm_arch_model_i::create_tensor_gate_up_exps(llama_layer & layer, 
         layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", bid), {n_embd_, n_ff_, n_expert_}, flags);
         layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", bid), {n_embd_, n_ff_, n_expert_}, flags);
     }
-};
+}
 
 ggml_tensor * llm_arch_model_i::create_tensor_qkv(llama_layer & layer, int bid,
         int64_t n_embd_, int64_t n_embd_q_, int64_t n_embd_k_, int64_t n_embd_v_,
@@ -9499,4 +9499,4 @@ ggml_tensor * llm_arch_model_i::create_tensor_qkv(llama_layer & layer, int bid,
         layer.bk = create_tensor(tn(LLM_TENSOR_ATTN_K, "bias", bid), {n_embd_k_}, TENSOR_NOT_REQUIRED);
         layer.bv = create_tensor(tn(LLM_TENSOR_ATTN_V, "bias", bid), {n_embd_v_}, TENSOR_NOT_REQUIRED);
     }
-};
+}

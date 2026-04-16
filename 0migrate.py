@@ -310,6 +310,15 @@ mapping = {arch: info for arch, info in mapping.items() if info.llm_build_name}
 
 
 
+# one-off hotfix
+for arch, info in mapping.items():
+  if arch == "LLM_ARCH_T5ENCODER":
+    info.reuse_graph_from_arch = "LLM_ARCH_T5"
+    info.reuse_graph_from_model = mapping["LLM_ARCH_T5"].new_struct_name
+    print(f"hotfix: {arch} will reuse graph from {info.reuse_graph_from_arch} ({info.reuse_graph_from_model})")
+
+
+
 
 
 
@@ -367,7 +376,7 @@ for arch, info in mapping.items():
     load_methods_decl = "    // reuse load_hparams and load_tensors from {}".format(info.reuse_hparams_from_model)
 
   new_struct_code = """struct MODEL_NAME : public BASE_CLASS {
-    MODEL_NAME(const struct llama_model_params & params) : BASE_CLASS(params) {};
+    MODEL_NAME(const struct llama_model_params & params) : BASE_CLASS(params) {}
 LOAD_METHODS_DECL
 
 GRAPH_STRUCT
@@ -459,6 +468,8 @@ for arch, info in mapping.items():
   # if no code_includes, make one
   code_includes = '#include "models.h"' if not code_includes else code_includes
   info.new_impl = code_includes + "\n" + info.new_impl + "\n" + code_impl
+  # normalize
+  info.new_impl = info.new_impl.replace(" ::", "::")
   # rename graph building in impl
   # handles template: llm_build_plamo3<iswa>::llm_build_plamo3 -> llama_model_plamo3::graph<iswa>::graph
   info.new_impl = re.sub(
@@ -478,11 +489,16 @@ for arch, info in mapping.items():
     info.new_struct_name + r"::graph::",
     info.new_impl
   )
-  # the rest, if any
-  info.new_impl = info.new_impl.replace(" ::", "::")
   # make sure to add a trailing newline
   if not info.new_impl.endswith("\n"):
     info.new_impl += "\n"
+
+
+  if arch == "LLM_ARCH_T5ENCODER":
+    info.new_header = info.new_header.replace("llama_model_t5::graph", "llama_model_t5::graph<true>")
+    new_impl = info.new_impl.splitlines()
+    new_impl = [line for line in new_impl if "::graph" not in line]
+    info.new_impl = "\n".join(new_impl).strip() + "\n"
 
 
 
