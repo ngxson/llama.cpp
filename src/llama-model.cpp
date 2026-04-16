@@ -33,13 +33,8 @@
 #include <string>
 #include <vector>
 
-llama_model * llama_model_create_impl(llama_model_loader & ml, llama_model_params params) {
+llama_model * llama_model_create(llm_arch arch) {
     llama_model * model = nullptr;
-
-    llm_arch arch = ml.get_arch();
-    if (arch == LLM_ARCH_UNKNOWN) {
-        throw std::runtime_error("unknown model architecture: '" + ml.get_arch_name() + "'");
-    }
 
     // SELECT_ARCH_FN
 
@@ -52,6 +47,15 @@ llama_model * llama_model_create_impl(llama_model_loader & ml, llama_model_param
     }
 
     return model;
+}
+
+llama_model * llama_model_create(llama_model_loader & ml) {
+    llm_arch arch = ml.get_arch();
+    if (arch == LLM_ARCH_UNKNOWN) {
+        throw std::runtime_error("unknown model architecture: '" + ml.get_arch_name() + "'");
+    }
+
+    return llama_model_create(arch);
 }
 
 struct ggml_backend_meta_split_state llama_meta_device_get_split_state(const struct ggml_tensor * tensor, void * userdata) {

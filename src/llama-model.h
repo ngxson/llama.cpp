@@ -644,6 +644,9 @@ private:
     std::unique_ptr<impl> pimpl;
 };
 
+llama_model * llama_model_create(llm_arch arch);
+llama_model * llama_model_create(llama_model_loader & ml);
+
 // provide addition context for loading
 // model must inherit from this
 struct llm_arch_model_i : public llama_model {
