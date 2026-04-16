@@ -9473,7 +9473,7 @@ ggml_tensor * llm_arch_model_i::create_tensor(const LLM_TN_IMPL & tn, const std:
     return model->create_tensor(*ml, tn, ne, flags);
 }
 
-ggml_tensor * llm_arch_model_i::create_tensor_gate_up_exps(llama_layer & layer, int bid, int64_t n_embd_, int64_t n_ff_, int64_t n_expert_, int flags) {
+void llm_arch_model_i::create_tensor_gate_up_exps(llama_layer & layer, int bid, int64_t n_embd_, int64_t n_ff_, int64_t n_expert_, int flags) {
     layer.ffn_gate_up_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_UP_EXPS, "weight", bid), {n_embd_, n_ff_ * 2, n_expert_}, TENSOR_NOT_REQUIRED);
     if (layer.ffn_gate_up_exps == nullptr) {
         layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", bid), {n_embd_, n_ff_, n_expert_}, flags);
@@ -9481,7 +9481,7 @@ ggml_tensor * llm_arch_model_i::create_tensor_gate_up_exps(llama_layer & layer, 
     }
 }
 
-ggml_tensor * llm_arch_model_i::create_tensor_qkv(llama_layer & layer, int bid,
+void llm_arch_model_i::create_tensor_qkv(llama_layer & layer, int bid,
         int64_t n_embd_, int64_t n_embd_q_, int64_t n_embd_k_, int64_t n_embd_v_,
         int flags) {
     const int64_t n_embd_qkv = n_embd_q_ + n_embd_k_ + n_embd_v_;

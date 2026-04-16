@@ -681,11 +681,11 @@ struct llm_arch_model_i : public llama_model {
     ggml_tensor * create_tensor(const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags);
 
     // helper: try merged gate_up_exps first, fall back to separate gate and up
-    ggml_tensor * create_tensor_gate_up_exps(llama_layer & layer, int bid, int64_t n_embd_,
+    void create_tensor_gate_up_exps(llama_layer & layer, int bid, int64_t n_embd_,
                 int64_t n_ff_, int64_t n_expert_, int flags);
 
     // helper: try to load merged qkv first, fall back to separate q, k, v
-    ggml_tensor * create_tensor_qkv(llama_layer & layer, int bid,
+    void create_tensor_qkv(llama_layer & layer, int bid,
                 int64_t n_embd_, int64_t n_embd_q_, int64_t n_embd_k_, int64_t n_embd_v_,
                 int flags);
 };

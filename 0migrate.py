@@ -340,6 +340,7 @@ for arch, info in mapping.items():
   seen.add(info.new_struct_name)
 
   fname = info.new_struct_name.replace("llama_model_", "").replace("_", "-")
+  fname = fname.replace("qwen3vlmoe", "qwen3vl-moe") # hot dirty fix
   impl_filename = f"src/models/{fname}.cpp"
   if os.path.exists(impl_filename):
     with open(impl_filename, "r") as f_impl:
@@ -499,6 +500,9 @@ for arch, info in mapping.items():
     new_impl = info.new_impl.splitlines()
     new_impl = [line for line in new_impl if "::graph" not in line]
     info.new_impl = "\n".join(new_impl).strip() + "\n"
+
+  if arch == "LLM_ARCH_T5":
+    info.new_impl = info.new_impl.replace("            break;\n", "")
 
 
 
