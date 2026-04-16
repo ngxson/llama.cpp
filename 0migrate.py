@@ -322,11 +322,17 @@ std::unique_ptr<llm_graph_context> MODEL_NAME::build_graph_context(const llm_gra
   # if last line has break; we remove it
   if code_hparams.endswith("break;"):
     code_hparams = code_hparams[:-len("break;")].strip()
+  
+  code_hparams = remove_indent(code_hparams, 4*3)
 
   code_tensors = info.code_tensors.strip()
   # if last line has break; we remove it
   if code_tensors.endswith("break;"):
     code_tensors = code_tensors[:-len("break;")].strip()
+
+  code_tensors = remove_indent(code_tensors, 4*4)
+  # prepend "this->ml = ml;" to code_tensors
+  code_tensors = "{\n    this->ml = &ml; // used by create_tensor\n\n" + "\n".join(code_tensors.splitlines()[1:])
 
   code_graph = info.code_graph.strip()
   # if last line has break; we remove it
@@ -336,8 +342,8 @@ std::unique_ptr<llm_graph_context> MODEL_NAME::build_graph_context(const llm_gra
   code_graph = code_graph.replace(info.llm_build_name, "graph")
 
   new_model_code = new_model_code.replace("MODEL_NAME", info.new_struct_name)
-  new_model_code = new_model_code.replace("HPARAMS_CODE", remove_indent(code_hparams, 4*3))
-  new_model_code = new_model_code.replace("TENSORS_CODE", remove_indent(code_tensors, 4*4))
+  new_model_code = new_model_code.replace("HPARAMS_CODE", code_hparams)
+  new_model_code = new_model_code.replace("TENSORS_CODE", code_tensors)
   new_model_code = new_model_code.replace("GRAPH_CODE", remove_indent(code_graph, 4*3))
 
   tmp += "{}\n\n\n".format(new_model_code)

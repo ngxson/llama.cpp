@@ -9711,6 +9711,7 @@ llm_arch_model_i::llm_arch_model_i(const struct llama_model_params & params) : l
     TENSOR_SKIP_IF_VIRTUAL(llama_model_loader::TENSOR_SKIP_IF_VIRTUAL) {}
 
 ggml_tensor * llm_arch_model_i::create_tensor(const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags) {
+    GGML_ASSERT(ml != nullptr);
     return model->create_tensor(*ml, tn, ne, flags);
 }
 
