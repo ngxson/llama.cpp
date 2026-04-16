@@ -3064,48 +3064,26 @@ bool llama_model::load_tensors_internal(llama_model_loader & ml) {
     const auto TENSOR_SKIP_IF_VIRTUAL = llama_model_loader::TENSOR_SKIP_IF_VIRTUAL;
 
     // create tensors for the weights
+    // TODO: clean this up in the future
     {
         // note: cast to int64_t since we will use these for the tensor dimensions
-        const int64_t n_head        = hparams.n_head();
-        const int64_t n_head_kv     = hparams.n_head_kv();
-        const int64_t n_embd        = hparams.n_embd;
-        const int64_t n_embd_k_gqa  = hparams.n_embd_k_gqa();
-        const int64_t n_embd_v_gqa  = hparams.n_embd_v_gqa();
-        const int64_t n_embd_head_k = hparams.n_embd_head_k();
-        const int64_t n_embd_head_v = hparams.n_embd_head_v();
-        const int64_t n_ff          = hparams.n_ff();
-        const int64_t n_embd_gqa    = n_embd_v_gqa;
-        const int64_t n_vocab       = vocab.n_tokens();
-        const int64_t n_token_types = vocab.n_token_types();
-        const int64_t n_rot         = hparams.n_rot();
         const int64_t n_expert      = hparams.n_expert;
         const int64_t n_expert_used = hparams.n_expert_used;
-        const int64_t n_ctx_train   = hparams.n_ctx_train;
 
-        if (n_expert > 0 && hparams.n_expert_used == 0) {
+        if (n_expert > 0 && n_expert_used == 0) {
             throw std::runtime_error("model has expert layers but no expert layers are used");
         }
 
+        // helper function to facilitate migration
+        // TODO: remove this in the future
         auto create_tensor = [&](const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags) -> ggml_tensor * {
-            const buft_list_t * buft_list_layer = tn.bid == -1 ? nullptr : pimpl->dev_layer.at(tn.bid).buft_list;
-            return ml.create_tensor(
-                hparams, &pimpl->cpu_buft_list, pimpl->dev_input.buft_list, pimpl->dev_output.buft_list, buft_list_layer,
-                tn, ne, flags);
+            return this->create_tensor(ml, tn, ne, flags);
         };
 
         layers.resize(n_layer);
 
         // TODO: move to a separate function
         const auto tn = LLM_TN(arch);
-
-        // helper: try merged gate_up_exps first, fall back to separate gate and up
-        auto create_tensor_gate_up_exps = [&](llama_layer & layer, int bid, int64_t n_embd_, int64_t n_ff_, int64_t n_expert_, int flags) {
-            layer.ffn_gate_up_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_UP_EXPS, "weight", bid), {n_embd_, n_ff_ * 2, n_expert_}, TENSOR_NOT_REQUIRED);
-            if (layer.ffn_gate_up_exps == nullptr) {
-                layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", bid), {n_embd_, n_ff_, n_expert_}, flags);
-                layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", bid), {n_embd_, n_ff_, n_expert_}, flags);
-            }
-        };
 
         // per-arch tensors
         load_tensors(ml);
@@ -8280,6 +8258,13 @@ bool llama_model::load_tensors_internal(llama_model_loader & ml) {
     return true;
 }
 
+ggml_tensor * llama_model::create_tensor(llama_model_loader & ml, const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags) {
+    const buft_list_t * buft_list_layer = tn.bid == -1 ? nullptr : pimpl->dev_layer.at(tn.bid).buft_list;
+    return ml.create_tensor(
+        hparams, &pimpl->cpu_buft_list, pimpl->dev_input.buft_list, pimpl->dev_output.buft_list, buft_list_layer,
+        tn, ne, flags);
+};
+
 std::string llama_model::arch_name() const {
     return llm_arch_name(arch);
 }
@@ -9693,4 +9678,42 @@ bool llama_model_is_diffusion(const llama_model * model) {
 
 const std::vector<std::pair<std::string, ggml_tensor *>> & llama_internal_get_tensor_map(const llama_model * model) {
     return model->tensors_by_name;
+}
+
+//
+// llm_arch_model_i
+//
+
+llm_arch_model_i::llm_arch_model_i(const struct llama_model_params & params) : llama_model(params), model(this), tn(model->arch),
+    n_layer          (model->hparams.n_layer),
+    n_head           (model->hparams.n_head()),
+    n_head_kv        (model->hparams.n_head_kv()),
+    n_embd           (model->hparams.n_embd),
+    n_embd_k_gqa     (model->hparams.n_embd_k_gqa()),
+    n_embd_v_gqa     (model->hparams.n_embd_v_gqa()),
+    n_embd_head_k    (model->hparams.n_embd_head_k()),
+    n_embd_head_v    (model->hparams.n_embd_head_v()),
+    n_ff             (model->hparams.n_ff()),
+    n_embd_gqa       (n_embd_v_gqa),
+    n_vocab          (model->vocab.n_tokens()),
+    n_token_types    (model->vocab.n_token_types()),
+    n_rot            (model->hparams.n_rot()),
+    n_expert         (model->hparams.n_expert),
+    n_expert_used    (model->hparams.n_expert_used),
+    n_ctx_train      (model->hparams.n_ctx_train),
+    TENSOR_NOT_REQUIRED   (llama_model_loader::TENSOR_NOT_REQUIRED),
+    TENSOR_DUPLICATED     (llama_model_loader::TENSOR_DUPLICATED),
+    TENSOR_SKIP           (llama_model_loader::TENSOR_SKIP),
+    TENSOR_SKIP_IF_VIRTUAL(llama_model_loader::TENSOR_SKIP_IF_VIRTUAL) {}
+
+ggml_tensor * llm_arch_model_i::create_tensor(const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags) {
+    return model->create_tensor(*ml, tn, ne, flags);
+}
+
+ggml_tensor * llm_arch_model_i::create_tensor_gate_up_exps(llama_layer & layer, int bid, int64_t n_embd_, int64_t n_ff_, int64_t n_expert_, int flags) {
+    layer.ffn_gate_up_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_UP_EXPS, "weight", bid), {n_embd_, n_ff_ * 2, n_expert_}, TENSOR_NOT_REQUIRED);
+    if (layer.ffn_gate_up_exps == nullptr) {
+        layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", bid), {n_embd_, n_ff_, n_expert_}, flags);
+        layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", bid), {n_embd_, n_ff_, n_expert_}, flags);
+    }
 }

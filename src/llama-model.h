@@ -512,6 +512,8 @@ struct llama_meta_device_get_split_state_userdata {
 
 struct ggml_backend_meta_split_state llama_meta_device_get_split_state(const struct ggml_tensor * tensor, void * userdata);
 
+struct llm_loader; // forward declaration
+
 struct llama_model {
     llm_type type = LLM_TYPE_UNKNOWN;
     llm_arch arch = LLM_ARCH_UNKNOWN;
@@ -632,6 +634,9 @@ struct llama_model {
     virtual void load_tensors(llama_model_loader & ml) = 0;
     virtual std::unique_ptr<llm_graph_context> build_graph_context(const llm_graph_params & params) const = 0;
 
+    // to be used by llm_loader_context
+    ggml_tensor * create_tensor(llama_model_loader & ml, const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags);
+
 private:
     llama_model_params params;
 
@@ -639,30 +644,45 @@ private:
     std::unique_ptr<impl> pimpl;
 };
 
+// provide addition context for loading
+// model must inherit from this
+struct llm_arch_model_i : public llama_model {
+    llama_model * model;
+    llama_model_loader * ml = nullptr;
+    const LLM_TN tn;
+
+    const int     n_layer;
+    // note: cast to int64_t since we will use these for the tensor dimensions
+    const int64_t n_head;
+    const int64_t n_head_kv;
+    const int64_t n_embd;
+    const int64_t n_embd_k_gqa;
+    const int64_t n_embd_v_gqa;
+    const int64_t n_embd_head_k;
+    const int64_t n_embd_head_v;
+    const int64_t n_ff;
+    const int64_t n_embd_gqa;
+    const int64_t n_vocab;
+    const int64_t n_token_types;
+    const int64_t n_rot;
+    const int64_t n_expert;
+    const int64_t n_expert_used;
+    const int64_t n_ctx_train;
+
+    const int TENSOR_DUPLICATED;
+    const int TENSOR_NOT_REQUIRED;
+    const int TENSOR_SKIP;
+    const int TENSOR_SKIP_IF_VIRTUAL;
+
+    explicit llm_arch_model_i(const struct llama_model_params & params);
+    virtual ~llm_arch_model_i() = default;
+
+    ggml_tensor * create_tensor(const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags);
+    ggml_tensor * create_tensor_gate_up_exps(llama_layer & layer, int bid, int64_t n_embd_, int64_t n_ff_, int64_t n_expert_, int flags);
+};
+
 const char * llm_type_name(llm_type type);
 
 // For internal test use
 // TODO: remove
 const std::vector<std::pair<std::string, ggml_tensor *>> & llama_internal_get_tensor_map(const llama_model * model);
-
-
-
-
-// DEMO (to be removed)
-struct llama_model_demo : public llama_model {
-    llama_model_demo(const struct llama_model_params & params) : llama_model(params) {}
-    void load_hparams(llama_model_loader & ml) override {
-        hparams.n_layer = 100;
-    }
-    void load_tensors(llama_model_loader & ml) override {
-        output = nullptr;
-    }
-    struct graph : public llm_graph_context {
-        graph(const llama_model & model, const llm_graph_params & params) : llm_graph_context(params) {
-            ggml_build_forward_expand(gf, nullptr);
-        }
-    };
-    std::unique_ptr<llm_graph_context> build_graph_context(const llm_graph_params & params) const override {
-        return std::make_unique<graph>(*this, params);
-    }
-};

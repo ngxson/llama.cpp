@@ -196,14 +196,6 @@ for arch, info in mapping.items():
   print(f"{arch} -> {info.llm_build_name}")
   info.new_struct_name = info.llm_build_name.replace("llm_build_", "llama_model_")
 
-for arch, info in mapping.items():
-  code = info.code_graph
-  code = code.replace("llm = ", "model = ")
-  code = code.replace("std::make_unique<llm_build_", "new llama_model_")
-  code = code.replace(">(*this, ", "(")
-  code = code.replace("> (*this, ", " (")
-  info.code_graph = code
-
 
 
 
@@ -295,8 +287,8 @@ for arch, info in mapping.items():
   if use_base:
     new_graph_struct = new_graph_struct.replace("public graph_base", "public " + info.llm_build_name + "_base")
 
-  new_struct_code = """struct MODEL_NAME : public llama_model {
-    MODEL_NAME(const struct llama_model_params & params) : llama_model(params) {};
+  new_struct_code = """struct MODEL_NAME : public llm_arch_model_i {
+    MODEL_NAME(const struct llama_model_params & params) : llm_arch_model_i(params) {};
     void load_hparams(llama_model_loader & ml) override;
     void load_tensors(llama_model_loader & ml) override;
 
@@ -340,6 +332,8 @@ std::unique_ptr<llm_graph_context> MODEL_NAME::build_graph_context(const llm_gra
   # if last line has break; we remove it
   if code_graph.endswith("break;"):
     code_graph = code_graph[:-len("break;")].strip()
+  code_graph = code_graph.replace("llm = ", "return ")
+  code_graph = code_graph.replace(info.llm_build_name, "graph")
 
   new_model_code = new_model_code.replace("MODEL_NAME", info.new_struct_name)
   new_model_code = new_model_code.replace("HPARAMS_CODE", remove_indent(code_hparams, 4*3))
