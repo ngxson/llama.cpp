@@ -2965,29 +2965,6 @@ void llama_model::load_hparams_internal(llama_model_loader & ml) {
     }
 
     hparams.rope_type = llama_model_rope_type(this);
-
-    // populate loader context, to be used by load_tensor()
-    auto * llm_instance = dynamic_cast<llm_arch_model_i *>(this);
-    if (llm_instance) {
-        llm_instance->n_layer       = hparams.n_layer;
-        llm_instance->n_head        = hparams.n_head();
-        llm_instance->n_head_kv     = hparams.n_head_kv();
-        llm_instance->n_embd        = hparams.n_embd;
-        llm_instance->n_embd_k_gqa  = hparams.n_embd_k_gqa();
-        llm_instance->n_embd_v_gqa  = hparams.n_embd_v_gqa();
-        llm_instance->n_embd_head_k = hparams.n_embd_head_k();
-        llm_instance->n_embd_head_v = hparams.n_embd_head_v();
-        llm_instance->n_ff          = hparams.n_ff();
-        llm_instance->n_embd_gqa    = llm_instance->n_embd_v_gqa;
-        llm_instance->n_vocab       = vocab.n_tokens();
-        llm_instance->n_token_types = vocab.n_token_types();
-        llm_instance->n_rot         = hparams.n_rot();
-        llm_instance->n_expert      = hparams.n_expert;
-        llm_instance->n_expert_used = hparams.n_expert_used;
-        llm_instance->n_ctx_train   = hparams.n_ctx_train;
-    } else {
-        GGML_ABORT("model does not implement llm_arch_model_i interface");
-    }
 }
 
 void llama_model::load_vocab(llama_model_loader & ml) {
@@ -3005,22 +2982,6 @@ bool llama_model::load_tensors_internal(llama_model_loader & ml) {
     const int n_gpu_layers = this->n_gpu_layers();
 
     const bool use_mmap_buffer = true;
-
-    // set ml to the llm_arch_model_i instance (to be used by load_tensor())
-    // auto set it back to nullptr after finished
-    struct ml_set {
-        ml_set(llama_model_loader & ml, llama_model * inst) : ml(ml), instance(dynamic_cast<llm_arch_model_i *>(inst)) {
-            if (instance == nullptr) {
-                GGML_ABORT("model does not implement llm_arch_model_i interface");
-            }
-            instance->ml = &ml;
-        }
-        ~ml_set() {
-            instance->ml = nullptr;
-        }
-        llama_model_loader & ml;
-        llm_arch_model_i * instance;
-    } ml_set(ml, this);
 
     LLAMA_LOG_INFO("%s: loading model tensors, this can take a while... (mmap = %s, direct_io = %s)\n",
         __func__, ml.use_mmap ? "true" : "false", ml.use_direct_io ? "true" : "false");
@@ -3124,7 +3085,44 @@ bool llama_model::load_tensors_internal(llama_model_loader & ml) {
         const auto tn = LLM_TN(arch);
 
         // per-arch tensors
-        load_tensors(ml);
+        // using a RAII struct to automatically unset ml upon going out of scope
+        {
+            struct loading_scope {
+                loading_scope(llama_model_loader & ml, llama_model * inst, const llama_hparams & hparams, const llama_vocab & vocab) : ml(ml), instance(dynamic_cast<llm_arch_model_i *>(inst)), hparams(hparams), vocab(vocab) {
+                    if (instance == nullptr) {
+                        GGML_ABORT("model does not implement llm_arch_model_i interface");
+                    }
+                    instance->ml = &ml;
+                    // also populate additional data (for convenience)
+                    instance->n_layer       = hparams.n_layer;
+                    instance->n_head        = hparams.n_head();
+                    instance->n_head_kv     = hparams.n_head_kv();
+                    instance->n_embd        = hparams.n_embd;
+                    instance->n_embd_k_gqa  = hparams.n_embd_k_gqa();
+                    instance->n_embd_v_gqa  = hparams.n_embd_v_gqa();
+                    instance->n_embd_head_k = hparams.n_embd_head_k();
+                    instance->n_embd_head_v = hparams.n_embd_head_v();
+                    instance->n_ff          = hparams.n_ff();
+                    instance->n_embd_gqa    = instance->n_embd_v_gqa;
+                    instance->n_vocab       = vocab.n_tokens();
+                    instance->n_token_types = vocab.n_token_types();
+                    instance->n_rot         = hparams.n_rot();
+                    instance->n_expert      = hparams.n_expert;
+                    instance->n_expert_used = hparams.n_expert_used;
+                    instance->n_ctx_train   = hparams.n_ctx_train;
+                }
+                ~loading_scope() {
+                    instance->ml = nullptr;
+                }
+                llama_model_loader & ml;
+                llm_arch_model_i * instance;
+                const llama_hparams & hparams;
+                const llama_vocab & vocab;
+            } loading_scope(ml, this, hparams, vocab);
+
+            // call the per-model loading function
+            load_tensors(ml);
+        }
 
 #if 0
     // MARKER_START_MIGRATION_LOAD_TENSORS

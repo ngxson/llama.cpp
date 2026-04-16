@@ -406,6 +406,11 @@ void MODEL_NAME::load_tensors(llama_model_loader &) TENSORS_CODE
 
 std::unique_ptr<llm_graph_context> MODEL_NAME::build_graph_context(const llm_graph_params & params) const GRAPH_CODE
 """
+
+  if arch == "LLM_ARCH_JINA_BERT_V2":
+    new_model_code = new_model_code.replace(
+      "load_tensors(llama_model_loader &)", "load_tensors(llama_model_loader & ml)")
+
   if info.reuse_hparams_from_model and info.reuse_hparams_from_model == info.reuse_tensors_from_model:
     print(f"{arch} will reuse hparams and tensors from {info.reuse_hparams_from_arch} ({info.reuse_hparams_from_model})")
     new_model_code = """
