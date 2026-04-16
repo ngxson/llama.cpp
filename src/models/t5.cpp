@@ -211,7 +211,7 @@ llm_build_t5<true>::llm_build_t5(const llama_model & model, const llm_graph_para
             ggml_tensor * kq_b = build_pos_bias(pos_bucket_enc, attn_rel_b);
 
             cur = build_attn(inp_attn,
-                    model.layers[il].wo_enc, nullptr,
+                    model.layers[il].wo_enc, nullptr, nullptr,
                     Qcur, Kcur, Vcur, kq_b, nullptr, nullptr, 1.0f, il);
             cb(cur, "kqv_out", il);
         }
