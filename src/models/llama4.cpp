@@ -103,7 +103,7 @@ llm_build_llama4<iswa>::llm_build_llama4(const llama_model & model, const llm_gr
                 cb(Kcur, "Kcur_normed", il);
             }
             cur = build_attn(inp_attn,
-                    model.layers[il].wo, model.layers[il].bo,
+                    model.layers[il].wo, model.layers[il].bo, model.layers[il].wo_s,
                     Qcur, Kcur, Vcur, nullptr, nullptr, nullptr, kq_scale, il);
             cb(cur, "attn_out", il);
         }
