@@ -496,7 +496,7 @@ struct llm_build_phi2 : public llm_graph_context {
     llm_build_phi2(const llama_model & model, const llm_graph_params & params);
 };
 
-template<bool iswa>
+template <bool iswa>
 struct llm_build_phi3 : public llm_graph_context {
     llm_build_phi3(const llama_model & model, const llm_graph_params & params);
 };
