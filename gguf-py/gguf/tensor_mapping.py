@@ -230,6 +230,7 @@ class TensorNameMap:
             "layers.{bid}.attn.Wqkv",                                              # modern-bert
             "model.layers.{bid}.self_attn.language_expert_query_key_value",        # cogvlm
             "model.layers.{bid}.linear_attn.in_proj_qkv",                          # qwen3.5
+            "layers.{bid}.attention.wqkv",                                         # falcon-ocr
         ),
 
         # Attention query
@@ -357,6 +358,7 @@ class TensorNameMap:
         MODEL_TENSOR.ATTN_SINKS: (
             "model.layers.{bid}.self_attn.sinks", # openai-moe
             "model.layers.{bid}.self_attn.attention_sink_bias", # mimov2
+            "layers.{bid}.attention.sinks", # falcon_ocr
         ),
 
         MODEL_TENSOR.ATTN_GATE: (

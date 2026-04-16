@@ -36,8 +36,9 @@ struct mtmd_bitmap {
 struct mtmd_image_tokens {
     uint32_t nx; // number of tokens in x direction
     uint32_t ny; // number of tokens in y direction
+    uint32_t n_boi = 0; // number of begin-of-image tokens, used by falcon-ocr
     bool use_mrope_pos = false; // use M-RoPE position counting (the whole image is 1 temporal position)
-    uint32_t n_tokens() const { return nx * ny; }
+    uint32_t n_tokens() const { return nx * ny + n_boi; }
     clip_image_f32_batch batch_f32; // preprocessed image patches
     std::string id; // optional user-defined ID, useful for KV cache tracking
 
@@ -45,6 +46,7 @@ struct mtmd_image_tokens {
         return mtmd_image_tokens{
             nx,
             ny,
+            n_boi,
             use_mrope_pos,
             batch_f32.clone(),
             id
@@ -436,6 +438,10 @@ struct mtmd_context {
                     img_end = "<｜hy_place▁holder▁no▁101｜>";
                     image_preproc = std::make_unique<mtmd_image_preprocessor_dyn_size>(ctx_v);
                 } break;
+            case PROJECTOR_TYPE_FALCON_OCR:
+                {
+                    image_preproc = std::make_unique<mtmd_image_preprocessor_dyn_size>(ctx_v);
+                } break;
             default:
                 throw std::runtime_error(string_format("%s: unexpected vision projector type %d\n", __func__, proj));
         }
@@ -790,6 +796,12 @@ struct mtmd_tokenizer {
                 LOG_DBG("image_tokens->ny = %d\n", image_tokens->ny);
                 LOG_DBG("batch_f32 size = %d\n", (int)image_tokens->batch_f32.entries.size());
 
+                // used by falcon-ocr
+                auto n_boi = clip_get_n_boi(ctx->ctx_v);
+                if (n_boi > 0) {
+                    image_tokens->n_boi = n_boi;
+                }
+
                 mtmd_input_chunk chunk{
                     MTMD_INPUT_CHUNK_TYPE_IMAGE,
                     {}, // text tokens
@@ -1022,6 +1034,7 @@ bool mtmd_decode_use_non_causal(mtmd_context * ctx, const mtmd_input_chunk * chu
     switch (proj_type) {
         case PROJECTOR_TYPE_GEMMA3:
         case PROJECTOR_TYPE_GEMMA4V:
+        case PROJECTOR_TYPE_FALCON_OCR:
             return true;
         default:
             return false;
@@ -1039,6 +1052,7 @@ bool mtmd_decode_use_mrope(mtmd_context * ctx) {
         case PROJECTOR_TYPE_QWEN3VL:
         case PROJECTOR_TYPE_GLM4V:
         case PROJECTOR_TYPE_PADDLEOCR:
+        case PROJECTOR_TYPE_FALCON_OCR: // note: falcon-ocr uses a variant of m-rope
             return true;
         default:
             return false;
@@ -1248,9 +1262,25 @@ size_t mtmd_image_tokens_get_ny(const mtmd_image_tokens * image_tokens) {
 
 mtmd_decoder_pos mtmd_image_tokens_get_decoder_pos(const mtmd_image_tokens * image_tokens, size_t i) {
     mtmd_decoder_pos pos;
-    pos.t = 0;
-    pos.x = i % image_tokens->nx;
-    pos.y = i / image_tokens->nx;
+    auto n_boi = image_tokens->n_boi;
+    if (n_boi > 0) {
+        // falcon-ocr style
+        if (i < n_boi) {
+            pos.t = i;
+            pos.x = 0;
+            pos.y = 0;
+        } else {
+            size_t idx = i - n_boi;
+            pos.t = n_boi; // all image tokens share the same temporal pos
+            pos.x = idx % image_tokens->nx;
+            pos.y = idx / image_tokens->nx;
+        }
+    } else {
+        // m-rope style
+        pos.t = 0;
+        pos.x = i % image_tokens->nx;
+        pos.y = i / image_tokens->nx;
+    }
     return pos;
 }
 
@@ -1263,6 +1293,10 @@ llama_pos mtmd_image_tokens_get_n_pos(const mtmd_image_tokens * image_tokens) {
         // for M-RoPE, temporal dimension = max(t,h,w)
         // t is omitted as we don't support video input
         return std::max(image_tokens->nx, image_tokens->ny);
+    }
+    if (image_tokens->n_boi > 0) {
+        // for falcon-ocr, temporal dimension = n_boi + 1 (for all image tokens)
+        return image_tokens->n_boi + 1;
     }
     return image_tokens->n_tokens();
 }

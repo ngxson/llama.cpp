@@ -18,6 +18,7 @@ add_library(mtmd
             models/cogvlm.cpp
             models/conformer.cpp
             models/dotsocr.cpp
+            models/falcon-ocr.cpp
             models/gemma4a.cpp
             models/gemma4v.cpp
             models/glm4v.cpp

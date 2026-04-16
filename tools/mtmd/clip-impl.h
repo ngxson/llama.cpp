@@ -293,6 +293,7 @@ enum projector_type {
     PROJECTOR_TYPE_KIMIK25,
     PROJECTOR_TYPE_NEMOTRON_V2_VL,
     PROJECTOR_TYPE_HUNYUANOCR,
+    PROJECTOR_TYPE_FALCON_OCR,
     PROJECTOR_TYPE_UNKNOWN,
 };
 
@@ -338,6 +339,7 @@ static std::map<projector_type, std::string> PROJECTOR_TYPE_NAMES = {
     { PROJECTOR_TYPE_KIMIK25,   "kimik25"},
     { PROJECTOR_TYPE_NEMOTRON_V2_VL, "nemotron_v2_vl"},
     { PROJECTOR_TYPE_HUNYUANOCR, "hunyuanocr"},
+    { PROJECTOR_TYPE_FALCON_OCR, "falcon-ocr"},
 };
 
 static projector_type clip_projector_type_from_string(const std::string & str) {
