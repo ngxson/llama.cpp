@@ -863,7 +863,7 @@ void llama_model::load_hparams_internal(llama_model_loader & ml) {
     hparams.rope_type = llama_model_rope_type(this);
 }
 
-static void load_hparams_to_be_migrated(llama_model_loader & ml) {
+#if 0
     // MARKER_START_MIGRATION_LOAD_HPARAMS
     switch (arch) {
         case LLM_ARCH_LLAMA:
@@ -2952,7 +2952,7 @@ static void load_hparams_to_be_migrated(llama_model_loader & ml) {
     }
 
     // MARKER_END_MIGRATION_LOAD_HPARAMS
-}
+#endif
 
 void llama_model::load_vocab(llama_model_loader & ml) {
     const auto kv = LLM_KV(arch);
@@ -3377,7 +3377,7 @@ bool llama_model::load_tensors_internal(llama_model_loader & ml) {
     return true;
 }
 
-static bool load_tensors_to_be_migrated(llama_model_loader & ml) {
+#if 0
     // MARKER_START_MIGRATION_LOAD_TENSORS
         switch (arch) {
             case LLM_ARCH_LLAMA:
@@ -8267,7 +8267,7 @@ static bool load_tensors_to_be_migrated(llama_model_loader & ml) {
         }
 
     // MARKER_END_MIGRATION_LOAD_TENSORS
-}
+#endif
 
 std::string llama_model::arch_name() const {
     return llm_arch_name(arch);
@@ -8791,7 +8791,7 @@ ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
     return llm->res->get_gf();
 }
 
-static ggml_cgraph * build_graph_to_be_migrated(const llm_graph_params & params) {
+#if 0
     // MARKER_START_MIGRATION_BUILD_GRAPH
 
     switch (arch) {
@@ -9300,7 +9300,7 @@ static ggml_cgraph * build_graph_to_be_migrated(const llm_graph_params & params)
     }
 
     // MARKER_END_MIGRATION_BUILD_GRAPH
-}
+#endif
 
 
 //
