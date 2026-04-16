@@ -210,7 +210,9 @@ for arch, info in mapping.items():
 
   info.llm_build_name = next(iter(info.llm_builds))
   print(f"{arch} -> {info.llm_build_name}")
-  info.new_struct_name = info.llm_build_name.replace("llm_build_", "llama_model_")
+  # info.new_struct_name = info.llm_build_name.replace("llm_build_", "llama_model_")
+  n_tmp = arch.replace("LLM_ARCH_", "llama_model_").lower()
+  info.new_struct_name = n_tmp
 
 graph_owner_by_build_name: dict[str, str] = {}
 hparams_owner_by_code: dict[str, str] = {}
@@ -262,8 +264,9 @@ for arch, info in mapping.items():
   output_select_arch_fn += "            {\n"
   output_select_arch_fn += "                model = new {}(params);\n".format(info.new_struct_name)
   output_select_arch_fn += "            } break;\n"
+
 output_select_arch_fn += "        default:\n"
-output_select_arch_fn += "            GGML_ABORT(\"unsupported architecture\");\n"
+output_select_arch_fn += "            GGML_ABORT(\"unimplemented model class\");\n"
 output_select_arch_fn += "    }\n"
 
 # print("\n\nSELECT_ARCH_FN:\n")
@@ -341,10 +344,32 @@ for arch, info in mapping.items():
 
   fname = info.new_struct_name.replace("llama_model_", "").replace("_", "-")
   fname = fname.replace("qwen3vlmoe", "qwen3vl-moe") # hot dirty fix
+  fname = fname.replace("llama-embed", "llama") # hot dirty fix
+  fname = fname.replace("jina-bert-v2", "bert") # hot dirty fix
+  fname = fname.replace("jina-bert-v3", "bert") # hot dirty fix
+  fname = fname.replace("nomic-bert", "bert") # hot dirty fix
+  fname = fname.replace("bert-moe", "bert") # hot dirty fix
+  fname = fname.replace("phimoe", "phi3") # hot dirty fix
+  fname = fname.replace("mamba2", "mamba") # hot dirty fix
+  fname = fname.replace("deepseek2ocr", "deepseek2") # hot dirty fix
+  fname = fname.replace("glm-dsa", "deepseek2") # hot dirty fix
+  fname = fname.replace("mistral4", "deepseek2") # hot dirty fix
+  fname = fname.replace("granite-moe", "granite") # hot dirty fix
+  fname = fname.replace("nemotron-h-moe", "nemotron-h") # hot dirty fix
+  fname = fname.replace("openai-moe", "openai-moe-iswa") # hot dirty fix
+  fname = fname.replace("pangu-embed", "pangu-embedded") # hot dirty fix
+  fname = "granite" if fname == "minicpm" else fname # hot dirty fix
+  fname = fname.replace("lfm2moe", "lfm2") # hot dirty fix
   impl_filename = f"src/models/{fname}.cpp"
+
+  if not os.path.exists(impl_filename):
+    impl_filename = f"src/models/{fname}-iswa.cpp"
+
   if os.path.exists(impl_filename):
     with open(impl_filename, "r") as f_impl:
       info.code_impl = f_impl.read()
+  else:
+    raise ValueError(f"expected file {impl_filename} to exist for {arch} ({info.new_struct_name})")
 
   if info.reuse_graph_from_model:
     if info.model_header and info.model_header.strip().startswith("template"):
@@ -468,7 +493,11 @@ for arch, info in mapping.items():
     else:
       code_impl_lines.append(line)
   code_includes = "\n".join(code_includes).strip()
-  code_impl = "\n".join(code_impl_lines).strip()
+
+  if info.reuse_graph_from_model:
+    code_impl = ""
+  else:
+    code_impl = "\n".join(code_impl_lines).strip()
   # if no code_includes, make one
   code_includes = '#include "models.h"' if not code_includes else code_includes
   info.new_impl = code_includes + "\n" + info.new_impl + "\n" + code_impl
