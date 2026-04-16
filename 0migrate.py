@@ -6,15 +6,16 @@ import os
 
 # IMPORTANT: REMOVE THIS FILE BEFORE MERGING THE PR
 
-# Reset any changes in src/models before running to avoid reading already modified files
-print("Resetting src/models/* ...")
-os.system("git checkout src/models")
-os.system("git clean -fd src/models")
-
 # this script is partially vibe-coded
 
 MODEL_H = "src/llama-model.h"
 MODEL_CPP = "src/llama-model.cpp"
+
+# Reset any changes in src/models before running to avoid reading already modified files
+print("Resetting src/models/* ...")
+os.system("git checkout src/models")
+os.system("git checkout " + MODEL_CPP)
+os.system("git clean -fd src/models")
 
 MARKER_START_BUILD_GRAPH = "MARKER_START_MIGRATION_BUILD_GRAPH"
 MARKER_END_BUILD_GRAPH = "MARKER_END_MIGRATION_BUILD_GRAPH"
@@ -36,9 +37,14 @@ class ModelInfo:
   code_graph: str = ""
   code_hparams: str = ""
   code_tensors: str = ""
+  code_impl: str = ""
   model_header: str = ""
   reuse_graph_from_arch: str = ""
   reuse_graph_from_model: str = ""
+  reuse_hparams_from_arch: str = ""
+  reuse_hparams_from_model: str = ""
+  reuse_tensors_from_arch: str = ""
+  reuse_tensors_from_model: str = ""
   # transformed code
   new_struct_name: str = ""
   new_header: str = ""
@@ -207,17 +213,40 @@ for arch, info in mapping.items():
   info.new_struct_name = info.llm_build_name.replace("llm_build_", "llama_model_")
 
 graph_owner_by_build_name: dict[str, str] = {}
+hparams_owner_by_code: dict[str, str] = {}
+tensors_owner_by_code: dict[str, str] = {}
+
 for arch, info in mapping.items():
   if not info.llm_build_name:
     continue
 
+  # graph reuse
   owner_arch = graph_owner_by_build_name.get(info.llm_build_name)
   if owner_arch is None:
     graph_owner_by_build_name[info.llm_build_name] = arch
-    continue
+  else:
+    info.reuse_graph_from_arch = owner_arch
+    info.reuse_graph_from_model = mapping[owner_arch].new_struct_name
 
-  info.reuse_graph_from_arch = owner_arch
-  info.reuse_graph_from_model = mapping[owner_arch].new_struct_name
+  # hparams reuse
+  hcode = info.code_hparams.strip()
+  if hcode:
+    hparams_owner = hparams_owner_by_code.get(hcode)
+    if hparams_owner is None:
+      hparams_owner_by_code[hcode] = arch
+    elif hparams_owner != arch:
+      info.reuse_hparams_from_arch = hparams_owner
+      info.reuse_hparams_from_model = mapping[hparams_owner].new_struct_name
+
+  # tensors reuse
+  tcode = info.code_tensors.strip()
+  if tcode:
+    tensors_owner = tensors_owner_by_code.get(tcode)
+    if tensors_owner is None:
+      tensors_owner_by_code[tcode] = arch
+    elif tensors_owner != arch:
+      info.reuse_tensors_from_arch = tensors_owner
+      info.reuse_tensors_from_model = mapping[tensors_owner].new_struct_name
 
 
 
@@ -237,12 +266,10 @@ output_select_arch_fn += "        default:\n"
 output_select_arch_fn += "            GGML_ABORT(\"unsupported architecture\");\n"
 output_select_arch_fn += "    }\n"
 
-print("\n\nSELECT_ARCH_FN:\n")
-print(output_select_arch_fn)
+# print("\n\nSELECT_ARCH_FN:\n")
+# print(output_select_arch_fn)
 
 model_cpp_content = model_cpp_content.replace("// SELECT_ARCH_FN", output_select_arch_fn)
-with open(MODEL_CPP + ".log", "w") as f:
-  f.write(model_cpp_content)
 
 
 
@@ -303,6 +330,12 @@ for arch, info in mapping.items():
     info.new_struct_name = new_name
   seen.add(info.new_struct_name)
 
+  fname = info.new_struct_name.replace("llama_model_", "").replace("_", "-")
+  impl_filename = f"src/models/{fname}.cpp"
+  if os.path.exists(impl_filename):
+    with open(impl_filename, "r") as f_impl:
+      info.code_impl = f_impl.read()
+
   if info.reuse_graph_from_model:
     if info.model_header and info.model_header.strip().startswith("template"):
       template_line = info.model_header.strip().splitlines()[0]
@@ -327,16 +360,23 @@ for arch, info in mapping.items():
     if use_base:
       new_graph_struct = new_graph_struct.replace("public graph_base", "public " + info.llm_build_name + "_base")
 
-  new_struct_code = """struct MODEL_NAME : public llm_arch_model_i {
-    MODEL_NAME(const struct llama_model_params & params) : llm_arch_model_i(params) {};
-    void load_hparams(llama_model_loader & ml) override;
-    void load_tensors(llama_model_loader & ml) override;
+  base_class = "llm_arch_model_i"
+  load_methods_decl = """    void load_hparams(llama_model_loader & ml) override;\n    void load_tensors(llama_model_loader & ml) override;"""
+  if info.reuse_hparams_from_model and info.reuse_hparams_from_model == info.reuse_tensors_from_model:
+    base_class = info.reuse_hparams_from_model
+    load_methods_decl = "    // reuse load_hparams and load_tensors from {}".format(info.reuse_hparams_from_model)
+
+  new_struct_code = """struct MODEL_NAME : public BASE_CLASS {
+    MODEL_NAME(const struct llama_model_params & params) : BASE_CLASS(params) {};
+LOAD_METHODS_DECL
 
 GRAPH_STRUCT
 
     std::unique_ptr<llm_graph_context> build_graph_context(const llm_graph_params & params) const override;
 };"""
   new_struct_code = new_struct_code.replace("MODEL_NAME", info.new_struct_name)
+  new_struct_code = new_struct_code.replace("BASE_CLASS", base_class)
+  new_struct_code = new_struct_code.replace("LOAD_METHODS_DECL\n", load_methods_decl + "\n" if load_methods_decl else "")
   new_struct_code = new_struct_code.replace("GRAPH_STRUCT", add_indent(new_graph_struct, "    "))
   info.new_header = new_struct_code
 
@@ -356,6 +396,12 @@ void MODEL_NAME::load_tensors(llama_model_loader & ml) TENSORS_CODE
 
 std::unique_ptr<llm_graph_context> MODEL_NAME::build_graph_context(const llm_graph_params & params) const GRAPH_CODE
 """
+  if info.reuse_hparams_from_model and info.reuse_hparams_from_model == info.reuse_tensors_from_model:
+    print(f"{arch} will reuse hparams and tensors from {info.reuse_hparams_from_arch} ({info.reuse_hparams_from_model})")
+    new_model_code = """
+std::unique_ptr<llm_graph_context> MODEL_NAME::build_graph_context(const llm_graph_params & params) const GRAPH_CODE
+"""
+
   code_hparams = info.code_hparams.strip()
   # if last line has break; we remove it
   if code_hparams.endswith("break;"):
@@ -385,11 +431,53 @@ std::unique_ptr<llm_graph_context> MODEL_NAME::build_graph_context(const llm_gra
   code_graph = code_graph.replace(info.llm_build_name, "graph")
 
   new_model_code = new_model_code.replace("MODEL_NAME", info.new_struct_name)
-  new_model_code = new_model_code.replace("HPARAMS_CODE", code_hparams)
-  new_model_code = new_model_code.replace("TENSORS_CODE", code_tensors)
+  if "HPARAMS_CODE" in new_model_code:
+    new_model_code = new_model_code.replace("HPARAMS_CODE", code_hparams)
+  if "TENSORS_CODE" in new_model_code:
+    new_model_code = new_model_code.replace("TENSORS_CODE", code_tensors)
   new_model_code = new_model_code.replace("GRAPH_CODE", remove_indent(code_graph, 4*3))
   info.new_impl = new_model_code
 
+
+
+
+
+# assemble the new impl code
+for arch, info in mapping.items():
+  new_impl = info.new_impl.strip()
+  code_impl = info.code_impl.strip().splitlines()
+  # split code and include sections from code_impl
+  code_includes = []
+  code_impl_lines = []
+  for line in code_impl:
+    if line.strip().startswith("#include"):
+      code_includes.append(line)
+    else:
+      code_impl_lines.append(line)
+  code_includes = "\n".join(code_includes).strip()
+  code_impl = "\n".join(code_impl_lines).strip()
+  info.new_impl = code_includes + "\n" + info.new_impl + "\n" + code_impl
+  # rename graph building in impl
+  # handles template: llm_build_plamo3<iswa>::llm_build_plamo3 -> llama_model_plamo3::graph<iswa>::graph
+  info.new_impl = re.sub(
+    info.llm_build_name + r"(<[^>]+>)?::" + info.llm_build_name,
+    info.new_struct_name + r"::graph\1::graph",
+    info.new_impl
+  )
+  # handles: str llm_build_plamo3<true> -> str llama_model_plamo3::graph<true>
+  info.new_impl = re.sub(
+    r'\b' + info.llm_build_name + r'(<[^>]*>)',
+    info.new_struct_name + r"::graph\1",
+    info.new_impl
+  )
+  # handles: llm_build_plamo3:: -> llama_model_plamo3::graph::
+  info.new_impl = re.sub(
+    r'\b' + info.llm_build_name + r'::',
+    info.new_struct_name + r"::graph::",
+    info.new_impl
+  )
+  # the rest, if any
+  info.new_impl = info.new_impl.replace(" ::", "::")
 
 
 
@@ -399,7 +487,7 @@ header_file = ""
 for line in models_h_content.splitlines():
   header_file += line + "\n"
   if line == "// models":
-    header_file += "//\n\n"
+    header_file += "//"
     break
 header_file = header_file.replace('#include "llama-graph.h"',
                                   '#include "llama-graph.h"\n#include "llama-model-loader.h"')
@@ -415,8 +503,8 @@ for arch, info in mapping.items():
 
 DO_IT_FOR_REAL = True
 if DO_IT_FOR_REAL:
-  # remove all from src/models/*.cpp
-  os.system("rm src/models/*.cpp")
+  # remove all from src/models/*.cpp except base classes
+  os.system("find src/models -name '*.cpp' ! -name '*-base.cpp' -type f -delete")
   with open("src/models/models.h", "w") as f:
     f.write(header_file)
   for arch, info in mapping.items():
@@ -425,8 +513,10 @@ if DO_IT_FOR_REAL:
     fname = fname.replace("_", "-")
     impl_filename = f"src/models/{fname}.cpp"
     with open(impl_filename, "w") as f:
-      f.write("#include \"models.h\"\n\n" + info.new_impl)
-      print("writing {}...".format(impl_filename))
+      f.write(info.new_impl)
+      # print("writing {}...".format(impl_filename))
+    with open(MODEL_CPP, "w") as f:
+      f.write(model_cpp_content)
 else:
   with open("src/models/models_new.h", "w") as f:
     f.write(header_file + tmp_impl)
