@@ -402,7 +402,7 @@ for arch, info in mapping.items():
   new_model_code = """
 void MODEL_NAME::load_hparams(llama_model_loader & ml) HPARAMS_CODE
 
-void MODEL_NAME::load_tensors(llama_model_loader & ml) TENSORS_CODE
+void MODEL_NAME::load_tensors(llama_model_loader &) TENSORS_CODE
 
 std::unique_ptr<llm_graph_context> MODEL_NAME::build_graph_context(const llm_graph_params & params) const GRAPH_CODE
 """
@@ -425,8 +425,6 @@ std::unique_ptr<llm_graph_context> MODEL_NAME::build_graph_context(const llm_gra
     code_tensors = code_tensors[:-len("break;")].strip()
 
   code_tensors = remove_indent(code_tensors, 4*4)
-  # prepend "this->ml = ml;" to code_tensors
-  code_tensors = "{\n    this->ml = &ml; // used by create_tensor\n\n" + "\n".join(code_tensors.splitlines()[1:])
 
   code_graph = info.code_graph.strip()
   # if last line has break; we remove it

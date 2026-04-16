@@ -2965,6 +2965,29 @@ void llama_model::load_hparams_internal(llama_model_loader & ml) {
     }
 
     hparams.rope_type = llama_model_rope_type(this);
+
+    // populate loader context, to be used by load_tensor()
+    auto * llm_instance = dynamic_cast<llm_arch_model_i *>(this);
+    if (llm_instance) {
+        llm_instance->n_layer       = hparams.n_layer;
+        llm_instance->n_head        = hparams.n_head();
+        llm_instance->n_head_kv     = hparams.n_head_kv();
+        llm_instance->n_embd        = hparams.n_embd;
+        llm_instance->n_embd_k_gqa  = hparams.n_embd_k_gqa();
+        llm_instance->n_embd_v_gqa  = hparams.n_embd_v_gqa();
+        llm_instance->n_embd_head_k = hparams.n_embd_head_k();
+        llm_instance->n_embd_head_v = hparams.n_embd_head_v();
+        llm_instance->n_ff          = hparams.n_ff();
+        llm_instance->n_embd_gqa    = llm_instance->n_embd_v_gqa;
+        llm_instance->n_vocab       = vocab.n_tokens();
+        llm_instance->n_token_types = vocab.n_token_types();
+        llm_instance->n_rot         = hparams.n_rot();
+        llm_instance->n_expert      = hparams.n_expert;
+        llm_instance->n_expert_used = hparams.n_expert_used;
+        llm_instance->n_ctx_train   = hparams.n_ctx_train;
+    } else {
+        GGML_ABORT("model does not implement llm_arch_model_i interface");
+    }
 }
 
 void llama_model::load_vocab(llama_model_loader & ml) {
@@ -2982,6 +3005,22 @@ bool llama_model::load_tensors_internal(llama_model_loader & ml) {
     const int n_gpu_layers = this->n_gpu_layers();
 
     const bool use_mmap_buffer = true;
+
+    // set ml to the llm_arch_model_i instance (to be used by load_tensor())
+    // auto set it back to nullptr after finished
+    struct ml_set {
+        ml_set(llama_model_loader & ml, llama_model * inst) : ml(ml), instance(dynamic_cast<llm_arch_model_i *>(inst)) {
+            if (instance == nullptr) {
+                GGML_ABORT("model does not implement llm_arch_model_i interface");
+            }
+            instance->ml = &ml;
+        }
+        ~ml_set() {
+            instance->ml = nullptr;
+        }
+        llama_model_loader & ml;
+        llm_arch_model_i * instance;
+    } ml_set(ml, this);
 
     LLAMA_LOG_INFO("%s: loading model tensors, this can take a while... (mmap = %s, direct_io = %s)\n",
         __func__, ml.use_mmap ? "true" : "false", ml.use_direct_io ? "true" : "false");
@@ -9447,22 +9486,6 @@ const std::vector<std::pair<std::string, ggml_tensor *>> & llama_internal_get_te
 //
 
 llm_arch_model_i::llm_arch_model_i(const struct llama_model_params & params) : llama_model(params), model(this), tn(model->arch),
-    n_layer          (model->hparams.n_layer),
-    n_head           (model->hparams.n_head()),
-    n_head_kv        (model->hparams.n_head_kv()),
-    n_embd           (model->hparams.n_embd),
-    n_embd_k_gqa     (model->hparams.n_embd_k_gqa()),
-    n_embd_v_gqa     (model->hparams.n_embd_v_gqa()),
-    n_embd_head_k    (model->hparams.n_embd_head_k()),
-    n_embd_head_v    (model->hparams.n_embd_head_v()),
-    n_ff             (model->hparams.n_ff()),
-    n_embd_gqa       (n_embd_v_gqa),
-    n_vocab          (model->vocab.n_tokens()),
-    n_token_types    (model->vocab.n_token_types()),
-    n_rot            (model->hparams.n_rot()),
-    n_expert         (model->hparams.n_expert),
-    n_expert_used    (model->hparams.n_expert_used),
-    n_ctx_train      (model->hparams.n_ctx_train),
     TENSOR_DUPLICATED     (llama_model_loader::TENSOR_DUPLICATED),
     TENSOR_NOT_REQUIRED   (llama_model_loader::TENSOR_NOT_REQUIRED),
     TENSOR_SKIP           (llama_model_loader::TENSOR_SKIP),
