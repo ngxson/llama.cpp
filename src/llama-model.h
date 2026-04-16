@@ -584,7 +584,6 @@ struct llama_model {
     virtual ~llama_model();
 
     void load_stats           (llama_model_loader & ml);
-    void load_arch            (llama_model_loader & ml);
     void load_hparams_internal(llama_model_loader & ml);
     void load_vocab           (llama_model_loader & ml);
     bool load_tensors_internal(llama_model_loader & ml); // returns false if cancelled by progress_callback
