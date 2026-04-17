@@ -3081,6 +3081,7 @@ bool llm_arch_model_i::load_tensors(llama_model_loader & ml) {
         const auto tn = LLM_TN(arch);
 
         // prepare parameters to be used by load_arch_tensors()
+        this->ml            = &ml;
         this->n_layer       = hparams.n_layer;
         this->n_head        = hparams.n_head();
         this->n_head_kv     = hparams.n_head_kv();
@@ -3100,6 +3101,9 @@ bool llm_arch_model_i::load_tensors(llama_model_loader & ml) {
 
         // call the per-model loading function
         load_arch_tensors(ml);
+
+        // unset model_loader to avoid accidental use after this function
+        this->ml = nullptr;
 
 #if 0
     // MARKER_START_MIGRATION_LOAD_TENSORS
