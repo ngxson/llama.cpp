@@ -884,12 +884,16 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
 
     auto mparams = llama_model_default_params();
     std::unique_ptr<llama_model> model_ptr(llama_model_create(ml, mparams));
-    llama_model & model = *model_ptr;
 
-    model.load_hparams(ml);
-    model.load_stats  (ml);
+    auto * model = dynamic_cast<llm_arch_model_i *>(model_ptr.get());
+    if (model == nullptr) {
+        GGML_ABORT("fatal error: model does not implement llm_arch_model_i");
+    }
 
-    quantize_state_impl qs(model, params);
+    model->load_hparams(ml);
+    model->load_stats  (ml);
+
+    quantize_state_impl qs(*model, params);
 
     if (params->only_copy) {
         ftype = ml.ftype;
@@ -1024,7 +1028,7 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
         }
         gguf_add_tensor(ctx_outs[i_split].get(), tensor);
 
-        metadata[i].allows_quantization = tensor_allows_quantization(params, model.arch, tensor);
+        metadata[i].allows_quantization = tensor_allows_quantization(params, model->arch, tensor);
 
         if (metadata[i].allows_quantization) {
             metadata[i].target_type = llama_tensor_get_type(qs, params, tensor, default_type, metadata[i]);

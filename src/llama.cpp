@@ -989,11 +989,16 @@ static std::pair<int, llama_model *> llama_model_load(struct gguf_context * meta
             params.check_tensors, params.no_alloc, params.kv_overrides, params.tensor_buft_overrides);
 
         ml.print_info();
-        std::unique_ptr<llama_model> model(llama_model_create(ml, params));
+        std::unique_ptr<llama_model> model_ptr(llama_model_create(ml, params));
 
-        bool ok = llama_prepare_model_devices(params, model.get());
+        bool ok = llama_prepare_model_devices(params, model_ptr.get());
         if (!ok) {
             return {-1, nullptr};
+        }
+
+        auto * model = dynamic_cast<llm_arch_model_i *>(model_ptr.get());
+        if (model == nullptr) {
+            GGML_ABORT("fatal error: model does not implement llm_arch_model_i");
         }
 
         // loading time will be recalculated after the first eval, so
@@ -1007,7 +1012,7 @@ static std::pair<int, llama_model *> llama_model_load(struct gguf_context * meta
         model->hparams.no_alloc   = params.no_alloc;
 
         try {
-            model->load_hparams_internal(ml);
+            model->load_hparams(ml);
         } catch(const std::exception & e) {
             throw std::runtime_error("error loading model hyperparameters: " + std::string(e.what()));
         }
@@ -1025,16 +1030,14 @@ static std::pair<int, llama_model *> llama_model_load(struct gguf_context * meta
 
         if (params.vocab_only) {
             LLAMA_LOG_INFO("%s: vocab only - skipping tensors\n", __func__);
-            auto * model_ptr = model.release();
-            return {0, model_ptr};
+            return {0, model_ptr.release()};
         }
 
-        if (!model->load_tensors_internal(ml)) {
+        if (!model->load_tensors(ml)) {
             return {-2, nullptr};
         }
 
-        auto * model_ptr = model.release();
-        return {0, model_ptr};
+        return {0, model_ptr.release()};
     } catch (const std::exception & err) {
         LLAMA_LOG_ERROR("%s: error loading model: %s\n", __func__, err.what());
         return {-1, nullptr};
