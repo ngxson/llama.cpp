@@ -702,12 +702,12 @@ llama_model::~llama_model() {
     }
 }
 
-void llama_model::load_stats(llama_model_loader & ml) {
+void llm_arch_model_i::load_stats(llama_model_loader & ml) {
     pimpl->n_elements = ml.n_elements;
     pimpl->n_bytes = ml.n_bytes;
 }
 
-void llama_model::load_hparams_internal(llama_model_loader & ml) {
+void llm_arch_model_i::load_hparams(llama_model_loader & ml) {
     const gguf_context * ctx = ml.metadata;
 
     // get metadata as string
@@ -869,7 +869,7 @@ void llama_model::load_hparams_internal(llama_model_loader & ml) {
     }
 
     // per-arch hparams
-    load_hparams(ml);
+    load_arch_hparams(ml);
 
 #if 0
     // MARKER_START_MIGRATION_LOAD_HPARAMS
@@ -2973,13 +2973,13 @@ void llama_model::load_hparams_internal(llama_model_loader & ml) {
     hparams.rope_type = llama_model_rope_type(this);
 }
 
-void llama_model::load_vocab(llama_model_loader & ml) {
+void llm_arch_model_i::load_vocab(llama_model_loader & ml) {
     const auto kv = LLM_KV(arch);
 
     vocab.load(ml, kv);
 }
 
-bool llama_model::load_tensors_internal(llama_model_loader & ml) {
+bool llm_arch_model_i::load_tensors(llama_model_loader & ml) {
     const auto & split_mode   = params.split_mode;
     const auto & use_mlock    = params.use_mlock;
     const auto & tensor_split = params.tensor_split;
@@ -3071,64 +3071,35 @@ bool llama_model::load_tensors_internal(llama_model_loader & ml) {
     // create tensors for the weights
     // TODO: clean this up in the future
     {
-        // note: cast to int64_t since we will use these for the tensor dimensions
-        const int64_t n_expert      = hparams.n_expert;
-        const int64_t n_expert_used = hparams.n_expert_used;
-
         if (n_expert > 0 && n_expert_used == 0) {
             throw std::runtime_error("model has expert layers but no expert layers are used");
         }
-
-        // helper function to facilitate migration
-        // TODO: remove this in the future
-        auto create_tensor = [&](const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags) -> ggml_tensor * {
-            return this->create_tensor(ml, tn, ne, flags);
-        };
 
         layers.resize(n_layer);
 
         // TODO: move to a separate function
         const auto tn = LLM_TN(arch);
 
-        // per-arch tensors
-        // using a RAII struct to automatically unset ml upon going out of scope
-        {
-            struct loading_scope {
-                loading_scope(llama_model_loader & ml, llama_model * inst, const llama_hparams & hparams, const llama_vocab & vocab) : ml(ml), instance(dynamic_cast<llm_arch_model_i *>(inst)), hparams(hparams), vocab(vocab) {
-                    if (instance == nullptr) {
-                        GGML_ABORT("model does not implement llm_arch_model_i interface");
-                    }
-                    instance->ml = &ml;
-                    // also populate additional data (for convenience)
-                    instance->n_layer       = hparams.n_layer;
-                    instance->n_head        = hparams.n_head();
-                    instance->n_head_kv     = hparams.n_head_kv();
-                    instance->n_embd        = hparams.n_embd;
-                    instance->n_embd_k_gqa  = hparams.n_embd_k_gqa();
-                    instance->n_embd_v_gqa  = hparams.n_embd_v_gqa();
-                    instance->n_embd_head_k = hparams.n_embd_head_k();
-                    instance->n_embd_head_v = hparams.n_embd_head_v();
-                    instance->n_ff          = hparams.n_ff();
-                    instance->n_embd_gqa    = instance->n_embd_v_gqa;
-                    instance->n_vocab       = vocab.n_tokens();
-                    instance->n_token_types = vocab.n_token_types();
-                    instance->n_rot         = hparams.n_rot();
-                    instance->n_expert      = hparams.n_expert;
-                    instance->n_expert_used = hparams.n_expert_used;
-                    instance->n_ctx_train   = hparams.n_ctx_train;
-                }
-                ~loading_scope() {
-                    instance->ml = nullptr;
-                }
-                llama_model_loader & ml;
-                llm_arch_model_i * instance;
-                const llama_hparams & hparams;
-                const llama_vocab & vocab;
-            } loading_scope(ml, this, hparams, vocab);
+        // prepare parameters to be used by load_arch_tensors()
+        this->n_layer       = hparams.n_layer;
+        this->n_head        = hparams.n_head();
+        this->n_head_kv     = hparams.n_head_kv();
+        this->n_embd        = hparams.n_embd;
+        this->n_embd_k_gqa  = hparams.n_embd_k_gqa();
+        this->n_embd_v_gqa  = hparams.n_embd_v_gqa();
+        this->n_embd_head_k = hparams.n_embd_head_k();
+        this->n_embd_head_v = hparams.n_embd_head_v();
+        this->n_ff          = hparams.n_ff();
+        this->n_embd_gqa    = this->n_embd_v_gqa;
+        this->n_vocab       = vocab.n_tokens();
+        this->n_token_types = vocab.n_token_types();
+        this->n_rot         = hparams.n_rot();
+        this->n_expert      = hparams.n_expert;
+        this->n_expert_used = hparams.n_expert_used;
+        this->n_ctx_train   = hparams.n_ctx_train;
 
-            // call the per-model loading function
-            load_tensors(ml);
-        }
+        // call the per-model loading function
+        load_arch_tensors(ml);
 
 #if 0
     // MARKER_START_MIGRATION_LOAD_TENSORS
@@ -8068,7 +8039,7 @@ bool llama_model::load_tensors_internal(llama_model_loader & ml) {
     return true;
 }
 
-ggml_tensor * llama_model::create_tensor(llama_model_loader & ml, const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags) {
+ggml_tensor * llm_arch_model_i::create_tensor(llama_model_loader & ml, const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags) {
     const buft_list_t * buft_list_layer = tn.bid == -1 ? nullptr : pimpl->dev_layer.at(tn.bid).buft_list;
     return ml.create_tensor(
         hparams, &pimpl->cpu_buft_list, pimpl->dev_input.buft_list, pimpl->dev_output.buft_list, buft_list_layer,
@@ -8578,7 +8549,7 @@ llama_memory_i * llama_model::create_memory(const llama_memory_params & params, 
 }
 
 ggml_cgraph * llama_model::build_graph(const llm_graph_params & params) const {
-    std::unique_ptr<llm_graph_context> llm = build_graph_context(params);
+    std::unique_ptr<llm_graph_context> llm = build_arch_graph(params);
 
 #if 0
     // MARKER_START_MIGRATION_BUILD_GRAPH
@@ -9497,7 +9468,7 @@ llm_arch_model_i::llm_arch_model_i(const struct llama_model_params & params) : l
 
 ggml_tensor * llm_arch_model_i::create_tensor(const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags) {
     GGML_ASSERT(ml != nullptr);
-    return model->create_tensor(*ml, tn, ne, flags);
+    return create_tensor(*ml, tn, ne, flags);
 }
 
 void llm_arch_model_i::create_tensor_gate_up_exps(llama_layer & layer, int bid, int64_t n_embd_, int64_t n_ff_, int64_t n_expert_, int flags) {

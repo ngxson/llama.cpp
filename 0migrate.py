@@ -394,10 +394,10 @@ for arch, info in mapping.items():
       new_graph_struct = new_graph_struct.replace("public graph_base", "public " + info.llm_build_name + "_base")
 
   base_class = "llm_arch_model_i"
-  load_methods_decl = """    void load_hparams(llama_model_loader & ml) override;\n    void load_tensors(llama_model_loader & ml) override;"""
+  load_methods_decl = """    void load_arch_hparams(llama_model_loader & ml) override;\n    void load_arch_tensors(llama_model_loader & ml) override;"""
   if info.reuse_hparams_from_model and info.reuse_hparams_from_model == info.reuse_tensors_from_model:
     base_class = info.reuse_hparams_from_model
-    load_methods_decl = "    // reuse load_hparams and load_tensors from {}".format(info.reuse_hparams_from_model)
+    load_methods_decl = "    // reuse load_arch_hparams and load_arch_tensors from {}".format(info.reuse_hparams_from_model)
 
   new_struct_code = """struct MODEL_NAME : public BASE_CLASS {
     MODEL_NAME(const struct llama_model_params & params) : BASE_CLASS(params) {}
@@ -405,7 +405,7 @@ LOAD_METHODS_DECL
 
 GRAPH_STRUCT
 
-    std::unique_ptr<llm_graph_context> build_graph_context(const llm_graph_params & params) const override;
+    std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const override;
 };"""
   new_struct_code = new_struct_code.replace("MODEL_NAME", info.new_struct_name)
   new_struct_code = new_struct_code.replace("BASE_CLASS", base_class)
@@ -423,21 +423,21 @@ GRAPH_STRUCT
 
 for arch, info in mapping.items():
   new_model_code = """
-void MODEL_NAME::load_hparams(llama_model_loader & ml) HPARAMS_CODE
+void MODEL_NAME::load_arch_hparams(llama_model_loader & ml) HPARAMS_CODE
 
-void MODEL_NAME::load_tensors(llama_model_loader &) TENSORS_CODE
+void MODEL_NAME::load_arch_tensors(llama_model_loader &) TENSORS_CODE
 
-std::unique_ptr<llm_graph_context> MODEL_NAME::build_graph_context(const llm_graph_params & params) const GRAPH_CODE
+std::unique_ptr<llm_graph_context> MODEL_NAME::build_arch_graph(const llm_graph_params & params) const GRAPH_CODE
 """
 
   if arch == "LLM_ARCH_JINA_BERT_V2":
     new_model_code = new_model_code.replace(
-      "load_tensors(llama_model_loader &)", "load_tensors(llama_model_loader & ml)")
+      "load_arch_tensors(llama_model_loader &)", "load_arch_tensors(llama_model_loader & ml)")
 
   if info.reuse_hparams_from_model and info.reuse_hparams_from_model == info.reuse_tensors_from_model:
     print(f"{arch} will reuse hparams and tensors from {info.reuse_hparams_from_arch} ({info.reuse_hparams_from_model})")
     new_model_code = """
-std::unique_ptr<llm_graph_context> MODEL_NAME::build_graph_context(const llm_graph_params & params) const GRAPH_CODE
+std::unique_ptr<llm_graph_context> MODEL_NAME::build_arch_graph(const llm_graph_params & params) const GRAPH_CODE
 """
 
   code_hparams = info.code_hparams.strip()

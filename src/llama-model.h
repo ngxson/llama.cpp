@@ -585,11 +585,6 @@ struct llama_model {
     explicit llama_model(const llama_model_params & params);
     virtual ~llama_model();
 
-    void load_stats           (llama_model_loader & ml);
-    void load_hparams_internal(llama_model_loader & ml);
-    void load_vocab           (llama_model_loader & ml);
-    bool load_tensors_internal(llama_model_loader & ml); // returns false if cancelled by progress_callback
-
     std::string arch_name() const;
     std::string type_name() const;
 
@@ -628,16 +623,9 @@ struct llama_model {
     llama_memory_i * create_memory(const llama_memory_params & params, const llama_cparams & cparams) const;
 
     ggml_cgraph * build_graph(const llm_graph_params & params) const;
+    virtual std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const = 0;
 
-    // model must define these
-    virtual void load_hparams(llama_model_loader & ml) = 0;
-    virtual void load_tensors(llama_model_loader & ml) = 0;
-    virtual std::unique_ptr<llm_graph_context> build_graph_context(const llm_graph_params & params) const = 0;
-
-    // to be used by llm_loader_context
-    ggml_tensor * create_tensor(llama_model_loader & ml, const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags);
-
-private:
+protected:
     llama_model_params params;
 
     struct impl;
@@ -650,6 +638,8 @@ llama_model * llama_model_create(llama_model_loader & ml, const llama_model_para
 // provide addition context for loading
 // model must inherit from this
 struct llm_arch_model_i : public llama_model {
+    friend struct llama_model;
+
     llama_model * model;
     llama_model_loader * ml = nullptr;
     const LLM_TN tn;
@@ -682,6 +672,14 @@ struct llm_arch_model_i : public llama_model {
     explicit llm_arch_model_i(const llama_model_params & params);
     virtual ~llm_arch_model_i() = default;
 
+    // model must define these
+    virtual void load_arch_hparams(llama_model_loader & ml) = 0;
+    virtual void load_arch_tensors(llama_model_loader & ml) = 0;
+    virtual std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const = 0;
+
+    ggml_tensor * create_tensor(llama_model_loader & ml, const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags);
+
+    // convenience overload of create_tensor that doesn't require llama_model_loader
     ggml_tensor * create_tensor(const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags);
 
     // helper: try merged gate_up_exps first, fall back to separate gate and up
@@ -692,6 +690,11 @@ struct llm_arch_model_i : public llama_model {
     void create_tensor_qkv(llama_layer & layer, int bid,
                 int64_t n_embd_, int64_t n_embd_q_, int64_t n_embd_k_, int64_t n_embd_v_,
                 int flags);
+
+    void load_stats  (llama_model_loader & ml);
+    void load_hparams(llama_model_loader & ml);
+    void load_vocab  (llama_model_loader & ml);
+    bool load_tensors(llama_model_loader & ml); // returns false if cancelled by progress_callback
 };
 
 const char * llm_type_name(llm_type type);
