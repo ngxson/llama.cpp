@@ -2989,6 +2989,8 @@ bool llm_arch_model_i::load_tensors(llama_model_loader & ml) {
 
     const bool use_mmap_buffer = true;
 
+    this->ml = &ml; // to be used by create_tensor() and load_arch_tensors()
+
     LLAMA_LOG_INFO("%s: loading model tensors, this can take a while... (mmap = %s, direct_io = %s)\n",
         __func__, ml.use_mmap ? "true" : "false", ml.use_direct_io ? "true" : "false");
 
@@ -3081,7 +3083,6 @@ bool llm_arch_model_i::load_tensors(llama_model_loader & ml) {
         const auto tn = LLM_TN(arch);
 
         // prepare parameters to be used by load_arch_tensors()
-        this->ml            = &ml;
         this->n_layer       = hparams.n_layer;
         this->n_head        = hparams.n_head();
         this->n_head_kv     = hparams.n_head_kv();
@@ -3101,9 +3102,6 @@ bool llm_arch_model_i::load_tensors(llama_model_loader & ml) {
 
         // call the per-model loading function
         load_arch_tensors(ml);
-
-        // unset model_loader to avoid accidental use after this function
-        this->ml = nullptr;
 
 #if 0
     // MARKER_START_MIGRATION_LOAD_TENSORS
