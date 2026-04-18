@@ -3073,12 +3073,6 @@ bool llm_arch_model_i::load_tensors(llama_model_loader & ml) {
     // create tensors for the weights
     // TODO: clean this up in the future
     {
-        if (n_expert > 0 && n_expert_used == 0) {
-            throw std::runtime_error("model has expert layers but no expert layers are used");
-        }
-
-        layers.resize(n_layer);
-
         // TODO: move to a separate function
         const auto tn = LLM_TN(arch);
 
@@ -3099,6 +3093,12 @@ bool llm_arch_model_i::load_tensors(llama_model_loader & ml) {
         this->n_expert      = hparams.n_expert;
         this->n_expert_used = hparams.n_expert_used;
         this->n_ctx_train   = hparams.n_ctx_train;
+
+        if (n_expert > 0 && n_expert_used == 0) {
+            throw std::runtime_error("model has expert layers but no expert layers are used");
+        }
+
+        layers.resize(n_layer);
 
         // call the per-model loading function
         load_arch_tensors(ml);
