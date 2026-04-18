@@ -1137,6 +1137,9 @@ class TextModel(ModelBase):
             elif rope_type.lower() == "llama3":
                 # Handled in generate_extra_tensors
                 pass
+            elif rope_type == "proportional":
+                # Handled in generate_extra_tensors (e.g. Gemma4 global attention layers)
+                pass
             else:
                 logger.warning(f"Unknown RoPE type: {rope_type}")
             logger.info(f"gguf: rope scaling type = {rope_gguf_type.name}")

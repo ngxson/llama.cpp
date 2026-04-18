@@ -419,6 +419,7 @@ const char * llm_type_name(llm_type type) {
         case LLM_TYPE_26B:           return "26B";
         case LLM_TYPE_27B:           return "27B";
         case LLM_TYPE_30B:           return "30B";
+        case LLM_TYPE_31B:           return "31B";
         case LLM_TYPE_32B:           return "32B";
         case LLM_TYPE_34B:           return "34B";
         case LLM_TYPE_35B:           return "35B";
@@ -1613,8 +1614,9 @@ void llama_model::load_hparams(llama_model_loader & ml) {
                 ml.get_key(LLM_KV_FINAL_LOGIT_SOFTCAPPING,     hparams.f_final_logit_softcapping, false);
 
                 switch (hparams.n_layer) {
-                    case 35: type = LLM_TYPE_E2B; break;
-                    case 42: type = LLM_TYPE_E4B; break; // to confirm: E4B or E5B?
+                    case 35: type = LLM_TYPE_E2B;  break;
+                    case 42: type = LLM_TYPE_E4B;  break; // to confirm: E4B or E5B?
+                    case 60: type = LLM_TYPE_31B;  break;
                     default: type = LLM_TYPE_UNKNOWN;
                 }
             } break;
