@@ -1135,6 +1135,7 @@ extern "C" {
     /// Does not write null terminator to the buffer.
     /// @return Returns the number of chars/bytes on success, no more than length.
     /// @return Returns a negative number on failure - the number of chars/bytes that would have been returned.
+    /// @return Returns INT32_MIN if the token is not in the vocabulary
     /// @param lstrip User can skip up to 'lstrip' leading spaces before copying (useful when encoding/decoding multiple tokens with 'add_space_prefix')
     /// @param special If true, special tokens are rendered in the output.
     LLAMA_API int32_t llama_token_to_piece(

@@ -3382,6 +3382,11 @@ std::vector<llama_token> llama_vocab::impl::tokenize(
 }
 
 int32_t llama_vocab::impl::token_to_piece(llama_token token, char * buf, int32_t length, int32_t lstrip, bool special) const {
+    if (token < 0 || token >= (int32_t) id_to_token.size()) {
+        LLAMA_LOG_ERROR("%s: invalid token %d\n", __func__, token);
+        return std::numeric_limits<int32_t>::min();
+    }
+
     // ref: https://github.com/ggml-org/llama.cpp/pull/7587#discussion_r1620983843
     static const int attr_special = LLAMA_TOKEN_ATTR_UNKNOWN | LLAMA_TOKEN_ATTR_CONTROL;
     const llama_token_attr attr = token_get_attr(token);
