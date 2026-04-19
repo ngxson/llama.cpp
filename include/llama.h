@@ -1130,11 +1130,11 @@ extern "C" {
                             bool   add_special,
                             bool   parse_special);
 
-    // Token Id -> Piece.
-    // Uses the vocabulary in the provided context.
-    // Does not write null terminator to the buffer.
-    // User can skip up to 'lstrip' leading spaces before copying (useful when encoding/decoding multiple tokens with 'add_space_prefix')
-    // @param special If true, special tokens are rendered in the output.
+    /// Token Id -> Piece.
+    /// Uses the vocabulary in the provided context.
+    /// Does not write null terminator to the buffer.
+    /// User can skip up to 'lstrip' leading spaces before copying (useful when encoding/decoding multiple tokens with 'add_space_prefix')
+    /// @param special If true, special tokens are rendered in the output.
     LLAMA_API int32_t llama_token_to_piece(
               const struct llama_vocab * vocab,
                            llama_token   token,
