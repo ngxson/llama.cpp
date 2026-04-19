@@ -871,8 +871,16 @@ static std::vector<float> softmax(const std::vector<float> & logits) {
 }
 
 static results_log_softmax log_softmax(int n_vocab, const float * logits, int tok) {
-    float max_logit = logits[0];
-    for (int i = 1; i < n_vocab; ++i) {
+    // Models running in F16 can produce +Inf logits for large-vocabulary heads
+    // due to F16 overflow (max ~65504).  +Inf - +Inf = NaN, which permanently
+    // poisons the accumulated NLL (sticky NaN).  Detect any non-finite logit
+    // and return a sentinel (log_prob = 0, prob = 1) so the token is counted
+    // but contributes 0 NLL rather than corrupting all subsequent PPL values.
+    float max_logit = -INFINITY;
+    for (int i = 0; i < n_vocab; ++i) {
+        if (!std::isfinite(logits[i])) {
+            return {0.0, logits[tok], 1.0f};
+        }
         max_logit = std::max(max_logit, logits[i]);
     }
     double sum_exp = 0.0;
