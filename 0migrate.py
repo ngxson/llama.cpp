@@ -393,7 +393,7 @@ for arch, info in mapping.items():
     if use_base:
       new_graph_struct = new_graph_struct.replace("public graph_base", "public " + info.llm_build_name + "_base")
 
-  base_class = "llm_arch_model_i"
+  base_class = "llama_model_base"
   load_methods_decl = """    void load_arch_hparams(llama_model_loader & ml) override;\n    void load_arch_tensors(llama_model_loader & ml) override;"""
   if info.reuse_hparams_from_model and info.reuse_hparams_from_model == info.reuse_tensors_from_model:
     base_class = info.reuse_hparams_from_model

@@ -614,10 +614,18 @@ struct llama_model {
 
     ggml_tensor * get_rope_factors(const llama_cparams & cparams, int il) const;
 
-    // TODO: move this to new llm_arch_model_i interface
     llama_memory_i * create_memory(const llama_memory_params & params, const llama_cparams & cparams) const;
 
     ggml_cgraph * build_graph(const llm_graph_params & params) const;
+
+    virtual void load_stats  (llama_model_loader & ml) = 0;
+    virtual void load_hparams(llama_model_loader & ml) = 0;
+    virtual void load_vocab  (llama_model_loader & ml) = 0;
+    virtual bool load_tensors(llama_model_loader & ml) = 0; // returns false if cancelled by progress_callback
+
+    // model must define these
+    virtual void load_arch_hparams(llama_model_loader & ml) = 0;
+    virtual void load_arch_tensors(llama_model_loader & ml) = 0;
     virtual std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const = 0;
 
 protected:
@@ -630,9 +638,8 @@ protected:
 llama_model * llama_model_create(llm_arch arch, const llama_model_params & params);
 llama_model * llama_model_create(llama_model_loader & ml, const llama_model_params & params);
 
-// provide addition context for loading
 // model must inherit from this
-struct llm_arch_model_i : public llama_model {
+struct llama_model_base : public llama_model {
     friend struct llama_model;
 
     llama_model * model;
@@ -664,13 +671,8 @@ struct llm_arch_model_i : public llama_model {
     const int TENSOR_SKIP;
     const int TENSOR_SKIP_IF_VIRTUAL;
 
-    explicit llm_arch_model_i(const llama_model_params & params);
-    virtual ~llm_arch_model_i() = default;
-
-    // model must define these
-    virtual void load_arch_hparams(llama_model_loader & ml) = 0;
-    virtual void load_arch_tensors(llama_model_loader & ml) = 0;
-    virtual std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const = 0;
+    explicit llama_model_base(const llama_model_params & params);
+    virtual ~llama_model_base() = default;
 
     ggml_tensor * create_tensor(llama_model_loader & ml, const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags);
 
@@ -686,10 +688,15 @@ struct llm_arch_model_i : public llama_model {
                 int64_t n_embd_, int64_t n_embd_q_, int64_t n_embd_k_, int64_t n_embd_v_,
                 int flags);
 
-    void load_stats  (llama_model_loader & ml);
-    void load_hparams(llama_model_loader & ml);
-    void load_vocab  (llama_model_loader & ml);
-    bool load_tensors(llama_model_loader & ml); // returns false if cancelled by progress_callback
+    void load_stats  (llama_model_loader & ml) override;
+    void load_hparams(llama_model_loader & ml) override;
+    void load_vocab  (llama_model_loader & ml) override;
+    bool load_tensors(llama_model_loader & ml) override;
+
+    // model must define these
+    void load_arch_hparams(llama_model_loader & ml) override = 0;
+    void load_arch_tensors(llama_model_loader & ml) override = 0;
+    std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const override = 0;
 };
 
 const char * llm_type_name(llm_type type);

@@ -715,12 +715,12 @@ llama_model::~llama_model() {
     }
 }
 
-void llm_arch_model_i::load_stats(llama_model_loader & ml) {
+void llama_model_base::load_stats(llama_model_loader & ml) {
     pimpl->n_elements = ml.n_elements;
     pimpl->n_bytes = ml.n_bytes;
 }
 
-void llm_arch_model_i::load_hparams(llama_model_loader & ml) {
+void llama_model_base::load_hparams(llama_model_loader & ml) {
     const gguf_context * ctx = ml.metadata;
 
     // get metadata as string
@@ -2986,13 +2986,13 @@ void llm_arch_model_i::load_hparams(llama_model_loader & ml) {
     hparams.rope_type = llama_model_rope_type(this);
 }
 
-void llm_arch_model_i::load_vocab(llama_model_loader & ml) {
+void llama_model_base::load_vocab(llama_model_loader & ml) {
     const auto kv = LLM_KV(arch);
 
     vocab.load(ml, kv);
 }
 
-bool llm_arch_model_i::load_tensors(llama_model_loader & ml) {
+bool llama_model_base::load_tensors(llama_model_loader & ml) {
     const auto & split_mode   = params.split_mode;
     const auto & use_mlock    = params.use_mlock;
     const auto & tensor_split = params.tensor_split;
@@ -8046,7 +8046,7 @@ bool llm_arch_model_i::load_tensors(llama_model_loader & ml) {
     return true;
 }
 
-ggml_tensor * llm_arch_model_i::create_tensor(llama_model_loader & ml, const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags) {
+ggml_tensor * llama_model_base::create_tensor(llama_model_loader & ml, const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags) {
     const buft_list_t * buft_list_layer = tn.bid == -1 ? nullptr : pimpl->dev_layer.at(tn.bid).buft_list;
     return ml.create_tensor(
         hparams, &pimpl->cpu_buft_list, pimpl->dev_input.buft_list, pimpl->dev_output.buft_list, buft_list_layer,
@@ -9479,21 +9479,21 @@ ggml_backend_dev_t llama_model_get_device(const struct llama_model * model, int 
 }
 
 //
-// llm_arch_model_i
+// llama_model_base
 //
 
-llm_arch_model_i::llm_arch_model_i(const struct llama_model_params & params) : llama_model(params), model(this), tn(model->arch),
+llama_model_base::llama_model_base(const struct llama_model_params & params) : llama_model(params), model(this), tn(model->arch),
     TENSOR_DUPLICATED     (llama_model_loader::TENSOR_DUPLICATED),
     TENSOR_NOT_REQUIRED   (llama_model_loader::TENSOR_NOT_REQUIRED),
     TENSOR_SKIP           (llama_model_loader::TENSOR_SKIP),
     TENSOR_SKIP_IF_VIRTUAL(llama_model_loader::TENSOR_SKIP_IF_VIRTUAL) {}
 
-ggml_tensor * llm_arch_model_i::create_tensor(const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags) {
+ggml_tensor * llama_model_base::create_tensor(const LLM_TN_IMPL & tn, const std::initializer_list<int64_t> & ne, int flags) {
     GGML_ASSERT(ml != nullptr);
     return create_tensor(*ml, tn, ne, flags);
 }
 
-void llm_arch_model_i::create_tensor_gate_up_exps(llama_layer & layer, int bid, int64_t n_embd_, int64_t n_ff_, int64_t n_expert_, int flags) {
+void llama_model_base::create_tensor_gate_up_exps(llama_layer & layer, int bid, int64_t n_embd_, int64_t n_ff_, int64_t n_expert_, int flags) {
     layer.ffn_gate_up_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_UP_EXPS, "weight", bid), {n_embd_, n_ff_ * 2, n_expert_}, TENSOR_NOT_REQUIRED);
     if (layer.ffn_gate_up_exps == nullptr) {
         layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", bid), {n_embd_, n_ff_, n_expert_}, flags);
@@ -9501,7 +9501,7 @@ void llm_arch_model_i::create_tensor_gate_up_exps(llama_layer & layer, int bid, 
     }
 }
 
-void llm_arch_model_i::create_tensor_qkv(llama_layer & layer, int bid,
+void llama_model_base::create_tensor_qkv(llama_layer & layer, int bid,
         int64_t n_embd_, int64_t n_embd_q_, int64_t n_embd_k_, int64_t n_embd_v_,
         int flags) {
     const int64_t n_embd_qkv = n_embd_q_ + n_embd_k_ + n_embd_v_;

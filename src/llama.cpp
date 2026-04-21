@@ -277,9 +277,9 @@ static std::pair<int, llama_model *> llama_model_load(struct gguf_context * meta
             return {-1, nullptr};
         }
 
-        auto * model = dynamic_cast<llm_arch_model_i *>(model_ptr.get());
+        auto * model = dynamic_cast<llama_model_base *>(model_ptr.get());
         if (model == nullptr) {
-            GGML_ABORT("fatal error: model does not implement llm_arch_model_i");
+            GGML_ABORT("fatal error: model does not implement llama_model_base");
         }
 
         // loading time will be recalculated after the first eval, so
