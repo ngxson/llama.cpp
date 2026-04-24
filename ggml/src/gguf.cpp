@@ -230,7 +230,15 @@ struct gguf_context {
 struct gguf_reader {
     gguf_reader(FILE * file) : file(file) {
         // read the remaining bytes once and update on each read
+        const int64_t cur = gguf_ftell(file);
         nbytes_remain = file_remain(file);
+        total_size = cur < 0
+            ? nbytes_remain
+            : static_cast<uint64_t>(cur) + nbytes_remain;
+    }
+
+    gguf_reader(const void * data, size_t size)
+        : data(static_cast<const uint8_t *>(data)), nbytes_remain(size), total_size(size) {
     }
 
     // helper for remaining bytes in a file
@@ -260,7 +268,7 @@ struct gguf_reader {
         if (nbytes_remain < size) {
             return false;
         }
-        const size_t nread = fread(&dst, 1, size, file);
+        const size_t nread = read_raw(&dst, size);
         nbytes_remain -= nread;
         return nread == size;
     }
@@ -344,7 +352,7 @@ struct gguf_reader {
             return false;
         }
         dst.resize(static_cast<size_t>(size));
-        const size_t nread = fread(dst.data(), 1, size, file);
+        const size_t nread = read_raw(dst.data(), static_cast<size_t>(size));
         nbytes_remain -= nread;
         return nread == size;
     }
@@ -353,15 +361,58 @@ struct gguf_reader {
         if (size > nbytes_remain) {
             return false;
         }
-        const size_t nread = fread(dst, 1, size, file);
+        const size_t nread = read_raw(dst, size);
         nbytes_remain -= nread;
         return nread == size;
     }
 
-private:
-    FILE * file;
+    uint64_t tell() const {
+        if (file != nullptr) {
+            const int64_t cur = gguf_ftell(file);
+            return cur < 0
+                ? 0
+                : static_cast<uint64_t>(cur);
+        }
 
+        return offset;
+    }
+
+    bool seek(uint64_t absolute_offset) const {
+        if (absolute_offset > total_size) {
+            return false;
+        }
+
+        if (file != nullptr) {
+            if (gguf_fseek(file, absolute_offset, SEEK_SET) != 0) {
+                return false;
+            }
+        } else {
+            offset = static_cast<size_t>(absolute_offset);
+        }
+
+        nbytes_remain = total_size - absolute_offset;
+        return true;
+    }
+
+private:
+    size_t read_raw(void * dst, size_t size) const {
+        if (file != nullptr) {
+            return fread(dst, 1, size, file);
+        } else if (data == nullptr || size > nbytes_remain || offset + size < offset) {
+            return 0;
+        }
+
+        memcpy(dst, data + offset, size);
+        offset += size;
+        return size;
+    }
+
+    FILE * file = nullptr;
+    const uint8_t * data = nullptr;
+
+    mutable size_t offset = 0;
     mutable uint64_t nbytes_remain;
+    uint64_t total_size = 0;
 };
 
 struct gguf_context * gguf_init_empty(void) {
@@ -394,12 +445,7 @@ bool gguf_read_emplace_helper(const struct gguf_reader & gr, std::vector<struct 
     return true;
 }
 
-struct gguf_context * gguf_init_from_file_ptr(FILE * file, struct gguf_init_params params) {
-    if (!file) {
-        return nullptr;
-    }
-
-    const struct gguf_reader gr(file);
+static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr, struct gguf_init_params params) {
     struct gguf_context * ctx = new gguf_context;
 
     bool ok = true;
@@ -700,14 +746,14 @@ struct gguf_context * gguf_init_from_file_ptr(FILE * file, struct gguf_init_para
     GGML_ASSERT(int64_t(ctx->info.size()) == n_tensors);
 
     // we require the data section to be aligned, so take into account any padding
-    if (gguf_fseek(file, GGML_PAD(gguf_ftell(file), ctx->alignment), SEEK_SET) != 0) {
+    if (!gr.seek(GGML_PAD(gr.tell(), ctx->alignment))) {
         GGML_LOG_ERROR("%s: failed to seek to beginning of data section\n", __func__);
         gguf_free(ctx);
         return nullptr;
     }
 
     // store the current file offset - this is where the data section starts
-    ctx->offset = gguf_ftell(file);
+    ctx->offset = gr.tell();
 
     // compute the total size of the data section, taking into account the alignment
     {
@@ -842,6 +888,24 @@ struct gguf_context * gguf_init_from_file_ptr(FILE * file, struct gguf_init_para
     }
 
     return ctx;
+}
+
+struct gguf_context * gguf_init_from_file_ptr(FILE * file, struct gguf_init_params params) {
+    if (!file) {
+        return nullptr;
+    }
+
+    const struct gguf_reader gr(file);
+    return gguf_init_from_reader(gr, params);
+}
+
+struct gguf_context * gguf_init_from_buffer(const void * data, size_t size, struct gguf_init_params params) {
+    if (data == nullptr || size == 0) {
+        return nullptr;
+    }
+
+    const struct gguf_reader gr(data, size);
+    return gguf_init_from_reader(gr, params);
 }
 
 struct gguf_context * gguf_init_from_file(const char * fname, struct gguf_init_params params) {
