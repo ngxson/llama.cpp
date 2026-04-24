@@ -162,6 +162,22 @@ static void helper_write(FILE * file, const void * data, const size_t nbytes) {
     GGML_ASSERT(fwrite(data, 1, nbytes, file) == nbytes);
 }
 
+static std::vector<uint8_t> read_file_to_buffer(FILE * file) {
+    GGML_ASSERT(file != nullptr);
+    GGML_ASSERT(fseek(file, 0, SEEK_END) == 0);
+
+    const long size = ftell(file);
+    GGML_ASSERT(size >= 0);
+
+    rewind(file);
+
+    std::vector<uint8_t> data(static_cast<size_t>(size));
+    GGML_ASSERT(fread(data.data(), 1, data.size(), file) == data.size());
+
+    rewind(file);
+    return data;
+}
+
 static FILE * get_handcrafted_file(const unsigned int seed, const enum handcrafted_file_type hft, const int extra_bytes = 0) {
     FILE * file = tmpfile();
 
@@ -1095,10 +1111,11 @@ static bool same_tensor_data(const struct ggml_context * orig, const struct ggml
     return ok;
 }
 
-static std::pair<int, int> test_roundtrip(ggml_backend_dev_t dev, const unsigned int seed, const bool only_meta) {
+static std::pair<int, int> test_roundtrip(ggml_backend_dev_t dev, const unsigned int seed, const bool only_meta, const bool from_buffer = false) {
     ggml_backend_t backend = ggml_backend_dev_init(dev, nullptr);
-    printf("%s: device=%s, backend=%s, only_meta=%s\n",
-        __func__, ggml_backend_dev_description(dev), ggml_backend_name(backend), only_meta ? "yes" : "no");
+    printf("%s: device=%s, backend=%s, only_meta=%s, from_buffer=%s\n",
+        __func__, ggml_backend_dev_description(dev), ggml_backend_name(backend),
+        only_meta ? "yes" : "no", from_buffer ? "yes" : "no");
 
     int npass = 0;
     int ntest = 0;
@@ -1133,7 +1150,14 @@ static std::pair<int, int> test_roundtrip(ggml_backend_dev_t dev, const unsigned
         /*no_alloc =*/ false,
         /*ctx      =*/ only_meta ? nullptr : &ctx_1,
     };
-    struct gguf_context * gguf_ctx_1 = gguf_init_from_file_ptr(file, gguf_params);
+    struct gguf_context * gguf_ctx_1 = nullptr;
+
+    if (from_buffer) {
+        const std::vector<uint8_t> data = read_file_to_buffer(file);
+        gguf_ctx_1 = gguf_init_from_buffer(data.data(), data.size(), gguf_params);
+    } else {
+        gguf_ctx_1 = gguf_init_from_file_ptr(file, gguf_params);
+    }
 
     printf("%s: same_version: ", __func__);
     if (gguf_get_version(gguf_ctx_0) == gguf_get_version(gguf_ctx_1)) {
@@ -1344,6 +1368,11 @@ int main(int argc, char ** argv) {
 
         for (bool only_meta : {true, false}) {
             std::pair<int, int> result = test_roundtrip(dev, seed, only_meta);
+            npass += result.first;
+            ntest += result.second;
+        }
+        {
+            std::pair<int, int> result = test_roundtrip(dev, seed, /*only_meta=*/false, /*from_buffer=*/true);
             npass += result.first;
             ntest += result.second;
         }
