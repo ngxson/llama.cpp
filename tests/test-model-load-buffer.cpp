@@ -31,8 +31,8 @@ static std::vector<uint8_t> read_file_to_buffer(FILE * file) {
 }
 
 static void set_tensor_data_noop(struct ggml_tensor * tensor, void * userdata) {
-    (void) tensor;
-    (void) userdata;
+    GGML_UNUSED(tensor);
+    GGML_UNUSED(userdata);
 }
 
 int main(int argc, char * argv[]) {
@@ -64,7 +64,9 @@ int main(int argc, char * argv[]) {
     model_params.devices = devices;
     model_params.no_alloc = true;
     model_params.use_mmap = false;
-    model_params.progress_callback = [](float /*progress*/, void * /*user_data*/) {
+    model_params.progress_callback = [](float progress, void * user_data) {
+        GGML_UNUSED(progress);
+        GGML_UNUSED(user_data);
         return true;
     };
 
