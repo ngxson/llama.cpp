@@ -8,6 +8,7 @@
 #undef NDEBUG
 #endif
 
+#include <limits>
 #include <algorithm>
 #include <cstdlib>
 #include <cstring>

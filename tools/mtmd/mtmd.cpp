@@ -16,6 +16,7 @@
 #include <windows.h>
 #endif
 
+#include <limits>
 #include <algorithm>
 #include <cerrno>
 #include <cstdio>
