@@ -449,6 +449,12 @@ std::unique_ptr<llm_graph_context> MODEL_NAME::build_arch_graph(const llm_graph_
   
   code_hparams = remove_indent(code_hparams, 4*3)
 
+  # fix n_vocab if needed
+  if "n_vocab" in code_hparams:
+    code_hparams = code_hparams.replace("{", "{\n    const auto n_vocab = vocab.n_tokens();\n", 1)
+
+
+
   code_tensors = info.code_tensors.strip()
   # if last line has break; we remove it
   if code_tensors.endswith("break;"):
@@ -458,6 +464,37 @@ std::unique_ptr<llm_graph_context> MODEL_NAME::build_arch_graph(const llm_graph_
   
   # inject LLAMA_LOAD_LOCALS to the beginning of code_tensors
   code_tensors = code_tensors.replace("{", "{\n    LLAMA_LOAD_LOCALS;\n", 1)
+
+  # remove redef if exists
+  to_deleted = [
+    "const int64_t n_expert ",
+    "const int64_t n_expert_used ",
+    "const int64_t n_head ",
+    "const int64_t n_expert_shared ",
+    "const int64_t n_head_kv ",
+    "const int n_head_kv ",
+  ]
+  for item in to_deleted:
+    if item in code_tensors:
+      # remove the whole line that contains the item (only replace the first occurrence)
+      found_line = re.search(r'^.*' + re.escape(item) + r'.*\n', code_tensors, flags=re.MULTILINE).group(0)
+      if "(i)" in found_line:
+        print(f"!!! not removing line for {arch}:\n{found_line}")
+      else:
+        print(f"warning: line to remove for {arch}:\nXXX {found_line}")
+        code_tensors = re.sub(r'^.*' + re.escape(item) + r'.*\n', '', code_tensors, count=1, flags=re.MULTILINE)
+
+  # add def if needed
+  to_added = [
+    (" n_expert_shared", "const int64_t n_expert_shared = hparams.n_expert_shared;"),
+  ]
+  for item, def_line in to_added:
+    if item in code_tensors:
+      code_tensors = code_tensors.replace(
+        "LLAMA_LOAD_LOCALS;\n",
+        "LLAMA_LOAD_LOCALS;\n    " + def_line + "\n", 1)
+
+
 
   code_graph = info.code_graph.strip()
   # if last line has break; we remove it

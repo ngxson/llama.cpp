@@ -685,22 +685,22 @@ const char * llm_type_name(llm_type type);
 // convenience macro for loading local variables for load_tensors() in llama_model_base
 // note: cast to int64_t since we will use these for the tensor dimensions
 #define LLAMA_LOAD_LOCALS \
-    const int     n_layer       = hparams.n_layer; \
-    const int64_t n_head        = hparams.n_head(); \
-    const int64_t n_head_kv     = hparams.n_head_kv(); \
-    const int64_t n_embd        = hparams.n_embd; \
-    const int64_t n_embd_k_gqa  = hparams.n_embd_k_gqa(); \
-    const int64_t n_embd_v_gqa  = hparams.n_embd_v_gqa(); \
-    const int64_t n_embd_head_k = hparams.n_embd_head_k(); \
-    const int64_t n_embd_head_v = hparams.n_embd_head_v(); \
-    const int64_t n_ff          = hparams.n_ff(); \
-    const int64_t n_embd_gqa    = n_embd_v_gqa; \
-    const int64_t n_vocab       = vocab.n_tokens(); \
-    const int64_t n_token_types = vocab.n_token_types(); \
-    const int64_t n_rot         = hparams.n_rot(); \
-    const int64_t n_expert      = hparams.n_expert; \
-    const int64_t n_expert_used = hparams.n_expert_used; \
-    const int64_t n_ctx_train   = hparams.n_ctx_train;
+    const int     n_layer        = hparams.n_layer;          GGML_UNUSED(n_layer); \
+    const int64_t n_head         = hparams.n_head();         GGML_UNUSED(n_head); \
+    const int64_t n_head_kv      = hparams.n_head_kv();      GGML_UNUSED(n_head_kv); \
+    const int64_t n_embd         = hparams.n_embd;           GGML_UNUSED(n_embd); \
+    const int64_t n_embd_k_gqa   = hparams.n_embd_k_gqa();   GGML_UNUSED(n_embd_k_gqa); \
+    const int64_t n_embd_v_gqa   = hparams.n_embd_v_gqa();   GGML_UNUSED(n_embd_v_gqa); \
+    const int64_t n_embd_head_k  = hparams.n_embd_head_k();  GGML_UNUSED(n_embd_head_k); \
+    const int64_t n_embd_head_v  = hparams.n_embd_head_v();  GGML_UNUSED(n_embd_head_v); \
+    const int64_t n_ff           = hparams.n_ff();           GGML_UNUSED(n_ff); \
+    const int64_t n_embd_gqa     = n_embd_v_gqa;             GGML_UNUSED(n_embd_gqa); \
+    const int64_t n_vocab        = vocab.n_tokens();         GGML_UNUSED(n_vocab); \
+    const int64_t n_token_types  = vocab.n_token_types();    GGML_UNUSED(n_token_types); \
+    const int64_t n_rot          = hparams.n_rot();          GGML_UNUSED(n_rot); \
+    const int64_t n_expert       = hparams.n_expert;         GGML_UNUSED(n_expert); \
+    const int64_t n_expert_used  = hparams.n_expert_used;    GGML_UNUSED(n_expert_used); \
+    const int64_t n_ctx_train    = hparams.n_ctx_train;      GGML_UNUSED(n_ctx_train);
 
 // For internal test use
 // TODO: remove
