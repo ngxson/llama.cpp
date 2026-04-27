@@ -363,6 +363,8 @@ for arch, info in mapping.items():
   if not os.path.exists(impl_filename):
     impl_filename = f"src/models/{fname}-iswa.cpp"
 
+  impl_filename = impl_filename.replace("hunyuan-vl-iswa", "hunyuan-dense") # hot dirty fix
+
   if os.path.exists(impl_filename):
     with open(impl_filename, "r") as f_impl:
       info.code_impl = f_impl.read()
