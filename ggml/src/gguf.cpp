@@ -370,25 +370,31 @@ struct gguf_reader {
                 : static_cast<uint64_t>(cur);
         }
 
-        return offset;
+        return data_offset;
     }
 
     bool seek(uint64_t absolute_offset) const {
         if (file != nullptr) {
-            if (gguf_fseek(file, absolute_offset, SEEK_SET) != 0) {
+            const int64_t cur = gguf_ftell(file);
+            const uint64_t end_offset = cur < 0
+                ? nbytes_remain
+                : static_cast<uint64_t>(cur) + nbytes_remain;
+
+            if (absolute_offset > end_offset || gguf_fseek(file, absolute_offset, SEEK_SET) != 0) {
                 return false;
             }
 
             nbytes_remain = end_offset - absolute_offset;
         } else {
-            const uint64_t end_offset = offset + nbytes_remain;
+            const uint64_t end_offset = data_offset + nbytes_remain;
             if (absolute_offset > end_offset) {
                 return false;
             }
-            
-            offset = static_cast<size_t>(absolute_offset);
+
+            data_offset   = static_cast<size_t>(absolute_offset);
             nbytes_remain = end_offset - absolute_offset;
         }
+
         return true;
     }
 
@@ -396,19 +402,19 @@ private:
     size_t read_raw(void * dst, size_t size) const {
         if (file != nullptr) {
             return fread(dst, 1, size, file);
-        } else if (data == nullptr || size > nbytes_remain || offset + size < offset) {
+        } else if (data == nullptr || size > nbytes_remain || data_offset + size < data_offset) {
             return 0;
         }
 
-        memcpy(dst, data + offset, size);
-        offset += size;
+        memcpy(dst, data + data_offset, size);
+        data_offset += size;
         return size;
     }
 
     FILE * file = nullptr;
     const uint8_t * data = nullptr;
 
-    mutable size_t offset = 0;
+    mutable size_t data_offset = 0;
     mutable uint64_t nbytes_remain;
 };
 
