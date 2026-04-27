@@ -3137,6 +3137,9 @@ std::string llama_vocab::impl::token_to_piece_for_cache(llama_token token, bool 
     std::string piece;
     piece.resize(piece.capacity());  // using string internal cache
     const int n_chars = vocab.token_to_piece(token, &piece[0], piece.size(), 0, special);
+    if (n_chars == std::numeric_limits<int32_t>::min()) {
+        throw std::runtime_error("Token to piece failed: supplied token is invalid");
+    }
     if (n_chars < 0) {
         piece.resize(-n_chars);
         int check = vocab.token_to_piece(token, &piece[0], piece.size(), 0, special);
