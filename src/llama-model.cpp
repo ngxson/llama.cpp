@@ -3101,28 +3101,12 @@ bool llama_model_base::load_tensors(llama_model_loader & ml) {
     const auto TENSOR_NOT_REQUIRED = llama_model_loader::TENSOR_NOT_REQUIRED;
 
     // create tensors for the weights
-    // TODO: clean this up in the future
     {
         // TODO: move to a separate function
         const auto tn = LLM_TN(arch);
 
-        // prepare parameters to be used by load_arch_tensors()
-        this->n_layer       = hparams.n_layer;
-        this->n_head        = hparams.n_head();
-        this->n_head_kv     = hparams.n_head_kv();
-        this->n_embd        = hparams.n_embd;
-        this->n_embd_k_gqa  = hparams.n_embd_k_gqa();
-        this->n_embd_v_gqa  = hparams.n_embd_v_gqa();
-        this->n_embd_head_k = hparams.n_embd_head_k();
-        this->n_embd_head_v = hparams.n_embd_head_v();
-        this->n_ff          = hparams.n_ff();
-        this->n_embd_gqa    = this->n_embd_v_gqa;
-        this->n_vocab       = vocab.n_tokens();
-        this->n_token_types = vocab.n_token_types();
-        this->n_rot         = hparams.n_rot();
-        this->n_expert      = hparams.n_expert;
-        this->n_expert_used = hparams.n_expert_used;
-        this->n_ctx_train   = hparams.n_ctx_train;
+        const int64_t n_expert      = hparams.n_expert;
+        const int64_t n_expert_used = hparams.n_expert_used;
 
         if (n_expert > 0 && n_expert_used == 0) {
             throw std::runtime_error("model has expert layers but no expert layers are used");

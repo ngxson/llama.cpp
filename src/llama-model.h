@@ -646,25 +646,6 @@ struct llama_model_base : public llama_model {
     llama_model_loader * ml = nullptr;
     const LLM_TN tn;
 
-    // note: these variables are suppose to be read-only; however, since we can't read them until we load the hparams, they will be set after load_hparams()
-    int     n_layer;
-    // note: cast to int64_t since we will use these for the tensor dimensions
-    int64_t n_head;
-    int64_t n_head_kv;
-    int64_t n_embd;
-    int64_t n_embd_k_gqa;
-    int64_t n_embd_v_gqa;
-    int64_t n_embd_head_k;
-    int64_t n_embd_head_v;
-    int64_t n_ff;
-    int64_t n_embd_gqa;
-    int64_t n_vocab;
-    int64_t n_token_types;
-    int64_t n_rot;
-    int64_t n_expert;
-    int64_t n_expert_used;
-    int64_t n_ctx_train;
-
     // llama_model_loader is not yet defined at this point, so we will set it after construction
     const int TENSOR_DUPLICATED;
     const int TENSOR_NOT_REQUIRED;
@@ -700,6 +681,26 @@ struct llama_model_base : public llama_model {
 };
 
 const char * llm_type_name(llm_type type);
+
+// convenience macro for loading local variables for load_tensors() in llama_model_base
+// note: cast to int64_t since we will use these for the tensor dimensions
+#define LLAMA_LOAD_LOCALS \
+    const int     n_layer       = hparams.n_layer; \
+    const int64_t n_head        = hparams.n_head(); \
+    const int64_t n_head_kv     = hparams.n_head_kv(); \
+    const int64_t n_embd        = hparams.n_embd; \
+    const int64_t n_embd_k_gqa  = hparams.n_embd_k_gqa(); \
+    const int64_t n_embd_v_gqa  = hparams.n_embd_v_gqa(); \
+    const int64_t n_embd_head_k = hparams.n_embd_head_k(); \
+    const int64_t n_embd_head_v = hparams.n_embd_head_v(); \
+    const int64_t n_ff          = hparams.n_ff(); \
+    const int64_t n_embd_gqa    = n_embd_v_gqa; \
+    const int64_t n_vocab       = vocab.n_tokens(); \
+    const int64_t n_token_types = vocab.n_token_types(); \
+    const int64_t n_rot         = hparams.n_rot(); \
+    const int64_t n_expert      = hparams.n_expert; \
+    const int64_t n_expert_used = hparams.n_expert_used; \
+    const int64_t n_ctx_train   = hparams.n_ctx_train;
 
 // For internal test use
 // TODO: remove

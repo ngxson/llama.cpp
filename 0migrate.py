@@ -453,6 +453,9 @@ std::unique_ptr<llm_graph_context> MODEL_NAME::build_arch_graph(const llm_graph_
     code_tensors = code_tensors[:-len("break;")].strip()
 
   code_tensors = remove_indent(code_tensors, 4*4)
+  
+  # inject LLAMA_LOAD_LOCALS to the beginning of code_tensors
+  code_tensors = code_tensors.replace("{", "{\n    LLAMA_LOAD_LOCALS;\n", 1)
 
   code_graph = info.code_graph.strip()
   # if last line has break; we remove it
