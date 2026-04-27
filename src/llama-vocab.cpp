@@ -3545,6 +3545,9 @@ int32_t llama_vocab::impl::detokenize(
         GGML_ASSERT(avail >= 0);
         int32_t n_chars = token_to_piece(tokens[i], text, avail, remove_space, unparse_special);
         remove_space = false;
+        if (n_chars == std::numeric_limits<int32_t>::min()) {
+            return std::numeric_limits<int32_t>::min();
+        }
         if (n_chars < 0) {
             avail = 0;
             total -= n_chars;
@@ -3970,6 +3973,9 @@ std::string llama_vocab::detokenize(const std::vector<llama_token> & tokens, boo
     std::string text;
     text.resize(std::max(text.capacity(), tokens.size()));
     int32_t n_chars = detokenize(tokens.data(), (int32_t)tokens.size(), &text[0], (int32_t)text.size(), false, special);
+    if (n_chars == std::numeric_limits<int32_t>::min()) {
+        throw std::runtime_error("Detokenization failed: some supplied token is invalid");
+    }
     if (n_chars < 0) {
         text.resize(-n_chars);
         n_chars = detokenize(tokens.data(), (int32_t)tokens.size(), &text[0], (int32_t)text.size(), false, special);

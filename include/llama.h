@@ -1150,6 +1150,7 @@ extern "C" {
     /// @param text The char pointer must be large enough to hold the resulting text.
     /// @return Returns the number of chars/bytes on success, no more than text_len_max.
     /// @return Returns a negative number on failure - the number of chars/bytes that would have been returned.
+    /// @return Returns INT32_MIN if any of the tokens is not in the vocabulary
     /// @param remove_special Allow to remove BOS and EOS tokens if model is configured to do so.
     /// @param unparse_special If true, special tokens are rendered in the output.
     LLAMA_API int32_t llama_detokenize(

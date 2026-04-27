@@ -1687,6 +1687,9 @@ std::string common_detokenize(const struct llama_vocab * vocab, const std::vecto
     std::string text;
     text.resize(std::max(text.capacity(), tokens.size()));
     int32_t n_chars = llama_detokenize(vocab, tokens.data(), (int32_t)tokens.size(), &text[0], (int32_t)text.size(), false, special);
+    if (n_chars == std::numeric_limits<int32_t>::min()) {
+        throw std::runtime_error("Detokenization failed: some supplied token is invalid");
+    }
     if (n_chars < 0) {
         text.resize(-n_chars);
         n_chars = llama_detokenize(vocab, tokens.data(), (int32_t)tokens.size(), &text[0], (int32_t)text.size(), false, special);

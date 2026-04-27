@@ -14,6 +14,7 @@
 #include <cassert>
 #include <cstring>
 #include <iomanip>
+#include <limits>
 #include <map>
 #include <cinttypes>
 
