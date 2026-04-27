@@ -230,15 +230,11 @@ struct gguf_context {
 struct gguf_reader {
     gguf_reader(FILE * file) : file(file) {
         // read the remaining bytes once and update on each read
-        const int64_t cur = gguf_ftell(file);
         nbytes_remain = file_remain(file);
-        total_size = cur < 0
-            ? nbytes_remain
-            : static_cast<uint64_t>(cur) + nbytes_remain;
     }
 
     gguf_reader(const void * data, size_t size)
-        : data(static_cast<const uint8_t *>(data)), nbytes_remain(size), total_size(size) {
+        : data(static_cast<const uint8_t *>(data)), nbytes_remain(size) {
     }
 
     // helper for remaining bytes in a file
@@ -378,19 +374,21 @@ struct gguf_reader {
     }
 
     bool seek(uint64_t absolute_offset) const {
-        if (absolute_offset > total_size) {
-            return false;
-        }
-
         if (file != nullptr) {
             if (gguf_fseek(file, absolute_offset, SEEK_SET) != 0) {
                 return false;
             }
-        } else {
-            offset = static_cast<size_t>(absolute_offset);
-        }
 
-        nbytes_remain = total_size - absolute_offset;
+            nbytes_remain = end_offset - absolute_offset;
+        } else {
+            const uint64_t end_offset = offset + nbytes_remain;
+            if (absolute_offset > end_offset) {
+                return false;
+            }
+            
+            offset = static_cast<size_t>(absolute_offset);
+            nbytes_remain = end_offset - absolute_offset;
+        }
         return true;
     }
 
@@ -412,7 +410,6 @@ private:
 
     mutable size_t offset = 0;
     mutable uint64_t nbytes_remain;
-    uint64_t total_size = 0;
 };
 
 struct gguf_context * gguf_init_empty(void) {
