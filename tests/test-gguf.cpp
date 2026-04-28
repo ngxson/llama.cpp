@@ -190,7 +190,7 @@ static size_t read_buffer_callback(void * userdata, void * output, uint64_t offs
         return len == 0 ? 1 : 0;
     }
 
-    if (len == 0) {
+    if (len == 0 || offset + len > reader.size) {
         return 0;
     }
 

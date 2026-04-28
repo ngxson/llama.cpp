@@ -960,7 +960,7 @@ static size_t gguf_buffer_reader_callback(void * userdata, void * output, uint64
         return len == 0 ? 1 : 0;
     }
 
-    if (len == 0) {
+    if (len == 0 || offset + len > reader.size) {
         return 0;
     }
 
