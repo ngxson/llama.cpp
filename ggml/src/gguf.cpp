@@ -228,13 +228,19 @@ struct gguf_context {
 };
 
 struct gguf_reader {
-    gguf_reader(FILE * file) : file(file) {
-        // read the remaining bytes once and update on each read
-        nbytes_remain = file_remain(file);
-    }
-
-    gguf_reader(const void * data, size_t size)
-        : data(static_cast<const uint8_t *>(data)), nbytes_remain(size) {
+    gguf_reader(
+            gguf_reader_callback_t callback,
+            void * userdata,
+            size_t max_chunk_read,
+            size_t data_offset = 0,
+            uint64_t nbytes_remain = 0,
+            bool has_nbytes_remain = false)
+        : callback(callback),
+          userdata(userdata),
+          max_chunk_read(max_chunk_read),
+          data_offset(data_offset),
+          nbytes_remain(nbytes_remain),
+          has_nbytes_remain(has_nbytes_remain) {
     }
 
     // helper for remaining bytes in a file
@@ -261,12 +267,10 @@ struct gguf_reader {
     template <typename T>
     bool read(T & dst) const {
         const size_t size = sizeof(dst);
-        if (nbytes_remain < size) {
+        if (has_nbytes_remain && nbytes_remain < size) {
             return false;
         }
-        const size_t nread = read_raw(&dst, size);
-        nbytes_remain -= nread;
-        return nread == size;
+        return read_raw(&dst, size) == size;
     }
 
     template <typename T>
@@ -279,14 +283,14 @@ struct gguf_reader {
             if (n > SIZE_MAX / sizeof(uint64_t)) {
                 return false;
             }
-            if (nbytes_remain < n * sizeof(uint64_t)) {
+            if (has_nbytes_remain && nbytes_remain < n * sizeof(uint64_t)) {
                 return false;
             }
         } else {
             if (n > SIZE_MAX / sizeof(T)) {
                 return false;
             }
-            if (nbytes_remain < n * sizeof(T)) {
+            if (has_nbytes_remain && nbytes_remain < n * sizeof(T)) {
                 return false;
             }
         }
@@ -343,55 +347,42 @@ struct gguf_reader {
             GGML_LOG_ERROR("%s: string length %" PRIu64 " exceeds maximum %" PRIu64 "\n", __func__, size, (uint64_t) GGUF_MAX_STRING_LENGTH);
             return false;
         }
-        if (size > nbytes_remain) {
+        if (has_nbytes_remain && size > nbytes_remain) {
             GGML_LOG_ERROR("%s: string length %" PRIu64 " exceeds remaining file size %" PRIu64 " bytes\n", __func__, size, nbytes_remain);
             return false;
         }
         dst.resize(static_cast<size_t>(size));
-        const size_t nread = read_raw(dst.data(), static_cast<size_t>(size));
-        nbytes_remain -= nread;
-        return nread == size;
+        return read_raw(dst.data(), static_cast<size_t>(size)) == size;
     }
 
     bool read(void * dst, const size_t size) const {
-        if (size > nbytes_remain) {
+        if (has_nbytes_remain && size > nbytes_remain) {
             return false;
         }
-        const size_t nread = read_raw(dst, size);
-        nbytes_remain -= nread;
-        return nread == size;
+        return read_raw(dst, size) == size;
     }
 
     uint64_t tell() const {
-        if (file != nullptr) {
-            const int64_t cur = gguf_ftell(file);
-            return cur < 0
-                ? 0
-                : static_cast<uint64_t>(cur);
-        }
-
         return data_offset;
     }
 
     bool seek(uint64_t absolute_offset) const {
-        if (file != nullptr) {
-            const int64_t cur = gguf_ftell(file);
-            const uint64_t end_offset = cur < 0
-                ? nbytes_remain
-                : static_cast<uint64_t>(cur) + nbytes_remain;
+        if (absolute_offset > SIZE_MAX) {
+            return false;
+        }
 
-            if (absolute_offset > end_offset || gguf_fseek(file, absolute_offset, SEEK_SET) != 0) {
-                return false;
-            }
+        const uint64_t end_offset = uint64_t(data_offset) + nbytes_remain;
+        if (has_nbytes_remain && absolute_offset > end_offset) {
+            return false;
+        }
 
-            nbytes_remain = end_offset - absolute_offset;
-        } else {
-            const uint64_t end_offset = data_offset + nbytes_remain;
-            if (absolute_offset > end_offset) {
-                return false;
-            }
+        const size_t offset = static_cast<size_t>(absolute_offset);
+        if (offset != data_offset && callback(userdata, nullptr, offset, 0) != 0) {
+            return false;
+        }
 
-            data_offset   = static_cast<size_t>(absolute_offset);
+        data_offset = offset;
+        if (has_nbytes_remain) {
             nbytes_remain = end_offset - absolute_offset;
         }
 
@@ -400,22 +391,45 @@ struct gguf_reader {
 
 private:
     size_t read_raw(void * dst, size_t size) const {
-        if (file != nullptr) {
-            return fread(dst, 1, size, file);
-        } else if (data == nullptr || size > nbytes_remain || data_offset + size < data_offset) {
+        if (callback == nullptr) {
             return 0;
         }
 
-        memcpy(dst, data + data_offset, size);
-        data_offset += size;
-        return size;
+        uint8_t * data = static_cast<uint8_t *>(dst);
+        size_t total_nread = 0;
+        bool reached_eof = false;
+
+        while (total_nread < size) {
+            const size_t chunk = std::min(max_chunk_read, size - total_nread);
+            if (data_offset + total_nread < data_offset) {
+                break;
+            }
+            const size_t nread = callback(userdata, data + total_nread, data_offset + total_nread, chunk);
+            total_nread += nread;
+            if (nread != chunk) {
+                reached_eof = true;
+                break;
+            }
+        }
+
+        data_offset += total_nread;
+        if (has_nbytes_remain) {
+            GGML_ASSERT(total_nread <= nbytes_remain);
+            nbytes_remain -= total_nread;
+        } else if (reached_eof) {
+            nbytes_remain = 0;
+            has_nbytes_remain = true;
+        }
+
+        return total_nread;
     }
 
-    FILE * file = nullptr;
-    const uint8_t * data = nullptr;
-
+    gguf_reader_callback_t callback = nullptr;
+    void * userdata = nullptr;
+    size_t max_chunk_read = 0;
     mutable size_t data_offset = 0;
-    mutable uint64_t nbytes_remain;
+    mutable uint64_t nbytes_remain = 0;
+    mutable bool has_nbytes_remain = false;
 };
 
 struct gguf_context * gguf_init_empty(void) {
@@ -893,13 +907,77 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
     return ctx;
 }
 
+struct gguf_context * gguf_init_from_callback(gguf_reader_callback_t callback, void * userdata, size_t max_chunk_read, size_t total_size, struct gguf_init_params params) {
+    if (callback == nullptr || max_chunk_read == 0) {
+        return nullptr;
+    }
+
+    const struct gguf_reader gr(callback, userdata, max_chunk_read, 0, total_size, total_size != 0);
+    return gguf_init_from_reader(gr, params);
+}
+
+struct gguf_file_reader {
+    FILE * file;
+    size_t offset;
+};
+
+static size_t gguf_file_reader_callback(void * userdata, uint8_t * output, size_t offset, size_t len) {
+    gguf_file_reader & reader = *static_cast<gguf_file_reader *>(userdata);
+
+    if (reader.offset != offset) {
+        if (gguf_fseek(reader.file, offset, SEEK_SET) != 0) {
+            return len == 0 ? 1 : 0;
+        }
+
+        reader.offset = offset;
+    }
+
+    if (len == 0) {
+        return 0;
+    }
+
+    const size_t nread = fread(output, 1, len, reader.file);
+    reader.offset += nread;
+    return nread;
+}
+
 struct gguf_context * gguf_init_from_file_ptr(FILE * file, struct gguf_init_params params) {
     if (!file) {
         return nullptr;
     }
 
-    const struct gguf_reader gr(file);
+    const int64_t cur = gguf_ftell(file);
+    if (cur < 0) {
+        return nullptr;
+    }
+
+    gguf_file_reader reader = {
+        /*.file   = */ file,
+        /*.offset = */ static_cast<size_t>(cur),
+    };
+    const struct gguf_reader gr(gguf_file_reader_callback, &reader, SIZE_MAX, reader.offset, gguf_reader::file_remain(file), true);
     return gguf_init_from_reader(gr, params);
+}
+
+struct gguf_buffer_reader {
+    const uint8_t * data;
+    size_t          size;
+};
+
+static size_t gguf_buffer_reader_callback(void * userdata, uint8_t * output, size_t offset, size_t len) {
+    const gguf_buffer_reader & reader = *static_cast<gguf_buffer_reader *>(userdata);
+
+    if (offset > reader.size) {
+        return len == 0 ? 1 : 0;
+    }
+
+    if (len == 0) {
+        return 0;
+    }
+
+    const size_t nread = std::min(len, reader.size - offset);
+    memcpy(output, reader.data + offset, nread);
+    return nread;
 }
 
 struct gguf_context * gguf_init_from_buffer(const void * data, size_t size, struct gguf_init_params params) {
@@ -907,7 +985,11 @@ struct gguf_context * gguf_init_from_buffer(const void * data, size_t size, stru
         return nullptr;
     }
 
-    const struct gguf_reader gr(data, size);
+    gguf_buffer_reader reader = {
+        /*.data = */ static_cast<const uint8_t *>(data),
+        /*.size = */ size,
+    };
+    const struct gguf_reader gr(gguf_buffer_reader_callback, &reader, SIZE_MAX, 0, size, true);
     return gguf_init_from_reader(gr, params);
 }
 

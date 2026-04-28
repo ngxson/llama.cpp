@@ -178,6 +178,27 @@ static std::vector<uint8_t> read_file_to_buffer(FILE * file) {
     return data;
 }
 
+struct callback_reader_data {
+    const uint8_t * data;
+    size_t size;
+};
+
+static size_t read_buffer_callback(void * userdata, uint8_t * output, size_t offset, size_t len) {
+    const callback_reader_data & reader = *static_cast<callback_reader_data *>(userdata);
+
+    if (offset > reader.size) {
+        return len == 0 ? 1 : 0;
+    }
+
+    if (len == 0) {
+        return 0;
+    }
+
+    const size_t nread = std::min(len, reader.size - offset);
+    memcpy(output, reader.data + offset, nread);
+    return nread;
+}
+
 static FILE * get_handcrafted_file(const unsigned int seed, const enum handcrafted_file_type hft, const int extra_bytes = 0) {
     FILE * file = tmpfile();
 
@@ -1111,11 +1132,29 @@ static bool same_tensor_data(const struct ggml_context * orig, const struct ggml
     return ok;
 }
 
-static std::pair<int, int> test_roundtrip(ggml_backend_dev_t dev, const unsigned int seed, const bool only_meta, const bool from_buffer = false) {
+enum roundtrip_read_mode {
+    ROUNDTRIP_READ_FILE,
+    ROUNDTRIP_READ_BUFFER,
+    ROUNDTRIP_READ_CALLBACK,
+};
+
+static const char * roundtrip_read_mode_name(const roundtrip_read_mode mode) {
+    switch (mode) {
+        case ROUNDTRIP_READ_FILE:     return "file";
+        case ROUNDTRIP_READ_BUFFER:   return "buffer";
+        case ROUNDTRIP_READ_CALLBACK: return "callback";
+    }
+
+    GGML_ABORT("fatal error");
+}
+
+static std::pair<int, int> test_roundtrip(
+        ggml_backend_dev_t dev, const unsigned int seed, const bool only_meta,
+        const roundtrip_read_mode read_mode = ROUNDTRIP_READ_FILE) {
     ggml_backend_t backend = ggml_backend_dev_init(dev, nullptr);
-    printf("%s: device=%s, backend=%s, only_meta=%s, from_buffer=%s\n",
+    printf("%s: device=%s, backend=%s, only_meta=%s, read_mode=%s\n",
         __func__, ggml_backend_dev_description(dev), ggml_backend_name(backend),
-        only_meta ? "yes" : "no", from_buffer ? "yes" : "no");
+        only_meta ? "yes" : "no", roundtrip_read_mode_name(read_mode));
 
     int npass = 0;
     int ntest = 0;
@@ -1151,10 +1190,18 @@ static std::pair<int, int> test_roundtrip(ggml_backend_dev_t dev, const unsigned
         /*ctx      =*/ only_meta ? nullptr : &ctx_1,
     };
     struct gguf_context * gguf_ctx_1 = nullptr;
+    const std::vector<uint8_t> data = read_mode == ROUNDTRIP_READ_FILE
+        ? std::vector<uint8_t>()
+        : read_file_to_buffer(file);
 
-    if (from_buffer) {
-        const std::vector<uint8_t> data = read_file_to_buffer(file);
+    if (read_mode == ROUNDTRIP_READ_BUFFER) {
         gguf_ctx_1 = gguf_init_from_buffer(data.data(), data.size(), gguf_params);
+    } else if (read_mode == ROUNDTRIP_READ_CALLBACK) {
+        callback_reader_data reader = {
+            /*.data = */ data.data(),
+            /*.size = */ data.size(),
+        };
+        gguf_ctx_1 = gguf_init_from_callback(read_buffer_callback, &reader, 4096, 0, gguf_params);
     } else {
         gguf_ctx_1 = gguf_init_from_file_ptr(file, gguf_params);
     }
@@ -1372,7 +1419,12 @@ int main(int argc, char ** argv) {
             ntest += result.second;
         }
         {
-            std::pair<int, int> result = test_roundtrip(dev, seed, /*only_meta=*/false, /*from_buffer=*/true);
+            std::pair<int, int> result = test_roundtrip(dev, seed, /*only_meta=*/false, ROUNDTRIP_READ_BUFFER);
+            npass += result.first;
+            ntest += result.second;
+        }
+        {
+            std::pair<int, int> result = test_roundtrip(dev, seed, /*only_meta=*/false, ROUNDTRIP_READ_CALLBACK);
             npass += result.first;
             ntest += result.second;
         }
