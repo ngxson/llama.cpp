@@ -76,16 +76,16 @@ extern "C" {
         struct ggml_context ** ctx;
     };
 
-    // reads up to `len` bytes at `offset` into `output` and returns the number of bytes read.
-    // may be called with `len == 0` to seek/synchronize to `offset` without reading.
-    // when `len == 0` returns 0 on success and non-zero on failure
-    typedef size_t (*gguf_reader_callback_t)(void * userdata, uint8_t * output, size_t offset, size_t len);
+    // callback to simulate or wrap a FILE pointer:
+    //   - by default, read up to `len` bytes at `offset` into `output` and return the number of bytes read
+    //   - if called with `len == 0`, seek/synchronize to `offset` without reading, return 0 on success, non-zero for failure
+    typedef size_t (*gguf_reader_callback_t)(void * userdata, void * output, uint64_t offset, size_t len);
 
     GGML_API struct gguf_context * gguf_init_empty(void);
     GGML_API struct gguf_context * gguf_init_from_file_ptr(FILE * file, struct gguf_init_params params);
     GGML_API struct gguf_context * gguf_init_from_file(const char * fname, struct gguf_init_params params);
     GGML_API struct gguf_context * gguf_init_from_buffer(const void * data, size_t size, struct gguf_init_params params);
-    GGML_API struct gguf_context * gguf_init_from_callback(gguf_reader_callback_t callback, void * userdata, size_t max_chunk_read, size_t max_expected_size, struct gguf_init_params params);
+    GGML_API struct gguf_context * gguf_init_from_callback(gguf_reader_callback_t callback, void * userdata, size_t max_chunk_read, uint64_t max_expected_size, struct gguf_init_params params);
 
     GGML_API void gguf_free(struct gguf_context * ctx);
 

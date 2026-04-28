@@ -183,7 +183,7 @@ struct callback_reader_data {
     size_t size;
 };
 
-static size_t read_buffer_callback(void * userdata, uint8_t * output, size_t offset, size_t len) {
+static size_t read_buffer_callback(void * userdata, void * output, uint64_t offset, size_t len) {
     const callback_reader_data & reader = *static_cast<callback_reader_data *>(userdata);
 
     if (offset > reader.size) {
@@ -194,8 +194,9 @@ static size_t read_buffer_callback(void * userdata, uint8_t * output, size_t off
         return 0;
     }
 
-    const size_t nread = std::min(len, reader.size - offset);
-    memcpy(output, reader.data + offset, nread);
+    const size_t data_offset = static_cast<size_t>(offset);
+    const size_t nread = std::min(len, reader.size - data_offset);
+    memcpy(static_cast<uint8_t *>(output), reader.data + data_offset, nread);
     return nread;
 }
 
@@ -1201,7 +1202,7 @@ static std::pair<int, int> test_roundtrip(
             /*.data = */ data.data(),
             /*.size = */ data.size(),
         };
-        gguf_ctx_1 = gguf_init_from_callback(read_buffer_callback, &reader, 4096, 0, gguf_params);
+        gguf_ctx_1 = gguf_init_from_callback(read_buffer_callback, &reader, 4096, 4ull << 30 /* 4GB */, gguf_params);
     } else {
         gguf_ctx_1 = gguf_init_from_file_ptr(file, gguf_params);
     }

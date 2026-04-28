@@ -232,7 +232,7 @@ struct gguf_reader {
             gguf_reader_callback_t callback,
             void * userdata,
             size_t max_chunk_read,
-            size_t data_offset = 0,
+            uint64_t data_offset = 0,
             uint64_t nbytes_remain = 0)
         : callback(callback),
           userdata(userdata),
@@ -365,21 +365,16 @@ struct gguf_reader {
     }
 
     bool seek(uint64_t absolute_offset) const {
-        if (absolute_offset > SIZE_MAX) {
-            return false;
-        }
-
         const uint64_t end_offset = uint64_t(data_offset) + nbytes_remain;
         if (absolute_offset > end_offset) {
             return false;
         }
 
-        const size_t offset = static_cast<size_t>(absolute_offset);
-        if (offset != data_offset && callback(userdata, nullptr, offset, 0) != 0) {
+        if (absolute_offset != data_offset && callback(userdata, nullptr, absolute_offset, 0) != 0) {
             return false;
         }
 
-        data_offset = offset;
+        data_offset = absolute_offset;
         nbytes_remain = end_offset - absolute_offset;
 
         return true;
@@ -400,7 +395,7 @@ private:
             if (data_offset + total_nread < data_offset) {
                 break;
             }
-            const size_t nread = callback(userdata, data + total_nread, data_offset + total_nread, chunk);
+            const size_t nread = callback(userdata, static_cast<void *>(data + total_nread), data_offset + total_nread, chunk);
             total_nread += nread;
             if (nread != chunk) {
                 reached_eof = true;
@@ -422,7 +417,7 @@ private:
     gguf_reader_callback_t callback = nullptr;
     void * userdata = nullptr;
     size_t max_chunk_read = 0;
-    mutable size_t data_offset = 0;
+    mutable uint64_t data_offset = 0;
     mutable uint64_t nbytes_remain = 0;
 };
 
@@ -901,7 +896,7 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
     return ctx;
 }
 
-struct gguf_context * gguf_init_from_callback(gguf_reader_callback_t callback, void * userdata, size_t max_chunk_read, size_t max_expected_size, struct gguf_init_params params) {
+struct gguf_context * gguf_init_from_callback(gguf_reader_callback_t callback, void * userdata, size_t max_chunk_read, uint64_t max_expected_size, struct gguf_init_params params) {
     if (callback == nullptr || max_chunk_read == 0) {
         return nullptr;
     }
@@ -912,14 +907,14 @@ struct gguf_context * gguf_init_from_callback(gguf_reader_callback_t callback, v
 
 struct gguf_file_reader {
     FILE * file;
-    size_t offset;
+    uint64_t offset;
 };
 
-static size_t gguf_file_reader_callback(void * userdata, uint8_t * output, size_t offset, size_t len) {
+static size_t gguf_file_reader_callback(void * userdata, void * output, uint64_t offset, size_t len) {
     gguf_file_reader & reader = *static_cast<gguf_file_reader *>(userdata);
 
     if (reader.offset != offset) {
-        if (gguf_fseek(reader.file, offset, SEEK_SET) != 0) {
+        if (offset > INT64_MAX || gguf_fseek(reader.file, static_cast<int64_t>(offset), SEEK_SET) != 0) {
             return len == 0 ? 1 : 0;
         }
 
@@ -930,7 +925,7 @@ static size_t gguf_file_reader_callback(void * userdata, uint8_t * output, size_
         return 0;
     }
 
-    const size_t nread = fread(output, 1, len, reader.file);
+    const size_t nread = fread(static_cast<uint8_t *>(output), 1, len, reader.file);
     reader.offset += nread;
     return nread;
 }
@@ -947,7 +942,7 @@ struct gguf_context * gguf_init_from_file_ptr(FILE * file, struct gguf_init_para
 
     gguf_file_reader reader = {
         /*.file   = */ file,
-        /*.offset = */ static_cast<size_t>(cur),
+        /*.offset = */ static_cast<uint64_t>(cur),
     };
     const struct gguf_reader gr(gguf_file_reader_callback, &reader, SIZE_MAX, reader.offset, gguf_reader::file_remain(file));
     return gguf_init_from_reader(gr, params);
@@ -958,7 +953,7 @@ struct gguf_buffer_reader {
     size_t          size;
 };
 
-static size_t gguf_buffer_reader_callback(void * userdata, uint8_t * output, size_t offset, size_t len) {
+static size_t gguf_buffer_reader_callback(void * userdata, void * output, uint64_t offset, size_t len) {
     const gguf_buffer_reader & reader = *static_cast<gguf_buffer_reader *>(userdata);
 
     if (offset > reader.size) {
@@ -969,8 +964,9 @@ static size_t gguf_buffer_reader_callback(void * userdata, uint8_t * output, siz
         return 0;
     }
 
-    const size_t nread = std::min(len, reader.size - offset);
-    memcpy(output, reader.data + offset, nread);
+    const size_t data_offset = static_cast<size_t>(offset);
+    const size_t nread = std::min(len, reader.size - data_offset);
+    memcpy(static_cast<uint8_t *>(output), reader.data + data_offset, nread);
     return nread;
 }
 
