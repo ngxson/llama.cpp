@@ -225,7 +225,8 @@ private func token_to_piece(token: llama_token, buffer: inout [CChar]) -> String
     var result = [CChar](repeating: 0, count: 8)
     let nTokens = llama_token_to_piece(vocab, token, &result, Int32(result.count), 0, false)
     if nTokens == Int32.min {
-        return nil
+        print("llama_token_to_piece() failed")
+        exit(1)
     }
     if nTokens < 0 {
         let actualTokensCount = -Int(nTokens)
