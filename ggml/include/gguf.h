@@ -85,9 +85,7 @@ extern "C" {
     GGML_API struct gguf_context * gguf_init_from_file_ptr(FILE * file, struct gguf_init_params params);
     GGML_API struct gguf_context * gguf_init_from_file(const char * fname, struct gguf_init_params params);
     GGML_API struct gguf_context * gguf_init_from_buffer(const void * data, size_t size, struct gguf_init_params params);
-
-    // when `total_size == 0` then end of file offset will be determined when the returned read size is smaller than the requested `len`
-    GGML_API struct gguf_context * gguf_init_from_callback(gguf_reader_callback_t callback, void * userdata, size_t max_chunk_read, size_t total_size, struct gguf_init_params params);
+    GGML_API struct gguf_context * gguf_init_from_callback(gguf_reader_callback_t callback, void * userdata, size_t max_chunk_read, size_t max_expected_size, struct gguf_init_params params);
 
     GGML_API void gguf_free(struct gguf_context * ctx);
 
