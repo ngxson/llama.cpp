@@ -2267,7 +2267,7 @@ void llama_model_base::load_hparams(llama_model_loader & ml) {
                     }
                 }
 
-                if (ml.get_key(LLM_KV_ROPE_SCALING_YARN_LOG_MUL, hparams.rope_yarn_log_mul, 0.0f)) {
+                if (ml.get_key(LLM_KV_ROPE_SCALING_YARN_LOG_MUL, hparams.rope_yarn_log_mul, false)) {
                     // [TAG_DEEPSEEK2_YARN_LOG_MUL_FIX]
                     // cancel the factor from the convert script
                     hparams.rope_yarn_log_mul /= 0.1f;
@@ -3141,7 +3141,7 @@ void llama_model_base::load_hparams(llama_model_loader & ml) {
 
                 ml.get_key(LLM_KV_ROPE_SCALING_YARN_BETA_FAST, hparams.yarn_beta_fast,    false);
                 ml.get_key(LLM_KV_ROPE_SCALING_YARN_BETA_SLOW, hparams.yarn_beta_slow,    false);
-                ml.get_key(LLM_KV_ROPE_SCALING_YARN_LOG_MUL,   hparams.rope_yarn_log_mul, 0.0f);
+                ml.get_key(LLM_KV_ROPE_SCALING_YARN_LOG_MUL,   hparams.rope_yarn_log_mul, false);
 
                 hparams.f_attn_temp_offset = 0.0f;
 
