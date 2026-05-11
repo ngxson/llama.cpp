@@ -1422,6 +1422,19 @@ void mtmd_log_set(ggml_log_callback log_callback, void * user_data) {
     g_logger_state.log_callback_user_data = user_data;
 }
 
+struct mtmd_cap mtmd_get_cap_from_file(const char * fname) {
+    try {
+        auto tmp = clip_get_cap(fname);
+        mtmd_cap cap;
+        cap.inp_audio  = tmp.has_audio;
+        cap.inp_vision = tmp.has_vision;
+        return cap;
+    } catch (const std::exception & e) {
+        LOG_ERR("%s: failed to get capabilities from file '%s': %s\n", __func__, fname, e.what());
+        return mtmd_cap{ false, false };
+    }
+}
+
 //
 // Debugging API (NOT intended for public use)
 //

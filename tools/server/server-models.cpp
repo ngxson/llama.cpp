@@ -161,6 +161,30 @@ void server_model_meta::update_args(common_preset_context & ctx_preset, std::str
     args = preset.to_args(bin_path);
 }
 
+void server_model_meta::update_multimodal_cap() {
+    try {
+        common_params params;
+        preset.apply_to_params(params, {
+            "LLAMA_ARG_MODEL",
+            "LLAMA_ARG_MODEL_URL",
+            "LLAMA_ARG_MMPROJ",
+            "LLAMA_ARG_MMPROJ_URL",
+            "LLAMA_ARG_HF_REPO",
+            "LLAMA_ARG_HF_REPO_FILE",
+        });
+        params.offline = true; // avoid any unwanted network call during capability detection
+        common_params_handle_models(params, LLAMA_EXAMPLE_SERVER);
+        if (params.mmproj.path.empty()) {
+            multimodal = { false, false };
+        } else {
+            multimodal = mtmd_get_cap_from_file(params.mmproj.path.c_str());
+        }
+    } catch (const std::exception & e) {
+        LOG_WRN("failed to initialize common_params for multimodal capability detection: %s\n", e.what());
+        multimodal = { false, false };
+    }
+}
+
 //
 // server_models
 //
@@ -236,6 +260,7 @@ void server_models::add_model(server_model_meta && meta) {
     }
 
     meta.update_args(ctx_preset, bin_path); // render args
+    meta.update_multimodal_cap();
     std::string name = meta.name;
     mapping[name] = instance_t{
         /* subproc */ std::make_shared<subprocess_s>(),
@@ -348,6 +373,7 @@ void server_models::load_models() {
                 /* args         */ std::vector<std::string>(),
                 /* exit_code    */ 0,
                 /* stop_timeout */ DEFAULT_STOP_TIMEOUT,
+                /* multimodal   */ { false, false },
             };
             add_model(std::move(meta));
         }
@@ -481,6 +507,7 @@ void server_models::load_models() {
 
             inst.meta.exit_code = 0; // clear failed state so the model can be reloaded
             inst.meta.update_args(ctx_preset, bin_path);
+            inst.meta.update_multimodal_cap();
         }
 
         // add models that are new in this reload
@@ -1206,14 +1233,28 @@ void server_models_routes::init_routes() {
                 status["failed"]    = true;
             }
 
+            // pi coding agent multimodal compatibility
+            json input_modalities = json::array({"text"});
+            if (meta.multimodal.inp_vision) {
+                input_modalities.push_back("image");
+            }
+            if (meta.multimodal.inp_audio) {
+                input_modalities.push_back("audio");
+            }
+            json architecture {
+                {"input_modalities",  input_modalities},
+                {"output_modalities", json::array({"text"})},
+            };
+
             json model_info = json {
-                {"id",       meta.name},
-                {"aliases",  meta.aliases},
-                {"tags",     meta.tags},
-                {"object",   "model"},    // for OAI-compat
-                {"owned_by", "llamacpp"}, // for OAI-compat
-                {"created",  t},          // for OAI-compat
-                {"status",   status},
+                {"id",           meta.name},
+                {"aliases",      meta.aliases},
+                {"tags",         meta.tags},
+                {"object",       "model"},    // for OAI-compat
+                {"owned_by",     "llamacpp"}, // for OAI-compat
+                {"created",      t},          // for OAI-compat
+                {"status",       status},
+                {"architecture", architecture},
                 // TODO: add other fields, may require reading GGUF metadata
             };
 
