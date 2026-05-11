@@ -371,9 +371,10 @@ void server_models::load_models() {
                 /* status       */ SERVER_MODEL_STATUS_UNLOADED,
                 /* last_used    */ 0,
                 /* args         */ std::vector<std::string>(),
+                /* loaded_info  */ {},
                 /* exit_code    */ 0,
                 /* stop_timeout */ DEFAULT_STOP_TIMEOUT,
-                /* multimodal   */ { false, false },
+                /* multimodal   */ mtmd_cap{false, false},
             };
             add_model(std::move(meta));
         }
@@ -523,8 +524,10 @@ void server_models::load_models() {
                     /* status       */ SERVER_MODEL_STATUS_UNLOADED,
                     /* last_used    */ 0,
                     /* args         */ std::vector<std::string>(),
+                    /* loaded_info  */ {},
                     /* exit_code    */ 0,
                     /* stop_timeout */ DEFAULT_STOP_TIMEOUT,
+                    /* multimodal   */ mtmd_cap{false, false},
                 };
                 add_model(std::move(meta));
                 newly_added.push_back(name);
