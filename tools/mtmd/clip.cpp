@@ -1465,15 +1465,11 @@ struct clip_model_loader {
                         hparams.n_merge = 2;
                         get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.n_merge, false);
                         get_u32(KEY_WIN_ATTN_PATTERN, hparams.n_wa_pattern, false);
-                        hparams.set_limit_image_tokens(8, 4096);
                         hparams.set_warmup_n_tokens(46 * 46);
                         if (hparams.rope_theta <= 0.0f) {
                             hparams.rope_theta = 10000.0f;
                         }
-                        get_u32(KEY_N_HEAD_KV, hparams.n_kv_head, false);
-                        if (hparams.n_kv_head <= 0) {
-                            hparams.n_kv_head = 8;
-                        }
+                        get_u32(KEY_N_HEAD_KV, hparams.n_kv_head);
                     } break;
                 case PROJECTOR_TYPE_JANUS_PRO:
                     {

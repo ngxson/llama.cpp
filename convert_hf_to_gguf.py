@@ -10479,18 +10479,18 @@ class Exaone4_5_VLTextModel(Exaone4Model):
                 name = name.replace(f"mtp.layers.{mtp_bid}", f"model.layers.{mtp_bid + nh}")
             else:
                 remapper = {
-                    "mtp.fc": "model.layers.{bid}.eh_proj",
-                    "mtp.pre_fc_norm_embedding": "model.layers.{bid}.enorm",
-                    "mtp.pre_fc_norm_hidden": "model.layers.{bid}.hnorm",
-                    "mtp.norm": "model.layers.{bid}.shared_head.norm",
+                    "mtp.fc": gguf.MODEL_TENSOR.NEXTN_EH_PROJ,
+                    "mtp.pre_fc_norm_embedding": gguf.MODEL_TENSOR.NEXTN_ENORM,
+                    "mtp.pre_fc_norm_hidden": gguf.MODEL_TENSOR.NEXTN_HNORM,
+                    "mtp.norm": gguf.MODEL_TENSOR.NEXTN_SHARED_HEAD_NORM,
                 }
                 _n = Path(name)
                 key = _n.stem
                 if key not in remapper:
                     return
-                new_name = remapper[key] + _n.suffix
                 for bid_mtp in range(nh, self.block_count):
-                    yield from super().modify_tensors(data_torch, new_name.format(bid=bid_mtp), bid_mtp)
+                    mapped_name = self.format_tensor_name(remapper[key], bid_mtp, suffix=_n.suffix)
+                    yield from ModelBase.modify_tensors(self, data_torch, mapped_name, bid_mtp)
                 return
 
         yield from super().modify_tensors(data_torch, name, bid)
