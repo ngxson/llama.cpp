@@ -11057,11 +11057,6 @@ class Exaone4_5_VLTextModel(Exaone4Model):
             self.gguf_writer.add_nextn_predict_layers(n_nextn)
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
-        if name.startswith("model.visual."):
-            return
-        if name.startswith("model.language_model."):
-            name = name.replace("model.language_model.", "model.", 1)
-
         if name.startswith("mtp."):
             n_nextn = int(self.hparams.get("num_nextn_predict_layers", 0) or 0)
             if n_nextn <= 0:
@@ -11102,12 +11097,8 @@ class Exaone4_5VLVisionModel(Qwen2VLVisionModel):
     @classmethod
     def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:
         name, gen = item
-        if name.startswith("model.visual."):
-            name = name.replace("model.visual.", "visual.", 1)
-            return MmprojModel.filter_tensors((name, gen))
-        if name.startswith("visual."):
-            return MmprojModel.filter_tensors(item)
-        return None
+        name = name.replace("model.visual.", "visual.", 1)
+        return super().filter_tensors((name, gen))
 
     def set_gguf_parameters(self):
         MmprojModel.set_gguf_parameters(self)
@@ -11130,14 +11121,7 @@ class Exaone4_5VLVisionModel(Qwen2VLVisionModel):
             self.gguf_writer.add_vision_n_wa_pattern(n_wa_pattern)
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
-        if name.startswith("model.language_model.") or name.startswith("lm_head."):
-            return
-        if name.startswith("mtp."):
-            return
-        if name.startswith("model.visual."):
-            name = name.replace("model.visual.", "visual.", 1)
-
-        if name.startswith("visual.") and ".qkv." in name:
+        if ".qkv." in name:
             yield from ModelBase.modify_tensors(self, data_torch, name, bid)
             return
 
@@ -14217,14 +14201,12 @@ def get_model_architecture(hparams: dict[str, Any], model_type: ModelType) -> st
     # Step3-VL keeps text config under text_config but uses a custom top-level architecture.
     # For text conversion we route to a dedicated text-only class.
     # TODO: refactor this later to avoid adding exception here
-    if model_type == ModelType.TEXT and arch in ("StepVLForConditionalGeneration", "Sarashina2VisionForCausalLM"):
+    if model_type == ModelType.TEXT and arch in ("StepVLForConditionalGeneration", "Sarashina2VisionForCausalLM", "Exaone4_5_ForConditionalGeneration"):
         return arch
 
     # if "architectures" is found in the sub-config, use that instead
     if model_type == ModelType.TEXT and text_config.get("architectures") is not None:
-        # Multimodal EXAONE 4.5 stores the inner causal LM class in text_config; HF→GGUF must use the VL root arch.
-        if hparams.get("model_type") != "exaone4_5":
-            arch = text_config["architectures"][0]
+        arch = text_config["architectures"][0]
     elif model_type == ModelType.MMPROJ and vision_config.get("architectures") is not None:
         arch = vision_config["architectures"][0]
     if arch is None:

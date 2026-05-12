@@ -1,3 +1,4 @@
+// similar to qwen2vl, except for GQA attention
 #include "models.h"
 
 ggml_cgraph * clip_graph_exaone4_5::build() {
