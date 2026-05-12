@@ -12,7 +12,7 @@ ggml_cgraph * clip_graph_exaone4_5::build() {
 
     const norm_type norm_t = NORM_TYPE_RMS;
 
-    const int64_t n_kv_head = hparams.n_kv_head > 0 ? hparams.n_kv_head : n_head;
+    const int64_t n_kv_head = hparams.n_head_kv > 0 ? hparams.n_head_kv : n_head;
     GGML_ASSERT(n_head % n_kv_head == 0);
 
     int rope_sections[4] = { d_head / 4, d_head / 4, d_head / 4, d_head / 4 };

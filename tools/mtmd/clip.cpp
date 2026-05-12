@@ -876,6 +876,7 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
         case PROJECTOR_TYPE_EXAONE4_5:
             {
                 builder = std::make_unique<clip_graph_exaone4_5>(ctx, img);
+            } break;
         case PROJECTOR_TYPE_MIMOVL:
             {
                 builder = std::make_unique<clip_graph_mimovl>(ctx, img);
@@ -1556,7 +1557,8 @@ struct clip_model_loader {
                         if (hparams.rope_theta <= 0.0f) {
                             hparams.rope_theta = 10000.0f;
                         }
-                        get_u32(KEY_N_HEAD_KV, hparams.n_kv_head);
+                        get_u32(string_format(KEY_N_HEAD_KV, "vision"), hparams.n_head_kv);
+                    } break;
                 case PROJECTOR_TYPE_GEMMA4A:
                     {
                         // Gemma4 feature_extraction_gemma4.py:

@@ -48,7 +48,6 @@
 #define KEY_FEATURE_LAYER       "clip.vision.feature_layer"
 #define KEY_PROJ_SCALE_FACTOR   "clip.vision.projector.scale_factor"
 #define KEY_SPATIAL_MERGE_SIZE  "clip.vision.spatial_merge_size"
-#define KEY_N_HEAD_KV           "clip.vision.attention.head_count_kv"
 #define KEY_IS_DEEPSTACK_LAYERS "clip.vision.is_deepstack_layers"
 
 #define KEY_MM_PATCH_MERGE_TYPE    "clip.vision.mm_patch_merge_type"
