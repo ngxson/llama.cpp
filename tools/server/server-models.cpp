@@ -161,7 +161,7 @@ void server_model_meta::update_args(common_preset_context & ctx_preset, std::str
     args = preset.to_args(bin_path);
 }
 
-void server_model_meta::update_multimodal_cap() {
+void server_model_meta::update_caps() {
     try {
         common_params params;
         preset.apply_to_params(params, {
@@ -260,7 +260,7 @@ void server_models::add_model(server_model_meta && meta) {
     }
 
     meta.update_args(ctx_preset, bin_path); // render args
-    meta.update_multimodal_cap();
+    meta.update_caps();
     std::string name = meta.name;
     mapping[name] = instance_t{
         /* subproc */ std::make_shared<subprocess_s>(),
@@ -374,7 +374,7 @@ void server_models::load_models() {
                 /* loaded_info  */ {},
                 /* exit_code    */ 0,
                 /* stop_timeout */ DEFAULT_STOP_TIMEOUT,
-                /* multimodal   */ mtmd_cap{false, false},
+                /* multimodal   */ mtmd_caps{false, false},
             };
             add_model(std::move(meta));
         }
@@ -508,7 +508,7 @@ void server_models::load_models() {
 
             inst.meta.exit_code = 0; // clear failed state so the model can be reloaded
             inst.meta.update_args(ctx_preset, bin_path);
-            inst.meta.update_multimodal_cap();
+            inst.meta.update_caps();
         }
 
         // add models that are new in this reload
@@ -527,7 +527,7 @@ void server_models::load_models() {
                     /* loaded_info  */ {},
                     /* exit_code    */ 0,
                     /* stop_timeout */ DEFAULT_STOP_TIMEOUT,
-                    /* multimodal   */ mtmd_cap{false, false},
+                    /* multimodal   */ mtmd_caps{false, false},
                 };
                 add_model(std::move(meta));
                 newly_added.push_back(name);
