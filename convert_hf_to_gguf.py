@@ -11099,6 +11099,16 @@ class Exaone4_5_VLTextModel(Exaone4Model):
 class Exaone4_5VLVisionModel(Qwen2VLVisionModel):
     """Vision tower for EXAONE 4.5; Qwen2-VL-style ViT (GQA) + patch merger"""
 
+    @classmethod
+    def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:
+        name, gen = item
+        if name.startswith("model.visual."):
+            name = name.replace("model.visual.", "visual.", 1)
+            return MmprojModel.filter_tensors((name, gen))
+        if name.startswith("visual."):
+            return MmprojModel.filter_tensors(item)
+        return None
+
     def set_gguf_parameters(self):
         MmprojModel.set_gguf_parameters(self)
         assert self.hparams_vision is not None
