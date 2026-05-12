@@ -248,6 +248,8 @@ std::vector<std::string> common_arg::get_env() const {
 
 // Helper function to parse tensor buffer override strings
 static void parse_tensor_buffer_overrides(const std::string & value, std::vector<llama_model_tensor_buft_override> & overrides) {
+    ggml_backend_load_all();
+
     std::map<std::string, ggml_backend_buffer_type_t> buft_list;
     for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
         auto * dev = ggml_backend_dev_get(i);
@@ -423,6 +425,10 @@ static bool parse_bool_value(const std::string & value) {
     } else {
         throw std::invalid_argument("invalid boolean value");
     }
+}
+
+[[noreturn]] static void arg_removed(const std::string & msg) {
+    throw std::invalid_argument("the argument has been removed. " + msg);
 }
 
 //
@@ -616,10 +622,6 @@ static bool common_params_parse_ex(int argc, char ** argv, common_params_context
         for (auto & seq_breaker : params.sampling.dry_sequence_breakers) {
             string_process_escapes(seq_breaker);
         }
-        for (auto & pair : params.speculative.draft.replacements) {
-            string_process_escapes(pair.first);
-            string_process_escapes(pair.second);
-        }
     }
 
     if (!params.kv_overrides.empty()) {
@@ -803,6 +805,7 @@ static std::vector<ggml_backend_dev_t> parse_device_list(const std::string & val
     if (dev_names.size() == 1 && dev_names[0] == "none") {
         devices.push_back(nullptr);
     } else {
+        ggml_backend_load_all();
         for (const auto & device : dev_names) {
             auto * dev = ggml_backend_dev_by_name(device.c_str());
             if (!dev || ggml_backend_dev_type(dev) == GGML_BACKEND_DEVICE_TYPE_CPU) {
@@ -820,6 +823,7 @@ static void add_rpc_devices(const std::string & servers) {
     if (rpc_servers.empty()) {
         throw std::invalid_argument("no RPC servers specified");
     }
+    ggml_backend_load_all();
     ggml_backend_reg_t rpc_reg = ggml_backend_reg_by_name("RPC");
     if (!rpc_reg) {
         throw std::invalid_argument("failed to find RPC backend");
@@ -1015,9 +1019,6 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
     }
 
     params.use_color = tty_can_use_colors();
-
-    // load dynamic backends
-    ggml_backend_load_all();
 
     common_params_context ctx_arg(params);
     ctx_arg.print_usage = print_usage;
@@ -2275,6 +2276,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         {"--list-devices"},
         "print list of available devices and exit",
         [](common_params &) {
+            ggml_backend_load_all();
             std::vector<ggml_backend_dev_t> devices;
             for (size_t i = 0; i < ggml_backend_dev_count(); ++i) {
                 auto * dev = ggml_backend_dev_get(i);
@@ -3513,13 +3515,6 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_spec().set_examples({LLAMA_EXAMPLE_SPECULATIVE, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}).set_env("LLAMA_ARG_SPEC_DRAFT_P_MIN"));
     add_opt(common_arg(
-        {"--spec-draft-ctx-size", "-cd", "--ctx-size-draft"}, "N",
-        string_format("size of the prompt context for the draft model (default: %d, 0 = loaded from model)", params.speculative.draft.n_ctx),
-        [](common_params & params, int value) {
-            params.speculative.draft.n_ctx = value;
-        }
-    ).set_spec().set_examples({LLAMA_EXAMPLE_SPECULATIVE, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}).set_env("LLAMA_ARG_SPEC_DRAFT_CTX_SIZE"));
-    add_opt(common_arg(
         {"--spec-draft-device", "-devd", "--device-draft"}, "<dev1,dev2,..>",
         "comma-separated list of devices to use for offloading the draft model (none = don't offload)\n"
         "use --list-devices to see a list of available devices",
@@ -3555,32 +3550,12 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_spec().set_examples({LLAMA_EXAMPLE_SPECULATIVE, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}).set_env("LLAMA_ARG_SPEC_DRAFT_MODEL"));
     add_opt(common_arg(
-        {"--spec-draft-replace", "--spec-replace"}, "TARGET", "DRAFT",
-        "translate the string in TARGET into DRAFT if the draft model and main model are not compatible",
-        [](common_params & params, const std::string & tgt, const std::string & dft) {
-            params.speculative.draft.replacements.push_back({ tgt, dft });
-        }
-    ).set_spec().set_examples({LLAMA_EXAMPLE_SPECULATIVE, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}));
-    add_opt(common_arg(
-        {"--spec-type"}, "[none|ngram-cache|ngram-simple|ngram-map-k|ngram-map-k4v|ngram-mod]",
+        {"--spec-type"}, common_speculative_all_types_str(),
         string_format("type of speculative decoding to use when no draft model is provided (default: %s)\n",
-            common_speculative_type_to_str(params.speculative.type).c_str()),
+            common_speculative_type_name_str(params.speculative.types).c_str()),
         [](common_params & params, const std::string & value) {
-            if (value == "none") {
-                params.speculative.type = COMMON_SPECULATIVE_TYPE_NONE;
-            } else if (value == "ngram-cache") {
-                params.speculative.type = COMMON_SPECULATIVE_TYPE_NGRAM_CACHE;
-            } else if (value == "ngram-simple") {
-                params.speculative.type = COMMON_SPECULATIVE_TYPE_NGRAM_SIMPLE;
-            } else if (value == "ngram-map-k") {
-                params.speculative.type = COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K;
-            } else if (value == "ngram-map-k4v") {
-                params.speculative.type = COMMON_SPECULATIVE_TYPE_NGRAM_MAP_K4V;
-            } else if (value == "ngram-mod") {
-                params.speculative.type = COMMON_SPECULATIVE_TYPE_NGRAM_MOD;
-            } else {
-                throw std::invalid_argument("unknown speculative decoding type without draft model");
-            }
+            const auto enabled_types = string_split<std::string>(value, ',');
+            params.speculative.types = common_speculative_types_from_names(enabled_types);
         }
     ).set_spec().set_examples({LLAMA_EXAMPLE_SPECULATIVE, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}).set_env("LLAMA_ARG_SPEC_TYPE"));
     add_opt(common_arg(
@@ -3715,35 +3690,35 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         {"--draft", "--draft-n", "--draft-max"}, "N",
         "the argument has been removed. use --spec-draft-n-max or --spec-ngram-mod-n-max",
         [](common_params & /*params*/, int /*value*/) {
-            throw std::invalid_argument("the argument has been removed. use --spec-draft-n-max or --spec-ngram-mod-n-max");
+            arg_removed("use --spec-draft-n-max or --spec-ngram-mod-n-max");
         }
     ).set_spec().set_examples({LLAMA_EXAMPLE_SPECULATIVE, LLAMA_EXAMPLE_LOOKUP, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}).set_env("LLAMA_ARG_DRAFT_MAX"));
     add_opt(common_arg(
         {"--draft-min", "--draft-n-min"}, "N",
         "the argument has been removed. use --spec-draft-n-min or --spec-ngram-mod-n-min",
         [](common_params & /*params*/, int /*value*/) {
-            throw std::invalid_argument("the argument has been removed. use --spec-draft-n-min or --spec-ngram-mod-n-min");
+            arg_removed("use --spec-draft-n-min or --spec-ngram-mod-n-min");
         }
     ).set_spec().set_examples({LLAMA_EXAMPLE_SPECULATIVE, LLAMA_EXAMPLE_LOOKUP, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_CLI}).set_env("LLAMA_ARG_DRAFT_MIN"));
     add_opt(common_arg(
         {"--spec-ngram-size-n"}, "N",
         "the argument has been removed. use the respective --spec-ngram-*-size-n or --spec-ngram-mod-n-match",
         [](common_params & /*params*/, int /*value*/) {
-            throw std::invalid_argument("the argument has been removed. use the respective --spec-ngram-*-size-n");
+            arg_removed("use the respective --spec-ngram-*-size-n");
         }
     ).set_spec().set_examples({LLAMA_EXAMPLE_SERVER}));
     add_opt(common_arg(
         {"--spec-ngram-size-m"}, "N",
         "the argument has been removed. use the respective --spec-ngram-*-size-m",
         [](common_params & /*params*/, int /*value*/) {
-            throw std::invalid_argument("the argument has been removed. use the respective --spec-ngram-*-size-m");
+            arg_removed("use the respective --spec-ngram-*-size-m");
         }
     ).set_spec().set_examples({LLAMA_EXAMPLE_SERVER}));
     add_opt(common_arg(
         {"--spec-ngram-min-hits"}, "N",
         "the argument has been removed. use the respective --spec-ngram-*-min-hits",
         [](common_params & /*params*/, int /*value*/) {
-            throw std::invalid_argument("the argument has been removed. use the respective --spec-ngram-*-min-hits");
+            arg_removed("use the respective --spec-ngram-*-min-hits");
         }
     ).set_spec().set_examples({LLAMA_EXAMPLE_SERVER}));
 
@@ -4069,7 +4044,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         {"--spec-default"},
         string_format("enable default speculative decoding config"),
         [](common_params & params) {
-            params.speculative.type = COMMON_SPECULATIVE_TYPE_NGRAM_MOD;
+            params.speculative.types = { COMMON_SPECULATIVE_TYPE_NGRAM_MOD };
             params.speculative.ngram_mod.n_match = 24;
             params.speculative.ngram_mod.n_min = 48;
             params.speculative.ngram_mod.n_max = 64;
