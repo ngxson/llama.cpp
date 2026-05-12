@@ -34,6 +34,7 @@ enum task_response_type {
     TASK_RESPONSE_TYPE_OAI_CHAT,
     TASK_RESPONSE_TYPE_OAI_CMPL,
     TASK_RESPONSE_TYPE_OAI_RESP,
+    TASK_RESPONSE_TYPE_OAI_ASR, // transcriptions API
     TASK_RESPONSE_TYPE_OAI_EMBD,
     TASK_RESPONSE_TYPE_ANTHROPIC,
 };
@@ -401,6 +402,8 @@ struct server_task_result_cmpl_final : server_task_result {
 
     json to_json_oaicompat_resp_stream();
 
+    json to_json_oaicompat_asr();
+
     json to_json_anthropic();
 
     json to_json_anthropic_stream();
@@ -456,6 +459,8 @@ struct server_task_result_cmpl_partial : server_task_result {
     json to_json_oaicompat_chat();
 
     json to_json_oaicompat_resp();
+
+    json to_json_oaicompat_asr();
 
     json to_json_anthropic();
 };
@@ -560,31 +565,29 @@ struct server_task_result_apply_lora : server_task_result {
     virtual json to_json() override;
 };
 
-struct server_prompt_checkpoint {
-    llama_pos pos_min;
-    llama_pos pos_max;
-
-    int64_t n_tokens;
-
-    std::vector<uint8_t> data;
+struct server_prompt_data {
+    std::vector<uint8_t> main;
+    std::vector<uint8_t> drft;
 
     size_t size() const {
-        return data.size();
+        return main.size() + drft.size();
     }
 };
 
 struct server_prompt {
     server_tokens tokens;
 
-    std::vector<uint8_t> data;
+    server_prompt_data data;
 
-    std::list<server_prompt_checkpoint> checkpoints;
+    std::list<common_prompt_checkpoint> checkpoints;
 
     size_t size() const {
-        size_t res = data.size();
+        size_t res = 0;
 
-        for (const auto & checkpoint : checkpoints) {
-            res += checkpoint.size();
+        res += data.size();
+
+        for (const auto & ckpt : checkpoints) {
+            res += ckpt.size();
         }
 
         return res;
@@ -598,7 +601,7 @@ struct server_prompt {
         return server_prompt {
             tokens.clone(),
             data,
-            checkpoints
+            checkpoints,
         };
     }
 };
@@ -621,9 +624,9 @@ struct server_prompt_cache {
 
     size_t n_tokens() const;
 
-    server_prompt * alloc(const server_prompt & prompt, size_t state_size);
+    server_prompt * alloc(const server_prompt & prompt, size_t state_size_main, size_t state_size_drft);
 
-    bool load(server_prompt & prompt, const server_tokens & tokens_new, llama_context * ctx, int32_t id_slot);
+    bool load(server_prompt & prompt, const server_tokens & tokens_new, llama_context * ctx_main, llama_context * ctx_drft, int32_t id_slot);
 
     void update();
 };
