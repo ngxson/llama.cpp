@@ -1,26 +1,5 @@
 #include "models.h"
 
-static ggml_tensor * clip_repeat_kv_heads(
-        ggml_context * ctx,
-        ggml_tensor * cur,
-        int64_t d_head,
-        int64_t n_kv_head,
-        int64_t n_head,
-        int64_t n_tok) {
-    GGML_ASSERT(n_head % n_kv_head == 0);
-    const int64_t n_rep = n_head / n_kv_head;
-    if (n_rep == 1) {
-        return cur;
-    }
-    // Match PyTorch repeat_interleave(dim=head):
-    // [d, n_kv, n_tok] -> [d, 1, n_kv, n_tok] -> repeat on dim1 -> [d, n_rep, n_kv, n_tok]
-    // flatten -> [d, n_head, n_tok] with head order [kv0 x rep, kv1 x rep, ...].
-    cur = ggml_reshape_4d(ctx, cur, d_head, 1, n_kv_head, n_tok);
-    cur = ggml_repeat_4d(ctx, cur, d_head, n_rep, n_kv_head, n_tok);
-    cur = ggml_reshape_3d(ctx, cur, d_head, n_head, n_tok);
-    return cur;
-}
-
 ggml_cgraph * clip_graph_exaone4_5::build() {
     GGML_ASSERT(model.patch_bias == nullptr);
     GGML_ASSERT(model.class_embedding == nullptr);
@@ -65,12 +44,15 @@ ggml_cgraph * clip_graph_exaone4_5::build() {
     ggml_set_name(positions, "positions");
     ggml_set_input(positions);
 
-    ggml_tensor * inpL           = build_norm(inp, model.pre_ln_w, model.pre_ln_b, norm_t, eps, -1);
     ggml_tensor * window_mask    = nullptr;
     ggml_tensor * window_idx     = nullptr;
     ggml_tensor * inv_window_idx = nullptr;
 
     if (use_window_attn) {
+        window_idx = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos / 4);
+        ggml_set_name(window_idx, "window_idx");
+        ggml_set_input(window_idx);
+
         inv_window_idx = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos / 4);
         ggml_set_name(inv_window_idx, "inv_window_idx");
         ggml_set_input(inv_window_idx);
@@ -82,7 +64,11 @@ ggml_cgraph * clip_graph_exaone4_5::build() {
         if (flash_attn_type == CLIP_FLASH_ATTN_TYPE_ENABLED) {
             window_mask = ggml_cast(ctx0, window_mask, GGML_TYPE_F16);
         }
+    }
 
+    ggml_tensor * inpL = inp;
+
+    if (use_window_attn) {
         GGML_ASSERT(batch_size == 1);
         inpL = ggml_reshape_2d(ctx0, inpL, n_embd * 4, n_patches_x * n_patches_y * batch_size / 4);
         inpL = ggml_get_rows(ctx0, inpL, inv_window_idx);
@@ -98,29 +84,29 @@ ggml_cgraph * clip_graph_exaone4_5::build() {
         cb(cur, "ln1", il);
 
         {
-            ggml_tensor * Qcur = build_mm(layer.q_w, cur);
-            ggml_tensor * Kcur = build_mm(layer.k_w, cur);
-            ggml_tensor * Vcur = build_mm(layer.v_w, cur);
-            if (layer.q_b) {
-                Qcur = ggml_add(ctx0, Qcur, layer.q_b);
-            }
-            if (layer.k_b) {
-                Kcur = ggml_add(ctx0, Kcur, layer.k_b);
-            }
-            if (layer.v_b) {
-                Vcur = ggml_add(ctx0, Vcur, layer.v_b);
+            GGML_ASSERT(layer.qkv_w != nullptr);
+            cur = build_mm(layer.qkv_w, cur);
+            if (layer.qkv_b) {
+                cur = ggml_add(ctx0, cur, layer.qkv_b);
             }
 
-            Qcur = ggml_reshape_3d(ctx0, Qcur, d_head, n_head, n_patches);
-            Kcur = ggml_reshape_3d(ctx0, Kcur, d_head, n_kv_head, n_patches);
-            Vcur = ggml_reshape_3d(ctx0, Vcur, d_head, n_kv_head, n_patches);
+            const int64_t n_embd_kv = d_head * n_kv_head;
+            ggml_tensor * Qcur = ggml_view_3d(ctx0, cur, d_head, n_head, n_patches,
+                ggml_row_size(cur->type, d_head),
+                cur->nb[1],
+                0);
+            ggml_tensor * Kcur = ggml_view_3d(ctx0, cur, d_head, n_kv_head, n_patches,
+                ggml_row_size(cur->type, d_head),
+                cur->nb[1],
+                ggml_row_size(cur->type, n_embd));
+            ggml_tensor * Vcur = ggml_view_3d(ctx0, cur, d_head, n_kv_head, n_patches,
+                ggml_row_size(cur->type, d_head),
+                cur->nb[1],
+                ggml_row_size(cur->type, n_embd + n_embd_kv));
 
             cb(Qcur, "Qcur", il);
             cb(Kcur, "Kcur", il);
             cb(Vcur, "Vcur", il);
-
-            Kcur = clip_repeat_kv_heads(ctx0, Kcur, d_head, n_kv_head, n_head, n_patches);
-            Vcur = clip_repeat_kv_heads(ctx0, Vcur, d_head, n_kv_head, n_head, n_patches);
 
             Qcur = ggml_rope_multi(
                 ctx0, Qcur, positions, nullptr,
@@ -131,7 +117,7 @@ ggml_cgraph * clip_graph_exaone4_5::build() {
 
             cb(Qcur, "Qcur_rope", il);
             cb(Kcur, "Kcur_rope", il);
-            cb(Vcur, "Vcur_rep", il);
+            cb(Vcur, "Vcur", il);
 
             ggml_tensor * attn_mask = full_attn ? nullptr : window_mask;
             cur = build_attn(layer.o_w, layer.o_b, Qcur, Kcur, Vcur, attn_mask, kq_scale, il);
@@ -161,10 +147,7 @@ ggml_cgraph * clip_graph_exaone4_5::build() {
     }
 
     ggml_tensor * embeddings = inpL;
-    // EXAONE4.5 merger follows HF PatchMerger: ln_q over context_dim before 2x2 flatten.
-    if (model.mm_input_norm_w) {
-        embeddings = build_norm(embeddings, model.mm_input_norm_w, nullptr, NORM_TYPE_RMS, eps, -1);
-    }
+    embeddings = build_norm(embeddings, model.post_ln_w, model.post_ln_b, norm_t, eps, n_layer);
     embeddings = ggml_reshape_3d(ctx0, embeddings, n_embd * 4, n_pos / 4, batch_size);
     embeddings = build_ffn(embeddings,
         model.mm_0_w, model.mm_0_b,
@@ -174,10 +157,6 @@ ggml_cgraph * clip_graph_exaone4_5::build() {
         -1);
 
     if (use_window_attn) {
-        window_idx = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_pos / 4);
-        ggml_set_name(window_idx, "window_idx");
-        ggml_set_input(window_idx);
-
         GGML_ASSERT(batch_size == 1);
         embeddings = ggml_reshape_2d(ctx0, embeddings, hparams.projection_dim, n_patches_x * n_patches_y / 4);
         embeddings = ggml_get_rows(ctx0, embeddings, window_idx);

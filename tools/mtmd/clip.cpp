@@ -1465,6 +1465,8 @@ struct clip_model_loader {
                         hparams.n_merge = 2;
                         get_u32(KEY_SPATIAL_MERGE_SIZE, hparams.n_merge, false);
                         get_u32(KEY_WIN_ATTN_PATTERN, hparams.n_wa_pattern, false);
+                        get_u32(KEY_IMAGE_MIN_PIXELS, hparams.image_min_pixels);
+                        get_u32(KEY_IMAGE_MAX_PIXELS, hparams.image_max_pixels);
                         hparams.set_warmup_n_tokens(46 * 46);
                         if (hparams.rope_theta <= 0.0f) {
                             hparams.rope_theta = 10000.0f;
@@ -1801,9 +1803,6 @@ struct clip_model_loader {
             case PROJECTOR_TYPE_QWEN25VL:
             case PROJECTOR_TYPE_EXAONE4_5:
                 {
-                    if (model.proj_type == PROJECTOR_TYPE_EXAONE4_5) {
-                        model.mm_input_norm_w = get_tensor(TN_MM_INP_NORM, false);
-                    }
                     model.mm_0_w = get_tensor(string_format(TN_LLAVA_PROJ, 0, "weight"));
                     model.mm_0_b = get_tensor(string_format(TN_LLAVA_PROJ, 0, "bias"));
                     model.mm_1_w = get_tensor(string_format(TN_LLAVA_PROJ, 2, "weight"));

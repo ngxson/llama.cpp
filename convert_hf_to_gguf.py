@@ -10506,6 +10506,8 @@ class Exaone4_5VLVisionModel(Qwen2VLVisionModel):
         hparams = self.hparams_vision
         self.gguf_writer.add_clip_projector_type(gguf.VisionProjectorType.EXAONE4_5)
         self.gguf_writer.add_vision_use_silu(True)
+        self.gguf_writer.add_vision_min_pixels(self.preprocessor_config["min_pixels"])
+        self.gguf_writer.add_vision_max_pixels(self.preprocessor_config["max_pixels"])
         eps = hparams.get("rms_norm_eps", self.global_config.get("rms_norm_eps", 1e-6))
         self.gguf_writer.add_vision_attention_layernorm_eps(eps)
         if (window_size := hparams.get("window_size")) is not None:
@@ -10526,35 +10528,8 @@ class Exaone4_5VLVisionModel(Qwen2VLVisionModel):
         if name.startswith("model.visual."):
             name = name.replace("model.visual.", "visual.", 1)
 
-        # blueprint_exaone4_5: ViT uses GQA (HF fused qkv = q_dim + kv_dim + kv_dim), not MQA / equal thirds.
         if name.startswith("visual.") and ".qkv." in name:
-            assert self.hparams_vision is not None
-            hv = self.hparams_vision
-            n_heads = hv["num_heads"]
-            n_kv = int(hv.get("num_key_value_heads", n_heads))
-            hidden = hv["hidden_size"]
-            head_dim = hidden // n_heads
-            q_dim = n_heads * head_dim
-            kv_dim = n_kv * head_dim
-            total_out = q_dim + 2 * kv_dim
-            out_dim = data_torch.shape[0]
-            if out_dim != total_out:
-                raise ValueError(f"EXAONE 4.5 vision qkv out dim mismatch: got {out_dim}, expected {total_out} ({name})")
-            wq = data_torch[:q_dim]
-            wk = data_torch[q_dim : q_dim + kv_dim]
-            wv = data_torch[q_dim + kv_dim :]
-            nq = name.replace("qkv", "q", 1)
-            nk = name.replace("qkv", "k", 1)
-            nv = name.replace("qkv", "v", 1)
-            yield from ModelBase.modify_tensors(self, wq, nq, bid)
-            yield from ModelBase.modify_tensors(self, wk, nk, bid)
-            yield from ModelBase.modify_tensors(self, wv, nv, bid)
-            return
-
-        # EXAONE4.5 PatchMerger includes ln_q (RMSNorm), but generic Qwen2-VL mapping can miss it.
-        # Keep explicit mapping to mm.input_norm for activation-level parity with HF.
-        if name == "visual.merger.ln_q.weight":
-            yield ("mm.input_norm.weight", data_torch)
+            yield from ModelBase.modify_tensors(self, data_torch, name, bid)
             return
 
         yield from Qwen2VLVisionModel.modify_tensors(self, data_torch, name, bid)
