@@ -336,13 +336,18 @@ static bool common_params_handle_remote_preset(common_params & params, llama_exa
 
 struct handle_model_result {
     bool found_mmproj = false;
+    bool skip_download = false; // if skipped, only validation is performed
     common_params_model mmproj;
 };
 
 static handle_model_result common_params_handle_model(struct common_params_model & model,
-                                                      const std::string          & bearer_token,
-                                                      bool                         offline) {
+                                                      const common_params        & params) {
     handle_model_result result;
+
+    common_download_opts opts;
+    opts.bearer_token  = params.hf_token;
+    opts.offline       = params.offline;
+    opts.skip_download = params.skip_download;
 
     if (!model.docker_repo.empty()) {
         model.path = common_docker_resolve_model(model.docker_repo);
@@ -353,9 +358,6 @@ static handle_model_result common_params_handle_model(struct common_params_model
             model.hf_file = model.path;
             model.path = "";
         }
-        common_download_opts opts;
-        opts.bearer_token = bearer_token;
-        opts.offline = offline;
         auto download_result = common_download_model(model, opts, true);
 
         if (download_result.model_path.empty()) {
@@ -376,9 +378,6 @@ static handle_model_result common_params_handle_model(struct common_params_model
             model.path = fs_get_cache_file(string_split<std::string>(f, '/').back());
         }
 
-        common_download_opts opts;
-        opts.bearer_token = bearer_token;
-        opts.offline = offline;
         auto download_result = common_download_model(model, opts);
         if (download_result.model_path.empty()) {
             throw std::runtime_error("failed to download model from " + model.url);
@@ -435,23 +434,30 @@ static bool parse_bool_value(const std::string & value) {
 // CLI argument parsing functions
 //
 
-void common_params_handle_models(common_params & params, llama_example curr_ex) {
-    auto res = common_params_handle_model(params.model, params.hf_token, params.offline);
-    if (params.no_mmproj) {
-        params.mmproj = {};
-    } else if (res.found_mmproj && params.mmproj.path.empty() && params.mmproj.url.empty()) {
-        // optionally, handle mmproj model when -hf is specified
-        params.mmproj = res.mmproj;
-    }
-    // only download mmproj if the current example is using it
-    for (const auto & ex : mmproj_examples) {
-        if (curr_ex == ex) {
-            common_params_handle_model(params.mmproj,    params.hf_token, params.offline);
-            break;
+bool common_params_handle_models(common_params & params, llama_example curr_ex) {
+    try {
+        auto res = common_params_handle_model(params.model, params);
+        if (params.no_mmproj) {
+            params.mmproj = {};
+        } else if (res.found_mmproj && params.mmproj.path.empty() && params.mmproj.url.empty()) {
+            // optionally, handle mmproj model when -hf is specified
+            params.mmproj = res.mmproj;
         }
+        // only download mmproj if the current example is using it AND --no-mmproj is not specified
+        for (const auto & ex : mmproj_examples) {
+            if (curr_ex == ex && !params.no_mmproj) {
+                common_params_handle_model(params.mmproj, params);
+                break;
+            }
+        }
+        common_params_handle_model(params.speculative.draft.mparams, params);
+        common_params_handle_model(params.vocoder.model,             params);
+        return true;
+    } catch (const common_skip_download_exception &) {
+        return false;
+    } catch (const std::exception &) {
+        throw; // re-throw
     }
-    common_params_handle_model(params.speculative.draft.mparams, params.hf_token, params.offline);
-    common_params_handle_model(params.vocoder.model,             params.hf_token, params.offline);
 }
 
 static bool common_params_parse_ex(int argc, char ** argv, common_params_context & ctx_arg) {
