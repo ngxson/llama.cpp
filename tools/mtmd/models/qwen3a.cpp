@@ -1,6 +1,8 @@
 #include "models.h"
 
 ggml_cgraph * clip_graph_qwen3a::build() {
+    // Ref implementation: https://github.com/QwenLM/Qwen3-ASR/blob/main/qwen_asr/core/transformers_backend/modeling_qwen3_asr.py
+
     // inp_raw: [n_frames, n_mel, 1]  (nx=n_frames, ny=n_mel)
     ggml_tensor * inp = build_inp_raw(1);
 
@@ -66,10 +68,19 @@ ggml_cgraph * clip_graph_qwen3a::build() {
         inp = ggml_add(ctx0, inp, ggml_repeat(ctx0, pos_25, tgt));
     }
 
+    // Block-diagonal attention mask: tokens within the same 25-token chunk
+    // attend only to each other (matching the cu_seqlens local attention in Python).
+    ggml_tensor * attn_mask = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, n_pos, n_pos);
+    ggml_set_name(attn_mask, "attn_mask");
+    ggml_set_input(attn_mask);
+
+    build_vit_opts opts;
+    opts.attn_mask = attn_mask;
+
     ggml_tensor * cur = build_vit(inp, n_pos,
         NORM_TYPE_NORMAL, hparams.ffn_op,
         nullptr,  // pos embd already added above
-        nullptr);
+        nullptr, opts);
     cb(cur, "after_transformer", -1);
 
     // MLP projector
