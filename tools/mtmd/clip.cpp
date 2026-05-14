@@ -4292,21 +4292,6 @@ bool clip_has_audio_encoder(const struct clip_ctx * ctx) {
     return ctx->model.modality == CLIP_MODALITY_AUDIO;
 }
 
-bool clip_has_whisper_encoder(const struct clip_ctx * ctx) {
-    switch (ctx->proj_type()) {
-        case PROJECTOR_TYPE_ULTRAVOX:
-        case PROJECTOR_TYPE_QWEN2A:
-        case PROJECTOR_TYPE_QWEN3A:
-        case PROJECTOR_TYPE_GLMA:
-        case PROJECTOR_TYPE_VOXTRAL:
-        case PROJECTOR_TYPE_MERALION:
-        case PROJECTOR_TYPE_MUSIC_FLAMINGO:
-            return true;
-        default:
-            return false;
-    }
-}
-
 bool clip_encode_float_image (struct clip_ctx * ctx, int n_threads, float * img, int h, int w, float * vec) {
     clip_image_f32 clip_img;
     clip_img.buf.resize(h * w * 3);
