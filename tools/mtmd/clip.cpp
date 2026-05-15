@@ -3906,6 +3906,21 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_IDEFICS3:
         case PROJECTOR_TYPE_INTERNVL:
         case PROJECTOR_TYPE_NEMOTRON_V2_VL:
+        case PROJECTOR_TYPE_QWEN2A:
+        case PROJECTOR_TYPE_GLMA:
+        case PROJECTOR_TYPE_ULTRAVOX:
+        case PROJECTOR_TYPE_LFM2:
+        case PROJECTOR_TYPE_VOXTRAL:
+        case PROJECTOR_TYPE_MERALION:
+        case PROJECTOR_TYPE_MUSIC_FLAMINGO:
+        case PROJECTOR_TYPE_JANUS_PRO:
+        case PROJECTOR_TYPE_PHI4:
+        case PROJECTOR_TYPE_COGVLM:
+        case PROJECTOR_TYPE_HUNYUANOCR:
+        case PROJECTOR_TYPE_YASA2:
+            {
+                // do nothing
+            } break;
         case PROJECTOR_TYPE_QWEN3A:
             {
                 // Block-diagonal attention mask: [n_pos, n_pos], column-major.
@@ -3924,21 +3939,6 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                     }
                 }
                 set_input_f32("attn_mask", mask);
-            } break;
-        case PROJECTOR_TYPE_QWEN2A:
-        case PROJECTOR_TYPE_GLMA:
-        case PROJECTOR_TYPE_ULTRAVOX:
-        case PROJECTOR_TYPE_LFM2:
-        case PROJECTOR_TYPE_VOXTRAL:
-        case PROJECTOR_TYPE_MERALION:
-        case PROJECTOR_TYPE_MUSIC_FLAMINGO:
-        case PROJECTOR_TYPE_JANUS_PRO:
-        case PROJECTOR_TYPE_PHI4:
-        case PROJECTOR_TYPE_COGVLM:
-        case PROJECTOR_TYPE_HUNYUANOCR:
-        case PROJECTOR_TYPE_YASA2:
-            {
-                // do nothing
             } break;
         case PROJECTOR_TYPE_HUNYUANVL:
             {
