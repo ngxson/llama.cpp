@@ -3248,12 +3248,10 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
             } break;
         case PROJECTOR_TYPE_QWEN3A:
             {
-                // 3x stride-2 conv2d: each step is floor((n-1)/2)+1
-                int n = img->nx;
-                n = (n - 1) / 2 + 1;
-                n = (n - 1) / 2 + 1;
-                n = (n - 1) / 2 + 1;
-                n_patches = n;
+                // chunk_size=100 frames --> 3x stride-2 conv2d --> 13 tokens per chunk
+                const int chunk_size       = 100;
+                const int tokens_per_chunk = 13;
+                n_patches = (img->nx / chunk_size) * tokens_per_chunk;
             } break;
         case PROJECTOR_TYPE_GLMA:
             {
@@ -3907,6 +3905,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_INTERNVL:
         case PROJECTOR_TYPE_NEMOTRON_V2_VL:
         case PROJECTOR_TYPE_QWEN2A:
+        case PROJECTOR_TYPE_QWEN3A:
         case PROJECTOR_TYPE_GLMA:
         case PROJECTOR_TYPE_ULTRAVOX:
         case PROJECTOR_TYPE_LFM2:
@@ -3920,25 +3919,6 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         case PROJECTOR_TYPE_YASA2:
             {
                 // do nothing
-            } break;
-        case PROJECTOR_TYPE_QWEN3A:
-            {
-                // Block-diagonal attention mask: [n_pos, n_pos], column-major.
-                // 0.0 for (query, key) pairs in the same 25-token conv chunk,
-                // -inf across chunks — matches cu_seqlens local attention in Python.
-                const int n_frames         = image_size_width;
-                const int chunk_size       = 200;
-                const int tokens_per_chunk = 25;
-                const int n_pos            = (n_frames / chunk_size) * tokens_per_chunk;
-                std::vector<float> mask(n_pos * n_pos, -INFINITY);
-                for (int q = 0; q < n_pos; q++) {
-                    int start = (q / tokens_per_chunk) * tokens_per_chunk;
-                    int end   = start + tokens_per_chunk;
-                    for (int k = start; k < end; k++) {
-                        mask[k + n_pos * q] = 0.0f;
-                    }
-                }
-                set_input_f32("attn_mask", mask);
             } break;
         case PROJECTOR_TYPE_HUNYUANVL:
             {

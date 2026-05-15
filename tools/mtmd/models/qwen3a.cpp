@@ -8,13 +8,13 @@ ggml_cgraph * clip_graph_qwen3a::build() {
 
     const int64_t n_frames   = inp->ne[0]; // total frames, padded to multiple of chunk_size
     const int64_t n_mel      = inp->ne[1]; // 128
-    const int64_t chunk_size = 200;        // n_window * 2
+    const int64_t chunk_size = 100;        // n_window * 2 (n_window=50 from model config)
     const int64_t n_chunks   = n_frames / chunk_size;
 
     GGML_ASSERT(n_frames % chunk_size == 0); // preprocessor should already pad the input
     GGML_ASSERT(inp->type == GGML_TYPE_F32);
 
-    // View mel spectrogram as batched 200-frame chunks: [chunk_size, n_mel, 1, n_chunks]
+    // View mel spectrogram as batched 100-frame chunks: [chunk_size, n_mel, 1, n_chunks]
     inp = ggml_view_4d(ctx0, inp,
         chunk_size, n_mel, 1, n_chunks,
         n_frames   * (int64_t)sizeof(float), // nb[1]: stride over mel bins
@@ -38,7 +38,7 @@ ggml_cgraph * clip_graph_qwen3a::build() {
         inp = conv_block(inp, model.conv2d_1_w, model.conv2d_1_b);
         inp = conv_block(inp, model.conv2d_2_w, model.conv2d_2_b);
         inp = conv_block(inp, model.conv2d_3_w, model.conv2d_3_b);
-        // inp: [OW=25, OH=16, OC=480, n_chunks]
+        // inp: [OW=13, OH=16, OC=480, n_chunks]
         cb(inp, "after_conv_blocks", -1);
     }
 
@@ -57,30 +57,22 @@ ggml_cgraph * clip_graph_qwen3a::build() {
 
     const int64_t n_pos = inp->ne[1]; // 25 * n_chunks
 
-    // Per-chunk positional embeddings: repeat pos[0:25] for each chunk
-    // (position indices reset 0..24 per chunk, not sequential across chunks)
+    // Per-chunk positional embeddings: repeat pos[0:13] for each chunk
+    // (position indices reset 0..12 per chunk, not sequential across chunks)
     {
-        ggml_tensor * pos_25 = ggml_view_2d(ctx0, model.position_embeddings,
-            model.position_embeddings->ne[0], 25,
+        const int64_t tokens_per_chunk = n_pos / n_chunks; // 13
+        ggml_tensor * pos_tmp = ggml_view_2d(ctx0, model.position_embeddings,
+            model.position_embeddings->ne[0], tokens_per_chunk,
             model.position_embeddings->nb[1], 0);
         ggml_tensor * tgt = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32,
             model.position_embeddings->ne[0], n_pos);
-        inp = ggml_add(ctx0, inp, ggml_repeat(ctx0, pos_25, tgt));
+        inp = ggml_add(ctx0, inp, ggml_repeat(ctx0, pos_tmp, tgt));
     }
-
-    // Block-diagonal attention mask: tokens within the same 25-token chunk
-    // attend only to each other (matching the cu_seqlens local attention in Python).
-    ggml_tensor * attn_mask = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, n_pos, n_pos);
-    ggml_set_name(attn_mask, "attn_mask");
-    ggml_set_input(attn_mask);
-
-    build_vit_opts opts;
-    opts.attn_mask = attn_mask;
 
     ggml_tensor * cur = build_vit(inp, n_pos,
         NORM_TYPE_NORMAL, hparams.ffn_op,
         nullptr,  // pos embd already added above
-        nullptr, opts);
+        nullptr);
     cb(cur, "after_transformer", -1);
 
     // MLP projector
