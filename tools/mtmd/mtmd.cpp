@@ -524,8 +524,8 @@ struct mtmd_context {
                 } break;
             case PROJECTOR_TYPE_QWEN3A:
                 {
-                    aud_beg = "<|audio_bos|>";
-                    aud_end = "<|audio_eos|>";
+                    aud_beg = "<|audio_start|>";
+                    aud_end = "<|audio_end|>";
                     audio_preproc = std::make_unique<mtmd_audio_preprocessor_qwen3a>(ctx_a);
                 } break;
             case PROJECTOR_TYPE_VOXTRAL:
