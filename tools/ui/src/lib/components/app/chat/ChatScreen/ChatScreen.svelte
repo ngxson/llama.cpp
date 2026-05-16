@@ -9,6 +9,7 @@
 		ChatScreenDragOverlay,
 		ChatScreenProcessingInfo,
 		ChatScreenActionScrollDown,
+		ChatScreenStreamResumeStatus,
 		DialogEmptyFileAlert,
 		DialogFileUploadError,
 		DialogChatError,
@@ -426,6 +427,7 @@
 
 				{#if page.params.id}
 					<ChatScreenProcessingInfo />
+					<ChatScreenStreamResumeStatus />
 				{/if}
 
 				{#if hasPropsError}

@@ -29,7 +29,8 @@ export type {
 	ApiRouterModelsStatusResponse,
 	ApiRouterModelsListResponse,
 	ApiRouterModelsUnloadRequest,
-	ApiRouterModelsUnloadResponse
+	ApiRouterModelsUnloadResponse,
+	ApiStreamSession
 } from './api';
 
 // Chat types
@@ -76,6 +77,7 @@ export type {
 	SettingsConfigValue,
 	SettingsFieldConfig,
 	SettingsChatServiceOptions,
+	StreamConnectionState,
 	SettingsConfigType,
 	SettingsExportType,
 	ParameterValue,

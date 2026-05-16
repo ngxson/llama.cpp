@@ -674,3 +674,4 @@ export { default as ChatScreenProcessingInfo } from './ChatScreen/ChatScreenProc
  * Takes the chat container element as a prop to manage scroll state internally.
  */
 export { default as ChatScreenActionScrollDown } from './ChatScreen/ChatScreenActionScrollDown.svelte';
+export { default as ChatScreenStreamResumeStatus } from './ChatScreen/ChatScreenStreamResumeStatus.svelte';
