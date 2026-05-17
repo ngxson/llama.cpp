@@ -466,7 +466,6 @@ class MODEL_ARCH(IntEnum):
     EXAONE           = auto()
     EXAONE4          = auto()
     EXAONE_MOE       = auto()
-    EXAONE4_5        = auto()
     GRANITE          = auto()
     GRANITE_MOE      = auto()
     GRANITE_HYBRID   = auto()
@@ -982,7 +981,6 @@ MODEL_ARCH_NAMES: dict[MODEL_ARCH, str] = {
     MODEL_ARCH.EXAONE:           "exaone",
     MODEL_ARCH.EXAONE4:          "exaone4",
     MODEL_ARCH.EXAONE_MOE:       "exaone-moe",
-    MODEL_ARCH.EXAONE4_5:        "exaone4_5",
     MODEL_ARCH.GRANITE:          "granite",
     MODEL_ARCH.GRANITE_MOE:      "granitemoe",
     MODEL_ARCH.GRANITE_HYBRID:   "granitehybrid",
@@ -3278,30 +3276,6 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.FFN_DOWN_SHEXP,
         MODEL_TENSOR.FFN_UP_SHEXP,
         MODEL_TENSOR.FFN_EXP_PROBS_B,
-        # NextN/MTP tensors - preserved but unused
-        MODEL_TENSOR.NEXTN_EH_PROJ,
-        MODEL_TENSOR.NEXTN_EMBED_TOKENS,
-        MODEL_TENSOR.NEXTN_ENORM,
-        MODEL_TENSOR.NEXTN_HNORM,
-        MODEL_TENSOR.NEXTN_SHARED_HEAD_HEAD,
-        MODEL_TENSOR.NEXTN_SHARED_HEAD_NORM,
-    ],
-    MODEL_ARCH.EXAONE4_5: [
-        MODEL_TENSOR.TOKEN_EMBD,
-        MODEL_TENSOR.OUTPUT_NORM,
-        MODEL_TENSOR.OUTPUT,
-        MODEL_TENSOR.ROPE_FREQS,
-        MODEL_TENSOR.ATTN_Q,
-        MODEL_TENSOR.ATTN_Q_NORM,
-        MODEL_TENSOR.ATTN_K,
-        MODEL_TENSOR.ATTN_K_NORM,
-        MODEL_TENSOR.ATTN_V,
-        MODEL_TENSOR.ATTN_OUT,
-        MODEL_TENSOR.ATTN_POST_NORM,
-        MODEL_TENSOR.FFN_GATE,
-        MODEL_TENSOR.FFN_DOWN,
-        MODEL_TENSOR.FFN_UP,
-        MODEL_TENSOR.FFN_POST_NORM,
         # NextN/MTP tensors - preserved but unused
         MODEL_TENSOR.NEXTN_EH_PROJ,
         MODEL_TENSOR.NEXTN_EMBED_TOKENS,
