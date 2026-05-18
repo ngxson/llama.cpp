@@ -123,9 +123,6 @@ struct server_routes {
     server_http_context::handler_t post_rerank;
     server_http_context::handler_t get_lora_adapters;
     server_http_context::handler_t post_lora_adapters;
-    server_http_context::handler_t get_stream;
-    server_http_context::handler_t get_streams;
-    server_http_context::handler_t delete_stream;
 
     // to be used in router mode
     json get_model_info() const;
@@ -141,9 +138,6 @@ private:
     std::unique_ptr<server_res_generator> handle_slots_restore(const server_http_req & req, int id_slot);
     std::unique_ptr<server_res_generator> handle_slots_erase(const server_http_req &, int id_slot);
     std::unique_ptr<server_res_generator> handle_embeddings_impl(const server_http_req & req, task_response_type res_type);
-    std::unique_ptr<server_res_generator> handle_stream_get_impl(const server_http_req & req);
-    std::unique_ptr<server_res_generator> handle_streams_list_impl(const server_http_req & req);
-    std::unique_ptr<server_res_generator> handle_stream_delete_impl(const server_http_req & req);
 
     // using unique_ptr to allow late initialization of const
     std::unique_ptr<const server_context_meta> meta;
