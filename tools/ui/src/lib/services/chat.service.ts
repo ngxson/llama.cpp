@@ -27,7 +27,7 @@ import type {
 } from '$lib/types/api';
 import type { DatabaseMessageExtraMcpPrompt, DatabaseMessageExtraMcpResource } from '$lib/types';
 import type { StreamConnectionState } from '$lib/types';
-import { modelsStore, selectedModelName } from '$lib/stores/models.svelte';
+import { modelsStore } from '$lib/stores/models.svelte';
 
 export class ChatService {
 	/**
