@@ -72,7 +72,10 @@ class ChatStore {
 	// streaming -> bytes flowing normally, resuming -> waiting on /v1/stream/:id reconnect, lost -> unrecoverable
 	streamConnectionState = $state<StreamConnectionState>('streaming');
 	chatLoadingStates = new SvelteMap<string, boolean>();
-	chatStreamingStates = new SvelteMap<string, { response: string; messageId: string; model?: string | null }>();
+	chatStreamingStates = new SvelteMap<
+		string,
+		{ response: string; messageId: string; model?: string | null }
+	>();
 	// convs that the backend reports as having a running session, populated by the global sync
 	// at app mount and on visibilitychange. it does not overlap with chatLoadingStates which
 	// tracks inferences driven by this browser, both are unioned to feed the sidebar spinners
@@ -121,9 +124,18 @@ class ChatStore {
 			this.remoteRunningConvs.delete(convId);
 		}
 	}
-	private setChatStreaming(convId: string, response: string, messageId: string, model?: string | null): void {
+	private setChatStreaming(
+		convId: string,
+		response: string,
+		messageId: string,
+		model?: string | null
+	): void {
 		this.touchConversationState(convId);
-		this.chatStreamingStates.set(convId, { response, messageId, model: model ?? this.chatStreamingStates.get(convId)?.model });
+		this.chatStreamingStates.set(convId, {
+			response,
+			messageId,
+			model: model ?? this.chatStreamingStates.get(convId)?.model
+		});
 		if (convId === conversationsStore.activeConversation?.id) this.currentResponse = response;
 	}
 	private clearChatStreaming(convId: string): void {
