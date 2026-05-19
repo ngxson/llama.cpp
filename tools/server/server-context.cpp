@@ -762,14 +762,27 @@ private:
 
         // optionally get the memory usage of mmproj
         if (has_mmproj && params_base.fit_params) {
-            size_t mmproj_mem = mtmd_get_memory_usage(mmproj_path.c_str(), mparams);
-            if (mmproj_mem > 0) {
-                SRV_INF("[mtmd] estimated memory usage of mmproj is %.2f MiB\n", mmproj_mem / (1024.0 * 1024.0));
+            auto mmproj_mem = mtmd_get_memory_usage(mmproj_path.c_str(), mparams);
+            if (!mmproj_mem.empty()) {
+                size_t total = 0;
+                for (auto & [dev, size] : mmproj_mem) {
+                    total += size;
+                }
+                SRV_INF("[mtmd] estimated memory usage of mmproj is %.2f MiB\n", total / (1024.0 * 1024.0));
+                GGML_ASSERT(!params_base.fit_params_target.empty());
+                for (auto & [dev, size] : mmproj_mem) {
+                    for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
+                        if (ggml_backend_dev_get(i) == dev) {
+                            if (i < params_base.fit_params_target.size()) {
+                                params_base.fit_params_target[i] += size;
+                            }
+                            break;
+                        }
+                    }
+                }
             } else {
                 SRV_ERR("%s", "[mtmd] failed to get memory usage of mmproj\n");
             }
-            GGML_ASSERT(!params_base.fit_params_target.empty());
-            params_base.fit_params_target[0] += mmproj_mem;
         }
 
         llama_init = common_init_from_params(params_base);

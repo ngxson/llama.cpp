@@ -195,21 +195,23 @@ struct mtmd_context {
             throw std::runtime_error("media_marker must not be empty");
         }
 
-        auto decoder_rope_type = llama_model_rope_type(text_model);
-        switch (decoder_rope_type) {
-            case LLAMA_ROPE_TYPE_NONE:
-            case LLAMA_ROPE_TYPE_NORM:
-            case LLAMA_ROPE_TYPE_NEOX:
-                {
-                    pos_type = MTMD_POS_TYPE_NORMAL;
-                } break;
-            case LLAMA_ROPE_TYPE_MROPE:
-            case LLAMA_ROPE_TYPE_IMROPE:
-                {
-                    pos_type = MTMD_POS_TYPE_MROPE;
-                } break;
-            default:
-                throw std::runtime_error(string_format("unsupported decoder rope type: %d\n", decoder_rope_type));
+        if (text_model) {
+            auto decoder_rope_type = llama_model_rope_type(text_model);
+            switch (decoder_rope_type) {
+                case LLAMA_ROPE_TYPE_NONE:
+                case LLAMA_ROPE_TYPE_NORM:
+                case LLAMA_ROPE_TYPE_NEOX:
+                    {
+                        pos_type = MTMD_POS_TYPE_NORMAL;
+                    } break;
+                case LLAMA_ROPE_TYPE_MROPE:
+                case LLAMA_ROPE_TYPE_IMROPE:
+                    {
+                        pos_type = MTMD_POS_TYPE_MROPE;
+                    } break;
+                default:
+                    throw std::runtime_error(string_format("unsupported decoder rope type: %d\n", decoder_rope_type));
+            }
         }
 
         clip_context_params ctx_clip_params {
@@ -1568,8 +1570,8 @@ static void stub_log_callback(enum ggml_log_level, const char *, void *) {
     // do nothing
 }
 
-size_t mtmd_get_memory_usage(const char * mmproj_fname,
-                             struct mtmd_context_params ctx_params) {
+std::map<ggml_backend_dev_t, size_t> mtmd_get_memory_usage(const char * mmproj_fname,
+                                                            struct mtmd_context_params ctx_params) {
     mtmd::context_ptr ctx;
     auto saved_log_callback = g_logger_state.log_callback;
     auto saved_log_user_data = g_logger_state.log_callback_user_data;
@@ -1577,17 +1579,22 @@ size_t mtmd_get_memory_usage(const char * mmproj_fname,
         mtmd_log_set(stub_log_callback, nullptr); // suppress logging
         ctx.reset(new mtmd_context(mmproj_fname, nullptr, ctx_params));
         mtmd_log_set(saved_log_callback, saved_log_user_data); // restore log callback
-        size_t total_mem = 0;
+        std::map<ggml_backend_dev_t, size_t> total_mem;
+        auto merge = [&](const struct clip_ctx * c) {
+            for (auto & [dev, size] : clip_get_mem_usage(c)) {
+                total_mem[dev] += size;
+            }
+        };
         if (ctx->ctx_v) {
-            total_mem += clip_get_mem_usage(ctx->ctx_v);
+            merge(ctx->ctx_v);
         }
         if (ctx->ctx_a) {
-            total_mem += clip_get_mem_usage(ctx->ctx_a);
+            merge(ctx->ctx_a);
         }
         return total_mem;
     } catch (const std::exception & e) {
         mtmd_log_set(saved_log_callback, saved_log_user_data); // restore log callback
         LOG_ERR("%s: error: %s\n", __func__, e.what());
-        return 0;
+        return {};
     }
 }

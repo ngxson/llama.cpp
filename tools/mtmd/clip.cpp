@@ -164,8 +164,8 @@ struct clip_ctx {
 
     // for measuring memory usage
     bool no_alloc = false;
-    size_t mem_weight = 0;
-    size_t mem_compute = 0;
+    std::map<ggml_backend_dev_t, size_t> mem_usage;
+    std::map<ggml_backend_dev_t, size_t> mem_compute;
 
     clip_ctx(clip_context_params & ctx_params) {
         flash_attn_type = ctx_params.flash_attn_type;
@@ -1695,7 +1695,7 @@ struct clip_model_loader {
                 loaded_tensor_names.insert(name);
                 cur = data_tensor;
                 // add to weight memory counter
-                ctx_clip.mem_weight += ggml_nbytes(cur);
+                ctx_clip.mem_usage[ggml_backend_get_device(ctx_clip.backend)] += ggml_nbytes(cur);
             }
             return cur;
         };
@@ -2752,7 +2752,7 @@ struct clip_model_loader {
         ggml_cgraph * gf = clip_image_build_graph(&ctx_clip, batch);
         ggml_backend_sched_reserve(ctx_clip.sched.get(), gf);
 
-        ctx_clip.mem_compute = 0;
+        ctx_clip.mem_compute.clear();
         for (size_t i = 0; i < ctx_clip.backend_ptrs.size(); ++i) {
             ggml_backend_t backend = ctx_clip.backend_ptrs[i];
             ggml_backend_buffer_type_t buft = ctx_clip.backend_buft[i];
@@ -2762,7 +2762,7 @@ struct clip_model_loader {
                         ggml_backend_buft_name(buft),
                         size / 1024.0 / 1024.0);
             }
-            ctx_clip.mem_compute += size;
+            ctx_clip.mem_compute[ggml_backend_get_device(backend)] += size;
         }
 
         const int n_splits = ggml_backend_sched_get_n_splits(ctx_clip.sched.get());
@@ -4325,8 +4325,12 @@ const clip_hparams * clip_get_hparams(const struct clip_ctx * ctx) {
     return &ctx->model.hparams;
 }
 
-size_t clip_get_mem_usage(const struct clip_ctx * ctx) {
-    return ctx->mem_weight + ctx->mem_compute;
+std::map<ggml_backend_dev_t, size_t> clip_get_mem_usage(const struct clip_ctx * ctx) {
+    std::map<ggml_backend_dev_t, size_t> result = ctx->mem_usage;
+    for (auto & [dev, size] : ctx->mem_compute) {
+        result[dev] += size;
+    }
+    return result;
 }
 
 //
