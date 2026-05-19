@@ -51,6 +51,10 @@ extern char **environ;
 // ref: https://github.com/ggml-org/llama.cpp/issues/17862
 #define CHILD_ADDR "127.0.0.1"
 
+// short loopback budget for the resumable stream router to child JSON calls (probe, lookup,
+// delete). distinct from params.timeout_read/write which only applies to the generation proxy
+static constexpr int STREAM_LOOKUP_TIMEOUT_MS = 250;
+
 static std::filesystem::path get_server_exec_path() {
 #if defined(_WIN32)
     wchar_t buf[32768] = { 0 };  // Large buffer to handle long paths
@@ -1194,9 +1198,9 @@ static std::optional<server_model_meta> probe_child_for_conv(
             continue;
         }
         httplib::Client cli(CHILD_ADDR, meta.port);
-        cli.set_connection_timeout(0, 250 * 1000);
-        cli.set_read_timeout(0, 250 * 1000);
-        cli.set_write_timeout(0, 250 * 1000);
+        cli.set_connection_timeout(0, STREAM_LOOKUP_TIMEOUT_MS * 1000);
+        cli.set_read_timeout(0, STREAM_LOOKUP_TIMEOUT_MS * 1000);
+        cli.set_write_timeout(0, STREAM_LOOKUP_TIMEOUT_MS * 1000);
         auto resp = cli.Post("/v1/streams/lookup", body_str, "application/json");
         if (!resp || resp->status != 200) {
             continue;
@@ -1430,9 +1434,9 @@ void server_models_routes::init_routes() {
                 continue;
             }
             httplib::Client cli(CHILD_ADDR, meta.port);
-            cli.set_connection_timeout(0, 250 * 1000);
-            cli.set_read_timeout(0, 250 * 1000);
-            cli.set_write_timeout(0, 250 * 1000);
+            cli.set_connection_timeout(0, STREAM_LOOKUP_TIMEOUT_MS * 1000);
+            cli.set_read_timeout(0, STREAM_LOOKUP_TIMEOUT_MS * 1000);
+            cli.set_write_timeout(0, STREAM_LOOKUP_TIMEOUT_MS * 1000);
             auto resp = cli.Post("/v1/streams/lookup", req.body, "application/json");
             if (!resp || resp->status != 200) {
                 continue;
@@ -1469,9 +1473,9 @@ void server_models_routes::init_routes() {
         std::string model_hint = extract_model_from_conv(conv_id);
         auto delete_on = [&](int port) {
             httplib::Client cli(CHILD_ADDR, port);
-            cli.set_connection_timeout(0, 250 * 1000);
-            cli.set_read_timeout(0, 500 * 1000);
-            cli.set_write_timeout(0, 250 * 1000);
+            cli.set_connection_timeout(0, STREAM_LOOKUP_TIMEOUT_MS * 1000);
+            cli.set_read_timeout(0, STREAM_LOOKUP_TIMEOUT_MS * 1000);
+            cli.set_write_timeout(0, STREAM_LOOKUP_TIMEOUT_MS * 1000);
             auto resp = cli.Delete(child_path.c_str());
             (void) resp; // best effort, 404 and network errors are equivalent to no op
         };
