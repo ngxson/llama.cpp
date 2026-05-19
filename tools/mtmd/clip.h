@@ -116,3 +116,9 @@ bool clip_has_vision_encoder(const struct clip_ctx * ctx);
 bool clip_has_audio_encoder(const struct clip_ctx * ctx);
 
 size_t clip_get_mem_usage(const struct clip_ctx * ctx);
+
+struct clip_cap {
+    bool has_vision;
+    bool has_audio;
+};
+struct clip_cap clip_get_cap(const char * fname);

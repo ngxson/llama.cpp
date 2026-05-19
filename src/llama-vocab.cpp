@@ -503,6 +503,14 @@ struct llm_tokenizer_bpe : llm_tokenizer {
                 };
                 byte_encode = false; // uses raw UTF-8, not GPT-2 byte encoding
                 break;
+            case LLAMA_VOCAB_PRE_TYPE_SARVAM_MOE:
+                // Sarvam uses SPM-style BPE (same shape as Gemma4): spaces replaced with U+2581
+                // by the normalizer, BPE merges over the whole text on raw UTF-8.
+                regex_exprs = {
+                    "[^\\n]+|[\\n]+",
+                };
+                byte_encode = false;
+                break;
             default:
                 // default regex for BPE tokenization pre-processing
                 regex_exprs = {
@@ -659,8 +667,17 @@ struct llm_tokenizer_bpe_session {
 
                 if (token == LLAMA_TOKEN_NULL) {
                     for (auto j = str.begin(); j != str.end(); ++j) {
-                        std::string byte_str(1, *j);
-                        auto token_multibyte = vocab.text_to_token(byte_str);
+                        llama_token token_multibyte = LLAMA_TOKEN_NULL;
+                        if (tokenizer.byte_encode) {
+                            std::string byte_str(1, *j);
+                            token_multibyte = vocab.text_to_token(byte_str);
+                        } else {
+                            // For non-byte-encoded BPE (e.g. gemma-4), byte tokens use <0xXX> format
+                            static const char * hex = "0123456789ABCDEF";
+                            const uint8_t ch = (uint8_t)*j;
+                            const char buf[7] = { '<', '0', 'x', hex[ch >> 4], hex[ch & 15], '>', 0 };
+                            token_multibyte = vocab.text_to_token(buf);
+                        }
                         if (token_multibyte != LLAMA_TOKEN_NULL) {
                             output.push_back(token_multibyte);
                         }
@@ -1997,6 +2014,11 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                 pre_type = LLAMA_VOCAB_PRE_TYPE_GEMMA4;
                 escape_whitespaces = true;
             } else if (
+                    tokenizer_pre == "sarvam-moe") {
+                pre_type = LLAMA_VOCAB_PRE_TYPE_SARVAM_MOE;
+                escape_whitespaces = true;
+                clean_spaces = false;
+            } else if (
                     tokenizer_pre == "jina-v1-en" ||
                     tokenizer_pre == "jina-v2-code" ||
                     tokenizer_pre == "roberta-bpe") {
@@ -2558,7 +2580,8 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                     || t.first == "[EOS]" // Kimi-K2
                     || t.first == "<|end_of_text|>"
                     || t.first == "<end_of_utterance>" // smoldocling
-                    || t.first == "<turn|>" // gemma4
+                    || t.first == "<eos>"            // gemma4
+                    || t.first == "<turn|>"          // gemma4
                     || t.first == "<|tool_response>" // gemma4
                     || t.first == "<｜end▁of▁sentence｜>" // deepseek-ocr
                ) {
@@ -2643,6 +2666,33 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                 attr = LLAMA_TOKEN_ATTR_USER_DEFINED;
 
                 LLAMA_LOG_WARN("%s: special_eog_ids contains both '<|return|>' and '<|call|>', or '<|calls|>' and '<|flush|>' tokens, removing '<|end|>' token from EOG list\n", __func__);
+            }
+        }
+
+        // workaround for gemma4 and paddleocr: do not include </s> as an eog token
+        {
+            bool has_tool_response = false;
+            bool has_s = false;
+
+            llama_token s_id = LLAMA_TOKEN_NULL;
+
+            for (auto tid : special_eog_ids) {
+                const auto & text = id_to_token[tid].text;
+                if (text == "<|tool_response>") {
+                    has_tool_response = true;
+                } else if (text == "</s>") {
+                    has_s = true;
+                    s_id = tid;
+                }
+            }
+
+            if (has_tool_response && has_s) {
+                special_eog_ids.erase(s_id);
+
+                auto & attr = id_to_token[s_id].attr;
+                attr = LLAMA_TOKEN_ATTR_NORMAL;
+
+                LLAMA_LOG_WARN("%s: special_eog_ids contains '<|tool_response>', removing '</s>' token from EOG list\n", __func__);
             }
         }
     }
@@ -2813,7 +2863,9 @@ uint8_t llama_vocab::impl::token_to_byte(llama_token id) const {
             return strtol(buf.c_str(), NULL, 16);
         }
         case LLAMA_VOCAB_TYPE_BPE: {
-            GGML_ABORT("fatal error");
+            // Gemma4 uses BPE with SPM-style byte fallback tokens (<0xXX>)
+            auto buf = token_data.text.substr(3, 2);
+            return strtol(buf.c_str(), NULL, 16);
         }
         case LLAMA_VOCAB_TYPE_WPM: {
             GGML_ABORT("fatal error");
@@ -3293,6 +3345,10 @@ int32_t llama_vocab::impl::token_to_piece(llama_token token, char * buf, int32_t
                     }
                     std::string result = llama_decode_text(token_text);
                     return _try_copy(result.data(), result.size());
+                }
+                if (attr & LLAMA_TOKEN_ATTR_BYTE) {
+                    char byte = (char) token_to_byte(token);
+                    return _try_copy((char*) &byte, 1);
                 }
                 break;
             }
