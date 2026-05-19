@@ -40,6 +40,24 @@ def create_server():
     os.environ['LLAMA_MEDIA_MARKER'] = '<__media__>'
     server = ServerPreset.tinygemma3()
 
+def test_non_supported_model():
+    global server
+    server = ServerPreset.tinyllama2() # no multimodal support, it should not crash
+    server.start()
+    res = server.make_request("POST", "/chat/completions", data={
+        "temperature": 0.0,
+        "top_k": 1,
+        "messages": [
+            {"role": "user", "content": [
+                {"type": "text", "text": "test"},
+                {"type": "image_url", "image_url": {
+                    "url": get_img_url("IMG_BASE64_URI_0"),
+                }},
+            ]},
+        ],
+    })
+    assert res.status_code != 200
+
 def test_models_supports_multimodal_capability():
     global server
     server.start()
