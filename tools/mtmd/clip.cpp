@@ -4277,22 +4277,6 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
     }
 }
 
-int clip_is_minicpmv(const struct clip_ctx * ctx) {
-    // TODO: remove this function
-    if (ctx->proj_type() == PROJECTOR_TYPE_MINICPMV) {
-        return ctx->model.hparams.minicpmv_version;
-    }
-    if (ctx->proj_type() == PROJECTOR_TYPE_MINICPMV4_6) {
-        return 46;
-    }
-    return 0;
-}
-
-bool clip_is_glm(const struct clip_ctx * ctx) {
-    // TODO: remove this function
-    return ctx->proj_type() == PROJECTOR_TYPE_GLM_EDGE;
-}
-
 bool clip_is_llava(const struct clip_ctx * ctx) {
     return ctx->model.hparams.has_llava_projector;
 }
