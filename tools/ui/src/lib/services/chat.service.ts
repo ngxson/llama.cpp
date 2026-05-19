@@ -11,7 +11,8 @@ import {
 	ATTACHMENT_LABEL_PDF_FILE,
 	ATTACHMENT_LABEL_MCP_PROMPT,
 	ATTACHMENT_LABEL_MCP_RESOURCE,
-	LEGACY_AGENTIC_REGEX
+	LEGACY_AGENTIC_REGEX,
+	STREAM_VISIBILITY_KICK_MS
 } from '$lib/constants';
 import {
 	AttachmentType,
@@ -588,7 +589,7 @@ export class ChatService {
 			if (!conversationId) return;
 			// the bytes have been quiet for too long, the OS likely killed the socket
 			// kicking the reader unblocks reader.read with done=true so the outer loop can resume
-			if (Date.now() - lastByteAt > 300) {
+			if (Date.now() - lastByteAt > STREAM_VISIBILITY_KICK_MS) {
 				reader!.cancel().catch(() => {});
 			}
 		};

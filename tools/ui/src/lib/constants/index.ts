@@ -34,6 +34,7 @@ export * from './processing-info';
 export * from './routes';
 export * from './settings-keys';
 export * from './settings-registry';
+export * from './stream';
 export * from './supported-file-types';
 export * from './table-html-restorer';
 export * from './title-generation';
