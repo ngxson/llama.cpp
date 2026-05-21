@@ -76,9 +76,7 @@ extern "C" {
         struct ggml_context ** ctx;
     };
 
-    // callback to simulate or wrap a FILE pointer:
-    //   - by default, read up to `len` bytes at `offset` into `output` and return the number of bytes read
-    //   - if called with `len == 0`, seek/synchronize to `offset` without reading, return 0 on success, non-zero for failure
+    // callback to simulate or wrap a FILE pointer - read up to `len` bytes at `offset` into `output` and return the number of bytes read
     typedef size_t (*gguf_reader_callback_t)(void * userdata, void * output, uint64_t offset, size_t len);
 
     GGML_API struct gguf_context * gguf_init_empty(void);

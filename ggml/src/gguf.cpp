@@ -239,6 +239,7 @@ struct gguf_reader {
           max_chunk_read(max_chunk_read),
           data_offset(data_offset),
           nbytes_remain(nbytes_remain) {
+        GGML_ASSERT(max_chunk_read > 0);
     }
 
     // helper for remaining bytes in a file
@@ -370,10 +371,6 @@ struct gguf_reader {
             return false;
         }
 
-        if (absolute_offset != data_offset && callback(userdata, nullptr, absolute_offset, 0) != 0) {
-            return false;
-        }
-
         data_offset = absolute_offset;
         nbytes_remain = end_offset - absolute_offset;
 
@@ -391,13 +388,13 @@ private:
         bool reached_eof = false;
 
         while (total_nread < size) {
-            const size_t chunk = std::min(max_chunk_read, size - total_nread);
+            const size_t chunk_size = std::min(max_chunk_read, size - total_nread);
             if (data_offset + total_nread < data_offset) {
                 break;
             }
-            const size_t nread = callback(userdata, static_cast<void *>(data + total_nread), data_offset + total_nread, chunk);
+            const size_t nread = callback(userdata, static_cast<void *>(data + total_nread), data_offset + total_nread, chunk_size);
             total_nread += nread;
-            if (nread != chunk) {
+            if (nread != chunk_size) {
                 reached_eof = true;
                 break;
             }
@@ -911,18 +908,16 @@ struct gguf_file_reader {
 };
 
 static size_t gguf_file_reader_callback(void * userdata, void * output, uint64_t offset, size_t len) {
+    GGML_ASSERT(len > 0);
+
     gguf_file_reader & reader = *static_cast<gguf_file_reader *>(userdata);
 
     if (reader.offset != offset) {
         if (offset > INT64_MAX || gguf_fseek(reader.file, static_cast<int64_t>(offset), SEEK_SET) != 0) {
-            return len == 0 ? 1 : 0;
+            return 0;
         }
 
         reader.offset = offset;
-    }
-
-    if (len == 0) {
-        return 0;
     }
 
     const size_t nread = fread(static_cast<uint8_t *>(output), 1, len, reader.file);
@@ -954,13 +949,11 @@ struct gguf_buffer_reader {
 };
 
 static size_t gguf_buffer_reader_callback(void * userdata, void * output, uint64_t offset, size_t len) {
+    GGML_ASSERT(len > 0);
+
     const gguf_buffer_reader & reader = *static_cast<gguf_buffer_reader *>(userdata);
 
-    if (offset > reader.size) {
-        return len == 0 ? 1 : 0;
-    }
-
-    if (len == 0 || offset + len > reader.size) {
+    if (offset > reader.size || len > reader.size - offset) {
         return 0;
     }
 
