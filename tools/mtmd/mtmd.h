@@ -253,6 +253,35 @@ struct mtmd_caps {
 };
 MTMD_API struct mtmd_caps mtmd_get_cap_from_file(const char * mmproj_fname);
 
+//
+// MTMD Generation API
+// EXPERIMENTAL API for now, subject to change without deprecation
+//
+
+enum mtmd_gen_state {
+    MTMD_GEN_STATE_TEXT,
+    MTMD_GEN_STATE_AUDIO,
+};
+
+struct mtmd_gen_vocoder;
+struct mtmd_gen_context;
+
+MTMD_API struct mtmd_gen_vocoder * mtmd_gen_vocoder_init(const char * vocoder_path);
+MTMD_API void mtmd_gen_vocoder_free(struct mtmd_gen_vocoder * vocoder);
+
+MTMD_API struct mtmd_gen_context * mtmd_gen_init(struct llama_context * lctx, struct mtmd_context * mctx, struct mtmd_gen_vocoder * vocoder);
+MTMD_API void mtmd_gen_free(struct mtmd_gen_context * gen_ctx);
+
+// track the last sampled token and return new state
+MTMD_API enum mtmd_gen_state mtmd_gen_track(struct mtmd_gen_context * gen_ctx, llama_token token);
+
+// decode the audio chunk
+// return 0 on success
+MTMD_API int mtmd_gen_decode(struct mtmd_gen_context * gen_ctx);
+
+// get pointer to the generated audio samples, and the number of samples (not bytes)
+MTMD_API const float * mtmd_gen_get_audio(struct mtmd_gen_context * gen_ctx, size_t * n_samples);
+
 /////////////////////////////////////////
 
 // test function, to be used in test-mtmd-c-api.c
@@ -298,6 +327,16 @@ struct mtmd_input_chunk_deleter {
 };
 using input_chunk_ptr = std::unique_ptr<mtmd_input_chunk, mtmd_input_chunk_deleter>;
 
+struct mtmd_gen_vocoder_deleter {
+    void operator()(mtmd_gen_vocoder * val) { mtmd_gen_vocoder_free(val); }
+};
+using gen_vocoder_ptr = std::unique_ptr<mtmd_gen_vocoder, mtmd_gen_vocoder_deleter>;
+
+struct mtmd_gen_context_deleter {
+    void operator()(mtmd_gen_context * val) { mtmd_gen_free(val); }
+};
+using gen_context_ptr = std::unique_ptr<mtmd_gen_context, mtmd_gen_context_deleter>;
+
 struct bitmap {
     bitmap_ptr ptr;
     bitmap() : ptr(nullptr) {}
@@ -339,6 +378,21 @@ struct input_chunks {
     size_t size() const { return mtmd_input_chunks_size(ptr.get()); }
     const mtmd_input_chunk * operator[](size_t idx) const {
         return mtmd_input_chunks_get(ptr.get(), idx);
+    }
+};
+
+struct gen {
+    gen_vocoder_ptr vocoder;
+    gen_context_ptr ptr;
+    gen() = default;
+    gen(struct mtmd_gen_vocoder * voc, struct mtmd_gen_context * gen_ctx) : vocoder(voc), ptr(gen_ctx) {}
+    ~gen() = default;
+    enum mtmd_gen_state track(llama_token token) { return mtmd_gen_track(ptr.get(), token); }
+    int decode() { return mtmd_gen_decode(ptr.get()); }
+    std::vector<float> get_audio() {
+        size_t n_samples = 0;
+        const float * audio_ptr = mtmd_gen_get_audio(ptr.get(), &n_samples);
+        return std::vector<float>(audio_ptr, audio_ptr + n_samples);
     }
 };
 
