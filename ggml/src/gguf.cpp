@@ -894,11 +894,11 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
 }
 
 struct gguf_context * gguf_init_from_callback(gguf_reader_callback_t callback, void * userdata, size_t max_chunk_read, uint64_t max_expected_size, struct gguf_init_params params) {
-    if (callback == nullptr || max_chunk_read == 0) {
+    if (callback == nullptr) {
         return nullptr;
     }
 
-    const struct gguf_reader gr(callback, userdata, max_chunk_read, 0, max_expected_size);
+    const struct gguf_reader gr(callback, userdata, max_chunk_read == 0 ? SIZE_MAX : max_chunk_read, 0, max_expected_size);
     return gguf_init_from_reader(gr, params);
 }
 
