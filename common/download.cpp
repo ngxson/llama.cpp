@@ -292,6 +292,10 @@ static int common_download_file_single_online(const std::string & url,
 
     const bool file_exists = std::filesystem::exists(path);
 
+    if (!file_exists && opts.skip_download) {
+        return -2; // file is missing and download is disabled
+    }
+
     if (file_exists && skip_etag) {
         LOG_DBG("%s: using cached file: %s\n", __func__, path.c_str());
         return 304; // 304 Not Modified - fake cached response
