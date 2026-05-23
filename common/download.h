@@ -53,6 +53,8 @@ struct common_download_opts {
     common_header_list headers;
     bool offline = false;
     bool skip_download = false; // if true, only validation is performed, common_skip_download_exception may be thrown if the file is missing or invalid
+    bool download_mmproj = false;
+    bool download_mtp = false;
     common_download_callback * callback = nullptr;
 };
 
@@ -95,9 +97,7 @@ struct common_skip_download_exception : public std::runtime_error {
 // returns result with model_path, mmproj_path and mtp_path (empty when not found / on failure)
 common_download_model_result common_download_model(
     const common_params_model & model,
-    const common_download_opts & opts = {},
-    bool download_mmproj = false,
-    bool download_mtp    = false
+    const common_download_opts & opts = {}
 );
 
 // returns list of cached models

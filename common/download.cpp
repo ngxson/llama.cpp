@@ -779,13 +779,13 @@ static std::vector<download_task> get_url_tasks(const common_params_model & mode
 }
 
 common_download_model_result common_download_model(const common_params_model  & model,
-                                                   const common_download_opts & opts,
-                                                   bool download_mmproj,
-                                                   bool download_mtp) {
+                                                   const common_download_opts & opts) {
     common_download_model_result result;
     std::vector<download_task> tasks;
     hf_plan hf;
 
+    bool download_mmproj = opts.download_mmproj;
+    bool download_mtp = opts.download_mtp;
     bool is_hf = !model.hf_repo.empty();
 
     if (is_hf) {
