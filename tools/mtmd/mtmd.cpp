@@ -1,6 +1,7 @@
 #include "clip.h"
 #include "clip-impl.h"
 #include "mtmd.h"
+#include "mtmd-impl.h"
 #include "mtmd-audio.h"
 #include "mtmd-image.h"
 #include "debug/mtmd-debug.h"
@@ -1596,4 +1597,26 @@ std::map<ggml_backend_dev_t, size_t> mtmd_get_memory_usage(const char * mmproj_f
         LOG_ERR("%s: error: %s\n", __func__, e.what());
         return {};
     }
+}
+
+projector_type mtmd_get_projector_type(const mtmd_context * ctx, bool is_audio) {
+    if (ctx->ctx_v && !is_audio) {
+        return clip_get_projector_type(ctx->ctx_v);
+    } else if (ctx->ctx_a && is_audio) {
+        return clip_get_projector_type(ctx->ctx_a);
+    }
+    return PROJECTOR_TYPE_UNKNOWN;
+}
+
+const clip_hparams * mtmd_get_clip_hparams(const mtmd_context * ctx, bool is_audio) {
+    if (ctx->ctx_v && !is_audio) {
+        return clip_get_hparams(ctx->ctx_v);
+    } else if (ctx->ctx_a && is_audio) {
+        return clip_get_hparams(ctx->ctx_a);
+    }
+    return nullptr;
+}
+
+const char * mtmd_get_aud_beg(const struct mtmd_context * ctx) {
+    return ctx->aud_beg.empty() ? nullptr : ctx->aud_beg.c_str();
 }

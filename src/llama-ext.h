@@ -104,3 +104,7 @@ LLAMA_API float * llama_get_embeddings_pre_norm    (struct llama_context * ctx);
 
 // LLAMA_API float * llama_get_embeddings_ith(struct llama_context * ctx, int32_t i);
 LLAMA_API float * llama_get_embeddings_pre_norm_ith(struct llama_context * ctx, int32_t i);
+
+// get the token embedding tensor of the model, or nullptr if the tensor does not exist
+// note: the tensor may be quantized
+LLAMA_API const struct ggml_tensor * llama_model_get_embd_tensor(const struct llama_model * model);

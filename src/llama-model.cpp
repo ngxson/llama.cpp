@@ -2158,6 +2158,10 @@ int32_t llama_model_n_embd(const llama_model * model) {
     return model->hparams.n_embd;
 }
 
+const ggml_tensor * llama_model_get_embd_tensor(const llama_model * model) {
+    return model->get_tensor("token_embd.weight");
+}
+
 int32_t llama_model_n_embd_inp(const llama_model * model) {
     return model->hparams.n_embd_inp();
 }

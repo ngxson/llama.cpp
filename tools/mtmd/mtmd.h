@@ -266,7 +266,7 @@ enum mtmd_gen_state {
 struct mtmd_gen_vocoder;
 struct mtmd_gen_context;
 
-MTMD_API struct mtmd_gen_vocoder * mtmd_gen_vocoder_init(const char * vocoder_path);
+MTMD_API struct mtmd_gen_vocoder * mtmd_gen_vocoder_init(const char * vocoder_path, struct mtmd_context * mctx);
 MTMD_API void mtmd_gen_vocoder_free(struct mtmd_gen_vocoder * vocoder);
 
 MTMD_API struct mtmd_gen_context * mtmd_gen_init(struct llama_context * lctx, struct mtmd_context * mctx, struct mtmd_gen_vocoder * vocoder);
