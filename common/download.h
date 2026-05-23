@@ -105,7 +105,7 @@ std::vector<common_cached_model_info> common_list_cached_models();
 
 // download single file from url to local path
 // returns status code or -1 on error
-// returns -2 if the download was skipped due to ETag match
+// returns -2 if the download was skipped due to ETag mismatch (file outdated, skip_download=true)
 // skip_etag: if true, don't read/write .etag files (for HF cache where filename is the hash)
 int common_download_file_single(const std::string & url,
                                 const std::string & path,

@@ -335,7 +335,6 @@ static bool common_params_handle_remote_preset(common_params & params, llama_exa
 
 struct handle_model_result {
     bool found_mmproj = false;
-    bool skip_download = false; // if skipped, only validation is performed
     common_params_model mmproj;
 
     bool found_mtp = false;
@@ -463,30 +462,23 @@ bool common_params_handle_models(common_params & params, llama_example curr_ex) 
                 common_params_handle_model(params.mmproj, opts);
                 break;
             }
-            // only download mmproj if the current example is using it AND --no-mmproj is not specified
-            for (const auto & ex : mmproj_examples) {
-                if (curr_ex == ex && !params.no_mmproj) {
-                    common_params_handle_model(params.mmproj, opts);
-                    break;
-                }
-            }
-
-            // when --spec-type mtp is set and no draft model was provided explicitly,
-            // fall back to the MTP head discovered alongside the -hf model
-            if (spec_type_draft_mtp && res.found_mtp &&
-                params.speculative.draft.mparams.path.empty() &&
-                params.speculative.draft.mparams.hf_repo.empty() &&
-                params.speculative.draft.mparams.url.empty()) {
-                params.speculative.draft.mparams.path = res.mtp.path;
-            }
-            common_params_handle_model(params.speculative.draft.mparams, opts);
-            common_params_handle_model(params.vocoder.model,             opts);
-            return true;
         }
+
+        // when --spec-type mtp is set and no draft model was provided explicitly,
+        // fall back to the MTP head discovered alongside the -hf model
+        if (spec_type_draft_mtp && res.found_mtp &&
+            params.speculative.draft.mparams.path.empty() &&
+            params.speculative.draft.mparams.hf_repo.empty() &&
+            params.speculative.draft.mparams.url.empty()) {
+            params.speculative.draft.mparams.path = res.mtp.path;
+        }
+        common_params_handle_model(params.speculative.draft.mparams, opts);
+        common_params_handle_model(params.vocoder.model,             opts);
+        return true;
     } catch (const common_skip_download_exception &) {
         return false;
     } catch (const std::exception &) {
-        throw; // re-throw
+        throw;
     }
 }
 
