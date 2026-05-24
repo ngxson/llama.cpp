@@ -93,7 +93,7 @@ extern "C" {
 
     GGML_API uint32_t gguf_get_version    (const struct gguf_context * ctx);
     GGML_API size_t   gguf_get_alignment  (const struct gguf_context * ctx);
-    GGML_API size_t   gguf_get_data_offset(const struct gguf_context * ctx);
+    GGML_API size_t   gguf_get_data_offset(const struct gguf_context * ctx);  // padded to gguf_get_alignment if and only if the gguf_context contains at least one tensor
 
     GGML_API int64_t      gguf_get_n_kv(const struct gguf_context * ctx);
     GGML_API int64_t      gguf_find_key(const struct gguf_context * ctx, const char * key); // returns -1 if key is not found

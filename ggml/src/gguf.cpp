@@ -749,7 +749,7 @@ static struct gguf_context * gguf_init_from_reader(const struct gguf_reader & gr
     GGML_ASSERT(int64_t(ctx->info.size()) == n_tensors);
 
     // we require the data section to be aligned, so take into account any padding
-    if (!gr.seek(GGML_PAD(gr.tell(), ctx->alignment))) {
+    if (n_tensors > 0 && !gr.seek(GGML_PAD(gr.tell(), ctx->alignment))) {
         GGML_LOG_ERROR("%s: failed to seek to beginning of data section\n", __func__);
         gguf_free(ctx);
         return nullptr;
