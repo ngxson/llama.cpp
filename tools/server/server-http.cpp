@@ -1,6 +1,7 @@
 #include "common.h"
 #include "server-http.h"
 #include "server-common.h"
+#include "ui.h"
 
 #include <cpp-httplib/httplib.h>
 
@@ -9,14 +10,6 @@
 #include <future>
 #include <string>
 #include <thread>
-
-#ifdef LLAMA_BUILD_WEBUI
-// auto generated files (see README.md for details)
-#include "index.html.hpp"
-#include "bundle.js.hpp"
-#include "bundle.css.hpp"
-#include "loading.html.hpp"
-#endif
 
 //
 // HTTP implementation using cpp-httplib
@@ -238,16 +231,19 @@ bool server_http_context::init(const common_params & params) {
     };
 
     auto middleware_server_state = [this](const httplib::Request & req, httplib::Response & res) {
-        (void)req; // suppress unused parameter warning when LLAMA_BUILD_WEBUI is not defined
         bool ready = is_ready.load();
         if (!ready) {
-#ifdef LLAMA_BUILD_WEBUI
+#if defined(LLAMA_UI_HAS_ASSETS)
             auto tmp = string_split<std::string>(req.path, '.');
             if (req.path == "/" || (tmp.size() > 0 && tmp.back() == "html")) {
-                res.status = 503;
-                res.set_content(reinterpret_cast<const char*>(loading_html), loading_html_len, "text/html; charset=utf-8");
-                return false;
+                if (const llama_ui_asset * a = llama_ui_find_asset("loading.html")) {
+                    res.status = 503;
+                    res.set_content(reinterpret_cast<const char*>(a->data), a->size, "text/html; charset=utf-8");
+                    return false;
+                }
             }
+#else
+            (void)req;
 #endif
             // no endpoints are allowed to be accessed when the server is not ready
             // this is to prevent any data races or inconsistent states
@@ -305,8 +301,10 @@ bool server_http_context::init(const common_params & params) {
     // Web UI setup
     //
 
-    if (!params.webui) {
-        SRV_INF("%s", "the WebUI is disabled\n");
+    // Use new `params.ui` field (backed by old `params.webui` for compat)
+    if (!params.ui) {
+        SRV_INF("%s", "The UI is disabled\n");
+        SRV_INF("%s", "Use --ui/--no-ui (or deprecated --webui/--no-webui) to enable/disable\n");
     } else {
         // register static assets routes
         if (!params.public_path.empty()) {
@@ -317,23 +315,27 @@ bool server_http_context::init(const common_params & params) {
                 return 1;
             }
         } else {
-#ifdef LLAMA_BUILD_WEBUI
-            // using embedded static index.html
-            srv->Get(params.api_prefix + "/", [](const httplib::Request & /*req*/, httplib::Response & res) {
-                // COEP and COOP headers, required by pyodide (python interpreter)
-                res.set_header("Cross-Origin-Embedder-Policy", "require-corp");
-                res.set_header("Cross-Origin-Opener-Policy", "same-origin");
-                res.set_content(reinterpret_cast<const char*>(index_html), index_html_len, "text/html; charset=utf-8");
-                return false;
-            });
-            srv->Get(params.api_prefix + "/bundle.js", [](const httplib::Request & /*req*/, httplib::Response & res) {
-                res.set_content(reinterpret_cast<const char*>(bundle_js), bundle_js_len, "application/javascript; charset=utf-8");
-                return false;
-            });
-            srv->Get(params.api_prefix + "/bundle.css", [](const httplib::Request & /*req*/, httplib::Response & res) {
-                res.set_content(reinterpret_cast<const char*>(bundle_css), bundle_css_len, "text/css; charset=utf-8");
-                return false;
-            });
+#if defined(LLAMA_UI_HAS_ASSETS)
+            auto serve_asset = [](const std::string & name, const char * mime, bool with_isolation_headers) {
+                return [name, mime, with_isolation_headers](const httplib::Request & /*req*/, httplib::Response & res) {
+                    const llama_ui_asset * a = llama_ui_find_asset(name.c_str());
+                    if (!a) {
+                        res.status = 404;
+                        return false;
+                    }
+                    if (with_isolation_headers) {
+                        // COEP and COOP headers, required by pyodide (python interpreter)
+                        res.set_header("Cross-Origin-Embedder-Policy", "require-corp");
+                        res.set_header("Cross-Origin-Opener-Policy", "same-origin");
+                    }
+                    res.set_content(reinterpret_cast<const char*>(a->data), a->size, mime);
+                    return false;
+                };
+            };
+
+            srv->Get(params.api_prefix + "/",           serve_asset("index.html", "text/html; charset=utf-8",              true));
+            srv->Get(params.api_prefix + "/bundle.js",  serve_asset("bundle.js",  "application/javascript; charset=utf-8", false));
+            srv->Get(params.api_prefix + "/bundle.css", serve_asset("bundle.css", "text/css; charset=utf-8",               false));
 #endif
         }
     }
