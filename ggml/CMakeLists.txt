@@ -191,6 +191,7 @@ option(GGML_SCHED_NO_REALLOC                "ggml: disallow reallocations in ggm
 
 # 3rd party libs / backends
 option(GGML_ACCELERATE                      "ggml: enable Accelerate framework"               ON)
+option(GGML_ANE                             "ggml: use ANE (Apple Neural Engine)"             OFF)
 option(GGML_BLAS                            "ggml: use BLAS"                                  ${GGML_BLAS_DEFAULT})
 set(GGML_BLAS_VENDOR ${GGML_BLAS_VENDOR_DEFAULT} CACHE STRING
                                             "ggml: BLAS library vendor")
@@ -325,6 +326,7 @@ set(GGML_PUBLIC_HEADERS
     include/ggml-cpu.h
     include/ggml-alloc.h
     include/ggml-backend.h
+    include/ggml-ane.h
     include/ggml-blas.h
     include/ggml-cann.h
     include/ggml-cpp.h

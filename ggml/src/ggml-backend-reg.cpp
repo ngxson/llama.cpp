@@ -62,6 +62,10 @@
 #include "ggml-hexagon.h"
 #endif
 
+#ifdef GGML_USE_ANE
+#include "ggml-ane.h"
+#endif
+
 #ifdef GGML_USE_BLAS
 #include "ggml-blas.h"
 #endif
@@ -151,6 +155,9 @@ struct ggml_backend_registry {
 #endif
 #ifdef GGML_USE_CANN
         register_backend(ggml_backend_cann_reg());
+#endif
+#ifdef GGML_USE_ANE
+        register_backend(ggml_backend_ane_reg());
 #endif
 #ifdef GGML_USE_BLAS
         register_backend(ggml_backend_blas_reg());
@@ -563,6 +570,7 @@ void ggml_backend_load_all_from_path(const char * dir_path) {
     bool silent = false;
 #endif
 
+    ggml_backend_load_best("ane", silent, dir_path);
     ggml_backend_load_best("blas", silent, dir_path);
     ggml_backend_load_best("zendnn", silent, dir_path);
     ggml_backend_load_best("cann", silent, dir_path);
