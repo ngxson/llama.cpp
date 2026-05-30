@@ -4805,13 +4805,16 @@ std::unique_ptr<server_res_generator> server_routes::handle_count_tokens(const l
     auto res = create_response();
     std::vector<raw_buffer> files;
     json body = json::parse(req.body);
+    bool is_oai = false;
+
     switch (res_type) {
         case TASK_RESPONSE_TYPE_OAI_CHAT:
             {
-                // no-op
+                is_oai = true;
             } break;
         case TASK_RESPONSE_TYPE_OAI_RESP:
             {
+                is_oai = true;
                 body = server_chat_convert_responses_to_chatcmpl(body);
             } break;
         case TASK_RESPONSE_TYPE_ANTHROPIC:
@@ -4841,6 +4844,10 @@ std::unique_ptr<server_res_generator> server_routes::handle_count_tokens(const l
         n_tokens = tokenize_mixed(vocab, prompt, true, true).size();
     }
 
-    res->ok({{"input_tokens", static_cast<int>(n_tokens)}});
+    json response = {{"input_tokens", static_cast<int>(n_tokens)}};
+    if (is_oai) {
+        response["object"] = "response.input_tokens";
+    }
+    res->ok(response);
     return res;
 }
