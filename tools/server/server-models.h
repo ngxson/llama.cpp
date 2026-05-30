@@ -206,6 +206,9 @@ struct server_models_routes {
     server_http_context::handler_t get_router_models;
     server_http_context::handler_t post_router_models_load;
     server_http_context::handler_t post_router_models_unload;
+    // management API
+    server_http_context::handler_t get_router_models_sse;
+    server_http_context::handler_t post_router_models_add;
 };
 
 /**
