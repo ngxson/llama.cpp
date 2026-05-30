@@ -361,9 +361,10 @@ static void ggml_backend_ane_mul_mat(ggml_backend_ane_context * ctx, struct ggml
     const int64_t ne3      = dst->ne[3];
     const int64_t src0_ne2 = src0->ne[2];
     const int64_t src0_ne3 = src0->ne[3];
-    // GQA-style broadcast: use integer division i02=b2/r2 (not modulo), matching ggml CPU / ZenDNN
-    const int64_t r2       = ne2 / src0_ne2;
-    const int64_t r3       = ne3 / src0_ne3;
+    // GQA-style broadcast: use integer division i02=b2/r2 (not modulo), matching ggml CPU / ZenDNN.
+    // Guard against src0_ne[i] == 0 (should never happen but prevents UB from integer div-by-zero).
+    const int64_t r2 = (src0_ne2 > 0) ? ne2 / src0_ne2 : 1;
+    const int64_t r3 = (src0_ne3 > 0) ? ne3 / src0_ne3 : 1;
 
     ane_kern *k = ctx->get_or_compile(IC_p, OC_p, SEQ_p);
     if (!k) {
@@ -380,36 +381,53 @@ static void ggml_backend_ane_mul_mat(ggml_backend_ane_context * ctx, struct ggml
                 const int64_t s0b3 = b3 / r3;
                 // Use nb[] byte-strides (not ne[]-reconstructed element counts) so that
                 // GQA-style broadcast with odd bs[0] (e.g. 3) is computed correctly.
-                const float *s0 = (const float *)((const char *)src0->data + s0b2 * src0->nb[2] + s0b3 * src0->nb[3]);
-                const float *s1 = (const float *)((const char *)src1->data + b2   * src1->nb[2] + b3   * src1->nb[3]);
-                float       *dt = (float *)      ((      char *)dst->data  + b2   * dst->nb[2]  + b3   * dst->nb[3]);
+                // Keep as const char * to avoid strict-aliasing UB when reinterpreting
+                // the weight pointer as _Float16 * below.
+                const char *s0_bytes = (const char *)src0->data + s0b2 * src0->nb[2] + s0b3 * src0->nb[3];
+                const float *s1      = (const float *)((const char *)src1->data + b2 * src1->nb[2] + b3 * src1->nb[3]);
+                float       *dt      = (float *)      ((      char *)dst->data  + b2 * dst->nb[2]  + b3 * dst->nb[3]);
 
                 // Pack: IC_p rows × sp fp16 columns
                 // Row ic = [activation cols 0..SEQ_p-1] [weight cols 0..OC_p-1]
                 IOSurfaceLock(k->ioIn, 0, NULL);
                 _Float16 *buf = (_Float16 *)IOSurfaceGetBaseAddress(k->ioIn);
                 memset(buf, 0, (size_t)(IC_p * sp) * sizeof(_Float16));
-                for (int64_t ic = 0; ic < K; ic++) {
-                    // activation: src1[s, ic] = s1[s*K + ic]
-                    for (int64_t s = 0; s < M; s++) {
-                        buf[ic * sp + s] = (_Float16)s1[s * K + ic];
+                if (src0->type == GGML_TYPE_F16) {
+                    // F16 weights — direct copy, no conversion needed
+                    const _Float16 *s0h = (const _Float16 *)s0_bytes;
+                    for (int64_t ic = 0; ic < K; ic++) {
+                        for (int64_t s = 0; s < M; s++) {
+                            buf[ic * sp + s] = (_Float16)s1[s * K + ic];
+                        }
+                        for (int64_t oc = 0; oc < N; oc++) {
+                            buf[ic * sp + SEQ_p + oc] = s0h[oc * K + ic];
+                        }
                     }
-                    // weight: src0[oc, ic] = s0[oc*K + ic]
-                    for (int64_t oc = 0; oc < N; oc++) {
-                        buf[ic * sp + SEQ_p + oc] = (_Float16)s0[oc * K + ic];
+                } else {
+                    // F32 weights (only reachable with GGML_ANE_ALLOW_F32_WEIGHTS)
+                    const float *s0 = (const float *)s0_bytes;
+                    for (int64_t ic = 0; ic < K; ic++) {
+                        for (int64_t s = 0; s < M; s++) {
+                            buf[ic * sp + s] = (_Float16)s1[s * K + ic];
+                        }
+                        for (int64_t oc = 0; oc < N; oc++) {
+                            buf[ic * sp + SEQ_p + oc] = (_Float16)s0[oc * K + ic];
+                        }
                     }
                 }
                 IOSurfaceUnlock(k->ioIn, 0, NULL);
 
                 ane_run(k);
 
-                // Unpack: ANE output [1, OC_p, 1, SEQ_p] linear as out[oc*SEQ_p+s]
-                // Read only the valid [N × M] slice into ggml dst
+                // Unpack: ANE output [1, OC_p, 1, SEQ_p] linear as out[oc*SEQ_p+s].
+                // Use dst's own nb[] strides rather than assuming a flat [N, M] layout,
+                // in case dst is a non-contiguous view (supports_op doesn't check dst).
                 IOSurfaceLock(k->ioOut, kIOSurfaceLockReadOnly, NULL);
                 const _Float16 *out = (const _Float16 *)IOSurfaceGetBaseAddress(k->ioOut);
                 for (int64_t oc = 0; oc < N; oc++) {
                     for (int64_t s = 0; s < M; s++) {
-                        dt[s * N + oc] = (float)out[oc * SEQ_p + s];
+                        float *elem = (float *)((char *)dt + s * dst->nb[1] + oc * dst->nb[0]);
+                        *elem = (float)out[oc * SEQ_p + s];
                     }
                 }
                 IOSurfaceUnlock(k->ioOut, kIOSurfaceLockReadOnly, NULL);
@@ -576,14 +594,23 @@ static bool ggml_backend_ane_device_supports_op(ggml_backend_dev_t dev, const st
         case GGML_OP_TRANSPOSE:
             return true;
 
-        case GGML_OP_MUL_MAT:
-            // Only F32×F32, both contiguous, ANE available.
-            // The ANE operates in F16; we convert at the boundary.
-            return ane_is_available()                &&
-                   op->src[0]->type == GGML_TYPE_F32 &&
+        case GGML_OP_MUL_MAT: {
+            // ANE is a native fp16 accelerator.
+            // F32 src0 is supported but requires a lossy F32→F16 conversion per call,
+            // which accumulates enough error across layers to degrade model accuracy.
+            // Define GGML_ANE_ALLOW_F32_WEIGHTS to opt into F32 weight support anyway.
+            const bool src0_ok =
+#ifdef GGML_ANE_ALLOW_F32_WEIGHTS
+                (op->src[0]->type == GGML_TYPE_F32 || op->src[0]->type == GGML_TYPE_F16);
+#else
+                (op->src[0]->type == GGML_TYPE_F16);
+#endif
+            return ane_is_available()            &&
+                   src0_ok                       &&
                    op->src[1]->type == GGML_TYPE_F32 &&
                    ggml_is_contiguous(op->src[0])    &&
                    ggml_is_contiguous(op->src[1]);
+        }
 
         default:
             return false;
