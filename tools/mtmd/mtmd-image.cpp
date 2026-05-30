@@ -29,6 +29,11 @@ struct img_tool {
             std::array<uint8_t, 3> pad_color = {0, 0, 0}) {
         dst.set_size(target_resolution, src.is_placeholder());
 
+        if (src.is_placeholder()) {
+            // no-op for placeholder image, just set the size and return
+            return;
+        }
+
         if (dst.get_size() == src.get_size()) {
             // no resize needed, simple copy
             dst.cpy_buf(src.get_ro_buf());
@@ -100,6 +105,11 @@ struct img_tool {
         GGML_ASSERT(x + w <= image.get_size().width && y + h <= image.get_size().height);
         dst.set_size({w, h}, image.is_placeholder());
 
+        if (image.is_placeholder()) {
+            // no-op for placeholder image, just set the size and return
+            return;
+        }
+
         for (int i = 0; i < h; ++i) {
             for (int j = 0; j < w; ++j) {
                 dst.set_pixel(j, i, image.get_pixel(x + j, y + i));
@@ -160,6 +170,11 @@ struct img_tool {
 
     // draw src image into dst image at offset (offset_x, offset_y)
     static void composite(clip_image_u8 & dst, const clip_image_u8 & src, int offset_x, int offset_y) {
+        if (src.is_placeholder()) {
+            // no-op for placeholder image
+            return;
+        }
+
         const auto src_size = src.get_size();
         const auto dst_size = dst.get_size();
         for (int y = 0; y < src_size.height; ++y) {
@@ -177,6 +192,11 @@ struct img_tool {
 
     // fill the image with a solid color
     static void fill(clip_image_u8 & img, const std::array<uint8_t, 3> & color) {
+        if (img.is_placeholder()) {
+            // no-op for placeholder image
+            return;
+        }
+
         const auto size = img.get_size();
         for (int y = 0; y < size.height; ++y) {
             for (int x = 0; x < size.width; ++x) {
@@ -194,6 +214,11 @@ private:
         if (target_height <= 0) target_height = 1;
 
         dst.set_size({target_width, target_height}, false);
+
+        if (src.is_placeholder()) {
+            // no-op for placeholder image, just set the size and return
+            return;
+        }
 
         float x_ratio = target_width  > 1 ? static_cast<float>(src_size.width  - 1) / (target_width  - 1) : 0.0f;
         float y_ratio = target_height > 1 ? static_cast<float>(src_size.height - 1) / (target_height - 1) : 0.0f;
@@ -235,6 +260,11 @@ private:
         const int ny = img_size.height;
 
         dst.set_size({target_width, target_height}, false);
+
+        if (img.is_placeholder()) {
+            // no-op for placeholder image, just set the size and return
+            return;
+        }
 
         float Cc;
         float C[5] = {};
@@ -1235,6 +1265,11 @@ void mtmd_image_preprocessor_step3vl::img_u8_resize_bilinear_to_f32(
     }
 
     dst.set_size({target_width, target_height}, false);
+
+    if (src.is_placeholder()) {
+        // no-op for placeholder image, just set the size and return
+        return;
+    }
 
     const float scale_x = static_cast<float>(src_size.width)  / target_width;
     const float scale_y = static_cast<float>(src_size.height) / target_height;
