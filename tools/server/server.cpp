@@ -189,7 +189,6 @@ int llama_server(int argc, char ** argv) {
     ctx_http.post("/v1/chat/completions",      ex_wrapper(routes.post_chat_completions));
     ctx_http.post("/v1/responses",             ex_wrapper(routes.post_responses_oai));
     ctx_http.post("/responses",                ex_wrapper(routes.post_responses_oai));
-    ctx_http.post("/responses/input_tokens",   ex_wrapper(routes.post_responses_tok_oai));
     ctx_http.post("/v1/audio/transcriptions",  ex_wrapper(routes.post_transcriptions_oai));
     ctx_http.post("/audio/transcriptions",     ex_wrapper(routes.post_transcriptions_oai));
     ctx_http.post("/v1/messages",              ex_wrapper(routes.post_anthropic_messages)); // anthropic messages API
