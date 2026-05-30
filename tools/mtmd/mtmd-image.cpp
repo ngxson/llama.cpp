@@ -254,7 +254,7 @@ private:
 
     // Bicubic resize function
     // part of image will be cropped if the aspect ratio is different
-    static bool resize_bicubic(const clip_image_u8 & img, clip_image_u8 & dst, int target_width, int target_height) {
+    static void resize_bicubic(const clip_image_u8 & img, clip_image_u8 & dst, int target_width, int target_height) {
         const auto img_size = img.get_size();
         const int nx = img_size.width;
         const int ny = img_size.height;
@@ -319,8 +319,6 @@ private:
                 dst.set_pixel(j, i, pixel);
             }
         }
-
-        return true;
     }
 
     // Bicubic resize function using Pillow's ImagingResample algorithm

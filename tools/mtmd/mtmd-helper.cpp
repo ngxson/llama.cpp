@@ -478,7 +478,7 @@ static bool decode_audio_from_buf(const unsigned char * buf_in, size_t len, int 
 
 } // namespace audio_helpers
 
-static mtmd_bitmap * mtmd_helper_bitmap_init_from_buf_impl(mtmd_context * ctx, const unsigned char * buf, size_t len, bool placeholder) {
+mtmd_bitmap * mtmd_helper_bitmap_init_from_buf(mtmd_context * ctx, const unsigned char * buf, size_t len, bool placeholder) {
     if (audio_helpers::is_audio_file((const char *)buf, len)) {
         std::vector<float> pcmf32;
         const int sample_rate = mtmd_get_audio_sample_rate(ctx);
@@ -508,11 +508,7 @@ static mtmd_bitmap * mtmd_helper_bitmap_init_from_buf_impl(mtmd_context * ctx, c
     return result;
 }
 
-mtmd_bitmap * mtmd_helper_bitmap_init_from_buf(mtmd_context * ctx, const unsigned char * buf, size_t len) {
-    return mtmd_helper_bitmap_init_from_buf_impl(ctx, buf, len, false);
-}
-
-static mtmd_bitmap * mtmd_helper_bitmap_init_from_file_impl(mtmd_context * ctx, const char * fname, bool placeholder) {
+mtmd_bitmap * mtmd_helper_bitmap_init_from_file(mtmd_context * ctx, const char * fname, bool placeholder) {
     std::vector<unsigned char> buf;
     FILE * f = fopen(fname, "rb");
     if (!f) {
@@ -537,13 +533,6 @@ static mtmd_bitmap * mtmd_helper_bitmap_init_from_file_impl(mtmd_context * ctx, 
         return nullptr;
     }
 
-    return mtmd_helper_bitmap_init_from_buf_impl(ctx, buf.data(), buf.size(), placeholder);
+    return mtmd_helper_bitmap_init_from_buf(ctx, buf.data(), buf.size(), placeholder);
 }
 
-MTMD_API mtmd_bitmap * mtmd_helper_bitmap_init_from_file(mtmd_context * ctx, const char * fname) {
-    return mtmd_helper_bitmap_init_from_file_impl(ctx, fname, false);
-}
-
-MTMD_API mtmd_bitmap * mtmd_helper_bitmap_placeholder_init_from_file(mtmd_context * ctx, const char * fname) {
-    return mtmd_helper_bitmap_init_from_file_impl(ctx, fname, true);
-}

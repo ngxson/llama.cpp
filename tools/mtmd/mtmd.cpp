@@ -79,6 +79,16 @@ struct mtmd_image_tokens {
     clip_image_f32_batch batch_f32; // preprocessed image patches
     std::string id; // optional user-defined ID, useful for KV cache tracking
 
+    // true if one of entries in batch_f32 is a placeholder
+    bool is_placeholder() const {
+        for (const auto & entry : batch_f32.entries) {
+            if (entry->is_placeholder()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     mtmd_image_tokens clone() {
         return mtmd_image_tokens{
             nx,
@@ -96,6 +106,16 @@ struct mtmd_audio_tokens {
     uint32_t n_tokens = 0; // number of tokens
     clip_image_f32_batch batch_f32; // preprocessed image patches
     std::string id; // optional user-defined ID, useful for KV cache tracking
+
+    // true if one of entries in batch_f32 is a placeholder
+    bool is_placeholder() const {
+        for (const auto & entry : batch_f32.entries) {
+            if (entry->is_placeholder()) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     mtmd_audio_tokens clone() {
         return mtmd_audio_tokens{
@@ -1092,10 +1112,26 @@ int32_t mtmd_encode_chunk(mtmd_context * ctx, const mtmd_input_chunk * chunk) {
             LOG_ERR("%s: model does not support vision input\n", __func__);
             return 1;
         }
+        if (chunk->tokens_image == nullptr) {
+            LOG_ERR("%s: image tokens are null\n", __func__);
+            return 1;
+        }
+        if (chunk->tokens_image->is_placeholder()) {
+            LOG_ERR("%s: image tokens batch is placeholder\n", __func__);
+            return 1;
+        }
         return mtmd_encode(ctx, chunk->tokens_image.get());
     } else if (chunk->type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
         if (!ctx->ctx_a) {
             LOG_ERR("%s: model does not support audio input\n", __func__);
+            return 1;
+        }
+        if (chunk->tokens_audio == nullptr) {
+            LOG_ERR("%s: audio tokens are null\n", __func__);
+            return 1;
+        }
+        if (chunk->tokens_audio->is_placeholder()) {
+            LOG_ERR("%s: audio tokens batch is placeholder\n", __func__);
             return 1;
         }
         int n_mmproj_embd = ctx->n_embd_text;
@@ -1134,6 +1170,10 @@ int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) 
         // e.g., DeepSeek-OCR-2: 144 per tile views, 257 for the global view
         size_t offset = 0;
         for (size_t i = 0; i < entries.size(); i++) {
+            if (entries[i]->is_placeholder()) {
+                LOG_ERR("%s: image tokens batch entry %zu is placeholder\n", __func__, i);
+                return 1;
+            }
             int n_tokens_per_image = clip_n_output_tokens(ctx_clip, entries[i].get());
             ok = clip_image_encode(
                 ctx_clip,
@@ -1143,6 +1183,10 @@ int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) 
             offset += static_cast<size_t>(n_mmproj_embd) * n_tokens_per_image;
         }
     } else {
+        if (image_tokens->is_placeholder()) {
+            LOG_ERR("%s: image tokens batch is placeholder\n", __func__);
+            return 1;
+        }
         ok = clip_image_batch_encode(
             ctx_clip,
             ctx->n_threads,
