@@ -31,6 +31,9 @@ MTMD_API void mtmd_helper_log_set(ggml_log_callback log_callback, void * user_da
 // this function is thread-safe
 MTMD_API mtmd_bitmap * mtmd_helper_bitmap_init_from_file(mtmd_context * ctx, const char * fname);
 
+// same as mtmd_helper_bitmap_init_from_file(), but creates a placeholder bitmap for counting tokens
+MTMD_API mtmd_bitmap * mtmd_helper_bitmap_placeholder_init_from_file(mtmd_context * ctx, const char * fname);
+
 // helper function to construct a mtmd_bitmap from a buffer containing a file
 // supported formats:
 //     image: formats supported by stb_image: jpg, png, bmp, gif, etc.
