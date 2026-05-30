@@ -1278,7 +1278,9 @@ mtmd_bitmap * mtmd_bitmap_init_from_audio(size_t n_samples,
                                           const float * data) {
     mtmd_bitmap * bitmap = new mtmd_bitmap((const unsigned char *)data, n_samples);
     GGML_ASSERT(bitmap->is_audio);
-    GGML_ASSERT(bitmap->get_ro_buf().size() == n_samples * sizeof(float));
+    if (!bitmap->is_placeholder()) {
+        GGML_ASSERT(bitmap->get_ro_buf().size() == n_samples * sizeof(float));
+    }
     return bitmap;
 }
 
