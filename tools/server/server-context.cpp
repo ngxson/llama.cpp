@@ -4839,7 +4839,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_count_tokens(const l
         if (!prompt.is_string()) {
             throw std::runtime_error("for mtmd, input prompt must be a string.");
         }
-        n_tokens = process_mtmd_prompt(mctx, prompt.get<std::string>(), files).size();
+        n_tokens = process_mtmd_prompt(mctx, prompt.get<std::string>(), files, true).size();
     } else {
         n_tokens = tokenize_mixed(vocab, prompt, true, true).size();
     }
