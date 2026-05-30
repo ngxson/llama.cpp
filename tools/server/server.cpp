@@ -160,6 +160,8 @@ int llama_server(int argc, char ** argv) {
         routes.post_tokenize               = models_routes->proxy_post;
         routes.post_detokenize             = models_routes->proxy_post;
         routes.post_apply_template         = models_routes->proxy_post;
+        routes.post_chat_completions_tok   = models_routes->proxy_post;
+        routes.post_responses_tok_oai      = models_routes->proxy_post;
         routes.get_lora_adapters           = models_routes->proxy_get;
         routes.post_lora_adapters          = models_routes->proxy_post;
         routes.get_slots                   = models_routes->proxy_get;
