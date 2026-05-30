@@ -4247,6 +4247,10 @@ void server_routes::init_routes() {
             TASK_RESPONSE_TYPE_OAI_CHAT);
     };
 
+    this->post_chat_completions_tok = [this](const server_http_req & req) {
+        return handle_count_tokens(ctx_server.vocab, ctx_server.mctx, req, TASK_RESPONSE_TYPE_OAI_CHAT);
+    };
+
     this->post_responses_oai = [this](const server_http_req & req) {
         auto res = create_response();
         std::vector<raw_buffer> files;
@@ -4263,6 +4267,10 @@ void server_routes::init_routes() {
             body_parsed,
             files,
             TASK_RESPONSE_TYPE_OAI_RESP);
+    };
+
+    this->post_responses_tok_oai = [this](const server_http_req & req) {
+        return handle_count_tokens(ctx_server.vocab, ctx_server.mctx, req, TASK_RESPONSE_TYPE_OAI_RESP);
     };
 
     this->post_transcriptions_oai = [this](const server_http_req & req) {
@@ -4312,20 +4320,7 @@ void server_routes::init_routes() {
     };
 
     this->post_anthropic_count_tokens = [this](const server_http_req & req) {
-        auto res = create_response();
-        std::vector<raw_buffer> files;
-        json body = server_chat_convert_anthropic_to_oai(json::parse(req.body));
-        SRV_DBG("%s\n", "Request converted: Anthropic -> OpenAI Chat Completions");
-        SRV_DBG("converted request: %s\n", body.dump().c_str());
-        json body_parsed = oaicompat_chat_params_parse(
-            body,
-            meta->chat_params,
-            files);
-
-        json prompt = body_parsed.at("prompt");
-        llama_tokens tokens = tokenize_mixed(ctx_server.vocab, prompt, true, true);
-        res->ok({{"input_tokens", static_cast<int>(tokens.size())}});
-        return res;
+        return handle_count_tokens(ctx_server.vocab, ctx_server.mctx, req, TASK_RESPONSE_TYPE_ANTHROPIC);
     };
 
     // same with handle_chat_completions, but without inference part
@@ -4803,5 +4798,49 @@ std::unique_ptr<server_res_generator> server_routes::handle_embeddings_impl(cons
         ? format_embeddings_response_oaicompat(body, meta->model_name, responses, use_base64)
         : json(responses);
     res->ok(root);
+    return res;
+}
+
+std::unique_ptr<server_res_generator> server_routes::handle_count_tokens(const llama_vocab * vocab, mtmd_context * mctx, const server_http_req & req, task_response_type res_type) {
+    auto res = create_response();
+    std::vector<raw_buffer> files;
+    json body = json::parse(req.body);
+    switch (res_type) {
+        case TASK_RESPONSE_TYPE_OAI_CHAT:
+            {
+                // no-op
+            } break;
+        case TASK_RESPONSE_TYPE_OAI_RESP:
+            {
+                body = server_chat_convert_responses_to_chatcmpl(body);
+            } break;
+        case TASK_RESPONSE_TYPE_ANTHROPIC:
+            {
+                body = server_chat_convert_anthropic_to_oai(body);
+            } break;
+        default:
+            res->error(format_error_response("invalid res_type", ERROR_TYPE_INVALID_REQUEST));
+            return res;
+    }
+
+    json body_parsed = oaicompat_chat_params_parse(
+            body,
+            meta->chat_params,
+            files);
+    json prompt = body_parsed.at("prompt");
+    // SRV_DBG("prompt = %s\n", prompt.dump().c_str());
+
+    // TODO @ngxson : refactor this code block, move this to server-common and reuse it in other places
+    size_t n_tokens;
+    if (mctx != nullptr) {
+        if (!prompt.is_string()) {
+            throw std::runtime_error("for mtmd, input prompt must be a string.");
+        }
+        n_tokens = process_mtmd_prompt(mctx, prompt.get<std::string>(), files).size();
+    } else {
+        n_tokens = tokenize_mixed(vocab, prompt, true, true).size();
+    }
+
+    res->ok({{"input_tokens", static_cast<int>(n_tokens)}});
     return res;
 }
