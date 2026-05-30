@@ -2680,10 +2680,10 @@ struct clip_model_loader {
         clip_image_f32_ptr img(clip_image_f32_init());
         if (ctx_clip.model.modality == CLIP_MODALITY_VISION) {
             const int sz = hparams.warmup_image_size;
-            img->set_size({sz, sz}, false);
+            img->set_size({sz, sz}, false, false);
             LOG_INF("%s: warmup with image size = %d x %d\n", __func__, sz, sz);
         } else {
-            img->set_size({hparams.warmup_audio_size, hparams.n_mel_bins}, false);
+            img->set_size({hparams.warmup_audio_size, hparams.n_mel_bins}, false, false);
             LOG_INF("%s: warmup with audio size = %d\n", __func__, hparams.warmup_audio_size);
         }
         batch.entries.push_back(std::move(img));
@@ -3371,7 +3371,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         return inp;
     };
 
-    auto set_input_f32 = [&get_inp_tensor](const char * name, std::vector<float> & values) {
+    auto set_input_f32 = [&get_inp_tensor](const char * name, const std::vector<float> & values) {
         ggml_tensor * cur = get_inp_tensor(name);
         GGML_ASSERT(cur->type == GGML_TYPE_F32);
         GGML_ASSERT(ggml_nelements(cur) == (int64_t)values.size());
@@ -3433,11 +3433,9 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         const auto & buf = mel_inp->get_ro_buf();
         const int n_step = mel_inp->nx();
         const int n_mel  = mel_inp->ny();
-        GGML_ASSERT(n_step * n_mel * sizeof(float) == buf.size());
+        GGML_ASSERT((size_t)n_step * n_mel == buf.size());
 
-        std::vector<float> inp_raw(n_step * n_mel);
-        std::memcpy(inp_raw.data(), buf.data(), n_step * n_mel * sizeof(float));
-        set_input_f32("inp_raw", inp_raw);
+        set_input_f32("inp_raw", buf);
     }
 
     // set input per projector

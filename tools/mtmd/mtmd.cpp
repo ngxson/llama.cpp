@@ -26,6 +26,8 @@
 
 // represents raw image data, layout is RGBRGBRGB...
 // length of data must be nx * ny * 3
+// for audio bitmap: nx = sample count, ny = 1, layout is F32 F32 F32 ...
+// length of data must be nx * sizeof(float)
 struct mtmd_bitmap {
     uint32_t nx = 0;
     uint32_t ny = 0;
@@ -36,6 +38,15 @@ struct mtmd_bitmap {
         : nx(nx), ny(ny) {
         if (data) {
             size_t data_size = (size_t)nx * ny * 3;
+            this->data.resize(data_size);
+            std::memcpy(this->data.data(), data, data_size);
+        }
+    }
+
+    mtmd_bitmap(const unsigned char * data, uint32_t n_samples)
+        : nx(n_samples), ny(1), is_audio(true) {
+        if (data) {
+            size_t data_size = (size_t)nx * sizeof(float);
             this->data.resize(data_size);
             std::memcpy(this->data.data(), data, data_size);
         }
@@ -970,17 +981,33 @@ struct mtmd_tokenizer {
 
             // sanity check
             GGML_ASSERT(ctx->audio_preproc != nullptr);
-            GGML_ASSERT(bitmap->get_ro_buf().size() > sizeof(float));
-            GGML_ASSERT(bitmap->get_ro_buf().size() % sizeof(float) == 0);
 
             // preprocess audio
             std::vector<mtmd_audio_mel> mel_spec_chunks;
-            const float * samples = (const float *)bitmap->get_ro_buf().data();
-            size_t n_samples = bitmap->get_ro_buf().size() / sizeof(float);
-            bool ok = ctx->audio_preproc->preprocess(samples, n_samples, mel_spec_chunks);
-            if (!ok) {
-                LOG_ERR("Unable to preprocess audio\n");
-                return 2;
+            {
+                std::vector<float> dummy;
+                const float * samples = nullptr;
+                size_t n_samples = 0;
+                if (bitmap->is_placeholder()) {
+                    // TODO @ngxson : skip underlay processing if bitmap is placeholder
+                    GGML_ASSERT(bitmap->ny == 1);
+
+                    dummy.resize(bitmap->nx);
+                    samples = dummy.data();
+                    n_samples = dummy.size();
+                } else {
+                    const auto & buf = bitmap->get_ro_buf();
+                    GGML_ASSERT(buf.size() > sizeof(float));
+                    GGML_ASSERT(buf.size() % sizeof(float) == 0);
+
+                    samples = (const float *)buf.data();
+                    n_samples = buf.size() / sizeof(float);
+                }
+                bool ok = ctx->audio_preproc->preprocess(samples, n_samples, mel_spec_chunks);
+                if (!ok) {
+                    LOG_ERR("Unable to preprocess audio\n");
+                    return 2;
+                }
             }
 
             // consider each mel_spec as a separate audio chunk
@@ -991,7 +1018,7 @@ struct mtmd_tokenizer {
                 clip_image_f32_ptr mel_f32(clip_image_f32_init());
                 mel_f32->set_size(
                     {mel_spec.n_len, mel_spec.n_mel},
-                    is_placeholder);
+                    is_placeholder, /* is_audio */ true);
                 mel_f32->cpy_buf(mel_spec.data);
 
                 size_t n_tokens = clip_n_output_tokens(ctx->ctx_a, mel_f32.get());
@@ -1249,8 +1276,9 @@ mtmd_bitmap * mtmd_bitmap_init(uint32_t nx,
 
 mtmd_bitmap * mtmd_bitmap_init_from_audio(size_t n_samples,
                                           const float * data) {
-    mtmd_bitmap * bitmap = new mtmd_bitmap((const unsigned char *)data, n_samples, 1);
-    bitmap->is_audio = true;
+    mtmd_bitmap * bitmap = new mtmd_bitmap((const unsigned char *)data, n_samples);
+    GGML_ASSERT(bitmap->is_audio);
+    GGML_ASSERT(bitmap->get_ro_buf().size() == n_samples * sizeof(float));
     return bitmap;
 }
 
@@ -1568,7 +1596,7 @@ void mtmd_debug_encode_image(mtmd_context * ctx, const std::vector<std::vector<f
         img_buf.insert(img_buf.end(), row.begin(), row.end());
     }
     clip_image_f32 inp_image;
-    inp_image.set_size({img_sz, img_sz}, false);
+    inp_image.set_size({img_sz, img_sz}, false, false);
     inp_image.cpy_buf(img_buf);
     LOG_INF("%s: created input image with nx=%d, ny=%d\n", __func__, img_sz, img_sz);
     mtmd_debug_encode_impl(ctx, ctx->ctx_v, inp_image);
@@ -1588,7 +1616,7 @@ void mtmd_debug_encode_audio(mtmd_context * ctx, const std::vector<float> & inpu
         }
     }
     clip_image_f32 inp_audio;
-    inp_audio.set_size({audio_nx, n_mel}, false);
+    inp_audio.set_size({audio_nx, n_mel}, false, true);
     inp_audio.cpy_buf(audio_buf);
     LOG_INF("%s: created input audio with nx=%d, ny=%d\n", __func__, audio_nx, n_mel);
     mtmd_debug_encode_impl(ctx, ctx->ctx_a, inp_audio);

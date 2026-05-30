@@ -493,13 +493,17 @@ struct clip_image_f32 {
     int nx() const { return nx_; }
     int ny() const { return ny_; }
 
-    void set_size(clip_image_size size, bool is_placeholder) {
+    void set_size(clip_image_size size, bool is_placeholder, bool is_audio) {
         nx_ = size.width;
         ny_ = size.height;
         if (is_placeholder) {
             buf.clear();
         } else {
-            buf.resize((size_t) nx_ * (size_t) ny_ * 3);
+            if (is_audio) {
+                buf.resize((size_t) nx_ * (size_t) ny_);
+            } else {
+                buf.resize((size_t) nx_ * (size_t) ny_ * 3);
+            }
         }
     }
 

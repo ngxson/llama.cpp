@@ -1262,7 +1262,7 @@ void mtmd_image_preprocessor_step3vl::img_u8_resize_bilinear_to_f32(
         return;
     }
 
-    dst.set_size({target_width, target_height}, false);
+    dst.set_size({target_width, target_height}, false, false);
 
     if (src.is_placeholder()) {
         // no-op for placeholder image, just set the size and return
