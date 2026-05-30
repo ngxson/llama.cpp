@@ -4,6 +4,7 @@
 #include "gguf.h"
 #include "clip.h"
 
+#include <array>
 #include <climits>
 #include <cstdarg>
 #include <cinttypes>
