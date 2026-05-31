@@ -284,7 +284,7 @@ void server_models::notify_sse(const std::string & event, const std::string & mo
         {"model", model_id},
         {"event", event},
     };
-    if (data != nullptr) {
+    if (!data.is_null()) {
         result->data["data"] = data;
     }
     SRV_DBG("notifying SSE clients about event '%s' for model '%s': %s\n", event.c_str(), model_id.c_str(), safe_json_to_str(result->data).c_str());
@@ -984,6 +984,7 @@ void server_models::update_status(const std::string & name, server_model_status 
         if (status == SERVER_MODEL_STATUS_UNLOADED) {
             data["exit_code"] = exit_code;
         }
+        // note: notify_sse doesn't acquire the lock, so no deadlock here
         notify_sse("status_change", name, data);
     }
     cv.notify_all();
@@ -1380,9 +1381,9 @@ void server_models_routes::init_routes() {
         auto res = std::make_unique<server_http_res>();
         res->status = 200;
         res->content_type = "text/event-stream";
-        res->next = [this, res_this = res.get(), &req](std::string & output) -> bool {
-            server_models_sse_client sse_client(models.sse);
-            auto result = sse_client.next([&]() {
+        auto sse_client = std::make_shared<server_models_sse_client>(models.sse);
+        res->next = [this, sse_client, &req](std::string & output) -> bool {
+            auto result = sse_client->next([&]() {
                 return stopping.load(std::memory_order_relaxed) || req.should_stop();
             });
             if (result == nullptr) {

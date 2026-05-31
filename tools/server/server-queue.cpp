@@ -335,9 +335,9 @@ void server_response::broadcast(server_task_result_ptr && result) {
     std::unique_lock<std::mutex> lock(mutex_results);
     for (const auto & id_task : waiting_task_ids) {
         RES_DBG("task id = %d pushed to result queue\n", id_task);
-        auto * res_copy = result->clone();
+        server_task_result_ptr res_copy(result->clone());
         res_copy->id = id_task; // override id with target task id
-        queue_results.emplace_back(res_copy);
+        queue_results.emplace_back(std::move(res_copy));
     }
     condition_results.notify_all();
 }

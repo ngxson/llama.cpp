@@ -251,6 +251,7 @@ int llama_server(int argc, char ** argv) {
         clean_up = [&models_routes]() {
             SRV_INF("%s: cleaning up before exit...\n", __func__);
             if (models_routes.has_value()) {
+                models_routes->stopping.store(true); // maybe redundant, but just to be safe
                 models_routes->models.unload_all();
             }
             llama_backend_free();
