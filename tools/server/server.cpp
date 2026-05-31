@@ -171,6 +171,7 @@ int llama_server(int argc, char ** argv) {
 
         ctx_http.post("/models/load",          ex_wrapper(models_routes->post_router_models_load));
         ctx_http.post("/models/unload",        ex_wrapper(models_routes->post_router_models_unload));
+        ctx_http.get ("/models/sse",           ex_wrapper(models_routes->get_router_models_sse));
     }
 
     ctx_http.get ("/health",                   ex_wrapper(routes.get_health)); // public endpoint (no API key check)
@@ -263,6 +264,10 @@ int llama_server(int argc, char ** argv) {
         ctx_http.is_ready.store(true);
 
         shutdown_handler = [&](int) {
+            if (models_routes.has_value()) {
+                // important to disconnect any SSE clients
+                models_routes->stopping.store(true);
+            }
             ctx_http.stop();
         };
 

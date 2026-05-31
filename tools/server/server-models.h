@@ -4,6 +4,7 @@
 #include "preset.h"
 #include "server-common.h"
 #include "server-http.h"
+#include "server-queue.h"
 
 #include <mutex>
 #include <condition_variable>
@@ -122,8 +123,13 @@ private:
     // not thread-safe, caller must hold mutex
     void add_model(server_model_meta && meta);
 
+    // notify SSE clients
+    void notify_sse(const std::string & event, const std::string & model_id, const json & data = nullptr);
+
 public:
     server_models(const common_params & params, int argc, char ** argv);
+
+    server_response sse; // for real-time updates via SSE endpoint
 
     // (re-)load the list of models from various sources and prepare the metadata mapping
     // - if this is called the first time, simply populate the metadata
@@ -176,8 +182,9 @@ public:
 
 struct server_models_routes {
     common_params params;
-    json ui_settings = json::object();          // Primary: new name
-    json webui_settings = json::object();        // Deprecated: use ui_settings (kept for compat)
+    json ui_settings = json::object();     // Primary: new name
+    json webui_settings = json::object();  // Deprecated: use ui_settings (kept for compat)
+    std::atomic<bool> stopping = false;    // for graceful disconnecting SSE clients during shutdown
     server_models models;
     server_models_routes(const common_params & params, int argc, char ** argv)
             : params(params), models(params, argc, argv) {
@@ -208,7 +215,7 @@ struct server_models_routes {
     server_http_context::handler_t post_router_models_unload;
     // management API
     server_http_context::handler_t get_router_models_sse;
-    server_http_context::handler_t post_router_models_add;
+    // server_http_context::handler_t post_router_models_add;
 };
 
 /**

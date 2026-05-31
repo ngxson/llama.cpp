@@ -278,6 +278,19 @@ void server_models::add_model(server_model_meta && meta) {
     };
 }
 
+void server_models::notify_sse(const std::string & event, const std::string & model_id, const json & data) {
+    std::unique_ptr<server_task_result_router> result = std::make_unique<server_task_result_router>();
+    result->data = {
+        {"model", model_id},
+        {"event", event},
+    };
+    if (data != nullptr) {
+        result->data["data"] = data;
+    }
+    SRV_DBG("notifying SSE clients about event '%s' for model '%s': %s\n", event.c_str(), model_id.c_str(), safe_json_to_str(result->data).c_str());
+    sse.broadcast(std::move(result));
+}
+
 void server_models::load_models() {
     // Phase 1: load presets from all sources — pure I/O, no lock needed
     // 1. cached models
@@ -905,6 +918,10 @@ void server_models::load(const std::string & name) {
         }
     }
 
+    notify_sse("status_update", name, {
+        {"status", server_model_status_to_string(inst.meta.status)},
+    });
+
     mapping[name] = std::move(inst);
     cv.notify_all();
 }
@@ -958,6 +975,16 @@ void server_models::update_status(const std::string & name, server_model_status 
         auto & meta = it->second.meta;
         meta.status    = status;
         meta.exit_code = exit_code;
+    }
+    // broadcast status change to SSE
+    {
+        json data = {
+            {"status", server_model_status_to_string(status)},
+        };
+        if (status == SERVER_MODEL_STATUS_UNLOADED) {
+            data["exit_code"] = exit_code;
+        }
+        notify_sse("status_change", name, data);
     }
     cv.notify_all();
 }
@@ -1110,6 +1137,42 @@ void server_models::notify_router_sleeping_state(bool is_sleeping) {
 //
 // server_models_routes
 //
+
+// RAII wrapper similar to server_response_reader, but doesn't use server_queue
+static std::atomic<int> sse_client_id_counter = 0;
+struct server_models_sse_client {
+    server_response & queue_results;
+    int client_id;
+    server_models_sse_client(server_response & q)
+            : queue_results(q), client_id(sse_client_id_counter.fetch_add(1, std::memory_order_relaxed)) {
+        SRV_DBG("new SSE client connected, assigned client_id=%d\n", client_id);
+        queue_results.add_waiting_task_id(client_id);
+    }
+    ~server_models_sse_client() {
+        SRV_DBG("SSE client disconnected, removing client_id=%d\n", client_id);
+        queue_results.remove_waiting_task_id(client_id);
+    }
+
+    // return nullptr if should_stop() is true before receiving a result
+    // note: if one error is received, it will stop further processing and return error result
+    server_task_result_ptr next(const std::function<bool()> & should_stop) {
+        while (true) {
+            static const int http_polling_seconds = 1; // check should_stop every 1 second
+            server_task_result_ptr result = queue_results.recv_with_timeout({client_id}, http_polling_seconds);
+            if (result == nullptr) {
+                // timeout, check stop condition
+                if (should_stop()) {
+                    return nullptr;
+                }
+                // continue waiting otherwise
+            } else {
+                SRV_DBG("recv result for client_id=%d: %s\n", client_id, safe_json_to_str(result->to_json()).c_str());
+                return result;
+            }
+        }
+        // should not reach here
+    }
+};
 
 static void res_ok(std::unique_ptr<server_http_res> & res, const json & response_data) {
     res->status = 200;
@@ -1310,6 +1373,24 @@ void server_models_routes::init_routes() {
         }
         models.unload(model->name);
         res_ok(res, {{"success", true}});
+        return res;
+    };
+
+    this->get_router_models_sse = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_http_res>();
+        res->status = 200;
+        res->content_type = "text/event-stream";
+        res->next = [this, res_this = res.get(), &req](std::string & output) -> bool {
+            server_models_sse_client sse_client(models.sse);
+            auto result = sse_client.next([&]() {
+                return stopping.load(std::memory_order_relaxed) || req.should_stop();
+            });
+            if (result == nullptr) {
+                return false; // client disconnected or should_stop
+            }
+            output = "data: " + safe_json_to_str(result->to_json()) + "\n\n";
+            return true; // listen for the next event
+        };
         return res;
     };
 }
