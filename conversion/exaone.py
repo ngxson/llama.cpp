@@ -210,6 +210,7 @@ class ExaoneMoEModel(Exaone4Model):
             if len(experts) > 0:
                 raise ValueError(f"Unprocessed experts: {experts}")
 
+
 @ModelBase.register("Exaone4_5_ForConditionalGeneration")
 class Exaone4_5_TextModel(Exaone4Model):
     """Text tower of EXAONE 4.5; Tensors match EXAONE4"""
