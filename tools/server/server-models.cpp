@@ -914,7 +914,7 @@ void server_models::load(const std::string & name) {
     {
         auto & old_instance = mapping[name];
         // old process should have exited already, but just in case, we clean it up here
-        if (subprocess_alive(old_instance.subproc->sproc)) {
+        if (old_instance.subproc->sproc && subprocess_alive(old_instance.subproc->sproc)) {
             SRV_WRN("old process for model name=%s is still alive, this is unexpected\n", name.c_str());
             subprocess_terminate(old_instance.subproc->sproc); // force kill
         }
@@ -987,9 +987,11 @@ void server_models::download(common_params_model && model, common_download_opts 
         return sp->stop_download.load(std::memory_order_relaxed);
     };
 
-    dl.on_finish = [this, name](bool) {
-        update_download_progress(name, {}, true);
-        load_models(); // refresh the model list
+    dl.on_finish = [this, name](bool ok) {
+        update_download_progress(name, {}, true, ok);
+        if (ok) {
+            load_models(); // refresh the model list
+        }
     };
 
     dl.on_progress = [this, name](const common_download_progress & p) {
@@ -1000,12 +1002,11 @@ void server_models::download(common_params_model && model, common_download_opts 
         dl.opts.callback = &dl;
         dl.run();
     });
-    inst.th.detach();
 
+    mapping[name] = std::move(inst);
     notify_sse("status_update", name, {
         {"status", server_model_status_to_string(SERVER_MODEL_STATUS_DOWNLOADING)},
     });
-    mapping[name] = std::move(inst);
     cv.notify_all();
 }
 
@@ -1103,7 +1104,7 @@ void server_models::update_loaded_info(const std::string & name, std::string & r
     cv.notify_all();
 }
 
-void server_models::update_download_progress(const std::string & name, const common_download_progress & progress, bool done) {
+void server_models::update_download_progress(const std::string & name, const common_download_progress & progress, bool done, bool ok) {
     json curr;
     {
         std::lock_guard<std::mutex> lk(mutex);
@@ -1122,7 +1123,7 @@ void server_models::update_download_progress(const std::string & name, const com
         }
     }
     if (done) {
-        notify_sse("download_finished", name, {});
+        notify_sse(ok ? "download_finished" : "download_failed", name, {});
     } else {
         notify_sse("download_progress", name, curr);
     }

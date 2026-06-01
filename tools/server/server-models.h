@@ -158,7 +158,7 @@ public:
     // update the status of a model instance (thread-safe)
     void update_status(const std::string & name, server_model_status status, int exit_code);
     void update_loaded_info(const std::string & name, std::string & raw_info);
-    void update_download_progress(const std::string & name, const common_download_progress & progress, bool done);
+    void update_download_progress(const std::string & name, const common_download_progress & progress, bool done, bool ok = true);
 
     // wait until the model instance is fully loaded (thread-safe)
     // return when the model no longer in "loading" state
