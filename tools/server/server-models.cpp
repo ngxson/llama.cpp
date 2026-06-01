@@ -1114,7 +1114,11 @@ void server_models::update_download_progress(const std::string & name, const com
                 // remove it from mapping
                 mapping.erase(it);
             } else {
-                it->second.meta.loaded_info[progress.url] = {
+                json & info = it->second.meta.loaded_info;
+                if (!info.contains("progress")) {
+                    info["progress"] = json{};
+                }
+                info["progress"][progress.url] = {
                     {"done",  progress.downloaded},
                     {"total", progress.total},
                 };

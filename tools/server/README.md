@@ -1726,6 +1726,20 @@ The `status` object can be:
 }
 ```
 
+Note: for "downloading" state, there can be multiple files be downloading in parallel
+
+```json
+"status": {
+  "value": "downloading",
+  "progress": {
+    "https://...model.gguf": {
+      "done": 195963406,
+      "total": 219307424
+    }
+  }
+}
+```
+
 ### POST `/models/load`: Load a model
 
 Load a model
@@ -1759,6 +1773,74 @@ Payload:
   "model": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M",
 }
 ```
+
+Response:
+
+```json
+{
+  "success": true
+}
+```
+
+### GET `/models/sse`: Real-time events
+
+Example events:
+
+```js
+{
+  "model" :"...",
+  "event":"status_update",
+  "data": {
+    "status":"loading"
+  }
+}
+
+{
+  "model" :"...",
+  "event": "download_progress",
+  "data": {
+    // note: there can be multiple files being downloaded in parallel
+    "https://...model.gguf": {
+      "done": 195963406,
+      "total": 219307424
+    }
+  }
+}
+
+{
+  "model" :"...",
+  "event":"download_finished",
+  "data": {
+    "status":"loading"
+  }
+}
+```
+
+### POST `/models`: Download new model
+
+Trigger a new download (non-blocking), the progress can be tracked via SSE endpoint `/models/sse`
+
+Payload:
+
+```json
+{
+  "model": "ggml-org/gemma-3-4b-it-GGUF:Q4_K_M",
+}
+```
+
+Response:
+
+```json
+{
+  "success": true
+}
+```
+
+### DELETE `/models`: Delete a model from cache
+
+IMPORTANT: only model stored in cache can be deleted. You cannot delete models in a preset.
+
+Model name must be passed via query param: `?model={name}`
 
 Response:
 

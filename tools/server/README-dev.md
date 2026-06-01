@@ -182,7 +182,7 @@ That requires `JSON.stringify` when formatted to message content:
 
 ### Model management API (router mode)
 
-Model management API was added via PR #...
+Model management API was added via PR [#23976](https://github.com/ggml-org/llama.cpp/pull/23976)
 
 The main goal of this API is to allow downloading models and/or removing models from the web UI. It relies on the model cache infrastructure under the hood to manage the list of models dynamically.
 
