@@ -397,7 +397,7 @@ void server_models::load_models() {
                 /* exit_code     */ 0,
                 /* stop_timeout  */ DEFAULT_STOP_TIMEOUT,
                 /* multimodal    */ mtmd_caps{false, false},
-                /* need_download */ false,
+                // /* need_download */ false,
             };
             add_model(std::move(meta));
         }
@@ -551,7 +551,7 @@ void server_models::load_models() {
                     /* exit_code     */ 0,
                     /* stop_timeout  */ DEFAULT_STOP_TIMEOUT,
                     /* multimodal    */ mtmd_caps{false, false},
-                    /* need_download */ false,
+                    // /* need_download */ false,
                 };
                 add_model(std::move(meta));
                 newly_added.push_back(name);
@@ -1175,6 +1175,48 @@ struct server_models_sse_client {
     }
 };
 
+// callback for model downloading functionality
+struct server_models_download_res : public common_download_callback, server_http_res {
+    friend class server_models;
+
+    common_params_model model;
+    common_download_opts opts;
+
+    std::function<bool()> should_stop;
+    std::function<void(const common_download_progress & p)> on_progress;
+    std::function<void()> on_error;
+
+    // trick: since we want to return early here, we set the response and do the download in the destructor of server_models_download_res, which is guaranteed to be called after the response is sent
+    ~server_models_download_res() {
+        opts.callback = this;
+        try {
+            common_download_model(model, opts);
+        } catch (const std::exception & e) {
+            SRV_ERR("model download failed for model %s: %s\n", model.name.c_str(), e.what());
+            on_error();
+        } catch (...) {
+            SRV_ERR("model download failed for model %s with unknown error\n", model.name.c_str());
+            on_error();
+        }
+    }
+    void on_start(const common_download_progress & p) override {
+        on_progress(p);
+    }
+    void on_update(const common_download_progress & p) override {
+        on_progress(p);
+    }
+    void on_done(const common_download_progress & p, bool ok) override {
+        if (!ok) {
+            on_error();
+        } else {
+            on_progress(p);
+        }
+    }
+    bool is_cancelled() const override {
+        return should_stop();
+    }
+};
+
 static void res_ok(std::unique_ptr<server_http_res> & res, const json & response_data) {
     res->status = 200;
     res->data = safe_json_to_str(response_data);
@@ -1338,7 +1380,7 @@ void server_models_routes::init_routes() {
                 {"created",       t},          // for OAI-compat
                 {"status",        status},
                 {"architecture",  architecture},
-                {"need_download", meta.need_download},
+                // {"need_download", meta.need_download},
                 // TODO: add other fields, may require reading GGUF metadata
             };
 
@@ -1392,6 +1434,42 @@ void server_models_routes::init_routes() {
             output = "data: " + safe_json_to_str(result->to_json()) + "\n\n";
             return true; // listen for the next event
         };
+        return res;
+    };
+
+    this->post_router_models = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_models_download_res>();
+
+        json body = json::parse(req.body);
+        std::string hf_repo = json_value(body, "hf_repo", std::string());
+        if (hf_repo.empty()) {
+            throw std::invalid_argument("hf_repo must be a non-empty string");
+        }
+
+        res->model.hf_repo        = hf_repo;
+        res->opts.bearer_token    = params.hf_token;
+        res->opts.download_mmproj = true;
+        res->opts.download_mtp    = true;
+
+        // first, only check if the model is valid and can be downloaded
+        bool is_ok = false;
+        res->opts.skip_download = true;
+        try {
+            common_download_model(res->model, res->opts);
+        } catch (const common_skip_download_exception &) {
+            // model is invalid
+            auto err = std::make_unique<server_http_res>();
+            res_err(err, format_error_response("model is not found or cannot be downloaded", ERROR_TYPE_NOT_FOUND));
+            return err;
+        } catch (...) {
+            // other exceptions will be handled by the outer ex_wrapper()
+            throw;
+        }
+
+        // then, proceed with the actual download
+        res->opts.skip_download = false;
+        res->status = 200;
+
         return res;
     };
 }

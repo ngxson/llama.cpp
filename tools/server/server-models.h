@@ -15,6 +15,9 @@
 /**
  * state diagram:
  *
+ * DOWNLOADING
+ *  |
+ *  ▼
  * UNLOADED ──► LOADING ──► LOADED ◄──── SLEEPING
  *  ▲            │            │               ▲
  *  └───failed───┘            │               │
@@ -23,35 +26,21 @@
  */
 enum server_model_status {
     // TODO: also add downloading state when the logic is added
+    SERVER_MODEL_STATUS_DOWNLOADING,
     SERVER_MODEL_STATUS_UNLOADED,
     SERVER_MODEL_STATUS_LOADING,
     SERVER_MODEL_STATUS_LOADED,
     SERVER_MODEL_STATUS_SLEEPING
 };
 
-static server_model_status server_model_status_from_string(const std::string & status_str) {
-    if (status_str == "unloaded") {
-        return SERVER_MODEL_STATUS_UNLOADED;
-    }
-    if (status_str == "loading") {
-        return SERVER_MODEL_STATUS_LOADING;
-    }
-    if (status_str == "loaded") {
-        return SERVER_MODEL_STATUS_LOADED;
-    }
-    if (status_str == "sleeping") {
-        return SERVER_MODEL_STATUS_SLEEPING;
-    }
-    throw std::runtime_error("invalid server model status");
-}
-
 static std::string server_model_status_to_string(server_model_status status) {
     switch (status) {
-        case SERVER_MODEL_STATUS_UNLOADED: return "unloaded";
-        case SERVER_MODEL_STATUS_LOADING:  return "loading";
-        case SERVER_MODEL_STATUS_LOADED:   return "loaded";
-        case SERVER_MODEL_STATUS_SLEEPING: return "sleeping";
-        default:                           return "unknown";
+        case SERVER_MODEL_STATUS_DOWNLOADING: return "downloading";
+        case SERVER_MODEL_STATUS_UNLOADED:    return "unloaded";
+        case SERVER_MODEL_STATUS_LOADING:     return "loading";
+        case SERVER_MODEL_STATUS_LOADED:      return "loaded";
+        case SERVER_MODEL_STATUS_SLEEPING:    return "sleeping";
+        default:                              return "unknown";
     }
 }
 
@@ -68,7 +57,7 @@ struct server_model_meta {
     int exit_code = 0; // exit code of the model instance process (only valid if status == FAILED)
     int stop_timeout = 0; // seconds to wait before force-killing the model instance during shutdown
     mtmd_caps multimodal; // multimodal capabilities
-    bool need_download = false; // whether the model needs to be downloaded before loading
+    // bool need_download = false; // whether the model needs to be downloaded before loading // TODO @ngxson: implement this
 
     bool is_ready() const {
         return status == SERVER_MODEL_STATUS_LOADED;
@@ -87,8 +76,11 @@ struct server_model_meta {
 };
 
 struct subprocess_s;
+struct server_models_routes;
 
 struct server_models {
+    friend struct server_models_routes;
+
 private:
     struct instance_t {
         std::shared_ptr<subprocess_s> subproc; // shared between main thread and monitoring thread
@@ -153,6 +145,10 @@ public:
     void unload(const std::string & name);
     void unload_all();
 
+    // download a new model, progress is reported via SSE
+    // to stop the download, call unload()
+    void download(common_params_model && model, common_download_opts && opts);
+
     // update the status of a model instance (thread-safe)
     void update_status(const std::string & name, server_model_status status, int exit_code);
     void update_loaded_info(const std::string & name, std::string & raw_info);
@@ -215,7 +211,8 @@ struct server_models_routes {
     server_http_context::handler_t post_router_models_unload;
     // management API
     server_http_context::handler_t get_router_models_sse;
-    // server_http_context::handler_t post_router_models_add;
+    server_http_context::handler_t post_router_models;
+    server_http_context::handler_t del_router_models;
 };
 
 /**
