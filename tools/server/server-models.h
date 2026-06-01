@@ -1,6 +1,7 @@
 #pragma once
 
 #include "common.h"
+#include "download.h"
 #include "preset.h"
 #include "server-common.h"
 #include "server-http.h"
@@ -53,7 +54,7 @@ struct server_model_meta {
     server_model_status status = SERVER_MODEL_STATUS_UNLOADED;
     int64_t last_used = 0; // for LRU unloading
     std::vector<std::string> args; // args passed to the model instance, will be populated by render_args()
-    json loaded_info; // info to be reflected via /v1/models endpoint
+    json loaded_info; // info to be reflected via /v1/models endpoint ; if in DOWNLOADING state, it should contain download progress info
     int exit_code = 0; // exit code of the model instance process (only valid if status == FAILED)
     int stop_timeout = 0; // seconds to wait before force-killing the model instance during shutdown
     mtmd_caps multimodal; // multimodal capabilities
@@ -78,12 +79,17 @@ struct server_model_meta {
 struct subprocess_s;
 struct server_models_routes;
 
+struct server_subproc {
+    subprocess_s * sproc = nullptr; // note: if sproc is nullptr, we are downloading the model file
+    std::atomic<bool> stop_download{false}; // flag to signal download cancellation, checked by the download callback
+};
+
 struct server_models {
     friend struct server_models_routes;
 
 private:
     struct instance_t {
-        std::shared_ptr<subprocess_s> subproc; // shared between main thread and monitoring thread
+        std::shared_ptr<server_subproc> subproc; // shared between main thread and monitoring thread
         std::thread th;
         server_model_meta meta;
         FILE * stdin_file = nullptr;
@@ -152,6 +158,7 @@ public:
     // update the status of a model instance (thread-safe)
     void update_status(const std::string & name, server_model_status status, int exit_code);
     void update_loaded_info(const std::string & name, std::string & raw_info);
+    void update_download_progress(const std::string & name, const common_download_progress & progress, bool done);
 
     // wait until the model instance is fully loaded (thread-safe)
     // return when the model no longer in "loading" state
