@@ -1431,7 +1431,7 @@ See [OpenAI Embeddings API documentation](https://platform.openai.com/docs/api-r
 
 ### POST `/v1/responses/input_tokens`: Token Counting
 
-Similar to [Response input token counts API](https://developers.openai.com/api/reference/python/resources/responses/subresources/input_tokens/methods/count)
+Similar to [Response input token counts API](https://developers.openai.com/api/reference/python/resources/responses/subresources/input_tokens/methods/count).
 
 Example response:
 
@@ -1444,7 +1444,9 @@ Example response:
 
 ### POST `/v1/chat/completions/input_tokens`: Token Counting
 
-Similar to [Response input token counts API](https://developers.openai.com/api/reference/python/resources/responses/subresources/input_tokens/methods/count), but accepts a chat completion body as input
+Similar to [Response input token counts API](https://developers.openai.com/api/reference/python/resources/responses/subresources/input_tokens/methods/count), but accepts a chat completion body as input.
+
+Note: This is not an official OAI endpoint, but is added for completeness and convenience.
 
 Example response:
 
