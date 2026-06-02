@@ -317,19 +317,27 @@ void server_models::load_models() {
 
     // note: if a model exists in both cached and local, local takes precedence
     common_presets final_presets;
-    for (const auto & [name, preset] : cached_models) final_presets[name] = preset;
-    for (const auto & [name, preset] : local_models)  final_presets[name] = preset;
+    std::unordered_map<std::string, server_model_source> source_map;
+    for (const auto & [name, preset] : cached_models) {
+        final_presets[name] = preset;
+        source_map[name] = SERVER_MODEL_SOURCE_CACHE;
+    }
+    for (const auto & [name, preset] : local_models)  {
+        final_presets[name] = preset;
+        source_map[name] = SERVER_MODEL_SOURCE_MODELS_DIR;
+    }
     for (const auto & [name, custom] : custom_presets) {
         if (final_presets.find(name) != final_presets.end()) {
             final_presets[name].merge(custom);
         } else {
             final_presets[name] = custom;
         }
+        source_map[name] = SERVER_MODEL_SOURCE_PRESET;
     }
-    // server base preset from CLI args takes highest precedence
-    for (auto & [name, preset] : final_presets) {
-        preset.merge(base_preset);
-    }
+
+    auto get_source = [&](const std::string & name) {
+        return source_map.count(name) ? source_map.at(name) : SERVER_MODEL_SOURCE_PRESET;
+    };
 
     // Helpers that read `mapping` — must be called while holding the lock.
     std::unordered_set<std::string> custom_names;
@@ -385,6 +393,7 @@ void server_models::load_models() {
         // FIRST LOAD: add all models, then unlock for autoloading
         for (const auto & [name, preset] : final_presets) {
             server_model_meta meta{
+                /* source        */ get_source(name),
                 /* preset        */ preset,
                 /* name          */ name,
                 /* aliases       */ {},
@@ -544,6 +553,7 @@ void server_models::load_models() {
         for (const auto & [name, preset] : final_presets) {
             if (mapping.find(name) == mapping.end()) {
                 server_model_meta meta{
+                    /* source        */ get_source(name),
                     /* preset        */ preset,
                     /* name          */ name,
                     /* aliases       */ {},
@@ -1133,12 +1143,43 @@ void server_models::update_download_progress(const std::string & name, const com
     }
 }
 
-void server_models::wait_until_loading_finished(const std::string & name) {
+bool server_models::remove(const std::string & name) {
+    auto meta = get_meta(name);
+
+    if (!meta.has_value()) {
+        throw std::runtime_error("model name=" + name + " is not found");
+    }
+    if (meta->source != SERVER_MODEL_SOURCE_CACHE) {
+        throw std::runtime_error("model name=" + name + " is not removable (not from cache)");
+    }
+
+    unload(name); // ensure it's not running
+    {
+        std::unique_lock<std::mutex> lk(mutex);
+        wait(lk, name, [](const server_model_meta & new_meta) {
+            return new_meta.status == SERVER_MODEL_STATUS_UNLOADED;
+        });
+        // remove the model from disk (hold lock to prevent concurrent load)
+        bool ok = common_download_remove(name);
+        if (ok) {
+            mapping.erase(name);
+        }
+        SRV_INF("removing model name=%s from cache (%s)\n", name.c_str(), ok ? "succeeded" : "failed");
+        return ok;
+    }
+}
+
+void server_models::wait(const std::string & name, std::function<bool(const server_model_meta &)> predicate) {
     std::unique_lock<std::mutex> lk(mutex);
-    cv.wait(lk, [this, &name]() {
+    wait(lk, name, predicate);
+}
+
+void server_models::wait(std::unique_lock<std::mutex> & lk, const std::string & name, std::function<bool(const server_model_meta &)> predicate) {
+    cv.wait(lk, [this, &name, &predicate]() {
         auto it = mapping.find(name);
         if (it != mapping.end()) {
-            return it->second.meta.status != SERVER_MODEL_STATUS_LOADING;
+            return predicate(it->second.meta);
+
         }
         return false;
     });
@@ -1162,10 +1203,15 @@ bool server_models::ensure_model_ready(const std::string & name) {
 
     // wait for loading to complete
     SRV_INF("waiting until model name=%s is fully loaded...\n", name.c_str());
-    wait_until_loading_finished(name);
+    wait(name, [&meta](const server_model_meta & new_meta) {
+        if (new_meta.status != SERVER_MODEL_STATUS_LOADING) {
+            meta = new_meta; // update meta for final check after wait
+            return true;
+        }
+        return false;
+    });
 
     // check final status
-    meta = get_meta(name);
     if (!meta.has_value() || meta->is_failed()) {
         throw std::runtime_error("model name=" + name + " failed to load");
     }
@@ -1458,6 +1504,8 @@ void server_models_routes::init_routes() {
                 {"created",       t},          // for OAI-compat
                 {"status",        status},
                 {"architecture",  architecture},
+                {"source",        server_model_source_to_string(meta.source)},
+                {"can_remove",    meta.source == SERVER_MODEL_SOURCE_CACHE},
                 // {"need_download", meta.need_download},
                 // TODO: add other fields, may require reading GGUF metadata
             };
@@ -1556,6 +1604,23 @@ void server_models_routes::init_routes() {
         opts.skip_download = false;
         SRV_INF("starting download for model '%s'\n", name.c_str());
         models.download(std::move(model), std::move(opts));
+
+        res_ok(res, {{"success", true}});
+        return res;
+    };
+
+    this->del_router_models = [this](const server_http_req & req) {
+        auto res = std::make_unique<server_http_res>();
+
+        std::string name = req.get_param("model");
+        if (name.empty()) {
+            throw std::invalid_argument("model must be a non-empty string");
+        }
+
+        bool ok = models.remove(name);
+        if (!ok) {
+            throw std::runtime_error("failed to remove model '" + name + "'");
+        }
 
         res_ok(res, {{"success", true}});
         return res;

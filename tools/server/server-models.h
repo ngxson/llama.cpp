@@ -34,6 +34,12 @@ enum server_model_status {
     SERVER_MODEL_STATUS_SLEEPING
 };
 
+enum server_model_source {
+    SERVER_MODEL_SOURCE_PRESET,
+    SERVER_MODEL_SOURCE_MODELS_DIR,
+    SERVER_MODEL_SOURCE_CACHE,
+};
+
 static std::string server_model_status_to_string(server_model_status status) {
     switch (status) {
         case SERVER_MODEL_STATUS_DOWNLOADING: return "downloading";
@@ -45,7 +51,17 @@ static std::string server_model_status_to_string(server_model_status status) {
     }
 }
 
+static std::string server_model_source_to_string(server_model_source source) {
+    switch (source) {
+        case SERVER_MODEL_SOURCE_PRESET:     return "preset";
+        case SERVER_MODEL_SOURCE_MODELS_DIR: return "models_dir";
+        case SERVER_MODEL_SOURCE_CACHE:      return "cache";
+        default:                             return "unknown";
+    }
+}
+
 struct server_model_meta {
+    server_model_source source;
     common_preset preset;
     std::string name;
     std::set<std::string> aliases; // additional names that resolve to this model
@@ -160,9 +176,15 @@ public:
     void update_loaded_info(const std::string & name, std::string & raw_info);
     void update_download_progress(const std::string & name, const common_download_progress & progress, bool done, bool ok = true);
 
+    // remove a cache model from disk and update the list (thread-safe)
+    // note: only cache models can be removed; returns false if the model doesn't exist or is not a cache model
+    bool remove(const std::string & name);
+
     // wait until the model instance is fully loaded (thread-safe)
+    // note: predicate is called while holding the lock
     // return when the model no longer in "loading" state
-    void wait_until_loading_finished(const std::string & name);
+    void wait(const std::string & name, std::function<bool(const server_model_meta &)> predicate);
+    void wait(std::unique_lock<std::mutex> & lk, const std::string & name, std::function<bool(const server_model_meta &)> predicate);
 
     // ensure the model is in ready state (thread-safe)
     // return false if model is ready
