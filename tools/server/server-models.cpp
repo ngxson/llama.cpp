@@ -9,6 +9,7 @@
 #include <sheredom/subprocess.h>
 
 #include <functional>
+#include <optional>
 #include <algorithm>
 #include <thread>
 #include <mutex>
@@ -50,6 +51,17 @@ extern char **environ;
 // address for child process, this is needed because router may run on 0.0.0.0
 // ref: https://github.com/ggml-org/llama.cpp/issues/17862
 #define CHILD_ADDR "127.0.0.1"
+
+struct server_subproc {
+    std::optional<subprocess_s> sproc; // empty while in DOWNLOADING state
+    std::atomic<bool> stop_download{false}; // flag to signal download cancellation
+
+    subprocess_s & get() {
+        GGML_ASSERT(sproc.has_value() && "subprocess not initialized");
+        return sproc.value();
+    }
+};
+
 
 static std::filesystem::path get_server_exec_path() {
 #if defined(_WIN32)
@@ -292,8 +304,6 @@ void server_models::notify_sse(const std::string & event, const std::string & mo
 }
 
 void server_models::load_models() {
-    need_reload = false;
-
     // Phase 1: load presets from all sources — pure I/O, no lock needed
     // 1. cached models
     common_presets cached_models = ctx_preset.load_from_cache();
@@ -389,6 +399,8 @@ void server_models::load_models() {
     // (unload, load) or when joining threads (the monitoring thread calls update_status
     // which locks the mutex, so joining while holding it would deadlock).
     std::unique_lock<std::mutex> lk(mutex);
+
+    need_reload = false;
     bool is_first_load = mapping.empty();
 
     if (is_first_load) {
@@ -842,19 +854,20 @@ void server_models::load(const std::string & name) {
         // TODO @ngxson : maybe separate stdout and stderr in the future
         //                so that we can use stdout for commands and stderr for logging
         int options = subprocess_option_no_window | subprocess_option_combined_stdout_stderr;
-        int result = subprocess_create_ex(argv.data(), options, envp.data(), inst.subproc->sproc);
+        inst.subproc->sproc.emplace();
+        int result = subprocess_create_ex(argv.data(), options, envp.data(), &inst.subproc->get());
         if (result != 0) {
             throw std::runtime_error("failed to spawn server instance");
         }
 
-        inst.stdin_file = subprocess_stdin(inst.subproc->sproc);
+        inst.stdin_file = subprocess_stdin(&inst.subproc->get());
     }
 
     // start a thread to manage the child process
     // captured variables are guaranteed to be destroyed only after the thread is joined
     inst.th = std::thread([this, name, child_proc = inst.subproc, port = inst.meta.port, stop_timeout = inst.meta.stop_timeout]() {
-        FILE * stdin_file = subprocess_stdin(child_proc->sproc);
-        FILE * stdout_file = subprocess_stdout(child_proc->sproc); // combined stdout/stderr
+        FILE * stdin_file = subprocess_stdin(&child_proc->get());
+        FILE * stdout_file = subprocess_stdout(&child_proc->get()); // combined stdout/stderr
 
         std::thread log_thread([&]() {
             // read stdout/stderr and forward to main server log
@@ -884,14 +897,14 @@ void server_models::load(const std::string & name) {
                 return this->stopping_models.find(name) != this->stopping_models.end();
             };
             auto should_wake = [&]() {
-                return is_stopping() || !subprocess_alive(child_proc->sproc);
+                return is_stopping() || !subprocess_alive(&child_proc->get());
             };
             {
                 std::unique_lock<std::mutex> lk(this->mutex);
                 this->cv_stop.wait(lk, should_wake);
             }
             // child may have already exited (e.g. crashed) — skip shutdown sequence
-            if (!subprocess_alive(child_proc->sproc)) {
+            if (!subprocess_alive(&child_proc->get())) {
                 return;
             }
             SRV_INF("stopping model instance name=%s\n", name.c_str());
@@ -909,7 +922,7 @@ void server_models::load(const std::string & name) {
                 if (elapsed >= stop_timeout * 1000) {
                     // timeout, force kill
                     SRV_WRN("force-killing model instance name=%s after %d seconds timeout\n", name.c_str(), stop_timeout);
-                    subprocess_terminate(child_proc->sproc);
+                    subprocess_terminate(&child_proc->get());
                     return;
                 }
                 this->cv_stop.wait_for(lk, std::chrono::seconds(1));
@@ -934,8 +947,8 @@ void server_models::load(const std::string & name) {
 
         // get the exit code
         int exit_code = 0;
-        subprocess_join(child_proc->sproc, &exit_code);
-        subprocess_destroy(child_proc->sproc);
+        subprocess_join(&child_proc->get(), &exit_code);
+        subprocess_destroy(&child_proc->get());
 
         // update status and exit code
         this->update_status(name, SERVER_MODEL_STATUS_UNLOADED, exit_code);
@@ -946,9 +959,9 @@ void server_models::load(const std::string & name) {
     {
         auto & old_instance = mapping[name];
         // old process should have exited already, but just in case, we clean it up here
-        if (old_instance.subproc->sproc && subprocess_alive(old_instance.subproc->sproc)) {
+        if (old_instance.meta.status != SERVER_MODEL_STATUS_DOWNLOADING && subprocess_alive(&old_instance.subproc->get())) {
             SRV_WRN("old process for model name=%s is still alive, this is unexpected\n", name.c_str());
-            subprocess_terminate(old_instance.subproc->sproc); // force kill
+            subprocess_terminate(&old_instance.subproc->get()); // force kill
         }
         if (old_instance.th.joinable()) {
             old_instance.th.join();
@@ -1061,7 +1074,7 @@ void server_models::unload(const std::string & name) {
             if (it->second.meta.status == SERVER_MODEL_STATUS_LOADING) {
                 // special case: if model is in loading state, unloading means force-killing it
                 SRV_WRN("model name=%s is still loading, force-killing\n", name.c_str());
-                subprocess_terminate(it->second.subproc->sproc);
+                subprocess_terminate(&it->second.subproc->get());
             }
             cv_stop.notify_all();
             // status change will be handled by the managing thread
@@ -1164,6 +1177,7 @@ void server_models::update_download_progress(const std::string & name, const com
         }
     }
     if (done) {
+        cv.notify_all(); // notify in case unload() is waiting for download to be cancelled
         notify_sse(ok ? "download_finished" : "download_failed", name, {});
     } else {
         notify_sse("download_progress", name, curr);

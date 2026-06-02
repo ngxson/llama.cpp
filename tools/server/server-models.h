@@ -93,13 +93,8 @@ struct server_model_meta {
     void update_caps();
 };
 
-struct subprocess_s;
 struct server_models_routes;
-
-struct server_subproc {
-    subprocess_s * sproc = nullptr; // note: if sproc is nullptr, we are downloading the model file
-    std::atomic<bool> stop_download{false}; // flag to signal download cancellation, checked by the download callback
-};
+struct server_subproc; // defined in server-models.cpp
 
 struct server_models {
     friend struct server_models_routes;
