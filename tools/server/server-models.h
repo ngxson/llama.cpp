@@ -16,9 +16,8 @@
 /**
  * state diagram:
  *
- * DOWNLOADING
- *  |
- *  ▼
+ * DOWNLOADING ──► DOWNLOADED ──► (replaced by new instance)
+ *
  * UNLOADED ──► LOADING ──► LOADED ◄──── SLEEPING
  *  ▲            │            │               ▲
  *  └───failed───┘            │               │
@@ -28,6 +27,7 @@
 enum server_model_status {
     // TODO: also add downloading state when the logic is added
     SERVER_MODEL_STATUS_DOWNLOADING,
+    SERVER_MODEL_STATUS_DOWNLOADED,
     SERVER_MODEL_STATUS_UNLOADED,
     SERVER_MODEL_STATUS_LOADING,
     SERVER_MODEL_STATUS_LOADED,
@@ -43,6 +43,7 @@ enum server_model_source {
 static std::string server_model_status_to_string(server_model_status status) {
     switch (status) {
         case SERVER_MODEL_STATUS_DOWNLOADING: return "downloading";
+        case SERVER_MODEL_STATUS_DOWNLOADED:  return "downloaded";
         case SERVER_MODEL_STATUS_UNLOADED:    return "unloaded";
         case SERVER_MODEL_STATUS_LOADING:     return "loading";
         case SERVER_MODEL_STATUS_LOADED:      return "loaded";
@@ -121,6 +122,9 @@ private:
 
     // set to true while load_models() is executing a reload; load() will wait until clear
     bool is_reloading = false;
+
+    // if true, the next get_meta() will trigger a reload of model list
+    bool need_reload = false;
 
     common_preset_context ctx_preset;
 

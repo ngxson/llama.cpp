@@ -1788,15 +1788,15 @@ Example events:
 
 ```js
 {
-  "model" :"...",
-  "event":"status_update",
+  "model": "...",
+  "event": "model_status",
   "data": {
-    "status":"loading"
+    "status": "loading"
   }
 }
 
 {
-  "model" :"...",
+  "model": "...",
   "event": "download_progress",
   "data": {
     // note: there can be multiple files being downloaded in parallel
@@ -1808,17 +1808,36 @@ Example events:
 }
 
 {
-  "model" :"...",
-  "event":"download_finished",
+  "model": "...",
+  "event": "download_finished",
   "data": {
-    "status":"loading"
+    "status": "loading"
   }
+}
+
+{
+  "model": "...",
+  "event": "model_remove"
+}
+
+// special event: reload of the list of all models
+{
+  "model": "*",
+  "event": "models_reload"
 }
 ```
 
 ### POST `/models`: Download new model
 
 Trigger a new download (non-blocking), the progress can be tracked via SSE endpoint `/models/sse`
+
+To cancel model downloading, send an event to `/models/unload`
+
+Download procedure:
+- Send POST request to `/models`
+- Subscribe to `/models/sse` for updates
+- On downloading completed, you will receive either `download_finished` or `download_failed` event
+- Call GET `/models` to trigger model list update. If the download success, you should see the new model in the list
 
 Payload:
 
@@ -1828,11 +1847,23 @@ Payload:
 }
 ```
 
-Response:
+Response (download is started in the background):
 
 ```json
 {
   "success": true
+}
+```
+
+Response (error, cannot start the download):
+
+```json
+{
+  "error": {
+    "code": 400,
+    "message": "model validation failed, unable to download",
+    "type": "invalid_request_error"
+  }
 }
 ```
 
@@ -1841,6 +1872,8 @@ Response:
 IMPORTANT: only model stored in cache can be deleted. You cannot delete models in a preset.
 
 Model name must be passed via query param: `?model={name}`
+
+If delete success, it will send an SSE event of type `model_remove`
 
 Response:
 
