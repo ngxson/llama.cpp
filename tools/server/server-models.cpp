@@ -60,6 +60,10 @@ struct server_subproc {
         GGML_ASSERT(sproc.has_value() && "subprocess not initialized");
         return sproc.value();
     }
+
+    bool is_alive() {
+        return sproc.has_value() && subprocess_alive(&sproc.value());
+    }
 };
 
 
@@ -897,14 +901,14 @@ void server_models::load(const std::string & name) {
                 return this->stopping_models.find(name) != this->stopping_models.end();
             };
             auto should_wake = [&]() {
-                return is_stopping() || !subprocess_alive(&child_proc->get());
+                return is_stopping() || !child_proc->is_alive();
             };
             {
                 std::unique_lock<std::mutex> lk(this->mutex);
                 this->cv_stop.wait(lk, should_wake);
             }
             // child may have already exited (e.g. crashed) — skip shutdown sequence
-            if (!subprocess_alive(&child_proc->get())) {
+            if (!child_proc->is_alive()) {
                 return;
             }
             SRV_INF("stopping model instance name=%s\n", name.c_str());
@@ -959,7 +963,7 @@ void server_models::load(const std::string & name) {
     {
         auto & old_instance = mapping[name];
         // old process should have exited already, but just in case, we clean it up here
-        if (old_instance.meta.status != SERVER_MODEL_STATUS_DOWNLOADING && subprocess_alive(&old_instance.subproc->get())) {
+        if (old_instance.subproc->is_alive()) {
             SRV_WRN("old process for model name=%s is still alive, this is unexpected\n", name.c_str());
             subprocess_terminate(&old_instance.subproc->get()); // force kill
         }
