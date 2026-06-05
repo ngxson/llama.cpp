@@ -8,6 +8,7 @@ TVOS_MIN_OS_VERSION=16.4
 
 BUILD_SHARED_LIBS=OFF
 LLAMA_BUILD_APP=OFF
+LLAMA_BUILD_COMMON=OFF
 LLAMA_BUILD_EXAMPLES=OFF
 LLAMA_BUILD_TOOLS=OFF
 LLAMA_BUILD_TESTS=OFF
@@ -33,6 +34,7 @@ COMMON_CMAKE_ARGS=(
     -DCMAKE_XCODE_ATTRIBUTE_DEVELOPMENT_TEAM=ggml
     -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
     -DLLAMA_BUILD_APP=${LLAMA_BUILD_APP}
+    -DLLAMA_BUILD_COMMON=${LLAMA_BUILD_COMMON}
     -DLLAMA_BUILD_EXAMPLES=${LLAMA_BUILD_EXAMPLES}
     -DLLAMA_BUILD_TOOLS=${LLAMA_BUILD_TOOLS}
     -DLLAMA_BUILD_TESTS=${LLAMA_BUILD_TESTS}
@@ -128,14 +130,7 @@ setup_framework_structure() {
     # Create module map (common for all platforms)
     cat > ${module_path}module.modulemap << EOF
 framework module llama {
-    header "llama.h"
-    header "ggml.h"
-    header "ggml-alloc.h"
-    header "ggml-backend.h"
-    header "ggml-metal.h"
-    header "ggml-cpu.h"
-    header "ggml-blas.h"
-    header "gguf.h"
+    umbrella "Headers"
 
     link "c++"
     link framework "Accelerate"
