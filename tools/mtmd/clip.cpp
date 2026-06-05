@@ -3436,7 +3436,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
             } break;
         case PROJECTOR_TYPE_GEMMA4UA:
             {
-                n_patches = img->nx;  // no downsampling: one token per raw waveform frame
+                n_patches = img->nx();  // no downsampling: one token per raw waveform frame
             } break;
         case PROJECTOR_TYPE_GRANITE_SPEECH:
             {
@@ -3451,7 +3451,7 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
                 // For 384×384 input: n = 24/8 = 3, query_side = 4 → 144.
                 const int window_side = ctx->model.hparams.downsample_window_side;
                 const int query_side  = ctx->model.hparams.downsample_query_side;
-                const int side        = img->nx / params.patch_size;
+                const int side        = img->nx() / params.patch_size;
                 const int n           = side / window_side;
                 n_patches             = (query_side * n) * (query_side * n);
                 if (img->add_newline) {
@@ -4303,7 +4303,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
                 // reshapes as ggml_get_rows gathers. The names are set
                 // by g4v_gather() in models/granite4-vision.cpp.
                 const int patch_size  = model.hparams.patch_size;
-                const int image_side  = imgs.entries.front()->nx / patch_size;
+                const int image_side  = imgs.entries.front()->nx() / patch_size;
                 const int window_side = hparams.downsample_window_side;
                 const int query_side  = hparams.downsample_query_side;
                 const int n           = image_side / window_side;
