@@ -159,6 +159,13 @@ struct mtmd_input_chunks {
     std::vector<mtmd_input_chunk> entries;
 };
 
+struct mtmd_batch {
+    mtmd_context * ctx;
+    std::vector<const mtmd_input_chunk *> entries;
+    std::vector<float> output_embd; // aggregated output embedding for the whole batch
+    mtmd_batch(mtmd_context * ctx): ctx(ctx) {}
+};
+
 // slice template, used by some llava-uhd models to correctly place the special tokens around image embeddings
 // models not having it (llava-1.6) will process embeddings without any special tokens in-between
 enum mtmd_slice_tmpl {
@@ -1327,6 +1334,9 @@ int32_t mtmd_tokenize(mtmd_context * ctx,
     }
 }
 
+// forward declaration
+int32_t mtmd_encode_impl(mtmd_context * ctx, const mtmd_image_tokens * image_tokens);
+
 int32_t mtmd_encode_chunk(mtmd_context * ctx, const mtmd_input_chunk * chunk) {
     if (chunk->type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
         LOG_WRN("mtmd_encode_chunk has no effect for text chunks\n");
@@ -1344,7 +1354,7 @@ int32_t mtmd_encode_chunk(mtmd_context * ctx, const mtmd_input_chunk * chunk) {
             LOG_ERR("%s: image tokens batch is placeholder\n", __func__);
             return 1;
         }
-        return mtmd_encode(ctx, chunk->tokens_image.get());
+        return mtmd_encode_impl(ctx, chunk->tokens_image.get());
     } else if (chunk->type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
         if (!ctx->ctx_a) {
             LOG_ERR("%s: model does not support audio input\n", __func__);
@@ -1372,7 +1382,7 @@ int32_t mtmd_encode_chunk(mtmd_context * ctx, const mtmd_input_chunk * chunk) {
     return 1;
 }
 
-int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) {
+int32_t mtmd_encode_impl(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) {
     clip_ctx * ctx_clip = ctx->ctx_v;
     if (!ctx_clip) {
         LOG_ERR("%s: this API does not support non-vision input, please use mtmd_encode_chunk instead\n", __func__);
@@ -1422,8 +1432,76 @@ int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) 
     return ok ? 0 : 1;
 }
 
+int32_t mtmd_encode(mtmd_context * ctx, const mtmd_image_tokens * image_tokens) {
+    try {
+        return mtmd_encode_impl(ctx, image_tokens);
+    } catch (const std::exception & e) {
+        LOG_ERR("%s: error: %s\n", __func__, e.what());
+        return 1;
+    }
+}
+
 float * mtmd_get_output_embd(mtmd_context * ctx) {
     return ctx->image_embd_v.data();
+}
+
+mtmd_batch * mtmd_batch_init(mtmd_context * ctx) {
+    return new mtmd_batch(ctx);
+}
+
+void mtmd_batch_free(mtmd_batch * batch) {
+    if (batch) {
+        delete batch;
+    }
+}
+
+int32_t mtmd_batch_add_chunk(mtmd_batch * batch, const mtmd_input_chunk * chunk) {
+    batch->entries.push_back(chunk);
+    if (batch->entries.size() > 4) {
+        return 1; // DEMO ONLY
+    }
+    return 0;
+}
+
+int32_t mtmd_batch_encode(mtmd_batch * batch) {
+    // allocate output_embd
+    size_t n_embd = 0;
+    for (const auto * chunk : batch->entries) {
+        n_embd += mtmd_input_chunk_get_n_tokens(chunk) * batch->ctx->n_embd_text;
+    }
+    batch->output_embd.resize(n_embd);
+
+    // TODO @ngxson : this is just for testing if the public API works; it is not true batching
+    size_t offset = 0;
+    for (const auto * chunk : batch->entries) {
+        int32_t res = mtmd_encode_chunk(batch->ctx, chunk);
+        if (res != 0) {
+            return res;
+        }
+        size_t len = mtmd_input_chunk_get_n_tokens(chunk) * batch->ctx->n_embd_text;
+        memcpy(
+            batch->output_embd.data() + offset,
+            mtmd_get_output_embd(batch->ctx),
+            len * sizeof(float));
+        offset += len;
+    }
+
+    return 0;
+}
+
+float * mtmd_batch_get_output_embd(mtmd_batch * batch, const mtmd_input_chunk * chunk) {
+    size_t offset = 0;
+    for (const auto * c : batch->entries) {
+        size_t offset_prev = offset;
+        size_t n_tokens = mtmd_input_chunk_get_n_tokens(c);
+        offset += n_tokens * batch->ctx->n_embd_text;
+        GGML_ASSERT(offset_prev <  batch->output_embd.size());
+        GGML_ASSERT(offset      <= batch->output_embd.size());
+        if (c == chunk) {
+            return &batch->output_embd.data()[offset_prev];
+        }
+    }
+    return nullptr;
 }
 
 bool mtmd_decode_use_non_causal(const mtmd_context * ctx, const mtmd_input_chunk * chunk) {
