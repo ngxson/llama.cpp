@@ -1519,10 +1519,21 @@ int32_t mtmd_batch_add_chunk(mtmd_batch * batch, const mtmd_input_chunk * chunk)
         return 1;
     }
 
+    auto * ctx = batch->ctx->get_clip_ctx(chunk);
+    if (!ctx) {
+        LOG_ERR("%s: model does not support input chunk type %d\n", __func__, (int)chunk->type);
+        return 1;
+    }
+
     if (batch->entries.empty()) {
         // batch must have at least one chunk
         batch->entries.push_back(chunk);
         return 0;
+    }
+
+    if (!clip_support_batch(ctx)) {
+        // if no batching support, batch can only have one single chunk
+        return 2; // "batch too large" error code
     }
 
     int32_t new_n_tokens = batch->n_tokens() + (int32_t)mtmd_input_chunk_get_n_tokens(chunk);

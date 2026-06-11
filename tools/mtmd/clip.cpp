@@ -171,6 +171,8 @@ struct clip_ctx {
     std::map<ggml_backend_dev_t, size_t> mem_usage;
     std::map<ggml_backend_dev_t, size_t> mem_compute;
 
+    bool support_batch = false;
+
     clip_ctx(clip_context_params & ctx_params) {
         flash_attn_type = ctx_params.flash_attn_type;
         no_alloc = ctx_params.no_alloc;
@@ -862,7 +864,7 @@ ggml_tensor * clip_graph::build_patch_merge_permute(ggml_tensor * cur, int scale
     return cur;
 }
 
-static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32_batch & imgs) {
+static std::unique_ptr<clip_graph> clip_get_graph_builder(clip_ctx * ctx, const clip_image_f32_batch & imgs) {
     const clip_image_f32 & img = *imgs.entries[0];
     std::unique_ptr<clip_graph> builder;
 
@@ -1025,7 +1027,7 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
     // TODO [QWEN_VIDEO]: improve this in the future
     builder->n_batch = imgs.entries.size();
 
-    return builder->build();
+    return builder;
 }
 
 //
@@ -2819,7 +2821,7 @@ struct clip_model_loader {
         std::vector<support_info_op> ops;
     };
 
-    static void warmup(clip_ctx & ctx_clip) {
+    static clip_image_f32_batch get_dummy_batch(clip_ctx & ctx_clip) {
         // create a fake batch
         const auto & hparams = ctx_clip.model.hparams;
         clip_image_f32_batch batch;
@@ -2833,6 +2835,20 @@ struct clip_model_loader {
             LOG_INF("%s: warmup with audio size = %d\n", __func__, hparams.warmup_audio_size);
         }
         batch.entries.push_back(std::move(img));
+        return batch;
+    }
+
+    static void init_ctx(clip_ctx & ctx_clip) {
+        ctx_clip.buf_compute_meta.resize(ctx_clip.max_nodes * ggml_tensor_overhead() + ggml_graph_overhead());
+
+        // check batching support
+        auto batch = get_dummy_batch(ctx_clip);
+        auto builder = clip_get_graph_builder(&ctx_clip, batch);
+        ctx_clip.support_batch = builder->support_batch();
+    }
+
+    static void warmup(clip_ctx & ctx_clip) {
+        auto batch = get_dummy_batch(ctx_clip);
         warmup(ctx_clip, batch);
     }
 
@@ -2905,9 +2921,7 @@ struct clip_model_loader {
 
     // only initialize backend buffers, but do not allocate them yet
     static support_info_graph reserve_compute_meta(clip_ctx & ctx_clip, const clip_image_f32_batch & batch) {
-        ctx_clip.buf_compute_meta.resize(ctx_clip.max_nodes * ggml_tensor_overhead() + ggml_graph_overhead());
-
-        ggml_cgraph * gf = clip_image_build_graph(&ctx_clip, batch);
+        ggml_cgraph * gf = clip_get_graph_builder(&ctx_clip, batch)->build();
         ggml_backend_sched_reserve(ctx_clip.sched.get(), gf);
 
         ctx_clip.mem_compute.clear();
@@ -3070,6 +3084,7 @@ struct clip_init_result clip_init(const char * fname, struct clip_context_params
             ctx_vision = new clip_ctx(ctx_params);
             loader.load_hparams(ctx_vision->model, CLIP_MODALITY_VISION);
             loader.load_tensors(*ctx_vision);
+            loader.init_ctx(*ctx_vision);
             if (ctx_params.warmup) {
                 loader.warmup(*ctx_vision);
             }
@@ -3083,6 +3098,7 @@ struct clip_init_result clip_init(const char * fname, struct clip_context_params
             ctx_audio = new clip_ctx(ctx_params);
             loader.load_hparams(ctx_audio->model, CLIP_MODALITY_AUDIO);
             loader.load_tensors(*ctx_audio);
+            loader.init_ctx(*ctx_audio);
             if (ctx_params.warmup) {
                 loader.warmup(*ctx_audio);
             }
@@ -3506,7 +3522,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
 
     // build the inference graph
     ggml_backend_sched_reset(ctx->sched.get());
-    ggml_cgraph * gf = clip_image_build_graph(ctx, imgs);
+    ggml_cgraph * gf = clip_get_graph_builder(ctx, imgs)->build();
     ggml_backend_sched_alloc_graph(ctx->sched.get(), gf);
 
     // set inputs
@@ -4570,6 +4586,10 @@ bool clip_has_vision_encoder(const struct clip_ctx * ctx) {
 
 bool clip_has_audio_encoder(const struct clip_ctx * ctx) {
     return ctx->model.modality == CLIP_MODALITY_AUDIO;
+}
+
+bool clip_support_batch(const struct clip_ctx * ctx) {
+    return ctx->support_batch;
 }
 
 // TODO @ngxson : this is no longer true with mtmd_batch API

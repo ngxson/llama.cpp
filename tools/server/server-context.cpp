@@ -658,10 +658,11 @@ struct server_slot {
             res = mtmd_batch_add_chunk(mbatch.get(), next_chunk->get());
             n_added += (res == 0 ? 1 : 0);
             idx_cur = next_idx;
-            SLT_INF(*this, "try adding chunk idx = %zu to batch, res = %d\n", next_idx, res);
+            SLT_DBG(*this, "try adding media chunk idx = %zu to batch, res = %d\n", next_idx, res);
             // if res != 0, batch is full or chunk is not compatible -> this loop breaks
         }
 
+        // TODO @ngxson : move this log line to debug when it become more stable
         SLT_INF(*this, "encoding mtmd batch from idx = %zu, n_chunks = %d\n", idx, n_added);
 
         res = mtmd_batch_encode(mbatch.get());
