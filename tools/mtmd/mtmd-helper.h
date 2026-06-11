@@ -164,21 +164,6 @@ MTMD_API int32_t mtmd_helper_video_read_next(mtmd_helper_video * ctx,
 namespace mtmd_helper {
 
 //
-// batching helpers (C++ only for now)
-//
-
-MTMD_API 
-
-MTMD_API int32_t mtmd_helper_eval_chunk_single(mtmd_context * ctx,
-        struct llama_context * lctx,
-        const mtmd_input_chunk * chunk,
-        llama_pos n_past,
-        llama_seq_id seq_id,
-        int32_t n_batch,
-        bool logits_last,
-        llama_pos * new_n_past);
-
-//
 // C++ wrappers
 //
 

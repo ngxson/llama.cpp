@@ -614,7 +614,7 @@ struct server_slot {
                             mctx,
                             ctx_tgt,
                             chunk.get(),
-                            embd, 
+                            embd,
                             prompt.tokens.pos_next(),
                             id,
                             llama_n_batch(ctx_tgt),
