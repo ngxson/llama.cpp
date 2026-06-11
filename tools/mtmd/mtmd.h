@@ -99,6 +99,11 @@ struct mtmd_context_params {
     // callback function passed over to mtmd proper
     ggml_backend_sched_eval_callback cb_eval;
     void * cb_eval_user_data;
+
+    // batching params
+    int32_t batch_max_tokens; // maximum number of output tokens in a batch
+                              // (note: this is not a hard-limit, the first image will always be added even if it exceeds this limit)
+                              // (default: 2048)
 };
 
 MTMD_API const char * mtmd_default_marker(void);
