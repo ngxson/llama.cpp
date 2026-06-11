@@ -1439,14 +1439,15 @@ int32_t mtmd_encode_impl(mtmd_context * ctx, const mtmd_image_tokens * image_tok
     }
     auto proj_type = clip_get_projector_type(ctx_clip);
     int n_mmproj_embd = clip_n_mmproj_embd(ctx_clip);
-    std::vector<float> & out_embd = ctx->out_embd;
+    std::vector<float> * out_embd_ptr;
     if (out_batch_embd) {
-        // caller need to resize out_batch_embd
-        out_embd = *out_batch_embd;
+        // IMPORTANT: caller must ensure out_batch_embd has enough capacity
+        out_embd_ptr = out_batch_embd;
     } else {
         ctx->out_embd.resize(image_tokens->n_tokens() * n_mmproj_embd);
-        out_embd = ctx->out_embd;
+        out_embd_ptr = &ctx->out_embd;
     }
+    std::vector<float> & out_embd = *out_embd_ptr;
     bool ok = false;
 
     if (clip_is_llava(ctx_clip)

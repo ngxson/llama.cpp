@@ -4445,13 +4445,15 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
             GGML_ABORT("Output buffer size mismatch");
         }
         ggml_backend_tensor_get(embeddings, out_batch_embd.data(), 0, ggml_nbytes(embeddings));
+    } else {
+        LOG_WRN("%s: output buffer is empty, skipping copy\n", __func__);
     }
 
     // Debug: dump final embeddings if MTMD_DEBUG_EMBEDDINGS is set
     if (ctx->debug_output_embeddings) {
         const int64_t n_embd = embeddings->ne[0];
         const int64_t n_tokens = embeddings->ne[1];
-        std::vector<float> emb_data(n_embd * n_tokens);
+        std::vector<float> emb_data(ggml_nelements(embeddings));
         ggml_backend_tensor_get(embeddings, emb_data.data(), 0, ggml_nbytes(embeddings));
 
         LOG_INF("\n=== MTMD_DEBUG_EMBEDDINGS ===\n");
