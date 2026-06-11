@@ -238,7 +238,7 @@ mtmd_context_params mtmd_context_params_default() {
         /* image_max_tokens  */ -1,
         /* cb_eval           */ nullptr,
         /* cb_eval_user_data */ nullptr,
-        /* batch_max_tokens  */ 2048,
+        /* batch_max_tokens  */ 1024,
     };
     return params;
 }

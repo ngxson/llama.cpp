@@ -103,7 +103,7 @@ struct mtmd_context_params {
     // batching params
     int32_t batch_max_tokens; // maximum number of output tokens in a batch
                               // (note: this is not a hard-limit, the first image will always be added even if it exceeds this limit)
-                              // (default: 2048)
+                              // (default: 1024)
 };
 
 MTMD_API const char * mtmd_default_marker(void);
