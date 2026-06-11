@@ -174,9 +174,9 @@ struct mtmd_input_chunk {
 
     bool is_placeholder() const {
         if (type == MTMD_INPUT_CHUNK_TYPE_IMAGE) {
-            return tokens_image->is_placeholder();
+            return tokens_image && tokens_image->is_placeholder();
         } else if (type == MTMD_INPUT_CHUNK_TYPE_AUDIO) {
-            return tokens_audio->is_placeholder();
+            return tokens_audio && tokens_audio->is_placeholder();
         }
         return false;
     }
@@ -1393,7 +1393,7 @@ static int32_t mtmd_encode_impl(mtmd_context * ctx, const mtmd_image_tokens * im
     int n_mmproj_embd = clip_n_mmproj_embd(ctx_clip);
     std::vector<float> * out_embd_ptr;
     if (out_batch_embd) {
-        // IMPORTANT: caller must ensure out_batch_embd has enough capacity
+        // IMPORTANT: caller must ensure out_batch_embd has enough capacity; clip_image_encode will check for it
         out_embd_ptr = out_batch_embd;
     } else {
         ctx->out_embd.resize(image_tokens->n_tokens() * n_mmproj_embd);
@@ -1420,11 +1420,16 @@ static int32_t mtmd_encode_impl(mtmd_context * ctx, const mtmd_image_tokens * im
             }
             int n_tokens_per_image = clip_n_output_tokens(ctx_clip, entries[i].get());
             std::vector<float> tmp_embd(n_tokens_per_image * n_mmproj_embd);
-            ok = clip_image_encode(
+            bool ok_i = clip_image_encode(
                 ctx_clip,
                 ctx->n_threads,
                 entries[i].get(),
                 tmp_embd);
+            if (!ok_i) {
+                LOG_ERR("%s: failed to encode image %zu\n", __func__, i);
+                return 1;
+            }
+            ok = true;
             std::copy(tmp_embd.begin(), tmp_embd.end(), out_embd.begin() + offset);
             offset += static_cast<size_t>(n_mmproj_embd) * n_tokens_per_image;
         }
@@ -1558,7 +1563,7 @@ int32_t mtmd_batch_add_chunk(mtmd_batch * batch, const mtmd_input_chunk * chunk)
     return 3; // "cannot batch" error code
 }
 
-int32_t mtmd_batch_encode(mtmd_batch * batch) {
+static int32_t mtmd_batch_encode_impl(mtmd_batch * batch) {
     if (batch->entries.empty()) {
         LOG_ERR("%s: batch is empty\n", __func__);
         return 1;
@@ -1615,19 +1620,33 @@ int32_t mtmd_batch_encode(mtmd_batch * batch) {
     return res;
 }
 
+int32_t mtmd_batch_encode(mtmd_batch * batch) {
+    try {
+        return mtmd_batch_encode_impl(batch);
+    } catch (const std::exception & e) {
+        LOG_ERR("%s: error: %s\n", __func__, e.what());
+        return 1;
+    }
+}
+
 float * mtmd_batch_get_output_embd(mtmd_batch * batch, const mtmd_input_chunk * chunk) {
+    if (batch->output_embd.empty()) {
+        LOG_ERR("%s: batch has not been encoded yet\n", __func__);
+        return nullptr;
+    }
     size_t offset = 0;
+    const size_t n_embd = batch->ctx->n_embd_out();
     for (const auto * c : batch->entries) {
         size_t offset_prev = offset;
         size_t n_tokens = mtmd_input_chunk_get_n_tokens(c);
-        offset += n_tokens * batch->ctx->n_embd_out();
+        offset += n_tokens * n_embd;
         GGML_ASSERT(offset_prev <  batch->output_embd.size());
         GGML_ASSERT(offset      <= batch->output_embd.size());
         if (c == chunk) {
             return &batch->output_embd.data()[offset_prev];
         }
     }
-    return nullptr;
+    return nullptr; // not found
 }
 
 bool mtmd_decode_use_non_causal(const mtmd_context * ctx, const mtmd_input_chunk * chunk) {
