@@ -3513,7 +3513,11 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
     const clip_image_f32_batch & imgs = *imgs_c_ptr;
     int n_batch_cur = imgs.entries.size();
 
-    // TODO: check batching condition
+    // [QWEN_VIDEO] for video models, the batch dimension is used as temporal dimension for merged frames
+    if (!ctx->support_batch && n_batch_cur > clip_model_n_temporal_merge(ctx)) {
+        LOG_ERR("%s: batch size %d exceeds maximum supported batch/temporal-merge size %d\n", __func__, n_batch_cur, clip_model_n_temporal_merge(ctx));
+        return false;
+    }
 
     // if buffers are not allocated, we need to do a warmup run to allocate them
     if (!ctx->is_allocated) {

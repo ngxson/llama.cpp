@@ -1431,7 +1431,7 @@ static int32_t mtmd_encode_impl(mtmd_context * ctx, const mtmd_image_tokens * im
                 return 1;
             }
             int n_tokens_per_image = clip_n_output_tokens(ctx_clip, entries[i].get());
-            std::vector<float> tmp_embd(n_tokens_per_image * n_embd_out);
+            std::vector<float> tmp_embd((size_t)n_tokens_per_image * n_embd_out);
             bool ok_i = clip_image_encode(
                 ctx_clip,
                 ctx->n_threads,
@@ -1492,7 +1492,7 @@ static int32_t mtmd_encode_chunk_impl(mtmd_context * ctx, const mtmd_input_chunk
             return 1;
         }
         int n_mmproj_embd = ctx->n_embd_out();
-        out_embd.resize(chunk->tokens_audio->n_tokens * n_mmproj_embd);
+        out_embd.resize((size_t)chunk->tokens_audio->n_tokens * n_mmproj_embd);
         bool ok = clip_image_batch_encode(
             ctx->ctx_a,
             ctx->n_threads,

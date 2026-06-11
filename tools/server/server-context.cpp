@@ -612,12 +612,12 @@ struct server_slot {
                         llama_pos new_n_past; // unused for now
                         res = mtmd_helper_decode_image_chunk(
                             mctx,
-                            ctx_tgt,
+                            lctx,
                             chunk.get(),
                             embd,
                             prompt.tokens.pos_next(),
                             id,
-                            llama_n_batch(ctx_tgt),
+                            llama_n_batch(lctx),
                             &new_n_past
                         );
                         if (res != 0) {
