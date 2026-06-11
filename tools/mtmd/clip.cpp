@@ -4594,10 +4594,10 @@ bool clip_support_batch(const struct clip_ctx * ctx) {
     return ctx->support_batch;
 }
 
-// TODO @ngxson : this is no longer true with mtmd_batch API
+// TODO @ngxson : this is no longer correct with mtmd_batch API
 // this was only meant to be used by qwen-vl-based models, to fuse 2 input images into one (qwen-vl video support)
 // this logic should be refactored in near future to distinctly handle "merge frames" and "batching"
-int clip_model_n_batch_max(const struct clip_ctx * ctx) {
+int clip_model_n_temporal_merge(const struct clip_ctx * ctx) {
     switch (ctx->proj_type()) {
         case PROJECTOR_TYPE_QWEN2VL:
         case PROJECTOR_TYPE_QWEN25VL:

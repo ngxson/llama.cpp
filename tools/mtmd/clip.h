@@ -109,7 +109,7 @@ bool clip_has_audio_encoder(const struct clip_ctx * ctx);
 
 bool clip_support_batch(const struct clip_ctx * ctx);
 
-int clip_model_n_batch_max(const struct clip_ctx * ctx); // TODO @ngxson : remove, refactor this
+int clip_model_n_temporal_merge(const struct clip_ctx * ctx); // TODO @ngxson : remove, refactor this
 
 std::map<ggml_backend_dev_t, size_t> clip_get_mem_usage(const struct clip_ctx * ctx);
 
