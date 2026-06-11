@@ -97,8 +97,8 @@ size_t clip_image_f32_batch_nx(const struct clip_image_f32_batch * batch, int id
 size_t clip_image_f32_batch_ny(const struct clip_image_f32_batch * batch, int idx); // equivalent to batch[idx]->ny
 struct clip_image_f32 * clip_image_f32_get_img(const struct clip_image_f32_batch * batch, int idx); // equivalent to batch[idx]->data
 
-bool clip_image_encode      (struct clip_ctx * ctx, int n_threads, struct clip_image_f32 * img, float * vec);
-bool clip_image_batch_encode(struct clip_ctx * ctx, int n_threads, const struct clip_image_f32_batch * imgs, float * vec);
+bool clip_image_encode      (struct clip_ctx * ctx, int n_threads, struct clip_image_f32 * img, std::vector<float> & out_vec);
+bool clip_image_batch_encode(struct clip_ctx * ctx, int n_threads, const struct clip_image_f32_batch * imgs, std::vector<float> & out_batch_embd);
 
 bool clip_is_llava(const struct clip_ctx * ctx);
 // note for contributor: this clip_is_(model) pattern is deprecated

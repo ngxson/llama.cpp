@@ -111,8 +111,6 @@ ggml_cgraph * clip_graph_gemma4v::build() {
                            kernel_size, kernel_size, kernel_size, kernel_size, 0, 0);
         const int out_x = n_patches_x / kernel_size;
         const int out_y = n_patches_y / kernel_size;
-        printf("before pooling: n_patches_x=%d, n_patches_y=%d, after pooling: out_x=%d, out_y=%d\n", n_patches_x, n_patches_y, out_x, out_y);
-        printf("after pooling: ne[0]=%lld, ne[1]=%lld, ne[2]=%lld, ne[3]=%lld\n", cur->ne[0], cur->ne[1], cur->ne[2], cur->ne[3]);
         // [out_x, out_y, n_embd, n_batch] -> [n_embd, out_x * out_y, n_batch]
         cur = ggml_reshape_3d(ctx0, cur, out_x * out_y, n_embd, n_batch);
         cur = ggml_cont(ctx0, ggml_transpose(ctx0, cur));

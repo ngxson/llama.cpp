@@ -3484,16 +3484,16 @@ int clip_n_output_tokens(const struct clip_ctx * ctx, struct clip_image_f32 * im
     return n_patches;
 }
 
-bool clip_image_encode(struct clip_ctx * ctx, const int n_threads, clip_image_f32 * img, float * vec) {
+bool clip_image_encode(struct clip_ctx * ctx, const int n_threads, clip_image_f32 * img, std::vector<float> & out_vec) {
     clip_image_f32_batch imgs;
     clip_image_f32_ptr img_copy(clip_image_f32_init());
     *img_copy = *img;
     imgs.entries.push_back(std::move(img_copy));
 
-    return clip_image_batch_encode(ctx, n_threads, &imgs, vec);
+    return clip_image_batch_encode(ctx, n_threads, &imgs, out_vec);
 }
 
-bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_image_f32_batch * imgs_c_ptr, float * vec) {
+bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_image_f32_batch * imgs_c_ptr, std::vector<float> & out_batch_embd) {
     const clip_image_f32_batch & imgs = *imgs_c_ptr;
     int n_batch_cur = imgs.entries.size();
 
@@ -4410,7 +4410,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
     // the last node is the embedding tensor
     ggml_tensor * embeddings = ggml_graph_node(gf, -1);
 
-    // sanity check (only support batch size of 1 for now)
+    // sanity check (assuming that all images in batch have the same number of tokens, so we only check the first one)
     const int n_tokens_out = embeddings->ne[1];
     const int expected_n_tokens_out = clip_n_output_tokens(ctx, imgs.entries[0].get());
     if (n_tokens_out != expected_n_tokens_out) {
@@ -4418,9 +4418,17 @@ bool clip_image_batch_encode(clip_ctx * ctx, const int n_threads, const clip_ima
         GGML_ABORT("Invalid number of output tokens");
     }
 
-    // copy the embeddings to the location passed by the user
-    if (vec != nullptr) {
-        ggml_backend_tensor_get(embeddings, vec, 0, ggml_nbytes(embeddings));
+    LOG_DBG("%s: output embedding shape [%d, %d, %d]\n", __func__,
+        (int)embeddings->ne[0], (int)embeddings->ne[1], (int)embeddings->ne[2]);
+
+    // copy output to user buffer if provided
+    // if output is empty, skip the copy
+    if (!out_batch_embd.empty()) {
+        if (out_batch_embd.size() != (size_t)ggml_nelements(embeddings)) {
+            LOG_ERR("%s: output buffer has %zu elements but expected %zu\n", __func__, out_batch_embd.size(), (size_t)ggml_nelements(embeddings));
+            GGML_ABORT("Output buffer size mismatch");
+        }
+        ggml_backend_tensor_get(embeddings, out_batch_embd.data(), 0, ggml_nbytes(embeddings));
     }
 
     // Debug: dump final embeddings if MTMD_DEBUG_EMBEDDINGS is set
