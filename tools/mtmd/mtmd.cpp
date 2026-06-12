@@ -97,7 +97,7 @@ struct mtmd_image_tokens {
             return (nx + 1) * ny + 2;
         }
         // [QWEN_VIDEO] this logic is quite ugly, it's mostly to make qwen-vl temporal merge work, can be improved in the future
-        if (batch_f32.entries.size() == 1) {
+        if (batch_f32.entries.size() == 1 || n_temporal_merge == 1) {
             return nx * ny;
         }
         uint32_t nz = batch_f32.entries.size();
