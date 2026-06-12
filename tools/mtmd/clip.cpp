@@ -316,7 +316,7 @@ ggml_tensor * clip_graph::build_vit(
             std::function<ggml_tensor *(ggml_tensor *, const clip_layer &)> add_pos,
             const build_vit_opts & opts
         ) {
-    // batch dim: inp is [n_embd, n_pos] (B==1) or [n_embd, n_pos, B] (multi-tile encode)
+    // batch dim: inp is [n_embd, n_pos, B]
     const int64_t B = inp->ne[2];
 
     if (learned_pos_embd) {
