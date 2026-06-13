@@ -1,16 +1,22 @@
 // llama-ui-embed: generate ui.cpp / ui.h that embed UI assets as C arrays.
 //
 // Usage:
-//   llama-ui-embed <out_cpp> <out_h> [<asset_name> <asset_path>]...
+//   llama-ui-embed <out_cpp> <out_h> [<asset_dir>]
+//
+// Embeds every regular file directly under <asset_dir> (non-recursive).
+// Without <asset_dir>, emits an empty asset table.
 
+#include <inttypes.h>
 #include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+
+#include <algorithm>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #include <vector>
-#include <cinttypes>
-#include <cstdint>
 
 
 static const char * mime_from_ext(const std::string & name) {
@@ -44,10 +50,10 @@ static uint64_t fnv_hash(const uint8_t * data, size_t len) {
     return hash;
 }
 
-static bool read_file(const std::string & path, std::vector<unsigned char> & out) {
+static bool read_file(const std::filesystem::path & path, std::vector<unsigned char> & out) {
     std::ifstream f(path, std::ios::binary | std::ios::ate);
     if (!f) {
-        fprintf(stderr, "embed: cannot open %s\n", path.c_str());
+        fprintf(stderr, "embed: cannot open %s\n", path.string().c_str());
         return false;
     }
     const auto sz = f.tellg();
@@ -109,29 +115,56 @@ static std::string fmt(const char * pattern, ...) {
     return (n > 0) ? std::string(tmp, static_cast<size_t>(n)) : std::string();
 }
 
+struct asset_entry {
+    std::string           name;
+    std::filesystem::path path;
+};
+
 int main(int argc, char ** argv) {
-    if (argc < 3 || ((argc - 3) % 2) != 0) {
-        fprintf(stderr, "usage: %s <out_cpp> <out_h> [<name> <path>]...\n", argv[0]);
+    if (argc < 3 || argc > 4) {
+        fprintf(stderr, "usage: %s <out_cpp> <out_h> [<asset_dir>]\n", argv[0]);
         return 1;
     }
 
     const std::string out_cpp = argv[1];
     const std::string out_h   = argv[2];
-    const int n_assets = (argc - 3) / 2;
+
+    std::vector<asset_entry> assets;
+    if (argc == 4) {
+        const std::filesystem::path dir = argv[3];
+
+        std::error_code ec;
+        std::filesystem::directory_iterator it(dir, ec);
+        if (ec) {
+            fprintf(stderr, "embed: cannot iterate %s: %s\n", argv[3], ec.message().c_str());
+            return 1;
+        }
+        for (const auto & entry : it) {
+            if (!entry.is_regular_file()) {
+                continue;
+            }
+            assets.push_back({ entry.path().filename().generic_string(), entry.path() });
+        }
+
+        // directory iteration order is unspecified; sort for reproducible output
+        std::sort(assets.begin(), assets.end(),
+                  [](const asset_entry & a, const asset_entry & b) { return a.name < b.name; });
+    }
+
+    const int n_assets = static_cast<int>(assets.size());
 
     if (n_assets > 0) {
         bool has_index = false, has_bundle_js = false, has_bundle_css = false, has_version = false;
-        for (int i = 0; i < n_assets; i++) {
-            const std::string name = argv[3 + i * 2];
-            if (name == "index.html")                          has_index     = true;
-            if (name.find("bundle.js")  != std::string::npos) has_bundle_js  = true;
-            if (name.find("bundle.css") != std::string::npos) has_bundle_css = true;
-            if (name == "version.json")                        has_version   = true;
+        for (const auto & a : assets) {
+            if (a.name == "index.html")   has_index      = true;
+            if (a.name == "bundle.js")    has_bundle_js  = true;
+            if (a.name == "bundle.css")   has_bundle_css = true;
+            if (a.name == "version.json") has_version    = true;
         }
         if (!has_index || !has_bundle_js || !has_bundle_css || !has_version) {
             fprintf(stderr, "embed: missing required assets (need index.html, bundle.js, bundle.css, version.json); got:\n");
-            for (int i = 0; i < n_assets; i++) {
-                fprintf(stderr, "  %s\n", argv[3 + i * 2]);
+            for (const auto & a : assets) {
+                fprintf(stderr, "  %s\n", a.name.c_str());
             }
             return 1;
         }
@@ -158,9 +191,8 @@ int main(int argc, char ** argv) {
 
     if (n_assets > 0) {
         for (int i = 0; i < n_assets; i++) {
-            const char * path = argv[3 + i * 2 + 1];
             std::vector<unsigned char> bytes;
-            if (!read_file(path, bytes)) {
+            if (!read_file(assets[i].path, bytes)) {
                 return 1;
             }
             cpp += fmt("static const unsigned char asset_%d_data[] = {", i);
@@ -175,7 +207,7 @@ int main(int argc, char ** argv) {
 
         cpp += fmt("static const std::array<llama_ui_asset, %d> g_assets = {{\n", n_assets);
         for (int i = 0; i < n_assets; i++) {
-            const std::string name = argv[3 + i * 2];
+            const std::string & name = assets[i].name;
             cpp += fmt("    { \"%s\", asset_%d_data, asset_%d_size, asset_%d_etag, \"%s\" },\n",
                        name.c_str(), i, i, i, mime_from_ext(name));
         }
