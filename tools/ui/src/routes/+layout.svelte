@@ -292,6 +292,7 @@
 	$effect(() => {
 		checkApiKey();
 	});
+
 </script>
 
 <svelte:head>
