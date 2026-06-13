@@ -400,12 +400,12 @@ bool server_http_context::init(const common_params & params) {
             };
 
             // Hashed routes: browser requests contain the build hash, assets are stored without.
-            auto serve_hashed = [serve_asset_cached](const httplib::Request & req, httplib::Response & res) {
-                return serve_asset_cached(asset_name_from_path(req.path), false)(req, res);
+            auto serve_hashed = [serve_asset_cached](const std::string & name) {
+                return serve_asset_cached(name, false);
             };
-            srv->Get(params.api_prefix + R"(/_app/immutable/bundle\.[^/]+\.js)",         serve_hashed);
-            srv->Get(params.api_prefix + R"(/_app/immutable/assets/bundle\.[^/]+\.css)", serve_hashed);
-            srv->Get(params.api_prefix + R"(/workbox-[^/]+\.js)",                        serve_hashed);
+            srv->Get(params.api_prefix + R"(/_app/immutable/bundle\.[^/]+\.js)",         serve_hashed("bundle.js"));
+            srv->Get(params.api_prefix + R"(/_app/immutable/assets/bundle\.[^/]+\.css)", serve_hashed("bundle.css"));
+            srv->Get(params.api_prefix + R"(/workbox-[^/]+\.js)",                        serve_hashed("workbox.js"));
 
             // SPA entry — also aliased at "/_app/version.json" (referenced by the service worker)
             srv->Get(params.api_prefix + "/",                  serve_asset_cached ("index.html",   true));
@@ -425,7 +425,6 @@ bool server_http_context::init(const common_params & params) {
 
             for (const auto & a : llama_ui_get_assets()) {
                 if (a.name == "index.html") continue;  // served at "/" and "/index.html" above
-                if (a.name.rfind("immutable/", 0) == 0 || a.name == "workbox.js") continue; // hashed routes above
                 if (no_cache_names.count(a.name)) {
                     srv->Get(params.api_prefix + "/" + a.name, serve_asset_nocache(a.name));
                 } else {

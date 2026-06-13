@@ -88,7 +88,6 @@ set(ASSETS
     apple-splash-landscape-dark-2732x2048.png
     manifest.webmanifest
     sw.js
-    _app/version.json
     build.json
 )
 
@@ -344,26 +343,9 @@ function(emit_files)
             list(APPEND args "${asset}" "${DIST_DIR}/${asset}")
         endforeach()
 
-        # Bundle files live in _app/immutable/ — vanilla SvelteKit output, no plugin
-        # rewriting. Embedded names must match the exact _app/ paths that index.html
-        # and sw.js reference.
-        file(GLOB_RECURSE detected_bundle_js "${DIST_DIR}/_app/immutable/bundle.*.js")
-        file(GLOB_RECURSE detected_bundle_css "${DIST_DIR}/_app/immutable/assets/bundle.*.css")
-        file(GLOB_RECURSE detected_workbox "${DIST_DIR}/workbox-*.js")
-        # Compute relative path from DIST_DIR to each found file.
-        # e.g. /path/to/build/tools/ui/dist/_app/immutable/bundle.XXX.js
-        #      -> _app/immutable/bundle.XXX.js
-        foreach(f ${detected_bundle_js})
-            string(REPLACE "${DIST_DIR}/" "" rel "${f}")
-            list(APPEND args "${rel}" "${f}")
-        endforeach()
-        foreach(f ${detected_bundle_css})
-            string(REPLACE "${DIST_DIR}/" "" rel "${f}")
-            list(APPEND args "${rel}" "${f}")
-        endforeach()
-        foreach(f ${detected_workbox})
-            string(REPLACE "${DIST_DIR}/" "" rel "${f}")
-            list(APPEND args "${rel}" "${f}")
+        # post-build.js flattens and dehashes these to fixed names in DIST_DIR
+        foreach(asset bundle.js bundle.css workbox.js version.json)
+            list(APPEND args "${asset}" "${DIST_DIR}/${asset}")
         endforeach()
     endif()
 

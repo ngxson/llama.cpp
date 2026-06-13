@@ -12,60 +12,6 @@
 #include <cinttypes>
 #include <cstdint>
 
-// Returns true if s looks like a build hash (alphanumeric, 6-16 chars)
-static bool is_hash(const std::string & s) {
-    if (s.size() < 6 || s.size() > 16) return false;
-    for (char c : s) {
-        if (!isalnum((unsigned char)c)) return false;
-    }
-    return true;
-}
-
-// Returns true if s looks like a hex build hash (hex digits, 6-16 chars)
-static bool is_hex_hash(const std::string & s) {
-    if (s.size() < 6 || s.size() > 16) return false;
-    for (char c : s) {
-        if (!isxdigit((unsigned char)c)) return false;
-    }
-    return true;
-}
-
-// Strips the hash segment from a bare filename (no directory part):
-//   bundle.HCjcCZFH.css  -> bundle.css   (name.HASH.ext)
-//   workbox-12bd46aa.js  -> workbox.js   (name-HEXHASH.ext)
-static std::string normalize_filename(const std::string & file) {
-    size_t dot1 = file.find('.');
-    if (dot1 != std::string::npos) {
-        size_t dot2 = file.find('.', dot1 + 1);
-        if (dot2 != std::string::npos && is_hash(file.substr(dot1 + 1, dot2 - dot1 - 1))) {
-            return file.substr(0, dot1) + file.substr(dot2);
-        }
-    }
-    size_t dot = file.rfind('.');
-    if (dot != std::string::npos) {
-        size_t dash = file.rfind('-', dot);
-        if (dash != std::string::npos && is_hex_hash(file.substr(dash + 1, dot - dash - 1))) {
-            return file.substr(0, dash) + file.substr(dot);
-        }
-    }
-    return file;
-}
-
-// Normalizes a raw asset name from the dist directory:
-//   _app/immutable/bundle.DaCibIq9.js         -> immutable/bundle.js
-//   _app/immutable/assets/bundle.HCjcCZFH.css -> immutable/assets/bundle.css
-//   workbox-12bd46aa.js                       -> workbox.js
-static std::string normalize_asset_name(const std::string & name) {
-    std::string s = name;
-    if (s.size() > 5 && s.compare(0, 5, "_app/") == 0) {
-        s = s.substr(5);
-    }
-    size_t slash = s.rfind('/');
-    if (slash != std::string::npos) {
-        return s.substr(0, slash + 1) + normalize_filename(s.substr(slash + 1));
-    }
-    return normalize_filename(s);
-}
 
 static const char * mime_from_ext(const std::string & name) {
     auto ext = name.rfind('.');
@@ -174,17 +120,18 @@ int main(int argc, char ** argv) {
     const int n_assets = (argc - 3) / 2;
 
     if (n_assets > 0) {
-        bool has_index = false, has_bundle_js = false, has_bundle_css = false;
+        bool has_index = false, has_bundle_js = false, has_bundle_css = false, has_version = false;
         for (int i = 0; i < n_assets; i++) {
-            const std::string norm = normalize_asset_name(argv[3 + i * 2]);
-            if (norm == "index.html")   has_index     = true;
-            if (norm.find("bundle.js")  != std::string::npos) has_bundle_js  = true;
-            if (norm.find("bundle.css") != std::string::npos) has_bundle_css = true;
+            const std::string name = argv[3 + i * 2];
+            if (name == "index.html")                          has_index     = true;
+            if (name.find("bundle.js")  != std::string::npos) has_bundle_js  = true;
+            if (name.find("bundle.css") != std::string::npos) has_bundle_css = true;
+            if (name == "version.json")                        has_version   = true;
         }
-        if (!has_index || !has_bundle_js || !has_bundle_css) {
-            fprintf(stderr, "embed: missing required assets (need index.html, bundle.js, bundle.css); got:\n");
+        if (!has_index || !has_bundle_js || !has_bundle_css || !has_version) {
+            fprintf(stderr, "embed: missing required assets (need index.html, bundle.js, bundle.css, version.json); got:\n");
             for (int i = 0; i < n_assets; i++) {
-                fprintf(stderr, "  %s\n", normalize_asset_name(argv[3 + i * 2]).c_str());
+                fprintf(stderr, "  %s\n", argv[3 + i * 2]);
             }
             return 1;
         }
@@ -228,9 +175,9 @@ int main(int argc, char ** argv) {
 
         cpp += fmt("static const std::array<llama_ui_asset, %d> g_assets = {{\n", n_assets);
         for (int i = 0; i < n_assets; i++) {
-            const std::string norm = normalize_asset_name(argv[3 + i * 2]);
+            const std::string name = argv[3 + i * 2];
             cpp += fmt("    { \"%s\", asset_%d_data, asset_%d_size, asset_%d_etag, \"%s\" },\n",
-                       norm.c_str(), i, i, i, mime_from_ext(norm));
+                       name.c_str(), i, i, i, mime_from_ext(name));
         }
         cpp += "}};\n\n";
 
