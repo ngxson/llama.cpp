@@ -420,8 +420,11 @@ bool server_http_context::init(const common_params & params) {
                 "version.json",
                 "build.json"
             };
+            // index.html also accessible at /index.html (with the same isolation headers as /)
+            srv->Get(params.api_prefix + "/index.html", serve_asset_cached("index.html", true));
+
             for (const auto & a : llama_ui_get_assets()) {
-                if (a.name == "index.html") continue;  // served at "/" above with isolation headers
+                if (a.name == "index.html") continue;  // served at "/" and "/index.html" above
                 if (a.name.rfind("immutable/", 0) == 0 || a.name == "workbox.js") continue; // hashed routes above
                 if (no_cache_names.count(a.name)) {
                     srv->Get(params.api_prefix + "/" + a.name, serve_asset_nocache(a.name));
