@@ -360,15 +360,16 @@ bool server_http_context::init(const common_params & params) {
             // PWA revalidation files (sw.js, manifest, version.json) use no-cache;
             // everything else is immutable.
             static const std::unordered_set<std::string> no_cache_names = {
-                "/sw.js",
-                "/manifest.webmanifest",
-                "/_app/version.json",
-                "/build.json"
+                "sw.js",
+                "manifest.webmanifest",
+                "_app/version.json",
+                "build.json"
             };
 
             for (const auto & a : llama_ui_get_assets()) {
                 if (a.name == "index.html") continue;  // served at "/" and "/index.html" above
                 if (no_cache_names.count(a.name)) {
+                    SRV_DBG("serve nocache for %s\n", a.name.c_str());
                     srv->Get(params.api_prefix + "/" + a.name, serve_asset_nocache(a.name));
                 } else {
                     srv->Get(params.api_prefix + "/" + a.name, serve_asset_cached(a.name, false));
