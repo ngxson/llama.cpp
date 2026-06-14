@@ -128,7 +128,7 @@ struct log_chunk {
     common_log_entry entries[SIZE];
     size_t head  = 0;
     size_t tail  = 0;
-    log_chunk * next = nullptr;
+    std::unique_ptr<log_chunk> next;
 
     log_chunk() {
         for (auto & e : entries) {
@@ -179,18 +179,12 @@ private:
 
     int64_t t_start;
 
-    log_chunk * head_chunk;
+    std::unique_ptr<log_chunk> head_chunk;
     log_chunk * tail_chunk;
     size_t      n_entries;
 
     void free_chunks() {
-        log_chunk * chunk = head_chunk;
-        while (chunk) {
-            log_chunk * next = chunk->next;
-            delete chunk;
-            chunk = next;
-        }
-        head_chunk = nullptr;
+        head_chunk.reset();
         tail_chunk = nullptr;
     }
 
@@ -207,9 +201,8 @@ public:
         }
 
         if (tail_chunk->is_full()) {
-            log_chunk * new_chunk = new log_chunk();
-            tail_chunk->next = new_chunk;
-            tail_chunk = new_chunk;
+            tail_chunk->next = std::make_unique<log_chunk>();
+            tail_chunk = tail_chunk->next.get();
         }
 
         auto & entry = tail_chunk->entries[tail_chunk->tail];
@@ -272,8 +265,8 @@ public:
 
         // start with a single fresh chunk
         free_chunks();
-        head_chunk = new log_chunk();
-        tail_chunk = head_chunk;
+        head_chunk = std::make_unique<log_chunk>();
+        tail_chunk = head_chunk.get();
         n_entries  = 0;
 
         thrd = std::thread([this]() {
@@ -292,9 +285,7 @@ public:
 
                     // free the head chunk once drained, keeping the next one
                     if (head_chunk->is_empty() && head_chunk->next) {
-                        log_chunk * old = head_chunk;
-                        head_chunk = head_chunk->next;
-                        delete old;
+                        head_chunk = std::move(head_chunk->next);
                     }
                 }
 
@@ -323,9 +314,8 @@ public:
 
             // push an entry to signal the worker thread to stop
             if (tail_chunk->is_full()) {
-                log_chunk * new_chunk = new log_chunk();
-                tail_chunk->next = new_chunk;
-                tail_chunk = new_chunk;
+                tail_chunk->next = std::make_unique<log_chunk>();
+                tail_chunk = tail_chunk->next.get();
             }
 
             auto & entry = tail_chunk->entries[tail_chunk->tail];
