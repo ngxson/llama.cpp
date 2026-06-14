@@ -121,40 +121,55 @@ struct common_log_entry {
     }
 };
 
-struct common_log {
-    // default capacity - will be expanded if needed
-    common_log() : common_log(256) {}
+// fixed-size chunk of log entries; chunks are linked into a queue
+struct log_chunk {
+    static constexpr size_t SIZE = 256;
 
-    common_log(size_t capacity) {
-        file = nullptr;
-        prefix = false;
-        timestamps = false;
-        running = false;
-        t_start = t_us();
+    common_log_entry entries[SIZE];
+    size_t head  = 0;
+    size_t tail  = 0;
+    log_chunk * next = nullptr;
 
-        // initial message size - will be expanded if longer messages arrive
-        entries.resize(capacity);
-        for (auto & entry : entries) {
-            entry.msg.resize(256);
+    log_chunk() {
+        for (auto & e : entries) {
+            e.msg.resize(256);
         }
+    }
 
-        head = 0;
-        tail = 0;
+    bool is_full()  const { return tail == SIZE; }
+    bool is_empty() const { return head == tail; }
+};
+
+struct common_log {
+    // max total entries across all chunks before producers are throttled
+    static constexpr size_t MAX_ENTRIES = 4096;
+
+    common_log() {
+        file       = nullptr;
+        prefix     = false;
+        timestamps = false;
+        running    = false;
+        t_start    = t_us();
+        n_entries  = 0;
+        head_chunk = nullptr;
+        tail_chunk = nullptr;
 
         resume();
     }
 
     ~common_log() {
         pause();
+        free_chunks();
         if (file) {
             fclose(file);
         }
     }
 
 private:
-    std::mutex mtx;
-    std::thread thrd;
+    std::mutex              mtx;
+    std::thread             thrd;
     std::condition_variable cv;
+    std::condition_variable cv_full;
 
     FILE * file;
 
@@ -164,24 +179,40 @@ private:
 
     int64_t t_start;
 
-    // ring buffer of entries
-    std::vector<common_log_entry> entries;
-    size_t head;
-    size_t tail;
+    log_chunk * head_chunk;
+    log_chunk * tail_chunk;
+    size_t      n_entries;
 
-    // worker thread copies into this
-    common_log_entry cur;
+    void free_chunks() {
+        log_chunk * chunk = head_chunk;
+        while (chunk) {
+            log_chunk * next = chunk->next;
+            delete chunk;
+            chunk = next;
+        }
+        head_chunk = nullptr;
+        tail_chunk = nullptr;
+    }
 
 public:
     void add(enum ggml_log_level level, const char * fmt, va_list args) {
-        std::lock_guard<std::mutex> lock(mtx);
+        std::unique_lock<std::mutex> lock(mtx);
+
+        // block producers when the queue is full
+        cv_full.wait(lock, [this]() { return !running || n_entries < MAX_ENTRIES; });
 
         if (!running) {
             // discard messages while the worker thread is paused
             return;
         }
 
-        auto & entry = entries[tail];
+        if (tail_chunk->is_full()) {
+            log_chunk * new_chunk = new log_chunk();
+            tail_chunk->next = new_chunk;
+            tail_chunk = new_chunk;
+        }
+
+        auto & entry = tail_chunk->entries[tail_chunk->tail];
 
         {
             // cannot use args twice, so make a copy in case we need to expand the buffer
@@ -216,37 +247,17 @@ public:
             va_end(args_copy);
         }
 
-        entry.level = level;
-        entry.prefix = prefix;
+        entry.level     = level;
+        entry.prefix    = prefix;
         entry.timestamp = 0;
         if (timestamps) {
             entry.timestamp = t_us() - t_start;
         }
         entry.is_end = false;
 
-        tail = (tail + 1) % entries.size();
-        if (tail == head) {
-            // expand the buffer
-            std::vector<common_log_entry> new_entries(2*entries.size());
+        tail_chunk->tail++;
+        n_entries++;
 
-            size_t new_tail = 0;
-
-            do {
-                new_entries[new_tail] = std::move(entries[head]);
-
-                head     = (head     + 1) % entries.size();
-                new_tail = (new_tail + 1);
-            } while (head != tail);
-
-            head = 0;
-            tail = new_tail;
-
-            for (size_t i = tail; i < new_entries.size(); i++) {
-                new_entries[i].msg.resize(256);
-            }
-
-            entries = std::move(new_entries);
-        }
         cv.notify_one();
     }
 
@@ -259,14 +270,32 @@ public:
 
         running = true;
 
+        // start with a single fresh chunk
+        free_chunks();
+        head_chunk = new log_chunk();
+        tail_chunk = head_chunk;
+        n_entries  = 0;
+
         thrd = std::thread([this]() {
+            common_log_entry cur;
+            cur.msg.resize(256);
+
             while (true) {
                 {
                     std::unique_lock<std::mutex> lock(mtx);
-                    cv.wait(lock, [this]() { return head != tail; });
-                    cur = entries[head];
+                    cv.wait(lock, [this]() { return !head_chunk->is_empty(); });
 
-                    head = (head + 1) % entries.size();
+                    cur = head_chunk->entries[head_chunk->head];
+                    head_chunk->head++;
+                    n_entries--;
+                    cv_full.notify_one();
+
+                    // free the head chunk once drained, keeping the next one
+                    if (head_chunk->is_empty() && head_chunk->next) {
+                        log_chunk * old = head_chunk;
+                        head_chunk = head_chunk->next;
+                        delete old;
+                    }
                 }
 
                 if (cur.is_end) {
@@ -293,13 +322,19 @@ public:
             running = false;
 
             // push an entry to signal the worker thread to stop
-            {
-                auto & entry = entries[tail];
-                entry.is_end = true;
-
-                tail = (tail + 1) % entries.size();
+            if (tail_chunk->is_full()) {
+                log_chunk * new_chunk = new log_chunk();
+                tail_chunk->next = new_chunk;
+                tail_chunk = new_chunk;
             }
+
+            auto & entry = tail_chunk->entries[tail_chunk->tail];
+            entry.is_end = true;
+            tail_chunk->tail++;
+            n_entries++;
+
             cv.notify_one();
+            cv_full.notify_all(); // unblock any producers waiting on a full queue
         }
 
         thrd.join();
