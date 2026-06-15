@@ -270,6 +270,11 @@ extern "C" {
         LLAMA_MODEL_META_KEY_SAMPLING_MIROSTAT_ETA,
     };
 
+    enum llama_process_type {
+        LLAMA_PROCESS_TYPE_ENCODE,
+        LLAMA_PROCESS_TYPE_DECODE,
+    };
+
     struct llama_model_kv_override {
         enum llama_model_kv_override_type tag;
 
@@ -958,6 +963,62 @@ extern "C" {
     LLAMA_API int32_t llama_decode(
             struct llama_context * ctx,
               struct llama_batch   batch);
+
+    //
+    // Extended batch API
+    //
+
+    struct llama_batch_ext;
+
+    LLAMA_API struct llama_batch_ext * llama_batch_ext_init (struct llama_context * ctx);
+    LLAMA_API void                     llama_batch_ext_free (struct llama_batch_ext * batch);
+    LLAMA_API void                     llama_batch_ext_clear(struct llama_batch_ext * batch);
+
+    struct llama_batch_token {
+        llama_token     id;         // if id != LLAMA_TOKEN_NULL, embd must be nullptr
+        float         * embd;       // if embd != nullptr, token id must be LLAMA_TOKEN_NULL
+        float         * embd_nextn; // used by nextn layers
+        llama_pos     * pos;        // if nullptr, the position will be automatically assigned
+                                    // for M-RoPE models, embedding tokens must have multiple positions per token; text token only requires one single position per token
+        llama_seq_id    seq_id;
+        bool            output;
+    };
+
+    // Add an input token to the batch
+    // Returns the batch index (>= 0)
+    // On error:
+    //    -1: batch is full
+    //    -2: token is invalid (id == LLAMA_TOKEN_NULL or invalid embd)
+    //    -3: invalid sequence id
+    LLAMA_API int32_t llama_batch_ext_add_token(
+            struct llama_batch_ext * batch,
+                 llama_batch_token   token);
+
+    // Set output = true for the last added token in the batch
+    // Returns the batch index (>= 0)
+    LLAMA_API bool llama_batch_ext_set_output(
+            struct llama_batch_ext * batch,
+                            int32_t  idx,
+                               bool  output_last);
+
+    // Get the logits for the output token with the specified batch index
+    LLAMA_API float * llama_batch_ext_get_logits(
+              struct llama_context * ctx,
+            struct llama_batch_ext * batch,
+                           int32_t   idx);
+
+    // Get the embeddings for the output token with the specified batch index
+    // The length of each embedding is equal to llama_model_n_embd_out()
+    LLAMA_API float * llama_batch_ext_get_embeddings(
+              struct llama_context * ctx,
+            struct llama_batch_ext * batch,
+                           int32_t   idx);
+
+    // Return values are the same as llama_decode()
+    LLAMA_API int32_t llama_process(
+                struct llama_context * ctx,
+             enum llama_process_type   type,
+              struct llama_batch_ext * batch);
 
     // Set the number of threads used for decoding
     // n_threads is the number of threads used for generation (single token)

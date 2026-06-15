@@ -917,3 +917,31 @@ void llama_batch_free(struct llama_batch batch) {
     }
     if (batch.logits)   free(batch.logits);
 }
+
+
+// llama_batch_ext
+
+llama_batch_ext * llama_batch_ext_init(llama_context * ctx) {
+    return new llama_batch_ext(ctx);
+}
+
+void llama_batch_ext_free(llama_batch_ext * batch) {
+    delete batch;
+}
+
+void llama_batch_ext_clear(llama_batch_ext * batch) {
+    batch->clear();
+}
+
+int32_t llama_batch_ext_add_token(llama_batch_ext * batch, llama_batch_token token) {
+    return batch->add_token(&token);
+}
+
+bool llama_batch_ext_set_output(llama_batch_ext * batch, int32_t idx, bool output_last) {
+    return batch->set_output(idx, output_last);
+}
+
+int32_t llama_process(llama_context * ctx, llama_process_type type, llama_batch_ext * batch) {
+    // TODO: implement llama_process
+    return 0;
+}
