@@ -981,7 +981,6 @@ extern "C" {
         llama_pos     * pos;        // if nullptr, the position will be automatically assigned
                                     // for M-RoPE models, embedding tokens must have multiple positions per token; text token only requires one single position per token
         llama_seq_id    seq_id;
-        bool            output;
     };
 
     // Add an input token to the batch
@@ -1003,14 +1002,12 @@ extern "C" {
 
     // Get the logits for the output token with the specified batch index
     LLAMA_API float * llama_batch_ext_get_logits(
-              struct llama_context * ctx,
             struct llama_batch_ext * batch,
                            int32_t   idx);
 
     // Get the embeddings for the output token with the specified batch index
     // The length of each embedding is equal to llama_model_n_embd_out()
     LLAMA_API float * llama_batch_ext_get_embeddings(
-              struct llama_context * ctx,
             struct llama_batch_ext * batch,
                            int32_t   idx);
 

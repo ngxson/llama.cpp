@@ -143,7 +143,6 @@ struct llama_batch_ext {
         t.id     = token_in->id;
         t.pos    = token_in->pos ? *token_in->pos : next_pos(token_in->seq_id);
         t.seq_id = token_in->seq_id;
-        t.output = token_in->output;
 
         tokens.push_back(t);
 
@@ -165,7 +164,6 @@ struct llama_batch_ext {
         t.embd_off = embd.size();
         t.pos      = token_in->pos ? *token_in->pos : next_pos(token_in->seq_id);
         t.seq_id   = token_in->seq_id;
-        t.output   = token_in->output;
 
         tokens.push_back(t);
         embd.insert(embd.end(),
