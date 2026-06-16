@@ -3,6 +3,8 @@
 #include "llama-impl.h"
 #include "llama-vocab.h"
 #include "llama-memory.h"
+#include "llama-hparams.h"
+#include "llama-model.h"
 
 #include <cassert>
 #include <cstring>
@@ -921,6 +923,123 @@ void llama_batch_free(struct llama_batch batch) {
 
 // llama_batch_ext
 
+llama_batch_ext::llama_batch_ext(llama_context * ctx) :
+        n_tokens_max(llama_n_batch(ctx)),
+        n_embd_inp(llama_model_n_embd_inp(llama_get_model(ctx))),
+        n_seq_max(llama_n_seq_max(ctx)),
+        memory(llama_get_memory(ctx)),
+        n_vocab(llama_vocab_n_tokens(llama_model_get_vocab(llama_get_model(ctx)))),
+        n_pos_per_embd(llama_get_model(ctx)->hparams.n_pos_per_embd()) {
+    clear(); // initialize pos_max
+}
+
+void llama_batch_ext::clear() {
+    tokens.clear();
+    embd  .clear();
+    for (llama_seq_id i = 0; i < n_seq_max; ++i) {
+        pos_max[i] = llama_memory_seq_pos_max(memory, i);
+    }
+}
+
+// advance the position and return the post-incremented value
+llama_pos llama_batch_ext::advance_pos(llama_seq_id seq_id) {
+    GGML_ASSERT(seq_id >= 0 && seq_id < n_seq_max);
+    return pos_max[seq_id]++;
+}
+
+int32_t llama_batch_ext::add_token(llama_seq_id seq_id) {
+    if (tokens.size() >= n_tokens_max) {
+        return -1; // size limit reached
+    }
+    if (seq_id < 0 || seq_id >= n_seq_max) {
+        return -3; // invalid sequence id
+    }
+
+    token t;
+    t.seq_ids.insert(seq_id);
+    t.pos = { advance_pos(seq_id), 0, 0, 0 };
+
+    tokens.push_back(t);
+
+    return (int32_t)(tokens.size() - 1);
+}
+
+bool llama_batch_ext::add_seq(int32_t idx, llama_seq_id seq_id) {
+    if (idx < 0 || idx >= (int32_t) tokens.size()) {
+        return false;
+    }
+    if (seq_id < 0 || seq_id >= n_seq_max) {
+        return false;
+    }
+
+    token & t = tokens[idx];
+
+    t.seq_ids.insert(seq_id);
+
+    return true;
+}
+
+bool llama_batch_ext::set_token_id(int32_t idx, llama_token id) {
+    if (idx < 0 || idx >= (int32_t) tokens.size()) {
+        return false;
+    }
+    if (id < 0 || id >= n_vocab) {
+        return false;
+    }
+    tokens[idx].id = id;
+    return true;
+}
+
+bool llama_batch_ext::set_token_embd(int32_t idx, float * embd_in) {
+    if (idx < 0 || idx >= (int32_t) tokens.size()) {
+        return false;
+    }
+    if (!embd_in) {
+        return false;
+    }
+
+    token & t = tokens[idx];
+
+    t.embd_off = embd.size();
+    embd.insert(embd.end(), embd_in, embd_in + n_embd_inp);
+
+    return true;
+}
+
+bool llama_batch_ext::set_token_pos(int32_t idx, llama_pos * pos_in) {
+    if (idx < 0 || idx >= (int32_t) tokens.size()) {
+        return false;
+    }
+    if (!pos_in) {
+        return false;
+    }
+
+    token & t = tokens[idx];
+
+    size_t n_pos = t.id != LLAMA_TOKEN_NULL ? 1 : n_pos_per_embd;
+    for (size_t i = 0; i < n_pos; ++i) {
+        t.pos[i] = pos_in[i];
+    }
+
+    // also update seq pos_max
+    auto new_temporal_pos = pos_in[0];
+    for (llama_seq_id seq : t.seq_ids) {
+        pos_max[seq] = std::max(pos_max[seq], new_temporal_pos);
+    }
+
+    return true;
+}
+
+bool llama_batch_ext::set_output(int32_t idx, bool output_last) {
+    if (idx < 0 || idx >= (int32_t) tokens.size()) {
+        return false;
+    }
+    tokens[idx].output = output_last;
+    return true;
+}
+
+// llama_batch_ext C API
+
 llama_batch_ext * llama_batch_ext_init(llama_context * ctx) {
     return new llama_batch_ext(ctx);
 }
@@ -933,15 +1052,45 @@ void llama_batch_ext_clear(llama_batch_ext * batch) {
     batch->clear();
 }
 
-int32_t llama_batch_ext_add_token(llama_batch_ext * batch, llama_batch_token token) {
-    return batch->add_token(&token);
+int32_t llama_batch_ext_add(llama_batch_ext * batch, llama_seq_id seq_id) {
+    return batch->add_token(seq_id);
 }
 
-bool llama_batch_ext_set_output(llama_batch_ext * batch, int32_t idx, bool output_last) {
-    return batch->set_output(idx, output_last);
+int32_t llama_batch_ext_add_token(llama_batch_ext * batch, llama_token id, llama_seq_id seq_id) {
+    int32_t idx = batch->add_token(seq_id);
+    if (idx < 0) {
+        return idx;
+    }
+    if (!batch->set_token_id(idx, id)) {
+        return -2;
+    }
+    return idx;
+}
+
+int32_t llama_batch_ext_add_embd(llama_batch_ext * batch, float * embd, llama_seq_id seq_id) {
+    int32_t idx = batch->add_token(seq_id);
+    if (idx < 0) {
+        return idx;
+    }
+    if (!batch->set_token_embd(idx, embd)) {
+        return -2;
+    }
+    return idx;
+}
+
+bool llama_batch_ext_add_seq(llama_batch_ext * batch, int32_t idx, llama_seq_id seq_id) {
+    return batch->add_seq(idx, seq_id);
+}
+
+bool llama_batch_ext_set_output_logits(llama_batch_ext * batch, int32_t idx, bool value) {
+    return batch->set_output(idx, value);
+}
+
+bool llama_batch_ext_set_pos(llama_batch_ext * batch, int32_t idx, llama_pos * pos) {
+    return batch->set_token_pos(idx, pos);
 }
 
 int32_t llama_process(llama_context * ctx, llama_process_type type, llama_batch_ext * batch) {
-    // TODO: implement llama_process
-    return 0;
+    // for now, we simply translate the llama_batch_ext into a llama_batch_allocr
+    return -1;
 }

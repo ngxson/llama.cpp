@@ -10,6 +10,7 @@
 #include <bitset>
 #include <memory>
 #include <unordered_map>
+#include <unordered_set>
 
 // keep this struct lightweight
 struct llama_ubatch {
@@ -72,106 +73,36 @@ struct llama_batch_ext {
     size_t n_tokens_max; // max number of tokens that can be stored in the batch
     size_t n_embd_inp; // number of embedding dimensions per token
     llama_seq_id n_seq_max;  // max number of sequences
-    std::vector<llama_pos> pos_max; // keep track of the current position
     llama_memory_i * memory; // memory for position inference
     llama_token n_vocab; // max token ID that we accept
+    size_t n_pos_per_embd;
+
+    std::vector<llama_pos> pos_max; // keep track of the current position
 
     struct token {
         llama_token  id = LLAMA_TOKEN_NULL;
         size_t       embd_off = 0; // index offset in the embd array
-        llama_pos    pos = 0;
-        llama_seq_id seq_id = 0;
-        bool         output = false;
+        bool         output = false; // TODO: have dedicated output flags
+        std::unordered_set<llama_seq_id> seq_ids;
+        std::array<llama_pos, GGML_MROPE_SECTIONS> pos = {0, 0, 0, 0};
     };
     std::vector<token> tokens;
     std::vector<float> embd;
 
-    llama_batch_ext(llama_context * ctx) :
-            n_tokens_max(llama_n_batch(ctx)),
-            n_embd_inp(llama_model_n_embd_inp(llama_get_model(ctx))),
-            n_seq_max(llama_n_seq_max(ctx)),
-            memory(llama_get_memory(ctx)),
-            n_vocab(llama_vocab_n_tokens(llama_model_get_vocab(llama_get_model(ctx)))) {
-        clear(); // initialize pos_max
-    }
+    llama_batch_ext(llama_context * ctx);
 
-    void clear() {
-        tokens.clear();
-        embd  .clear();
-        for (llama_seq_id i = 0; i < n_seq_max; ++i) {
-            pos_max[i] = llama_memory_seq_pos_max(memory, i);
-        }
-    }
+    void clear();
 
-    llama_pos next_pos(llama_seq_id seq_id) const {
-        GGML_ASSERT(seq_id >= 0 && seq_id < n_seq_max);
-        return pos_max[seq_id] + 1;
-    }
+    // advance the position and return the post-incremented value
+    llama_pos advance_pos(llama_seq_id seq_id);
 
-    bool set_output(int32_t idx, bool output_last) {
-        if (idx < 0 || idx >= (int32_t) tokens.size()) {
-            return false;
-        }
-        tokens[idx].output = output_last;
-        return true;
-    }
+    int32_t add_token(llama_seq_id seq_id);
 
-    int32_t add_token(llama_batch_token * token_in) {
-        if ((token_in->id == LLAMA_TOKEN_NULL && token_in->embd == nullptr)
-         || (token_in->id != LLAMA_TOKEN_NULL && token_in->embd != nullptr)) {
-            return -2; // invalid input
-        }
-        if (token_in->embd) {
-            return add_token_embd(token_in);
-        } else {
-            return add_token_id(token_in);
-        }
-    }
-
-    int32_t add_token_id(llama_batch_token * token_in) {
-        if (tokens.size() >= n_tokens_max) {
-            return -1; // size limit reached
-        }
-        if (token_in->id < 0 || token_in->id >= n_vocab) {
-            return -2; // invalid token id
-        }
-        if (token_in->seq_id < 0 || token_in->seq_id >= n_seq_max) {
-            return -3; // invalid sequence id
-        }
-
-        token t;
-        t.id     = token_in->id;
-        t.pos    = token_in->pos ? *token_in->pos : next_pos(token_in->seq_id);
-        t.seq_id = token_in->seq_id;
-
-        tokens.push_back(t);
-
-        return (int32_t)(tokens.size() - 1);
-    }
-
-    int32_t add_token_embd(llama_batch_token * token_in) {
-        if (tokens.size() >= n_tokens_max) {
-            return -1; // size limit reached
-        }
-        if (!token_in->embd) {
-            return -2; // invalid embedding
-        }
-        if (token_in->seq_id < 0 || token_in->seq_id >= n_seq_max) {
-            return -3; // invalid sequence id
-        }
-
-        token t;
-        t.embd_off = embd.size();
-        t.pos      = token_in->pos ? *token_in->pos : next_pos(token_in->seq_id);
-        t.seq_id   = token_in->seq_id;
-
-        tokens.push_back(t);
-        embd.insert(embd.end(),
-            token_in->embd,
-            token_in->embd + n_embd_inp);
-
-        return (int32_t)(tokens.size() - 1);
-    }
+    bool add_seq(int32_t idx, llama_seq_id seq_id);
+    bool set_token_id(int32_t idx, llama_token id);
+    bool set_token_embd(int32_t idx, float * embd_in);
+    bool set_token_pos(int32_t idx, llama_pos * pos_in);
+    bool set_output(int32_t idx, bool output_last);
 };
 
 // a helper for sanitizing, fulfilling and splitting a batch
