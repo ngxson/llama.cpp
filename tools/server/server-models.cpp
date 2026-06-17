@@ -66,9 +66,19 @@ struct server_subproc {
     }
 
     void terminate() {
-        if (sproc.has_value() && sproc->child > 0) {
-            subprocess_terminate(&sproc.value());
+        if (!sproc.has_value()) {
+            return;
         }
+#if defined(_WIN32)
+        if (sproc->hProcess == NULL) {
+            return;
+        }
+#else
+        if (sproc->child <= 0) {
+            return;
+        }
+#endif
+        subprocess_terminate(&sproc.value());
     }
 };
 
