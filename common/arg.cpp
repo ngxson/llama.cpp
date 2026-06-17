@@ -291,6 +291,9 @@ struct handle_model_result {
 
     bool found_mtp = false;
     common_params_model mtp;
+
+    bool found_preset = false;
+    std::string preset_path;
 };
 
 static handle_model_result common_params_handle_model(struct common_params_model & model,
@@ -308,6 +311,12 @@ static handle_model_result common_params_handle_model(struct common_params_model
         }
         common_download_opts hf_opts = opts;
         auto download_result = common_download_model(model, hf_opts);
+
+        if (!download_result.preset_path.empty()) {
+            result.found_preset = true;
+            result.preset_path = download_result.preset_path;
+            return result; // skip everything else if preset.ini is used
+        }
 
         if (download_result.model_path.empty()) {
             throw std::runtime_error("failed to download model from Hugging Face");
@@ -408,6 +417,13 @@ bool common_params_handle_models(common_params & params, llama_example curr_ex) 
 
     try {
         auto res = common_params_handle_model(params.model, opts);
+        if (res.found_preset) {
+            // if HF repo is a preset repo, we simply run server in router mode with the preset.ini file
+            params.models_preset = res.preset_path;
+            params.model = common_params_model{}; // make sure to clear model, so server starts in router mode
+            return true;
+        }
+
         if (params.no_mmproj) {
             params.mmproj = {};
         } else if (res.found_mmproj && params.mmproj.path.empty() && params.mmproj.url.empty()) {
@@ -565,21 +581,17 @@ static bool common_params_parse_ex(int argc, char ** argv, common_params_context
         throw std::invalid_argument("error: --prompt-cache-all not supported in interactive mode yet\n");
     }
 
-    // handle model and download
-    {
-        // export_graph_ops loads only metadata
-        const bool skip_model_download = ctx_arg.ex == LLAMA_EXAMPLE_EXPORT_GRAPH_OPS;
+    // export_graph_ops loads only metadata
+    const bool skip_model_download = ctx_arg.ex == LLAMA_EXAMPLE_EXPORT_GRAPH_OPS;
 
+    if (!skip_model_download) {
         // handle model and download
-        if (!skip_model_download) {
-            common_params_handle_models(params, ctx_arg.ex);
-        }
+        common_params_handle_models(params, ctx_arg.ex);
 
         // model is required (except for server)
         // TODO @ngxson : maybe show a list of available models in CLI in this case
         if (params.model.path.empty()
                 && ctx_arg.ex != LLAMA_EXAMPLE_SERVER
-                && !skip_model_download
                 && !params.usage
                 && !params.completion) {
             throw std::invalid_argument("error: --model is required\n");
