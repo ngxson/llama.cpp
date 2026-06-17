@@ -644,17 +644,10 @@ struct clip_image_f32_batch {
     std::vector<clip_image_f32> entries;
     bool is_audio = false;
 
-    // for llava-uhd style models, we need to know the grid size
-    // note: entries.size() == grid_x * grid_y + 1 (one overview image)
-    int grid_x = 0;
-    int grid_y = 0;
-
     clip_image_f32_batch clone() const {
         clip_image_f32_batch new_batch{
             /* entries  */ {},
             /* is_audio */ is_audio,
-            /* grid_x   */ grid_x,
-            /* grid_y   */ grid_y,
         };
         new_batch.entries.reserve(entries.size());
         for (const auto & entry : entries) {
