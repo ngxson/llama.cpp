@@ -640,30 +640,8 @@ static void clip_log_internal(enum ggml_log_level level, const char * format, ..
 // cpp wrappers
 //
 
-// wrapper for clip_image_size
-struct clip_image_size_deleter {
-    void operator()(clip_image_size * val) { clip_image_size_free(val); }
-};
-typedef std::unique_ptr<clip_image_size, clip_image_size_deleter> clip_image_size_ptr;
-
-// wrapper for clip_image_u8
-struct clip_image_u8_deleter {
-    void operator()(clip_image_u8 * val) { clip_image_u8_free(val); }
-};
-typedef std::unique_ptr<clip_image_u8, clip_image_u8_deleter> clip_image_u8_ptr;
-
-// wrapper for clip_image_f32
-struct clip_image_f32_deleter {
-    void operator()(clip_image_f32 * val) { clip_image_f32_free(val); }
-};
-typedef std::unique_ptr<clip_image_f32, clip_image_f32_deleter> clip_image_f32_ptr;
-
-struct clip_image_u8_batch {
-    std::vector<clip_image_u8_ptr> entries;
-};
-
 struct clip_image_f32_batch {
-    std::vector<clip_image_f32_ptr> entries;
+    std::vector<clip_image_f32> entries;
     bool is_audio = false;
 
     // for llava-uhd style models, we need to know the grid size
@@ -680,7 +658,7 @@ struct clip_image_f32_batch {
         };
         new_batch.entries.reserve(entries.size());
         for (const auto & entry : entries) {
-            new_batch.entries.emplace_back(new clip_image_f32(*entry));
+            new_batch.entries.emplace_back(entry); // copy
         }
         return new_batch;
     }
