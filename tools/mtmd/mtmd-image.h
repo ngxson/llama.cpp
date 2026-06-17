@@ -13,25 +13,9 @@ struct mtmd_image_preproc_out {
     // grid size is required for llava-uhd style models
     int grid_x = 0;
     int grid_y = 0;
-    void append(const clip_hparams & hparams, clip_image_u8 & img, bool normalized = true) {
-        clip_image_f32 dst;
-        dst.from_u8(img);
-        if (normalized) {
-            dst.normalize(hparams.image_mean, hparams.image_std);
-        }
-        entries.push_back(std::move(dst));
-    }
-    void append(const clip_hparams & hparams, std::vector<clip_image_u8> & imgs, bool normalized = true) {
-        for (auto & img : imgs) {
-            append(hparams, img, normalized);
-        }
-    }
-    void append(const clip_hparams & hparams, clip_image_f32 & img, bool normalized = true) {
-        if (normalized) {
-            img.normalize(hparams.image_mean, hparams.image_std);
-        }
-        entries.push_back(std::move(img));
-    }
+    void append(const clip_hparams & hparams, const clip_image_u8 & img, bool normalized = true);
+    void append(const clip_hparams & hparams, const std::vector<clip_image_u8> & imgs, bool normalized = true);
+    void append(const clip_hparams & hparams, clip_image_f32 & img, bool normalized = true);
 };
 
 // base class, models must inherit from this class
@@ -42,9 +26,6 @@ struct mtmd_image_preprocessor {
 
     virtual ~mtmd_image_preprocessor() = default;
     virtual bool preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) = 0;
-
-    void img_u8_to_f32(const clip_image_u8 & src, clip_image_f32 & dst, const float mean[3], const float std[3]);
-    void img_u8_to_f32(const clip_image_u8 & src, clip_image_f32 & dst);
 };
 
 /**

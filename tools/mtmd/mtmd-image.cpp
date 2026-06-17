@@ -4,6 +4,28 @@
 #include <cmath>
 #include <vector>
 
+void mtmd_image_preproc_out::append(const clip_hparams & hparams, const clip_image_u8 & img, bool normalized) {
+    clip_image_f32 dst;
+    dst.from_u8(img);
+    if (normalized) {
+        dst.normalize(hparams.image_mean, hparams.image_std);
+    }
+    entries.push_back(std::move(dst));
+}
+
+void mtmd_image_preproc_out::append(const clip_hparams & hparams, const std::vector<clip_image_u8> & imgs, bool normalized) {
+    for (const auto & img : imgs) {
+        append(hparams, img, normalized);
+    }
+}
+
+void mtmd_image_preproc_out::append(const clip_hparams & hparams, clip_image_f32 & img, bool normalized) {
+    if (normalized) {
+        img.normalize(hparams.image_mean, hparams.image_std);
+    }
+    entries.push_back(std::move(img));
+}
+
 // set of tools to manipulate images
 // in the future, we can have HW acceleration by allowing this struct to access 3rd party lib like imagick or opencv
 struct img_tool {

@@ -3124,71 +3124,11 @@ struct clip_cap clip_get_cap(const char * fname) {
     return res;
 }
 
-struct clip_image_size * clip_image_size_init() {
-    struct clip_image_size * load_image_size = new struct clip_image_size();
-    load_image_size->width = 448;
-    load_image_size->height = 448;
-    return load_image_size;
-}
-
-struct clip_image_u8 * clip_image_u8_init() {
-    return new clip_image_u8();
-}
-
-struct clip_image_f32 * clip_image_f32_init() {
-    return new clip_image_f32();
-}
-
-struct clip_image_f32_batch * clip_image_f32_batch_init() {
-    return new clip_image_f32_batch();
-}
-
-void clip_image_size_free(struct clip_image_size * load_image_size) {
-    if (load_image_size == nullptr) {
-        return;
-    }
-    delete load_image_size;
-}
-void clip_image_f32_free(struct clip_image_f32 * img) { delete img; }
-void clip_image_f32_batch_free(struct clip_image_f32_batch * batch) { delete batch; }
-
-size_t clip_image_f32_batch_n_images(const struct clip_image_f32_batch * batch) {
-    return batch->entries.size();
-}
-
-size_t clip_image_f32_batch_nx(const struct clip_image_f32_batch * batch, int idx) {
-    if (idx < 0 || idx >= (int)batch->entries.size()) {
-        LOG_ERR("%s: invalid index %d\n", __func__, idx);
-        return 0;
-    }
-    return batch->entries[idx].nx();
-}
-
-size_t clip_image_f32_batch_ny(const struct clip_image_f32_batch * batch, int idx) {
-    if (idx < 0 || idx >= (int)batch->entries.size()) {
-        LOG_ERR("%s: invalid index %d\n", __func__, idx);
-        return 0;
-    }
-    return batch->entries[idx].ny();
-}
-
 void clip_free(clip_ctx * ctx) {
     if (ctx == nullptr) {
         return;
     }
     delete ctx;
-}
-
-int32_t clip_get_image_size(const struct clip_ctx * ctx) {
-    return ctx->model.hparams.image_size;
-}
-
-int32_t clip_get_patch_size(const struct clip_ctx * ctx) {
-    return ctx->model.hparams.patch_size;
-}
-
-int32_t clip_get_hidden_size(const struct clip_ctx * ctx) {
-    return ctx->model.hparams.n_embd;
 }
 
 const char * clip_patch_merge_type(const struct clip_ctx * ctx) {

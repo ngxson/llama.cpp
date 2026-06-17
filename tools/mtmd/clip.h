@@ -62,10 +62,6 @@ struct clip_init_result clip_init(const char * fname, struct clip_context_params
 
 void clip_free(struct clip_ctx * ctx);
 
-int32_t clip_get_image_size (const struct clip_ctx * ctx);
-int32_t clip_get_patch_size (const struct clip_ctx * ctx);
-int32_t clip_get_hidden_size(const struct clip_ctx * ctx);
-
 // TODO: should be enum, not string
 const char * clip_patch_merge_type(const struct clip_ctx * ctx);
 
@@ -79,20 +75,7 @@ int clip_n_output_tokens_y(const clip_ctx * ctx, const clip_image_f32 * img);
 // this should be equal to the embedding dimension of the text model
 int clip_n_mmproj_embd(const struct clip_ctx * ctx);
 
-struct clip_image_size      * clip_image_size_init(void);
-struct clip_image_u8        * clip_image_u8_init (void);
-struct clip_image_f32       * clip_image_f32_init(void);
-struct clip_image_f32_batch * clip_image_f32_batch_init(void); // only used by libllava
-
-void clip_image_size_free (struct clip_image_size * img_size);
-void clip_image_f32_free(struct clip_image_f32 * img);
-void clip_image_f32_batch_free(struct clip_image_f32_batch * batch);
-
-// use for accessing underlay data of clip_image_f32_batch
-size_t clip_image_f32_batch_n_images(const struct clip_image_f32_batch * batch); // equivalent to batch->size()
-size_t clip_image_f32_batch_nx(const struct clip_image_f32_batch * batch, int idx); // equivalent to batch[idx]->nx
-size_t clip_image_f32_batch_ny(const struct clip_image_f32_batch * batch, int idx); // equivalent to batch[idx]->ny
-
+// TODO: remove clip_image_encode() and always use batched version
 bool clip_image_encode      (struct clip_ctx * ctx, int n_threads, const clip_image_f32 * img, std::vector<float> & out_vec);
 bool clip_image_batch_encode(struct clip_ctx * ctx, int n_threads, const struct clip_image_f32_batch * imgs, std::vector<float> & out_batch_embd);
 
