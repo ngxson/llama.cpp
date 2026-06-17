@@ -25,7 +25,7 @@ struct mtmd_image_preprocessor {
     mtmd_image_preprocessor(const clip_ctx * ctx): hparams(*clip_get_hparams(ctx)) {}
 
     virtual ~mtmd_image_preprocessor() = default;
-    virtual bool preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) = 0;
+    virtual mtmd_image_preproc_out preprocess(const clip_image_u8 & img) = 0;
 };
 
 /**
@@ -49,7 +49,7 @@ struct mtmd_image_preprocessor {
  */
 struct mtmd_image_preprocessor_llava_uhd : mtmd_image_preprocessor {
     mtmd_image_preprocessor_llava_uhd(const clip_ctx * ctx) : mtmd_image_preprocessor(ctx) {}
-    bool preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) override;
+    mtmd_image_preproc_out preprocess(const clip_image_u8 & img) override;
 
     struct slice_coordinates {
         int x;
@@ -98,7 +98,7 @@ private:
 // downscale or upscale the input image to fixed size
 struct mtmd_image_preprocessor_fixed_size : mtmd_image_preprocessor {
     mtmd_image_preprocessor_fixed_size(const clip_ctx * ctx) : mtmd_image_preprocessor(ctx) {}
-    bool preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) override;
+    mtmd_image_preproc_out preprocess(const clip_image_u8 & img) override;
 };
 
 // resize image to multiple of patch_size*n_merge, while preserving aspect ratio
@@ -106,13 +106,13 @@ struct mtmd_image_preprocessor_fixed_size : mtmd_image_preprocessor {
 // this is used by models with native support for dynamic image size, for example: Qwen-VL, Pixtral, Kimi-VL, etc
 struct mtmd_image_preprocessor_dyn_size : mtmd_image_preprocessor {
     mtmd_image_preprocessor_dyn_size(const clip_ctx * ctx) : mtmd_image_preprocessor(ctx) {}
-    bool preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) override;
+    mtmd_image_preproc_out preprocess(const clip_image_u8 & img) override;
 };
 
 // similar to mtmd_image_preprocessor_dyn_size, but resize the image to have longest edge equal to hparams.image_longest_edge, while preserving aspect ratio
 struct mtmd_image_preprocessor_longest_edge : mtmd_image_preprocessor {
     mtmd_image_preprocessor_longest_edge(const clip_ctx * ctx) : mtmd_image_preprocessor(ctx) {}
-    bool preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) override;
+    mtmd_image_preproc_out preprocess(const clip_image_u8 & img) override;
 };
 
 // custom llava-uhd slicing logic for LFM2
@@ -138,17 +138,17 @@ private:
 
 struct mtmd_image_preprocessor_idefics3 : mtmd_image_preprocessor_llava_uhd {
     mtmd_image_preprocessor_idefics3(const clip_ctx * ctx) : mtmd_image_preprocessor_llava_uhd(ctx) {}
-    bool preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) override;
+    mtmd_image_preproc_out preprocess(const clip_image_u8 & img) override;
 };
 
 struct mtmd_image_preprocessor_internvl : mtmd_image_preprocessor_llava_uhd {
     mtmd_image_preprocessor_internvl(const clip_ctx * ctx) : mtmd_image_preprocessor_llava_uhd(ctx) {}
-    bool preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) override;
+    mtmd_image_preproc_out preprocess(const clip_image_u8 & img) override;
 };
 
 struct mtmd_image_preprocessor_deepseekocr : mtmd_image_preprocessor {
     mtmd_image_preprocessor_deepseekocr(const clip_ctx * ctx) : mtmd_image_preprocessor(ctx) {}
-    bool preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) override;
+    mtmd_image_preproc_out preprocess(const clip_image_u8 & img) override;
 };
 
 // DeepSeek-OCR-2: a 1024x1024 global view, plus InternVL-style 768x768 local
@@ -160,7 +160,7 @@ struct mtmd_image_preprocessor_deepseekocr2 : mtmd_image_preprocessor {
     static constexpr int max_tiles = 6;
 
     mtmd_image_preprocessor_deepseekocr2(const clip_ctx * ctx) : mtmd_image_preprocessor(ctx) {}
-    bool preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) override;
+    mtmd_image_preproc_out preprocess(const clip_image_u8 & img) override;
 
 private:
     static std::vector<clip_image_size> get_target_ratios();
@@ -175,7 +175,7 @@ private:
 // ref: https://huggingface.co/stepfun-ai/Step3-VL-10B/blob/main/processing_step3.py
 struct mtmd_image_preprocessor_step3vl : mtmd_image_preprocessor_llava_uhd {
     mtmd_image_preprocessor_step3vl(const clip_ctx * ctx) : mtmd_image_preprocessor_llava_uhd(ctx) {}
-    bool preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) override;
+    mtmd_image_preproc_out preprocess(const clip_image_u8 & img) override;
     static slice_instructions build_slice_instructions(const clip_hparams & params, const clip_image_size & prepared_size);
 
 private:
@@ -202,11 +202,11 @@ private:
 
 struct mtmd_image_preprocessor_youtuvl : mtmd_image_preprocessor {
     mtmd_image_preprocessor_youtuvl(const clip_ctx * ctx) : mtmd_image_preprocessor(ctx) {}
-    bool preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) override;
+    mtmd_image_preproc_out preprocess(const clip_image_u8 & img) override;
 };
 
 // similar to llava_uhd, but has add_newline
 struct mtmd_image_preprocessor_granite : mtmd_image_preprocessor_llava_uhd {
     mtmd_image_preprocessor_granite(const clip_ctx * ctx) : mtmd_image_preprocessor_llava_uhd(ctx) {}
-    bool preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) override;
+    mtmd_image_preproc_out preprocess(const clip_image_u8 & img) override;
 };

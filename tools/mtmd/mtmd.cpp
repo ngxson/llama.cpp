@@ -1070,12 +1070,7 @@ struct mtmd_tokenizer {
                 img_u8.cpy_buf(bmp->get_ro_buf());
 
                 // preprocess image
-                mtmd_image_preproc_out tmp_preproc_out;
-                bool ok = ctx->image_preproc->preprocess(img_u8, tmp_preproc_out);
-                if (!ok) {
-                    LOG_ERR("Unable to preprocess image\n");
-                    return 2;
-                }
+                mtmd_image_preproc_out tmp_preproc_out = ctx->image_preproc->preprocess(img_u8);
 
                 // move entries and grid dimensions to the "global" preproc_out
                 for (auto & entry : tmp_preproc_out.entries) {
@@ -1083,9 +1078,12 @@ struct mtmd_tokenizer {
                 }
 
                 // for llava-uhd style, we need to handle grid too
-                // we don't care about overwriting these values for now because llama-uhd doesn't support batching anyway
-                preproc_out.grid_x = tmp_preproc_out.grid_x;
-                preproc_out.grid_y = tmp_preproc_out.grid_y;
+                // we don't care about overwriting these values for now because the case where bitmaps.size() > 1 is only for frame merging (qwen-vl), not supported by llava-uhd
+                if (tmp_preproc_out.grid_x > 0 && tmp_preproc_out.grid_y > 0) {
+                    GGML_ASSERT(bitmaps.size() == 1);
+                    preproc_out.grid_x = tmp_preproc_out.grid_x;
+                    preproc_out.grid_y = tmp_preproc_out.grid_y;
+                }
             }
 
             // handle llava-uhd style preprocessing
@@ -2069,13 +2067,8 @@ void mtmd_debug_preprocess_image(mtmd_context * ctx, const std::vector<uint8_t> 
     clip_image_u8 img_u8;
     img_u8.set_size({nx, ny}, false);
     img_u8.cpy_buf(rgb_values);
-    mtmd_image_preproc_out preproc_out;
     GGML_ASSERT(ctx->image_preproc != nullptr);
-    bool ok = ctx->image_preproc->preprocess(img_u8, preproc_out);
-    if (!ok) {
-        LOG_ERR("%s: failed to preprocess image\n", __func__);
-        return;
-    }
+    mtmd_image_preproc_out preproc_out = ctx->image_preproc->preprocess(img_u8);
 
     clip_image_f32_batch batch_f32;
     batch_f32.is_audio = false;

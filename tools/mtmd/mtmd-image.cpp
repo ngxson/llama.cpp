@@ -604,16 +604,17 @@ private:
 // mtmd_image_preprocessor_llava_uhd
 //
 
-bool mtmd_image_preprocessor_llava_uhd::preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) {
+mtmd_image_preproc_out mtmd_image_preprocessor_llava_uhd::preprocess(const clip_image_u8 & img) {
     const clip_image_size original_size = img.get_size();
     auto const inst = get_slice_instructions(original_size);
     std::vector<clip_image_u8> imgs = slice_image(img, inst);
 
+    mtmd_image_preproc_out output;
     output.append(hparams, imgs, true);
     output.grid_x = inst.grid_size.width;
     output.grid_y = inst.grid_size.height;
 
-    return true;
+    return output;
 }
 
 mtmd_image_preprocessor_llava_uhd::slice_instructions mtmd_image_preprocessor_llava_uhd::get_slice_instructions(const clip_image_size & original_size) {
@@ -875,22 +876,23 @@ clip_image_size mtmd_image_preprocessor_llava_uhd::get_best_grid(const int max_s
 // mtmd_image_preprocessor_fixed_size
 //
 
-bool mtmd_image_preprocessor_fixed_size::preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) {
+mtmd_image_preproc_out mtmd_image_preprocessor_fixed_size::preprocess(const clip_image_u8 & img) {
     clip_image_u8 resized_image;
     int sz = hparams.image_size;
     img_tool::resize(img, resized_image, {sz, sz},
                         hparams.image_resize_algo,
                         hparams.image_resize_pad,
                         hparams.image_pad_color);
+    mtmd_image_preproc_out output;
     output.append(hparams, resized_image, true);
-    return true;
+    return output;
 }
 
 //
 // mtmd_image_preprocessor_dyn_size
 //
 
-bool mtmd_image_preprocessor_dyn_size::preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) {
+mtmd_image_preproc_out mtmd_image_preprocessor_dyn_size::preprocess(const clip_image_u8 & img) {
     GGML_ASSERT(hparams.image_min_pixels > 0 && hparams.image_max_pixels > 0);
     clip_image_u8 resized_image;
     const clip_image_size original_size = img.get_size();
@@ -905,15 +907,16 @@ bool mtmd_image_preprocessor_dyn_size::preprocess(const clip_image_u8 & img, mtm
                         hparams.image_resize_algo,
                         hparams.image_resize_pad,
                         hparams.image_pad_color);
+    mtmd_image_preproc_out output;
     output.append(hparams, resized_image, true);
-    return true;
+    return output;
 }
 
 //
 // mtmd_image_preprocessor_longest_edge
 //
 
-bool mtmd_image_preprocessor_longest_edge::preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) {
+mtmd_image_preproc_out mtmd_image_preprocessor_longest_edge::preprocess(const clip_image_u8 & img) {
     GGML_ASSERT(hparams.image_longest_edge > 0);
     clip_image_u8 resized_image;
     const clip_image_size original_size = img.get_size();
@@ -927,8 +930,9 @@ bool mtmd_image_preprocessor_longest_edge::preprocess(const clip_image_u8 & img,
                         hparams.image_resize_algo,
                         hparams.image_resize_pad,
                         hparams.image_pad_color);
+    mtmd_image_preproc_out output;
     output.append(hparams, resized_image, true);
-    return true;
+    return output;
 }
 
 //
@@ -1038,7 +1042,7 @@ clip_image_size mtmd_image_preprocessor_lfm2::get_grid_layout(int height, int wi
 // mtmd_image_preprocessor_idefics3
 //
 
-bool mtmd_image_preprocessor_idefics3::preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) {
+mtmd_image_preproc_out mtmd_image_preprocessor_idefics3::preprocess(const clip_image_u8 & img) {
     // The refined size has two steps:
     // 1. Resize w/ aspect-ratio preserving such that the longer side is
     //      the preprocessor longest size
@@ -1075,33 +1079,35 @@ bool mtmd_image_preprocessor_idefics3::preprocess(const clip_image_u8 & img, mtm
     }
     auto imgs = slice_image(img, instructions);
 
+    mtmd_image_preproc_out output;
     output.append(hparams, imgs, true);
     output.grid_x = instructions.grid_size.width;
     output.grid_y = instructions.grid_size.height;
-    return true;
+    return output;
 }
 
 //
 // mtmd_image_preprocessor_internvl
 //
 
-bool mtmd_image_preprocessor_internvl::preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) {
+mtmd_image_preproc_out mtmd_image_preprocessor_internvl::preprocess(const clip_image_u8 & img) {
     GGML_ASSERT(!hparams.image_res_candidates.empty());
     const clip_image_size original_size = img.get_size();
     auto const inst = get_slice_instructions(original_size);
     std::vector<clip_image_u8> imgs = slice_image(img, inst, false);
 
+    mtmd_image_preproc_out output;
     output.append(hparams, imgs, true);
     output.grid_x = inst.grid_size.width;
     output.grid_y = inst.grid_size.height;
-    return true;
+    return output;
 }
 
 //
 // mtmd_image_preprocessor_deepseekocr
 //
 
-bool mtmd_image_preprocessor_deepseekocr::preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) {
+mtmd_image_preproc_out mtmd_image_preprocessor_deepseekocr::preprocess(const clip_image_u8 & img) {
     static constexpr int native_resolutions[] = { 1024 /* base */, 1280 /* large */ };
     // TODO: support 512 (tiny) and 640 (small) once we have eval data for them
 
@@ -1124,10 +1130,11 @@ bool mtmd_image_preprocessor_deepseekocr::preprocess(const clip_image_u8 & img, 
     clip_image_u8 padded;
     img_tool::resize(img, padded, {image_size, image_size}, RESIZE_ALGO_BICUBIC_PILLOW,
                      PAD_NEAREST, hparams.image_pad_color);
+    mtmd_image_preproc_out output;
     output.append(hparams, padded, true);
     output.grid_x = 1;
     output.grid_y = 1;
-    return true;
+    return output;
 }
 
 //
@@ -1190,10 +1197,11 @@ clip_image_size mtmd_image_preprocessor_deepseekocr2::find_closest_aspect_ratio(
     return best_ratio;
 }
 
-bool mtmd_image_preprocessor_deepseekocr2::preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) {
+mtmd_image_preproc_out mtmd_image_preprocessor_deepseekocr2::preprocess(const clip_image_u8 & img) {
     // emit 768x768 local tiles when the image is larger than a tile in either
     // dimension, then always a 1024x1024 global view. order: [tiles..., global].
 
+    mtmd_image_preproc_out output;
     const auto img_size = img.get_size();
     if (img_size.width > tile_size || img_size.height > tile_size) {
         const float           aspect_ratio  = static_cast<float>(img_size.width) / img_size.height;
@@ -1222,7 +1230,7 @@ bool mtmd_image_preprocessor_deepseekocr2::preprocess(const clip_image_u8 & img,
     output.entries.back().add_viewsep = true;
     output.grid_x = 1;
     output.grid_y = 1;
-    return true;
+    return output;
 }
 
 //
@@ -1434,10 +1442,11 @@ mtmd_image_preprocessor_step3vl::slice_instructions mtmd_image_preprocessor_step
     return instructions;
 }
 
-bool mtmd_image_preprocessor_step3vl::preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) {
+mtmd_image_preproc_out mtmd_image_preprocessor_step3vl::preprocess(const clip_image_u8 & img) {
     clip_image_u8 prepared = prepare_image(img, hparams);
     const auto instructions = build_slice_instructions(hparams, prepared.get_size());
 
+    mtmd_image_preproc_out output;
     clip_image_f32 overview_f32;
     img_u8_resize_bilinear_to_f32(
         prepared,
@@ -1451,7 +1460,7 @@ bool mtmd_image_preprocessor_step3vl::preprocess(const clip_image_u8 & img, mtmd
     if (instructions.slices.empty()) {
         output.grid_x = 0;
         output.grid_y = 0;
-        return true;
+        return output;
     }
 
     clip_image_u8 img_for_crop = prepared;
@@ -1481,14 +1490,14 @@ bool mtmd_image_preprocessor_step3vl::preprocess(const clip_image_u8 & img, mtmd
     output.grid_x = instructions.grid_size.width;
     output.grid_y = instructions.grid_size.height;
 
-    return true;
+    return output;
 }
 
 //
 // mtmd_image_preprocessor_youtuvl
 //
 
-bool mtmd_image_preprocessor_youtuvl::preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) {
+mtmd_image_preproc_out mtmd_image_preprocessor_youtuvl::preprocess(const clip_image_u8 & img) {
     const int patch_size = hparams.patch_size;   // typically 16
     const int merge_size = hparams.n_merge;      // typically 2
     const int align_size = patch_size * merge_size;  // 32
@@ -1532,16 +1541,13 @@ bool mtmd_image_preprocessor_youtuvl::preprocess(const clip_image_u8 & img, mtmd
     clip_image_u8 resized;
     img_tool::resize(img, resized, new_size, hparams.image_resize_algo, hparams.image_resize_pad);
 
+    mtmd_image_preproc_out output;
     output.append(hparams, resized, true);
-    return true;
+    return output;
 }
 
-bool mtmd_image_preprocessor_granite::preprocess(const clip_image_u8 & img, mtmd_image_preproc_out & output) {
-    // call super class preprocessor
-    bool ok = mtmd_image_preprocessor_llava_uhd::preprocess(img, output);
-    if (!ok) {
-        return false;
-    }
+mtmd_image_preproc_out mtmd_image_preprocessor_granite::preprocess(const clip_image_u8 & img) {
+    auto output = mtmd_image_preprocessor_llava_uhd::preprocess(img);
     if (output.entries.size() == 1) {
         // Single-tile (overview only): append one newline row.
         output.entries[0].add_newline = true;
@@ -1552,5 +1558,5 @@ bool mtmd_image_preprocessor_granite::preprocess(const clip_image_u8 & img, mtmd
             output.entries[i].add_newline = true;
         }
     }
-    return true;
+    return output;
 }
