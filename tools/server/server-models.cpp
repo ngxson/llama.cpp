@@ -1046,12 +1046,8 @@ void server_models::download(common_params_model && model, common_download_opts 
         SRV_INF("download finished for model name=%s with status=%s\n",
                     dl->model.name.c_str(), ok ? "success" : "failure");
         update_download_progress(dl->model.name, {}, true, ok);
-        // mark list as dirty
-        {
-            std::lock_guard<std::mutex> lk(this->mutex);
-            need_reload = true;
-            // the next time load_models() is called, it will clean up this instance
-        }
+        // need_reload is set inside update_download_progress under the mutex;
+        // the next load_models() call will clean up this instance
     });
 
     mapping[name] = std::move(inst);
@@ -1167,6 +1163,7 @@ void server_models::update_download_progress(const std::string & name, const com
             if (done) {
                 // mark the instance to be erased on next load_models() call
                 it->second.meta.status = SERVER_MODEL_STATUS_DOWNLOADED;
+                need_reload = true;
             } else {
                 json & info = it->second.meta.loaded_info;
                 if (!info.contains("progress")) {
@@ -1198,12 +1195,19 @@ bool server_models::remove(const std::string & name) {
         throw std::runtime_error("model name=" + name + " is not removable (not from cache)");
     }
 
-    unload(name); // ensure it's not running
+    unload(name); // cancel download or stop running instance
     {
         std::unique_lock<std::mutex> lk(mutex);
+        // a cancelled download lands on DOWNLOADED; a stopped instance lands on UNLOADED
         wait(lk, name, [](const server_model_meta & new_meta) {
-            return new_meta.status == SERVER_MODEL_STATUS_UNLOADED;
+            return new_meta.status == SERVER_MODEL_STATUS_UNLOADED
+                || new_meta.status == SERVER_MODEL_STATUS_DOWNLOADED;
         });
+        // join before erasing - after status reaches UNLOADED/DOWNLOADED the thread no
+        // longer acquires this mutex, so joining while holding it is safe
+        if (mapping[name].th.joinable()) {
+            mapping[name].th.join();
+        }
         // remove the model from disk (hold lock to prevent concurrent load)
         bool ok = common_download_remove(name);
         if (ok) {

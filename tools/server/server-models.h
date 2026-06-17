@@ -62,7 +62,7 @@ static std::string server_model_source_to_string(server_model_source source) {
 }
 
 struct server_model_meta {
-    server_model_source source;
+    server_model_source source = SERVER_MODEL_SOURCE_CACHE;
     common_preset preset;
     std::string name;
     std::set<std::string> aliases; // additional names that resolve to this model
