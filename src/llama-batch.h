@@ -110,14 +110,10 @@ class llama_batch_allocr {
 public:
     llama_batch_allocr(uint32_t n_pos_per_embd);
 
-    // sanitize and auto-gen missing data in the input batch
-    // memory is optional. if provided will be used to check for sequence continuity and to determine the positions
+    // convert a llama_batch_ext to internal llama_batch and sanitize it
     bool init(
-            const llama_batch & batch_inp,
+            const llama_batch_ext & batch_inp,
             const llama_vocab & vocab,
-            const llama_memory_i * memory,
-            uint32_t n_embd,
-            uint32_t n_seq_max,
             bool output_all);
 
     const llama_batch & get_batch() const;
@@ -173,7 +169,9 @@ private:
     uint32_t n_seq_max;
     uint32_t n_outputs;
 
-    std::array<llama_seq_id, 1> seq_id_0 = {{ 0 }}; // default sequence id
+    std::vector<llama_token>    token_vec;    // owned token IDs built from llama_batch_ext
+    std::vector<float>          embd_vec;     // owned embeddings built from llama_batch_ext
+    std::vector<llama_seq_id>   seq_id_data;  // flat storage for seq_id pointers below
 
     std::vector<llama_pos>      pos;
     std::vector<int32_t>        n_seq_id;
@@ -207,4 +205,11 @@ private:
     std::vector<bool> used;
 
     int debug;
+};
+
+// RAII translation layer: converts a llama_batch (old API) into a llama_batch_ext
+struct llama_batch_compat {
+    llama_batch_ext * batch_ext;
+    llama_batch_compat(llama_context * ctx, const llama_batch & batch_inp);
+    ~llama_batch_compat();
 };

@@ -25,43 +25,97 @@ llama_batch_allocr::llama_batch_allocr(uint32_t n_pos_per_embd) : n_pos_per_embd
 }
 
 bool llama_batch_allocr::init(
-        const llama_batch & batch_inp,
+        const llama_batch_ext & batch_inp,
         const llama_vocab & vocab,
-        const llama_memory_i * memory,
-        uint32_t n_embd,
-        uint32_t n_seq_max,
         bool output_all) {
     clear();
 
-    batch = batch_inp;
+    this->vocab     = &vocab;
+    this->n_embd    = batch_inp.n_embd_inp;
+    this->n_seq_max = batch_inp.n_seq_max;
 
-    this->vocab = &vocab;
+    const int32_t n_tok = (int32_t) batch_inp.tokens.size();
 
-    GGML_ASSERT(batch.n_tokens > 0);
+    GGML_ASSERT(n_tok > 0);
 
-    //
-    // validate input batch
-    //
-
-    if (n_seq_max > LLAMA_MAX_SEQ) {
+    if ((uint32_t) n_seq_max > LLAMA_MAX_SEQ) {
         LLAMA_LOG_ERROR("%s: n_seq_max = %d > %d\n", __func__, n_seq_max, LLAMA_MAX_SEQ);
         return false;
     }
 
-    if (batch.token) {
-        for (int32_t i = 0; i < batch.n_tokens; ++i) {
-            if (batch.token[i] < 0 || (uint32_t) batch.token[i] >= vocab.n_tokens()) {
-                LLAMA_LOG_ERROR("%s: invalid token[%d] = %d\n", __func__, i, batch.token[i]);
+    const bool has_embd = !batch_inp.embd.empty();
+    const llama_memory_i * memory = batch_inp.memory;
+
+    //
+    // build flat token/embd array
+    //
+
+    if (!has_embd) {
+        token_vec.resize(n_tok);
+        for (int32_t i = 0; i < n_tok; ++i) {
+            const llama_token id = batch_inp.tokens[i].id;
+            if (id < 0 || id >= batch_inp.n_vocab) {
+                LLAMA_LOG_ERROR("%s: invalid token[%d] = %d\n", __func__, i, id);
                 return false;
+            }
+            token_vec[i] = id;
+        }
+    } else {
+        embd_vec = batch_inp.embd;
+    }
+
+    //
+    // build flat pos array
+    // token batch:     pos[i]            = tokens[i].pos[0]
+    // embedding batch: pos[j*n_tok + i]  = tokens[i].pos[j]  (section-major)
+    //
+
+    {
+        const int32_t n_pos_total = has_embd ? n_tok * (int32_t) n_pos_per_embd : n_tok;
+        pos.resize(n_pos_total);
+        if (!has_embd) {
+            for (int32_t i = 0; i < n_tok; ++i) {
+                pos[i] = batch_inp.tokens[i].pos[0];
+            }
+        } else {
+            for (int32_t i = 0; i < n_tok; ++i) {
+                for (uint32_t j = 0; j < n_pos_per_embd; ++j) {
+                    pos[(int32_t) j * n_tok + i] = batch_inp.tokens[i].pos[j];
+                }
             }
         }
     }
 
-    if (batch.seq_id) {
-        for (int32_t i = 0; i < batch.n_tokens; ++i) {
-            for (int32_t s = 0; s < batch.n_seq_id[i]; ++s) {
-                if (batch.seq_id && (batch.seq_id[i][s] < 0 || batch.seq_id[i][s] >= (llama_seq_id) n_seq_max)) {
-                    LLAMA_LOG_ERROR("%s: invalid seq_id[%d][%d] = %d >= %d\n", __func__, i, s, batch.seq_id[i][s], (llama_seq_id) n_seq_max);
+    //
+    // build n_seq_id / seq_id arrays
+    //
+
+    n_seq_id.resize(n_tok);
+    seq_id.resize(n_tok + 1);
+    seq_id[n_tok] = nullptr;
+
+    {
+        size_t total = 0;
+        for (int32_t i = 0; i < n_tok; ++i) {
+            total += batch_inp.tokens[i].seq_ids.size();
+        }
+        seq_id_data.reserve(total);
+
+        for (int32_t i = 0; i < n_tok; ++i) {
+            for (auto sid : batch_inp.tokens[i].seq_ids) {
+                seq_id_data.push_back(sid);
+            }
+        }
+
+        size_t off = 0;
+        for (int32_t i = 0; i < n_tok; ++i) {
+            n_seq_id[i] = (int32_t) batch_inp.tokens[i].seq_ids.size();
+            seq_id[i]   = seq_id_data.data() + off;
+            off += n_seq_id[i];
+
+            for (int32_t s = 0; s < n_seq_id[i]; ++s) {
+                if (seq_id[i][s] < 0 || seq_id[i][s] >= (llama_seq_id) n_seq_max) {
+                    LLAMA_LOG_ERROR("%s: invalid seq_id[%d][%d] = %d >= %d\n", __func__, i, s, seq_id[i][s], (llama_seq_id) n_seq_max);
                     return false;
                 }
             }
@@ -69,90 +123,42 @@ bool llama_batch_allocr::init(
     }
 
     //
-    // auto-generate missing fields
+    // build output/logits array
     //
 
-    if (!batch.n_seq_id) {
-        n_seq_id.resize(batch.n_tokens);
-        for (int32_t i = 0; i < batch.n_tokens; i++) {
-            n_seq_id[i] = seq_id_0.size();
-        }
-        batch.n_seq_id = n_seq_id.data();
-    }
-
-    if (!batch.seq_id) {
-        seq_id.resize(batch.n_tokens + 1);
-        seq_id[batch.n_tokens] = NULL;
-        for (int32_t i = 0; i < batch.n_tokens; i++) {
-            seq_id[i] = seq_id_0.data();
-        }
-        batch.seq_id = seq_id.data();
-    }
-
-    if (!batch.pos) {
-        pos.resize(batch.n_tokens);
-
-        // initialize the starting position for each sequence based on the positions in the memory
-        llama_pos p0[LLAMA_MAX_SEQ];
-        for (uint32_t s = 0; s < n_seq_max; ++s) {
-            if (!memory) {
-                // if no memory -> start from 0
-                p0[s] = 0;
-            } else {
-                p0[s] = memory->seq_pos_max(s) + 1;
-            }
+    {
+        output.resize(n_tok, 0);
+        for (int32_t i = 0; i < n_tok; ++i) {
+            output[i] = batch_inp.tokens[i].output ? 1 : 0;
         }
 
-        for (int32_t i = 0; i < batch.n_tokens; i++) {
-            const llama_seq_id seq_id = batch.seq_id[i][0];
-
-            pos[i] = p0[seq_id];
-
-            // update the starting position for all sequences that are assigned to the this token
-            for (int32_t s = 0; s < batch.n_seq_id[i]; ++s) {
-                const llama_seq_id seq_id = batch.seq_id[i][s];
-
-                p0[seq_id] = pos[i] + 1;
-            }
-        }
-
-        batch.pos = pos.data();
-    }
-
-    if (!batch.logits) {
         if (output_all) {
-            // return the output for all tokens
-            output.resize(batch.n_tokens, true);
-        } else {
-            // return the output only for the last token
-            output.resize(batch.n_tokens, false);
-            output[output.size() - 1] = true;
-        }
-
-        batch.logits = output.data();
-    } else if (output_all) {
-        bool warn = false;
-
-        for (int32_t i = 0; i < batch.n_tokens; ++i) {
-            if (batch.logits[i] == 0) {
-                warn = true;
+            bool warn = false;
+            for (int32_t i = 0; i < n_tok; ++i) {
+                if (!output[i]) { warn = true; break; }
+            }
+            if (warn) {
+                LLAMA_LOG_WARN("%s: embeddings required but some input tokens were not marked as outputs -> overriding\n", __func__);
+                std::fill(output.begin(), output.end(), 1);
             }
         }
-
-        if (warn) {
-            LLAMA_LOG_WARN("%s: embeddings required but some input tokens were not marked as outputs -> overriding\n", __func__);
-
-            output.resize(batch.n_tokens, true);
-            batch.logits = output.data();
-        }
     }
+
+    //
+    // set up the internal llama_batch to point to our owned arrays
+    //
+
+    batch.n_tokens = n_tok;
+    batch.token    = has_embd ? nullptr : token_vec.data();
+    batch.embd     = has_embd ? embd_vec.data() : nullptr;
+    batch.pos      = pos.data();
+    batch.n_seq_id = n_seq_id.data();
+    batch.seq_id   = seq_id.data();
+    batch.logits   = output.data();
 
     //
     // compute stats
     //
-
-    this->n_embd    = n_embd;
-    this->n_seq_max = n_seq_max;
 
     // count the outputs in this batch
     for (int32_t i = 0; i < batch.n_tokens; ++i) {
@@ -659,11 +665,14 @@ void llama_batch_allocr::clear() {
 
     batch = {};
 
-    pos       .clear();
-    n_seq_id  .clear();
-    seq_id    .clear();
-    seq_id_unq.clear();
-    output    .clear();
+    token_vec   .clear();
+    embd_vec    .clear();
+    seq_id_data .clear();
+    pos         .clear();
+    n_seq_id    .clear();
+    seq_id      .clear();
+    seq_id_unq  .clear();
+    output      .clear();
 
     for (auto & cur : seq_pos) {
         cur.clear();
@@ -936,8 +945,9 @@ llama_batch_ext::llama_batch_ext(llama_context * ctx) :
 void llama_batch_ext::clear() {
     tokens.clear();
     embd  .clear();
+    pos_max.resize(n_seq_max);
     for (llama_seq_id i = 0; i < n_seq_max; ++i) {
-        pos_max[i] = llama_memory_seq_pos_max(memory, i);
+        pos_max[i] = memory ? llama_memory_seq_pos_max(memory, i) : 0;
     }
 }
 
@@ -1082,15 +1092,63 @@ bool llama_batch_ext_add_seq(llama_batch_ext * batch, int32_t idx, llama_seq_id 
     return batch->add_seq(idx, seq_id);
 }
 
-bool llama_batch_ext_set_output_logits(llama_batch_ext * batch, int32_t idx, bool value) {
-    return batch->set_output(idx, value);
-}
-
 bool llama_batch_ext_set_pos(llama_batch_ext * batch, int32_t idx, llama_pos * pos) {
     return batch->set_token_pos(idx, pos);
 }
 
-int32_t llama_process(llama_context * ctx, llama_process_type type, llama_batch_ext * batch) {
-    // for now, we simply translate the llama_batch_ext into a llama_batch_allocr
-    return -1;
+// llama_batch_compat
+
+llama_batch_compat::llama_batch_compat(llama_context * ctx, const llama_batch & batch_inp) {
+    batch_ext = new llama_batch_ext(ctx);
+
+    const bool is_embd = batch_inp.embd != nullptr;
+
+    static const llama_seq_id default_seq_id    = 0;
+    static const int32_t      default_n_seq_id  = 1;
+
+    for (int32_t i = 0; i < batch_inp.n_tokens; ++i) {
+        const int32_t      n_sid = batch_inp.n_seq_id ? batch_inp.n_seq_id[i]    : default_n_seq_id;
+        const llama_seq_id * sids = batch_inp.seq_id  ? batch_inp.seq_id[i]      : &default_seq_id;
+
+        llama_batch_ext::token t;
+
+        // seq_ids
+        for (int32_t s = 0; s < n_sid; ++s) {
+            t.seq_ids.insert(sids[s]);
+        }
+
+        // position(s)
+        if (batch_inp.pos) {
+            if (!is_embd) {
+                // token batch: one position per token
+                t.pos[0] = batch_inp.pos[i];
+            } else {
+                // embedding batch (M-RoPE): section-major layout pos[j*n_tokens + i]
+                for (uint32_t j = 0; j < batch_ext->n_pos_per_embd; ++j) {
+                    t.pos[j] = batch_inp.pos[(int32_t) j * batch_inp.n_tokens + i];
+                }
+            }
+        } else {
+            // auto-generate position from the first seq_id
+            t.pos[0] = batch_ext->advance_pos(sids[0]);
+        }
+
+        // token id or embeddings
+        if (!is_embd) {
+            t.id = batch_inp.token[i];
+        } else {
+            t.embd_off = batch_ext->embd.size();
+            const float * src = batch_inp.embd + (size_t) i * batch_ext->n_embd_inp;
+            batch_ext->embd.insert(batch_ext->embd.end(), src, src + batch_ext->n_embd_inp);
+        }
+
+        // output flag
+        t.output = batch_inp.logits ? (batch_inp.logits[i] != 0) : false;
+
+        batch_ext->tokens.push_back(t);
+    }
+}
+
+llama_batch_compat::~llama_batch_compat() {
+    delete batch_ext;
 }
