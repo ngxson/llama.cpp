@@ -419,7 +419,8 @@ bool common_params_handle_models(common_params & params, llama_example curr_ex) 
         auto res = common_params_handle_model(params.model, opts);
         if (res.found_preset) {
             // if HF repo is a preset repo, we simply run server in router mode with the preset.ini file
-            params.models_preset = res.preset_path;
+            params.models_preset_hf = params.model.hf_repo; // only for showing a warning
+            params.models_preset    = res.preset_path;
             params.model = common_params_model{}; // make sure to clear model, so server starts in router mode
             return true;
         }
