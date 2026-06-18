@@ -540,6 +540,7 @@ struct mtmd_context {
                     img_beg = "<img>";
                     img_end = "</img>";
                     image_preproc = std::make_unique<mtmd_image_preprocessor_internvl>(ctx_v);
+                    ov_img_first = false;
                 } break;
             case PROJECTOR_TYPE_KIMIVL:
                 {
@@ -616,11 +617,13 @@ struct mtmd_context {
                 {
                     img_end = "\n"; // prevent empty batch on llama-server
                     image_preproc = std::make_unique<mtmd_image_preprocessor_deepseekocr>(ctx_v);
+                    ov_img_first = false;
                 } break;
             case PROJECTOR_TYPE_DEEPSEEKOCR2:
                 {
                     img_end = "\n"; // prevent empty batch on llama-server
                     image_preproc = std::make_unique<mtmd_image_preprocessor_deepseekocr2>(ctx_v);
+                    ov_img_first = false;
                 } break;
             case PROJECTOR_TYPE_HUNYUANVL:
                 {
@@ -1096,7 +1099,7 @@ struct mtmd_tokenizer {
 
             // handle llava-uhd style preprocessing
             // (output either a grid, or overview-only)
-            const bool has_tiling_grid =(preproc_out.grid_x > 0 && preproc_out.grid_y > 0)
+            const bool has_tiling_grid = (preproc_out.grid_x > 0 && preproc_out.grid_y > 0)
                 || preproc_out.has_overview();
 
             if (has_tiling_grid) {

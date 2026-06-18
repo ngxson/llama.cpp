@@ -1454,8 +1454,6 @@ mtmd_image_preproc_out mtmd_image_preprocessor_step3vl::preprocess(const clip_im
         hparams.image_size,
         hparams.image_mean,
         hparams.image_std);
-    // also add to entries (copy since overview must persist)
-    output.entries.push_back(output.overview);
 
     if (instructions.slices.empty()) {
         output.grid_x = 0;
