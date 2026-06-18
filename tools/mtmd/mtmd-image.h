@@ -11,11 +11,16 @@
 struct mtmd_image_preproc_out {
     std::vector<clip_image_f32> entries;
     // grid size is required for llava-uhd style models
+
+    clip_image_f32 overview; // overview image (downscaled image)
     int grid_x = 0;
     int grid_y = 0;
+
     void append(const clip_hparams & hparams, const clip_image_u8 & img, bool normalized = true);
     void append(const clip_hparams & hparams, const std::vector<clip_image_u8> & imgs, bool normalized = true);
     void append(const clip_hparams & hparams, clip_image_f32 & img, bool normalized = true);
+
+    void append_overview(const clip_hparams & hparams, const clip_image_u8 & img, bool normalized = true);
 };
 
 // base class, models must inherit from this class
@@ -67,7 +72,11 @@ struct mtmd_image_preprocessor_llava_uhd : mtmd_image_preprocessor {
     // LFM2 override this function to implement its custom slicing logic
     virtual slice_instructions get_slice_instructions(const clip_image_size & original_size);
 
-    std::vector<clip_image_u8> slice_image(const clip_image_u8 & img, const slice_instructions & inst, bool overview_first = true);
+    struct slice_output {
+        clip_image_u8 overview;
+        std::vector<clip_image_u8> slices;
+    };
+    slice_output slice_image(const clip_image_u8 & img, const slice_instructions & inst);
 
 private:
     clip_image_size get_best_resize(const clip_image_size & original_size, int scale_resolution, int patch_size, bool allow_upscale = false);

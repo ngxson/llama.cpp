@@ -1094,11 +1094,14 @@ struct mtmd_tokenizer {
 
                 const int n_col = preproc_out.grid_x;
                 const int n_row = preproc_out.grid_y;
+
                 // split batch into chunks of single images
-                // NOTE: preproc_out will be invalidated after this call
                 auto chunks = split_batch_to_chunk(std::move(preproc_out), bitmaps[0]->id);
                 GGML_ASSERT(chunks.size() > 0);
 
+                // NOTE: preproc_out is invalidated after this point, do not use it anymore
+
+                // split_batch_to_chunk must always put the overview image first
                 auto ov_chunk = std::move(chunks.front());
                 chunks.erase(chunks.begin());
 
@@ -1303,11 +1306,11 @@ struct mtmd_tokenizer {
     std::vector<mtmd_input_chunk> split_batch_to_chunk(mtmd_image_preproc_out && preproc_out, const std::string & id) {
         std::vector<mtmd_input_chunk> chunks;
 
-        for (auto & entry : preproc_out.entries) {
+        auto process_chunk = [&](clip_image_f32 && img) {
             mtmd_image_tokens_ptr image_tokens(new mtmd_image_tokens);
-            image_tokens->nx = clip_n_output_tokens(ctx->ctx_v, &entry);
+            image_tokens->nx = clip_n_output_tokens(ctx->ctx_v, &img);
             image_tokens->ny = 1;
-            image_tokens->batch_f32.entries.push_back(std::move(entry));
+            image_tokens->batch_f32.entries.push_back(std::move(img));
             image_tokens->id = id;
 
             mtmd_input_chunk chunk{
@@ -1317,6 +1320,18 @@ struct mtmd_tokenizer {
                 nullptr, // audio tokens
             };
             chunks.emplace_back(std::move(chunk));
+        };
+
+        // overview image first
+        auto & overview = preproc_out.overview;
+        if (overview.nx() == 0 || overview.ny() == 0) {
+            throw std::runtime_error(string_format("%s: invalid overview image for llava-uhd style preprocessing\n", __func__));
+        }
+        process_chunk(std::move(preproc_out.overview));
+
+        // then, process slices
+        for (auto & entry : preproc_out.entries) {
+            process_chunk(std::move(entry));
         }
 
         return chunks;
