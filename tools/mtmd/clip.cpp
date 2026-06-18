@@ -1727,11 +1727,15 @@ struct clip_model_loader {
                 LOG_INF("%s: audio_window_len:   %d\n", __func__, hparams.audio_window_len);
                 LOG_INF("%s: audio_hop_len:      %d\n", __func__, hparams.audio_hop_len);
 
+                // GEMMA4UA is encoder-free: it uses n_mel_bins as a raw-waveform frame size (640) and has no FFT/filterbank, so the mel-range and FFT
+                // checks below do not apply to it.
+                const bool fft_based = model.proj_type != PROJECTOR_TYPE_GEMMA4UA;
+
                 // Validate audio hparams loaded from GGUF metadata
-                if (hparams.n_mel_bins <= 0 || hparams.n_mel_bins > 256) {
+                if (hparams.n_mel_bins <= 0 || (fft_based && hparams.n_mel_bins > 256)) {
                     throw std::runtime_error(string_format("%s: n_mel_bins (%d) must be in range [1, 256]\n", __func__, hparams.n_mel_bins));
                 }
-                if (hparams.audio_sample_rate <= 0 || hparams.audio_n_fft <= 0 || hparams.audio_hop_len <= 0 || hparams.audio_window_len <= 0) {
+                if (fft_based && (hparams.audio_sample_rate <= 0 || hparams.audio_n_fft <= 0 || hparams.audio_hop_len <= 0 || hparams.audio_window_len <= 0)) {
                     throw std::runtime_error(string_format("%s: audio hparams invalid: sample_rate=%d n_fft=%d window_len=%d hop_len=%d\n",
                         __func__, hparams.audio_sample_rate, hparams.audio_n_fft, hparams.audio_window_len, hparams.audio_hop_len));
                 }
@@ -2843,8 +2847,10 @@ struct clip_model_loader {
             img.set_size({sz, sz}, false, false);
             LOG_INF("%s: warmup with image size = %d x %d\n", __func__, sz, sz);
         } else {
-            // Validate n_mel_bins before using it for allocation sizing
-            if (hparams.n_mel_bins <= 0 || hparams.n_mel_bins > 256) {
+            // GEMMA4UA uses n_mel_bins as a raw-waveform frame size (640), not a mel-bin count,
+            // so the [1, 256] bound only applies to FFT-based models.
+            const bool fft_based = ctx_clip.model.proj_type != PROJECTOR_TYPE_GEMMA4UA;
+            if (hparams.n_mel_bins <= 0 || (fft_based && hparams.n_mel_bins > 256)) {
                 throw std::runtime_error(string_format("%s: invalid n_mel_bins (%d), must be in [1, 256]\n", __func__, hparams.n_mel_bins));
             }
             img.set_size({hparams.warmup_audio_size, hparams.n_mel_bins}, false, false);
