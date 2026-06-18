@@ -641,6 +641,7 @@ struct mtmd_context {
                     img_beg = "<image>";
                     img_end = "";
                     image_preproc = std::make_unique<mtmd_image_preprocessor_granite>(ctx_v);
+                    ov_img_first = true;
                 } break;
             default:
                 throw std::runtime_error(string_format("%s: unexpected vision projector type %d\n", __func__, proj));
@@ -1080,15 +1081,24 @@ struct mtmd_tokenizer {
 
                 // for llava-uhd style, we need to handle grid too
                 // we don't care about overwriting these values for now because the case where bitmaps.size() > 1 is only for frame merging (qwen-vl), not supported by llava-uhd
-                if (tmp_preproc_out.grid_x > 0 && tmp_preproc_out.grid_y > 0) {
+                if ((tmp_preproc_out.grid_x > 0 && tmp_preproc_out.grid_y > 0)
+                        || tmp_preproc_out.has_overview()) {
                     GGML_ASSERT(bitmaps.size() == 1);
                     preproc_out.grid_x = tmp_preproc_out.grid_x;
                     preproc_out.grid_y = tmp_preproc_out.grid_y;
+                    preproc_out.overview = std::move(tmp_preproc_out.overview);
                 }
             }
 
+            LOG_DBG("%s: preproc_out has %zu entries, grid_x = %d, grid_y = %d, has_overview = %d\n",
+                    __func__, preproc_out.entries.size(), preproc_out.grid_x, preproc_out.grid_y,
+                    preproc_out.has_overview() ? 1 : 0);
+
             // handle llava-uhd style preprocessing
-            const bool has_tiling_grid = preproc_out.grid_x > 0 && preproc_out.grid_y > 0;
+            // (output either a grid, or overview-only)
+            const bool has_tiling_grid =(preproc_out.grid_x > 0 && preproc_out.grid_y > 0)
+                || preproc_out.has_overview();
+
             if (has_tiling_grid) {
                 // [QWEN_VIDEO] we do not support "frame merging" for llama-uhd style, so no batching for now
                 GGML_ASSERT(bitmaps.size() == 1);
@@ -1129,7 +1139,16 @@ struct mtmd_tokenizer {
                                 std::snprintf(buf.get(), sz, ctx->sli_img_start_tmpl.c_str(), y+1, x+1);
                                 add_text(std::string(buf.get(), buf.get() + sz - 1), true);
                             }
-                            cur.entries.emplace_back(std::move(chunks[y * n_col + x]));
+
+                            auto & curr_chunk = chunks[y * n_col + x];
+                            auto & curr_batch = curr_chunk.tokens_image->batch_f32;
+                            if (curr_batch.entries.size() != 1) {
+                                throw std::runtime_error(string_format("%s: expect 1 image in batch_f32", __func__));
+                            }
+
+                            LOG_DBG("%s: adding slice image at row %d col %d\n", __func__, y, x);
+                            cur.entries.emplace_back(std::move(curr_chunk));
+
                             add_text(ctx->tok_sli_img_end);
                             if (!is_last_in_row) {
                                 add_text(ctx->tok_sli_img_mid);
@@ -1150,6 +1169,11 @@ struct mtmd_tokenizer {
                 }
 
             } else {
+
+                if (preproc_out.entries.size() == 0) {
+                    LOG_ERR("%s: no image tokens produced by preprocessor (hint: likely due to llava-uhd-style not handled correctly)\n", __func__);
+                    return 2;
+                }
 
                 size_t n_tokens = 0;
                 for (auto & e : preproc_out.entries) {
@@ -1314,6 +1338,8 @@ struct mtmd_tokenizer {
             image_tokens->batch_f32.entries.push_back(std::move(img));
             image_tokens->id = id;
 
+            GGML_ASSERT(image_tokens->nx > 0);
+
             mtmd_input_chunk chunk{
                 MTMD_INPUT_CHUNK_TYPE_IMAGE,
                 {}, // text tokens
@@ -1332,6 +1358,9 @@ struct mtmd_tokenizer {
 
         // then, process slices
         for (auto & entry : preproc_out.entries) {
+            if (entry.nx() == 0 || entry.ny() == 0) {
+                throw std::runtime_error(string_format("%s: invalid image slice for llava-uhd style preprocessing\n", __func__));
+            }
             process_chunk(std::move(entry));
         }
 
@@ -1406,56 +1435,21 @@ static int32_t mtmd_encode_impl(mtmd_context * ctx, const mtmd_image_tokens * im
         LOG_ERR("%s: this API does not support non-vision input, please use mtmd_encode_chunk instead\n", __func__);
         return 1;
     }
-    auto proj_type = clip_get_projector_type(ctx_clip);
 
     int n_embd_out = ctx->n_embd_out();
     auto n_tokens_out = image_tokens->n_tokens();
     out_embd.resize((size_t)n_embd_out * n_tokens_out);
 
-    bool ok = false;
-
-    if (clip_is_llava(ctx_clip)
-        || proj_type == PROJECTOR_TYPE_MINICPMV
-        || proj_type == PROJECTOR_TYPE_GLM_EDGE
-        || proj_type == PROJECTOR_TYPE_INTERNVL
-        || proj_type == PROJECTOR_TYPE_DEEPSEEKOCR2
-        || proj_type == PROJECTOR_TYPE_GRANITE4_VISION) {
-        // TODO @ngxson : llava does not support batched encoding ; this should be fixed inside clip_image_batch_encode()
-        const auto & entries = image_tokens->batch_f32.entries;
-        // entries may have different token counts
-        // e.g., DeepSeek-OCR-2: 144 per tile views, 257 for the global view
-        size_t offset = 0;
-        for (size_t i = 0; i < entries.size(); i++) {
-            if (entries[i].is_placeholder()) {
-                LOG_ERR("%s: image tokens batch entry %zu is placeholder\n", __func__, i);
-                return 1;
-            }
-            int n_tokens_per_image = clip_n_output_tokens(ctx_clip, &entries[i]);
-            std::vector<float> tmp_embd((size_t)n_tokens_per_image * n_embd_out);
-            bool ok_i = clip_image_encode(
-                ctx_clip,
-                ctx->n_threads,
-                &entries[i],
-                tmp_embd);
-            if (!ok_i) {
-                LOG_ERR("%s: failed to encode image %zu\n", __func__, i);
-                return 1;
-            }
-            ok = true;
-            std::copy(tmp_embd.begin(), tmp_embd.end(), out_embd.begin() + offset);
-            offset += static_cast<size_t>(n_embd_out) * n_tokens_per_image;
-        }
-    } else {
-        if (image_tokens->is_placeholder()) {
-            LOG_ERR("%s: image tokens batch is placeholder\n", __func__);
-            return 1;
-        }
-        ok = clip_image_batch_encode(
-            ctx_clip,
-            ctx->n_threads,
-            &image_tokens->batch_f32,
-            out_embd);
+    if (image_tokens->is_placeholder()) {
+        LOG_ERR("%s: image tokens batch is placeholder\n", __func__);
+        return 1;
     }
+
+    bool ok = clip_image_batch_encode(
+        ctx_clip,
+        ctx->n_threads,
+        &image_tokens->batch_f32,
+        out_embd);
 
     return ok ? 0 : 1;
 }

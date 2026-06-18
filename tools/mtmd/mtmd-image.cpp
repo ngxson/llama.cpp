@@ -1131,9 +1131,10 @@ mtmd_image_preproc_out mtmd_image_preprocessor_deepseekocr::preprocess(const cli
     img_tool::resize(img, padded, {image_size, image_size}, RESIZE_ALGO_BICUBIC_PILLOW,
                      PAD_NEAREST, hparams.image_pad_color);
     mtmd_image_preproc_out output;
-    output.append(hparams, padded, true);
-    output.grid_x = 1;
-    output.grid_y = 1;
+    output.append_overview(hparams, padded, true);
+    output.grid_x = 0;
+    output.grid_y = 0;
+    // TODO @ngxson : support slicing for DeepSeek-OCR, to do in another PR
     return output;
 }
 

@@ -21,6 +21,9 @@ struct mtmd_image_preproc_out {
     void append(const clip_hparams & hparams, clip_image_f32 & img, bool normalized = true);
 
     void append_overview(const clip_hparams & hparams, const clip_image_u8 & img, bool normalized = true);
+    bool has_overview() const {
+        return overview.nx() > 0 || overview.ny() > 0;
+    }
 };
 
 // base class, models must inherit from this class
