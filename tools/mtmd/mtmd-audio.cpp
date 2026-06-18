@@ -594,7 +594,7 @@ bool mtmd_audio_preprocessor_whisper::preprocess(const float *                 s
     // because the cgraph in clip.cpp only accepts 3000 frames each, we need to split the mel
     // we always expect the mel to have 3000 silent frames at the end
     if (DEBUG) {
-        printf("output: n_mel = %d, n_len = %d\n", out_full.n_mel, out_full.n_len);
+        printf("output: n_mel = %lld, n_len = %lld\n", out_full.n_mel, out_full.n_len);
     }
     const size_t frames_per_chunk = 3000;
     GGML_ASSERT((size_t) out_full.n_len > frames_per_chunk);
