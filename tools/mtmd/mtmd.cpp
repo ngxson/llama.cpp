@@ -516,6 +516,7 @@ struct mtmd_context {
                     LOG_WRN("%s: llama 4 vision is known to have degraded quality:\n"
                             "    https://github.com/ggml-org/llama.cpp/pull/13282\n", __func__);
                     image_preproc = std::make_unique<mtmd_image_preprocessor_llava_uhd>(ctx_v);
+                    ov_img_first = false;
                 } break;
             case PROJECTOR_TYPE_STEP3VL:
                 {

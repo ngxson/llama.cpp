@@ -1227,10 +1227,7 @@ mtmd_image_preproc_out mtmd_image_preprocessor_deepseekocr2::preprocess(const cl
     img_tool::resize(img, padded, { base_size, base_size }, RESIZE_ALGO_BICUBIC_PILLOW,
                      PAD_NEAREST, hparams.image_pad_color);
     output.append_overview(hparams, padded, true);
-    output.append(hparams, padded, true);
-    output.entries.back().add_viewsep = true;
-    output.grid_x = 1;
-    output.grid_y = 1;
+    output.overview.add_viewsep = true;
     return output;
 }
 
@@ -1550,13 +1547,13 @@ mtmd_image_preproc_out mtmd_image_preprocessor_youtuvl::preprocess(const clip_im
 
 mtmd_image_preproc_out mtmd_image_preprocessor_granite::preprocess(const clip_image_u8 & img) {
     auto output = mtmd_image_preprocessor_llava_uhd::preprocess(img);
-    if (output.entries.size() == 1) {
+    if (output.entries.size() == 0) {
         // Single-tile (overview only): append one newline row.
-        output.entries[0].add_newline = true;
+        output.overview.add_newline = true;
     } else {
         // Multi-tile: overview gets no newline, grid tiles get one.
-        output.entries[0].add_newline = false;
-        for (size_t i = 1; i < output.entries.size(); ++i) {
+        output.overview.add_newline = false;
+        for (size_t i = 0; i < output.entries.size(); ++i) {
             output.entries[i].add_newline = true;
         }
     }
