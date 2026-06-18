@@ -54,6 +54,8 @@ struct mtmd_image_preprocessor {
  * [overview] --> [slice 1] --> [slice 2]
  *           |                |
  *           +--> [slice 3] --> [slice 4]
+ *
+ * NOTE: for the ordering of overview, set "ov_img_first" on the mtmd_context
  */
 struct mtmd_image_preprocessor_llava_uhd : mtmd_image_preprocessor {
     mtmd_image_preprocessor_llava_uhd(const clip_ctx * ctx) : mtmd_image_preprocessor(ctx) {}

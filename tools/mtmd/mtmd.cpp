@@ -1171,7 +1171,7 @@ struct mtmd_tokenizer {
             } else {
 
                 if (preproc_out.entries.size() == 0) {
-                    LOG_ERR("%s: no image tokens produced by preprocessor (hint: likely due to llava-uhd-style not handled correctly)\n", __func__);
+                    LOG_ERR("%s: no image tokens produced by preprocessor (ref: https://github.com/ggml-org/llama.cpp/pull/24769)\n", __func__);
                     return 2;
                 }
 
