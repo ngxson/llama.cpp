@@ -673,7 +673,7 @@ struct clip_image_f32_batch {
 static std::ifstream open_ifstream_binary(const std::string & fname) {
     int wlen = MultiByteToWideChar(CP_UTF8, 0, fname.c_str(), -1, NULL, 0);
     if (!wlen) {
-        throw std::runtime_error(string_format("failed to convert filename to UTF-16: %s", fname.c_str()));
+        throw std::runtime_error("failed to convert filename to UTF-16: " + fname);
     }
     std::vector<wchar_t> wfname(wlen);
     (void)MultiByteToWideChar(CP_UTF8, 0, fname.c_str(), -1, wfname.data(), wlen);
