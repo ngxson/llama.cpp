@@ -1318,7 +1318,10 @@ void server_models::handle_child_state(const std::string & name, const std::stri
                     // TODO @ngxson : abstract this to a more flexible update_status()
                     auto & meta = it->second.meta;
                     meta.status = SERVER_MODEL_STATUS_LOADED;
-                    meta.loaded_info = payload;
+                    // note: empty payload means wakeup from sleep -> skip updating info
+                    if (payload.size() > 0) {
+                        meta.loaded_info = payload;
+                    }
                 }
                 cv.notify_all();
             } break;

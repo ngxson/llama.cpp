@@ -195,6 +195,10 @@ public:
     // handle message sent from server_child::notify_to_router()
     // raw input must starts with CMD_CHILD_TO_ROUTER_STATE, followed by a JSON string
     // this function is not thread-safe, must be called from instance's monitoring thread
+    // payload per state:
+    //     state = loading     -> payload = {} (TODO: add progress info)
+    //     state = ready       -> payload = model_info (json), or {} if wakeup from sleeping
+    //     state = sleeping    -> payload = {}
     void handle_child_state(const std::string & name, const std::string & raw_input);
 };
 
@@ -208,10 +212,6 @@ struct server_child {
 
     // notify router server for status changes (e.g. loading, downloading, sleeping, etc.)
     // message will be handled by server_models::handle_child_state() on the router side
-    // payload per state:
-    //     state = loading     -> payload = {} (TODO: add progress info)
-    //     state = ready       -> payload = model_info (json)
-    //     state = sleeping    -> payload = {}
     void notify_to_router(const std::string & state_name, const json & payload);
 };
 
