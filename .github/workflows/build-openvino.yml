@@ -17,10 +17,10 @@ on:
 
   pull_request:
     types: [opened, synchronize, reopened]
-    # paths: [
-    #   '.github/workflows/build-openvino.yml',
-    #   'ggml/src/ggml-openvino/**'
-    # ]
+    paths: [
+      '.github/workflows/build-openvino.yml',
+      'ggml/src/ggml-openvino/**'
+    ]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.head_ref && github.ref || github.run_id }}

@@ -924,7 +924,7 @@ static utf8_argv make_utf8_argv() {
 #endif
 
 bool common_params_parse(int argc, char ** argv, common_params & params, llama_example ex, void(*print_usage)(int, char **)) {
-#ifdef _WIN32
+#ifdef 0 //_WIN32
     auto utf8 = make_utf8_argv();
     if (!utf8.ptrs.empty()) {
         argc = static_cast<int>(utf8.buf.size());
