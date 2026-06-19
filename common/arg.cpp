@@ -2862,8 +2862,8 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_TOOLS"));
         add_opt(common_arg(
-        {"--agent", "-ag"},
-        {"--no-agent", "-no-ag"},
+        {"-ag", "--agent"},
+        {"-no-ag", "--no-agent"},
         "enable CORS proxy and all built-in tools - do not enable in untrusted environments (default: disabled)",
         [](common_params & params, bool value) {
             if (value) {
@@ -2875,14 +2875,6 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
             }
         }
     ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_AGENT"));
-    add_opt(common_arg(
-        {"--ui-mcp-proxy", "--webui-mcp-proxy"},
-        {"--no-ui-mcp-proxy", "--no-webui-mcp-proxy"},
-        "experimental: whether to enable MCP CORS proxy - do not enable in untrusted environments (default: disabled)",
-        [](common_params & params, bool value) {
-            params.ui_mcp_proxy = value;
-        }
-    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_UI_MCP_PROXY"));
     add_opt(common_arg(
         {"--ui", "--webui"},
         {"--no-ui", "--no-webui"},
