@@ -1330,6 +1330,7 @@ void server_models::handle_child_state(const std::string & name, const std::stri
                 update_status(name, {
                     SERVER_MODEL_STATUS_LOADED,
                     0,
+                    // note: payload can be empty if this is a wakeup from sleep
                     payload.size() > 0 ? payload : nullptr
                 });
             } break;
