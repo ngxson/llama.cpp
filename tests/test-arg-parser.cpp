@@ -75,7 +75,7 @@ int main(void) {
     }
 
     std::vector<char *> char_args;
-    auto list_str_to_char = [&char_args](std::vector<std::string> & argv) -> std::vector<char *> {
+    auto list_str_to_char = [&char_args](std::vector<std::string> & argv) -> std::vector<char *> & {
         char_args.clear();
         for (auto & arg : argv) {
             char_args.push_back(const_cast<char *>(arg.data()));
