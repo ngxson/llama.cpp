@@ -171,7 +171,12 @@ public:
     void download(common_params_model && model, common_download_opts && opts);
 
     // update the status of a model instance (thread-safe)
-    void update_status(const std::string & name, server_model_status status, int exit_code);
+    struct update_status_args {
+        server_model_status status;
+        int exit_code = 0; // only valid if status == UNLOADED
+        json loaded_info = nullptr;
+    };
+    void update_status(const std::string & name, const update_status_args & args);
     void update_download_progress(const std::string & name, const common_download_progress & progress, bool done, bool ok = true);
 
     // remove a cache model from disk and update the list (thread-safe)

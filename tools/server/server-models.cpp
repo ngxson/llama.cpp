@@ -971,7 +971,10 @@ void server_models::load(const std::string & name) {
         subprocess_destroy(&child_proc->get());
 
         // update status and exit code
-        this->update_status(name, SERVER_MODEL_STATUS_UNLOADED, exit_code);
+        this->update_status(name, {
+            SERVER_MODEL_STATUS_UNLOADED,
+            exit_code
+        });
         SRV_INF("instance name=%s exited with status %d\n", name.c_str(), exit_code);
     });
 
@@ -1127,21 +1130,27 @@ void server_models::unload_all() {
     }
 }
 
-void server_models::update_status(const std::string & name, server_model_status status, int exit_code) {
+void server_models::update_status(const std::string & name, const update_status_args & args) {
     std::unique_lock<std::mutex> lk(mutex);
     auto it = mapping.find(name);
     if (it != mapping.end()) {
         auto & meta = it->second.meta;
-        meta.status    = status;
-        meta.exit_code = exit_code;
+        meta.status      = args.status;
+        meta.exit_code   = args.exit_code;
+        if (!args.loaded_info.is_null()) {
+            meta.loaded_info = args.loaded_info;
+        }
     }
     // broadcast status change to SSE
     {
         json data = {
-            {"status", server_model_status_to_string(status)},
+            {"status", server_model_status_to_string(args.status)},
         };
-        if (status == SERVER_MODEL_STATUS_UNLOADED) {
-            data["exit_code"] = exit_code;
+        if (args.status == SERVER_MODEL_STATUS_UNLOADED) {
+            data["exit_code"] = args.exit_code;
+        }
+        if (!args.loaded_info.is_null()) {
+            data["info"] = args.loaded_info;
         }
         // note: notify_sse doesn't acquire the lock, so no deadlock here
         notify_sse("status_change", name, data);
@@ -1318,22 +1327,15 @@ void server_models::handle_child_state(const std::string & name, const std::stri
             } break;
         case SERVER_STATE_READY:
             {
-                std::unique_lock<std::mutex> lk(mutex);
-                auto it = mapping.find(name);
-                if (it != mapping.end()) {
-                    // TODO @ngxson : abstract this to a more flexible update_status()
-                    auto & meta = it->second.meta;
-                    meta.status = SERVER_MODEL_STATUS_LOADED;
-                    // note: empty payload means wakeup from sleep -> skip updating info
-                    if (payload.size() > 0) {
-                        meta.loaded_info = payload;
-                    }
-                }
-                cv.notify_all();
+                update_status(name, {
+                    SERVER_MODEL_STATUS_LOADED,
+                    0,
+                    payload.size() > 0 ? payload : nullptr
+                });
             } break;
         case SERVER_STATE_SLEEPING:
             {
-                update_status(name, SERVER_MODEL_STATUS_SLEEPING, 0);
+                update_status(name, { SERVER_MODEL_STATUS_SLEEPING });
             } break;
         default:
             // should never happen, but just in case
