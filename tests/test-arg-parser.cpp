@@ -74,12 +74,14 @@ int main(void) {
         }
     }
 
-    auto list_str_to_char = [](std::vector<std::string> & argv) -> std::vector<char *> {
-        std::vector<char *> res;
+    std::vector<char *> char_args;
+    auto list_str_to_char = [&char_args](std::vector<std::string> & argv) -> std::vector<char *> {
+        char_args.clear();
         for (auto & arg : argv) {
-            res.push_back(const_cast<char *>(arg.data()));
+            char_args.push_back(const_cast<char *>(arg.data()));
         }
-        return res;
+        char_args.push_back(nullptr);
+        return char_args;
     };
 
     std::vector<std::string> argv;
