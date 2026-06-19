@@ -10,7 +10,7 @@
 #undef NDEBUG
 #include <cassert>
 
-int test(void) {
+static void test(void) {
     common_params params;
 
     printf("test-arg-parser: make sure there is no duplicated arguments in any examples\n\n");
@@ -74,14 +74,12 @@ int test(void) {
         }
     }
 
-    std::vector<char *> char_args;
-    auto list_str_to_char = [&char_args](std::vector<std::string> & argv) -> std::vector<char *> & {
-        char_args.clear();
+    auto list_str_to_char = [](std::vector<std::string> & argv) -> std::vector<char *> {
+        std::vector<char *> res;
         for (auto & arg : argv) {
-            char_args.push_back(const_cast<char *>(arg.data()));
+            res.push_back(const_cast<char *>(arg.data()));
         }
-        char_args.push_back(nullptr);
-        return char_args;
+        return res;
     };
 
     std::vector<std::string> argv;
