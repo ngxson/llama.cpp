@@ -72,6 +72,7 @@ struct server_model_meta {
     int64_t last_used = 0; // for LRU unloading
     std::vector<std::string> args; // args passed to the model instance, will be populated by render_args()
     json loaded_info; // info to be reflected via /v1/models endpoint ; if in DOWNLOADING state, it should contain download progress info
+    json progress; // reflect load or download progress info, if any
     int exit_code = 0; // exit code of the model instance process (only valid if status == FAILED)
     int stop_timeout = 0; // seconds to wait before force-killing the model instance during shutdown
     mtmd_caps multimodal; // multimodal capabilities
@@ -175,6 +176,7 @@ public:
         server_model_status status;
         int exit_code = 0; // only valid if status == UNLOADED
         json loaded_info = nullptr;
+        json progress = nullptr;
     };
     void update_status(const std::string & name, const update_status_args & args);
     void update_download_progress(const std::string & name, const common_download_progress & progress, bool done, bool ok = true);

@@ -833,6 +833,8 @@ private:
 
     bool sleeping = false;
 
+    int64_t t_last_load_progress_ms = 0;
+
     void destroy() {
         spec.reset();
         ctx_dft.reset();
@@ -861,6 +863,30 @@ private:
             }
         }
         sleeping = new_state;
+    }
+
+    static bool load_progress_callback(float progress, void * user_data) {
+        auto * ctx = static_cast<server_context_impl *>(user_data);
+        GGML_ASSERT(ctx);
+        // always emit the first and final sample; throttle the rest to one per 200ms
+        {
+            auto & t_last = ctx->t_last_load_progress_ms;
+            const int64_t t_now = ggml_time_ms();
+            const bool first = t_last == 0;
+            const bool done  = progress >= 1.0f;
+            const bool throttled = !first && !done && (t_now - t_last) < 200;
+            if (throttled) {
+                return true;
+            }
+            t_last = t_now;
+        }
+        if (ctx->callback_state) {
+            ctx->callback_state(SERVER_STATE_LOADING, {
+                {"stage",    "text_model"},
+                {"progress", progress},
+            });
+        }
+        return true;
     }
 
     // load the model and initialize llama_context
@@ -916,6 +942,10 @@ private:
 
         // optionally reserve VRAM for the draft / MTP context before fitting the target model
         if (params_base.fit_params) {
+            if (callback_state) {
+                callback_state(SERVER_STATE_LOADING, {{"stage", "fit_params"}});
+            }
+
             const bool spec_mtp = std::find(params_base.speculative.types.begin(),
                                             params_base.speculative.types.end(),
                                             COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != params_base.speculative.types.end();
@@ -991,6 +1021,13 @@ private:
             }
         }
 
+        // attach a progress callback
+        {
+            t_last_load_progress_ms = 0;
+            params_base.load_progress_callback = load_progress_callback;
+            params_base.load_progress_callback_user_data = this;
+        }
+
         llama_init = common_init_from_params(params_base);
 
         model_tgt = llama_init->model();
@@ -1008,6 +1045,10 @@ private:
         add_bos_token = llama_vocab_get_add_bos(vocab);
 
         if (params_base.speculative.has_dft()) {
+            if (callback_state) {
+                callback_state(SERVER_STATE_LOADING, {{"stage", "spec_model"}});
+            }
+
             // TODO speculative: move to common/speculative.cpp?
             const auto & params_spec = params_base.speculative.draft;
 
@@ -1079,6 +1120,10 @@ private:
         }
 
         if (has_mmproj) {
+            if (callback_state) {
+                callback_state(SERVER_STATE_LOADING, {{"stage", "mmproj_model"}});
+            }
+
             if (!is_resume) {
                 mtmd_helper_log_set(common_log_default_callback, nullptr);
             }
@@ -1257,6 +1302,10 @@ private:
 
         if (!is_resume) {
             return init();
+        }
+
+        if (callback_state) {
+            callback_state(SERVER_STATE_READY, {});
         }
 
         return true;
@@ -3734,7 +3783,10 @@ struct server_res_generator : server_http_res {
 void server_context::set_state_callback(server_state_callback_t callback) {
     impl->callback_state = std::move(callback);
     impl->queue_tasks.on_sleeping_state([this](bool sleeping) {
-        impl->callback_state(sleeping ? SERVER_STATE_SLEEPING : SERVER_STATE_READY, {});
+        if (sleeping) {
+            impl->callback_state(SERVER_STATE_SLEEPING, {});
+        }
+        // for sleeping == false, event is emitted by load_model()
     });
 }
 
