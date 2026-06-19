@@ -825,8 +825,7 @@ private:
 
     server_metrics metrics;
 
-    json json_ui_settings = json::object();    // Primary: new name
-    json json_webui_settings = json::object();    // Deprecated: use json_ui_settings instead (kept for compat)
+    json json_ui_settings = json::object();
 
     // Necessary similarity of prompt for slot selection
     float slot_prompt_similarity = 0.0f;
@@ -1308,7 +1307,6 @@ private:
                 try {
                     json json_settings = json::parse(cfg);
                     json_ui_settings = json_settings;
-                    json_webui_settings = json_settings; // deprecated: keep in sync
                 } catch (const std::exception & e) {
                     SRV_ERR("%s: failed to parse UI config: %s\n", __func__, e.what());
                     return false;
@@ -1826,8 +1824,7 @@ private:
                 });
             }
         } else {
-            // TODO: optimize this with min-p optimization
-            std::vector<llama_token_data> cur = get_token_probabilities(ctx_tgt, idx);
+            std::vector<llama_token_data> cur = get_token_probabilities(ctx_tgt, idx, n_probs_request);
             const size_t max_probs = cur.size();
             const size_t n_probs = std::min(max_probs, n_probs_request);
 
@@ -3687,7 +3684,6 @@ server_context_meta server_context::get_meta() const {
         /* has_inp_audio          */ impl->chat_params.allow_audio,
         /* has_inp_video          */ impl->chat_params.allow_video,
         /* json_ui_settings       */ impl->json_ui_settings,
-        /* json_webui_settings    */ impl->json_webui_settings,  // Deprecated
         /* slot_n_ctx             */ impl->get_slot_n_ctx(),
         /* pooling_type           */ llama_pooling_type(impl->ctx_tgt),
 
@@ -4300,12 +4296,8 @@ void server_routes::init_routes() {
             { "endpoint_slots",              params.endpoint_slots },
             { "endpoint_props",              params.endpoint_props },
             { "endpoint_metrics",            params.endpoint_metrics },
-            // New keys
             { "ui",                          params.ui },
             { "ui_settings",                 meta->json_ui_settings },
-            // Deprecated: use ui/ui_settings instead (kept for backward compat)
-            { "webui",                       params.ui },
-            { "webui_settings",              meta->json_ui_settings },
             { "chat_template",               tmpl_default },
             { "chat_template_caps",          meta->chat_template_caps },
             { "bos_token",                   meta->bos_token_str },
