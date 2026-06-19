@@ -2554,9 +2554,7 @@ private:
                 const int n_left    = slot.prompt.n_tokens() - n_keep;
                 int       n_discard = slot.task->params.n_discard ? slot.task->params.n_discard : (n_left / 2);
 
-                // n_discard is only hard-limited to INT32_MAX via server-schema, so clamp to n_left - 1
-                // keep at least one token after n_keep so the tail removal below stays a bounded partial rollback (recurrent/hybrid memories abort when the rollback exceeds n_rs_seq)
-                // and so the resize() does not wrap to a huge size_t
+                // ref: https://github.com/ggml-org/llama.cpp/pull/24786
                 n_discard = std::clamp(n_discard, 0, std::max(0, n_left - 1));
 
                 SLT_WRN(slot, "slot context shift, n_keep = %d, n_left = %d, n_discard = %d\n", n_keep, n_left, n_discard);
