@@ -1298,11 +1298,17 @@ server_http_res_ptr server_models::proxy_request(const server_http_req & req, co
 }
 
 void server_models::handle_child_state(const std::string & name, const std::string & raw_input) {
-    json data = json::parse(raw_input.substr(strlen(CMD_CHILD_TO_ROUTER_STATE)));
-    server_state state = server_state_from_str(json_value(data, "state", std::string()));
-    json payload = json_value(data, "payload", json{});
+    server_state state;
+    json payload;
 
-    LOG_INF("received state update from child server name=%s: %s\n", name.c_str(), safe_json_to_str(data).c_str());
+    try {
+        json data = json::parse(raw_input.substr(strlen(CMD_CHILD_TO_ROUTER_STATE)));
+        state = server_state_from_str(json_value(data, "state", std::string()));
+        payload = json_value(data, "payload", json{});
+    } catch (const std::exception & e) {
+        SRV_ERR("failed to parse child state update for name=%s: %s\n", name.c_str(), e.what());
+        return;
+    }
 
     switch (state) {
         case SERVER_STATE_LOADING:
