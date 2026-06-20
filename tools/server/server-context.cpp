@@ -882,8 +882,8 @@ private:
         }
         if (ctx->callback_state) {
             ctx->callback_state(SERVER_STATE_LOADING, {
-                {"stage",    "text_model"},
-                {"progress", progress},
+                {"stage", "text_model"},
+                {"value", progress},
             });
         }
         return true;
@@ -1384,6 +1384,9 @@ private:
             const bool enable_thinking = params_base.enable_reasoning != 0 && template_supports_thinking;
             SRV_INF("%s: chat template, thinking = %d\n", __func__, enable_thinking);
 
+            // IMPORTANT: chat_params is reused across sleeping / resuming states,
+            //            never store llama_context/llama_model pointers in chat_params,
+            //            as they may be invalidated after sleeping
             chat_params = {
                 /* use_jinja             */ params_base.use_jinja,
                 /* prefill_assistant     */ params_base.prefill_assistant,
