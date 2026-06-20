@@ -211,6 +211,9 @@ public:
 };
 
 struct server_child {
+    // serializes the notify_to_router writes
+    std::mutex mtx_stdout;
+
     // return true if the current process is a child server instance
     bool is_child();
 
