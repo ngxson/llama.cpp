@@ -815,17 +815,23 @@ void server_models::unload_lru() {
 }
 
 void server_models::load(const std::string & name) {
-    if (!has_model(name)) {
-        throw std::runtime_error("model name=" + name + " is not found");
+    load(name, load_options{});
+}
+
+void server_models::load(const std::string & name, const load_options & opts) {
+    if (!opts.custom_meta.has_value()) {
+        if (!has_model(name)) {
+            throw std::runtime_error("model name=" + name + " is not found");
+        }
+        unload_lru();
     }
-    unload_lru();
 
     std::unique_lock<std::mutex> lk(mutex);
     // edge case: block until any in-progress reload has finished so we always load
     // against the freshest preset and a consistent mapping state
     cv.wait(lk, [this]() { return !is_reloading; });
 
-    auto meta = mapping[name].meta;
+    auto meta = opts.custom_meta.has_value() ? *opts.custom_meta : mapping[name].meta;
     if (meta.status != SERVER_MODEL_STATUS_UNLOADED) {
         SRV_INF("model %s is not ready\n", name.c_str());
         return;
@@ -868,6 +874,12 @@ void server_models::load(const std::string & name) {
         std::vector<std::string> child_args = inst.meta.args; // copy
         std::vector<std::string> child_env  = base_env; // copy
         child_env.push_back("LLAMA_SERVER_ROUTER_PORT=" + std::to_string(base_params.port));
+
+        if (opts.mode == SERVER_CHILD_MODE_DOWNLOAD) {
+            inst.meta.status = SERVER_MODEL_STATUS_DOWNLOADING;
+            child_env.push_back("LLAMA_SERVER_CHILD_MODE=download");
+            child_env.push_back("LLAMA_ARG_HF_REPO=" + name);
+        }
 
         SRV_INF("%s", "spawning server instance with args:\n");
         for (const auto & arg : child_args) {
@@ -984,7 +996,7 @@ void server_models::load(const std::string & name) {
     {
         auto & old_instance = mapping[name];
         // old process should have exited already, but just in case, we clean it up here
-        if (old_instance.subproc->is_alive()) {
+        if (old_instance.subproc && old_instance.subproc->is_alive()) {
             SRV_WRN("old process for model name=%s is still alive, this is unexpected\n", name.c_str());
             old_instance.subproc->terminate(); // force kill
         }
@@ -998,85 +1010,6 @@ void server_models::load(const std::string & name) {
     });
 
     mapping[name] = std::move(inst);
-    cv.notify_all();
-}
-
-// callback for model downloading functionality
-struct server_models_download_res : public common_download_callback {
-    common_params_model model;
-    common_download_opts opts;
-
-    std::function<bool()> should_stop;
-    std::function<void(const common_download_progress & p)> on_progress;
-
-    bool is_ok = false;
-
-    bool run() {
-        try {
-            common_download_model(model, opts);
-            is_ok = true;
-        } catch (const std::exception & e) {
-            auto model_name = model.get_name();
-            SRV_ERR("download failed for model name=%s: %s\n", model_name.c_str(), e.what());
-            is_ok = false;
-        }
-        return is_ok;
-    }
-    void on_start(const common_download_progress & p) override {
-        on_progress(p);
-    }
-    void on_update(const common_download_progress & p) override {
-        on_progress(p);
-    }
-    void on_done(const common_download_progress &, bool ok) override {
-        is_ok = ok;
-    }
-    bool is_cancelled() const override {
-        return should_stop();
-    }
-};
-
-void server_models::download(common_params_model && model, common_download_opts && opts) {
-    std::string name = model.get_name();
-    GGML_ASSERT(name == model.hf_repo);
-
-    std::unique_lock<std::mutex> lk(mutex);
-    if (mapping.find(name) != mapping.end()) {
-        throw std::runtime_error("model name=" + name + " already exists");
-    }
-
-    instance_t inst;
-    inst.meta.name   = name;
-    inst.meta.status = SERVER_MODEL_STATUS_DOWNLOADING;
-    inst.subproc     = std::make_shared<server_subproc>();
-
-    auto dl = std::make_unique<server_models_download_res>();
-    dl->model = model; // copy
-    dl->opts  = opts;  // copy
-
-    dl->should_stop = [sp = inst.subproc]() {
-        return sp->stopped.load(std::memory_order_relaxed);
-    };
-
-    dl->on_progress = [this, name](const common_download_progress & p) {
-        update_download_progress(name, p, false);
-    };
-
-    inst.th = std::thread([this, dl = std::move(dl)]() {
-        dl->opts.callback = dl.get();
-        bool ok = dl->run();
-        auto model_name = dl->model.get_name();
-        SRV_INF("download finished for model name=%s with status=%s\n",
-                    model_name.c_str(), ok ? "success" : "failure");
-        update_download_progress(model_name, {}, true, ok);
-        // need_reload is set inside update_download_progress under the mutex;
-        // the next load_models() call will clean up this instance
-    });
-
-    mapping[name] = std::move(inst);
-    notify_sse("status_update", name, {
-        {"status", server_model_status_to_string(SERVER_MODEL_STATUS_DOWNLOADING)},
-    });
     cv.notify_all();
 }
 
@@ -1328,6 +1261,10 @@ void server_models::handle_child_state(const std::string & name, const std::stri
     }
 
     switch (state) {
+        case SERVER_STATE_DOWNLOADING:
+            {
+                // TODO
+            } break;
         case SERVER_STATE_LOADING:
             {
                 update_status(name, {
@@ -1366,6 +1303,63 @@ bool server_child::is_child() {
     return router_port != nullptr;
 }
 
+server_child_mode server_child::get_mode() {
+    const char * mode = std::getenv("LLAMA_SERVER_CHILD_MODE");
+    std::string mode_str(mode ? mode : "");
+    if (mode_str == "download") {
+        return SERVER_CHILD_MODE_DOWNLOAD;
+    } else {
+        return SERVER_CHILD_MODE_NORMAL;
+    }
+}
+
+struct server_download_callback : public common_download_callback {
+    server_child * self;
+    bool is_ok = false;
+
+    server_download_callback(server_child * s) : self(s) {}
+
+    bool run(common_params & params) {
+        try {
+            common_params_handle_models(params, LLAMA_EXAMPLE_SERVER, this);
+            is_ok = true;
+        } catch (const std::exception & e) {
+            auto model_name = params.model.get_name();
+            SRV_ERR("download failed for model name=%s: %s\n", model_name.c_str(), e.what());
+            is_ok = false;
+        }
+        return is_ok;
+    }
+    void on_progress(const common_download_progress & p) {
+        json data = {
+            {"url", p.url},
+            {"downloaded", p.downloaded},
+            {"total", p.total},
+        };
+        self->notify_to_router(server_state_to_str(SERVER_STATE_DOWNLOADING), data);
+    }
+    void on_start(const common_download_progress & p) override {
+        on_progress(p);
+    }
+    void on_update(const common_download_progress & p) override {
+        on_progress(p);
+    }
+    void on_done(const common_download_progress &, bool ok) override {
+        is_ok = ok;
+    }
+    bool is_cancelled() const override { return false; }
+};
+
+int server_child::run_download(common_params & params) {
+    server_download_callback cb(this);
+    bool ok = cb.run(params);
+    if (!ok) {
+        return 1;
+    }
+    SRV_INF("%s", "download completed successfully\n");
+    return 0;
+}
+
 std::thread server_child::setup(const std::function<void(int)> & shutdown_handler) {
     // setup thread for monitoring stdin
     return std::thread([shutdown_handler]() {
@@ -1397,11 +1391,10 @@ void server_child::notify_to_router(const std::string & state, const json & payl
         {"state", state},
         {"payload", payload},
     };
-    common_log_pause(common_log_main());
+    std::lock_guard<std::mutex> lk(mtx_stdout);
     fflush(stdout);
     fprintf(stdout, "%s%s\n", CMD_CHILD_TO_ROUTER_STATE, safe_json_to_str(data).c_str());
     fflush(stdout);
-    common_log_resume(common_log_main());
 }
 
 
@@ -1679,8 +1672,8 @@ void server_models_routes::init_routes() {
 
         model.hf_repo        = name;
         opts.bearer_token    = params.hf_token;
-        opts.download_mmproj = true;
-        opts.download_mtp    = true;
+        opts.download_mmproj = false;
+        opts.download_mtp    = false;
 
         // first, only check if the model is valid and can be downloaded
         opts.skip_download = true;
@@ -1702,9 +1695,14 @@ void server_models_routes::init_routes() {
         }
 
         // then, proceed with the actual download
-        opts.skip_download = false;
         SRV_INF("starting download for model '%s'\n", name.c_str());
-        models.download(std::move(model), std::move(opts));
+        {
+            server_models::load_options load_opts;
+            load_opts.mode = SERVER_CHILD_MODE_DOWNLOAD;
+            load_opts.custom_meta = server_model_meta{};
+            load_opts.custom_meta->name = name;
+            models.load(name, load_opts);
+        }
 
         res_ok(res, {{"success", true}});
         return res;
