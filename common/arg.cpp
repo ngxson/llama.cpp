@@ -924,10 +924,10 @@ static utf8_argv make_utf8_argv() {
 #endif
 
 bool common_params_parse(int argc, char ** argv, common_params & params, llama_example ex, void(*print_usage)(int, char **)) {
-#if 0 //#ifdef _WIN32
+#ifdef _WIN32
     auto utf8 = make_utf8_argv();
-    if (!utf8.ptrs.empty()) {
-        argc = static_cast<int>(utf8.buf.size());
+    // repair argv only when it matches the process command line
+    if (static_cast<int>(utf8.buf.size()) == argc) {
         argv = utf8.ptrs.data();
     }
 #endif
