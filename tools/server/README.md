@@ -1859,7 +1859,7 @@ Example events:
 
 {
   "model": "...",
-  "event": "download_finished",
+  "event": "model_status",
   "data": {
     "status": "loading",
     "progress": {

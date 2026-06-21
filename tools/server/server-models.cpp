@@ -1392,6 +1392,7 @@ void server_child::notify_to_router(const std::string & state, const json & payl
         {"payload", payload},
     };
     std::lock_guard<std::mutex> lk(mtx_stdout);
+    common_log_pause(common_log_main());
     fflush(stdout);
     fprintf(stdout, "%s%s\n", CMD_CHILD_TO_ROUTER_STATE, safe_json_to_str(data).c_str());
     fflush(stdout);
