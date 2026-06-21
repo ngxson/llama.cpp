@@ -1863,11 +1863,15 @@ Example events:
   "data": {
     "status": "loading",
     "progress": {
-      "stage": "fit_params",
+      "stage": "text_model",
       "value": 0.5 // from 0.0 to 1.0 ; note: not all stages have this "value"
     }
   }
 }
+// note for "loading" status:
+// - first event contains "stages" that indicates the list of stages
+// - subsequent events are for each stage (following the list order)
+// - mmap is may report incorrect progress on some platforms; if you need exact progress, use --no-mmap
 
 {
   "model": "...",
