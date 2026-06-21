@@ -962,6 +962,7 @@ private:
     struct load_progress_data {
         server_context_impl * ctx;
         std::string stage;
+        std::vector<std::string> stages;
         int64_t t_last_load_progress_ms = 0;
         load_progress_data(server_context_impl * ctx, const std::string & stage) : ctx(ctx), stage(stage) {}
     };
@@ -982,7 +983,8 @@ private:
         }
         if (d->ctx->callback_state) {
             d->ctx->callback_state(SERVER_STATE_LOADING, {
-                {"stage", d->stage},
+                {"stages", d->stages},
+                {"current", d->stage},
                 {"value", progress},
             });
         }
@@ -997,6 +999,9 @@ private:
         load_progress_data load_progress_spec  (this, "spec_model");
 
         const bool is_resume = sleeping;
+
+        params_base = params;
+        params_base.n_outputs_max = server_n_outputs_max(params_base);
 
         const bool has_mmproj = !params.mmproj.path.empty();
         const bool has_draft = params.speculative.has_dft();
@@ -1013,16 +1018,16 @@ private:
             if (has_mmproj) {
                 stages.push_back("mmproj_model");
             }
-            callback_state(SERVER_STATE_LOADING, {
-                {"stages", stages},
-            });
+            load_progress_text.stages   = stages;
+            load_progress_mmproj.stages = stages;
+            load_progress_spec.stages   = stages;
+
+            // trigger 0% progress
+            load_progress_callback(0.0f, &load_progress_text);
         }
 
 
         SRV_INF("loading model '%s'\n", params.model.path.c_str());
-
-        params_base = params;
-        params_base.n_outputs_max = server_n_outputs_max(params_base);
 
         std::string & mmproj_path = params_base.mmproj.path;
         mtmd_context_params mparams = mtmd_context_params_default();
