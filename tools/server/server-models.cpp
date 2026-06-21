@@ -64,6 +64,17 @@ struct server_subproc {
         return sproc.has_value() && subprocess_alive(&sproc.value());
     }
 
+    void request_exit() {
+        if (sproc.has_value()) {
+            FILE * stdin_file = subprocess_stdin(&sproc.value());
+            if (stdin_file) {
+                fprintf(stdin_file, "%s\n", CMD_ROUTER_TO_CHILD_EXIT);
+                fflush(stdin_file);
+            }
+        }
+        stopped.store(true, std::memory_order_relaxed);
+    }
+
     void terminate() {
         if (!sproc.has_value()) {
             return;
@@ -898,8 +909,6 @@ void server_models::load(const std::string & name, const load_options & opts) {
         if (result != 0) {
             throw std::runtime_error("failed to spawn server instance");
         }
-
-        inst.stdin_file = subprocess_stdin(&inst.subproc->get());
     }
 
     // start a thread to manage the child process
@@ -1029,12 +1038,7 @@ void server_models::unload(const std::string & name) {
     if (it != mapping.end()) {
         if (it->second.meta.status == SERVER_MODEL_STATUS_DOWNLOADING) {
             SRV_INF("cancelling download for model name=%s\n", name.c_str());
-            // write exit command to child's stdin to trigger cancellation
-            if (it->second.stdin_file) {
-                fprintf(it->second.stdin_file, "%s\n", CMD_ROUTER_TO_CHILD_EXIT);
-                fflush(it->second.stdin_file);
-            }
-            it->second.subproc->stopped.store(true, std::memory_order_relaxed);
+            it->second.subproc->request_exit();
             // for convenience, we wait the status change here
             wait(lk, name, [](const server_model_meta & new_meta) {
                 return new_meta.status != SERVER_MODEL_STATUS_DOWNLOADING;
@@ -1162,11 +1166,7 @@ bool server_models::remove(const std::string & name) {
     if (it->second.meta.status == SERVER_MODEL_STATUS_DOWNLOADING) {
         // cancel in-flight download
         SRV_INF("cancelling download for model name=%s\n", name.c_str());
-        if (it->second.stdin_file) {
-            fprintf(it->second.stdin_file, "%s\n", CMD_ROUTER_TO_CHILD_EXIT);
-            fflush(it->second.stdin_file);
-        }
-        it->second.subproc->stopped.store(true, std::memory_order_relaxed);
+        it->second.subproc->request_exit();
     } else if (it->second.meta.is_running()) {
         // stop running instance
         SRV_INF("stopping model instance name=%s\n", name.c_str());
