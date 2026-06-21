@@ -179,10 +179,6 @@ public:
     void unload(const std::string & name);
     void unload_all();
 
-    // download a new model, progress is reported via SSE
-    // to stop the download, call unload()
-    void download(common_params_model && model, common_download_opts && opts);
-
     struct update_status_args {
         server_model_status status;
         int exit_code = 0; // only valid if status == UNLOADED
