@@ -1863,7 +1863,7 @@ Example events:
   "data": {
     "status": "loading",
     "progress": {
-      "stages": ["text_model", "mmproj_model"],
+      "stages": ["text_model", "spec_model", "mmproj_model"],
       "current": "text_model",
       "value": 0.5
     }
