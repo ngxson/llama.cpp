@@ -334,7 +334,7 @@ void server_models::notify_sse(const std::string & event, const std::string & mo
 }
 
 void server_models::load_models() {
-    // Phase 1: load presets from all sources — pure I/O, no lock needed
+    // Phase 1: load presets from all sources - pure I/O, no lock needed
     // 1. cached models
     common_presets cached_models = ctx_preset.load_from_cache();
     SRV_INF("Loaded %zu cached model presets\n", cached_models.size());
@@ -387,7 +387,7 @@ void server_models::load_models() {
         return source_map.count(name) ? source_map.at(name) : SERVER_MODEL_SOURCE_PRESET;
     };
 
-    // Helpers that read `mapping` — must be called while holding the lock.
+    // Helpers that read `mapping` - must be called while holding the lock.
     std::unordered_set<std::string> custom_names;
     for (const auto & [name, preset] : custom_presets) custom_names.insert(name);
     auto join_set = [](const std::set<std::string> & s) {
@@ -534,7 +534,7 @@ void server_models::load_models() {
             }
         }
 
-        // join outside the lock — monitoring thread calls update_status (needs lock)
+        // join outside the lock - monitoring thread calls update_status (needs lock)
         lk.unlock();
         for (auto & th : threads_to_join) th.join();
         lk.lock();
@@ -633,7 +633,7 @@ void server_models::load_models() {
 
         apply_stop_timeout();
 
-        // clear reload flag before unlocking for autoload — load() blocks on !is_reloading,
+        // clear reload flag before unlocking for autoload - load() blocks on !is_reloading,
         // so clearing it here (while still locked) prevents a deadlock in the autoload calls below
         is_reloading = false;
         cv.notify_all();
@@ -952,7 +952,7 @@ void server_models::load(const std::string & name, const load_options & opts) {
                     return is_stopping() || child_proc->stopped.load(std::memory_order_acquire);
                 });
             }
-            // child crashed or finished on its own — skip graceful shutdown sequence
+            // child crashed or finished on its own, skip graceful shutdown sequence
             if (child_proc->stopped.load(std::memory_order_acquire)) {
                 return;
             }
@@ -1183,7 +1183,19 @@ bool server_models::remove(const std::string & name) {
             || meta.status == SERVER_MODEL_STATUS_DOWNLOADED;
     });
 
-    // join before erasing — thread no longer acquires this mutex
+    // re-find after wait - load_models() may have erased the entry during the wait
+    it = mapping.find(name);
+    if (it == mapping.end()) {
+        // load_models() already joined the thread and erased the entry;
+        // we just need to clean up the cached files on disk
+        lk.unlock();
+        bool ok = common_download_remove(name);
+        SRV_INF("removing model name=%s from cache (%s)\n", name.c_str(), ok ? "succeeded" : "partial");
+        notify_sse("model_remove", name, {});
+        return true;
+    }
+
+    // join before erasing - thread no longer acquires this mutex
     if (it->second.th.joinable()) {
         it->second.th.join();
     }
@@ -1211,7 +1223,9 @@ void server_models::wait(std::unique_lock<std::mutex> & lk, const std::string & 
             return predicate(it->second.meta);
 
         }
-        return false;
+        // model was removed from mapping by another code path (e.g. load_models()).
+        // nothing left to wait for - tell the caller to proceed.
+        return true;
     });
 }
 
@@ -1393,16 +1407,16 @@ struct server_download_callback : public common_download_callback {
 };
 
 int server_child::run_download(common_params & params) {
-    std::atomic<bool> cancelled{false};
+    auto cancelled = std::make_shared<std::atomic<bool>>(false);
 
     // monitor stdin for cancellation command from the router
-    std::thread signal_thread = setup([&cancelled](int) {
-        cancelled.store(true, std::memory_order_relaxed);
+    std::thread signal_thread = setup([cancelled](int) {
+        cancelled->store(true, std::memory_order_relaxed);
     });
 
     server_download_callback cb(this);
-    cb.should_stop = [&cancelled]() {
-        return cancelled.load(std::memory_order_relaxed);
+    cb.should_stop = [cancelled]() {
+        return cancelled->load(std::memory_order_relaxed);
     };
 
     bool ok = cb.run(params);
@@ -1731,6 +1745,7 @@ void server_models_routes::init_routes() {
 
         model.hf_repo        = name;
         opts.bearer_token    = params.hf_token;
+        // note: we only check main model, no need sidecar here
         opts.download_mmproj = false;
         opts.download_mtp    = false;
 
@@ -1764,7 +1779,8 @@ void server_models_routes::init_routes() {
             server_models::load_options load_opts;
             load_opts.mode = SERVER_CHILD_MODE_DOWNLOAD;
             load_opts.custom_meta = server_model_meta{};
-            load_opts.custom_meta->name = name;
+            load_opts.custom_meta->source = SERVER_MODEL_SOURCE_CACHE;
+            load_opts.custom_meta->name   = name;
             models.load(name, load_opts);
         }
 
@@ -1780,10 +1796,7 @@ void server_models_routes::init_routes() {
             throw std::invalid_argument("model must be a non-empty string");
         }
 
-        bool ok = models.remove(name);
-        if (!ok) {
-            throw std::runtime_error("failed to remove model '" + name + "'");
-        }
+        models.remove(name); // throws on error
 
         res_ok(res, {{"success", true}});
         return res;
