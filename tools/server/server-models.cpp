@@ -904,7 +904,13 @@ void server_models::load(const std::string & name, const load_options & opts) {
 
     // start a thread to manage the child process
     // captured variables are guaranteed to be destroyed only after the thread is joined
-    inst.th = std::thread([this, name, child_proc = inst.subproc, port = inst.meta.port, stop_timeout = inst.meta.stop_timeout]() {
+    inst.th = std::thread([
+        this, name,
+        child_proc = inst.subproc,
+        port = inst.meta.port,
+        stop_timeout = inst.meta.stop_timeout,
+        child_mode = opts.mode
+    ]() {
         FILE * stdin_file = subprocess_stdin(&child_proc->get());
         FILE * stdout_file = subprocess_stdout(&child_proc->get()); // combined stdout/stderr
 
@@ -985,10 +991,14 @@ void server_models::load(const std::string & name, const load_options & opts) {
         subprocess_destroy(&child_proc->get());
 
         // update status and exit code
-        this->update_status(name, {
-            SERVER_MODEL_STATUS_UNLOADED,
-            exit_code
-        });
+        if (child_mode == SERVER_CHILD_MODE_DOWNLOAD) {
+            this->update_download_progress(name, {}, true, exit_code == 0);
+        } else {
+            this->update_status(name, {
+                SERVER_MODEL_STATUS_UNLOADED,
+                exit_code
+            });
+        }
         SRV_INF("instance name=%s exited with status %d\n", name.c_str(), exit_code);
     });
 
@@ -1019,6 +1029,11 @@ void server_models::unload(const std::string & name) {
     if (it != mapping.end()) {
         if (it->second.meta.status == SERVER_MODEL_STATUS_DOWNLOADING) {
             SRV_INF("cancelling download for model name=%s\n", name.c_str());
+            // write exit command to child's stdin to trigger cancellation
+            if (it->second.stdin_file) {
+                fprintf(it->second.stdin_file, "%s\n", CMD_ROUTER_TO_CHILD_EXIT);
+                fflush(it->second.stdin_file);
+            }
             it->second.subproc->stopped.store(true, std::memory_order_relaxed);
             // for convenience, we wait the status change here
             wait(lk, name, [](const server_model_meta & new_meta) {
@@ -1131,37 +1146,57 @@ void server_models::update_download_progress(const std::string & name, const com
 }
 
 bool server_models::remove(const std::string & name) {
-    auto meta = get_meta(name);
+    // do everything under one lock acquisition; avoid get_meta() /
+    // unload() because they can trigger load_models() which erases
+    // transient DOWNLOADING / DOWNLOADED entries as a side-effect
+    std::unique_lock<std::mutex> lk(mutex);
 
-    if (!meta.has_value()) {
+    auto it = mapping.find(name);
+    if (it == mapping.end()) {
         throw std::runtime_error("model name=" + name + " is not found");
     }
-    if (meta->source != SERVER_MODEL_SOURCE_CACHE) {
+    if (it->second.meta.source != SERVER_MODEL_SOURCE_CACHE) {
         throw std::runtime_error("model name=" + name + " is not removable (not from cache)");
     }
 
-    unload(name); // cancel download or stop running instance
-    {
-        std::unique_lock<std::mutex> lk(mutex);
-        // a cancelled download lands on DOWNLOADED; a stopped instance lands on UNLOADED
-        wait(lk, name, [](const server_model_meta & new_meta) {
-            return new_meta.status == SERVER_MODEL_STATUS_UNLOADED
-                || new_meta.status == SERVER_MODEL_STATUS_DOWNLOADED;
-        });
-        // join before erasing - after status reaches UNLOADED/DOWNLOADED the thread no
-        // longer acquires this mutex, so joining while holding it is safe
-        if (mapping[name].th.joinable()) {
-            mapping[name].th.join();
+    if (it->second.meta.status == SERVER_MODEL_STATUS_DOWNLOADING) {
+        // cancel in-flight download
+        SRV_INF("cancelling download for model name=%s\n", name.c_str());
+        if (it->second.stdin_file) {
+            fprintf(it->second.stdin_file, "%s\n", CMD_ROUTER_TO_CHILD_EXIT);
+            fflush(it->second.stdin_file);
         }
-        // remove the model from disk (hold lock to prevent concurrent load)
-        bool ok = common_download_remove(name);
-        if (ok) {
-            mapping.erase(name);
+        it->second.subproc->stopped.store(true, std::memory_order_relaxed);
+    } else if (it->second.meta.is_running()) {
+        // stop running instance
+        SRV_INF("stopping model instance name=%s\n", name.c_str());
+        stopping_models.insert(name);
+        if (it->second.meta.status == SERVER_MODEL_STATUS_LOADING) {
+            it->second.subproc->terminate();
         }
-        SRV_INF("removing model name=%s from cache (%s)\n", name.c_str(), ok ? "succeeded" : "failed");
-        notify_sse("model_remove", name, {});
-        return ok;
+        cv_stop.notify_all();
     }
+
+    // wait until the monitoring thread finishes
+    wait(lk, name, [](const server_model_meta & meta) {
+        return meta.status == SERVER_MODEL_STATUS_UNLOADED
+            || meta.status == SERVER_MODEL_STATUS_DOWNLOADED;
+    });
+
+    // join before erasing — thread no longer acquires this mutex
+    if (it->second.th.joinable()) {
+        it->second.th.join();
+    }
+
+    // remove from disk (best-effort: cancelled downloads may have no cached files)
+    bool ok = common_download_remove(name);
+    mapping.erase(name);
+    if (!ok) {
+        SRV_WRN("removing model name=%s from disk returned false (no cached files?)\n", name.c_str());
+    }
+    SRV_INF("removing model name=%s from cache (%s)\n", name.c_str(), ok ? "succeeded" : "partial");
+    notify_sse("model_remove", name, {});
+    return true;
 }
 
 void server_models::wait(const std::string & name, std::function<bool(const server_model_meta &)> predicate) {
@@ -1263,7 +1298,11 @@ void server_models::handle_child_state(const std::string & name, const std::stri
     switch (state) {
         case SERVER_STATE_DOWNLOADING:
             {
-                // TODO
+                common_download_progress p;
+                p.url        = json_value(payload, "url", std::string());
+                p.downloaded = json_value(payload, "downloaded", (size_t)0);
+                p.total      = json_value(payload, "total", (size_t)0);
+                update_download_progress(name, p, false);
             } break;
         case SERVER_STATE_LOADING:
             {
@@ -1315,6 +1354,7 @@ server_child_mode server_child::get_mode() {
 
 struct server_download_callback : public common_download_callback {
     server_child * self;
+    std::function<bool()> should_stop;
     bool is_ok = false;
 
     server_download_callback(server_child * s) : self(s) {}
@@ -1347,12 +1387,29 @@ struct server_download_callback : public common_download_callback {
     void on_done(const common_download_progress &, bool ok) override {
         is_ok = ok;
     }
-    bool is_cancelled() const override { return false; }
+    bool is_cancelled() const override {
+        return should_stop ? should_stop() : false;
+    }
 };
 
 int server_child::run_download(common_params & params) {
+    std::atomic<bool> cancelled{false};
+
+    // monitor stdin for cancellation command from the router
+    std::thread signal_thread = setup([&cancelled](int) {
+        cancelled.store(true, std::memory_order_relaxed);
+    });
+
     server_download_callback cb(this);
+    cb.should_stop = [&cancelled]() {
+        return cancelled.load(std::memory_order_relaxed);
+    };
+
     bool ok = cb.run(params);
+
+    // signal_thread will be terminated when the process exits
+    signal_thread.detach();
+
     if (!ok) {
         return 1;
     }
@@ -1396,6 +1453,7 @@ void server_child::notify_to_router(const std::string & state, const json & payl
     fflush(stdout);
     fprintf(stdout, "%s%s\n", CMD_CHILD_TO_ROUTER_STATE, safe_json_to_str(data).c_str());
     fflush(stdout);
+    common_log_resume(common_log_main());
 }
 
 
@@ -1632,7 +1690,7 @@ void server_models_routes::init_routes() {
             res_err(res, format_error_response("model is not found", ERROR_TYPE_INVALID_REQUEST));
             return res;
         }
-        if (!model->is_running()) {
+        if (!model->is_running() && model->status != SERVER_MODEL_STATUS_DOWNLOADING) {
             res_err(res, format_error_response("model is not running", ERROR_TYPE_INVALID_REQUEST));
             return res;
         }
@@ -1693,6 +1751,11 @@ void server_models_routes::init_routes() {
 
         if (!ok) {
             throw std::invalid_argument("model validation failed, unable to download");
+        }
+
+        // reject if model already exists
+        if (models.has_model(name)) {
+            throw std::invalid_argument("model '" + name + "' already exists");
         }
 
         // then, proceed with the actual download
