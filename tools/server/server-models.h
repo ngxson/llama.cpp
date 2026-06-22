@@ -13,6 +13,8 @@
 #include <memory>
 #include <set>
 
+#define DEFAULT_STOP_TIMEOUT 10000 // ms
+
 /**
  * state diagram:
  *
@@ -114,7 +116,7 @@ private:
 
     // for stopping models
     std::condition_variable cv_stop;
-    std::set<std::string> stopping_models;
+    std::map<std::string, int /* timeout_ms */> stopping_models;
 
     // set to true while load_models() is executing a reload; load() will wait until clear
     bool is_reloading = false;
@@ -164,7 +166,7 @@ public:
     // load and unload model instances
     // these functions are thread-safe
     void load(const std::string & name);
-    void unload(const std::string & name);
+    void unload(const std::string & name, int timeout_ms = DEFAULT_STOP_TIMEOUT);
     void unload_all();
 
     // download a new model, progress is reported via SSE

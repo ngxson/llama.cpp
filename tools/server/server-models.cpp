@@ -42,8 +42,6 @@ extern char **environ;
 #include <limits.h>
 #endif
 
-#define DEFAULT_STOP_TIMEOUT 10 // seconds
-
 #define CMD_ROUTER_TO_CHILD_EXIT  "cmd_router_to_child:exit"
 #define CMD_CHILD_TO_ROUTER_STATE "cmd_child_to_router:state:" // followed by json string
 
@@ -803,7 +801,7 @@ void server_models::unload_lru() {
     }
     if (!lru_model_name.empty() && count_active >= (size_t)base_params.models_max) {
         SRV_INF("models_max limit reached, removing LRU name=%s\n", lru_model_name.c_str());
-        unload(lru_model_name);
+        unload(lru_model_name, -1); // no timeout, wait until model finishes the on-going request
         // wait for unload to complete
         {
             std::unique_lock<std::mutex> lk(mutex);
@@ -939,9 +937,10 @@ void server_models::load(const std::string & name) {
                     return;
                 }
                 int64_t elapsed = ggml_time_ms() - start_time;
-                if (elapsed >= stop_timeout * 1000) {
+                int timeout_ms = stopping_models[name];
+                if (timeout_ms >= 0 && elapsed >= timeout_ms) {
                     lk.unlock();
-                    SRV_WRN("force-killing model instance name=%s after %d seconds timeout\n", name.c_str(), stop_timeout);
+                    SRV_WRN("force-killing model instance name=%s after %d ms timeout\n", name.c_str(), timeout_ms);
                     child_proc->terminate();
                     return;
                 }
@@ -1080,7 +1079,7 @@ void server_models::download(common_params_model && model, common_download_opts 
     cv.notify_all();
 }
 
-void server_models::unload(const std::string & name) {
+void server_models::unload(const std::string & name, int timeout_ms) {
     std::unique_lock<std::mutex> lk(mutex);
     auto it = mapping.find(name);
     if (it != mapping.end()) {
@@ -1093,7 +1092,7 @@ void server_models::unload(const std::string & name) {
             });
         } else if (it->second.meta.is_running()) {
             SRV_INF("stopping model instance name=%s\n", name.c_str());
-            stopping_models.insert(name);
+            stopping_models[name] = timeout_ms;
             if (it->second.meta.status == SERVER_MODEL_STATUS_LOADING) {
                 // special case: if model is in loading state, unloading means force-killing it
                 SRV_WRN("model name=%s is still loading, force-killing\n", name.c_str());
@@ -1117,7 +1116,7 @@ void server_models::unload_all() {
                 inst.subproc->stopped.store(true, std::memory_order_relaxed);
             } else if (inst.meta.is_running()) {
                 SRV_INF("stopping model instance name=%s\n", name.c_str());
-                stopping_models.insert(name);
+                stopping_models[name] = DEFAULT_STOP_TIMEOUT;
                 cv_stop.notify_all();
                 // status change will be handled by the managing thread
             }
