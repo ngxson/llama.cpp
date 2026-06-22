@@ -257,7 +257,7 @@ def test_router_reload_models():
 
 
 MODEL_DOWNLOAD_ID = "ggml-org/test-model-router-download:F16"
-MODEL_DOWNLOAD_TIMEOUT = 300
+MODEL_DOWNLOAD_TIMEOUT = 30
 
 
 def _listen_sse(
