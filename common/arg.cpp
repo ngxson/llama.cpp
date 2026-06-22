@@ -3230,7 +3230,22 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
             }
             params.sleep_idle_seconds = value;
         }
-    ).set_examples({LLAMA_EXAMPLE_SERVER}));
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_SLEEP_IDLE_SECONDS"));
+    add_opt(common_arg(
+        {"--terminate-mode"}, "MODE",
+        "behavior when terminate signal is received (default: 'immediate')\n"
+        "- 'immediate': skip all pending tasks and terminate immediately\n"
+        "- 'idle': wait until all tasks are completed and terminate when idle",
+        [](common_params & params, const std::string & value) {
+            if (value == "immediate") {
+                params.terminate_mode = SERVER_TERMINATE_MODE_IMMEDIATE;
+            } else if (value == "idle") {
+                params.terminate_mode = SERVER_TERMINATE_MODE_IDLE;
+            } else {
+                throw std::invalid_argument("invalid value: must be 'immediate' or 'idle'");
+            }
+        }
+    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_TERMINATE_MODE"));
     add_opt(common_arg(
         {"--simple-io"},
         "use basic IO for better compatibility in subprocesses and limited consoles",

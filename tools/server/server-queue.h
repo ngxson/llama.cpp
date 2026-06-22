@@ -13,10 +13,11 @@
 struct server_queue {
 private:
     int id = 0;
-    bool running  = false;
     bool sleeping = false;
     bool req_stop_sleeping = false;
     int64_t time_last_task = 0;
+
+    server_terminate_mode stop_mode = SERVER_TERMINATE_MODE_NONE;
 
     // queues
     std::deque<server_task> queue_tasks;
@@ -57,7 +58,7 @@ public:
     }
 
     // end the start_loop routine
-    void terminate();
+    void terminate(server_terminate_mode mode);
 
     /**
      * Main loop consists of these steps:
@@ -112,6 +113,14 @@ public:
 
 private:
     void cleanup_pending_task(int id_target);
+
+    bool running() const {
+        return stop_mode == SERVER_TERMINATE_MODE_NONE;
+    }
+
+    bool is_idle() const {
+        return queue_tasks.empty() && queue_tasks_deferred.empty();
+    }
 };
 
 // struct for managing server responses

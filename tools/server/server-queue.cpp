@@ -116,14 +116,16 @@ void server_queue::wait_until_no_sleep() {
     }
 }
 
-void server_queue::terminate() {
+void server_queue::terminate(server_terminate_mode mode) {
     std::unique_lock<std::mutex> lock(mutex_tasks);
-    running = false;
+    GGML_ASSERT(mode != SERVER_TERMINATE_MODE_NONE);
+    stop_mode = mode;
+    QUE_DBG("requesting to terminate %s\n",
+        mode == SERVER_TERMINATE_MODE_IDLE ? "(idle)" : "(immediate)");
     condition_tasks.notify_all();
 }
 
 void server_queue::start_loop(int64_t idle_sleep_ms) {
-    running = true;
     time_last_task = ggml_time_ms();
 
     constexpr auto max_wait_time = std::chrono::seconds(1);
@@ -141,7 +143,7 @@ void server_queue::start_loop(int64_t idle_sleep_ms) {
 
         while (true) {
             std::unique_lock<std::mutex> lock(mutex_tasks);
-            if (!running) {
+            if (stop_mode == SERVER_TERMINATE_MODE_IMMEDIATE) {
                 QUE_DBG("%s", "terminate\n");
                 return;
             }
@@ -165,12 +167,17 @@ void server_queue::start_loop(int64_t idle_sleep_ms) {
             // update_slots() may take a while to finish, we need to make sure it's not counted as idle
             std::unique_lock<std::mutex> lock(mutex_tasks);
             time_last_task = ggml_time_ms();
+
+            if (stop_mode == SERVER_TERMINATE_MODE_IDLE && is_idle()) {
+                QUE_DBG("%s", "terminate (idle)\n");
+                return;
+            }
         }
 
         QUE_DBG("%s", "waiting for new tasks\n");
         while (true) {
             std::unique_lock<std::mutex> lock(mutex_tasks);
-            if (!running || !queue_tasks.empty()) {
+            if (!running() || !queue_tasks.empty()) {
                 break; // go back to process new tasks or terminate
             }
 
@@ -182,9 +189,9 @@ void server_queue::start_loop(int64_t idle_sleep_ms) {
                 req_stop_sleeping = false;
                 // wait until we are requested to exit sleeping state
                 condition_tasks.wait(lock, [&]{
-                    return (!running || req_stop_sleeping);
+                    return (!running() || req_stop_sleeping);
                 });
-                if (!running) { // may changed during sleep
+                if (!running()) { // may changed during sleep
                     break; // terminate
                 }
                 QUE_INF("%s", "exiting sleeping state\n");
@@ -197,7 +204,7 @@ void server_queue::start_loop(int64_t idle_sleep_ms) {
             } else {
                 // wait for new tasks or timeout for checking sleeping condition
                 bool res = condition_tasks.wait_for(lock, max_wait_time, [&]{
-                    return (!queue_tasks.empty() || !running);
+                    return (!queue_tasks.empty() || !running());
                 });
                 if (res) {
                     break; // new task arrived or terminate

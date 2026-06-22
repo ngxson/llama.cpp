@@ -290,10 +290,10 @@ int llama_server(int argc, char ** argv) {
 
     } else {
         // setup clean up function, to be called before exit
-        clean_up = [&ctx_http, &ctx_server]() {
+        clean_up = [&ctx_http, &ctx_server, &params]() {
             SRV_INF("%s: cleaning up before exit...\n", __func__);
             ctx_http.stop();
-            ctx_server.terminate();
+            ctx_server.terminate(params.terminate_mode);
             llama_backend_free();
         };
 
@@ -330,7 +330,7 @@ int llama_server(int argc, char ** argv) {
 
         shutdown_handler = [&](int) {
             // this will unblock start_loop()
-            ctx_server.terminate();
+            ctx_server.terminate(params.terminate_mode);
         };
     }
 
