@@ -165,6 +165,7 @@ public:
 
     // load and unload model instances
     // these functions are thread-safe
+    // timeout_ms < 0 means "no timeout", timeout_ms = 0 means "immediately"
     void load(const std::string & name);
     void unload(const std::string & name, int timeout_ms = DEFAULT_STOP_TIMEOUT);
     void unload_all();
