@@ -227,7 +227,8 @@ For the full list of features, please refer to [server's changelog](https://gith
 | `--prefill-assistant, --no-prefill-assistant` | whether to prefill the assistant's response if the last message is an assistant message (default: prefill enabled)<br/>when this flag is set, if the last message is an assistant message then it will be treated as a full message and not prefilled<br/><br/>(env: LLAMA_ARG_PREFILL_ASSISTANT) |
 | `-sps, --slot-prompt-similarity SIMILARITY` | how much the prompt of a request must match the prompt of a slot in order to use that slot (default: 0.10, 0.0 = disabled) |
 | `--lora-init-without-apply` | load LoRA adapters without applying them (apply later via POST /lora-adapters) (default: disabled) |
-| `--sleep-idle-seconds SECONDS` | number of seconds of idleness after which the server will sleep (default: -1; -1 = disabled) |
+| `--sleep-idle-seconds SECONDS` | number of seconds of idleness after which the server will sleep (default: -1; -1 = disabled)<br/>(env: LLAMA_ARG_SLEEP_IDLE_SECONDS) |
+| `--terminate-mode MODE` | behavior when terminate signal is received (default: 'immediate')<br/>- 'immediate': skip all pending tasks and terminate immediately<br/>- 'idle': wait until all tasks are completed and terminate when idle<br/>(env: LLAMA_ARG_TERMINATE_MODE) |
 | `--log-prompts-dir PATH` | Log prompts to directory (only used for debugging, default: disabled) |
 | `--spec-draft-hf, -hfd, -hfrd, --hf-repo-draft <user>/<model>[:quant]` | Same as --hf-repo, but for the draft model (default: unused)<br/>(env: LLAMA_ARG_SPEC_DRAFT_HF_REPO) |
 | `--spec-draft-threads, -td, --threads-draft N` | number of threads to use during generation (default: same as --threads) |
@@ -1815,6 +1816,10 @@ Response:
 ### POST `/models/unload`: Unload a model
 
 Unload a model
+
+Behavior:
+- If the model instance is idle, it's unloaded immediately
+- If the model instance is busy, default timeout of 10s will be applied. Adjust it via `stop-timeout` preset config
 
 Payload:
 
