@@ -890,7 +890,7 @@ void server_models::load(const std::string & name) {
 
     // start a thread to manage the child process
     // captured variables are guaranteed to be destroyed only after the thread is joined
-    inst.th = std::thread([this, name, child_proc = inst.subproc, port = inst.meta.port, stop_timeout = inst.meta.stop_timeout]() {
+    inst.th = std::thread([this, name, child_proc = inst.subproc, port = inst.meta.port]() {
         FILE * stdin_file = subprocess_stdin(&child_proc->get());
         FILE * stdout_file = subprocess_stdout(&child_proc->get()); // combined stdout/stderr
 
@@ -1092,7 +1092,9 @@ void server_models::unload(const std::string & name, int timeout_ms) {
             });
         } else if (it->second.meta.is_running()) {
             SRV_INF("stopping model instance name=%s\n", name.c_str());
-            stopping_models[name] = timeout_ms;
+            stopping_models[name] = timeout_ms == -2
+                ? it->second.meta.stop_timeout * 1000 // -2 means "default timeout"
+                : timeout_ms;
             if (it->second.meta.status == SERVER_MODEL_STATUS_LOADING) {
                 // special case: if model is in loading state, unloading means force-killing it
                 SRV_WRN("model name=%s is still loading, force-killing\n", name.c_str());
@@ -1116,7 +1118,7 @@ void server_models::unload_all() {
                 inst.subproc->stopped.store(true, std::memory_order_relaxed);
             } else if (inst.meta.is_running()) {
                 SRV_INF("stopping model instance name=%s\n", name.c_str());
-                stopping_models[name] = DEFAULT_STOP_TIMEOUT;
+                stopping_models[name] = inst.meta.stop_timeout * 1000;
                 cv_stop.notify_all();
                 // status change will be handled by the managing thread
             }
