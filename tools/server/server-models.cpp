@@ -1383,12 +1383,13 @@ server_child_mode server_child::get_mode() {
     }
 }
 
-struct server_download_callback : public common_download_callback {
+struct server_download_state : public common_download_callback {
     server_child * self;
     std::function<bool()> should_stop;
+    std::atomic<int64_t> last_progress_time{0}; // multiple files downloading in different threads
     bool is_ok = false;
 
-    server_download_callback(server_child * s) : self(s) {}
+    server_download_state(server_child * s) : self(s) {}
 
     bool run(common_params & params) {
         try {
@@ -1413,10 +1414,15 @@ struct server_download_callback : public common_download_callback {
         on_progress(p);
     }
     void on_update(const common_download_progress & p) override {
-        on_progress(p);
+        int64_t now = ggml_time_ms();
+        // throttle progress updates to avoid flooding logs
+        if (now - last_progress_time.load(std::memory_order_relaxed) >= 100) {
+            on_progress(p);
+            last_progress_time.store(now, std::memory_order_relaxed);
+        }
     }
-    void on_done(const common_download_progress &, bool ok) override {
-        is_ok = ok;
+    void on_done(const common_download_progress & p, bool) override {
+        on_progress(p);
     }
     bool is_cancelled() const override {
         return should_stop ? should_stop() : false;
@@ -1431,12 +1437,12 @@ int server_child::run_download(common_params & params) {
         cancelled->store(true, std::memory_order_relaxed);
     });
 
-    server_download_callback cb(this);
-    cb.should_stop = [cancelled]() {
+    server_download_state dl(this);
+    dl.should_stop = [cancelled]() {
         return cancelled->load(std::memory_order_relaxed);
     };
 
-    bool ok = cb.run(params);
+    bool ok = dl.run(params);
 
     notify_to_router(server_state_to_str(SERVER_STATE_DOWNLOADING), {
         {"result", ok ? "download_finished" : "download_failed"},
