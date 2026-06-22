@@ -118,6 +118,7 @@ enum common_sampler_type {
 
 // dimensionality reduction methods, used by cvector-generator
 enum dimre_method {
+    DIMRE_METHOD_NONE,
     DIMRE_METHOD_PCA,
     DIMRE_METHOD_MEAN,
 };
@@ -691,7 +692,7 @@ struct common_params {
     // cvector-generator params
     int n_pca_batch = 100;
     int n_pca_iterations = 1000;
-    dimre_method cvector_dimre_method = DIMRE_METHOD_PCA;
+    dimre_method cvector_dimre_method = DIMRE_METHOD_NONE;
     std::string cvector_positive_file = "tools/cvector-generator/positive.txt";
     std::string cvector_negative_file = "tools/cvector-generator/negative.txt";
 

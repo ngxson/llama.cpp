@@ -1,7 +1,7 @@
 #include "chat.h"
 #include "common.h"
 #include "arg.h"
-#include "fit.h"
+#include "cvector-pca.hpp"
 
 #include "server-common.h"
 #include "server-context.h"
@@ -187,9 +187,14 @@ static std::vector<std::pair<json, json>> read_pair(const common_params & params
 // write directions as a single 3D tensor [n_embd, n_row, n_layers] in GGUF format.
 // each directions[il] is a flat [n_embd, n_row] block (column-major), so
 // concatenating layers gives exactly the [n_embd, n_row, n_layers] layout.
+// records the controlvector.{model_hint,layer_count} metadata so the file
+// carries which model these directions came from.
 static void export_gguf(const std::vector<std::vector<float>> & directions,
         int64_t n_embd, int64_t n_row, int64_t n_layers,
+        const std::string & model_hint,
         const std::string & fname) {
+    const std::string arch = "controlvector";
+
     struct ggml_init_params params_ggml = {
         /*.mem_size   =*/ ggml_tensor_overhead() * 1u,
         /*.mem_buffer =*/ nullptr,
@@ -212,7 +217,11 @@ static void export_gguf(const std::vector<std::vector<float>> & directions,
     t->data = data.data();
 
     struct gguf_context * ctx_gguf = gguf_init_empty();
-    gguf_set_val_str(ctx_gguf, "general.architecture", "directions");
+    gguf_set_val_str(ctx_gguf, "general.architecture", arch.c_str());
+    if (!model_hint.empty()) {
+        gguf_set_val_str(ctx_gguf, (arch + ".model_hint").c_str(), model_hint.c_str());
+    }
+    gguf_set_val_i32(ctx_gguf, (arch + ".layer_count").c_str(), (int32_t) n_layers);
     gguf_add_tensor(ctx_gguf, t);
 
     gguf_write_to_file(ctx_gguf, fname.c_str(), false);
@@ -229,6 +238,19 @@ int main(int argc, char ** argv) {
 
     if (!common_params_parse(argc, argv, params, LLAMA_EXAMPLE_CVECTOR_GENERATOR)) {
         return 1;
+    }
+
+    // PCA path: reduce a previously-collected directions.gguf to one principal
+    // component per layer (one vector of length n_embd). No model load, no
+    // inference thread. Triggered by --method pca with --model <directions.gguf>.
+    if (params.cvector_dimre_method == DIMRE_METHOD_PCA && !params.model.path.empty()) {
+        std::string in_path = params.model.path;
+        std::string out_path = params.out_file.empty() ? "control_vector.gguf" : params.out_file;
+        cvector_pca::pca_params pca_p;
+        pca_p.n_threads = params.cpuparams.n_threads;
+        pca_p.n_iters   = params.n_pca_iterations;
+        pca_p.n_batch   = params.n_pca_batch;
+        return cvector_pca::run(in_path, out_path, pca_p) ? 0 : 1;
     }
 
     cb_context ctx_cb;
@@ -310,10 +332,66 @@ int main(int argc, char ** argv) {
 
     /////////////////////////////////////////
 
+    // filter out null rows: a token row whose diff is all zeros (pos == neg)
+    // makes the per-layer Gram matrix rank-deficient and breaks PCA power
+    // iteration. drop such rows (the same row index across every layer, since
+    // the 3D tensor requires a uniform n_row) if null in any layer.
+    {
+        GGML_ASSERT(n_row > 0 && n_layers > 0);
+        std::vector<bool> keep((size_t) n_row, true);
+        int n_dropped = 0;
+        for (int il = 0; il < (int) n_layers; ++il) {
+            const auto & d = directions[il];
+            GGML_ASSERT((int64_t) d.size() == n_embd * n_row);
+            for (int64_t r = 0; r < n_row; ++r) {
+                if (!keep[r]) continue;
+                const float * row = d.data() + (size_t) r * n_embd;
+                bool null = true;
+                for (int64_t e = 0; e < n_embd; ++e) {
+                    if (row[e] != 0.0f) { null = false; break; }
+                }
+                if (null) keep[r] = false;
+            }
+        }
+        for (int64_t r = 0; r < n_row; ++r) {
+            if (!keep[r]) ++n_dropped;
+        }
+        if (n_dropped > 0) {
+            const int64_t n_row_kept = n_row - n_dropped;
+            LOG_INF("Filtering null rows: %d / %lld dropped -> %lld kept\n",
+                    n_dropped, (long long) n_row, (long long) n_row_kept);
+            for (int il = 0; il < (int) n_layers; ++il) {
+                std::vector<float> & d = directions[il];
+                std::vector<float> compact;
+                compact.reserve((size_t) n_embd * n_row_kept);
+                for (int64_t r = 0; r < n_row; ++r) {
+                    if (!keep[r]) continue;
+                    const float * row = d.data() + (size_t) r * n_embd;
+                    compact.insert(compact.end(), row, row + n_embd);
+                }
+                d = std::move(compact);
+            }
+            n_row = n_row_kept;
+            GGML_ASSERT(n_row > 0);
+        } else {
+            LOG_INF("No null rows to filter (%lld rows)\n", (long long) n_row);
+        }
+    }
+
+    // get model hint (a.k.a model arch name) for the metadata
+    std::string model_hint;
+    {
+        char buf[128];
+        if (llama_model_meta_val_str(llama_get_model(ctx.ctx_server.get_llama_context()),
+                                     "general.architecture", buf, sizeof(buf)) > 0) {
+            model_hint = buf;
+        }
+    }
+
     std::string out_path = "directions.gguf";
     // write the directions as 3D tensor [n_embd, n_row, n_layers] in GGUF format
     {
-        export_gguf(directions, n_embd, n_row, n_layers, out_path);
+        export_gguf(directions, n_embd, n_row, n_layers, model_hint, out_path);
     }
 
     /////////////////////////////////////////

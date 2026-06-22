@@ -3268,7 +3268,8 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
     ).set_examples({LLAMA_EXAMPLE_CVECTOR_GENERATOR}));
     add_opt(common_arg(
         {"--method"}, "{pca, mean}",
-        "dimensionality reduction method to be used (default: pca)",
+        "dimensionality reduction method to be used (default: pca). With --model pointing at a directions.gguf, "
+        "'pca' reduces each layer's directions to a single principal component (one vector per layer, dim = n_embd)",
         [](common_params & params, const std::string & value) {
             /**/ if (value == "pca") { params.cvector_dimre_method = DIMRE_METHOD_PCA; }
             else if (value == "mean") { params.cvector_dimre_method = DIMRE_METHOD_MEAN; }
