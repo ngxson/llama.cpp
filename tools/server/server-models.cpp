@@ -1001,7 +1001,7 @@ void server_models::load(const std::string & name, const load_options & opts) {
 
         // update status and exit code
         if (child_mode == SERVER_CHILD_MODE_DOWNLOAD) {
-            this->update_download_progress(name, {}, true, exit_code == 0);
+            // instance will be cleaned up on next load_models() call
         } else {
             this->update_status(name, {
                 SERVER_MODEL_STATUS_UNLOADED,
@@ -1312,11 +1312,28 @@ void server_models::handle_child_state(const std::string & name, const std::stri
     switch (state) {
         case SERVER_STATE_DOWNLOADING:
             {
-                common_download_progress p;
-                p.url        = json_value(payload, "url", std::string());
-                p.downloaded = json_value(payload, "downloaded", (size_t)0);
-                p.total      = json_value(payload, "total", (size_t)0);
-                update_download_progress(name, p, false);
+                std::string result = json_value(payload, "result", std::string());
+                std::string url    = json_value(payload, "url",    std::string());
+                auto request_exit = [&]() {
+                    std::lock_guard<std::mutex> lk(mutex);
+                    auto it = mapping.find(name);
+                    if (it != mapping.end()) {
+                        return it->second.subproc->request_exit();
+                    }
+                };
+                if (result == "download_finished") {
+                    update_download_progress(name, {}, true, true);
+                    request_exit();
+                } else if (result == "download_failed") {
+                    update_download_progress(name, {}, true, false);
+                    request_exit();
+                } else if (!url.empty()) {
+                    common_download_progress p;
+                    p.url        = url;
+                    p.downloaded = json_value(payload, "downloaded", (size_t)0);
+                    p.total      = json_value(payload, "total", (size_t)0);
+                    update_download_progress(name, p, false);
+                }
             } break;
         case SERVER_STATE_LOADING:
             {
@@ -1421,13 +1438,16 @@ int server_child::run_download(common_params & params) {
 
     bool ok = cb.run(params);
 
-    // signal_thread will be terminated when the process exits
-    signal_thread.detach();
+    notify_to_router(server_state_to_str(SERVER_STATE_DOWNLOADING), {
+        {"result", ok ? "download_finished" : "download_failed"},
+    });
 
-    if (!ok) {
-        return 1;
+    // router should send CMD_ROUTER_TO_CHILD_EXIT after receiving the result
+    if (signal_thread.joinable()) {
+        signal_thread.join();
     }
-    SRV_INF("%s", "download completed successfully\n");
+
+    SRV_INF("download completed %s\n", ok ? "successfully" : "with errors");
     return 0;
 }
 
