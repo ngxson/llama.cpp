@@ -92,6 +92,11 @@ int llama_server(int argc, char ** argv) {
     common_models_handler models_handler(params);
     try {
         models_handler.fetch_meta(LLAMA_EXAMPLE_SERVER);
+
+        if (models_handler.is_preset_repo()) {
+            // apply the preset and start the server in router mode
+            models_handler.apply();
+        }
     } catch (const std::exception & e) {
         SRV_ERR("failed to fetch model metadata: %s\n", e.what());
         return 1;

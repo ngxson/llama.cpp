@@ -456,6 +456,14 @@ void common_models_handler::apply() {
             params.speculative.draft.mparams.path = hf_cache::finalize_file(plan.mtp);
         });
     }
+    if (!plan.preset.url.empty()) {
+        tasks.emplace_back(plan.preset, opts, [&]() {
+            // if HF repo is a preset repo, we simply run server in router mode with the preset.ini file
+            params.models_preset_hf = params.model.hf_repo; // only for showing a warning
+            params.models_preset    = hf_cache::finalize_file(plan.preset);
+            params.model = common_params_model{}; // make sure to clear model, so server starts in router mode
+        });
+    }
 
     // run all tasks in parallel
     if (!params.offline) {
