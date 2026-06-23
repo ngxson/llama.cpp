@@ -18,6 +18,14 @@ struct hf_file {
 
 using hf_files = std::vector<hf_file>;
 
+struct hf_plan {
+    hf_cache::hf_file primary;
+    hf_cache::hf_files model_files;
+    hf_cache::hf_file mmproj;
+    hf_cache::hf_file mtp;
+    hf_cache::hf_file preset; // if set, only this file is downloaded
+};
+
 // Get files from HF API
 hf_files get_repo_files(
     const std::string & repo_id,

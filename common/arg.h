@@ -2,6 +2,7 @@
 
 #include "common.h"
 #include "download.h"
+#include "hf-cache.h"
 
 #include <set>
 #include <map>
@@ -130,19 +131,26 @@ bool common_params_to_map(int argc, char ** argv, llama_example ex, std::map<com
 // see: https://github.com/ggml-org/llama.cpp/issues/18163
 void common_params_add_preset_options(std::vector<common_arg> & args);
 
-struct common_params_handle_models_params {
+struct common_models_handler {
+    common_params & params;
     common_download_callback * callback = nullptr;
-    bool preset_only = false; // if true, only check & download remote preset (for router mode)
-};
+    hf_cache::hf_plan plan;
+    common_download_opts opts;
 
-// populate model paths (main model, mmproj, etc) from -hf if necessary
-// return true if the model is ready to use
-// throw an exception if there is an error that prevents the model from being used (e.g. network error, model not found, etc)
-// if params.skip_download is true, no downloads will be attempted. return false if the model is invalid or missing (e.g. ETag check failed)
-bool common_params_handle_models(
-    common_params & params,
-    llama_example curr_ex,
-    const common_params_handle_models_params & handle_params);
+    common_models_handler(common_params & params) : params(params) {}
+
+    // fetch the metadata if needed (but do not download the model)
+    void fetch_meta(llama_example curr_ex);
+
+    // return true if the input -hf is a preset-only repo (i.e. contains a preset.ini file)
+    bool is_preset_repo() const;
+
+    // download the model if needed, then apply it to the common_params
+    void apply();
+
+private:
+    std::string get_default_local_path(const std::string & url);
+};
 
 // initialize argument parser context - used by test-arg-parser and preset
 common_params_context common_params_parser_init(common_params & params, llama_example ex, void(*print_usage)(int, char **) = nullptr);

@@ -691,19 +691,8 @@ static void list_available_gguf_files(const hf_cache::hf_files & files) {
     }
 }
 
-struct hf_plan {
-    hf_cache::hf_file primary;
-    hf_cache::hf_files model_files;
-    hf_cache::hf_file mmproj;
-    hf_cache::hf_file mtp;
-    hf_cache::hf_file preset; // if set, only this file is downloaded
-};
-
-static hf_plan get_hf_plan(const common_params_model  & model,
-                           const common_download_opts & opts,
-                           bool download_mmproj,
-                           bool download_mtp) {
-    hf_plan plan;
+hf_cache::hf_plan get_hf_plan(const common_params_model & model, const common_download_opts & opts) {
+    hf_cache::hf_plan plan;
     hf_cache::hf_files all;
 
     auto [repo, tag] = common_download_split_repo_tag(model.hf_repo);
@@ -751,128 +740,48 @@ static hf_plan get_hf_plan(const common_params_model  & model,
 
     plan.primary = primary;
     plan.model_files = get_split_files(all, primary);
-
-    if (download_mmproj) {
-        plan.mmproj = find_best_mmproj(all, primary.path);
-    }
-
-    if (download_mtp) {
-        plan.mtp = find_best_mtp(all, primary.path);
-    }
+    plan.mmproj = find_best_mmproj(all, primary.path);
+    plan.mtp = find_best_mtp(all, primary.path);
 
     return plan;
 }
 
-struct download_task {
-    std::string url;
-    std::string path;
-};
-
-static std::vector<download_task> get_url_tasks(const common_params_model & model) {
-    auto split = get_gguf_split_info(model.url);
-
-    if (split.count <= 1) {
-        return {{model.url, model.path}};
-    }
-
-    auto filename = split.prefix;
-    if (auto pos = split.prefix.rfind('/'); pos != std::string::npos) {
-        filename = split.prefix.substr(pos + 1);
-    }
-
-    auto parent_path = std::filesystem::path(model.path).parent_path();
-    auto prefix_path = (parent_path / filename).string();
-
-    std::vector<download_task> tasks;
-    for (int i = 1; i <= split.count; i++) {
-        auto suffix = string_format("-%05d-of-%05d.gguf", i, split.count);
-        tasks.push_back({split.prefix + suffix, prefix_path + suffix});
-    }
-    return tasks;
-}
-
-common_download_model_result common_download_model(const common_params_model  & model,
-                                                   const common_download_opts & opts) {
-    common_download_model_result result;
-    std::vector<download_task> tasks;
-    hf_plan hf;
-
-    bool download_mmproj = opts.download_mmproj;
-    bool download_mtp = opts.download_mtp;
-    bool preset_only = opts.preset_only;
-    bool is_hf = !model.hf_repo.empty();
-
-    if (is_hf) {
-        hf = get_hf_plan(model, opts, download_mmproj, download_mtp);
-        if (!hf.preset.path.empty()) {
-            // if preset.ini exists, only download that file alone
-            tasks.push_back({hf.preset.url, hf.preset.local_path});
-        } else if (!preset_only) {
-            // only add other files if we're NOT in preset-only mode (normal run, non-router)
-            for (const auto & f : hf.model_files) {
-                tasks.push_back({f.url, f.local_path});
-            }
-            if (!hf.mmproj.path.empty()) {
-                tasks.push_back({hf.mmproj.url, hf.mmproj.local_path});
-            }
-            if (!hf.mtp.path.empty()) {
-                tasks.push_back({hf.mtp.url, hf.mtp.local_path});
-            }
-        }
-    } else if (!model.url.empty()) {
-        tasks = get_url_tasks(model);
-    } else {
-        result.model_path = model.path;
-        return result;
-    }
-
-    if (tasks.empty()) {
-        return result;
-    }
-
+void common_download_run_tasks(const std::vector<common_download_task> & tasks) {
     std::vector<std::future<int>> futures;
     for (const auto & task : tasks) {
         futures.push_back(std::async(std::launch::async,
-            [&task, &opts, is_hf]() {
-                return common_download_file_single(task.url, task.path, opts, is_hf);
+            [&task]() {
+                return common_download_file_single(task.url, task.local_path, task.opts, task.is_hf);
             }
         ));
     }
 
-    for (auto & f : futures) {
-        int status = f.get();
-        if (status == -2 && opts.skip_download) {
-            throw common_skip_download_exception();
-        }
+    for (size_t i = 0; i < futures.size(); ++i) {
+        std::string url = tasks[i].url;
+        int status = futures[i].get();
+        // if (status == -2 && opts.skip_download) {
+        //     throw common_skip_download_exception();
+        // }
         bool is_ok = is_http_status_ok(status);
         if (!is_ok) {
-            return {};
+            throw std::runtime_error(string_format("Download '%s' failed with status code: %d", url.c_str(), status));
         }
     }
+}
 
-    if (is_hf) {
-        if (!hf.preset.path.empty()) {
-            // if preset.ini is used, do not set other paths
-            result.preset_path = hf_cache::finalize_file(hf.preset);
-        } else {
-            for (const auto & f : hf.model_files) {
-                hf_cache::finalize_file(f);
-            }
-            result.model_path = hf.primary.final_path;
+std::vector<std::string> common_download_get_all_parts(const std::string & url) {
+    auto split = get_gguf_split_info(url);
 
-            if (!hf.mmproj.path.empty()) {
-                result.mmproj_path = hf_cache::finalize_file(hf.mmproj);
-            }
-
-            if (!hf.mtp.path.empty()) {
-                result.mtp_path = hf_cache::finalize_file(hf.mtp);
-            }
-        }
-    } else {
-        result.model_path = model.path;
+    if (split.count <= 1) {
+        return {url};
     }
 
-    return result;
+    std::vector<std::string> parts;
+    for (int i = 1; i <= split.count; i++) {
+        auto suffix = string_format("-%05d-of-%05d.gguf", i, split.count);
+        parts.push_back(split.prefix + suffix);
+    }
+    return parts;
 }
 
 //

@@ -89,15 +89,12 @@ int llama_server(int argc, char ** argv) {
     llama_backend_init();
     llama_numa_init(params.numa);
 
-    // note: router mode also accepts -hf remote-preset, so we need to check that first
-    if (!params.model.hf_repo.empty()) {
-        try {
-            common_params_handle_models_params handle_params;
-            handle_params.preset_only = true;
-            common_params_handle_models(params, LLAMA_EXAMPLE_SERVER, handle_params);
-        } catch (const std::exception & e) {
-            // ignored for now
-        }
+    common_models_handler models_handler(params);
+    try {
+        models_handler.fetch_meta(LLAMA_EXAMPLE_SERVER);
+    } catch (const std::exception & e) {
+        SRV_ERR("failed to fetch model metadata: %s\n", e.what());
+        return 1;
     }
 
     // router server never loads a model and must not touch the GPU
@@ -274,7 +271,12 @@ int llama_server(int argc, char ** argv) {
         return child.run_download(params);
     } else if (!is_router_server) {
         // single-model mode (NOT spawned by router)
-        common_params_handle_models(params, LLAMA_EXAMPLE_SERVER, {});
+        try {
+            models_handler.apply();
+        } catch (const std::exception & e) {
+            SRV_ERR("failed to download model: %s\n", e.what());
+            return 1;
+        }
     }
 
     //

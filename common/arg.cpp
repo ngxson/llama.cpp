@@ -297,60 +297,6 @@ struct handle_model_result {
     std::string preset_path;
 };
 
-static handle_model_result common_params_handle_model(struct common_params_model & model,
-                                                      const common_download_opts & opts) {
-    handle_model_result result;
-
-    // TODO @ngxson : refactor this into a new common_model_download_context
-
-    if (!model.docker_repo.empty()) {
-        model.path = common_docker_resolve_model(model.docker_repo);
-    } else if (!model.hf_repo.empty()) {
-        // If -m was used with -hf, treat the model "path" as the hf_file to download
-        if (model.hf_file.empty() && !model.path.empty()) {
-            model.hf_file = model.path;
-            model.path = "";
-        }
-        common_download_opts hf_opts = opts;
-        auto download_result = common_download_model(model, hf_opts);
-
-        if (!download_result.preset_path.empty()) {
-            result.found_preset = true;
-            result.preset_path = download_result.preset_path;
-            return result; // skip everything else if preset.ini is used
-        }
-
-        if (download_result.model_path.empty()) {
-            throw std::runtime_error("failed to download model from Hugging Face");
-        }
-
-        model.path = download_result.model_path;
-
-        if (!download_result.mmproj_path.empty()) {
-            result.found_mmproj = true;
-            result.mmproj.path  = download_result.mmproj_path;
-        }
-
-        if (!download_result.mtp_path.empty()) {
-            result.found_mtp = true;
-            result.mtp.path  = download_result.mtp_path;
-        }
-    } else if (!model.url.empty()) {
-        if (model.path.empty()) {
-            auto f = string_split<std::string>(model.url, '#').front();
-            f = string_split<std::string>(f, '?').front();
-            model.path = fs_get_cache_file(string_split<std::string>(f, '/').back());
-        }
-
-        auto download_result = common_download_model(model, opts);
-        if (download_result.model_path.empty()) {
-            throw std::runtime_error("failed to download model from " + model.url);
-        }
-    }
-
-    return result;
-}
-
 const std::vector<ggml_type> kv_cache_types = {
     GGML_TYPE_F32,
     GGML_TYPE_F16,
@@ -395,76 +341,144 @@ static bool parse_bool_value(const std::string & value) {
 }
 
 //
-// CLI argument parsing functions
+// common_models_handler
 //
 
-bool common_params_handle_models(common_params & params, llama_example curr_ex, const common_params_handle_models_params & handle_params) {
+void common_models_handler::fetch_meta(llama_example curr_ex) {
     const bool spec_type_draft_mtp = std::find(params.speculative.types.begin(),
-                                         params.speculative.types.end(),
-                                         COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != params.speculative.types.end();
+                                        params.speculative.types.end(),
+                                        COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != params.speculative.types.end();
 
-    common_download_opts opts;
+    // only download mmproj if the current example is using it
+    bool use_mmproj = false;
+    for (const auto & ex : mmproj_examples) {
+        if (curr_ex == ex) {
+            use_mmproj = true;
+            break;
+        }
+    }
+
     opts.bearer_token    = params.hf_token;
     opts.offline         = params.offline;
-    opts.skip_download   = params.skip_download;
     opts.download_mtp    = spec_type_draft_mtp;
-    opts.download_mmproj = !params.no_mmproj && params.mmproj.path.empty() && params.mmproj.url.empty();
-    opts.preset_only     = handle_params.preset_only;
+    opts.download_mmproj = use_mmproj && !params.no_mmproj
+                           && params.mmproj.path.empty() && params.mmproj.url.empty();
 
-    if (handle_params.callback) {
-        opts.callback = handle_params.callback;
+    if (callback) {
+        opts.callback = callback;
     }
 
-    // sub-models (draft, mmproj, vocoder) are explicitly specified by the user,
-    // so we should not auto-discover mtp/mmproj siblings for them
-    common_download_opts sub_opts = opts;
-    sub_opts.download_mtp    = false;
-    sub_opts.download_mmproj = false;
+    if (!params.model.hf_repo.empty()) {
+        plan = get_hf_plan(params.model, opts);
+    }
 
-    try {
-        auto res = common_params_handle_model(params.model, opts);
-        if (res.found_preset) {
-            if (!params.models_preset.empty()) {
-                throw std::invalid_argument("cannot use both --models-preset and -hf with a preset.ini file");
-            }
-            // if HF repo is a preset repo, we simply run server in router mode with the preset.ini file
-            params.models_preset_hf = params.model.hf_repo; // only for showing a warning
-            params.models_preset    = res.preset_path;
-            params.model = common_params_model{}; // make sure to clear model, so server starts in router mode
-            return true;
-        }
-
-        if (params.no_mmproj) {
-            params.mmproj = {};
-        } else if (res.found_mmproj && params.mmproj.path.empty() && params.mmproj.url.empty()) {
-            // optionally, handle mmproj model when -hf is specified
-            params.mmproj = res.mmproj;
-        }
-        // only download mmproj if the current example is using it
-        for (const auto & ex : mmproj_examples) {
-            if (curr_ex == ex) {
-                common_params_handle_model(params.mmproj, sub_opts);
-                break;
+    // handle plain "url" if needed
+    auto handle_url = [&](common_params_model & model) {
+        if (!model.url.empty()) {
+            if (model.path.empty()) {
+                model.path = get_default_local_path(model.url);
             }
         }
+    };
+    handle_url(params.model);
+    handle_url(params.mmproj);
+    handle_url(params.vocoder.model);
+    handle_url(params.speculative.draft.mparams);
 
-        // when --spec-type mtp is set and no draft model was provided explicitly,
-        // fall back to the MTP head discovered alongside the -hf model
-        if (spec_type_draft_mtp && res.found_mtp &&
-            params.speculative.draft.mparams.path.empty() &&
-            params.speculative.draft.mparams.hf_repo.empty() &&
-            params.speculative.draft.mparams.url.empty()) {
-            params.speculative.draft.mparams.path = res.mtp.path;
-        }
-        common_params_handle_model(params.speculative.draft.mparams, sub_opts);
-        common_params_handle_model(params.vocoder.model,             sub_opts);
-        return true;
-    } catch (const common_skip_download_exception &) {
-        return false;
-    } catch (const std::exception &) {
-        throw;
+    // optionally, if docker repo is set, resolve it
+    if (!params.model.docker_repo.empty()) {
+        params.model.url  = common_docker_resolve_model(params.model.docker_repo);
+        params.model.path = get_default_local_path(params.model.url);
     }
 }
+
+bool common_models_handler::is_preset_repo() const {
+    return !plan.preset.url.empty();
+}
+
+void common_models_handler::apply() {
+    std::vector<common_download_task> tasks;
+
+    // handle plain "url" tasks (non-hf)
+    if (!params.model.url.empty()) {
+        // only support multi-part for main model file
+        auto parts = common_download_get_all_parts(params.model.url);
+        for (const auto & part : parts) {
+            common_download_task task;
+            task.url        = part;
+            task.local_path = get_default_local_path(part);
+            task.opts       = opts;
+            tasks.push_back(task);
+        }
+    }
+    if (!params.mmproj.url.empty()) {
+        common_download_task task;
+        task.url        = params.mmproj.url;
+        task.local_path = params.mmproj.path;
+        task.opts       = opts;
+        tasks.push_back(task);
+    }
+    if (!params.vocoder.model.url.empty()) {
+        common_download_task task;
+        task.url        = params.vocoder.model.url;
+        task.local_path = params.vocoder.model.path;
+        task.opts       = opts;
+        tasks.push_back(task);
+    }
+    if (!params.speculative.draft.mparams.url.empty()) {
+        common_download_task task;
+        task.url        = params.speculative.draft.mparams.url;
+        task.local_path = params.speculative.draft.mparams.path;
+        task.opts       = opts;
+        tasks.push_back(task);
+    }
+
+    // handle hf_plan tasks
+    if (!plan.primary.url.empty()) {
+        tasks.emplace_back(plan.primary, opts, [&]() {
+            params.model.path = hf_cache::finalize_file(plan.primary);
+        });
+    }
+    if (!plan.model_files.empty()) {
+        for (const auto & model_file : plan.model_files) {
+            tasks.emplace_back(model_file, opts, [&]() {
+                hf_cache::finalize_file(model_file);
+            });
+        }
+    }
+    if (!plan.mmproj.url.empty()) {
+        tasks.emplace_back(plan.mmproj, opts, [&]() {
+            params.mmproj.path = hf_cache::finalize_file(plan.mmproj);
+        });
+    }
+    if (!plan.mtp.url.empty()) {
+        tasks.emplace_back(plan.mtp, opts, [&]() {
+            params.speculative.draft.mparams.path = hf_cache::finalize_file(plan.mtp);
+        });
+    }
+
+    // run all tasks in parallel
+    if (!params.offline) {
+        common_download_run_tasks(tasks);
+    }
+
+    // download successful, update params with the downloaded paths
+    for (const auto & task : tasks) {
+        if (task.on_done) {
+            task.on_done();
+        }
+    }
+}
+
+std::string common_models_handler::get_default_local_path(const std::string & url) {
+    auto f = string_split<std::string>(url, '#').front();
+    f = string_split<std::string>(f, '?').front();
+    return fs_get_cache_file(string_split<std::string>(f, '/').back());
+}
+
+//
+// CLI argument parsing functions
+//
 
 static bool common_params_parse_ex(int argc, char ** argv, common_params_context & ctx_arg) {
     common_params & params = ctx_arg.params;
@@ -599,7 +613,9 @@ static bool common_params_parse_ex(int argc, char ** argv, common_params_context
 
     if (!skip_model_download) {
         // handle model and download
-        common_params_handle_models(params, ctx_arg.ex, {});
+        common_models_handler handler(params);
+        handler.fetch_meta(ctx_arg.ex);
+        handler.apply();
 
         // model is required (except for server)
         // TODO @ngxson : maybe show a list of available models in CLI in this case
