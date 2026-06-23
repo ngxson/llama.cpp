@@ -90,7 +90,7 @@ int llama_server(int argc, char ** argv) {
     llama_numa_init(params.numa);
 
     // note: router mode also accepts -hf remote-preset, so we need to check that first
-    if (params.model.path.empty()) {
+    if (!params.model.hf_repo.empty()) {
         try {
             common_params_handle_models_params handle_params;
             handle_params.preset_only = true;
