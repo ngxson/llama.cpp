@@ -260,6 +260,7 @@ def test_router_remote_preset():
     global server
     server.model_hf_repo = "ggml-org/test-preset-ci"
     server.model_hf_file = None
+    server.offline = False
     server.start()
 
     # Should see preset models in GET /models
