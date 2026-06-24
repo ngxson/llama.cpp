@@ -4,6 +4,7 @@
 
 #include <string>
 #include <vector>
+#include <functional>
 
 struct common_params_model;
 
