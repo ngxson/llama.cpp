@@ -292,10 +292,6 @@ static int common_download_file_single_online(const std::string & url,
 
     const bool file_exists = std::filesystem::exists(path);
 
-    if (!file_exists && opts.skip_download) {
-        return -2; // file is missing and download is disabled
-    }
-
     if (file_exists && skip_etag) {
         LOG_DBG("%s: using cached file: %s\n", __func__, path.c_str());
         return 304; // 304 Not Modified - fake cached response
@@ -362,9 +358,6 @@ static int common_download_file_single_online(const std::string & url,
             return 304; // 304 Not Modified - fake cached response
         }
         // pass this point, the file exists but is different from the server version, so we need to redownload it
-        if (opts.skip_download) {
-            return -2; // special code to indicate that the download was skipped due to etag mismatch
-        }
         if (remove(path.c_str()) != 0) {
             LOG_ERR("%s: unable to delete file: %s\n", __func__, path.c_str());
             return -1;
@@ -764,9 +757,6 @@ void common_download_run_tasks(const std::vector<common_download_task> & tasks) 
     for (size_t i = 0; i < futures.size(); ++i) {
         std::string url = tasks[i].url;
         int status = futures[i].get();
-        // if (status == -2 && opts.skip_download) {
-        //     throw common_skip_download_exception();
-        // }
         bool is_ok = is_http_status_ok(status);
         if (!is_ok) {
             throw std::runtime_error(string_format("Download '%s' failed with status code: %d", url.c_str(), status));
