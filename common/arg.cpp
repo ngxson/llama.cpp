@@ -448,12 +448,12 @@ void common_models_handler::apply() {
             });
         }
     }
-    if (!plan.mmproj.url.empty()) {
+    if (!plan.mmproj.local_path.empty()) {
         tasks.emplace_back(plan.mmproj, opts, [&]() {
             params.mmproj.path = hf_cache::finalize_file(plan.mmproj);
         });
     }
-    if (!plan.mtp.url.empty()) {
+    if (!plan.mtp.local_path.empty()) {
         tasks.emplace_back(plan.mtp, opts, [&]() {
             // only fall back to the discovered MTP head when no draft was explicitly provided
             if (params.speculative.draft.mparams.empty()) {
@@ -463,7 +463,7 @@ void common_models_handler::apply() {
             }
         });
     }
-    if (!plan.preset.url.empty()) {
+    if (!plan.preset.local_path.empty()) {
         tasks.emplace_back(plan.preset, opts, [&]() {
             // if HF repo is a preset repo, we simply run server in router mode with the preset.ini file
             params.models_preset_hf = params.model.hf_repo; // only for showing a warning
