@@ -134,7 +134,7 @@ void common_params_add_preset_options(std::vector<common_arg> & args);
 struct common_models_handler {
     common_params & params;
     common_download_callback * callback = nullptr;
-    hf_cache::hf_plan plan;
+    hf_plan plan;
     common_download_opts opts;
 
     common_models_handler(common_params & params) : params(params) {}

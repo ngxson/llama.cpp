@@ -684,8 +684,8 @@ static void list_available_gguf_files(const hf_cache::hf_files & files) {
     }
 }
 
-hf_cache::hf_plan get_hf_plan(const common_params_model & model, const common_download_opts & opts) {
-    hf_cache::hf_plan plan;
+hf_plan get_hf_plan(const common_params_model & model, const common_download_opts & opts) {
+    hf_plan plan;
     hf_cache::hf_files all;
 
     auto [repo, tag] = common_download_split_repo_tag(model.hf_repo);
