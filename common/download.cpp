@@ -740,8 +740,13 @@ hf_cache::hf_plan get_hf_plan(const common_params_model & model, const common_do
 
     plan.primary = primary;
     plan.model_files = get_split_files(all, primary);
-    plan.mmproj = find_best_mmproj(all, primary.path);
-    plan.mtp = find_best_mtp(all, primary.path);
+
+    if (opts.download_mmproj) {
+        plan.mmproj = find_best_mmproj(all, primary.path);
+    }
+    if (opts.download_mtp) {
+        plan.mtp = find_best_mtp(all, primary.path);
+    }
 
     return plan;
 }

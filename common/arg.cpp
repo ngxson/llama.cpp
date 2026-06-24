@@ -401,14 +401,14 @@ void common_models_handler::apply() {
 
     // handle plain "url" tasks (non-hf)
     if (!params.model.url.empty()) {
-        // only support multi-part for main model file
-        auto parts = common_download_get_all_parts(params.model.url);
-        for (const auto & part : parts) {
-            common_download_task task;
-            task.url        = part;
-            task.local_path = get_default_local_path(part);
-            task.opts       = opts;
-            tasks.push_back(task);
+        auto url_tasks = build_url_tasks(params.model);
+        // the first part is what gets loaded, so point params.model.path at it
+        if (!url_tasks.empty()) {
+            std::string first_path = url_tasks.front().local_path;
+            url_tasks.front().on_done = [&]() { params.model.path = first_path; };
+        }
+        for (auto & task : url_tasks) {
+            tasks.push_back(std::move(task));
         }
     }
     if (!params.mmproj.url.empty()) {
@@ -453,7 +453,12 @@ void common_models_handler::apply() {
     }
     if (!plan.mtp.url.empty()) {
         tasks.emplace_back(plan.mtp, opts, [&]() {
-            params.speculative.draft.mparams.path = hf_cache::finalize_file(plan.mtp);
+            // only fall back to the discovered MTP head when no draft was explicitly provided
+            if (params.speculative.draft.mparams.empty()) {
+                params.speculative.draft.mparams.path = hf_cache::finalize_file(plan.mtp);
+            } else {
+                hf_cache::finalize_file(plan.mtp);
+            }
         });
     }
     if (!plan.preset.url.empty()) {
@@ -482,6 +487,45 @@ std::string common_models_handler::get_default_local_path(const std::string & ur
     auto f = string_split<std::string>(url, '#').front();
     f = string_split<std::string>(f, '?').front();
     return fs_get_cache_file(string_split<std::string>(f, '/').back());
+}
+
+std::vector<common_download_task>
+common_models_handler::build_url_tasks(const common_params_model & model) {
+    auto parts = common_download_get_all_parts(model.url);
+    std::vector<common_download_task> tasks;
+
+    // single-part: download straight to model.path if the user gave one (-m), else the cache default
+    if (parts.size() == 1) {
+        common_download_task task;
+        task.url        = parts[0];
+        task.local_path = model.path.empty() ? get_default_local_path(parts[0]) : model.path;
+        task.opts       = opts;
+        tasks.push_back(std::move(task));
+        return tasks;
+    }
+
+    // multi-part: place each part under the user's -m directory (if given), else the cache default
+    std::string base_dir;
+    if (!model.path.empty()) {
+        auto pos = model.path.rfind('/');
+        base_dir = pos == std::string::npos ? std::string(".") : model.path.substr(0, pos);
+    }
+
+    for (const auto & part : parts) {
+        common_download_task task;
+        task.url  = part;
+        task.opts = opts;
+
+        std::string local = get_default_local_path(part);
+        if (!base_dir.empty()) {
+            auto pos = local.rfind('/');
+            std::string name = pos == std::string::npos ? local : local.substr(pos + 1);
+            local = base_dir + "/" + name;
+        }
+        task.local_path = local;
+        tasks.push_back(std::move(task));
+    }
+    return tasks;
 }
 
 //

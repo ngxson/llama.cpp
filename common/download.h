@@ -49,7 +49,7 @@ struct common_cached_model_info {
     }
 };
 
-// Options for common_download_model and common_download_file_single
+// Options for common_download_file_single
 struct common_download_opts {
     std::string bearer_token;
     common_header_list headers;

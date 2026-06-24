@@ -150,6 +150,9 @@ struct common_models_handler {
 
 private:
     std::string get_default_local_path(const std::string & url);
+
+    // build download tasks for a plain (non-hf) url model, honoring a user-supplied -m path
+    std::vector<common_download_task> build_url_tasks(const common_params_model & model);
 };
 
 // initialize argument parser context - used by test-arg-parser and preset
