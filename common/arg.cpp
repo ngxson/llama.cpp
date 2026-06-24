@@ -434,15 +434,17 @@ void common_models_handler::apply() {
     }
 
     // handle hf_plan tasks
-    if (!plan.primary.url.empty()) {
-        tasks.emplace_back(plan.primary, opts, [&]() {
-            params.model.path = hf_cache::finalize_file(plan.primary);
-        });
-    }
     if (!plan.model_files.empty()) {
-        for (const auto & model_file : plan.model_files) {
-            tasks.emplace_back(model_file, opts, [&]() {
-                hf_cache::finalize_file(model_file);
+        for (size_t i = 0; i < plan.model_files.size(); ++i) {
+            auto & model_file = plan.model_files[i];
+            bool is_first = (i == 0);
+            tasks.emplace_back(model_file, opts, [&, is_first]() {
+                if (is_first) {
+                    // only use first part as model path
+                    params.model.path = hf_cache::finalize_file(model_file);
+                } else {
+                    hf_cache::finalize_file(model_file);
+                }
             });
         }
     }
