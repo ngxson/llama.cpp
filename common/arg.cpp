@@ -377,7 +377,7 @@ common_models_handler common_models_handler_init(const common_params & params, l
         plan = common_download_get_hf_plan(params.model, opts);
     }
 
-    return common_models_handler{plan, opts, curr_ex};
+    return common_models_handler{plan, opts};
 }
 
 bool common_models_handler_is_preset_repo(const common_models_handler & handler) {
