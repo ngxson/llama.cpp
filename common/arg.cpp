@@ -344,7 +344,16 @@ static bool parse_bool_value(const std::string & value) {
 // common_models_handler
 //
 
-void common_models_handler::fetch_meta(llama_example curr_ex) {
+static std::string get_default_local_path(const std::string & url) {
+    auto f = string_split<std::string>(url, '#').front();
+    f = string_split<std::string>(f, '?').front();
+    return fs_get_cache_file(string_split<std::string>(f, '/').back());
+}
+
+common_models_handler common_models_handler_init(const common_params & params, llama_example curr_ex) {
+    common_download_hf_plan plan;
+    common_download_opts opts;
+
     const bool spec_type_draft_mtp = std::find(params.speculative.types.begin(),
                                         params.speculative.types.end(),
                                         COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != params.speculative.types.end();
@@ -362,15 +371,64 @@ void common_models_handler::fetch_meta(llama_example curr_ex) {
     opts.offline         = params.offline;
     opts.download_mtp    = spec_type_draft_mtp;
     opts.download_mmproj = use_mmproj && !params.no_mmproj
-                           && params.mmproj.path.empty() && params.mmproj.url.empty();
-
-    if (callback) {
-        opts.callback = callback;
-    }
+                        && params.mmproj.path.empty() && params.mmproj.url.empty();
 
     if (!params.model.hf_repo.empty()) {
-        plan = get_hf_plan(params.model, opts);
+        plan = common_download_get_hf_plan(params.model, opts);
     }
+
+    return common_models_handler{plan, opts, curr_ex};
+}
+
+bool common_models_handler_is_preset_repo(const common_models_handler & handler) {
+    return !handler.plan.preset.url.empty();
+}
+
+static std::vector<common_download_task> build_url_tasks(const common_params_model & model, common_download_opts opts) {
+    auto parts = common_download_get_all_parts(model.url);
+    std::vector<common_download_task> tasks;
+
+    // single-part: download straight to model.path if the user gave one (-m), else the cache default
+    if (parts.size() == 1) {
+        common_download_task task;
+        task.url        = parts[0];
+        task.local_path = model.path.empty() ? get_default_local_path(parts[0]) : model.path;
+        task.opts       = opts;
+        tasks.push_back(std::move(task));
+        return tasks;
+    }
+
+    // multi-part: place each part under the user's -m directory (if given), else the cache default
+    std::string base_dir;
+    if (!model.path.empty()) {
+        auto pos = model.path.rfind('/');
+        base_dir = pos == std::string::npos ? std::string(".") : model.path.substr(0, pos);
+    }
+
+    for (const auto & part : parts) {
+        common_download_task task;
+        task.url  = part;
+        task.opts = opts;
+
+        std::string local = get_default_local_path(part);
+        if (!base_dir.empty()) {
+            auto pos = local.rfind('/');
+            std::string name = pos == std::string::npos ? local : local.substr(pos + 1);
+            local = base_dir + "/" + name;
+        }
+        task.local_path = local;
+        tasks.push_back(std::move(task));
+    }
+    return tasks;
+}
+
+void common_models_handler_apply(common_models_handler & handler, common_params & params, common_download_callback * callback) {
+    std::vector<common_download_task> tasks;
+
+    auto & plan = handler.plan;
+
+    auto opts = handler.opts; // copy
+    opts.callback = callback;
 
     // handle plain "url" if needed
     auto handle_url = [&](common_params_model & model) {
@@ -390,18 +448,10 @@ void common_models_handler::fetch_meta(llama_example curr_ex) {
         params.model.url  = common_docker_resolve_model(params.model.docker_repo);
         params.model.path = get_default_local_path(params.model.url);
     }
-}
-
-bool common_models_handler::is_preset_repo() const {
-    return !plan.preset.url.empty();
-}
-
-void common_models_handler::apply() {
-    std::vector<common_download_task> tasks;
 
     // handle plain "url" tasks (non-hf)
     if (!params.model.url.empty()) {
-        auto url_tasks = build_url_tasks(params.model);
+        auto url_tasks = build_url_tasks(params.model, opts);
         // the first part is what gets loaded, so point params.model.path at it
         if (!url_tasks.empty()) {
             std::string first_path = url_tasks.front().local_path;
@@ -483,51 +533,6 @@ void common_models_handler::apply() {
             task.on_done();
         }
     }
-}
-
-std::string common_models_handler::get_default_local_path(const std::string & url) {
-    auto f = string_split<std::string>(url, '#').front();
-    f = string_split<std::string>(f, '?').front();
-    return fs_get_cache_file(string_split<std::string>(f, '/').back());
-}
-
-std::vector<common_download_task>
-common_models_handler::build_url_tasks(const common_params_model & model) {
-    auto parts = common_download_get_all_parts(model.url);
-    std::vector<common_download_task> tasks;
-
-    // single-part: download straight to model.path if the user gave one (-m), else the cache default
-    if (parts.size() == 1) {
-        common_download_task task;
-        task.url        = parts[0];
-        task.local_path = model.path.empty() ? get_default_local_path(parts[0]) : model.path;
-        task.opts       = opts;
-        tasks.push_back(std::move(task));
-        return tasks;
-    }
-
-    // multi-part: place each part under the user's -m directory (if given), else the cache default
-    std::string base_dir;
-    if (!model.path.empty()) {
-        auto pos = model.path.rfind('/');
-        base_dir = pos == std::string::npos ? std::string(".") : model.path.substr(0, pos);
-    }
-
-    for (const auto & part : parts) {
-        common_download_task task;
-        task.url  = part;
-        task.opts = opts;
-
-        std::string local = get_default_local_path(part);
-        if (!base_dir.empty()) {
-            auto pos = local.rfind('/');
-            std::string name = pos == std::string::npos ? local : local.substr(pos + 1);
-            local = base_dir + "/" + name;
-        }
-        task.local_path = local;
-        tasks.push_back(std::move(task));
-    }
-    return tasks;
 }
 
 //
@@ -667,9 +672,8 @@ static bool common_params_parse_ex(int argc, char ** argv, common_params_context
 
     if (!skip_model_download) {
         // handle model and download
-        common_models_handler handler(params);
-        handler.fetch_meta(ctx_arg.ex);
-        handler.apply();
+        common_models_handler handler = common_models_handler_init(params, ctx_arg.ex);
+        common_models_handler_apply(handler, params);
 
         // model is required (except for server)
         // TODO @ngxson : maybe show a list of available models in CLI in this case

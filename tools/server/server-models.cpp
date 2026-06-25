@@ -223,9 +223,8 @@ void server_model_meta::update_caps() {
             "LLAMA_ARG_HF_REPO_FILE",
         });
         params.offline = true;
-        common_models_handler handler(params);
-        handler.fetch_meta(LLAMA_EXAMPLE_SERVER);
-        handler.apply(); // note: this won't download the model because of offline=true
+        common_models_handler handler = common_models_handler_init(params, LLAMA_EXAMPLE_SERVER);
+        common_models_handler_apply(handler, params); // note: this won't download the model because offline=true
         if (params.mmproj.path.empty()) {
             multimodal = { false, false };
         } else {
@@ -1394,10 +1393,8 @@ struct server_download_state : public common_download_callback {
 
     bool run(common_params & params) {
         try {
-            common_models_handler handler(params);
-            handler.callback = this;
-            handler.fetch_meta(LLAMA_EXAMPLE_SERVER);
-            handler.apply();
+            common_models_handler handler = common_models_handler_init(params, LLAMA_EXAMPLE_SERVER);
+            common_models_handler_apply(handler, params, this);
             is_ok = true;
         } catch (const std::exception & e) {
             auto model_name = params.model.get_name();
@@ -1777,8 +1774,7 @@ void server_models_routes::init_routes() {
         // validate by fetching metadata
         bool ok = false;
         try {
-            common_models_handler handler(p);
-            handler.fetch_meta(LLAMA_EXAMPLE_SERVER);
+            common_models_handler_init(p, LLAMA_EXAMPLE_SERVER);
             ok = true;
         } catch (...) {
             SRV_ERR("unknown error while validating model '%s'\n", name.c_str());

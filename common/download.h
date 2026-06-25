@@ -101,11 +101,11 @@ std::string common_docker_resolve_model(const std::string & docker);
 // returns true if anything was removed
 bool common_download_remove(const std::string & hf_repo_with_tag);
 
-struct hf_plan {
+struct common_download_hf_plan {
     hf_cache::hf_file primary;
     hf_cache::hf_files model_files;
     hf_cache::hf_file mmproj;
     hf_cache::hf_file mtp;
     hf_cache::hf_file preset; // if set, only this file is downloaded
 };
-hf_plan get_hf_plan(const common_params_model & model, const common_download_opts & opts);
+common_download_hf_plan common_download_get_hf_plan(const common_params_model & model, const common_download_opts & opts);

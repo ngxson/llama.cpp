@@ -2,13 +2,13 @@
 
 #include "common.h"
 #include "download.h"
-#include "hf-cache.h"
 
 #include <set>
 #include <map>
 #include <string>
 #include <vector>
 #include <cstring>
+#include <memory>
 
 // pseudo-env variable to identify preset-only arguments
 #define COMMON_ARG_PRESET_LOAD_ON_STARTUP "__PRESET_LOAD_ON_STARTUP"
@@ -131,29 +131,16 @@ bool common_params_to_map(int argc, char ** argv, llama_example ex, std::map<com
 // see: https://github.com/ggml-org/llama.cpp/issues/18163
 void common_params_add_preset_options(std::vector<common_arg> & args);
 
+
 struct common_models_handler {
-    common_params & params;
-    common_download_callback * callback = nullptr;
-    hf_plan plan;
+    common_download_hf_plan plan;
     common_download_opts opts;
-
-    common_models_handler(common_params & params) : params(params) {}
-
-    // fetch the metadata if needed (but do not download the model)
-    void fetch_meta(llama_example curr_ex);
-
-    // return true if the input -hf is a preset-only repo (i.e. contains a preset.ini file)
-    bool is_preset_repo() const;
-
-    // download the model if needed, then apply it to the common_params
-    void apply();
-
-private:
-    std::string get_default_local_path(const std::string & url);
-
-    // build download tasks for a plain (non-hf) url model, honoring a user-supplied -m path
-    std::vector<common_download_task> build_url_tasks(const common_params_model & model);
+    llama_example curr_ex;
 };
+
+common_models_handler common_models_handler_init(const common_params & params, llama_example curr_ex);
+bool common_models_handler_is_preset_repo(const common_models_handler & handler);
+void common_models_handler_apply(common_models_handler & handler, common_params & params, common_download_callback * callback = nullptr);
 
 // initialize argument parser context - used by test-arg-parser and preset
 common_params_context common_params_parser_init(common_params & params, llama_example ex, void(*print_usage)(int, char **) = nullptr);

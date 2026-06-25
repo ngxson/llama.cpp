@@ -89,13 +89,12 @@ int llama_server(int argc, char ** argv) {
     llama_backend_init();
     llama_numa_init(params.numa);
 
-    common_models_handler models_handler(params);
+    common_models_handler models_handler;
     try {
-        models_handler.fetch_meta(LLAMA_EXAMPLE_SERVER);
-
-        if (models_handler.is_preset_repo()) {
+        models_handler = common_models_handler_init(params, LLAMA_EXAMPLE_SERVER);
+        if (common_models_handler_is_preset_repo(models_handler)) {
             // apply the preset and start the server in router mode
-            models_handler.apply();
+            common_models_handler_apply(models_handler, params);
         }
     } catch (const std::exception & e) {
         SRV_ERR("failed to fetch model metadata: %s\n", e.what());
@@ -277,7 +276,7 @@ int llama_server(int argc, char ** argv) {
     } else if (!is_router_server) {
         // single-model mode (NOT spawned by router)
         try {
-            models_handler.apply();
+            common_models_handler_apply(models_handler, params);
         } catch (const std::exception & e) {
             SRV_ERR("failed to download model: %s\n", e.what());
             return 1;

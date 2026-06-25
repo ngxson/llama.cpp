@@ -1044,9 +1044,8 @@ static cmd_params parse_cmd_params(int argc, char ** argv) {
             }
 
             // only the text model file is needed
-            common_models_handler handler(p);
-            handler.fetch_meta(LLAMA_EXAMPLE_BENCH);
-            handler.apply();
+            common_models_handler models_handler = common_models_handler_init(p, LLAMA_EXAMPLE_BENCH);
+            common_models_handler_apply(models_handler, p);
             if (p.model.path.empty()) {
                 fprintf(stderr, "error: failed to download model from HuggingFace\n");
                 exit(1);
