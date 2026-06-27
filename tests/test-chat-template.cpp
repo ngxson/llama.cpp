@@ -137,7 +137,7 @@ int main(int argc, char ** argv) {
             output_path = args[i + 1];
             i++;
         } else if (args[i] == "--no-common") {
-            use_common = true;
+            use_common = false;
         } else if (args[i] == "--dump-prog") {
             dump_prog = true;
         } else if (tmpl_path.empty()) {
