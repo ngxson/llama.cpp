@@ -977,11 +977,15 @@ std::string runtime::debug_dump_program(const program & prog, const std::string 
             for (auto & [label, children_vec] : children) {
                 oss << indent(lvl) << label << ":\n";
                 lvl++;
-                for (auto * child : children_vec) {
-                    if (!child) {
-                        continue;
+                if (children_vec.empty()) {
+                    oss << indent(lvl) << "<empty>\n\n";
+                } else {
+                    for (auto * child : children_vec) {
+                        if (!child) {
+                            continue;
+                        }
+                        child->visit(ctx);
                     }
-                    child->visit(ctx);
                 }
                 lvl--;
             }
