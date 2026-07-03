@@ -64,6 +64,16 @@ enum slot_state {
     SLOT_STATE_GENERATING,
 };
 
+struct server_backend {
+    server_backend(const common_params & params) {
+        llama_backend_init();
+        llama_numa_init(params.numa);
+    }
+    ~server_backend() {
+        llama_backend_free();
+    }
+};
+
 struct server_slot; // forward declaration
 
 struct server_batch {
@@ -937,6 +947,9 @@ private:
 
     int64_t t_last_load_progress_ms = 0;
 
+    // optional so that it's only initialized in non-router mode
+    std::optional<server_backend> backend;
+
     void destroy() {
         spec.reset();
         ctx_dft.reset();
@@ -949,6 +962,8 @@ private:
 
         mtmd_free(mctx);
         mctx = nullptr;
+
+        backend.reset();
     }
 
     void handle_sleeping_state(bool new_state) {
@@ -1003,6 +1018,8 @@ private:
         load_progress_data load_progress_text  (this, "text_model");
         load_progress_data load_progress_mmproj(this, "mmproj_model");
         load_progress_data load_progress_spec  (this, "spec_model");
+
+        backend.emplace(params_base);
 
         const bool is_resume = sleeping;
 

@@ -91,9 +91,6 @@ int llama_server(int argc, char ** argv) {
         return 1;
     }
 
-    llama_backend_init();
-    llama_numa_init(params.numa);
-
     common_models_handler models_handler;
     try {
         models_handler = common_models_handler_init(params, LLAMA_EXAMPLE_SERVER);
@@ -348,7 +345,6 @@ int llama_server(int argc, char ** argv) {
                 models_routes->stopping.store(true); // maybe redundant, but just to be safe
                 models_routes->models.unload_all();
             }
-            llama_backend_free();
         };
 
         if (!ctx_http.start()) {
@@ -374,7 +370,6 @@ int llama_server(int argc, char ** argv) {
             g_stream_sessions.stop_gc();
             ctx_http.stop();
             ctx_server.terminate();
-            llama_backend_free();
         };
 
         // start the HTTP server before loading the model to be able to serve /health requests
