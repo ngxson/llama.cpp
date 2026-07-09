@@ -287,7 +287,7 @@ struct server_tool_read_file : server_tool {
         };
     }
 
-    json invoke(json params) const override {
+    json invoke(json params, server_tool::stream *) const override {
         std::string path  = params.at("path").get<std::string>();
         int  start_line   = json_value(params, "start_line", 1);
         int  end_line     = json_value(params, "end_line",  -1); // -1 = no limit
@@ -376,7 +376,7 @@ struct server_tool_file_glob_search : server_tool {
         };
     }
 
-    json invoke(json params) const override {
+    json invoke(json params, server_tool::stream *) const override {
         std::string base    = params.at("path").get<std::string>();
         std::string include = json_value(params, "include", std::string("**"));
         std::string exclude = json_value(params, "exclude", std::string(""));
@@ -457,7 +457,7 @@ struct server_tool_grep_search : server_tool {
         };
     }
 
-    json invoke(json params) const override {
+    json invoke(json params, server_tool::stream *) const override {
         std::string path        = params.at("path").get<std::string>();
         std::string pat_str     = params.at("pattern").get<std::string>();
         std::string include     = json_value(params, "include", std::string("**"));
@@ -598,7 +598,7 @@ struct server_tool_exec_shell_command : server_tool {
         };
     }
 
-    json invoke(json params) const override {
+    json invoke(json params, server_tool::stream *) const override {
         std::string command   = params.at("command").get<std::string>();
         int    timeout        = json_value(params, "timeout",         10);
         size_t max_output     = (size_t) json_value(params, "max_output_size", (int) SERVER_TOOL_EXEC_SHELL_COMMAND_MAX_OUTPUT_SIZE);
@@ -654,7 +654,7 @@ struct server_tool_write_file : server_tool {
         };
     }
 
-    json invoke(json params) const override {
+    json invoke(json params, server_tool::stream *) const override {
         std::string path    = params.at("path").get<std::string>();
         std::string content = params.at("content").get<std::string>();
 
@@ -710,7 +710,7 @@ struct server_tool_edit_file : server_tool {
         };
     }
 
-    json invoke(json params) const override {
+    json invoke(json params, server_tool::stream *) const override {
         std::string path = params.at("path").get<std::string>();
         const json & edits_json = params.at("edits");
 
@@ -1018,7 +1018,7 @@ struct server_tool_get_datetime : server_tool {
         };
     }
 
-    json invoke(json) const override {
+    json invoke(json, server_tool::stream *) const override {
         auto now = std::chrono::system_clock::now();
         auto time = std::chrono::system_clock::to_time_t(now);
 
@@ -1095,10 +1095,21 @@ void server_tools::setup(const std::vector<std::string> & enabled_tools) {
             json body = json::parse(req.body);
             std::string tool_name = body.at("tool").get<std::string>();
             json params = body.value("params", json::object());
-            json result = invoke(tool_name, params);
-            res->data   = safe_json_to_str(result);
+            bool stream = body.value("stream", false);
+            if (stream) {
+                res->content_type = "text/event-stream";
+                res->status = 200;
+                res->next   = [](std::string & output) -> bool {};
+            } else {
+                json result = invoke(tool_name, params, nullptr);
+                res->status = 200;
+                res->data   = safe_json_to_str(result);
+            }
         } catch (const json::exception & e) {
             res->status = 400;
+            res->data   = safe_json_to_str(format_error_response(e.what(), ERROR_TYPE_INVALID_REQUEST));
+        } catch (const std::invalid_argument & e) {
+            res->status = 404;
             res->data   = safe_json_to_str(format_error_response(e.what(), ERROR_TYPE_INVALID_REQUEST));
         } catch (const std::exception & e) {
             SRV_ERR("got exception: %s\n", e.what());
@@ -1109,11 +1120,14 @@ void server_tools::setup(const std::vector<std::string> & enabled_tools) {
     };
 }
 
-json server_tools::invoke(const std::string & name, const json & params) {
+json server_tools::invoke(const std::string & name, const json & params, server_tool::stream * st) {
     for (auto & t : tools) {
         if (t->name == name) {
-            return t->invoke(params);
+            if (st && !t->support_stream) {
+                throw std::invalid_argument(string_format("tool \"%s\" does not support stream = true", name.c_str()));
+            }
+            return t->invoke(params, st);
         }
     }
-    return {{"error", "unknown tool: " + name}};
+    throw std::invalid_argument(string_format("unknown tool \"%s\"", name.c_str()));
 }
