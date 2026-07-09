@@ -115,6 +115,92 @@ json server_tool::to_json() {
     };
 }
 
+static constexpr size_t SERVER_TOOL_GIT_LS_FILES_MAX_OUTPUT = 8 * 1024 * 1024; // 8 MB
+static constexpr int    SERVER_TOOL_GIT_LS_FILES_TIMEOUT    = 15;              // seconds
+
+static const std::unordered_set<std::string> & server_tool_junk_dir_names() {
+    static const std::unordered_set<std::string> names = {
+        ".git", ".svn", ".hg", "node_modules", "__pycache__",
+        ".venv", "venv", "dist", "build", "target", ".cache", ".idea", ".vscode",
+    };
+    return names;
+}
+
+static std::vector<std::string> server_tool_list_files_fallback(const std::string & base) {
+    std::vector<std::string> result;
+    std::error_code ec;
+
+    std::vector<std::pair<fs::path, fs::path>> stack;
+    stack.emplace_back(fs::path(base), fs::path());
+
+    while (!stack.empty()) {
+        auto [dir, rel_dir] = stack.back();
+        stack.pop_back();
+
+        for (const auto & entry : fs::directory_iterator(dir, fs::directory_options::skip_permission_denied, ec)) {
+            if (ec) break;
+            std::string fname = entry.path().filename().string();
+            std::error_code tec;
+            if (entry.is_directory(tec)) {
+                if (server_tool_junk_dir_names().count(fname) > 0) continue;
+                stack.emplace_back(entry.path(), rel_dir / fname);
+            } else if (entry.is_regular_file(tec)) {
+                std::string rel = (rel_dir / fname).string();
+                std::replace(rel.begin(), rel.end(), '\\', '/');
+                result.push_back(rel);
+            }
+        }
+    }
+
+    return result;
+}
+
+// returns file paths relative to `base` (using '/' separators)
+// sets `err` and returns empty if `base` doesn't exist / isn't a directory
+static std::vector<std::string> server_tool_list_files(const std::string & base, std::string & err) {
+    err.clear();
+    std::error_code ec;
+    if (!fs::is_directory(base, ec) || ec) {
+        err = "path does not exist or is not a directory: " + base;
+        return {};
+    }
+
+    auto res = run_process(
+        {"git", "-C", base, "ls-files", "--cached", "--others", "--exclude-standard"},
+        SERVER_TOOL_GIT_LS_FILES_MAX_OUTPUT, SERVER_TOOL_GIT_LS_FILES_TIMEOUT);
+
+    if (res.exit_code == 0 && !res.timed_out) {
+        std::vector<std::string> result;
+        std::istringstream iss(res.output);
+        std::string line;
+        while (std::getline(iss, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            if (line.empty()) continue;
+            std::replace(line.begin(), line.end(), '\\', '/');
+            std::error_code fec;
+            if (fs::is_regular_file(fs::path(base) / line, fec)) {
+                result.push_back(line);
+            }
+        }
+        return result;
+    }
+
+    return server_tool_list_files_fallback(base);
+}
+
+// bare pattern (no '/') matches the basename at any depth
+// pattern containing '/' matches the full relative path, auto-anchored with "**/"
+// unless it's already anchored (mirrors "fd --glob" vs "fd --glob --full-path")
+static bool server_tool_path_glob_match(const std::string & pattern, const std::string & rel_path) {
+    if (pattern.find('/') == std::string::npos) {
+        return glob_match(pattern, fs::path(rel_path).filename().string());
+    }
+    if (pattern == "**" || pattern.rfind("**/", 0) == 0 || pattern.rfind('/', 0) == 0) {
+        return glob_match(pattern, rel_path);
+    }
+    return glob_match("**/" + pattern, rel_path);
+}
+
 //
 // read_file: read a file with optional line range and line-number prefix
 //
@@ -216,12 +302,18 @@ struct server_tool_file_glob_search : server_tool {
             {"type", "function"},
             {"function", {
                 {"name", name},
-                {"description", "Recursively search for files matching a glob pattern under a directory."},
+                {"description",
+                    "Recursively search for files matching a glob pattern under a directory. "
+                    "Automatically skips files ignored by .gitignore (when the directory is inside a git repo) "
+                    "and common junk directories (.git, node_modules, build, dist, etc.) otherwise. "
+                    "A pattern with no '/' (e.g. \"*.cpp\") matches the file's basename at any depth. "
+                    "A pattern containing '/' matches the full relative path; unless already anchored with "
+                    "\"**/\" or a leading '/', it is automatically prefixed with \"**/\"."},
                 {"parameters", {
                     {"type", "object"},
                     {"properties", {
                         {"path",    {{"type", "string"}, {"description", "Base directory to search in"}}},
-                        {"include", {{"type", "string"}, {"description", "Glob pattern for files to include (e.g. \"**/*.cpp\"). Default: **"}}},
+                        {"include", {{"type", "string"}, {"description", "Glob pattern for files to include (e.g. \"*.cpp\" or \"src/**/*.cpp\"). Default: **"}}},
                         {"exclude", {{"type", "string"}, {"description", "Glob pattern for files to exclude"}}},
                     }},
                     {"required", json::array({"path"})},
@@ -235,28 +327,33 @@ struct server_tool_file_glob_search : server_tool {
         std::string include = json_value(params, "include", std::string("**"));
         std::string exclude = json_value(params, "exclude", std::string(""));
 
-        std::ostringstream output_text;
-        size_t count = 0;
-
-        std::error_code ec;
-        for (const auto & entry : fs::recursive_directory_iterator(base,
-                fs::directory_options::skip_permission_denied, ec)) {
-            if (!entry.is_regular_file()) continue;
-
-            std::string rel = fs::relative(entry.path(), base, ec).string();
-            if (ec) continue;
-            std::replace(rel.begin(), rel.end(), '\\', '/');
-
-            if (!glob_match(include, rel)) continue;
-            if (!exclude.empty() && glob_match(exclude, rel)) continue;
-
-            output_text << entry.path().string() << "\n";
-            if (++count >= SERVER_TOOL_FILE_SEARCH_MAX_RESULTS) {
-                break;
-            }
+        std::string err;
+        auto files = server_tool_list_files(base, err);
+        if (!err.empty()) {
+            return {{"error", err}};
         }
 
-        output_text << "\n---\nTotal matches: " << count << "\n";
+        std::vector<std::string> matches;
+        for (const auto & rel : files) {
+            if (!server_tool_path_glob_match(include, rel)) continue;
+            if (!exclude.empty() && server_tool_path_glob_match(exclude, rel)) continue;
+            matches.push_back(rel);
+        }
+
+        size_t total = matches.size();
+        size_t shown = std::min(total, SERVER_TOOL_FILE_SEARCH_MAX_RESULTS);
+
+        std::ostringstream output_text;
+        for (size_t i = 0; i < shown; i++) {
+            output_text << matches[i] << "\n";
+        }
+
+        output_text << "\n---\nTotal matches: " << total << "\n";
+        if (total > shown) {
+            output_text << string_format(
+                "[%zu results limit reached (%zu total matches). Refine the glob pattern to narrow the search.]\n",
+                shown, total);
+        }
 
         return {{"plain_text_response", output_text.str()}};
     }
@@ -280,15 +377,24 @@ struct server_tool_grep_search : server_tool {
             {"type", "function"},
             {"function", {
                 {"name", name},
-                {"description", "Search for a regex pattern in files under a path. Returns matching lines."},
+                {"description",
+                    "Search for a pattern in files under a path. Returns matching lines with file paths "
+                    "(and, unless searching a single file, paths relative to the given directory). "
+                    "Automatically skips files ignored by .gitignore (when the directory is inside a git repo) "
+                    "and common junk directories (.git, node_modules, build, dist, etc.) otherwise. "
+                    "include/exclude: a pattern with no '/' matches the basename at any depth; a pattern "
+                    "containing '/' matches the full relative path (auto-anchored with \"**/\" unless already anchored)."},
                 {"parameters", {
                     {"type", "object"},
                     {"properties", {
                         {"path",                {{"type", "string"},  {"description", "File or directory to search in"}}},
-                        {"pattern",             {{"type", "string"},  {"description", "Regular expression pattern to search for"}}},
+                        {"pattern",             {{"type", "string"},  {"description", "Pattern to search for (regular expression unless literal is true)"}}},
                         {"include",             {{"type", "string"},  {"description", "Glob pattern to filter files (default: **)"}}},
                         {"exclude",             {{"type", "string"},  {"description", "Glob pattern to exclude files"}}},
                         {"return_line_numbers", {{"type", "boolean"}, {"description", "If true, include line numbers in results"}}},
+                        {"literal",             {{"type", "boolean"}, {"description", "Treat pattern as a literal string instead of a regular expression (default: false)"}}},
+                        {"ignore_case",         {{"type", "boolean"}, {"description", "Case-insensitive search (default: false)"}}},
+                        {"context_lines",       {{"type", "integer"}, {"description", "Number of lines of context to show before and after each match (default: 0)"}}},
                     }},
                     {"required", json::array({"path", "pattern"})},
                 }},
@@ -297,63 +403,106 @@ struct server_tool_grep_search : server_tool {
     }
 
     json invoke(json params) override {
-        std::string path    = params.at("path").get<std::string>();
-        std::string pat_str = params.at("pattern").get<std::string>();
-        std::string include = json_value(params, "include", std::string("**"));
-        std::string exclude = json_value(params, "exclude", std::string(""));
-        bool show_lineno    = json_value(params, "return_line_numbers", false);
+        std::string path        = params.at("path").get<std::string>();
+        std::string pat_str     = params.at("pattern").get<std::string>();
+        std::string include     = json_value(params, "include", std::string("**"));
+        std::string exclude     = json_value(params, "exclude", std::string(""));
+        bool        show_lineno = json_value(params, "return_line_numbers", false);
+        bool        literal     = json_value(params, "literal", false);
+        bool        ignore_case = json_value(params, "ignore_case", false);
+        int         ctx_lines   = std::max(0, json_value(params, "context_lines", 0));
+
+        std::string pattern_src = pat_str;
+        if (literal) {
+            static const std::string specials = "\\^$.|?*+()[]{}";
+            std::string escaped;
+            escaped.reserve(pat_str.size() * 2);
+            for (char c : pat_str) {
+                if (specials.find(c) != std::string::npos) escaped += '\\';
+                escaped += c;
+            }
+            pattern_src = escaped;
+        }
 
         std::regex pattern;
         try {
-            pattern = std::regex(pat_str);
+            auto flags = std::regex::ECMAScript;
+            if (ignore_case) flags |= std::regex::icase;
+            pattern = std::regex(pattern_src, flags);
         } catch (const std::regex_error & e) {
             return {{"error", std::string("invalid regex: ") + e.what()}};
         }
 
-        std::ostringstream output_text;
-        size_t total = 0;
-
-        auto search_file = [&](const fs::path & fpath) {
-            std::ifstream f(fpath);
-            if (!f) return;
-            std::string line;
-            int lineno = 0;
-            while (std::getline(f, line) && total < SERVER_TOOL_GREP_SEARCH_MAX_RESULTS) {
-                lineno++;
-                if (std::regex_search(line, pattern)) {
-                    output_text << fpath.string() << ":";
-                    if (show_lineno) {
-                        output_text << lineno << ":";
-                    }
-                    output_text << line << "\n";
-                    total++;
-                }
-            }
-        };
+        // collect (absolute_path, display_path) pairs to search
+        std::vector<std::pair<std::string, std::string>> files;
 
         std::error_code ec;
         if (fs::is_regular_file(path, ec)) {
-            search_file(path);
+            files.emplace_back(path, path);
         } else if (fs::is_directory(path, ec)) {
-            for (const auto & entry : fs::recursive_directory_iterator(path,
-                    fs::directory_options::skip_permission_denied, ec)) {
-                if (!entry.is_regular_file()) continue;
-                if (total >= SERVER_TOOL_GREP_SEARCH_MAX_RESULTS) break;
-
-                std::string rel = fs::relative(entry.path(), path, ec).string();
-                if (ec) continue;
-                std::replace(rel.begin(), rel.end(), '\\', '/');
-
-                if (!glob_match(include, rel)) continue;
-                if (!exclude.empty() && glob_match(exclude, rel)) continue;
-
-                search_file(entry.path());
+            std::string err;
+            auto candidates = server_tool_list_files(path, err);
+            if (!err.empty()) {
+                return {{"error", err}};
+            }
+            for (const auto & rel : candidates) {
+                if (!server_tool_path_glob_match(include, rel)) continue;
+                if (!exclude.empty() && server_tool_path_glob_match(exclude, rel)) continue;
+                files.emplace_back((fs::path(path) / rel).string(), rel);
             }
         } else {
             return {{"error", "path does not exist: " + path}};
         }
 
-        output_text << "\n\n---\nTotal matches: " << total << "\n";
+        std::ostringstream output_text;
+        size_t total = 0;
+        bool limit_reached = false;
+        bool show_num = show_lineno || ctx_lines > 0;
+
+        for (const auto & file_entry : files) {
+            if (limit_reached) break;
+            const std::string & fpath        = file_entry.first;
+            const std::string & display_path = file_entry.second;
+
+            std::ifstream f(fpath);
+            if (!f) continue;
+            std::vector<std::string> lines;
+            {
+                std::string line;
+                while (std::getline(f, line)) lines.push_back(line);
+            }
+
+            for (size_t i = 0; i < lines.size(); i++) {
+                if (total >= SERVER_TOOL_GREP_SEARCH_MAX_RESULTS) {
+                    limit_reached = true;
+                    break;
+                }
+                if (!std::regex_search(lines[i], pattern)) continue;
+
+                long ctx_start = ctx_lines > 0 ? std::max<long>(0, (long) i - ctx_lines) : (long) i;
+                long ctx_end   = ctx_lines > 0 ? std::min<long>((long) lines.size() - 1, (long) i + ctx_lines) : (long) i;
+
+                for (long j = ctx_start; j <= ctx_end; j++) {
+                    bool is_match = (j == (long) i);
+                    output_text << display_path << (is_match ? ':' : '-');
+                    if (show_num) {
+                        output_text << (j + 1) << (is_match ? ':' : '-');
+                    }
+                    output_text << lines[j] << "\n";
+                }
+                if (ctx_lines > 0) {
+                    output_text << "--\n";
+                }
+                total++;
+            }
+        }
+
+        output_text << "\n---\nTotal matches: " << total << "\n";
+        if (limit_reached) {
+            output_text << string_format(
+                "[%zu matches limit reached. Narrow the path/pattern/include to see more.]\n",
+                SERVER_TOOL_GREP_SEARCH_MAX_RESULTS);
+        }
 
         return {{"plain_text_response", output_text.str()}};
     }
@@ -644,62 +793,6 @@ struct server_tool_edit_file : server_tool {
 };
 
 //
-// apply_diff: apply a unified diff via git apply
-//
-
-struct server_tool_apply_diff : server_tool {
-    server_tool_apply_diff() {
-        name = "apply_diff";
-        display_name = "Apply diff";
-        permission_write = true;
-    }
-
-    json get_definition() override {
-        return {
-            {"type", "function"},
-            {"function", {
-                {"name", name},
-                {"description", "Apply a unified diff to edit one or more files using git apply. Use this instead of edit_file when the changes are complex."},
-                {"parameters", {
-                    {"type", "object"},
-                    {"properties", {
-                        {"diff", {{"type", "string"}, {"description", "Unified diff content in git diff format"}}},
-                    }},
-                    {"required", json::array({"diff"})},
-                }},
-            }},
-        };
-    }
-
-    json invoke(json params) override {
-        std::string diff = params.at("diff").get<std::string>();
-
-        // write diff to a temporary file
-        static std::atomic<int> counter{0};
-        std::string tmp_path = (fs::temp_directory_path() /
-            ("llama_patch_" + std::to_string(++counter) + ".patch")).string();
-
-        {
-            std::ofstream f(tmp_path, std::ios::binary);
-            if (!f) {
-                return {{"error", "failed to create temp patch file"}};
-            }
-            f << diff;
-        }
-
-        auto res = run_process({"git", "apply", tmp_path}, 4096, 10);
-
-        std::error_code ec;
-        fs::remove(tmp_path, ec);
-
-        if (res.exit_code != 0) {
-            return {{"error", "git apply failed (exit " + std::to_string(res.exit_code) + "): " + res.output}};
-        }
-        return {{"result", "patch applied successfully"}};
-    }
-};
-
-//
 // get_datetime: returns the current date and time
 //
 
@@ -740,7 +833,6 @@ static std::vector<std::unique_ptr<server_tool>> build_tools() {
     tools.push_back(std::make_unique<server_tool_exec_shell_command>());
     tools.push_back(std::make_unique<server_tool_write_file>());
     tools.push_back(std::make_unique<server_tool_edit_file>());
-    tools.push_back(std::make_unique<server_tool_apply_diff>());
     tools.push_back(std::make_unique<server_tool_get_datetime>());
     return tools;
 }
