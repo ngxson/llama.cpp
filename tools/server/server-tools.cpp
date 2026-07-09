@@ -50,23 +50,37 @@ public:
         bool timed_out = false;
     };
 
-    bool is_directory(const std::string & path) const {
+    virtual ~tools_io() = default;
+
+    virtual bool is_directory(const std::string & path) const = 0;
+    virtual bool is_regular_file(const std::string & path) const = 0;
+    virtual bool file_size(const std::string & path, uintmax_t & out_size) const = 0;
+    virtual bool read_file(const std::string & path, std::string & out) const = 0;
+    virtual bool write_file(const std::string & path, const std::string & content) const = 0;
+    // paths relative to `base`, '/'-separated; sets `err` if `base` isn't a directory
+    virtual std::vector<std::string> list_files(const std::string & base, std::string & err) const = 0;
+    virtual exec_result run(const std::vector<std::string> & args, size_t max_output, int timeout_secs) const = 0;
+};
+
+class tools_io_basic : public tools_io {
+public:
+    bool is_directory(const std::string & path) const override {
         std::error_code ec;
         return fs::is_directory(path, ec) && !ec;
     }
 
-    bool is_regular_file(const std::string & path) const {
+    bool is_regular_file(const std::string & path) const override {
         std::error_code ec;
         return fs::is_regular_file(path, ec) && !ec;
     }
 
-    bool file_size(const std::string & path, uintmax_t & out_size) const {
+    bool file_size(const std::string & path, uintmax_t & out_size) const override {
         std::error_code ec;
         out_size = fs::file_size(path, ec);
         return !ec;
     }
 
-    bool read_file(const std::string & path, std::string & out) const {
+    bool read_file(const std::string & path, std::string & out) const override {
         std::ifstream f(path, std::ios::binary);
         if (!f) return false;
         std::ostringstream ss;
@@ -75,7 +89,7 @@ public:
         return true;
     }
 
-    bool write_file(const std::string & path, const std::string & content) const {
+    bool write_file(const std::string & path, const std::string & content) const override {
         std::error_code ec;
         fs::path fpath(path);
         if (fpath.has_parent_path()) {
@@ -88,8 +102,7 @@ public:
         return (bool) f;
     }
 
-    // paths relative to `base`, '/'-separated; sets `err` if `base` isn't a directory
-    std::vector<std::string> list_files(const std::string & base, std::string & err) const {
+    std::vector<std::string> list_files(const std::string & base, std::string & err) const override {
         err.clear();
         if (!is_directory(base)) {
             err = "path does not exist or is not a directory: " + base;
@@ -118,7 +131,7 @@ public:
         return list_files_fallback(base);
     }
 
-    exec_result run(const std::vector<std::string> & args, size_t max_output, int timeout_secs) const {
+    exec_result run(const std::vector<std::string> & args, size_t max_output, int timeout_secs) const override {
         exec_result res;
 
         subprocess_s proc;
@@ -224,8 +237,9 @@ private:
     }
 };
 
-static std::unique_ptr<tools_io> make_tools_io() {
-    return std::make_unique<tools_io>();
+static std::unique_ptr<tools_io> make_tools_io(const json & params) {
+    GGML_UNUSED(params); // TODO in follow-up PR
+    return std::make_unique<tools_io_basic>();
 }
 
 // no '/' in pattern -> match basename at any depth; else match full relative path
@@ -479,7 +493,7 @@ struct server_tool_read_file : server_tool {
         int  end_line     = json_value(params, "end_line",  -1); // -1 = no limit
         bool append_loc   = json_value(params, "append_loc", false);
 
-        auto io = make_tools_io();
+        auto io = make_tools_io(params);
 
         uintmax_t file_size = 0;
         if (!io->file_size(path, file_size)) {
@@ -567,7 +581,7 @@ struct server_tool_file_glob_search : server_tool {
         std::string include = json_value(params, "include", std::string("**"));
         std::string exclude = json_value(params, "exclude", std::string(""));
 
-        auto io = make_tools_io();
+        auto io = make_tools_io(params);
         std::string err;
         auto files = io->list_files(base, err);
         if (!err.empty()) {
@@ -674,7 +688,7 @@ struct server_tool_grep_search : server_tool {
             return {{"error", std::string("invalid regex: ") + e.what()}};
         }
 
-        auto io = make_tools_io();
+        auto io = make_tools_io(params);
 
         // collect (absolute_path, display_path) pairs to search
         std::vector<std::pair<std::string, std::string>> files;
@@ -798,7 +812,7 @@ struct server_tool_exec_shell_command : server_tool {
         std::vector<std::string> args = {"sh", "-c", command};
 #endif
 
-        auto io  = make_tools_io();
+        auto io  = make_tools_io(params);
         auto res = io->run(args, max_output, timeout);
 
         std::string text_output = res.output;
@@ -844,7 +858,7 @@ struct server_tool_write_file : server_tool {
         std::string path    = params.at("path").get<std::string>();
         std::string content = params.at("content").get<std::string>();
 
-        auto io = make_tools_io();
+        auto io = make_tools_io(params);
         if (!io->write_file(path, content)) {
             return {{"error", "failed to write file: " + path}};
         }
@@ -920,7 +934,7 @@ struct server_tool_edit_file : server_tool {
             edits.push_back(std::move(er));
         }
 
-        auto io = make_tools_io();
+        auto io = make_tools_io(params);
         std::string original_content;
         if (!io->read_file(path, original_content)) {
             return {{"error", "failed to open file: " + path}};
