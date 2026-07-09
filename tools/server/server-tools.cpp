@@ -422,7 +422,7 @@ static std::string apply_replacements_preserving_unchanged_lines(
     std::vector<group> groups;
 
     for (const auto & rep : replacements) {
-        size_t start_line, end_line;
+        size_t start_line = 0, end_line = 0;
         get_replacement_line_range(base_lines, rep.match_index, rep.match_length, start_line, end_line);
         if (!groups.empty() && start_line < groups.back().end_line) {
             groups.back().end_line = std::max(groups.back().end_line, end_line);
