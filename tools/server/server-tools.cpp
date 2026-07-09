@@ -19,7 +19,7 @@ namespace fs = std::filesystem;
 // internal helpers
 //
 
-json server_tool::to_json() {
+json server_tool::to_json() const {
     return {
         {"display_name", display_name},
         {"tool", name},
@@ -266,7 +266,7 @@ struct server_tool_read_file : server_tool {
         permission_write = false;
     }
 
-    json get_definition() override {
+    json get_definition() const override {
         return {
             {"type", "function"},
             {"function", {
@@ -287,7 +287,7 @@ struct server_tool_read_file : server_tool {
         };
     }
 
-    json invoke(json params) override {
+    json invoke(json params) const override {
         std::string path  = params.at("path").get<std::string>();
         int  start_line   = json_value(params, "start_line", 1);
         int  end_line     = json_value(params, "end_line",  -1); // -1 = no limit
@@ -351,7 +351,7 @@ struct server_tool_file_glob_search : server_tool {
         permission_write = false;
     }
 
-    json get_definition() override {
+    json get_definition() const override {
         return {
             {"type", "function"},
             {"function", {
@@ -376,7 +376,7 @@ struct server_tool_file_glob_search : server_tool {
         };
     }
 
-    json invoke(json params) override {
+    json invoke(json params) const override {
         std::string base    = params.at("path").get<std::string>();
         std::string include = json_value(params, "include", std::string("**"));
         std::string exclude = json_value(params, "exclude", std::string(""));
@@ -427,7 +427,7 @@ struct server_tool_grep_search : server_tool {
         permission_write = false;
     }
 
-    json get_definition() override {
+    json get_definition() const override {
         return {
             {"type", "function"},
             {"function", {
@@ -457,7 +457,7 @@ struct server_tool_grep_search : server_tool {
         };
     }
 
-    json invoke(json params) override {
+    json invoke(json params) const override {
         std::string path        = params.at("path").get<std::string>();
         std::string pat_str     = params.at("pattern").get<std::string>();
         std::string include     = json_value(params, "include", std::string("**"));
@@ -579,7 +579,7 @@ struct server_tool_exec_shell_command : server_tool {
         permission_write = true;
     }
 
-    json get_definition() override {
+    json get_definition() const override {
         return {
             {"type", "function"},
             {"function", {
@@ -598,7 +598,7 @@ struct server_tool_exec_shell_command : server_tool {
         };
     }
 
-    json invoke(json params) override {
+    json invoke(json params) const override {
         std::string command   = params.at("command").get<std::string>();
         int    timeout        = json_value(params, "timeout",         10);
         size_t max_output     = (size_t) json_value(params, "max_output_size", (int) SERVER_TOOL_EXEC_SHELL_COMMAND_MAX_OUTPUT_SIZE);
@@ -636,7 +636,7 @@ struct server_tool_write_file : server_tool {
         permission_write = true;
     }
 
-    json get_definition() override {
+    json get_definition() const override {
         return {
             {"type", "function"},
             {"function", {
@@ -654,7 +654,7 @@ struct server_tool_write_file : server_tool {
         };
     }
 
-    json invoke(json params) override {
+    json invoke(json params) const override {
         std::string path    = params.at("path").get<std::string>();
         std::string content = params.at("content").get<std::string>();
 
@@ -678,7 +678,7 @@ struct server_tool_edit_file : server_tool {
         permission_write = true;
     }
 
-    json get_definition() override {
+    json get_definition() const override {
         return {
             {"type", "function"},
             {"function", {
@@ -710,7 +710,7 @@ struct server_tool_edit_file : server_tool {
         };
     }
 
-    json invoke(json params) override {
+    json invoke(json params) const override {
         std::string path = params.at("path").get<std::string>();
         const json & edits_json = params.at("edits");
 
@@ -1008,7 +1008,7 @@ struct server_tool_get_datetime : server_tool {
         permission_write = false;
     }
 
-    json get_definition() override {
+    json get_definition() const override {
         return {
             {"type", "function"},
             {"function", {
@@ -1018,7 +1018,7 @@ struct server_tool_get_datetime : server_tool {
         };
     }
 
-    json invoke(json) override {
+    json invoke(json) const override {
         auto now = std::chrono::system_clock::now();
         auto time = std::chrono::system_clock::to_time_t(now);
 
