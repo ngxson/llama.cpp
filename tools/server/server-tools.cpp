@@ -118,7 +118,7 @@ json server_tool::to_json() {
 static constexpr size_t SERVER_TOOL_GIT_LS_FILES_MAX_OUTPUT = 8 * 1024 * 1024; // 8 MB
 static constexpr int    SERVER_TOOL_GIT_LS_FILES_TIMEOUT    = 15;              // seconds
 
-static const std::unordered_set<std::string> & server_tool_junk_dir_names() {
+static const std::unordered_set<std::string> & junk_dir_names() {
     static const std::unordered_set<std::string> names = {
         ".git", ".svn", ".hg", "node_modules", "__pycache__",
         ".venv", "venv", "dist", "build", "target", ".cache", ".idea", ".vscode",
@@ -126,7 +126,7 @@ static const std::unordered_set<std::string> & server_tool_junk_dir_names() {
     return names;
 }
 
-static std::vector<std::string> server_tool_list_files_fallback(const std::string & base) {
+static std::vector<std::string> list_files_fallback(const std::string & base) {
     std::vector<std::string> result;
     std::error_code ec;
 
@@ -142,7 +142,7 @@ static std::vector<std::string> server_tool_list_files_fallback(const std::strin
             std::string fname = entry.path().filename().string();
             std::error_code tec;
             if (entry.is_directory(tec)) {
-                if (server_tool_junk_dir_names().count(fname) > 0) continue;
+                if (junk_dir_names().count(fname) > 0) continue;
                 stack.emplace_back(entry.path(), rel_dir / fname);
             } else if (entry.is_regular_file(tec)) {
                 std::string rel = (rel_dir / fname).string();
@@ -155,9 +155,8 @@ static std::vector<std::string> server_tool_list_files_fallback(const std::strin
     return result;
 }
 
-// returns file paths relative to `base` (using '/' separators)
-// sets `err` and returns empty if `base` doesn't exist / isn't a directory
-static std::vector<std::string> server_tool_list_files(const std::string & base, std::string & err) {
+// file paths relative to `base`; sets `err` if `base` isn't a directory
+static std::vector<std::string> list_files(const std::string & base, std::string & err) {
     err.clear();
     std::error_code ec;
     if (!fs::is_directory(base, ec) || ec) {
@@ -185,13 +184,11 @@ static std::vector<std::string> server_tool_list_files(const std::string & base,
         return result;
     }
 
-    return server_tool_list_files_fallback(base);
+    return list_files_fallback(base);
 }
 
-// bare pattern (no '/') matches the basename at any depth
-// pattern containing '/' matches the full relative path, auto-anchored with "**/"
-// unless it's already anchored (mirrors "fd --glob" vs "fd --glob --full-path")
-static bool server_tool_path_glob_match(const std::string & pattern, const std::string & rel_path) {
+// no '/' in pattern -> match basename at any depth; else match full relative path
+static bool path_glob_match(const std::string & pattern, const std::string & rel_path) {
     if (pattern.find('/') == std::string::npos) {
         return glob_match(pattern, fs::path(rel_path).filename().string());
     }
@@ -199,6 +196,206 @@ static bool server_tool_path_glob_match(const std::string & pattern, const std::
         return glob_match(pattern, rel_path);
     }
     return glob_match("**/" + pattern, rel_path);
+}
+
+//
+// edit_file helpers: exact/fuzzy text-replacement matching
+//
+
+// strip trailing whitespace, normalize smart quotes/dashes/spaces to ASCII
+static std::string normalize_line_for_fuzzy_match(const std::string & line) {
+    size_t end = line.size();
+    while (end > 0 && (line[end - 1] == ' ' || line[end - 1] == '\t' || line[end - 1] == '\r')) {
+        end--;
+    }
+    std::string s = line.substr(0, end);
+
+    auto replace_all = [](std::string & str, const std::string & from, const std::string & to) {
+        if (from.empty()) return;
+        size_t pos = 0;
+        while ((pos = str.find(from, pos)) != std::string::npos) {
+            str.replace(pos, from.size(), to);
+            pos += to.size();
+        }
+    };
+
+    // smart single quotes -> '
+    for (unsigned char b : {0x98, 0x99, 0x9A, 0x9B}) {
+        replace_all(s, std::string("\xE2\x80") + (char) b, "'");
+    }
+    // smart double quotes -> "
+    for (unsigned char b : {0x9C, 0x9D, 0x9E, 0x9F}) {
+        replace_all(s, std::string("\xE2\x80") + (char) b, "\"");
+    }
+    // various dashes -> -
+    for (unsigned char b = 0x90; b <= 0x95; b++) {
+        replace_all(s, std::string("\xE2\x80") + (char) b, "-");
+    }
+    replace_all(s, "\xE2\x88\x92", "-"); // minus sign
+    // special spaces -> ' '
+    replace_all(s, "\xC2\xA0", " "); // no-break space
+    for (unsigned char b = 0x82; b <= 0x8A; b++) {
+        replace_all(s, std::string("\xE2\x80") + (char) b, " ");
+    }
+    replace_all(s, "\xE2\x80\xAF", " "); // narrow no-break space
+    replace_all(s, "\xE2\x81\x9F", " "); // medium mathematical space
+    replace_all(s, "\xE3\x80\x80", " "); // ideographic space
+
+    return s;
+}
+
+// applies the per-line transform above to every line; preserves line count/positions
+static std::string normalize_for_fuzzy_match(const std::string & content) {
+    std::string result;
+    result.reserve(content.size());
+    size_t start = 0;
+    while (true) {
+        size_t nl = content.find('\n', start);
+        bool   is_last = nl == std::string::npos;
+        std::string line = is_last ? content.substr(start) : content.substr(start, nl - start);
+        result += normalize_line_for_fuzzy_match(line);
+        if (is_last) break;
+        result += '\n';
+        start = nl + 1;
+    }
+    return result;
+}
+
+// lines with trailing '\n' kept, so untouched ones can be reconstructed verbatim
+static std::vector<std::string> split_lines_with_endings(const std::string & content) {
+    std::vector<std::string> lines;
+    size_t start = 0;
+    while (start < content.size()) {
+        size_t nl = content.find('\n', start);
+        if (nl == std::string::npos) {
+            lines.push_back(content.substr(start));
+            break;
+        }
+        lines.push_back(content.substr(start, nl - start + 1));
+        start = nl + 1;
+    }
+    return lines;
+}
+
+struct line_span {
+    size_t start;
+    size_t end;
+};
+
+static std::vector<line_span> get_line_spans(const std::string & content) {
+    std::vector<line_span> spans;
+    size_t offset = 0;
+    for (const auto & line : split_lines_with_endings(content)) {
+        spans.push_back({offset, offset + line.size()});
+        offset += line.size();
+    }
+    return spans;
+}
+
+// count non-overlapping occurrences of `needle` in `content`
+static size_t count_occurrences(const std::string & content, const std::string & needle) {
+    if (needle.empty()) return 0;
+    size_t count = 0, pos = 0;
+    while ((pos = content.find(needle, pos)) != std::string::npos) {
+        count++;
+        pos += needle.size();
+    }
+    return count;
+}
+
+struct matched_edit {
+    size_t      edit_index;
+    size_t      match_index;  // offset into the "base content" (see below)
+    size_t      match_length;
+    std::string new_text;
+};
+
+// replacements must be sorted ascending by match_index and non-overlapping
+static std::string apply_replacements(
+        const std::string & content,
+        const std::vector<matched_edit> & replacements,
+        size_t offset) {
+    std::string result = content;
+    for (auto it = replacements.rbegin(); it != replacements.rend(); ++it) {
+        size_t local_index = it->match_index - offset;
+        result = result.substr(0, local_index) + it->new_text + result.substr(local_index + it->match_length);
+    }
+    return result;
+}
+
+// widen a replacement's byte range to the line(s) of `lines` it touches
+static bool get_replacement_line_range(
+        const std::vector<line_span> & lines,
+        size_t match_index, size_t match_length,
+        size_t & out_start_line, size_t & out_end_line /* exclusive */) {
+    size_t replacement_start = match_index;
+    size_t replacement_end   = match_index + match_length;
+
+    size_t start_line = (size_t) -1;
+    for (size_t i = 0; i < lines.size(); i++) {
+        if (replacement_start >= lines[i].start && replacement_start < lines[i].end) {
+            start_line = i;
+            break;
+        }
+    }
+    if (start_line == (size_t) -1) return false;
+
+    size_t end_line = start_line;
+    while (end_line < lines.size() && lines[end_line].end < replacement_end) {
+        end_line++;
+    }
+    if (end_line >= lines.size()) return false;
+
+    out_start_line = start_line;
+    out_end_line   = end_line + 1;
+    return true;
+}
+
+// like apply_replacements, but untouched lines come from `original_content`
+static std::string apply_replacements_preserving_unchanged_lines(
+        const std::string & original_content,
+        const std::string & base_content,
+        const std::vector<matched_edit> & replacements /* ascending, non-overlapping */) {
+    auto original_lines = split_lines_with_endings(original_content);
+    auto base_lines      = get_line_spans(base_content);
+
+    struct group {
+        size_t start_line;
+        size_t end_line; // exclusive
+        std::vector<matched_edit> reps;
+    };
+    std::vector<group> groups;
+
+    for (const auto & rep : replacements) {
+        size_t start_line, end_line;
+        get_replacement_line_range(base_lines, rep.match_index, rep.match_length, start_line, end_line);
+        if (!groups.empty() && start_line < groups.back().end_line) {
+            groups.back().end_line = std::max(groups.back().end_line, end_line);
+            groups.back().reps.push_back(rep);
+        } else {
+            groups.push_back({start_line, end_line, {rep}});
+        }
+    }
+
+    size_t original_line_index = 0;
+    std::string result;
+    for (auto & g : groups) {
+        for (size_t i = original_line_index; i < g.start_line; i++) {
+            result += original_lines[i];
+        }
+
+        size_t group_start_offset = base_lines[g.start_line].start;
+        size_t group_end_offset   = base_lines[g.end_line - 1].end;
+        std::string slice = base_content.substr(group_start_offset, group_end_offset - group_start_offset);
+        result += apply_replacements(slice, g.reps, group_start_offset);
+
+        original_line_index = g.end_line;
+    }
+    for (size_t i = original_line_index; i < original_lines.size(); i++) {
+        result += original_lines[i];
+    }
+
+    return result;
 }
 
 //
@@ -328,15 +525,15 @@ struct server_tool_file_glob_search : server_tool {
         std::string exclude = json_value(params, "exclude", std::string(""));
 
         std::string err;
-        auto files = server_tool_list_files(base, err);
+        auto files = list_files(base, err);
         if (!err.empty()) {
             return {{"error", err}};
         }
 
         std::vector<std::string> matches;
         for (const auto & rel : files) {
-            if (!server_tool_path_glob_match(include, rel)) continue;
-            if (!exclude.empty() && server_tool_path_glob_match(exclude, rel)) continue;
+            if (!path_glob_match(include, rel)) continue;
+            if (!exclude.empty() && path_glob_match(exclude, rel)) continue;
             matches.push_back(rel);
         }
 
@@ -441,13 +638,13 @@ struct server_tool_grep_search : server_tool {
             files.emplace_back(path, path);
         } else if (fs::is_directory(path, ec)) {
             std::string err;
-            auto candidates = server_tool_list_files(path, err);
+            auto candidates = list_files(path, err);
             if (!err.empty()) {
                 return {{"error", err}};
             }
             for (const auto & rel : candidates) {
-                if (!server_tool_path_glob_match(include, rel)) continue;
-                if (!exclude.empty() && server_tool_path_glob_match(exclude, rel)) continue;
+                if (!path_glob_match(include, rel)) continue;
+                if (!exclude.empty() && path_glob_match(exclude, rel)) continue;
                 files.emplace_back((fs::path(path) / rel).string(), rel);
             }
         } else {
@@ -623,7 +820,7 @@ struct server_tool_write_file : server_tool {
 };
 
 //
-// edit_file: edit file content via line-based changes
+// edit_file: exact text replacement, one or more edits per call
 //
 
 struct server_tool_edit_file : server_tool {
@@ -639,33 +836,27 @@ struct server_tool_edit_file : server_tool {
             {"function", {
                 {"name", name},
                 {"description",
-                    "Edit a file by applying a list of line-based changes. "
-                    "Each change targets a 1-based inclusive line range and has a mode: "
-                    "\"replace\" (replace lines with content), "
-                    "\"delete\" (remove lines, content must be empty string), "
-                    "\"append\" (insert content after line_end). "
-                    "Set line_start to -1 to target the end of file (line_end is ignored in that case). "
-                    "Changes must not overlap. They are applied in reverse line order automatically."},
+                    "Edit a file using exact text replacement. Each edits[].old_text must be unique in the file "
+                    "and is matched against the original content, not incrementally. Merge nearby changes into "
+                    "one edit instead of overlapping edits. Use write_file to replace the whole file."},
                 {"parameters", {
                     {"type", "object"},
                     {"properties", {
-                        {"path",    {{"type", "string"}, {"description", "Path to the file to edit"}}},
-                        {"changes", {
+                        {"path",  {{"type", "string"}, {"description", "Path to the file to edit"}}},
+                        {"edits", {
                             {"type", "array"},
-                            {"description", "List of changes to apply"},
+                            {"description", "One or more exact text replacements to apply"},
                             {"items", {
                                 {"type", "object"},
                                 {"properties", {
-                                    {"mode",       {{"type", "string"},  {"description", "\"replace\", \"delete\", or \"append\""}}},
-                                    {"line_start", {{"type", "integer"}, {"description", "First line of the range (1-based); use -1 for end of file"}}},
-                                    {"line_end",   {{"type", "integer"}, {"description", "Last line of the range (1-based, inclusive); ignored when line_start is -1"}}},
-                                    {"content",    {{"type", "string"},  {"description", "Content to insert; must be empty string for delete mode"}}},
+                                    {"old_text", {{"type", "string"}, {"description", "Exact text to find; must be unique in the file and must not overlap with other edits"}}},
+                                    {"new_text", {{"type", "string"}, {"description", "Text to replace old_text with"}}},
                                 }},
-                                {"required", json::array({"mode", "line_start", "line_end", "content"})},
+                                {"required", json::array({"old_text", "new_text"})},
                             }},
                         }},
                     }},
-                    {"required", json::array({"path", "changes"})},
+                    {"required", json::array({"path", "edits"})},
                 }},
             }},
         };
@@ -673,122 +864,99 @@ struct server_tool_edit_file : server_tool {
 
     json invoke(json params) override {
         std::string path = params.at("path").get<std::string>();
-        const json & changes = params.at("changes");
+        const json & edits_json = params.at("edits");
 
-        if (!changes.is_array()) {
-            return {{"error", "\"changes\" must be an array"}};
+        if (!edits_json.is_array() || edits_json.empty()) {
+            return {{"error", "\"edits\" must be a non-empty array"}};
         }
 
-        // read file into lines
-        std::ifstream fin(path);
+        struct edit_req {
+            std::string old_text;
+            std::string new_text;
+        };
+        std::vector<edit_req> edits;
+        edits.reserve(edits_json.size());
+        for (const auto & e : edits_json) {
+            edit_req er;
+            er.old_text = e.at("old_text").get<std::string>();
+            er.new_text = e.at("new_text").get<std::string>();
+            if (er.old_text.empty()) {
+                return {{"error", string_format("edits[%zu].old_text must not be empty", edits.size())}};
+            }
+            edits.push_back(std::move(er));
+        }
+
+        std::ifstream fin(path, std::ios::binary);
         if (!fin) {
             return {{"error", "failed to open file: " + path}};
         }
-        std::vector<std::string> lines;
-        {
-            std::string line;
-            while (std::getline(fin, line)) {
-                lines.push_back(line);
-            }
-        }
+        std::ostringstream file_ss;
+        file_ss << fin.rdbuf();
+        std::string original_content = file_ss.str();
         fin.close();
 
-        // validate and collect changes, then sort descending by line_start
-        struct change_entry {
-            std::string mode;
-            int line_start; // 1-based
-            int line_end;   // 1-based inclusive
-            std::string content;
-        };
-        std::vector<change_entry> entries;
-        entries.reserve(changes.size());
-
-        for (const auto & ch : changes) {
-            change_entry e;
-            e.mode       = ch.at("mode").get<std::string>();
-            e.line_start = ch.at("line_start").get<int>();
-            e.line_end   = ch.at("line_end").get<int>();
-            e.content    = ch.at("content").get<std::string>();
-
-            if (e.mode != "replace" && e.mode != "delete" && e.mode != "append") {
-                return {{"error", "invalid mode \"" + e.mode + "\"; must be replace, delete, or append"}};
+        // does any old_text need fuzzy matching (no exact match found)?
+        bool any_fuzzy = false;
+        for (size_t i = 0; i < edits.size(); i++) {
+            if (original_content.find(edits[i].old_text) != std::string::npos) continue;
+            std::string fuzzy_content = normalize_for_fuzzy_match(original_content);
+            std::string fuzzy_old     = normalize_for_fuzzy_match(edits[i].old_text);
+            if (fuzzy_content.find(fuzzy_old) == std::string::npos) {
+                return {{"error", string_format(
+                    "could not find edits[%zu].old_text in %s, it must match the file's current content exactly",
+                    i, path.c_str())}};
             }
-            if (e.mode == "delete" && !e.content.empty()) {
-                return {{"error", "content must be empty string for delete mode"}};
-            }
-            int n = (int) lines.size();
-            if (e.line_start == -1) {
-                // -1 targets end of file -> valid for append only; line_end is ignored
-                if (e.mode != "append") {
-                    return {{"error", "line_start -1 (end of file) is only valid for append mode"}};
-                }
-                // append at end of file: insert position is the current line count
-                e.line_start = n;
-                e.line_end   = n;
-            } else {
-                if (e.line_start < 1 || e.line_end < e.line_start) {
-                    return {{"error", string_format("invalid line range [%d, %d]", e.line_start, e.line_end)}};
-                }
-                if (e.line_end > n) {
-                    return {{"error", string_format("line_end %d exceeds file length %d", e.line_end, n)}};
-                }
-            }
-            entries.push_back(std::move(e));
+            any_fuzzy = true;
         }
 
-        // sort descending so earlier-indexed changes don't shift later ones
-        std::sort(entries.begin(), entries.end(), [](const change_entry & a, const change_entry & b) {
-            return a.line_start > b.line_start;
+        std::string base_content = any_fuzzy ? normalize_for_fuzzy_match(original_content) : original_content;
+
+        // uniqueness check always uses fuzzy-normalized text, so a whitespace-only duplicate still counts
+        std::vector<matched_edit> matched;
+        matched.reserve(edits.size());
+        for (size_t i = 0; i < edits.size(); i++) {
+            std::string needle = any_fuzzy ? normalize_for_fuzzy_match(edits[i].old_text) : edits[i].old_text;
+            size_t occurrences = count_occurrences(
+                normalize_for_fuzzy_match(original_content),
+                normalize_for_fuzzy_match(edits[i].old_text));
+            if (occurrences > 1) {
+                return {{"error", string_format(
+                    "found %zu occurrences of edits[%zu].old_text in %s, it must be unique",
+                    occurrences, i, path.c_str())}};
+            }
+            size_t idx = base_content.find(needle);
+            matched.push_back({i, idx, needle.size(), edits[i].new_text});
+        }
+
+        std::sort(matched.begin(), matched.end(), [](const matched_edit & a, const matched_edit & b) {
+            return a.match_index < b.match_index;
         });
-
-        // apply changes (0-based indices internally)
-        for (const auto & e : entries) {
-            int idx_start = e.line_start - 1; // 0-based
-            int idx_end   = e.line_end   - 1; // 0-based inclusive
-
-            // split content into lines (preserve trailing newline awareness)
-            std::vector<std::string> new_lines;
-            if (!e.content.empty()) {
-                std::istringstream ss(e.content);
-                std::string ln;
-                while (std::getline(ss, ln)) {
-                    new_lines.push_back(ln);
-                }
-                // if content ends with \n, getline consumed it — no extra empty line needed
-                // if content does NOT end with \n, last line is still captured correctly
-            }
-
-            if (e.mode == "replace") {
-                // erase [idx_start, idx_end] and insert new_lines
-                lines.erase(lines.begin() + idx_start, lines.begin() + idx_end + 1);
-                lines.insert(lines.begin() + idx_start, new_lines.begin(), new_lines.end());
-            } else if (e.mode == "delete") {
-                lines.erase(lines.begin() + idx_start, lines.begin() + idx_end + 1);
-            } else { // append
-                // insert after idx_end; idx_end + 1 == lines.size() for end-of-file append
-                lines.insert(lines.begin() + (idx_end + 1), new_lines.begin(), new_lines.end());
+        for (size_t i = 1; i < matched.size(); i++) {
+            if (matched[i - 1].match_index + matched[i - 1].match_length > matched[i].match_index) {
+                return {{"error", string_format(
+                    "edits[%zu] and edits[%zu] overlap in %s; merge them into one edit or target disjoint regions",
+                    matched[i - 1].edit_index, matched[i].edit_index, path.c_str())}};
             }
         }
 
-        // write file back
+        std::string new_content = any_fuzzy
+            ? apply_replacements_preserving_unchanged_lines(original_content, base_content, matched)
+            : apply_replacements(base_content, matched, 0);
+
+        if (new_content == original_content) {
+            return {{"error", "no changes made: the replacement(s) produced identical content"}};
+        }
+
         std::ofstream fout(path, std::ios::binary);
         if (!fout) {
             return {{"error", "failed to open file for writing: " + path}};
         }
-        for (size_t i = 0; i < lines.size(); i++) {
-            fout << lines[i];
-            if (i + 1 < lines.size()) {
-                fout << "\n";
-            }
-        }
-        if (!lines.empty()) {
-            fout << "\n";
-        }
+        fout << new_content;
         if (!fout) {
             return {{"error", "failed to write file: " + path}};
         }
 
-        return {{"result", "file edited successfully"}, {"path", path}, {"lines", (int) lines.size()}};
+        return {{"result", "file edited successfully"}, {"path", path}, {"edits_applied", (int) matched.size()}};
     }
 };
 
