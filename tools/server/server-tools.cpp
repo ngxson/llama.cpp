@@ -32,15 +32,7 @@ json server_tool::to_json() {
 }
 
 static constexpr size_t SERVER_TOOL_GIT_LS_FILES_MAX_OUTPUT = 8 * 1024 * 1024; // 8 MB
-static constexpr int    SERVER_TOOL_GIT_LS_FILES_TIMEOUT    = 15;              // seconds
-
-static const std::unordered_set<std::string> & junk_dir_names() {
-    static const std::unordered_set<std::string> names = {
-        ".git", ".svn", ".hg", "node_modules", "__pycache__",
-        ".venv", "venv", "dist", "build", "target", ".cache", ".idea", ".vscode",
-    };
-    return names;
-}
+static constexpr int SERVER_TOOL_GIT_LS_FILES_TIMEOUT = 15; // seconds
 
 class tools_io {
 public:
@@ -207,6 +199,14 @@ private:
         return r;
     }
 
+    static const std::unordered_set<std::string> & junk_dir_names() {
+        static const std::unordered_set<std::string> names = {
+            ".git", ".svn", ".hg", "node_modules", "__pycache__",
+            ".venv", "venv", "dist", "build", "target", ".cache", ".idea", ".vscode",
+        };
+        return names;
+    }
+
     std::vector<std::string> list_files_fallback(const std::string & base) const {
         std::vector<std::string> result;
         std::error_code ec;
@@ -251,206 +251,6 @@ static bool path_glob_match(const std::string & pattern, const std::string & rel
         return glob_match(pattern, rel_path);
     }
     return glob_match("**/" + pattern, rel_path);
-}
-
-//
-// edit_file helpers: exact/fuzzy text-replacement matching
-//
-
-// strip trailing whitespace, normalize smart quotes/dashes/spaces to ASCII
-static std::string normalize_line_for_fuzzy_match(const std::string & line) {
-    size_t end = line.size();
-    while (end > 0 && (line[end - 1] == ' ' || line[end - 1] == '\t' || line[end - 1] == '\r')) {
-        end--;
-    }
-    std::string s = line.substr(0, end);
-
-    auto replace_all = [](std::string & str, const std::string & from, const std::string & to) {
-        if (from.empty()) return;
-        size_t pos = 0;
-        while ((pos = str.find(from, pos)) != std::string::npos) {
-            str.replace(pos, from.size(), to);
-            pos += to.size();
-        }
-    };
-
-    // smart single quotes -> '
-    for (unsigned char b : {0x98, 0x99, 0x9A, 0x9B}) {
-        replace_all(s, std::string("\xE2\x80") + (char) b, "'");
-    }
-    // smart double quotes -> "
-    for (unsigned char b : {0x9C, 0x9D, 0x9E, 0x9F}) {
-        replace_all(s, std::string("\xE2\x80") + (char) b, "\"");
-    }
-    // various dashes -> -
-    for (unsigned char b = 0x90; b <= 0x95; b++) {
-        replace_all(s, std::string("\xE2\x80") + (char) b, "-");
-    }
-    replace_all(s, "\xE2\x88\x92", "-"); // minus sign
-    // special spaces -> ' '
-    replace_all(s, "\xC2\xA0", " "); // no-break space
-    for (unsigned char b = 0x82; b <= 0x8A; b++) {
-        replace_all(s, std::string("\xE2\x80") + (char) b, " ");
-    }
-    replace_all(s, "\xE2\x80\xAF", " "); // narrow no-break space
-    replace_all(s, "\xE2\x81\x9F", " "); // medium mathematical space
-    replace_all(s, "\xE3\x80\x80", " "); // ideographic space
-
-    return s;
-}
-
-// applies the per-line transform above to every line; preserves line count/positions
-static std::string normalize_for_fuzzy_match(const std::string & content) {
-    std::string result;
-    result.reserve(content.size());
-    size_t start = 0;
-    while (true) {
-        size_t nl = content.find('\n', start);
-        bool   is_last = nl == std::string::npos;
-        std::string line = is_last ? content.substr(start) : content.substr(start, nl - start);
-        result += normalize_line_for_fuzzy_match(line);
-        if (is_last) break;
-        result += '\n';
-        start = nl + 1;
-    }
-    return result;
-}
-
-// lines with trailing '\n' kept, so untouched ones can be reconstructed verbatim
-static std::vector<std::string> split_lines_with_endings(const std::string & content) {
-    std::vector<std::string> lines;
-    size_t start = 0;
-    while (start < content.size()) {
-        size_t nl = content.find('\n', start);
-        if (nl == std::string::npos) {
-            lines.push_back(content.substr(start));
-            break;
-        }
-        lines.push_back(content.substr(start, nl - start + 1));
-        start = nl + 1;
-    }
-    return lines;
-}
-
-struct line_span {
-    size_t start;
-    size_t end;
-};
-
-static std::vector<line_span> get_line_spans(const std::string & content) {
-    std::vector<line_span> spans;
-    size_t offset = 0;
-    for (const auto & line : split_lines_with_endings(content)) {
-        spans.push_back({offset, offset + line.size()});
-        offset += line.size();
-    }
-    return spans;
-}
-
-// count non-overlapping occurrences of `needle` in `content`
-static size_t count_occurrences(const std::string & content, const std::string & needle) {
-    if (needle.empty()) return 0;
-    size_t count = 0, pos = 0;
-    while ((pos = content.find(needle, pos)) != std::string::npos) {
-        count++;
-        pos += needle.size();
-    }
-    return count;
-}
-
-struct matched_edit {
-    size_t      edit_index;
-    size_t      match_index;  // offset into the "base content" (see below)
-    size_t      match_length;
-    std::string new_text;
-};
-
-// replacements must be sorted ascending by match_index and non-overlapping
-static std::string apply_replacements(
-        const std::string & content,
-        const std::vector<matched_edit> & replacements,
-        size_t offset) {
-    std::string result = content;
-    for (auto it = replacements.rbegin(); it != replacements.rend(); ++it) {
-        size_t local_index = it->match_index - offset;
-        result = result.substr(0, local_index) + it->new_text + result.substr(local_index + it->match_length);
-    }
-    return result;
-}
-
-// widen a replacement's byte range to the line(s) of `lines` it touches
-static bool get_replacement_line_range(
-        const std::vector<line_span> & lines,
-        size_t match_index, size_t match_length,
-        size_t & out_start_line, size_t & out_end_line /* exclusive */) {
-    size_t replacement_start = match_index;
-    size_t replacement_end   = match_index + match_length;
-
-    size_t start_line = (size_t) -1;
-    for (size_t i = 0; i < lines.size(); i++) {
-        if (replacement_start >= lines[i].start && replacement_start < lines[i].end) {
-            start_line = i;
-            break;
-        }
-    }
-    if (start_line == (size_t) -1) return false;
-
-    size_t end_line = start_line;
-    while (end_line < lines.size() && lines[end_line].end < replacement_end) {
-        end_line++;
-    }
-    if (end_line >= lines.size()) return false;
-
-    out_start_line = start_line;
-    out_end_line   = end_line + 1;
-    return true;
-}
-
-// like apply_replacements, but untouched lines come from `original_content`
-static std::string apply_replacements_preserving_unchanged_lines(
-        const std::string & original_content,
-        const std::string & base_content,
-        const std::vector<matched_edit> & replacements /* ascending, non-overlapping */) {
-    auto original_lines = split_lines_with_endings(original_content);
-    auto base_lines      = get_line_spans(base_content);
-
-    struct group {
-        size_t start_line;
-        size_t end_line; // exclusive
-        std::vector<matched_edit> reps;
-    };
-    std::vector<group> groups;
-
-    for (const auto & rep : replacements) {
-        size_t start_line = 0, end_line = 0;
-        get_replacement_line_range(base_lines, rep.match_index, rep.match_length, start_line, end_line);
-        if (!groups.empty() && start_line < groups.back().end_line) {
-            groups.back().end_line = std::max(groups.back().end_line, end_line);
-            groups.back().reps.push_back(rep);
-        } else {
-            groups.push_back({start_line, end_line, {rep}});
-        }
-    }
-
-    size_t original_line_index = 0;
-    std::string result;
-    for (auto & g : groups) {
-        for (size_t i = original_line_index; i < g.start_line; i++) {
-            result += original_lines[i];
-        }
-
-        size_t group_start_offset = base_lines[g.start_line].start;
-        size_t group_end_offset   = base_lines[g.end_line - 1].end;
-        std::string slice = base_content.substr(group_start_offset, group_end_offset - group_start_offset);
-        result += apply_replacements(slice, g.reps, group_start_offset);
-
-        original_line_index = g.end_line;
-    }
-    for (size_t i = original_line_index; i < original_lines.size(); i++) {
-        result += original_lines[i];
-    }
-
-    return result;
 }
 
 //
@@ -997,6 +797,203 @@ struct server_tool_edit_file : server_tool {
         }
 
         return {{"result", "file edited successfully"}, {"path", path}, {"edits_applied", (int) matched.size()}};
+    }
+
+private:
+    // strip trailing whitespace, normalize smart quotes/dashes/spaces to ASCII
+    static std::string normalize_line_for_fuzzy_match(const std::string & line) {
+        size_t end = line.size();
+        while (end > 0 && (line[end - 1] == ' ' || line[end - 1] == '\t' || line[end - 1] == '\r')) {
+            end--;
+        }
+        std::string s = line.substr(0, end);
+
+        auto replace_all = [](std::string & str, const std::string & from, const std::string & to) {
+            if (from.empty()) return;
+            size_t pos = 0;
+            while ((pos = str.find(from, pos)) != std::string::npos) {
+                str.replace(pos, from.size(), to);
+                pos += to.size();
+            }
+        };
+
+        // smart single quotes -> '
+        for (unsigned char b : {0x98, 0x99, 0x9A, 0x9B}) {
+            replace_all(s, std::string("\xE2\x80") + (char) b, "'");
+        }
+        // smart double quotes -> "
+        for (unsigned char b : {0x9C, 0x9D, 0x9E, 0x9F}) {
+            replace_all(s, std::string("\xE2\x80") + (char) b, "\"");
+        }
+        // various dashes -> -
+        for (unsigned char b = 0x90; b <= 0x95; b++) {
+            replace_all(s, std::string("\xE2\x80") + (char) b, "-");
+        }
+        replace_all(s, "\xE2\x88\x92", "-"); // minus sign
+        // special spaces -> ' '
+        replace_all(s, "\xC2\xA0", " "); // no-break space
+        for (unsigned char b = 0x82; b <= 0x8A; b++) {
+            replace_all(s, std::string("\xE2\x80") + (char) b, " ");
+        }
+        replace_all(s, "\xE2\x80\xAF", " "); // narrow no-break space
+        replace_all(s, "\xE2\x81\x9F", " "); // medium mathematical space
+        replace_all(s, "\xE3\x80\x80", " "); // ideographic space
+
+        return s;
+    }
+
+    // applies the per-line transform above to every line; preserves line count/positions
+    static std::string normalize_for_fuzzy_match(const std::string & content) {
+        std::string result;
+        result.reserve(content.size());
+        size_t start = 0;
+        while (true) {
+            size_t nl = content.find('\n', start);
+            bool   is_last = nl == std::string::npos;
+            std::string line = is_last ? content.substr(start) : content.substr(start, nl - start);
+            result += normalize_line_for_fuzzy_match(line);
+            if (is_last) break;
+            result += '\n';
+            start = nl + 1;
+        }
+        return result;
+    }
+
+    // lines with trailing '\n' kept, so untouched ones can be reconstructed verbatim
+    static std::vector<std::string> split_lines_with_endings(const std::string & content) {
+        std::vector<std::string> lines;
+        size_t start = 0;
+        while (start < content.size()) {
+            size_t nl = content.find('\n', start);
+            if (nl == std::string::npos) {
+                lines.push_back(content.substr(start));
+                break;
+            }
+            lines.push_back(content.substr(start, nl - start + 1));
+            start = nl + 1;
+        }
+        return lines;
+    }
+
+    struct line_span {
+        size_t start;
+        size_t end;
+    };
+
+    static std::vector<line_span> get_line_spans(const std::string & content) {
+        std::vector<line_span> spans;
+        size_t offset = 0;
+        for (const auto & line : split_lines_with_endings(content)) {
+            spans.push_back({offset, offset + line.size()});
+            offset += line.size();
+        }
+        return spans;
+    }
+
+    // count non-overlapping occurrences of `needle` in `content`
+    static size_t count_occurrences(const std::string & content, const std::string & needle) {
+        if (needle.empty()) return 0;
+        size_t count = 0, pos = 0;
+        while ((pos = content.find(needle, pos)) != std::string::npos) {
+            count++;
+            pos += needle.size();
+        }
+        return count;
+    }
+
+    struct matched_edit {
+        size_t      edit_index;
+        size_t      match_index;  // offset into the "base content" (see below)
+        size_t      match_length;
+        std::string new_text;
+    };
+
+    // replacements must be sorted ascending by match_index and non-overlapping
+    static std::string apply_replacements(
+            const std::string & content,
+            const std::vector<matched_edit> & replacements,
+            size_t offset) {
+        std::string result = content;
+        for (auto it = replacements.rbegin(); it != replacements.rend(); ++it) {
+            size_t local_index = it->match_index - offset;
+            result = result.substr(0, local_index) + it->new_text + result.substr(local_index + it->match_length);
+        }
+        return result;
+    }
+
+    // widen a replacement's byte range to the line(s) of `lines` it touches
+    static bool get_replacement_line_range(
+            const std::vector<line_span> & lines,
+            size_t match_index, size_t match_length,
+            size_t & out_start_line, size_t & out_end_line /* exclusive */) {
+        size_t replacement_start = match_index;
+        size_t replacement_end   = match_index + match_length;
+
+        size_t start_line = (size_t) -1;
+        for (size_t i = 0; i < lines.size(); i++) {
+            if (replacement_start >= lines[i].start && replacement_start < lines[i].end) {
+                start_line = i;
+                break;
+            }
+        }
+        if (start_line == (size_t) -1) return false;
+
+        size_t end_line = start_line;
+        while (end_line < lines.size() && lines[end_line].end < replacement_end) {
+            end_line++;
+        }
+        if (end_line >= lines.size()) return false;
+
+        out_start_line = start_line;
+        out_end_line   = end_line + 1;
+        return true;
+    }
+
+    // like apply_replacements, but untouched lines come from `original_content`
+    static std::string apply_replacements_preserving_unchanged_lines(
+            const std::string & original_content,
+            const std::string & base_content,
+            const std::vector<matched_edit> & replacements /* ascending, non-overlapping */) {
+        auto original_lines = split_lines_with_endings(original_content);
+        auto base_lines      = get_line_spans(base_content);
+
+        struct group {
+            size_t start_line;
+            size_t end_line; // exclusive
+            std::vector<matched_edit> reps;
+        };
+        std::vector<group> groups;
+
+        for (const auto & rep : replacements) {
+            size_t start_line = 0, end_line = 0;
+            get_replacement_line_range(base_lines, rep.match_index, rep.match_length, start_line, end_line);
+            if (!groups.empty() && start_line < groups.back().end_line) {
+                groups.back().end_line = std::max(groups.back().end_line, end_line);
+                groups.back().reps.push_back(rep);
+            } else {
+                groups.push_back({start_line, end_line, {rep}});
+            }
+        }
+
+        size_t original_line_index = 0;
+        std::string result;
+        for (auto & g : groups) {
+            for (size_t i = original_line_index; i < g.start_line; i++) {
+                result += original_lines[i];
+            }
+
+            size_t group_start_offset = base_lines[g.start_line].start;
+            size_t group_end_offset   = base_lines[g.end_line - 1].end;
+            std::string slice = base_content.substr(group_start_offset, group_end_offset - group_start_offset);
+            result += apply_replacements(slice, g.reps, group_start_offset);
+
+            original_line_index = g.end_line;
+        }
+        for (size_t i = original_line_index; i < original_lines.size(); i++) {
+            result += original_lines[i];
+        }
+
+        return result;
     }
 };
 
