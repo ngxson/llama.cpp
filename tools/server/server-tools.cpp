@@ -19,90 +19,6 @@ namespace fs = std::filesystem;
 // internal helpers
 //
 
-static std::vector<char *> to_cstr_vec(const std::vector<std::string> & v) {
-    std::vector<char *> r;
-    r.reserve(v.size() + 1);
-    for (const auto & s : v) {
-        r.push_back(const_cast<char *>(s.c_str()));
-    }
-    r.push_back(nullptr);
-    return r;
-}
-
-struct run_proc_result {
-    std::string output;
-    int  exit_code = -1;
-    bool timed_out = false;
-};
-
-static run_proc_result run_process(
-        const std::vector<std::string> & args,
-        size_t max_output,
-        int timeout_secs) {
-    run_proc_result res;
-
-    subprocess_s proc;
-    auto argv = to_cstr_vec(args);
-
-    int options = subprocess_option_no_window
-                | subprocess_option_combined_stdout_stderr
-                | subprocess_option_inherit_environment
-                | subprocess_option_search_user_path;
-
-    if (subprocess_create(argv.data(), options, &proc) != 0) {
-        res.output = "failed to spawn process";
-        return res;
-    }
-
-    std::atomic<bool> done{false};
-    std::atomic<bool> timed_out{false};
-
-    std::thread timeout_thread([&]() {
-        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeout_secs);
-        while (!done.load()) {
-            if (std::chrono::steady_clock::now() >= deadline) {
-                timed_out.store(true);
-                subprocess_terminate(&proc);
-                return;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        }
-    });
-
-    FILE * f = subprocess_stdout(&proc);
-    std::string output;
-    bool truncated = false;
-    if (f) {
-        char buf[4096];
-        while (fgets(buf, sizeof(buf), f) != nullptr) {
-            if (!truncated) {
-                size_t len = strlen(buf);
-                if (output.size() + len <= max_output) {
-                    output.append(buf, len);
-                } else {
-                    output.append(buf, max_output - output.size());
-                    truncated = true;
-                }
-            }
-        }
-    }
-
-    done.store(true);
-    if (timeout_thread.joinable()) {
-        timeout_thread.join();
-    }
-
-    subprocess_join(&proc, &res.exit_code);
-    subprocess_destroy(&proc);
-
-    res.output    = output;
-    res.timed_out = timed_out.load();
-    if (truncated) {
-        res.output += "\n[output truncated]";
-    }
-    return res;
-}
-
 json server_tool::to_json() {
     return {
         {"display_name", display_name},
@@ -126,65 +42,190 @@ static const std::unordered_set<std::string> & junk_dir_names() {
     return names;
 }
 
-static std::vector<std::string> list_files_fallback(const std::string & base) {
-    std::vector<std::string> result;
-    std::error_code ec;
+class tools_io {
+public:
+    struct exec_result {
+        std::string output;
+        int  exit_code = -1;
+        bool timed_out = false;
+    };
 
-    std::vector<std::pair<fs::path, fs::path>> stack;
-    stack.emplace_back(fs::path(base), fs::path());
+    bool is_directory(const std::string & path) const {
+        std::error_code ec;
+        return fs::is_directory(path, ec) && !ec;
+    }
 
-    while (!stack.empty()) {
-        auto [dir, rel_dir] = stack.back();
-        stack.pop_back();
+    bool is_regular_file(const std::string & path) const {
+        std::error_code ec;
+        return fs::is_regular_file(path, ec) && !ec;
+    }
 
-        for (const auto & entry : fs::directory_iterator(dir, fs::directory_options::skip_permission_denied, ec)) {
-            if (ec) break;
-            std::string fname = entry.path().filename().string();
-            std::error_code tec;
-            if (entry.is_directory(tec)) {
-                if (junk_dir_names().count(fname) > 0) continue;
-                stack.emplace_back(entry.path(), rel_dir / fname);
-            } else if (entry.is_regular_file(tec)) {
-                std::string rel = (rel_dir / fname).string();
-                std::replace(rel.begin(), rel.end(), '\\', '/');
-                result.push_back(rel);
+    bool file_size(const std::string & path, uintmax_t & out_size) const {
+        std::error_code ec;
+        out_size = fs::file_size(path, ec);
+        return !ec;
+    }
+
+    bool read_file(const std::string & path, std::string & out) const {
+        std::ifstream f(path, std::ios::binary);
+        if (!f) return false;
+        std::ostringstream ss;
+        ss << f.rdbuf();
+        out = ss.str();
+        return true;
+    }
+
+    bool write_file(const std::string & path, const std::string & content) const {
+        std::error_code ec;
+        fs::path fpath(path);
+        if (fpath.has_parent_path()) {
+            fs::create_directories(fpath.parent_path(), ec);
+            if (ec) return false;
+        }
+        std::ofstream f(path, std::ios::binary);
+        if (!f) return false;
+        f << content;
+        return (bool) f;
+    }
+
+    // paths relative to `base`, '/'-separated; sets `err` if `base` isn't a directory
+    std::vector<std::string> list_files(const std::string & base, std::string & err) const {
+        err.clear();
+        if (!is_directory(base)) {
+            err = "path does not exist or is not a directory: " + base;
+            return {};
+        }
+
+        auto res = run(
+            {"git", "-C", base, "ls-files", "--cached", "--others", "--exclude-standard"},
+            SERVER_TOOL_GIT_LS_FILES_MAX_OUTPUT, SERVER_TOOL_GIT_LS_FILES_TIMEOUT);
+
+        if (res.exit_code == 0 && !res.timed_out) {
+            std::vector<std::string> result;
+            std::istringstream iss(res.output);
+            std::string line;
+            while (std::getline(iss, line)) {
+                if (!line.empty() && line.back() == '\r') line.pop_back();
+                if (line.empty()) continue;
+                std::replace(line.begin(), line.end(), '\\', '/');
+                if (is_regular_file((fs::path(base) / line).string())) {
+                    result.push_back(line);
+                }
+            }
+            return result;
+        }
+
+        return list_files_fallback(base);
+    }
+
+    exec_result run(const std::vector<std::string> & args, size_t max_output, int timeout_secs) const {
+        exec_result res;
+
+        subprocess_s proc;
+        auto argv = to_cstr_vec(args);
+
+        int options = subprocess_option_no_window
+                    | subprocess_option_combined_stdout_stderr
+                    | subprocess_option_inherit_environment
+                    | subprocess_option_search_user_path;
+
+        if (subprocess_create(argv.data(), options, &proc) != 0) {
+            res.output = "failed to spawn process";
+            return res;
+        }
+
+        std::atomic<bool> done{false};
+        std::atomic<bool> timed_out{false};
+
+        std::thread timeout_thread([&]() {
+            auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(timeout_secs);
+            while (!done.load()) {
+                if (std::chrono::steady_clock::now() >= deadline) {
+                    timed_out.store(true);
+                    subprocess_terminate(&proc);
+                    return;
+                }
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+        });
+
+        FILE * f = subprocess_stdout(&proc);
+        std::string output;
+        bool truncated = false;
+        if (f) {
+            char buf[4096];
+            while (fgets(buf, sizeof(buf), f) != nullptr) {
+                if (!truncated) {
+                    size_t len = strlen(buf);
+                    if (output.size() + len <= max_output) {
+                        output.append(buf, len);
+                    } else {
+                        output.append(buf, max_output - output.size());
+                        truncated = true;
+                    }
+                }
             }
         }
+
+        done.store(true);
+        if (timeout_thread.joinable()) {
+            timeout_thread.join();
+        }
+
+        subprocess_join(&proc, &res.exit_code);
+        subprocess_destroy(&proc);
+
+        res.output    = output;
+        res.timed_out = timed_out.load();
+        if (truncated) {
+            res.output += "\n[output truncated]";
+        }
+        return res;
     }
 
-    return result;
-}
-
-// file paths relative to `base`; sets `err` if `base` isn't a directory
-static std::vector<std::string> list_files(const std::string & base, std::string & err) {
-    err.clear();
-    std::error_code ec;
-    if (!fs::is_directory(base, ec) || ec) {
-        err = "path does not exist or is not a directory: " + base;
-        return {};
+private:
+    static std::vector<char *> to_cstr_vec(const std::vector<std::string> & v) {
+        std::vector<char *> r;
+        r.reserve(v.size() + 1);
+        for (const auto & s : v) {
+            r.push_back(const_cast<char *>(s.c_str()));
+        }
+        r.push_back(nullptr);
+        return r;
     }
 
-    auto res = run_process(
-        {"git", "-C", base, "ls-files", "--cached", "--others", "--exclude-standard"},
-        SERVER_TOOL_GIT_LS_FILES_MAX_OUTPUT, SERVER_TOOL_GIT_LS_FILES_TIMEOUT);
-
-    if (res.exit_code == 0 && !res.timed_out) {
+    std::vector<std::string> list_files_fallback(const std::string & base) const {
         std::vector<std::string> result;
-        std::istringstream iss(res.output);
-        std::string line;
-        while (std::getline(iss, line)) {
-            if (!line.empty() && line.back() == '\r') line.pop_back();
-            if (line.empty()) continue;
-            std::replace(line.begin(), line.end(), '\\', '/');
-            std::error_code fec;
-            if (fs::is_regular_file(fs::path(base) / line, fec)) {
-                result.push_back(line);
+        std::error_code ec;
+
+        std::vector<std::pair<fs::path, fs::path>> stack;
+        stack.emplace_back(fs::path(base), fs::path());
+
+        while (!stack.empty()) {
+            auto [dir, rel_dir] = stack.back();
+            stack.pop_back();
+
+            for (const auto & entry : fs::directory_iterator(dir, fs::directory_options::skip_permission_denied, ec)) {
+                if (ec) break;
+                std::string fname = entry.path().filename().string();
+                std::error_code tec;
+                if (entry.is_directory(tec)) {
+                    if (junk_dir_names().count(fname) > 0) continue;
+                    stack.emplace_back(entry.path(), rel_dir / fname);
+                } else if (entry.is_regular_file(tec)) {
+                    std::string rel = (rel_dir / fname).string();
+                    std::replace(rel.begin(), rel.end(), '\\', '/');
+                    result.push_back(rel);
+                }
             }
         }
+
         return result;
     }
+};
 
-    return list_files_fallback(base);
+static std::unique_ptr<tools_io> make_tools_io() {
+    return std::make_unique<tools_io>();
 }
 
 // no '/' in pattern -> match basename at any depth; else match full relative path
@@ -438,10 +479,11 @@ struct server_tool_read_file : server_tool {
         int  end_line     = json_value(params, "end_line",  -1); // -1 = no limit
         bool append_loc   = json_value(params, "append_loc", false);
 
-        std::error_code ec;
-        uintmax_t file_size = fs::file_size(path, ec);
-        if (ec) {
-            return {{"error", "cannot stat file: " + ec.message()}};
+        auto io = make_tools_io();
+
+        uintmax_t file_size = 0;
+        if (!io->file_size(path, file_size)) {
+            return {{"error", "cannot stat file: " + path}};
         }
         if (file_size > SERVER_TOOL_READ_FILE_MAX_SIZE && end_line == -1) {
             return {{"error", string_format(
@@ -449,11 +491,12 @@ struct server_tool_read_file : server_tool {
                 (size_t)file_size, SERVER_TOOL_READ_FILE_MAX_SIZE)}};
         }
 
-        std::ifstream f(path);
-        if (!f) {
+        std::string content;
+        if (!io->read_file(path, content)) {
             return {{"error", "failed to open file: " + path}};
         }
 
+        std::istringstream f(content);
         std::string result;
         std::string line;
         int lineno = 0;
@@ -524,8 +567,9 @@ struct server_tool_file_glob_search : server_tool {
         std::string include = json_value(params, "include", std::string("**"));
         std::string exclude = json_value(params, "exclude", std::string(""));
 
+        auto io = make_tools_io();
         std::string err;
-        auto files = list_files(base, err);
+        auto files = io->list_files(base, err);
         if (!err.empty()) {
             return {{"error", err}};
         }
@@ -630,15 +674,16 @@ struct server_tool_grep_search : server_tool {
             return {{"error", std::string("invalid regex: ") + e.what()}};
         }
 
+        auto io = make_tools_io();
+
         // collect (absolute_path, display_path) pairs to search
         std::vector<std::pair<std::string, std::string>> files;
 
-        std::error_code ec;
-        if (fs::is_regular_file(path, ec)) {
+        if (io->is_regular_file(path)) {
             files.emplace_back(path, path);
-        } else if (fs::is_directory(path, ec)) {
+        } else if (io->is_directory(path)) {
             std::string err;
-            auto candidates = list_files(path, err);
+            auto candidates = io->list_files(path, err);
             if (!err.empty()) {
                 return {{"error", err}};
             }
@@ -661,10 +706,11 @@ struct server_tool_grep_search : server_tool {
             const std::string & fpath        = file_entry.first;
             const std::string & display_path = file_entry.second;
 
-            std::ifstream f(fpath);
-            if (!f) continue;
+            std::string content;
+            if (!io->read_file(fpath, content)) continue;
             std::vector<std::string> lines;
             {
+                std::istringstream f(content);
                 std::string line;
                 while (std::getline(f, line)) lines.push_back(line);
             }
@@ -752,7 +798,8 @@ struct server_tool_exec_shell_command : server_tool {
         std::vector<std::string> args = {"sh", "-c", command};
 #endif
 
-        auto res = run_process(args, max_output, timeout);
+        auto io  = make_tools_io();
+        auto res = io->run(args, max_output, timeout);
 
         std::string text_output = res.output;
         text_output += string_format("\n[exit code: %d]", res.exit_code);
@@ -797,21 +844,8 @@ struct server_tool_write_file : server_tool {
         std::string path    = params.at("path").get<std::string>();
         std::string content = params.at("content").get<std::string>();
 
-        std::error_code ec;
-        fs::path fpath(path);
-        if (fpath.has_parent_path()) {
-            fs::create_directories(fpath.parent_path(), ec);
-            if (ec) {
-                return {{"error", "failed to create directories: " + ec.message()}};
-            }
-        }
-
-        std::ofstream f(path, std::ios::binary);
-        if (!f) {
-            return {{"error", "failed to open file for writing: " + path}};
-        }
-        f << content;
-        if (!f) {
+        auto io = make_tools_io();
+        if (!io->write_file(path, content)) {
             return {{"error", "failed to write file: " + path}};
         }
 
@@ -886,14 +920,11 @@ struct server_tool_edit_file : server_tool {
             edits.push_back(std::move(er));
         }
 
-        std::ifstream fin(path, std::ios::binary);
-        if (!fin) {
+        auto io = make_tools_io();
+        std::string original_content;
+        if (!io->read_file(path, original_content)) {
             return {{"error", "failed to open file: " + path}};
         }
-        std::ostringstream file_ss;
-        file_ss << fin.rdbuf();
-        std::string original_content = file_ss.str();
-        fin.close();
 
         // does any old_text need fuzzy matching (no exact match found)?
         bool any_fuzzy = false;
@@ -947,12 +978,7 @@ struct server_tool_edit_file : server_tool {
             return {{"error", "no changes made: the replacement(s) produced identical content"}};
         }
 
-        std::ofstream fout(path, std::ios::binary);
-        if (!fout) {
-            return {{"error", "failed to open file for writing: " + path}};
-        }
-        fout << new_content;
-        if (!fout) {
+        if (!io->write_file(path, new_content)) {
             return {{"error", "failed to write file: " + path}};
         }
 
