@@ -594,7 +594,7 @@ std::string server_stream_conv_id_from_headers(const std::map<std::string, std::
     return std::string();
 }
 
-stream_pipe_producer * server_stream_create_spipe(const std::map<std::string, std::string> & headers) {
+static stream_pipe_producer * server_stream_create_spipe(const std::map<std::string, std::string> & headers) {
     std::string conversation_id = server_stream_conv_id_from_headers(headers);
     SRV_TRC("conv_id=%s (empty=%d)\n", conversation_id.c_str(), conversation_id.empty() ? 1 : 0);
     if (conversation_id.empty()) {
@@ -608,6 +608,12 @@ stream_pipe_producer * server_stream_create_spipe(const std::map<std::string, st
 // server_res_spipe
 //
 
+void server_res_spipe::set_req(const server_http_req * req) {
+    this->req = req;
+    // optionally attach spipe to the response when X-Conversation-Id is present
+    spipe.reset(server_stream_create_spipe(req->headers));
+}
+
 bool server_res_spipe::conn_alive() {
     GGML_ASSERT(req != nullptr);
     return !req->should_stop();
@@ -618,7 +624,6 @@ bool server_res_spipe::should_stop() {
         // note: if DELETE /v1/stream/<conv_id> is called, is_cancelled() will be true
         return spipe->is_cancelled();
     } else {
-        GGML_ASSERT(req != nullptr);
         return !conn_alive();
     }
 }
@@ -640,8 +645,7 @@ void server_res_spipe::on_complete() {
     }
 }
 
-void server_res_spipe::set_next(const server_http_req & req_in, std::function<bool(std::string &)> next_fn) {
-    req = &req_in;
+void server_res_spipe::set_next(std::function<bool(std::string &)> next_fn) {
     next_orig = std::move(next_fn);
     next = [this](std::string & out) {
         bool has_next = next_orig(out);

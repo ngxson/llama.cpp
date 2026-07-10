@@ -4028,8 +4028,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
     auto & rd = res->rd;
     auto & params = this->params;
 
-    // optionally attach spipe to the response when X-Conversation-Id is present
-    res->spipe.reset(server_stream_create_spipe(req.headers));
+    res->set_req(&req); // will also set spipe if needed
 
     int32_t sse_ping_interval = params.sse_ping_interval;
 
@@ -4173,7 +4172,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
         }
         res->status = 200;
         res->content_type = "text/event-stream";
-        res->set_next(req, [res_this = res.get(), res_type, sse_ping_interval](std::string & output) -> bool {
+        res->set_next([res_this = res.get(), res_type, sse_ping_interval](std::string & output) -> bool {
             static auto format_error = [](task_response_type res_type, const json & res_json) {
                 if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
                     return format_anthropic_sse({
