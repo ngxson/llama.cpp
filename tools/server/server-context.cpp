@@ -3983,8 +3983,17 @@ server_context_meta server_context::get_meta() const {
 
 // generator-like API for HTTP response generation
 // may have bypass_sleep = true if the task does not use ctx_server
+// also implement tee-style pipe for "stream replay" functionality
 struct server_res_generator : server_http_res {
     server_response_reader rd;
+
+    // if set, the stream survives a client disconnect:
+    // connection kept alive, output is forwarded to spipe and reuse later
+    std::unique_ptr<stream_pipe_producer> spipe;
+    // if spipe is set, use this next_orig to implement tee-style pipe
+    std::function<bool(std::string &)> next_orig;
+    const server_http_req * req = nullptr;
+
     server_res_generator(server_queue & queue_tasks, server_response & queue_results, int sleep_idle_seconds, bool bypass_sleep = false)
             : rd(queue_tasks, queue_results, HTTP_POLLING_SECONDS) {
         // fast path in case sleeping is disabled
@@ -4009,6 +4018,32 @@ struct server_res_generator : server_http_res {
     void error(const json & error_data) {
         status = json_value(error_data, "code", 500);
         data = safe_json_to_str({{ "error", error_data }});
+    }
+
+    // spipe-aware stream next() implementation
+    bool conn_alive() {
+        GGML_ASSERT(req != nullptr);
+        return !req->should_stop();
+    }
+    bool should_stop() {
+        if (spipe) {
+            return spipe->is_cancelled();
+        } else {
+            GGML_ASSERT(req != nullptr);
+            return !conn_alive();
+        }
+    }
+    void set_next(const server_http_req & req_in, std::function<bool(std::string &)> next) {
+        req = &req_in;
+        next_orig = std::move(next);
+        next = [this](std::string & out) {
+            bool has_next = next_orig(out);
+            if (spipe) {
+                // if spipe is set, tee-style pipe input to both HTTP and spipe
+                spipe->write(out.data(), out.size());
+            }
+            return has_next;
+        };
     }
 };
 
@@ -4181,7 +4216,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
         }
         res->status = 200;
         res->content_type = "text/event-stream";
-        res->next = [res_this = res.get(), res_type, sse_ping_interval, &req](std::string & output) -> bool {
+        res->set_next(req, [res_this = res.get(), res_type, sse_ping_interval](std::string & output) -> bool {
             static auto format_error = [](task_response_type res_type, const json & res_json) {
                 if (res_type == TASK_RESPONSE_TYPE_ANTHROPIC) {
                     return format_anthropic_sse({
@@ -4193,7 +4228,9 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
                 }
             };
 
-            auto effective_should_stop = server_stream_aware_should_stop(res_this, req.should_stop);
+            auto effective_should_stop = [&res_this]() {
+                return res_this->should_stop();
+            };
 
             try {
                 if (effective_should_stop()) {
@@ -4284,12 +4321,12 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
                 // terminate on exception
                 return false;
             }
-        };
+        });
     }
 
     // attach a producer pipe to the response when X-Conversation-Id is present.
     // the pipe mirrors SSE chunks into the ring buffer and wires up the cancel hook.
-    server_stream_session_attach_pipe(*res, req.headers);
+    res->spipe.reset(server_stream_create_spipe(*res, req.headers));
 
     return res;
 }

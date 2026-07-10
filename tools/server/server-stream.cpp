@@ -452,33 +452,8 @@ void stream_pipe_producer::done() {
     done_ = true;
 }
 
-void stream_pipe_producer::close() {
-    // httplib bails its content provider the moment is_peer_alive() goes false, so pump the rest
-    // of the generation into the ring buffer here. a DELETE flips is_cancelled and cuts it short
-    if (done_ || session_->is_cancelled()) {
-        SRV_TRC("stream_pipe close: skip drain (done=%d cancelled=%d) conv=%s\n",
-                done_ ? 1 : 0, session_->is_cancelled() ? 1 : 0, session_->conversation_id.c_str());
-        return;
-    }
-    SRV_TRC("stream_pipe close: draining conv=%s\n", session_->conversation_id.c_str());
-    size_t drained = 0;
-    std::string chunk;
-    while (true) {
-        chunk.clear();
-        bool has_next = res_->next(chunk);
-        if (!chunk.empty()) {
-            write(chunk.data(), chunk.size());
-            drained += chunk.size();
-        }
-        if (!has_next) {
-            break;
-        }
-    }
-    SRV_TRC("stream_pipe close: drain ended conv=%s bytes=%zu\n", session_->conversation_id.c_str(), drained);
-}
-
-std::shared_ptr<stream_pipe_producer> stream_pipe_producer::create(stream_session_ptr session,
-                                                                   server_http_res & res) {
+stream_pipe_producer * stream_pipe_producer::create(stream_session_ptr session,
+                                                    server_http_res & res) {
     auto alive = std::make_shared<std::atomic<bool>>(true);
     auto * res_ptr = &res;
     session->set_stop_producer([alive, res_ptr]() {
@@ -486,7 +461,7 @@ std::shared_ptr<stream_pipe_producer> stream_pipe_producer::create(stream_sessio
             res_ptr->stop();
         }
     });
-    auto pipe = std::shared_ptr<stream_pipe_producer>(new stream_pipe_producer(std::move(session)));
+    auto * pipe = new stream_pipe_producer(std::move(session));
     pipe->alive_ = std::move(alive);
     pipe->res_   = res_ptr;
     return pipe;
@@ -661,21 +636,12 @@ std::string server_stream_conv_id_from_headers(const std::map<std::string, std::
     return std::string();
 }
 
-void server_stream_session_attach_pipe(server_http_res & res, const std::map<std::string, std::string> & headers) {
+stream_pipe_producer * server_stream_create_spipe(server_http_res & res, const std::map<std::string, std::string> & headers) {
     std::string conversation_id = server_stream_conv_id_from_headers(headers);
     SRV_TRC("conv_id=%s (empty=%d)\n", conversation_id.c_str(), conversation_id.empty() ? 1 : 0);
     if (conversation_id.empty()) {
-        return;
+        return nullptr;
     }
     auto session = g_stream_sessions.create_or_replace(conversation_id);
-    res.spipe = stream_pipe_producer::create(session, res);
-}
-
-std::function<bool()> server_stream_aware_should_stop(server_http_res * res, std::function<bool()> fallback) {
-    return [res, fallback = std::move(fallback)]() -> bool {
-        if (res->spipe) {
-            return res->spipe->is_cancelled();
-        }
-        return fallback();
-    };
+    return stream_pipe_producer::create(session, res);
 }

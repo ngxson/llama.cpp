@@ -7,6 +7,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <optional>
 
 // streaming buffer for one generation, survives HTTP disconnect. the producer appends SSE bytes,
 // readers drain from any offset via read_from. keyed by conversation_id, one conv = one live session
@@ -42,17 +43,13 @@ struct stream_pipe_producer : stream_pipe {
     // mark the natural end on the wire so a later close() is a no-op
     void done();
 
-    // on a peer drop, pump the response next() into the ring buffer until done. runs on the http
-    // worker from on_complete, no-op after done() or cancel
-    void close();
-
     // disarm the stop hook and drop the alive guard, must run while the response the hook
     // references is still alive. idempotent, the destructor calls it too
     void cleanup();
 
     // res.stop() is invoked when the session is cancelled, the alive guard ensures stop() is not
     // called after cleanup() has run
-    static std::shared_ptr<stream_pipe_producer> create(stream_session_ptr session, server_http_res & res);
+    static stream_pipe_producer * create(stream_session_ptr session, server_http_res & res);
 
 private:
     explicit stream_pipe_producer(stream_session_ptr session);
@@ -74,9 +71,5 @@ server_http_context::handler_t server_stream_make_delete_handler();
 std::string server_stream_conv_id_from_headers(const std::map<std::string, std::string> & headers);
 
 // on an X-Conversation-Id header, create or replace the session and attach a producer pipe to res
-void server_stream_session_attach_pipe(server_http_res & res, const std::map<std::string, std::string> & headers);
-
-// should_stop closure that ignores peer disconnect when a pipe is attached, so only an explicit
-// DELETE stops the producer and generation keeps flowing into the ring buffer. without a pipe it
-// delegates to fallback, the legacy non-resumable flow
-std::function<bool()> server_stream_aware_should_stop(server_http_res * res, std::function<bool()> fallback);
+// returns nullptr if the required header is missing
+stream_pipe_producer * server_stream_create_spipe(server_http_res & res, const std::map<std::string, std::string> & headers);
