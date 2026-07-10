@@ -3979,64 +3979,6 @@ server_context_meta server_context::get_meta() const {
     };
 }
 
-// implement tee-style pipe (spipe) for "stream replay" functionality
-struct server_res_spipe : server_http_res {
-    // if set, the stream survives a client disconnect:
-    // connection kept alive, output is forwarded to spipe and reuse later
-    std::unique_ptr<stream_pipe_producer> spipe;
-    // if spipe is set, use this next_orig to implement tee-style pipe
-    std::function<bool(std::string &)> next_orig;
-    const server_http_req * req = nullptr;
-    // set once next_orig reports no more data, so on_complete() doesn't re-drain a finished stream
-    bool next_finished = false;
-
-    // spipe-aware stream next() implementation
-    bool conn_alive() {
-        GGML_ASSERT(req != nullptr);
-        return !req->should_stop();
-    }
-    bool should_stop() {
-        if (spipe) {
-            // note: if DELETE /v1/stream/<conv_id> is called, is_cancelled() will be true
-            return spipe->is_cancelled();
-        } else {
-            GGML_ASSERT(req != nullptr);
-            return !conn_alive();
-        }
-    }
-    void on_complete() override {
-        if (!spipe || next_finished) {
-            return;
-        }
-        std::string chunk;
-        while (!spipe->is_cancelled()) {
-            chunk.clear();
-            bool has_next = next_orig(chunk);
-            if (!chunk.empty()) {
-                spipe->write(chunk.data(), chunk.size());
-            }
-            if (!has_next) {
-                break;
-            }
-        }
-    }
-    void set_next(const server_http_req & req_in, std::function<bool(std::string &)> next_fn) {
-        req = &req_in;
-        next_orig = std::move(next_fn);
-        next = [this](std::string & out) {
-            bool has_next = next_orig(out);
-            if (spipe) {
-                // if spipe is set, tee-style pipe input to both HTTP and spipe
-                spipe->write(out.data(), out.size());
-            }
-            if (!has_next) {
-                next_finished = true;
-            }
-            return has_next;
-        };
-    }
-};
-
 // generator-like API for HTTP response generation
 // may have bypass_sleep = true if the task does not use ctx_server
 struct server_res_generator : server_res_spipe {

@@ -55,3 +55,20 @@ std::string server_stream_conv_id_from_headers(const std::map<std::string, std::
 // on an X-Conversation-Id header, create or replace the session and produce a pipe for it
 // returns nullptr if the required header is missing
 stream_pipe_producer * server_stream_create_spipe(const std::map<std::string, std::string> & headers);
+
+// implement tee-style pipe (spipe) for "stream replay" functionality
+struct server_res_spipe : server_http_res {
+    // if set, the stream survives a client disconnect:
+    // connection kept alive, output is forwarded to spipe and reuse later
+    std::unique_ptr<stream_pipe_producer> spipe;
+    // if spipe is set, use this next_orig to implement tee-style pipe
+    std::function<bool(std::string &)> next_orig;
+    const server_http_req * req = nullptr;
+    // set once next_orig reports no more data, so on_complete() doesn't re-drain a finished stream
+    bool next_finished = false;
+
+    bool conn_alive();
+    bool should_stop();
+    void on_complete() override;
+    void set_next(const server_http_req & req_in, std::function<bool(std::string &)> next_fn);
+};

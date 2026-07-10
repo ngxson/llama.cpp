@@ -603,3 +603,55 @@ stream_pipe_producer * server_stream_create_spipe(const std::map<std::string, st
     auto session = g_stream_sessions.create_or_replace(conversation_id);
     return stream_pipe_producer::create(session);
 }
+
+//
+// server_res_spipe
+//
+
+bool server_res_spipe::conn_alive() {
+    GGML_ASSERT(req != nullptr);
+    return !req->should_stop();
+}
+
+bool server_res_spipe::should_stop() {
+    if (spipe) {
+        // note: if DELETE /v1/stream/<conv_id> is called, is_cancelled() will be true
+        return spipe->is_cancelled();
+    } else {
+        GGML_ASSERT(req != nullptr);
+        return !conn_alive();
+    }
+}
+
+void server_res_spipe::on_complete() {
+    if (!spipe || next_finished) {
+        return;
+    }
+    std::string chunk;
+    while (!spipe->is_cancelled()) {
+        chunk.clear();
+        bool has_next = next_orig(chunk);
+        if (!chunk.empty()) {
+            spipe->write(chunk.data(), chunk.size());
+        }
+        if (!has_next) {
+            break;
+        }
+    }
+}
+
+void server_res_spipe::set_next(const server_http_req & req_in, std::function<bool(std::string &)> next_fn) {
+    req = &req_in;
+    next_orig = std::move(next_fn);
+    next = [this](std::string & out) {
+        bool has_next = next_orig(out);
+        if (spipe) {
+            // if spipe is set, tee-style pipe input to both HTTP and spipe
+            spipe->write(out.data(), out.size());
+        }
+        if (!has_next) {
+            next_finished = true;
+        }
+        return has_next;
+    };
+}
