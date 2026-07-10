@@ -4,6 +4,9 @@
 #include "server-http.h"
 #include "server-queue.h"
 
+#include <atomic>
+#include <functional>
+
 struct server_tool {
     std::string name;
     std::string display_name;
@@ -14,7 +17,10 @@ struct server_tool {
     virtual json get_definition() const = 0;
 
     struct stream {
-        // TODO
+        server_response & qr;
+        int id;
+        std::function<bool()> alive;
+        void push(const std::string & chunk);
     };
     virtual json invoke(json params, stream * st = nullptr) const = 0;
 
@@ -26,10 +32,9 @@ struct server_tools {
 
     // for streaming
     server_response queue_res;
-    int res_id = 0;
+    std::atomic<int> res_id{0};
 
     void setup(const std::vector<std::string> & enabled_tools);
-    json invoke(const std::string & name, const json & params, server_tool::stream * st);
 
     server_http_context::handler_t handle_get;
     server_http_context::handler_t handle_post;
