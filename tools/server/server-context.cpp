@@ -4028,6 +4028,9 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
     auto & rd = res->rd;
     auto & params = this->params;
 
+    // optionally attach spipe to the response when X-Conversation-Id is present
+    res->spipe.reset(server_stream_create_spipe(req.headers));
+
     int32_t sse_ping_interval = params.sse_ping_interval;
 
     try {
@@ -4277,10 +4280,6 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
             }
         });
     }
-
-    // attach a producer pipe to the response when X-Conversation-Id is present.
-    // the pipe mirrors SSE chunks into the ring buffer and wires up the cancel hook.
-    res->spipe.reset(server_stream_create_spipe(req.headers));
 
     return res;
 }

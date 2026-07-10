@@ -1,7 +1,6 @@
 #include "common.h"
 #include "http.h"
 #include "server-http.h"
-#include "server-stream.h"
 #include "server-common.h"
 #include "ui.h"
 
