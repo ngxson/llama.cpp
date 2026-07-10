@@ -7,7 +7,6 @@
 #include <functional>
 #include <memory>
 #include <string>
-#include <optional>
 
 // streaming buffer for one generation, survives HTTP disconnect. the producer appends SSE bytes,
 // readers drain from any offset via read_from. keyed by conversation_id, one conv = one live session

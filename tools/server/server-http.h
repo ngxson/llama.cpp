@@ -29,9 +29,11 @@ struct server_http_res {
         return next != nullptr;
     }
 
-    // called when the session is cancelled (e.g. DELETE /v1/stream/<conv_id>).
-    // server_res_generator overrides this to stop its reader; the default is a no-op.
+    // to be called by other endpoint (e.g. DELETE /v1/stream/<conv_id>) to force-stop a streaming response
     virtual void stop() {}
+
+    // fired before req and res are destroyed
+    virtual void on_complete() {}
 
     virtual ~server_http_res() = default;
 };

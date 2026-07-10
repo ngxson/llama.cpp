@@ -531,7 +531,6 @@ static void process_handler_response(server_http_req_ptr && request, server_http
             const bool has_next = response->next(chunk);
             if (!chunk.empty()) {
                 if (!sink.write(chunk.data(), chunk.size())) {
-                    // peer is gone, stop the wire path here
                     return false;
                 }
                 SRV_DBG("http: streamed chunk: %s\n", chunk.c_str());
@@ -543,7 +542,8 @@ static void process_handler_response(server_http_req_ptr && request, server_http
             return has_next;
         };
         const auto on_complete = [request = q_ptr, response = r_ptr](bool) mutable {
-            response.reset(); // spipe destructor finalizes the session if attached
+            response->on_complete();
+            response.reset();
             request.reset();
         };
         res.set_chunked_content_provider(content_type, chunked_content_provider, on_complete);
@@ -551,6 +551,7 @@ static void process_handler_response(server_http_req_ptr && request, server_http
         res.status = response->status;
         set_headers(res, response->headers);
         res.set_content(response->data, response->content_type);
+        response->on_complete();
     }
 }
 
