@@ -1071,7 +1071,9 @@ struct server_tool_stream_result : server_task_result {
             return {{"chunk", chunk}};
         } else {
             json result = {{"done", true}};
-            result["error"] = error_msg;
+            if (!error_msg.empty()) {
+                result["error"] = error_msg;
+            }
             return result;
         }
     }
@@ -1087,10 +1089,15 @@ void server_tool::stream::push(const std::string & chunk) {
 
 struct server_tools_res : server_http_res {
     std::thread worker;
+    server_response * qr = nullptr; // set only for streaming responses
+    int id = -1;
 
     ~server_tools_res() override {
         if (worker.joinable()) {
             worker.join();
+        }
+        if (qr) {
+            qr->remove_waiting_task_id(id);
         }
     }
 };
@@ -1183,8 +1190,10 @@ void server_tools::setup(const std::vector<std::string> & enabled_tools) {
             if (stream) {
                 int id = res_id.fetch_add(1);
                 queue_res.add_waiting_task_id(id);
+                res->qr = &queue_res;
+                res->id = id;
 
-                res->worker = std::thread([this, id, &req, &res, &tool, params]() mutable {
+                res->worker = std::thread([this, id, &req, &tool, params]() mutable {
                     server_tool::stream st{queue_res, id, [&req]() {
                         return !req.should_stop();
                     }};
