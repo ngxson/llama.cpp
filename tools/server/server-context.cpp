@@ -3997,6 +3997,7 @@ struct server_res_spipe : server_http_res {
     }
     bool should_stop() {
         if (spipe) {
+            // note: if DELETE /v1/stream/<conv_id> is called, is_cancelled() will be true
             return spipe->is_cancelled();
         } else {
             GGML_ASSERT(req != nullptr);
@@ -4047,15 +4048,6 @@ struct server_res_generator : server_res_spipe {
         if (!bypass_sleep) {
             queue_tasks.wait_until_no_sleep();
         }
-    }
-    ~server_res_generator() override {
-        // call cleanup() here instead of server_res_spipe to make sure rd is not yet destroyed
-        if (spipe) {
-            spipe->cleanup();
-        }
-    }
-    void stop() override {
-        rd.stop();
     }
     void ok(const json & response_data) {
         status = 200;
@@ -4346,7 +4338,7 @@ std::unique_ptr<server_res_generator> server_routes::handle_completions_impl(
 
     // attach a producer pipe to the response when X-Conversation-Id is present.
     // the pipe mirrors SSE chunks into the ring buffer and wires up the cancel hook.
-    res->spipe.reset(server_stream_create_spipe(*res, req.headers));
+    res->spipe.reset(server_stream_create_spipe(req.headers));
 
     return res;
 }

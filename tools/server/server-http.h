@@ -29,9 +29,6 @@ struct server_http_res {
         return next != nullptr;
     }
 
-    // to be called by other endpoint (e.g. DELETE /v1/stream/<conv_id>) to force-stop a streaming response
-    virtual void stop() {}
-
     // fired before req and res are destroyed
     virtual void on_complete() {}
 
