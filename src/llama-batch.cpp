@@ -1134,7 +1134,7 @@ int32_t llama_batch_ext_add(llama_batch_ext * batch, llama_seq_id seq_id) {
     return batch->add_token(seq_id);
 }
 
-int32_t llama_batch_ext_add_token(llama_batch_ext * batch, llama_token id, llama_seq_id seq_id) {
+int32_t llama_batch_ext_add_token(llama_batch_ext * batch, llama_seq_id seq_id, llama_token id) {
     int32_t idx = batch->add_token(seq_id);
     if (idx < 0) {
         return idx;
@@ -1145,7 +1145,7 @@ int32_t llama_batch_ext_add_token(llama_batch_ext * batch, llama_token id, llama
     return idx;
 }
 
-int32_t llama_batch_ext_add_embd(llama_batch_ext * batch, float * embd, llama_seq_id seq_id) {
+int32_t llama_batch_ext_add_embd(llama_batch_ext * batch, llama_seq_id seq_id, float * embd) {
     int32_t idx = batch->add_token(seq_id);
     if (idx < 0) {
         return idx;
