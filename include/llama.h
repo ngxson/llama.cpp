@@ -1004,25 +1004,25 @@ extern "C" {
                                                int32_t   idx,
                                           llama_seq_id   seq_id);
 
-    /*
-    // Set nextn embedding for the token at index idx in the batch
-    LLAMA_API bool llama_batch_ext_set_embd_nextn(
-                                struct llama_batch_ext * batch,
-                                               int32_t   idx,
-                                                 float * embd_nextn);
+    // // Set nextn embedding for the token at index idx in the batch
+    // LLAMA_API bool llama_batch_ext_set_embd_nextn(
+    //                             struct llama_batch_ext * batch,
+    //                                            int32_t   idx,
+    //                                              float * embd_nextn);
 
     // Set output embedding for the token at index idx in the batch
+    // Note: for now, this is equivalent to setting the output logits
     LLAMA_API bool llama_batch_ext_set_output_embd(
                                 struct llama_batch_ext * batch,
                                                int32_t  idx,
                                                   bool  value);
 
     // Set output logits for the token at index idx in the batch
+    // Note: for now, this is equivalent to setting the output embd
     LLAMA_API bool llama_batch_ext_set_output_logits(
                                 struct llama_batch_ext * batch,
                                                int32_t  idx,
                                                   bool  value);
-    */
 
     // Set custom position for the token at index idx in the batch
     // For M-RoPE models:

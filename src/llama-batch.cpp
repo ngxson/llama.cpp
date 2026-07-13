@@ -1164,6 +1164,14 @@ bool llama_batch_ext_set_pos(llama_batch_ext * batch, int32_t idx, llama_pos * p
     return batch->set_token_pos(idx, pos);
 }
 
+bool llama_batch_ext_set_output_embd(llama_batch_ext * batch, int32_t idx, bool value) {
+    return batch->set_output(idx, value);
+}
+
+bool llama_batch_ext_set_output_logits(llama_batch_ext * batch, int32_t idx, bool value) {
+    return batch->set_output(idx, value);
+}
+
 // llama_batch_compat
 
 llama_batch_compat::llama_batch_compat(llama_context * ctx, const llama_batch & batch_inp) {
