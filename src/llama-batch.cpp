@@ -1015,7 +1015,7 @@ void llama_batch_ext::clear() {
     embd  .clear();
     pos_max.resize(n_seq_max);
     for (llama_seq_id i = 0; i < n_seq_max; ++i) {
-        pos_max[i] = memory ? llama_memory_seq_pos_max(memory, i) : 0;
+        pos_max[i] = memory ? llama_memory_seq_pos_max(memory, i) + 1 : 0;
     }
 }
 
@@ -1100,9 +1100,9 @@ bool llama_batch_ext::set_token_pos(int32_t idx, llama_pos * pos_in) {
     }
 
     // also update seq pos_max
-    auto new_temporal_pos = pos_in[0];
+    auto next_pos = pos_in[0] + 1;
     for (llama_seq_id seq : t.seq_ids) {
-        pos_max[seq] = std::max(pos_max[seq], new_temporal_pos);
+        pos_max[seq] = std::max(pos_max[seq], next_pos);
     }
 
     return true;
