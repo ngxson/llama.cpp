@@ -1219,7 +1219,10 @@ llama_batch_compat::llama_batch_compat(llama_context * ctx, const llama_batch & 
         }
 
         // output flag
-        t.output = batch_inp.logits ? (batch_inp.logits[i] != 0) : false;
+        // if no logits array is given, default to only the last token being an output
+        t.output = batch_inp.logits
+            ? (batch_inp.logits[i] != 0)
+            : (i == batch_inp.n_tokens - 1);
 
         batch_ext->tokens.push_back(t);
     }
