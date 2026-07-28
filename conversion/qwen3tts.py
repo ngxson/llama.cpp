@@ -70,7 +70,7 @@ class Qwen3TTSTalkerModel(TextModel):
 
         name = name[len("talker."):]
         if name == "codec_head.weight":
-            name = "lm_head.weight"
+            return None
 
         return super().filter_tensors((name, gen))
 
