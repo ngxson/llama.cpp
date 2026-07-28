@@ -51,7 +51,8 @@ class Qwen3TTSTalkerModel(TextModel):
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
-        logger.warning("Qwen3-TTS: only the talker backbone is converted; code_predictor and speaker_encoder are skipped")
+        # TODO: figure out the template
+        self.gguf_writer.add_chat_template("{% for m in messages %}{{m['content']}}{% endfor %}")
 
     @classmethod
     def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:
@@ -114,6 +115,15 @@ class Qwen3TTSSpeakerEncoderModel(MmprojModel):
         self.gguf_writer.add_clip_has_audio_encoder(True)
         self.gguf_writer.add_clip_audio_projector_type(gguf.VisionProjectorType.QWEN3TTS_SPKENC)
         self.gguf_writer.add_audio_projection_dim(self.n_embd_text)
+        # mel_spectrogram() front-end: sr=24000, n_fft=1024, hop=256, n_mels=128, fmin=0, fmax=12000 (=sr/2, the clip.cpp default)
+        self.gguf_writer.add_audio_num_mel_bins(128)
+        # the 3 SE-Res2Net stages (blocks 1-3); the stem conv, mfa, asp and fc are singletons, not part of this count
+        self.gguf_writer.add_audio_block_count(3)
+        # ECAPA-TDNN has no attention/FFN, these are dummy to allow clip.cpp to load it
+        self.gguf_writer.add_audio_embedding_length(1536)
+        self.gguf_writer.add_audio_head_count(1)
+        self.gguf_writer.add_audio_feed_forward_length(1536)
+        self.gguf_writer.add_audio_attention_layernorm_eps(1e-5)
 
     @classmethod
     def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:

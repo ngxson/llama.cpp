@@ -199,6 +199,13 @@
 #define TN_MM_A_LOCAL_LN2      "mm.a.local_blk.%d.ln2.%s"
 #define TN_MM_A_LOCAL_NORM     "mm.a.local_norm.%s"
 
+// qwen3tts speaker encoder (ECAPA-TDNN)
+#define TN_A_SE_CONV1  "a.blk.%d.se_conv1.%s"
+#define TN_A_SE_CONV2  "a.blk.%d.se_conv2.%s"
+#define TN_A_CONV_RES2 "a.blk.%d.res2.%d.%s"
+#define TN_A_ASP_ATTN  "a.asp_attn.%s"
+#define TN_A_ASP_TDNN  "a.asp_tdnn.%s"
+
 // cogvlm
 #define TN_MM_POST_FC_NORM "mm.post_fc_norm.%s"
 #define TN_MM_H_TO_4H      "mm.up.%s"
@@ -399,6 +406,7 @@ enum projector_type {
     PROJECTOR_TYPE_MINIMAX_M3,
     PROJECTOR_TYPE_GRANITE4_VISION,
     PROJECTOR_TYPE_MIMO_AUDIO,
+    PROJECTOR_TYPE_QWEN3TTS_SPKENC,
     PROJECTOR_TYPE_UNKNOWN,
 };
 
@@ -455,6 +463,7 @@ static std::map<projector_type, std::string> PROJECTOR_TYPE_NAMES = {
     { PROJECTOR_TYPE_MINIMAX_M3,        "minimax_m3"},
     { PROJECTOR_TYPE_GRANITE4_VISION,   "granite4_vision"},
     { PROJECTOR_TYPE_MIMO_AUDIO,        "mimo_audio"},
+    { PROJECTOR_TYPE_QWEN3TTS_SPKENC,   "qwen3tts_spkenc"},
 };
 
 static projector_type clip_projector_type_from_string(const std::string & str) {

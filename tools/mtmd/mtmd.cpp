@@ -736,6 +736,10 @@ struct mtmd_context {
                     aud_end = "<|mimo_audio_end|>";
                     audio_preproc = std::make_unique<mtmd_audio_preprocessor_mimo_audio>(ctx_a);
                 } break;
+            case PROJECTOR_TYPE_QWEN3TTS_SPKENC:
+                {
+                    audio_preproc = std::make_unique<mtmd_audio_preprocessor_qwen3tts_spk>(ctx_a);
+                } break;
             default:
                 throw std::runtime_error(string_format("%s: unexpected audio projector type %d\n", __func__, proj));
         }
