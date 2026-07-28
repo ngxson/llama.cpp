@@ -1,14 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Callable, Iterable, TYPE_CHECKING
+from typing import Any, Callable, Iterable, TYPE_CHECKING
 
 import torch.nn.functional as F
 
 if TYPE_CHECKING:
     from torch import Tensor
 
-from .base import ModelBase, TextModel, gguf, logger
+from .base import ModelBase, MmprojModel, TextModel, gguf, logger
 
 
 # torch activation functions used by Qwen3TTSTalkerResizeMLP (config's hidden_act)
@@ -21,10 +21,6 @@ _ACT2FN = {
 
 @ModelBase.register("Qwen3TTSForConditionalGeneration")
 class Qwen3TTSTalkerModel(TextModel):
-    """Converts only the talker's backbone transformer (text-conditioned codec
-    token predictor). The speaker encoder and the small code_predictor
-    sub-model are not handled yet."""
-
     model_arch = gguf.MODEL_ARCH.QWEN3TTS
 
     _TEXT_PROJ_KEYS = (
@@ -41,11 +37,7 @@ class Qwen3TTSTalkerModel(TextModel):
         hparams = kwargs.pop("hparams", None)
         if hparams is None:
             hparams = ModelBase.load_hparams(dir_model, is_mistral_format=False)
-        # reuse TextModel's generic "text_config" flattening for the talker's own config
         talker_config = dict(hparams["talker_config"])
-        # talker_config's own "vocab_size" is the codec vocab (talker.codec_head /
-        # talker.model.codec_embedding), not the BPE text vocab that "vocab_size" is
-        # normally expected to describe; use text_vocab_size (matches embed_tokens) instead
         talker_config["vocab_size"] = talker_config["text_vocab_size"]
         hparams["text_config"] = talker_config
         super().__init__(dir_model, *args, hparams=hparams, **kwargs)
@@ -84,9 +76,7 @@ class Qwen3TTSTalkerModel(TextModel):
             if len(self._text_proj_buffer) < len(self._TEXT_PROJ_KEYS):
                 return
 
-            # the talker only ever consumes text_embedding through text_projection
-            # (a 2-layer MLP: fc2(act(fc1(x)))), so fold it into the embedding table
-            # at conversion time instead of carrying the MLP weights around
+            # fold MLP into the embedding table at conversion time, MLP won't be used at inference time anyway
             act_fn = _ACT2FN[self.hparams["hidden_act"]]
             embed = self._text_proj_buffer["model.text_embedding.weight"]
             hidden = act_fn(F.linear(embed,
@@ -96,6 +86,51 @@ class Qwen3TTSTalkerModel(TextModel):
                                self._text_proj_buffer["text_projection.linear_fc2.weight"],
                                self._text_proj_buffer["text_projection.linear_fc2.bias"])
             yield (self.format_tensor_name(gguf.MODEL_TENSOR.TOKEN_EMBD), folded)
+            return
+
+        yield from super().modify_tensors(data_torch, name, bid)
+
+
+@ModelBase.register("Qwen3TTSForConditionalGeneration")
+class Qwen3TTSSpeakerEncoderModel(MmprojModel):
+    has_vision_encoder = False
+    has_audio_encoder = True
+
+    def __init__(self, dir_model: Path, *args, **kwargs):
+        hparams = kwargs.pop("hparams", None)
+        if hparams is None:
+            hparams = ModelBase.load_hparams(dir_model, is_mistral_format=False)
+        hparams["text_config"] = {"hidden_size": hparams["talker_config"]["hidden_size"]}
+        # ECAPA-TDNN has a fixed 4-stage backbone, not a configurable transformer depth;
+        # MmprojModel.__init__ still needs one of the n_block_keys to build its tensor map
+        hparams["speaker_encoder_config"]["n_layers"] = 4
+        super().__init__(dir_model, *args, hparams=hparams, **kwargs)
+
+    def get_audio_config(self) -> dict[str, Any] | None:
+        return self.global_config.get("speaker_encoder_config")
+
+    def set_gguf_parameters(self):
+        self.gguf_writer.add_file_type(self.ftype)
+        self.gguf_writer.add_clip_has_audio_encoder(True)
+        self.gguf_writer.add_clip_audio_projector_type(gguf.VisionProjectorType.QWEN3TTS_SPKENC)
+        self.gguf_writer.add_audio_projection_dim(self.n_embd_text)
+
+    @classmethod
+    def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:
+        name, gen = item
+
+        if not name.startswith("speaker_encoder."):
+            return None
+
+        return super().filter_tensors((name, gen))
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        if "res2net_block.blocks." in name:
+            assert bid is not None  # the outer stage index, picked up from the tensor name automatically
+            xid = int(name.split("res2net_block.blocks.")[1].split(".")[0])
+            suffix = "." + name.rsplit(".", 1)[1]
+            new_name = gguf.TENSOR_NAMES[gguf.MODEL_TENSOR.A_ENC_CONV_RES2].format(bid=bid, xid=xid) + suffix
+            yield (new_name, data_torch)
             return
 
         yield from super().modify_tensors(data_torch, name, bid)

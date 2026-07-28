@@ -956,6 +956,11 @@ class MODEL_TENSOR(IntEnum):
     A_ENC_DOWNSAMPLE_CONV = auto() # mimo-audio-tokenizer: post-transformer downsample conv
     A_ENC_DOWNSAMPLE_NORM = auto() # mimo-audio-tokenizer: post-transformer downsample norm
     A_ENC_RVQ_CODEBOOK    = auto() # mimo-audio-tokenizer: residual vector quantizer codebook, per quantizer index
+    A_ENC_CONV_RES2       = auto() # qwen3tts
+    A_ENC_SE_CONV1        = auto() # qwen3tts
+    A_ENC_SE_CONV2        = auto() # qwen3tts
+    A_ENC_ASP_ATTN        = auto() # qwen3tts
+    A_ENC_ASP_TDNN        = auto() # qwen3tts
     A_MMPROJ              = auto()
     A_MMPROJ_FC           = auto()
     A_MM_NORM_PRE         = auto()
@@ -1558,6 +1563,11 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.A_ENC_DOWNSAMPLE_CONV:     "a.downsample.conv",
     MODEL_TENSOR.A_ENC_DOWNSAMPLE_NORM:     "a.downsample.norm",
     MODEL_TENSOR.A_ENC_RVQ_CODEBOOK:        "a.rvq.codebook",
+    MODEL_TENSOR.A_ENC_CONV_RES2:           "a.blk.{bid}.res2.{xid}",
+    MODEL_TENSOR.A_ENC_SE_CONV1:            "a.blk.{bid}.se_conv1",
+    MODEL_TENSOR.A_ENC_SE_CONV2:            "a.blk.{bid}.se_conv2",
+    MODEL_TENSOR.A_ENC_ASP_ATTN:            "a.asp_attn",
+    MODEL_TENSOR.A_ENC_ASP_TDNN:            "a.asp_tdnn",
     MODEL_TENSOR.A_MMPROJ:                  "mm.a.mlp.{bid}",
     MODEL_TENSOR.A_MMPROJ_FC:               "mm.a.fc",
     MODEL_TENSOR.A_MM_NORM_PRE:             "mm.a.norm_pre",
@@ -1805,6 +1815,11 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.A_ENC_CONV_NORM,
         MODEL_TENSOR.A_ENC_CONV_PW1,
         MODEL_TENSOR.A_ENC_CONV_PW2,
+        MODEL_TENSOR.A_ENC_CONV_RES2,
+        MODEL_TENSOR.A_ENC_SE_CONV1,
+        MODEL_TENSOR.A_ENC_SE_CONV2,
+        MODEL_TENSOR.A_ENC_ASP_ATTN,
+        MODEL_TENSOR.A_ENC_ASP_TDNN,
         MODEL_TENSOR.A_MM_INP_PROJ,
         MODEL_TENSOR.A_MM_SOFT_EMB_NORM,
         MODEL_TENSOR.A_MM_EMBEDDING,
@@ -4867,6 +4882,7 @@ class VisionProjectorType:
     GLM4V = "glm4v"
     YOUTUVL = "youtuvl"
     NEMOTRON_V2_VL = "nemotron_v2_vl"
+    QWEN3TTS_SPKENC = "qwen3tts_spkenc" # audio: ECAPA-TDNN speaker encoder
     HUNYUANVL      = "hunyuanvl"
     MINIMAXM3      = "minimax_m3"
     MINICPMV4_6    = "minicpmv4_6"
