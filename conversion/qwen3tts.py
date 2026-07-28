@@ -1,0 +1,101 @@
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Callable, Iterable, TYPE_CHECKING
+
+import torch.nn.functional as F
+
+if TYPE_CHECKING:
+    from torch import Tensor
+
+from .base import ModelBase, TextModel, gguf, logger
+
+
+# torch activation functions used by Qwen3TTSTalkerResizeMLP (config's hidden_act)
+_ACT2FN = {
+    "silu": F.silu,
+    "gelu": F.gelu,
+    "relu": F.relu,
+}
+
+
+@ModelBase.register("Qwen3TTSForConditionalGeneration")
+class Qwen3TTSTalkerModel(TextModel):
+    """Converts only the talker's backbone transformer (text-conditioned codec
+    token predictor). The speaker encoder and the small code_predictor
+    sub-model are not handled yet."""
+
+    model_arch = gguf.MODEL_ARCH.QWEN3TTS
+
+    _TEXT_PROJ_KEYS = (
+        "model.text_embedding.weight",
+        "text_projection.linear_fc1.weight",
+        "text_projection.linear_fc1.bias",
+        "text_projection.linear_fc2.weight",
+        "text_projection.linear_fc2.bias",
+    )
+
+    _text_proj_buffer: dict[str, Tensor]
+
+    def __init__(self, dir_model: Path, *args, **kwargs):
+        hparams = kwargs.pop("hparams", None)
+        if hparams is None:
+            hparams = ModelBase.load_hparams(dir_model, is_mistral_format=False)
+        # reuse TextModel's generic "text_config" flattening for the talker's own config
+        talker_config = dict(hparams["talker_config"])
+        # talker_config's own "vocab_size" is the codec vocab (talker.codec_head /
+        # talker.model.codec_embedding), not the BPE text vocab that "vocab_size" is
+        # normally expected to describe; use text_vocab_size (matches embed_tokens) instead
+        talker_config["vocab_size"] = talker_config["text_vocab_size"]
+        hparams["text_config"] = talker_config
+        super().__init__(dir_model, *args, hparams=hparams, **kwargs)
+        self._text_proj_buffer = {}
+
+    def set_vocab(self):
+        try:
+            self._set_vocab_sentencepiece()
+        except FileNotFoundError:
+            self._set_vocab_gpt2()
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        logger.warning("Qwen3-TTS: only the talker backbone is converted; code_predictor and speaker_encoder are skipped")
+
+    @classmethod
+    def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:
+        name, gen = item
+
+        if not name.startswith("talker.") or name.startswith("talker.code_predictor."):
+            return None
+
+        name = name[len("talker."):]
+        if name == "codec_head.weight":
+            name = "lm_head.weight"
+
+        return super().filter_tensors((name, gen))
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        # model.codec_embedding.weight belongs to the mmproj (handled separately)
+        if name == "model.codec_embedding.weight":
+            return
+
+        if name in self._TEXT_PROJ_KEYS:
+            self._text_proj_buffer[name] = data_torch
+            if len(self._text_proj_buffer) < len(self._TEXT_PROJ_KEYS):
+                return
+
+            # the talker only ever consumes text_embedding through text_projection
+            # (a 2-layer MLP: fc2(act(fc1(x)))), so fold it into the embedding table
+            # at conversion time instead of carrying the MLP weights around
+            act_fn = _ACT2FN[self.hparams["hidden_act"]]
+            embed = self._text_proj_buffer["model.text_embedding.weight"]
+            hidden = act_fn(F.linear(embed,
+                                      self._text_proj_buffer["text_projection.linear_fc1.weight"],
+                                      self._text_proj_buffer["text_projection.linear_fc1.bias"]))
+            folded = F.linear(hidden,
+                               self._text_proj_buffer["text_projection.linear_fc2.weight"],
+                               self._text_proj_buffer["text_projection.linear_fc2.bias"])
+            yield (self.format_tensor_name(gguf.MODEL_TENSOR.TOKEN_EMBD), folded)
+            return
+
+        yield from super().modify_tensors(data_torch, name, bid)
