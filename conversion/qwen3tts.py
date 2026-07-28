@@ -19,6 +19,17 @@ _ACT2FN = {
 }
 
 
+DEFAULT_TEMPLATE = """{% for message in messages %}
+{% if message['role'] == 'system' %}<|im_start|>system
+{{ message['content'] }}<|im_end|>
+{% elif message['role'] == 'user' %}<|im_start|>user
+{{ message['content'] }}<|im_end|>
+{% endif %}
+{% endfor %}<|im_start|>assistant
+{{ text_to_speak }}<|im_end|>
+<|im_start|>assistant"""
+
+
 @ModelBase.register("Qwen3TTSForConditionalGeneration")
 class Qwen3TTSTalkerModel(TextModel):
     model_arch = gguf.MODEL_ARCH.QWEN3TTS
@@ -51,8 +62,7 @@ class Qwen3TTSTalkerModel(TextModel):
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
-        # TODO: figure out the template
-        self.gguf_writer.add_chat_template("{% for m in messages %}{{m['content']}}{% endfor %}")
+        self.gguf_writer.add_chat_template(DEFAULT_TEMPLATE)
 
     @classmethod
     def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:

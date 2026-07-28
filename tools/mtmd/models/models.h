@@ -215,6 +215,17 @@ struct clip_graph_mimo_audio : clip_graph {
     ggml_cgraph * build() override;
 };
 
+struct clip_graph_qwen3tts_spkenc : clip_graph {
+    clip_graph_qwen3tts_spkenc(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    ggml_cgraph * build() override;
+
+    ggml_tensor * conv1d_same(ggml_tensor * x, ggml_tensor * w, ggml_tensor * b, int dilation) const;
+    ggml_tensor * res2net(ggml_tensor * x, const clip_layer & layer, int dilation, int scale) const;
+    ggml_tensor * se_block(ggml_tensor * x, const clip_layer & layer) const;
+    ggml_tensor * se_res2net_block(ggml_tensor * x, const clip_layer & layer, int dilation, int scale) const;
+    ggml_tensor * attentive_stats_pool(ggml_tensor * x) const;
+};
+
 struct clip_graph_kimik25 : clip_graph {
     clip_graph_kimik25(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     ggml_cgraph * build() override;

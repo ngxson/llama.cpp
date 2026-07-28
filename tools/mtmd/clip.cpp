@@ -1025,6 +1025,10 @@ static std::unique_ptr<clip_graph> clip_get_graph_builder(clip_ctx * ctx, const 
             {
                 builder = std::make_unique<clip_graph_mimo_audio>(ctx, img);
             } break;
+        case PROJECTOR_TYPE_QWEN3TTS_SPKENC:
+            {
+                builder = std::make_unique<clip_graph_qwen3tts_spkenc>(ctx, img);
+            } break;
         case PROJECTOR_TYPE_YOUTUVL:
             {
                 builder = std::make_unique<clip_graph_youtuvl>(ctx, img);
@@ -4408,6 +4412,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, int n_threads, const clip_image_f32
         case PROJECTOR_TYPE_COGVLM:
         case PROJECTOR_TYPE_YASA2:
         case PROJECTOR_TYPE_GEMMA4UA:
+        case PROJECTOR_TYPE_QWEN3TTS_SPKENC:
             {
                 // do nothing
             } break;
@@ -4899,7 +4904,7 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
         case PROJECTOR_TYPE_MIMO_AUDIO:
             return ctx->model.mm_2_w->ne[1];
         case PROJECTOR_TYPE_QWEN3TTS_SPKENC:
-            return ctx->model.mm_fc_w->ne[1];
+            return ctx->model.mm_fc_w->ne[2];
         default:
             GGML_ABORT("Unknown projector type");
     }
