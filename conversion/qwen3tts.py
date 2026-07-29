@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Callable, Iterable, TYPE_CHECKING
 
+import torch
 import torch.nn.functional as F
 
 if TYPE_CHECKING:
@@ -10,6 +11,14 @@ if TYPE_CHECKING:
 
 from .base import ModelBase, MmprojModel, TextModel, gguf, logger
 
+# Tricks being used to support this model via existing llama.cpp code paths:
+# - Text projection MLP is folded into the embedding table
+# - codec_embedding is concat to the text embedding table, vocab is extended
+#   example: codec_bos_id(2149) --> "<|codec_bos|>"
+#            codec_eos_token_id(2150) --> "<|codec_eos_token|>"
+#            codec_language_id.chinese(2055) --> "<|codec_language_chinese|>"
+#            other rows --> "<|codec_0|>", "<|codec_1|>", ..., "<|codec_1023|>"
+# - output tensor codec_head is smaller than vocab, so logits will be padded at inference time
 
 # torch activation functions used by Qwen3TTSTalkerResizeMLP (config's hidden_act)
 _ACT2FN = {
@@ -19,15 +28,8 @@ _ACT2FN = {
 }
 
 
-DEFAULT_TEMPLATE = """{% for message in messages %}
-{% if message['role'] == 'system' %}<|im_start|>system
-{{ message['content'] }}<|im_end|>
-{% elif message['role'] == 'user' %}<|im_start|>user
-{{ message['content'] }}<|im_end|>
-{% endif %}
-{% endfor %}<|im_start|>assistant
-{{ text_to_speak }}<|im_end|>
-<|im_start|>assistant"""
+# TODO: figure out the correct template
+DEFAULT_TEMPLATE = """{% for m in messages %}{{m['content']}}{% endfor %}"""
 
 
 @ModelBase.register("Qwen3TTSForConditionalGeneration")
@@ -43,22 +45,70 @@ class Qwen3TTSTalkerModel(TextModel):
     )
 
     _text_proj_buffer: dict[str, Tensor]
+    _folded_text_embed: Tensor | None
+    _codec_embed: Tensor | None
 
     def __init__(self, dir_model: Path, *args, **kwargs):
         hparams = kwargs.pop("hparams", None)
         if hparams is None:
             hparams = ModelBase.load_hparams(dir_model, is_mistral_format=False)
-        talker_config = dict(hparams["talker_config"])
+        raw_talker_config = dict(hparams["talker_config"])
+        self._talker_config = raw_talker_config
+        self.n_codec_vocab = raw_talker_config["vocab_size"]
+        talker_config = dict(raw_talker_config)
         talker_config["vocab_size"] = talker_config["text_vocab_size"]
         hparams["text_config"] = talker_config
         super().__init__(dir_model, *args, hparams=hparams, **kwargs)
         self._text_proj_buffer = {}
+        self._folded_text_embed = None
+        self._codec_embed = None
+
+    def _codec_token_names(self) -> list[str]:
+        # start every row with a generic name, then override the ones with a
+        # known meaning (bos/eos/language/etc, derived from the *_id fields
+        # of talker_config) with a more descriptive one
+        names = [f"<|codec_{i}|>" for i in range(self.n_codec_vocab)]
+        for key, val in self._talker_config.items():
+            if not key.endswith("_id"):
+                continue
+            prefix = key[:-len("_id")]
+            if isinstance(val, int):
+                names[val] = f"<|{prefix}|>"
+            elif isinstance(val, dict):
+                for subkey, subval in val.items():
+                    names[subval] = f"<|{prefix}_{subkey}|>"
+        return names
 
     def set_vocab(self):
+        codec_tokens = self._codec_token_names()
+        codec_toktypes = [gguf.TokenType.CONTROL] * len(codec_tokens)
+
         try:
-            self._set_vocab_sentencepiece()
+            tokens, scores, toktypes = self._create_vocab_sentencepiece()
+            self.gguf_writer.add_tokenizer_model("llama")
+            self.gguf_writer.add_tokenizer_pre("default")
+            tokens += [t.encode("utf-8") for t in codec_tokens]
+            scores += [0.0] * len(codec_tokens)
+            toktypes += codec_toktypes
+            self.gguf_writer.add_token_list(tokens)
+            self.gguf_writer.add_token_scores(scores)
+            self.gguf_writer.add_token_types(toktypes)
+            special_vocab = gguf.SpecialVocab(self.dir_model, n_vocab=len(tokens))
+            special_vocab.add_to_gguf(self.gguf_writer)
+            return
         except FileNotFoundError:
-            self._set_vocab_gpt2()
+            pass
+
+        tokens, toktypes, tokpre = self.get_vocab_base()
+        tokens += codec_tokens
+        toktypes += codec_toktypes
+        self.gguf_writer.add_tokenizer_model("gpt2")
+        self.gguf_writer.add_tokenizer_pre(tokpre)
+        self.gguf_writer.add_token_list(tokens)
+        self.gguf_writer.add_token_types(toktypes)
+
+        special_vocab = gguf.SpecialVocab(self.dir_model, load_merges=True)
+        special_vocab.add_to_gguf(self.gguf_writer)
 
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
@@ -72,14 +122,25 @@ class Qwen3TTSTalkerModel(TextModel):
             return None
 
         name = name[len("talker."):]
-        if name == "codec_head.weight":
-            return None
-
         return super().filter_tensors((name, gen))
 
+    def _maybe_emit_token_embd(self) -> Iterable[tuple[str, Tensor]]:
+        if self._folded_text_embed is None or self._codec_embed is None:
+            return
+        combined = torch.cat([self._folded_text_embed, self._codec_embed], dim=0)
+        yield (self.format_tensor_name(gguf.MODEL_TENSOR.TOKEN_EMBD), combined)
+
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
-        # model.codec_embedding.weight belongs to the mmproj (handled separately)
+        # codec_embedding rows are appended after the text vocab, extending the embedding table
         if name == "model.codec_embedding.weight":
+            self._codec_embed = data_torch
+            yield from self._maybe_emit_token_embd()
+            return
+
+        # codec_head is the output head for the (smaller) codec vocab; logits get padded to
+        # the extended vocab size at inference time
+        if name == "codec_head.weight":
+            yield (self.format_tensor_name(gguf.MODEL_TENSOR.OUTPUT), data_torch)
             return
 
         if name in self._TEXT_PROJ_KEYS:
@@ -96,7 +157,8 @@ class Qwen3TTSTalkerModel(TextModel):
             folded = F.linear(hidden,
                                self._text_proj_buffer["text_projection.linear_fc2.weight"],
                                self._text_proj_buffer["text_projection.linear_fc2.bias"])
-            yield (self.format_tensor_name(gguf.MODEL_TENSOR.TOKEN_EMBD), folded)
+            self._folded_text_embed = folded
+            yield from self._maybe_emit_token_embd()
             return
 
         yield from super().modify_tensors(data_torch, name, bid)
