@@ -229,6 +229,43 @@ struct clip_graph_qwen3tts_spkenc : clip_graph {
 struct clip_graph_qwen3tts_gen : clip_graph {
     clip_graph_qwen3tts_gen(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     ggml_cgraph * build() override;
+
+    ggml_tensor * cache_set(ggml_tensor * cache, int row_idx, ggml_tensor * value) const;
+    ggml_tensor * do_sampling(ggml_tensor * logits, ggml_tensor * inp_rand, int top_k, float top_p) const;
+
+    ggml_tensor * const_i32(ggml_tensor * anchor, float value) const;
+    ggml_tensor * causal_mask_row(int64_t n_kv_pad, int pos) const;
+    ggml_tensor * project_in(ggml_tensor * cur) const;
+
+    ggml_tensor * layer_forward(
+            ggml_tensor * cur,
+            const clip_layer & layer,
+            ggml_tensor * inp_pos,
+            ggml_tensor * kq_mask,
+            ggml_tensor *& k_cache_layer,
+            ggml_tensor *& v_cache_layer,
+            int64_t n_kv_pad,
+            int pos,
+            int il) const;
+
+    void prefill(
+            std::vector<ggml_tensor *> & k_cache,
+            std::vector<ggml_tensor *> & v_cache,
+            ggml_tensor *& out_code_cache,
+            ggml_tensor * h_state,
+            ggml_tensor * code0_embd,
+            ggml_tensor * inp_rand,
+            int top_k,
+            float top_p) const;
+
+    ggml_tensor * step(
+            std::vector<ggml_tensor *> & k_cache,
+            std::vector<ggml_tensor *> & v_cache,
+            ggml_tensor * out_code_cache,
+            ggml_tensor * inp_rand,
+            int step_idx,
+            int top_k,
+            float top_p) const;
 };
 
 struct clip_graph_kimik25 : clip_graph {

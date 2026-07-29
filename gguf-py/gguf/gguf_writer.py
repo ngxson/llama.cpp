@@ -1421,6 +1421,9 @@ class GGUFWriter:
     def add_gen_audio_head_count(self, value: int) -> None:
         self.add_uint32(Keys.ClipGenAudio.Attention.HEAD_COUNT, value)
 
+    def add_gen_audio_head_count_kv(self, value: int) -> None:
+        self.add_uint32(Keys.ClipGenAudio.Attention.HEAD_COUNT_KV, value)
+
     def add_gen_audio_attention_layernorm_eps(self, value: float) -> None:
         self.add_float32(Keys.ClipGenAudio.Attention.LAYERNORM_EPS, value)
 

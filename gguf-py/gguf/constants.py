@@ -405,6 +405,7 @@ class Keys:
 
         class Attention:
             HEAD_COUNT      = "clip.gen.audio.attention.head_count"
+            HEAD_COUNT_KV   = "clip.gen.audio.attention.head_count_kv"
             LAYERNORM_EPS   = "clip.gen.audio.attention.layer_norm_epsilon"
 
     class Diffusion:

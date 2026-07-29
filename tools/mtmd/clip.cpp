@@ -1215,6 +1215,7 @@ struct clip_model_loader {
 
             // n_head_kv is optional (for GQA), default to n_head
             hparams.n_head_kv = hparams.n_head;
+            get_u32(string_format(KEY_N_HEAD_KV, prefix), hparams.n_head_kv, false);
 
             if (is_vision) {
                 get_u32(KEY_IMAGE_SIZE, hparams.image_size);
@@ -1680,6 +1681,8 @@ struct clip_model_loader {
                 case PROJECTOR_TYPE_QWEN3TTS_GEN:
                     {
                         // discrete-token autoregressive predictor, no mel-frontend needed
+                        // TODO: hardcoded for now, read from code_predictor_config instead
+                        hparams.rope_theta = 1000000.0f;
                     } break;
                 case PROJECTOR_TYPE_PADDLEOCR:
                     {

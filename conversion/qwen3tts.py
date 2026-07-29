@@ -244,6 +244,7 @@ class Qwen3TTSSpeakerEncoderModel(MmprojModel):
         self.gguf_writer.add_gen_audio_feed_forward_length(code_predictor_config["intermediate_size"])
         self.gguf_writer.add_gen_audio_block_count(code_predictor_config["num_hidden_layers"])
         self.gguf_writer.add_gen_audio_head_count(code_predictor_config["num_attention_heads"])
+        self.gguf_writer.add_gen_audio_head_count_kv(code_predictor_config["num_key_value_heads"])
         self.gguf_writer.add_gen_audio_attention_layernorm_eps(code_predictor_config["rms_norm_eps"])
 
     @classmethod
