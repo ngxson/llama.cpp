@@ -592,6 +592,14 @@ struct clip_model {
     ggml_tensor * spk_asp_tdnn_w = nullptr;
     ggml_tensor * spk_asp_tdnn_b = nullptr;
 
+    // qwen3tts code_predictor
+    ggml_tensor * gen_code_proj_in_w  = nullptr; // small_to_mtp_projection
+    ggml_tensor * gen_code_proj_in_b  = nullptr;
+    ggml_tensor * gen_code_embd_w     = nullptr; // per-codebook embedding, merged 3D
+    ggml_tensor * gen_code_head_w     = nullptr; // per-codebook output head, merged 3D
+    ggml_tensor * gen_code_out_embd_w = nullptr; // codebook-0 embedding, fed back into the talker
+    ggml_tensor * gen_code_norm_w     = nullptr; // final norm
+
     // cogvlm
     ggml_tensor * mm_post_fc_norm_w = nullptr;
     ggml_tensor * mm_post_fc_norm_b = nullptr;

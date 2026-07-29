@@ -262,6 +262,9 @@ struct mtmd_context {
     struct clip_ctx * ctx_a; // audio
     std::vector<float> out_embd; // image embedding vector
 
+    // generation context
+    struct clip_ctx * ctx_gen_a; // audio
+
     bool print_timings;
     int n_threads;
     std::string media_marker;
@@ -354,6 +357,7 @@ struct mtmd_context {
         auto res = clip_init(mmproj_fname, ctx_clip_params);
         ctx_v = res.ctx_v;
         ctx_a = res.ctx_a;
+        ctx_gen_a = res.ctx_gen_a;
         if (!ctx_v && !ctx_a) {
             throw std::runtime_error(string_format("Failed to load CLIP model from %s\n", mmproj_fname));
         }
@@ -784,6 +788,7 @@ struct mtmd_context {
     ~mtmd_context() {
         clip_free(ctx_a);
         clip_free(ctx_v);
+        clip_free(ctx_gen_a);
     }
 
 private:

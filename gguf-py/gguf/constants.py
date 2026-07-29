@@ -322,6 +322,7 @@ class Keys:
         PROJECTOR_TYPE        = "clip.projector_type"
         HAS_VISION_ENCODER    = "clip.has_vision_encoder"
         HAS_AUDIO_ENCODER     = "clip.has_audio_encoder"
+        HAS_GEN_AUDIO_ENCODER = "clip.has_gen_audio_encoder"
         HAS_LLAVA_PROJECTOR   = "clip.has_llava_projector"
 
     class ClipVision:
@@ -396,9 +397,11 @@ class Keys:
             HEAD_COUNT      = "clip.audio.projector.head_count"
 
     class ClipGenAudio:
+        PROJECTOR_TYPE      = "clip.gen.audio.projector_type" # for mixed modality models
         EMBEDDING_LENGTH    = "clip.gen.audio.embedding_length"
         FEED_FORWARD_LENGTH = "clip.gen.audio.feed_forward_length"
         BLOCK_COUNT         = "clip.gen.audio.block_count"
+        PROJECTION_DIM      = "clip.gen.audio.projection_dim"
 
         class Attention:
             HEAD_COUNT      = "clip.gen.audio.attention.head_count"
@@ -1607,14 +1610,14 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.A_GEN_CODE_EMBD:           "a.gen.code.embd",
     MODEL_TENSOR.A_GEN_CODE_HEAD:           "a.gen.code.head",
     MODEL_TENSOR.A_GEN_CODE_OUT_EMBD:       "a.gen.code.out_embd",
-    MODEL_TENSOR.A_GEN_CODE_ATTN_NORM:      "a.gen.code.blk.{bid}.attn_norm",
+    MODEL_TENSOR.A_GEN_CODE_ATTN_NORM:      "a.gen.code.blk.{bid}.ln1", # reuses the generic clip.cpp block loader (TN_LN_1)
     MODEL_TENSOR.A_GEN_CODE_ATTN_Q:         "a.gen.code.blk.{bid}.attn_q",
     MODEL_TENSOR.A_GEN_CODE_ATTN_Q_NORM:    "a.gen.code.blk.{bid}.attn_q_norm",
     MODEL_TENSOR.A_GEN_CODE_ATTN_K:         "a.gen.code.blk.{bid}.attn_k",
     MODEL_TENSOR.A_GEN_CODE_ATTN_K_NORM:    "a.gen.code.blk.{bid}.attn_k_norm",
     MODEL_TENSOR.A_GEN_CODE_ATTN_V:         "a.gen.code.blk.{bid}.attn_v",
     MODEL_TENSOR.A_GEN_CODE_ATTN_OUT:       "a.gen.code.blk.{bid}.attn_out",
-    MODEL_TENSOR.A_GEN_CODE_FFN_NORM:       "a.gen.code.blk.{bid}.ffn_norm",
+    MODEL_TENSOR.A_GEN_CODE_FFN_NORM:       "a.gen.code.blk.{bid}.ln2", # reuses the generic clip.cpp block loader (TN_LN_2)
     MODEL_TENSOR.A_GEN_CODE_FFN_GATE:       "a.gen.code.blk.{bid}.ffn_gate",
     MODEL_TENSOR.A_GEN_CODE_FFN_UP:         "a.gen.code.blk.{bid}.ffn_up",
     MODEL_TENSOR.A_GEN_CODE_FFN_DOWN:       "a.gen.code.blk.{bid}.ffn_down",
@@ -4965,6 +4968,7 @@ class VisionProjectorType:
     YOUTUVL = "youtuvl"
     NEMOTRON_V2_VL = "nemotron_v2_vl"
     QWEN3TTS_SPKENC = "qwen3tts_spkenc" # audio: ECAPA-TDNN speaker encoder
+    QWEN3TTS_GEN = "qwen3tts_gen" # audio generation: code_predictor
     HUNYUANVL      = "hunyuanvl"
     PARAKEET       = "parakeet"  # audio
     MINIMAXM3      = "minimax_m3"

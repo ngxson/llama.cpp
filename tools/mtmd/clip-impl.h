@@ -32,6 +32,7 @@
 #define KEY_PROJ_TYPE           "clip.projector_type"
 #define KEY_HAS_AUDIO_ENC       "clip.has_audio_encoder"
 #define KEY_HAS_VISION_ENC      "clip.has_vision_encoder"
+#define KEY_HAS_GEN_AUDIO_ENC   "clip.has_gen_audio_encoder"
 #define KEY_USE_GELU            "clip.use_gelu"
 #define KEY_USE_SILU            "clip.use_silu"
 
@@ -88,6 +89,8 @@
 #define KEY_A_ATTN_WINDOW_SIZE     "clip.audio.window_size"          // mimo-audio-tokenizer: sliding-window radius
 #define KEY_A_LOCAL_BLOCK_COUNT    "clip.audio.local_block_count"    // mimo-v2.5: input_local_transformer layer count
 #define KEY_A_LOCAL_GROUP_SIZE     "clip.audio.local_group_size"     // mimo-v2.5: input_local_transformer grouping size
+// audio generation (gen-audio)-specific
+#define KEY_GEN_AUDIO_PROJ_TYPE    "clip.gen.audio.projector_type" // for models with mixed modalities
 #define KEY_AUDIO_SUBSAMPLING_FACTOR "clip.audio.subsampling_factor"
 
 //
@@ -206,6 +209,13 @@
 #define TN_A_CONV_RES2 "a.blk.%d.res2.%d.%s"
 #define TN_A_ASP_ATTN  "a.asp_attn.%s"
 #define TN_A_ASP_TDNN  "a.asp_tdnn.%s"
+
+// qwen3tts code_predictor
+#define TN_A_GEN_CODE_PROJ_IN  "a.gen.code.proj_in.%s"
+#define TN_A_GEN_CODE_EMBD     "a.gen.code.embd.%s"
+#define TN_A_GEN_CODE_HEAD     "a.gen.code.head.%s"
+#define TN_A_GEN_CODE_OUT_EMBD "a.gen.code.out_embd.%s"
+#define TN_A_GEN_CODE_NORM     "a.gen.code.output_norm.%s"
 
 // cogvlm
 #define TN_MM_POST_FC_NORM "mm.post_fc_norm.%s"
@@ -415,6 +425,7 @@ enum projector_type {
     PROJECTOR_TYPE_GRANITE4_VISION,
     PROJECTOR_TYPE_MIMO_AUDIO,
     PROJECTOR_TYPE_QWEN3TTS_SPKENC,
+    PROJECTOR_TYPE_QWEN3TTS_GEN,
     PROJECTOR_TYPE_UNKNOWN,
 };
 
@@ -471,8 +482,9 @@ static std::map<projector_type, std::string> PROJECTOR_TYPE_NAMES = {
     { PROJECTOR_TYPE_MINIMAX_M3,        "minimax_m3"},
     { PROJECTOR_TYPE_GRANITE4_VISION,   "granite4_vision"},
     { PROJECTOR_TYPE_MIMO_AUDIO,        "mimo_audio"},
-    { PROJECTOR_TYPE_QWEN3TTS_SPKENC,   "qwen3tts_spkenc"},
     { PROJECTOR_TYPE_PARAKEET,          "parakeet"},
+    { PROJECTOR_TYPE_QWEN3TTS_SPKENC,   "qwen3tts_spkenc"},
+    { PROJECTOR_TYPE_QWEN3TTS_GEN,      "qwen3tts_gen"},
 };
 
 static projector_type clip_projector_type_from_string(const std::string & str) {

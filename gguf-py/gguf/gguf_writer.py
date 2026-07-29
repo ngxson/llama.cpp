@@ -1199,6 +1199,9 @@ class GGUFWriter:
     def add_clip_has_audio_encoder(self, value: bool) -> None:
         self.add_bool(Keys.Clip.HAS_AUDIO_ENCODER, value)
 
+    def add_clip_has_gen_audio_encoder(self, value: bool) -> None:
+        self.add_bool(Keys.Clip.HAS_GEN_AUDIO_ENCODER, value)
+
     def add_clip_projector_type(self, value: str) -> None:
         self.add_string(Keys.Clip.PROJECTOR_TYPE, value)
 
@@ -1398,10 +1401,16 @@ class GGUFWriter:
     def add_audio_projector_head_count(self, value: int) -> None:
         self.add_uint32(Keys.ClipAudio.Projector.HEAD_COUNT, value)
 
-    def add_gen_audio_embedding_length(self, value: int) -> None:
-            self.add_uint32(Keys.ClipGenAudio.EMBEDDING_LENGTH, value)
-
     # audio generation (mmproj)
+
+    def add_clip_gen_audio_projector_type(self, value: str) -> None:
+        self.add_string(Keys.ClipGenAudio.PROJECTOR_TYPE, value)
+
+    def add_gen_audio_projection_dim(self, value: int) -> None:
+        self.add_uint32(Keys.ClipGenAudio.PROJECTION_DIM, value)
+
+    def add_gen_audio_embedding_length(self, value: int) -> None:
+        self.add_uint32(Keys.ClipGenAudio.EMBEDDING_LENGTH, value)
 
     def add_gen_audio_feed_forward_length(self, value: int) -> None:
         self.add_uint32(Keys.ClipGenAudio.FEED_FORWARD_LENGTH, value)

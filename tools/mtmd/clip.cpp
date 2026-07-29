@@ -1069,8 +1069,9 @@ struct clip_model_loader {
 
     size_t model_size = 0; // in bytes
 
-    bool has_vision = false;
-    bool has_audio  = false;
+    bool has_vision    = false;
+    bool has_audio     = false;
+    bool has_gen_audio = false;
 
     mtmd_progress_callback progress_callback = nullptr;
     void * progress_callback_user_data = nullptr;
@@ -1116,14 +1117,18 @@ struct clip_model_loader {
 
         // modalities
         {
-            get_bool(KEY_HAS_VISION_ENC, has_vision, false);
-            get_bool(KEY_HAS_AUDIO_ENC,  has_audio,  false);
+            get_bool(KEY_HAS_VISION_ENC,    has_vision,    false);
+            get_bool(KEY_HAS_AUDIO_ENC,     has_audio,     false);
+            get_bool(KEY_HAS_GEN_AUDIO_ENC, has_gen_audio, false);
 
             if (has_vision) {
                 LOG_INF("%s: has vision encoder\n", __func__);
             }
             if (has_audio) {
                 LOG_INF("%s: has audio encoder\n", __func__);
+            }
+            if (has_gen_audio) {
+                LOG_INF("%s: has audio generation (gen) encoder\n", __func__);
             }
         }
 
@@ -1151,6 +1156,8 @@ struct clip_model_loader {
             GGML_ASSERT(has_vision);
         } else if (modality == CLIP_MODALITY_AUDIO) {
             GGML_ASSERT(has_audio);
+        } else if (modality == CLIP_MODALITY_GEN_AUDIO) {
+            GGML_ASSERT(has_gen_audio);
         }
         model.modality = modality;
 
@@ -1167,6 +1174,8 @@ struct clip_model_loader {
                     get_string(KEY_VISION_PROJ_TYPE, proj_type, false);
                 } else if (modality == CLIP_MODALITY_AUDIO) {
                     get_string(KEY_AUDIO_PROJ_TYPE, proj_type, false);
+                } else if (modality == CLIP_MODALITY_GEN_AUDIO) {
+                    get_string(KEY_GEN_AUDIO_PROJ_TYPE, proj_type, false);
                 } else {
                     GGML_ABORT("unknown modality");
                 }
@@ -1186,12 +1195,13 @@ struct clip_model_loader {
             }
         }
 
-        const bool is_vision = model.modality == CLIP_MODALITY_VISION;
-        const bool is_audio  = model.modality == CLIP_MODALITY_AUDIO;
+        const bool is_vision    = model.modality == CLIP_MODALITY_VISION;
+        const bool is_audio     = model.modality == CLIP_MODALITY_AUDIO;
+        const bool is_gen_audio = model.modality == CLIP_MODALITY_GEN_AUDIO;
 
         // other hparams
         {
-            const char * prefix = is_vision ? "vision" : "audio";
+            const char * prefix = is_vision ? "vision" : (is_audio ? "audio" : "gen.audio");
             get_u32(string_format(KEY_N_EMBD,         prefix), hparams.n_embd);
             get_u32(string_format(KEY_N_HEAD,         prefix), hparams.n_head);
             get_u32(string_format(KEY_N_FF,           prefix), hparams.n_ff);
@@ -1226,6 +1236,11 @@ struct clip_model_loader {
             } else if (is_audio) {
                 get_u32(KEY_A_NUM_MEL_BINS, hparams.n_mel_bins);
                 // some hparams are unused, but still need to set to avoid issues
+                hparams.image_size = 0;
+                hparams.patch_size = 1;
+
+            } else if (is_gen_audio) {
+                // these are unused, but still need to be set to avoid issues
                 hparams.image_size = 0;
                 hparams.patch_size = 1;
 
@@ -1658,6 +1673,10 @@ struct clip_model_loader {
                         hparams.audio_window_len  = 1024;
                         hparams.audio_hop_len     = 256;
                     } break;
+                case PROJECTOR_TYPE_QWEN3TTS_GEN:
+                    {
+                        // discrete-token autoregressive predictor, no mel-frontend needed
+                    } break;
                 case PROJECTOR_TYPE_PADDLEOCR:
                     {
                         hparams.n_merge = 2;
@@ -1882,7 +1901,9 @@ struct clip_model_loader {
         }
 
         // TODO @ngxson : support both audio and video in the future
-        const char * prefix = model.modality == CLIP_MODALITY_AUDIO ? "a" : "v";
+        const char * prefix = model.modality == CLIP_MODALITY_AUDIO ? "a"
+                             : model.modality == CLIP_MODALITY_GEN_AUDIO ? "a.gen.code"
+                             : "v";
 
         // get offsets
         for (int64_t i = 0; i < gguf_get_n_tensors(ctx_gguf.get()); ++i) {
@@ -2646,6 +2667,16 @@ struct clip_model_loader {
                     // final speaker embedding projection
                     model.mm_fc_w = get_tensor(string_format(TN_MM_AUDIO_FC, "weight"));
                     model.mm_fc_b = get_tensor(string_format(TN_MM_AUDIO_FC, "bias"));
+                } break;
+            case PROJECTOR_TYPE_QWEN3TTS_GEN:
+                {
+                    // code_predictor
+                    model.gen_code_proj_in_w = get_tensor(string_format(TN_A_GEN_CODE_PROJ_IN, "weight"));
+                    model.gen_code_proj_in_b = get_tensor(string_format(TN_A_GEN_CODE_PROJ_IN, "bias"));
+                    model.gen_code_embd_w     = get_tensor(string_format(TN_A_GEN_CODE_EMBD,     "weight"));
+                    model.gen_code_head_w     = get_tensor(string_format(TN_A_GEN_CODE_HEAD,     "weight"));
+                    model.gen_code_out_embd_w = get_tensor(string_format(TN_A_GEN_CODE_OUT_EMBD, "weight"));
+                    model.gen_code_norm_w     = get_tensor(string_format(TN_A_GEN_CODE_NORM,     "weight"));
                 } break;
             case PROJECTOR_TYPE_VOXTRAL:
                 {
@@ -3475,6 +3506,7 @@ struct clip_model_loader {
 struct clip_init_result clip_init(const char * fname, struct clip_context_params ctx_params) {
     clip_ctx * ctx_vision = nullptr;
     clip_ctx * ctx_audio = nullptr;
+    clip_ctx * ctx_gen_audio = nullptr;
 
     try {
         clip_model_loader loader(fname,
@@ -3507,16 +3539,23 @@ struct clip_init_result clip_init(const char * fname, struct clip_context_params
             }
         }
 
+        if (loader.has_gen_audio) {
+            ctx_gen_audio = new clip_ctx(ctx_params);
+            loader.load_hparams(ctx_gen_audio->model, CLIP_MODALITY_GEN_AUDIO);
+            loader.load_tensors(*ctx_gen_audio);
+        }
+
     } catch (const std::exception & e) {
         LOG_ERR("%s: failed to load model '%s': %s\n", __func__, fname, e.what());
 
         delete ctx_vision;
         delete ctx_audio;
+        delete ctx_gen_audio;
 
-        return {nullptr, nullptr};
+        return {nullptr, nullptr, nullptr};
     }
 
-    return {ctx_vision, ctx_audio};
+    return {ctx_vision, ctx_audio, ctx_gen_audio};
 }
 
 struct clip_cap clip_get_cap(const char * fname) {

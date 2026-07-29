@@ -235,7 +235,10 @@ class Qwen3TTSSpeakerEncoderModel(MmprojModel):
         self.gguf_writer.add_audio_attention_layernorm_eps(1e-5)
 
         # handle code predictor config
+        self.gguf_writer.add_clip_has_gen_audio_encoder(True)
+        self.gguf_writer.add_clip_gen_audio_projector_type(gguf.VisionProjectorType.QWEN3TTS_GEN)
         code_predictor_config = self.global_config["talker_config"]["code_predictor_config"]
+        self.gguf_writer.add_gen_audio_projection_dim(self.n_embd_text)
         self.gguf_writer.add_gen_audio_embedding_length(code_predictor_config["hidden_size"])
         self.gguf_writer.add_gen_audio_feed_forward_length(code_predictor_config["intermediate_size"])
         self.gguf_writer.add_gen_audio_block_count(code_predictor_config["num_hidden_layers"])
