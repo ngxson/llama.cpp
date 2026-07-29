@@ -1029,6 +1029,10 @@ static std::unique_ptr<clip_graph> clip_get_graph_builder(clip_ctx * ctx, const 
             {
                 builder = std::make_unique<clip_graph_qwen3tts_spkenc>(ctx, img);
             } break;
+        case PROJECTOR_TYPE_QWEN3TTS_GEN:
+            {
+                builder = std::make_unique<clip_graph_qwen3tts_gen>(ctx, img);
+            } break;
         case PROJECTOR_TYPE_YOUTUVL:
             {
                 builder = std::make_unique<clip_graph_youtuvl>(ctx, img);
@@ -3543,6 +3547,8 @@ struct clip_init_result clip_init(const char * fname, struct clip_context_params
             ctx_gen_audio = new clip_ctx(ctx_params);
             loader.load_hparams(ctx_gen_audio->model, CLIP_MODALITY_GEN_AUDIO);
             loader.load_tensors(*ctx_gen_audio);
+            // TODO: fix warmup
+            ctx_gen_audio->buf_compute_meta.resize(ctx_gen_audio->max_nodes * ggml_tensor_overhead() + ggml_graph_overhead());
         }
 
     } catch (const std::exception & e) {
@@ -3876,6 +3882,11 @@ int clip_n_output_tokens(const clip_ctx * ctx, const clip_image_f32 * img) {
             {
                 // attentive statistics pooling collapses the whole clip into
                 // a single speaker embedding vector, regardless of its length
+                n_patches = 1;
+            } break;
+        case PROJECTOR_TYPE_QWEN3TTS_GEN:
+            {
+                // one hidden-state vector fed back to the talker per call
                 n_patches = 1;
             } break;
         case PROJECTOR_TYPE_GRANITE4_VISION:
@@ -4577,6 +4588,11 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
         case PROJECTOR_TYPE_QWEN3TTS_SPKENC:
             {
                 // do nothing
+            } break;
+        case PROJECTOR_TYPE_QWEN3TTS_GEN:
+            {
+                std::vector<int32_t> code0 = { params->code0 };
+                set_input_i32("inp_code0", code0);
             } break;
         case PROJECTOR_TYPE_HUNYUANVL:
             {

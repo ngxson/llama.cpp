@@ -53,6 +53,7 @@ add_library(mtmd
             models/qwen3a.cpp
             models/mimo-audio.cpp
             models/qwen3tts-spkenc.cpp
+            models/qwen3tts-gen.cpp
             models/step3vl.cpp
             models/siglip.cpp
             models/whisper-enc.cpp

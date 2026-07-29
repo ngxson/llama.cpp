@@ -1562,6 +1562,73 @@ float * mtmd_get_output_embd(mtmd_context * ctx) {
     return ctx->out_embd.data();
 }
 
+//
+// audio generation
+//
+
+mtmd_gen_audio_type mtmd_gen_audio_get_type(const mtmd_context * ctx) {
+    if (!ctx->ctx_gen_a) {
+        return MTMD_GEN_AUDIO_TYPE_NONE;
+    }
+    switch (clip_get_projector_type(ctx->ctx_gen_a)) {
+        case PROJECTOR_TYPE_QWEN3TTS_GEN:
+            return MTMD_GEN_AUDIO_TYPE_MTP;
+        default:
+            return MTMD_GEN_AUDIO_TYPE_NONE;
+    }
+}
+
+static int32_t mtmd_gen_audio_impl(mtmd_context * ctx, const mtmd_gen_inp * inp, mtmd_gen_out * out) {
+    clip_ctx * ctx_clip = ctx->ctx_gen_a;
+    if (!ctx_clip) {
+        LOG_ERR("%s: model does not support audio generation\n", __func__);
+        return 1;
+    }
+
+    const size_t n_embd = (size_t) clip_n_mmproj_embd(ctx_clip);
+    if (inp->n_embd != n_embd) {
+        LOG_ERR("%s: n_embd mismatch: model expects %zu, got %zu\n", __func__, n_embd, inp->n_embd);
+        return 1;
+    }
+
+    clip_image_f32 hidden_state;
+    hidden_state.set_size({(int) n_embd, 1}, false, true);
+    hidden_state.cpy_buf(std::vector<float>(inp->embd, inp->embd + n_embd));
+
+    clip_image_f32_batch batch;
+    batch.is_audio = true;
+    batch.entries.push_back(std::move(hidden_state));
+
+    std::vector<float> out_embd(n_embd);
+    clip_encode_params params;
+    params.imgs      = &batch;
+    params.n_threads = ctx->n_threads;
+    params.out_embd  = &out_embd;
+    params.code0     = inp->code0;
+
+    if (!clip_encode(ctx_clip, &params)) {
+        LOG_ERR("%s: clip_encode failed\n", __func__);
+        return 1;
+    }
+
+    if (!out->embd || out->n_embd != out_embd.size()) {
+        LOG_ERR("%s: output buffer size mismatch: expected %zu, got %zu\n", __func__, out_embd.size(), out->n_embd);
+        return 1;
+    }
+    std::copy(out_embd.begin(), out_embd.end(), out->embd);
+
+    return 0;
+}
+
+int32_t mtmd_gen_audio(mtmd_context * ctx, const struct mtmd_gen_inp * inp, struct mtmd_gen_out * out) {
+    try {
+        return mtmd_gen_audio_impl(ctx, inp, out);
+    } catch (const std::exception & e) {
+        LOG_ERR("%s: error: %s\n", __func__, e.what());
+        return 1;
+    }
+}
+
 mtmd_batch * mtmd_batch_init(mtmd_context * ctx) {
     return new mtmd_batch(ctx);
 }

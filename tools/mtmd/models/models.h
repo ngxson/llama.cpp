@@ -226,6 +226,11 @@ struct clip_graph_qwen3tts_spkenc : clip_graph {
     ggml_tensor * attentive_stats_pool(ggml_tensor * x) const;
 };
 
+struct clip_graph_qwen3tts_gen : clip_graph {
+    clip_graph_qwen3tts_gen(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    ggml_cgraph * build() override;
+};
+
 struct clip_graph_kimik25 : clip_graph {
     clip_graph_kimik25(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     ggml_cgraph * build() override;
