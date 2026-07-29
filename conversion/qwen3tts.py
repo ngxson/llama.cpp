@@ -19,6 +19,7 @@ from .base import ModelBase, MmprojModel, TextModel, gguf, logger
 #            codec_language_id.chinese(2055) --> "<|codec_language_chinese|>"
 #            other rows --> "<|codec_0|>", "<|codec_1|>", ..., "<|codec_1023|>"
 # - output tensor codec_head is smaller than vocab, so logits will be padded at inference time
+# - suppress_tokens is used to limit the backbone to only sample either semantic or EOS (stop) token
 
 # torch activation functions used by Qwen3TTSTalkerResizeMLP (config's hidden_act)
 _ACT2FN = {

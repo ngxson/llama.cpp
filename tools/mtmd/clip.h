@@ -86,6 +86,20 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx);
 bool clip_image_encode      (struct clip_ctx * ctx, int n_threads, const clip_image_f32 * img, std::vector<float> & out_vec);
 bool clip_image_batch_encode(struct clip_ctx * ctx, int n_threads, const struct clip_image_f32_batch * imgs, std::vector<float> & out_batch_embd);
 
+struct clip_encode_params {
+    int n_threads = 1;
+    const clip_image_f32_batch * imgs = nullptr;
+    std::vector<float> * out_embd = nullptr;
+
+    // note: for audio gen, imgs has expectly one entry of size (n_text_embd, 1), it's the hidden state from backbone
+    //       code0 is the sampled semantic code from backbone
+    //       out_embd holds the embd to be fed back to backbone
+    //       out_audio holds the generated audio samples (PCM float32)
+    int32_t code0 = 0;
+    std::vector<float> * out_audio = nullptr;
+};
+bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params);
+
 bool clip_is_llava(const struct clip_ctx * ctx);
 // note for contributor: this clip_is_(model) pattern is deprecated
 //                       do NOT add new functions like this

@@ -3911,7 +3911,16 @@ bool clip_image_encode(struct clip_ctx * ctx, int n_threads, const clip_image_f3
 }
 
 bool clip_image_batch_encode(clip_ctx * ctx, int n_threads, const clip_image_f32_batch * imgs_c_ptr, std::vector<float> & out_batch_embd) {
-    const clip_image_f32_batch & imgs = *imgs_c_ptr;
+    clip_encode_params params;
+    params.imgs = imgs_c_ptr;
+    params.n_threads = n_threads;
+    params.out_embd = &out_batch_embd;
+
+    return clip_encode(ctx, &params);
+}
+
+bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
+    const clip_image_f32_batch & imgs = *params->imgs;
     int n_batch_cur = imgs.entries.size();
 
     // [QWEN_VIDEO] for video models, the batch dimension is used as temporal dimension for merged frames
@@ -3922,7 +3931,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, int n_threads, const clip_image_f32
 
     // if buffers are not allocated, we need to do a warmup run to allocate them
     if (!ctx->is_allocated) {
-        clip_model_loader::warmup(*ctx, *imgs_c_ptr);
+        clip_model_loader::warmup(*ctx, *params->imgs);
     }
 
     // build the inference graph
@@ -4974,7 +4983,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, int n_threads, const clip_image_f32
     if (reg) {
         auto ggml_backend_set_n_threads_fn = (ggml_backend_set_n_threads_t) ggml_backend_reg_get_proc_address(reg, "ggml_backend_set_n_threads");
         if (ggml_backend_set_n_threads_fn) {
-            ggml_backend_set_n_threads_fn(ctx->backend_cpu, n_threads);
+            ggml_backend_set_n_threads_fn(ctx->backend_cpu, params->n_threads);
         }
     }
 
@@ -5000,6 +5009,7 @@ bool clip_image_batch_encode(clip_ctx * ctx, int n_threads, const clip_image_f32
 
     // copy output to user buffer if provided
     // if output is empty, skip the copy
+    auto & out_batch_embd = *params->out_embd;
     if (!out_batch_embd.empty()) {
         if (out_batch_embd.size() != (size_t)ggml_nelements(embeddings)) {
             LOG_ERR("%s: output buffer has %zu elements but expected %zu\n", __func__, out_batch_embd.size(), (size_t)ggml_nelements(embeddings));
