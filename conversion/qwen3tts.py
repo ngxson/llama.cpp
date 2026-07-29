@@ -114,6 +114,20 @@ class Qwen3TTSTalkerModel(TextModel):
         super().set_gguf_parameters()
         self.gguf_writer.add_chat_template(DEFAULT_TEMPLATE)
 
+        # note: final vocab layout is [text_vocab | codec_vocab], with text_vocab is actually padded with -inf in cgraph
+        # for codec_vocab, only first 2048 rows can be sampled for semantic code
+        # plus codec_eos_token_id that used for signaling end of generation
+        # ref: https://github.com/QwenLM/Qwen3-TTS/blob/022e286b98fbec7e1e916cb940cdf532cd9f488e/qwen_tts/core/models/modeling_qwen3_tts.py#L2059-L2063
+
+        vocab_size = self.hparams["vocab_size"] + self.n_codec_vocab
+        codec_eos_token_id = self.hparams["vocab_size"] + self._talker_config["codec_eos_token_id"]
+        self.gguf_writer.add_suppress_tokens([
+            i for i in range(vocab_size - 1024, vocab_size)
+            if i != codec_eos_token_id
+        ])
+        self.gguf_writer.add_eos_token_id(codec_eos_token_id)
+        self.gguf_writer.add_add_eos_token(False)
+
     @classmethod
     def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:
         name, gen = item
