@@ -1398,6 +1398,24 @@ class GGUFWriter:
     def add_audio_projector_head_count(self, value: int) -> None:
         self.add_uint32(Keys.ClipAudio.Projector.HEAD_COUNT, value)
 
+    def add_gen_audio_embedding_length(self, value: int) -> None:
+            self.add_uint32(Keys.ClipGenAudio.EMBEDDING_LENGTH, value)
+
+    # audio generation (mmproj)
+
+    def add_gen_audio_feed_forward_length(self, value: int) -> None:
+        self.add_uint32(Keys.ClipGenAudio.FEED_FORWARD_LENGTH, value)
+
+    def add_gen_audio_block_count(self, value: int) -> None:
+        self.add_uint32(Keys.ClipGenAudio.BLOCK_COUNT, value)
+
+    def add_gen_audio_head_count(self, value: int) -> None:
+        self.add_uint32(Keys.ClipGenAudio.Attention.HEAD_COUNT, value)
+
+    def add_gen_audio_attention_layernorm_eps(self, value: float) -> None:
+        self.add_float32(Keys.ClipGenAudio.Attention.LAYERNORM_EPS, value)
+
+
     def add_xielu_alpha_p(self, values: Sequence[float]):
         self.add_array(Keys.xIELU.ALPHA_P, values)
 

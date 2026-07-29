@@ -183,6 +183,27 @@ class Qwen3TTSSpeakerEncoderModel(MmprojModel):
     has_vision_encoder = False
     has_audio_encoder = True
 
+    # talker.code_predictor.model.layers.{bid}.<key> -> A_GEN_CODE_*
+    # bypass tensor_mapping.py for now to make it simple
+    _CODE_LAYER_TENSOR_MAP = {
+        "input_layernorm": gguf.MODEL_TENSOR.A_GEN_CODE_ATTN_NORM,
+        "self_attn.q_proj": gguf.MODEL_TENSOR.A_GEN_CODE_ATTN_Q,
+        "self_attn.q_norm": gguf.MODEL_TENSOR.A_GEN_CODE_ATTN_Q_NORM,
+        "self_attn.k_proj": gguf.MODEL_TENSOR.A_GEN_CODE_ATTN_K,
+        "self_attn.k_norm": gguf.MODEL_TENSOR.A_GEN_CODE_ATTN_K_NORM,
+        "self_attn.v_proj": gguf.MODEL_TENSOR.A_GEN_CODE_ATTN_V,
+        "self_attn.o_proj": gguf.MODEL_TENSOR.A_GEN_CODE_ATTN_OUT,
+        "post_attention_layernorm": gguf.MODEL_TENSOR.A_GEN_CODE_FFN_NORM,
+        "mlp.gate_proj": gguf.MODEL_TENSOR.A_GEN_CODE_FFN_GATE,
+        "mlp.up_proj": gguf.MODEL_TENSOR.A_GEN_CODE_FFN_UP,
+        "mlp.down_proj": gguf.MODEL_TENSOR.A_GEN_CODE_FFN_DOWN,
+    }
+
+    # note: codebook pages will be stacked to 3D
+    _CODE_GEN_N_CODEBOOKS = 15
+    _code_embed_buffer: dict[int, Tensor] = {}
+    _code_head_buffer: dict[int, Tensor] = {}
+
     def __init__(self, dir_model: Path, *args, **kwargs):
         hparams = kwargs.pop("hparams", None)
         if hparams is None:
@@ -200,6 +221,8 @@ class Qwen3TTSSpeakerEncoderModel(MmprojModel):
         self.gguf_writer.add_file_type(self.ftype)
         self.gguf_writer.add_clip_has_audio_encoder(True)
         self.gguf_writer.add_clip_audio_projector_type(gguf.VisionProjectorType.QWEN3TTS_SPKENC)
+
+        # handle speaker encoder config
         self.gguf_writer.add_audio_projection_dim(self.n_embd_text)
         # mel_spectrogram() front-end: sr=24000, n_fft=1024, hop=256, n_mels=128, fmin=0, fmax=12000 (=sr/2, the clip.cpp default)
         self.gguf_writer.add_audio_num_mel_bins(128)
@@ -211,16 +234,70 @@ class Qwen3TTSSpeakerEncoderModel(MmprojModel):
         self.gguf_writer.add_audio_feed_forward_length(1536)
         self.gguf_writer.add_audio_attention_layernorm_eps(1e-5)
 
+        # handle code predictor config
+        code_predictor_config = self.global_config["talker_config"]["code_predictor_config"]
+        self.gguf_writer.add_gen_audio_embedding_length(code_predictor_config["hidden_size"])
+        self.gguf_writer.add_gen_audio_feed_forward_length(code_predictor_config["intermediate_size"])
+        self.gguf_writer.add_gen_audio_block_count(code_predictor_config["num_hidden_layers"])
+        self.gguf_writer.add_gen_audio_head_count(code_predictor_config["num_attention_heads"])
+        self.gguf_writer.add_gen_audio_attention_layernorm_eps(code_predictor_config["rms_norm_eps"])
+
     @classmethod
     def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:
         name, gen = item
 
-        if not name.startswith("speaker_encoder."):
+        if not (
+            name.startswith("speaker_encoder.")
+            or name.startswith("talker.code_predictor.")
+            or name == "talker.model.codec_embedding.weight"
+        ):
             return None
 
         return super().filter_tensors((name, gen))
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        # codebook-0 embedding: fed back into the talker backbone once a codec token is
+        # generated, the counterpart of code_predictor's codec_embedding.{0..14} for codebooks 1-15
+        if name == "talker.model.codec_embedding.weight":
+            yield (self.format_tensor_name(gguf.MODEL_TENSOR.A_GEN_CODE_OUT_EMBD), data_torch)
+            return
+
+        if name == "talker.code_predictor.model.norm.weight":
+            yield (self.format_tensor_name(gguf.MODEL_TENSOR.A_GEN_CODE_OUTPUT_NORM), data_torch)
+            return
+
+        if name.startswith("talker.code_predictor.small_to_mtp_projection."):
+            suffix = "." + name.rsplit(".", 1)[1]
+            yield (self.format_tensor_name(gguf.MODEL_TENSOR.A_GEN_CODE_PROJ_IN, suffix=suffix), data_torch)
+            return
+
+        if name.startswith("talker.code_predictor.model.codec_embedding."):
+            idx = int(name.split("codec_embedding.")[1].split(".")[0])
+            self._code_embed_buffer[idx] = data_torch
+            if len(self._code_embed_buffer) < self._CODE_GEN_N_CODEBOOKS:
+                return
+            stacked = torch.stack([self._code_embed_buffer.pop(i) for i in range(self._CODE_GEN_N_CODEBOOKS)], dim=0)
+            yield (self.format_tensor_name(gguf.MODEL_TENSOR.A_GEN_CODE_EMBD), stacked)
+            return
+
+        if name.startswith("talker.code_predictor.lm_head."):
+            idx = int(name.split("lm_head.")[1].split(".")[0])
+            self._code_head_buffer[idx] = data_torch
+            if len(self._code_head_buffer) < self._CODE_GEN_N_CODEBOOKS:
+                return
+            stacked = torch.stack([self._code_head_buffer.pop(i) for i in range(self._CODE_GEN_N_CODEBOOKS)], dim=0)
+            yield (self.format_tensor_name(gguf.MODEL_TENSOR.A_GEN_CODE_HEAD), stacked)
+            return
+
+        if name.startswith("talker.code_predictor.model.layers."):
+            rest = name.split("model.layers.")[1]        # "{bid}.<key>.weight"
+            _, key_with_suffix = rest.split(".", 1)       # "<key>.weight"
+            key = key_with_suffix.rsplit(".", 1)[0]        # "<key>"
+            tensor = self._CODE_LAYER_TENSOR_MAP.get(key)
+            if tensor is not None:
+                yield (self.format_tensor_name(tensor, bid), data_torch)
+                return
+
         if "res2net_block.blocks." in name:
             assert bid is not None  # the outer stage index, picked up from the tensor name automatically
             xid = int(name.split("res2net_block.blocks.")[1].split(".")[0])

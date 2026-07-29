@@ -395,6 +395,15 @@ class Keys:
             DOWNSAMPLE_RATE = "clip.audio.projector.downsample_rate"
             HEAD_COUNT      = "clip.audio.projector.head_count"
 
+    class ClipGenAudio:
+        EMBEDDING_LENGTH    = "clip.gen.audio.embedding_length"
+        FEED_FORWARD_LENGTH = "clip.gen.audio.feed_forward_length"
+        BLOCK_COUNT         = "clip.gen.audio.block_count"
+
+        class Attention:
+            HEAD_COUNT      = "clip.gen.audio.attention.head_count"
+            LAYERNORM_EPS   = "clip.gen.audio.attention.layer_norm_epsilon"
+
     class Diffusion:
         SHIFT_LOGITS        = "diffusion.shift_logits"
 
@@ -962,6 +971,23 @@ class MODEL_TENSOR(IntEnum):
     A_ENC_SE_CONV2        = auto() # qwen3tts
     A_ENC_ASP_ATTN        = auto() # qwen3tts
     A_ENC_ASP_TDNN        = auto() # qwen3tts
+    # qwen3tts code_predictor: autoregressively predicts the remaining RVQ codebooks
+    A_GEN_CODE_PROJ_IN     = auto() # small_to_mtp_projection
+    A_GEN_CODE_EMBD        = auto() # per-codebook embedding table, merged 3D [n_codebooks, vocab, dim]
+    A_GEN_CODE_HEAD        = auto() # per-codebook output head, merged 3D [n_codebooks, vocab, dim]
+    A_GEN_CODE_OUT_EMBD    = auto() # codebook-0 embedding, re-fed into the talker backbone (talker.model.codec_embedding)
+    A_GEN_CODE_ATTN_NORM   = auto()
+    A_GEN_CODE_ATTN_Q      = auto()
+    A_GEN_CODE_ATTN_Q_NORM = auto()
+    A_GEN_CODE_ATTN_K      = auto()
+    A_GEN_CODE_ATTN_K_NORM = auto()
+    A_GEN_CODE_ATTN_V      = auto()
+    A_GEN_CODE_ATTN_OUT    = auto()
+    A_GEN_CODE_FFN_NORM    = auto()
+    A_GEN_CODE_FFN_GATE    = auto()
+    A_GEN_CODE_FFN_UP      = auto()
+    A_GEN_CODE_FFN_DOWN    = auto()
+    A_GEN_CODE_OUTPUT_NORM = auto()
     A_MMPROJ              = auto()
     A_MMPROJ_FC           = auto()
     A_MM_NORM_PRE         = auto()
@@ -1577,6 +1603,22 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.A_ENC_SE_CONV2:            "a.blk.{bid}.se_conv2",
     MODEL_TENSOR.A_ENC_ASP_ATTN:            "a.asp_attn",
     MODEL_TENSOR.A_ENC_ASP_TDNN:            "a.asp_tdnn",
+    MODEL_TENSOR.A_GEN_CODE_PROJ_IN:        "a.gen.code.proj_in",
+    MODEL_TENSOR.A_GEN_CODE_EMBD:           "a.gen.code.embd",
+    MODEL_TENSOR.A_GEN_CODE_HEAD:           "a.gen.code.head",
+    MODEL_TENSOR.A_GEN_CODE_OUT_EMBD:       "a.gen.code.out_embd",
+    MODEL_TENSOR.A_GEN_CODE_ATTN_NORM:      "a.gen.code.blk.{bid}.attn_norm",
+    MODEL_TENSOR.A_GEN_CODE_ATTN_Q:         "a.gen.code.blk.{bid}.attn_q",
+    MODEL_TENSOR.A_GEN_CODE_ATTN_Q_NORM:    "a.gen.code.blk.{bid}.attn_q_norm",
+    MODEL_TENSOR.A_GEN_CODE_ATTN_K:         "a.gen.code.blk.{bid}.attn_k",
+    MODEL_TENSOR.A_GEN_CODE_ATTN_K_NORM:    "a.gen.code.blk.{bid}.attn_k_norm",
+    MODEL_TENSOR.A_GEN_CODE_ATTN_V:         "a.gen.code.blk.{bid}.attn_v",
+    MODEL_TENSOR.A_GEN_CODE_ATTN_OUT:       "a.gen.code.blk.{bid}.attn_out",
+    MODEL_TENSOR.A_GEN_CODE_FFN_NORM:       "a.gen.code.blk.{bid}.ffn_norm",
+    MODEL_TENSOR.A_GEN_CODE_FFN_GATE:       "a.gen.code.blk.{bid}.ffn_gate",
+    MODEL_TENSOR.A_GEN_CODE_FFN_UP:         "a.gen.code.blk.{bid}.ffn_up",
+    MODEL_TENSOR.A_GEN_CODE_FFN_DOWN:       "a.gen.code.blk.{bid}.ffn_down",
+    MODEL_TENSOR.A_GEN_CODE_OUTPUT_NORM:    "a.gen.code.output_norm",
     MODEL_TENSOR.A_MMPROJ:                  "mm.a.mlp.{bid}",
     MODEL_TENSOR.A_MMPROJ_FC:               "mm.a.fc",
     MODEL_TENSOR.A_MM_NORM_PRE:             "mm.a.norm_pre",
@@ -1836,6 +1878,22 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.A_ENC_SE_CONV2,
         MODEL_TENSOR.A_ENC_ASP_ATTN,
         MODEL_TENSOR.A_ENC_ASP_TDNN,
+        MODEL_TENSOR.A_GEN_CODE_PROJ_IN,
+        MODEL_TENSOR.A_GEN_CODE_EMBD,
+        MODEL_TENSOR.A_GEN_CODE_HEAD,
+        MODEL_TENSOR.A_GEN_CODE_OUT_EMBD,
+        MODEL_TENSOR.A_GEN_CODE_ATTN_NORM,
+        MODEL_TENSOR.A_GEN_CODE_ATTN_Q,
+        MODEL_TENSOR.A_GEN_CODE_ATTN_Q_NORM,
+        MODEL_TENSOR.A_GEN_CODE_ATTN_K,
+        MODEL_TENSOR.A_GEN_CODE_ATTN_K_NORM,
+        MODEL_TENSOR.A_GEN_CODE_ATTN_V,
+        MODEL_TENSOR.A_GEN_CODE_ATTN_OUT,
+        MODEL_TENSOR.A_GEN_CODE_FFN_NORM,
+        MODEL_TENSOR.A_GEN_CODE_FFN_GATE,
+        MODEL_TENSOR.A_GEN_CODE_FFN_UP,
+        MODEL_TENSOR.A_GEN_CODE_FFN_DOWN,
+        MODEL_TENSOR.A_GEN_CODE_OUTPUT_NORM,
         MODEL_TENSOR.A_ENC_CONV_NORM_MEAN,
         MODEL_TENSOR.A_ENC_CONV_NORM_VAR,
         MODEL_TENSOR.A_ENC_MEL_FILTERS,
