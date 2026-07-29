@@ -328,6 +328,33 @@ struct mtmd_caps {
 MTMD_API struct mtmd_caps mtmd_get_cap_from_file(const char * mmproj_fname);
 
 /////////////////////////////////////////
+// EXPERIMENTAL API for audio generation, subjected to breaking changes
+
+enum mtmd_gen_audio_type {
+    MTMD_GEN_AUDIO_TYPE_NONE, // not supported
+    MTMD_GEN_AUDIO_TYPE_MTP,  // qwen3tts style, with MTP-like generation head
+};
+MTMD_API mtmd_gen_audio_type mtmd_gen_audio_get_type(const mtmd_context * ctx);
+
+struct mtmd_gen_inp {
+    int32_t code0;  // the sampled codebook 0 entry from backbone
+    float * embd;   // the hidden state from backbone, size = n_embd * n_pos
+    size_t  n_embd; // only for validation
+
+    // sampling params
+    int32_t top_k;
+    float   top_p;
+    float   temp;
+};
+struct mtmd_gen_out {
+    float * embd;   // the generated hidden state, to be fed back to backbone
+    size_t  n_embd; // only for validation
+};
+MTMD_API int32_t mtmd_gen_audio(mtmd_context * ctx,
+                                const struct mtmd_gen_inp * inp,
+                                struct mtmd_gen_out * out);
+
+/////////////////////////////////////////
 
 // test function, to be used in test-mtmd-c-api.c
 MTMD_API mtmd_input_chunks * mtmd_test_create_input_chunks(void);
