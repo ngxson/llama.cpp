@@ -269,6 +269,29 @@ clip_graph::clip_graph(clip_ctx * ctx, const clip_image_f32 & img) :
     gf = ggml_new_graph_custom(ctx0, ctx->max_nodes, false);
 }
 
+clip_graph::clip_graph(const clip_graph & parent) :
+        model(parent.model),
+        hparams(parent.hparams),
+        proj_type(parent.proj_type),
+        img(parent.img),
+        patch_size(parent.patch_size),
+        n_patches_x(parent.n_patches_x),
+        n_patches_y(parent.n_patches_y),
+        n_patches(parent.n_patches),
+        n_embd(parent.n_embd),
+        n_head(parent.n_head),
+        n_head_kv(parent.n_head_kv),
+        d_head(parent.d_head),
+        n_layer(parent.n_layer),
+        n_mmproj_embd(parent.n_mmproj_embd),
+        eps(parent.eps),
+        kq_scale(parent.kq_scale),
+        flash_attn_type(parent.flash_attn_type) {
+    // reuse from parent
+    ctx0 = parent.ctx0;
+    gf   = parent.gf;
+}
+
 ggml_tensor * clip_graph::build_mm(ggml_tensor * w, ggml_tensor * x) const {
     return ggml_mul_mat(ctx0, w, x);
 }
@@ -5270,6 +5293,8 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
             return ctx->model.mm_2_w->ne[1];
         case PROJECTOR_TYPE_QWEN3TTS_SPKENC:
             return ctx->model.mm_fc_w->ne[2];
+        case PROJECTOR_TYPE_QWEN3TTS_GEN:
+            return ctx->model.gen_code_out_embd_w->ne[0];
         case PROJECTOR_TYPE_PARAKEET:
             return ctx->model.mm_1_w->ne[1];
         default:

@@ -261,6 +261,23 @@ class Qwen3TTSSpeakerEncoderModel(MmprojModel):
             self._wav_config_cache = cfg["decoder_config"]
         return self._wav_config_cache
 
+    def tensor_force_quant(self, name, new_name, bid, n_dims):
+        # regular (non-transpose) conv1d/conv1d_dw weights must be F16, never BF16:
+        # ggml_conv_1d(_dw) pairs the kernel as mul_mat's src1 against an F32 im2col
+        # src0, and the CPU backend only accepts src1 in F32 -- BF16 kernels can't be
+        # scheduled.
+        if new_name.endswith(".weight") and (
+            new_name in ("a.gen.wav.pre_conv.weight", "a.gen.wav.dac.entry.weight", "a.gen.wav.dac.post_conv.weight")
+            or (".up.blk." in new_name and new_name.endswith(".dwconv.weight"))
+            or (".dac.blk." in new_name and (new_name.endswith(".conv1.weight") or new_name.endswith(".conv2.weight")))
+        ):
+            return gguf.GGMLQuantizationType.F16
+        # causal ConvTranspose1d weights: ggml_compute_forward_conv_transpose_1d
+        # only implements F16/F32 kernels, never BF16
+        if new_name.endswith(".conv.weight") and (".up.blk." in new_name or ".dac.blk." in new_name):
+            return gguf.GGMLQuantizationType.F32
+        return super().tensor_force_quant(name, new_name, bid, n_dims)
+
     @classmethod
     def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:
         name, gen = item

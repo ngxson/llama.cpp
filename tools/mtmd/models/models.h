@@ -266,6 +266,29 @@ struct clip_graph_qwen3tts_gen : clip_graph {
             int step_idx,
             int top_k,
             float top_p) const;
+
+    //
+    // code2wav: RVQ codes -> raw PCM (quantizer + pre_conv + pre_transformer + upsample + DAC).
+    // Single-frame only for now: no cross-call state, RoPE position is always 0.
+    //
+    struct code2wav : clip_graph {
+        code2wav(const clip_graph & parent) : clip_graph(parent) {}
+        ggml_cgraph * build() override { GGML_ABORT("call decode() instead"); }
+
+        ggml_tensor * causal_conv1d(ggml_tensor * x, ggml_tensor * w, ggml_tensor * b, int dilation) const;
+        ggml_tensor * causal_conv1d_dw(ggml_tensor * x, ggml_tensor * w, ggml_tensor * b) const;
+        ggml_tensor * causal_conv_transpose1d(ggml_tensor * x, ggml_tensor * w, ggml_tensor * b, int stride) const;
+        ggml_tensor * snake(ggml_tensor * x, ggml_tensor * alpha, ggml_tensor * beta) const;
+
+        ggml_tensor * quant_decode(ggml_tensor * out_code_cache) const;
+        ggml_tensor * tfm_layer_forward(ggml_tensor * cur, const clip_layer & layer, ggml_tensor * pos0, ggml_tensor * mask) const;
+        ggml_tensor * convnext_block(ggml_tensor * x, const clip_code2wav::upsample_block & blk) const;
+        ggml_tensor * dac_res_unit(ggml_tensor * x, const clip_code2wav::dac_res & res, int dilation) const;
+
+        // out_code_cache: [1, n_codes] I32 (as produced by prefill()/step()).
+        // returns audio samples, [n_samples] F32, clamped to [-1, 1].
+        ggml_tensor * decode(ggml_tensor * out_code_cache) const;
+    };
 };
 
 struct clip_graph_kimik25 : clip_graph {
