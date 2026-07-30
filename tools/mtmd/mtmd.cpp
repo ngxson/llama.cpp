@@ -264,6 +264,7 @@ struct mtmd_context {
 
     // generation context
     struct clip_ctx * ctx_gen_a; // audio
+    std::vector<float> gen_out_audio; // decoded PCM samples for the current frame
 
     bool print_timings;
     int n_threads;
@@ -1600,11 +1601,15 @@ static int32_t mtmd_gen_audio_impl(mtmd_context * ctx, const mtmd_gen_inp * inp,
     batch.entries.push_back(std::move(hidden_state));
 
     std::vector<float> out_embd(n_embd);
+    ctx->gen_out_audio.clear();
     clip_encode_params params;
     params.imgs      = &batch;
     params.n_threads = ctx->n_threads;
     params.out_embd  = &out_embd;
+    params.out_audio = &ctx->gen_out_audio;
     params.code0     = inp->code0;
+    params.top_k     = inp->top_k;
+    params.top_p     = inp->top_p;
 
     if (!clip_encode(ctx_clip, &params)) {
         LOG_ERR("%s: clip_encode failed\n", __func__);
@@ -1616,6 +1621,9 @@ static int32_t mtmd_gen_audio_impl(mtmd_context * ctx, const mtmd_gen_inp * inp,
         return 1;
     }
     std::copy(out_embd.begin(), out_embd.end(), out->embd);
+
+    out->audio     = ctx->gen_out_audio.data();
+    out->n_samples = ctx->gen_out_audio.size();
 
     return 0;
 }

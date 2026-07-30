@@ -17,6 +17,7 @@
 #include <cstring>
 #include <fstream>
 #include <map>
+#include <random>
 #include <stdexcept>
 #include <unordered_set>
 #include <vector>
@@ -896,7 +897,8 @@ ggml_tensor * clip_graph::build_patch_merge_permute(ggml_tensor * cur, int scale
     return cur;
 }
 
-static std::unique_ptr<clip_graph> clip_get_graph_builder(clip_ctx * ctx, const clip_image_f32_batch & imgs) {
+static std::unique_ptr<clip_graph> clip_get_graph_builder(clip_ctx * ctx, const clip_image_f32_batch & imgs,
+                                                            const clip_encode_params * params = nullptr) {
     const clip_image_f32 & img = imgs.entries[0];
     std::unique_ptr<clip_graph> builder;
 
@@ -1054,7 +1056,9 @@ static std::unique_ptr<clip_graph> clip_get_graph_builder(clip_ctx * ctx, const 
             } break;
         case PROJECTOR_TYPE_QWEN3TTS_GEN:
             {
-                builder = std::make_unique<clip_graph_qwen3tts_gen>(ctx, img);
+                const int   top_k = params ? params->top_k : 50;
+                const float top_p = params ? params->top_p : 1.0f;
+                builder = std::make_unique<clip_graph_qwen3tts_gen>(ctx, img, top_k, top_p);
             } break;
         case PROJECTOR_TYPE_YOUTUVL:
             {
@@ -4074,7 +4078,7 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
 
     // build the inference graph
     ggml_backend_sched_reset(ctx->sched.get());
-    ggml_cgraph * gf = clip_get_graph_builder(ctx, imgs)->build();
+    ggml_cgraph * gf = clip_get_graph_builder(ctx, imgs, params)->build();
     ggml_backend_sched_alloc_graph(ctx->sched.get(), gf);
 
     // set inputs
@@ -4720,6 +4724,16 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
             {
                 std::vector<int32_t> code0 = { params->code0 };
                 set_input_i32("inp_code0", code0);
+
+                // one uniform(0,1) draw per codebook, consumed by do_sampling()'s
+                // inverse-CDF token selection (inp_rand_0 .. inp_rand_{n_acoustic-1})
+                static std::mt19937 rng{ std::random_device{}() };
+                std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+                const int64_t n_acoustic = model.gen_code_head_w->ne[2];
+                for (int64_t g = 0; g < n_acoustic; g++) {
+                    std::vector<float> r = { dist(rng) };
+                    set_input_f32(("inp_rand_" + std::to_string(g)).c_str(), r);
+                }
             } break;
         case PROJECTOR_TYPE_HUNYUANVL:
             {
@@ -5161,6 +5175,18 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
         ggml_backend_tensor_get(embeddings, out_batch_embd.data(), 0, ggml_nbytes(embeddings));
     } else {
         LOG_WRN("%s: output buffer is empty, skipping copy\n", __func__);
+    }
+
+    // for audio gen: also copy out the decoded PCM samples
+    // auto-sized to whatever the graph produced (fixed per model, but not known up-front)
+    if (params->out_audio != nullptr) {
+        ggml_tensor * audio = ggml_graph_get_tensor(gf, "out_audio");
+        if (audio == nullptr) {
+            GGML_ABORT("out_audio requested but graph has no \"out_audio\" tensor");
+        }
+        auto & out_audio = *params->out_audio;
+        out_audio.resize(ggml_nelements(audio));
+        ggml_backend_tensor_get(audio, out_audio.data(), 0, ggml_nbytes(audio));
     }
 
     // Debug: dump final embeddings if MTMD_DEBUG_EMBEDDINGS is set

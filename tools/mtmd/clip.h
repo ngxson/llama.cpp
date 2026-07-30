@@ -96,6 +96,8 @@ struct clip_encode_params {
     //       out_embd holds the embd to be fed back to backbone
     //       out_audio holds the generated audio samples (PCM float32)
     int32_t code0 = 0;
+    int32_t top_k = 50;
+    float   top_p = 1.0f;
     std::vector<float> * out_audio = nullptr;
 };
 bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params);

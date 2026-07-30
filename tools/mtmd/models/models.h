@@ -227,8 +227,13 @@ struct clip_graph_qwen3tts_spkenc : clip_graph {
 };
 
 struct clip_graph_qwen3tts_gen : clip_graph {
-    clip_graph_qwen3tts_gen(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    clip_graph_qwen3tts_gen(clip_ctx * ctx, const clip_image_f32 & img, int top_k, float top_p)
+        : clip_graph(ctx, img), top_k(top_k), top_p(top_p) {}
     ggml_cgraph * build() override;
+
+    // sampling params, fixed at graph-build time
+    int   top_k;
+    float top_p;
 
     ggml_tensor * cache_set(ggml_tensor * cache, int row_idx, ggml_tensor * value) const;
     ggml_tensor * do_sampling(ggml_tensor * logits, ggml_tensor * inp_rand, int top_k, float top_p) const;

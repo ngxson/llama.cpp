@@ -344,11 +344,15 @@ struct mtmd_gen_inp {
     // sampling params
     int32_t top_k;
     float   top_p;
-    float   temp;
 };
 struct mtmd_gen_out {
     float * embd;   // the generated hidden state, to be fed back to backbone
     size_t  n_embd; // only for validation
+
+    // out: raw PCM samples (F32) decoded for this frame; owned by mtmd_context,
+    // valid until the next mtmd_gen_audio() call, caller does not allocate this
+    const float * audio;
+    size_t n_samples;
 };
 MTMD_API int32_t mtmd_gen_audio(mtmd_context * ctx,
                                 const struct mtmd_gen_inp * inp,

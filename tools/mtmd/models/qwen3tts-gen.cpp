@@ -575,10 +575,6 @@ ggml_cgraph * clip_graph_qwen3tts_gen::build() {
     ggml_set_name(inp_rand0, "inp_rand_0");
     ggml_set_input(inp_rand0);
 
-    // TODO: sampling params should come from mtmd_gen_inp, hardcoded for now
-    const int   top_k = 50;
-    const float top_p = 1.0f;
-
     prefill(k_cache, v_cache, out_code_cache, h_state, code0_embd, inp_rand0, top_k, top_p);
 
     for (int g = 1; g < n_acoustic; g++) {
