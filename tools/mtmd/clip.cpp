@@ -1683,6 +1683,18 @@ struct clip_model_loader {
                         // discrete-token autoregressive predictor, no mel-frontend needed
                         // TODO: hardcoded for now, read from code_predictor_config instead
                         hparams.rope_theta = 1000000.0f;
+
+                        // code2wav params
+                        hparams.wav_tfm_n_layer      = 8;
+                        hparams.wav_tfm_n_embd       = 512;
+                        hparams.wav_tfm_n_ff         = 1024;
+                        hparams.wav_tfm_n_head       = 16;
+                        hparams.wav_tfm_n_head_kv    = 16;
+                        hparams.wav_tfm_eps          = 1e-5f;
+                        hparams.wav_tfm_rope_theta   = 10000.0f;
+                        hparams.wav_upsample_n_block = 2;
+                        hparams.wav_dac_n_block      = 4;
+                        hparams.wav_dac_n_res        = 3;
                     } break;
                 case PROJECTOR_TYPE_PADDLEOCR:
                     {
@@ -2684,6 +2696,95 @@ struct clip_model_loader {
                     model.gen_code_head_w     = get_tensor(string_format(TN_A_GEN_CODE_HEAD,     "weight"));
                     model.gen_code_out_embd_w = get_tensor(string_format(TN_A_GEN_CODE_OUT_EMBD, "weight"));
                     model.gen_code_norm_w     = get_tensor(string_format(TN_A_GEN_CODE_NORM,     "weight"));
+
+                    // code2wav: RVQ codes -> raw PCM, lives in the same ctx as code_predictor
+                    {
+                        auto & c2w = model.c2w;
+
+                        c2w.quant_first_in_w  = get_tensor(string_format(TN_A_GEN_WAV_QUANT_FIRST_IN,  "weight"));
+                        c2w.quant_first_out_w = get_tensor(string_format(TN_A_GEN_WAV_QUANT_FIRST_OUT, "weight"));
+                        c2w.quant_first_cb_w  = get_tensor(string_format(TN_A_GEN_WAV_QUANT_FIRST_CB,  "weight"));
+                        c2w.quant_rest_in_w   = get_tensor(string_format(TN_A_GEN_WAV_QUANT_REST_IN,   "weight"));
+                        c2w.quant_rest_out_w  = get_tensor(string_format(TN_A_GEN_WAV_QUANT_REST_OUT,  "weight"));
+                        c2w.quant_rest_cb_w   = get_tensor(string_format(TN_A_GEN_WAV_QUANT_REST_CB,   "weight"));
+
+                        c2w.pre_conv_w = get_tensor(string_format(TN_A_GEN_WAV_PRE_CONV, "weight"));
+                        c2w.pre_conv_b = get_tensor(string_format(TN_A_GEN_WAV_PRE_CONV, "bias"));
+
+                        c2w.tfm_in_proj_w     = get_tensor(string_format(TN_A_GEN_WAV_TFM_IN_PROJ,  "weight"));
+                        c2w.tfm_in_proj_b     = get_tensor(string_format(TN_A_GEN_WAV_TFM_IN_PROJ,  "bias"));
+                        c2w.tfm_out_proj_w    = get_tensor(string_format(TN_A_GEN_WAV_TFM_OUT_PROJ, "weight"));
+                        c2w.tfm_out_proj_b    = get_tensor(string_format(TN_A_GEN_WAV_TFM_OUT_PROJ, "bias"));
+                        c2w.tfm_output_norm_w = get_tensor(string_format(TN_A_GEN_WAV_TFM_OUT_NORM, "weight"));
+
+                        // pre_transformer layers: own prefix/layer-count, so loaded manually
+                        // rather than through the generic model.layers loop (already claimed
+                        // by code_predictor's 5 layers)
+                        c2w.tfm_layers.resize(hparams.wav_tfm_n_layer);
+                        for (int il = 0; il < hparams.wav_tfm_n_layer; il++) {
+                            auto & layer = c2w.tfm_layers[il];
+                            const char * p = "a.gen.wav.tfm";
+                            layer.q_w      = get_tensor(string_format(TN_ATTN_Q,      p, il, "weight"));
+                            layer.k_w      = get_tensor(string_format(TN_ATTN_K,      p, il, "weight"));
+                            layer.v_w      = get_tensor(string_format(TN_ATTN_V,      p, il, "weight"));
+                            layer.o_w      = get_tensor(string_format(TN_ATTN_OUTPUT, p, il, "weight"));
+                            layer.ln_1_w   = get_tensor(string_format(TN_LN_1,        p, il, "weight"));
+                            layer.ln_2_w   = get_tensor(string_format(TN_LN_2,        p, il, "weight"));
+                            layer.ls_1_w   = get_tensor(string_format(TN_LS_1,        p, il, "weight"));
+                            layer.ls_2_w   = get_tensor(string_format(TN_LS_2,        p, il, "weight"));
+                            layer.ff_gate_w = get_tensor(string_format(TN_FFN_GATE,   p, il, "weight"));
+                            layer.ff_up_w   = get_tensor(string_format(TN_FFN_UP,     p, il, "weight"));
+                            layer.ff_down_w = get_tensor(string_format(TN_FFN_DOWN,   p, il, "weight"));
+                        }
+
+                        // upsample: 2x (causal ConvTranspose1d + ConvNeXt block)
+                        c2w.upsample.resize(hparams.wav_upsample_n_block);
+                        for (int il = 0; il < hparams.wav_upsample_n_block; il++) {
+                            auto & up = c2w.upsample[il];
+                            up.conv_w   = get_tensor(string_format(TN_A_GEN_WAV_UP_CONV,   il, "weight"));
+                            up.conv_b   = get_tensor(string_format(TN_A_GEN_WAV_UP_CONV,   il, "bias"));
+                            up.dwconv_w = get_tensor(string_format(TN_A_GEN_WAV_UP_DWCONV, il, "weight"));
+                            up.dwconv_b = get_tensor(string_format(TN_A_GEN_WAV_UP_DWCONV, il, "bias"));
+                            up.norm_w   = get_tensor(string_format(TN_A_GEN_WAV_UP_NORM,   il, "weight"));
+                            up.norm_b   = get_tensor(string_format(TN_A_GEN_WAV_UP_NORM,   il, "bias"));
+                            up.pw1_w    = get_tensor(string_format(TN_A_GEN_WAV_UP_PW1,    il, "weight"));
+                            up.pw1_b    = get_tensor(string_format(TN_A_GEN_WAV_UP_PW1,    il, "bias"));
+                            up.pw2_w    = get_tensor(string_format(TN_A_GEN_WAV_UP_PW2,    il, "weight"));
+                            up.pw2_b    = get_tensor(string_format(TN_A_GEN_WAV_UP_PW2,    il, "bias"));
+                            up.gamma    = get_tensor(string_format(TN_A_GEN_WAV_UP_GAMMA,  il));
+                        }
+
+                        // DAC decoder: conv_pre + n upsample blocks (each with n_res residual units) + conv_post
+                        c2w.dac_entry_w = get_tensor(string_format(TN_A_GEN_WAV_DAC_ENTRY, "weight"));
+                        c2w.dac_entry_b = get_tensor(string_format(TN_A_GEN_WAV_DAC_ENTRY, "bias"));
+
+                        c2w.dac.resize(hparams.wav_dac_n_block);
+                        for (int il = 0; il < hparams.wav_dac_n_block; il++) {
+                            auto & blk = c2w.dac[il];
+                            blk.snake_alpha = get_tensor(string_format(TN_A_GEN_WAV_DAC_SNAKE, il, "alpha"));
+                            blk.snake_beta  = get_tensor(string_format(TN_A_GEN_WAV_DAC_SNAKE, il, "beta"));
+                            blk.conv_w      = get_tensor(string_format(TN_A_GEN_WAV_DAC_CONV,  il, "weight"));
+                            blk.conv_b      = get_tensor(string_format(TN_A_GEN_WAV_DAC_CONV,  il, "bias"));
+
+                            blk.res.resize(hparams.wav_dac_n_res);
+                            for (int ir = 0; ir < hparams.wav_dac_n_res; ir++) {
+                                auto & res = blk.res[ir];
+                                res.act1_alpha = get_tensor(string_format(TN_A_GEN_WAV_DAC_RES_ACT1,  il, ir, "alpha"));
+                                res.act1_beta  = get_tensor(string_format(TN_A_GEN_WAV_DAC_RES_ACT1,  il, ir, "beta"));
+                                res.conv1_w    = get_tensor(string_format(TN_A_GEN_WAV_DAC_RES_CONV1, il, ir, "weight"));
+                                res.conv1_b    = get_tensor(string_format(TN_A_GEN_WAV_DAC_RES_CONV1, il, ir, "bias"));
+                                res.act2_alpha = get_tensor(string_format(TN_A_GEN_WAV_DAC_RES_ACT2,  il, ir, "alpha"));
+                                res.act2_beta  = get_tensor(string_format(TN_A_GEN_WAV_DAC_RES_ACT2,  il, ir, "beta"));
+                                res.conv2_w    = get_tensor(string_format(TN_A_GEN_WAV_DAC_RES_CONV2, il, ir, "weight"));
+                                res.conv2_b    = get_tensor(string_format(TN_A_GEN_WAV_DAC_RES_CONV2, il, ir, "bias"));
+                            }
+                        }
+
+                        c2w.dac_post_snake_alpha = get_tensor(string_format(TN_A_GEN_WAV_DAC_POST_SNAKE, "alpha"));
+                        c2w.dac_post_snake_beta  = get_tensor(string_format(TN_A_GEN_WAV_DAC_POST_SNAKE, "beta"));
+                        c2w.dac_post_conv_w      = get_tensor(string_format(TN_A_GEN_WAV_DAC_POST_CONV,  "weight"));
+                        c2w.dac_post_conv_b      = get_tensor(string_format(TN_A_GEN_WAV_DAC_POST_CONV,  "bias"));
+                    }
                 } break;
             case PROJECTOR_TYPE_VOXTRAL:
                 {

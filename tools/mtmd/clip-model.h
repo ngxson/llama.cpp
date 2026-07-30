@@ -134,6 +134,18 @@ struct clip_hparams {
     int32_t rvq_num_quantizers = 0;
     std::vector<int32_t> rvq_codebook_size; // per-quantizer bin count (ragged, e.g. 1024/1024/256/128x17)
 
+    // qwen3tts code2wav
+    int32_t wav_tfm_n_layer      = 0;
+    int32_t wav_tfm_n_embd       = 0;
+    int32_t wav_tfm_n_ff         = 0;
+    int32_t wav_tfm_n_head       = 0;
+    int32_t wav_tfm_n_head_kv    = 0;
+    float   wav_tfm_eps          = 1e-5f;
+    float   wav_tfm_rope_theta   = 10000.0f;
+    int32_t wav_upsample_n_block = 0;
+    int32_t wav_dac_n_block      = 0;
+    int32_t wav_dac_n_res        = 0;
+
     // mimo-v2.5: LLM-side connector (input_local_transformer)
     int32_t audio_local_n_layer = 0;
     int32_t audio_local_group_size = 0;
@@ -372,6 +384,75 @@ struct qf_block {
     std::vector<clip_layer> qf_proj_layers;
 };
 
+// qwen3tts code2wav: RVQ codes -> raw PCM
+struct clip_code2wav {
+    // one ConvNeXt block + its preceding causal ConvTranspose1d
+    // (the "upsample" stage between pre_transformer and the DAC decoder)
+    struct upsample_block {
+        ggml_tensor * conv_w   = nullptr; // causal ConvTranspose1d, 2x
+        ggml_tensor * conv_b   = nullptr;
+        ggml_tensor * dwconv_w = nullptr; // depthwise causal conv, k=7
+        ggml_tensor * dwconv_b = nullptr;
+        ggml_tensor * norm_w   = nullptr; // LayerNorm
+        ggml_tensor * norm_b   = nullptr;
+        ggml_tensor * pw1_w    = nullptr; // pointwise expand
+        ggml_tensor * pw1_b    = nullptr;
+        ggml_tensor * pw2_w    = nullptr; // pointwise project
+        ggml_tensor * pw2_b    = nullptr;
+        ggml_tensor * gamma    = nullptr; // layer scale
+    };
+
+    // one DAC residual unit
+    // (SnakeBeta -> dilated causal conv -> SnakeBeta -> pointwise causal conv)
+    struct dac_res {
+        ggml_tensor * act1_alpha = nullptr;
+        ggml_tensor * act1_beta  = nullptr;
+        ggml_tensor * conv1_w    = nullptr;
+        ggml_tensor * conv1_b    = nullptr;
+        ggml_tensor * act2_alpha = nullptr;
+        ggml_tensor * act2_beta  = nullptr;
+        ggml_tensor * conv2_w    = nullptr;
+        ggml_tensor * conv2_b    = nullptr;
+    };
+
+    // one DAC upsample block (SnakeBeta -> causal ConvTranspose1d -> 3 residual units)
+    struct dac_block {
+        ggml_tensor * snake_alpha = nullptr;
+        ggml_tensor * snake_beta  = nullptr;
+        ggml_tensor * conv_w      = nullptr; // causal ConvTranspose1d
+        ggml_tensor * conv_b      = nullptr;
+        std::vector<dac_res> res;
+    };
+
+    // quantizer: RVQ codebook decode
+    ggml_tensor * quant_first_in_w  = nullptr; // semantic RVQ, in_proj (1x1 conv, loaded as 2D)
+    ggml_tensor * quant_first_out_w = nullptr;
+    ggml_tensor * quant_first_cb_w  = nullptr; // codebook (1 layer)
+    ggml_tensor * quant_rest_in_w   = nullptr; // acoustic RVQ
+    ggml_tensor * quant_rest_out_w  = nullptr;
+    ggml_tensor * quant_rest_cb_w   = nullptr; // codebooks, merged 3D [15, vocab, dim]
+
+    ggml_tensor * pre_conv_w = nullptr;
+    ggml_tensor * pre_conv_b = nullptr;
+
+    ggml_tensor * tfm_in_proj_w     = nullptr;
+    ggml_tensor * tfm_in_proj_b     = nullptr;
+    ggml_tensor * tfm_out_proj_w    = nullptr;
+    ggml_tensor * tfm_out_proj_b    = nullptr;
+    ggml_tensor * tfm_output_norm_w = nullptr;
+    std::vector<clip_layer> tfm_layers; // reuses the generic block fields (ln_1/attn/ln_2/ffn/ls_1/ls_2)
+
+    std::vector<upsample_block> upsample;
+
+    ggml_tensor * dac_entry_w = nullptr;
+    ggml_tensor * dac_entry_b = nullptr;
+    std::vector<dac_block> dac;
+    ggml_tensor * dac_post_snake_alpha = nullptr;
+    ggml_tensor * dac_post_snake_beta  = nullptr;
+    ggml_tensor * dac_post_conv_w      = nullptr;
+    ggml_tensor * dac_post_conv_b      = nullptr;
+};
+
 struct clip_model {
     clip_modality modality = CLIP_MODALITY_VISION;
     projector_type proj_type = PROJECTOR_TYPE_MLP;
@@ -599,6 +680,9 @@ struct clip_model {
     ggml_tensor * gen_code_head_w     = nullptr; // per-codebook output head, merged 3D
     ggml_tensor * gen_code_out_embd_w = nullptr; // codebook-0 embedding, fed back into the talker
     ggml_tensor * gen_code_norm_w     = nullptr; // final norm
+
+    // qwen3tts code2wav: RVQ codes -> raw PCM
+    clip_code2wav c2w;
 
     // cogvlm
     ggml_tensor * mm_post_fc_norm_w = nullptr;

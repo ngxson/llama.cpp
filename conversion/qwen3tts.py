@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any, Callable, Iterable, TYPE_CHECKING
 
@@ -204,6 +205,7 @@ class Qwen3TTSSpeakerEncoderModel(MmprojModel):
     _CODE_GEN_N_CODEBOOKS = 15
     _code_embed_buffer: dict[int, Tensor] = {}
     _code_head_buffer: dict[int, Tensor] = {}
+    _wav_config_cache: dict[str, Any] | None = None
 
     def __init__(self, dir_model: Path, *args, **kwargs):
         hparams = kwargs.pop("hparams", None)
@@ -214,6 +216,7 @@ class Qwen3TTSSpeakerEncoderModel(MmprojModel):
         # MmprojModel.__init__ still needs one of the n_block_keys to build its tensor map
         hparams["speaker_encoder_config"]["n_layers"] = 4
         super().__init__(dir_model, *args, hparams=hparams, **kwargs)
+        self._wav_config_cache = None
 
     def get_audio_config(self) -> dict[str, Any] | None:
         return self.global_config.get("speaker_encoder_config")
@@ -246,6 +249,17 @@ class Qwen3TTSSpeakerEncoderModel(MmprojModel):
         self.gguf_writer.add_gen_audio_head_count(code_predictor_config["num_attention_heads"])
         self.gguf_writer.add_gen_audio_head_count_kv(code_predictor_config["num_key_value_heads"])
         self.gguf_writer.add_gen_audio_attention_layernorm_eps(code_predictor_config["rms_norm_eps"])
+        # note: code2wav hparams are hardcoded on the mtmd/clip.cpp side for now, not written here
+
+    def _wav_decoder_config(self) -> dict[str, Any]:
+        # code2wav (RVQ codes -> raw PCM) lives in its own checkpoint dir, sibling to
+        # the main safetensors, with its own config.json
+        if self._wav_config_cache is None:
+            path = self.dir_model / "speech_tokenizer" / "config.json"
+            with open(path, "r", encoding="utf-8") as f:
+                cfg = json.load(f)
+            self._wav_config_cache = cfg["decoder_config"]
+        return self._wav_config_cache
 
     @classmethod
     def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:
@@ -261,6 +275,14 @@ class Qwen3TTSSpeakerEncoderModel(MmprojModel):
         return super().filter_tensors((name, gen))
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        # code2wav tensors come from generate_extra_tensors() already renamed to their
+        # final gguf name (bypassing tensor_mapping.py, same as the code_predictor
+        # tensors below); prepare_tensors() re-runs modify_tensors() on them too, so
+        # pass them through untouched instead of falling into map_tensor_name()
+        if name.startswith("a.gen.wav."):
+            yield (name, data_torch)
+            return
+
         # codebook-0 embedding: fed back into the talker backbone once a codec token is
         # generated, the counterpart of code_predictor's codec_embedding.{0..14} for codebooks 1-15
         if name == "talker.model.codec_embedding.weight":
@@ -312,3 +334,129 @@ class Qwen3TTSSpeakerEncoderModel(MmprojModel):
             return
 
         yield from super().modify_tensors(data_torch, name, bid)
+
+    def generate_extra_tensors(self) -> Iterable[tuple[str, Tensor]]:
+        yield from self._generate_code2wav_tensors()
+
+    def _generate_code2wav_tensors(self) -> Iterable[tuple[str, Tensor]]:
+        # code2wav lives in its own checkpoint dir (speech_tokenizer/model.safetensors),
+        # not the main safetensors this ModelBase was constructed from
+        from safetensors.torch import load_file
+
+        wav_config = self._wav_decoder_config()
+        state_dict = load_file(self.dir_model / "speech_tokenizer" / "model.safetensors")
+
+        def get(name: str) -> Tensor:
+            return state_dict[name]
+
+        def snake_fold(alpha: Tensor, beta: Tensor) -> tuple[Tensor, Tensor]:
+            # SnakeBeta activation folds its exp()/reciprocal at conversion time, so the
+            # runtime graph is only mul -> sin -> sqr -> mul -> add
+            return torch.exp(alpha), 1.0 / (torch.exp(beta) + 1e-9)
+
+        def rvq_codebook(prefix: str, n_layers: int) -> Tensor:
+            # the checkpoint stores EMA training accumulators, not a ready embedding
+            # table: codebook[i] = embedding_sum[i] / cluster_usage[i]
+            books = []
+            for i in range(n_layers):
+                embedding_sum = get(f"{prefix}.vq.layers.{i}._codebook.embedding_sum")
+                cluster_usage = get(f"{prefix}.vq.layers.{i}._codebook.cluster_usage")
+                books.append(embedding_sum / cluster_usage.clamp_min(1e-5).unsqueeze(-1))
+            return torch.stack(books, dim=0) if n_layers > 1 else books[0]
+
+        T = gguf.MODEL_TENSOR
+
+        # --- quantizer: RVQ codebook decode ---
+        yield (self.format_tensor_name(T.A_GEN_WAV_QUANT_FIRST_IN), get("decoder.quantizer.rvq_first.input_proj.weight").squeeze(-1))
+        yield (self.format_tensor_name(T.A_GEN_WAV_QUANT_FIRST_OUT), get("decoder.quantizer.rvq_first.output_proj.weight").squeeze(-1))
+        yield (self.format_tensor_name(T.A_GEN_WAV_QUANT_FIRST_CB), rvq_codebook("decoder.quantizer.rvq_first", 1))
+        yield (self.format_tensor_name(T.A_GEN_WAV_QUANT_REST_IN), get("decoder.quantizer.rvq_rest.input_proj.weight").squeeze(-1))
+        yield (self.format_tensor_name(T.A_GEN_WAV_QUANT_REST_OUT), get("decoder.quantizer.rvq_rest.output_proj.weight").squeeze(-1))
+        yield (self.format_tensor_name(T.A_GEN_WAV_QUANT_REST_CB), rvq_codebook("decoder.quantizer.rvq_rest", self._CODE_GEN_N_CODEBOOKS))
+
+        # --- pre_conv ---
+        yield (self.format_tensor_name(T.A_GEN_WAV_PRE_CONV, suffix=".weight"), get("decoder.pre_conv.conv.weight"))
+        yield (self.format_tensor_name(T.A_GEN_WAV_PRE_CONV, suffix=".bias"), get("decoder.pre_conv.conv.bias"))
+
+        # --- pre_transformer ---
+        yield (self.format_tensor_name(T.A_GEN_WAV_TFM_IN_PROJ, suffix=".weight"), get("decoder.pre_transformer.input_proj.weight"))
+        yield (self.format_tensor_name(T.A_GEN_WAV_TFM_IN_PROJ, suffix=".bias"), get("decoder.pre_transformer.input_proj.bias"))
+        yield (self.format_tensor_name(T.A_GEN_WAV_TFM_OUT_PROJ, suffix=".weight"), get("decoder.pre_transformer.output_proj.weight"))
+        yield (self.format_tensor_name(T.A_GEN_WAV_TFM_OUT_PROJ, suffix=".bias"), get("decoder.pre_transformer.output_proj.bias"))
+        yield (self.format_tensor_name(T.A_GEN_WAV_TFM_OUTPUT_NORM), get("decoder.pre_transformer.norm.weight"))
+
+        tfm_layer_map = {
+            "input_layernorm.weight":         T.A_GEN_WAV_TFM_ATTN_NORM,
+            "self_attn.q_proj.weight":        T.A_GEN_WAV_TFM_ATTN_Q,
+            "self_attn.k_proj.weight":        T.A_GEN_WAV_TFM_ATTN_K,
+            "self_attn.v_proj.weight":        T.A_GEN_WAV_TFM_ATTN_V,
+            "self_attn.o_proj.weight":        T.A_GEN_WAV_TFM_ATTN_OUT,
+            "self_attn_layer_scale.scale":    T.A_GEN_WAV_TFM_ATTN_SCALE,
+            "post_attention_layernorm.weight": T.A_GEN_WAV_TFM_FFN_NORM,
+            "mlp.gate_proj.weight":           T.A_GEN_WAV_TFM_FFN_GATE,
+            "mlp.up_proj.weight":             T.A_GEN_WAV_TFM_FFN_UP,
+            "mlp.down_proj.weight":           T.A_GEN_WAV_TFM_FFN_DOWN,
+            "mlp_layer_scale.scale":          T.A_GEN_WAV_TFM_FFN_SCALE,
+        }
+        for bid in range(wav_config["num_hidden_layers"]):
+            for key, tensor_id in tfm_layer_map.items():
+                yield (self.format_tensor_name(tensor_id, bid), get(f"decoder.pre_transformer.layers.{bid}.{key}"))
+
+        # --- upsample: 2x (causal ConvTranspose1d + ConvNeXt block) ---
+        up_map = {
+            "0.conv.weight":     (T.A_GEN_WAV_UP_CONV, ".weight"),
+            "0.conv.bias":       (T.A_GEN_WAV_UP_CONV, ".bias"),
+            "1.dwconv.conv.weight": (T.A_GEN_WAV_UP_DWCONV, ".weight"),
+            "1.dwconv.conv.bias":   (T.A_GEN_WAV_UP_DWCONV, ".bias"),
+            "1.norm.weight":     (T.A_GEN_WAV_UP_NORM, ".weight"),
+            "1.norm.bias":       (T.A_GEN_WAV_UP_NORM, ".bias"),
+            "1.pwconv1.weight":  (T.A_GEN_WAV_UP_PW1, ".weight"),
+            "1.pwconv1.bias":    (T.A_GEN_WAV_UP_PW1, ".bias"),
+            "1.pwconv2.weight":  (T.A_GEN_WAV_UP_PW2, ".weight"),
+            "1.pwconv2.bias":    (T.A_GEN_WAV_UP_PW2, ".bias"),
+            "1.gamma":           (T.A_GEN_WAV_UP_GAMMA, ""),
+        }
+        for bid in range(len(wav_config["upsampling_ratios"])):
+            for key, (tensor_id, suffix) in up_map.items():
+                yield (self.format_tensor_name(tensor_id, bid, suffix=suffix), get(f"decoder.upsample.{bid}.{key}"))
+
+        # --- DAC decoder ---
+        yield (self.format_tensor_name(T.A_GEN_WAV_DAC_ENTRY, suffix=".weight"), get("decoder.decoder.0.conv.weight"))
+        yield (self.format_tensor_name(T.A_GEN_WAV_DAC_ENTRY, suffix=".bias"), get("decoder.decoder.0.conv.bias"))
+
+        n_dac_blocks = len(wav_config["upsample_rates"])
+        for bid in range(n_dac_blocks):
+            py = bid + 1  # decoder.decoder.0 is the entry conv, blocks start at 1
+
+            a, b = snake_fold(get(f"decoder.decoder.{py}.block.0.alpha"), get(f"decoder.decoder.{py}.block.0.beta"))
+            yield (self.format_tensor_name(T.A_GEN_WAV_DAC_UP_SNAKE, bid, suffix=".alpha"), a)
+            yield (self.format_tensor_name(T.A_GEN_WAV_DAC_UP_SNAKE, bid, suffix=".beta"), b)
+            yield (self.format_tensor_name(T.A_GEN_WAV_DAC_UP_CONV, bid, suffix=".weight"), get(f"decoder.decoder.{py}.block.1.conv.weight"))
+            yield (self.format_tensor_name(T.A_GEN_WAV_DAC_UP_CONV, bid, suffix=".bias"), get(f"decoder.decoder.{py}.block.1.conv.bias"))
+
+            for xid in range(3):
+                ridx = xid + 2  # block.2/3/4 are the 3 residual units
+
+                a1, b1 = snake_fold(get(f"decoder.decoder.{py}.block.{ridx}.act1.alpha"), get(f"decoder.decoder.{py}.block.{ridx}.act1.beta"))
+                name1 = gguf.TENSOR_NAMES[T.A_GEN_WAV_DAC_RES_ACT1].format(bid=bid, xid=xid)
+                yield (name1 + ".alpha", a1)
+                yield (name1 + ".beta", b1)
+
+                name_conv1 = gguf.TENSOR_NAMES[T.A_GEN_WAV_DAC_RES_CONV1].format(bid=bid, xid=xid)
+                yield (name_conv1 + ".weight", get(f"decoder.decoder.{py}.block.{ridx}.conv1.conv.weight"))
+                yield (name_conv1 + ".bias", get(f"decoder.decoder.{py}.block.{ridx}.conv1.conv.bias"))
+
+                a2, b2 = snake_fold(get(f"decoder.decoder.{py}.block.{ridx}.act2.alpha"), get(f"decoder.decoder.{py}.block.{ridx}.act2.beta"))
+                name2 = gguf.TENSOR_NAMES[T.A_GEN_WAV_DAC_RES_ACT2].format(bid=bid, xid=xid)
+                yield (name2 + ".alpha", a2)
+                yield (name2 + ".beta", b2)
+
+                name_conv2 = gguf.TENSOR_NAMES[T.A_GEN_WAV_DAC_RES_CONV2].format(bid=bid, xid=xid)
+                yield (name_conv2 + ".weight", get(f"decoder.decoder.{py}.block.{ridx}.conv2.conv.weight"))
+                yield (name_conv2 + ".bias", get(f"decoder.decoder.{py}.block.{ridx}.conv2.conv.bias"))
+
+        a5, b5 = snake_fold(get("decoder.decoder.5.alpha"), get("decoder.decoder.5.beta"))
+        yield (self.format_tensor_name(T.A_GEN_WAV_DAC_POST_SNAKE, suffix=".alpha"), a5)
+        yield (self.format_tensor_name(T.A_GEN_WAV_DAC_POST_SNAKE, suffix=".beta"), b5)
+        yield (self.format_tensor_name(T.A_GEN_WAV_DAC_POST_CONV, suffix=".weight"), get("decoder.decoder.6.conv.weight"))
+        yield (self.format_tensor_name(T.A_GEN_WAV_DAC_POST_CONV, suffix=".bias"), get("decoder.decoder.6.conv.bias"))

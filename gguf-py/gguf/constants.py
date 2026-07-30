@@ -992,6 +992,44 @@ class MODEL_TENSOR(IntEnum):
     A_GEN_CODE_FFN_UP      = auto()
     A_GEN_CODE_FFN_DOWN    = auto()
     A_GEN_CODE_OUTPUT_NORM = auto()
+    # qwen3tts code2wav: RVQ codes -> raw PCM (quantizer decode + pre_conv +
+    # pre_transformer + ConvNeXt upsample + DAC decoder)
+    A_GEN_WAV_QUANT_FIRST_IN       = auto() # semantic RVQ, in_proj (1x1 conv, loaded as 2D)
+    A_GEN_WAV_QUANT_FIRST_OUT      = auto() # semantic RVQ, out_proj
+    A_GEN_WAV_QUANT_FIRST_CB = auto() # semantic RVQ codebook (1 layer), folded from embedding_sum/cluster_usage
+    A_GEN_WAV_QUANT_REST_IN        = auto() # acoustic RVQ, in_proj
+    A_GEN_WAV_QUANT_REST_OUT       = auto() # acoustic RVQ, out_proj
+    A_GEN_WAV_QUANT_REST_CB  = auto() # acoustic RVQ codebooks, merged 3D [15, vocab, dim]
+    A_GEN_WAV_PRE_CONV             = auto()
+    A_GEN_WAV_TFM_IN_PROJ          = auto()
+    A_GEN_WAV_TFM_OUT_PROJ         = auto()
+    A_GEN_WAV_TFM_OUTPUT_NORM      = auto()
+    A_GEN_WAV_TFM_ATTN_NORM        = auto()
+    A_GEN_WAV_TFM_ATTN_Q           = auto()
+    A_GEN_WAV_TFM_ATTN_K           = auto()
+    A_GEN_WAV_TFM_ATTN_V           = auto()
+    A_GEN_WAV_TFM_ATTN_OUT         = auto()
+    A_GEN_WAV_TFM_ATTN_SCALE       = auto() # layer scale (gamma) on the attn output
+    A_GEN_WAV_TFM_FFN_NORM         = auto()
+    A_GEN_WAV_TFM_FFN_GATE         = auto()
+    A_GEN_WAV_TFM_FFN_UP           = auto()
+    A_GEN_WAV_TFM_FFN_DOWN         = auto()
+    A_GEN_WAV_TFM_FFN_SCALE        = auto() # layer scale (gamma) on the FFN output
+    A_GEN_WAV_UP_CONV              = auto() # causal ConvTranspose1d, 2x upsample
+    A_GEN_WAV_UP_DWCONV            = auto() # ConvNeXt depthwise conv
+    A_GEN_WAV_UP_NORM              = auto() # ConvNeXt LayerNorm
+    A_GEN_WAV_UP_PW1               = auto() # ConvNeXt pointwise conv 1 (expand)
+    A_GEN_WAV_UP_PW2               = auto() # ConvNeXt pointwise conv 2 (project)
+    A_GEN_WAV_UP_GAMMA             = auto() # ConvNeXt layer scale
+    A_GEN_WAV_DAC_ENTRY            = auto() # DAC conv_pre
+    A_GEN_WAV_DAC_UP_SNAKE         = auto() # DAC per-block SnakeBeta before the upsample conv
+    A_GEN_WAV_DAC_UP_CONV          = auto() # DAC per-block causal ConvTranspose1d
+    A_GEN_WAV_DAC_RES_ACT1         = auto() # DAC residual unit, SnakeBeta before conv1
+    A_GEN_WAV_DAC_RES_CONV1        = auto() # DAC residual unit, dilated causal conv
+    A_GEN_WAV_DAC_RES_ACT2         = auto() # DAC residual unit, SnakeBeta before conv2
+    A_GEN_WAV_DAC_RES_CONV2        = auto() # DAC residual unit, pointwise causal conv
+    A_GEN_WAV_DAC_POST_SNAKE       = auto() # DAC final SnakeBeta
+    A_GEN_WAV_DAC_POST_CONV        = auto() # DAC conv_post -> 1-channel PCM
     A_MMPROJ              = auto()
     A_MMPROJ_FC           = auto()
     A_MM_NORM_PRE         = auto()
@@ -1623,6 +1661,42 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.A_GEN_CODE_FFN_UP:         "a.gen.code.blk.{bid}.ffn_up",
     MODEL_TENSOR.A_GEN_CODE_FFN_DOWN:       "a.gen.code.blk.{bid}.ffn_down",
     MODEL_TENSOR.A_GEN_CODE_OUTPUT_NORM:    "a.gen.code.output_norm",
+    MODEL_TENSOR.A_GEN_WAV_QUANT_FIRST_IN:  "a.gen.wav.quant.first.in_proj",
+    MODEL_TENSOR.A_GEN_WAV_QUANT_FIRST_OUT: "a.gen.wav.quant.first.out_proj",
+    MODEL_TENSOR.A_GEN_WAV_QUANT_FIRST_CB:  "a.gen.wav.quant.first.codebook",
+    MODEL_TENSOR.A_GEN_WAV_QUANT_REST_IN:   "a.gen.wav.quant.rest.in_proj",
+    MODEL_TENSOR.A_GEN_WAV_QUANT_REST_OUT:  "a.gen.wav.quant.rest.out_proj",
+    MODEL_TENSOR.A_GEN_WAV_QUANT_REST_CB:   "a.gen.wav.quant.rest.codebook",
+    MODEL_TENSOR.A_GEN_WAV_PRE_CONV:        "a.gen.wav.pre_conv",
+    MODEL_TENSOR.A_GEN_WAV_TFM_IN_PROJ:     "a.gen.wav.tfm.in_proj",
+    MODEL_TENSOR.A_GEN_WAV_TFM_OUT_PROJ:    "a.gen.wav.tfm.out_proj",
+    MODEL_TENSOR.A_GEN_WAV_TFM_OUTPUT_NORM: "a.gen.wav.tfm.output_norm",
+    MODEL_TENSOR.A_GEN_WAV_TFM_ATTN_NORM:   "a.gen.wav.tfm.blk.{bid}.ln1",
+    MODEL_TENSOR.A_GEN_WAV_TFM_ATTN_Q:      "a.gen.wav.tfm.blk.{bid}.attn_q",
+    MODEL_TENSOR.A_GEN_WAV_TFM_ATTN_K:      "a.gen.wav.tfm.blk.{bid}.attn_k",
+    MODEL_TENSOR.A_GEN_WAV_TFM_ATTN_V:      "a.gen.wav.tfm.blk.{bid}.attn_v",
+    MODEL_TENSOR.A_GEN_WAV_TFM_ATTN_OUT:    "a.gen.wav.tfm.blk.{bid}.attn_out",
+    MODEL_TENSOR.A_GEN_WAV_TFM_ATTN_SCALE:  "a.gen.wav.tfm.blk.{bid}.ls1",
+    MODEL_TENSOR.A_GEN_WAV_TFM_FFN_NORM:    "a.gen.wav.tfm.blk.{bid}.ln2",
+    MODEL_TENSOR.A_GEN_WAV_TFM_FFN_GATE:    "a.gen.wav.tfm.blk.{bid}.ffn_gate",
+    MODEL_TENSOR.A_GEN_WAV_TFM_FFN_UP:      "a.gen.wav.tfm.blk.{bid}.ffn_up",
+    MODEL_TENSOR.A_GEN_WAV_TFM_FFN_DOWN:    "a.gen.wav.tfm.blk.{bid}.ffn_down",
+    MODEL_TENSOR.A_GEN_WAV_TFM_FFN_SCALE:   "a.gen.wav.tfm.blk.{bid}.ls2",
+    MODEL_TENSOR.A_GEN_WAV_UP_CONV:         "a.gen.wav.up.blk.{bid}.conv",
+    MODEL_TENSOR.A_GEN_WAV_UP_DWCONV:       "a.gen.wav.up.blk.{bid}.dwconv",
+    MODEL_TENSOR.A_GEN_WAV_UP_NORM:         "a.gen.wav.up.blk.{bid}.norm",
+    MODEL_TENSOR.A_GEN_WAV_UP_PW1:          "a.gen.wav.up.blk.{bid}.pw1",
+    MODEL_TENSOR.A_GEN_WAV_UP_PW2:          "a.gen.wav.up.blk.{bid}.pw2",
+    MODEL_TENSOR.A_GEN_WAV_UP_GAMMA:        "a.gen.wav.up.blk.{bid}.gamma",
+    MODEL_TENSOR.A_GEN_WAV_DAC_ENTRY:       "a.gen.wav.dac.entry",
+    MODEL_TENSOR.A_GEN_WAV_DAC_UP_SNAKE:    "a.gen.wav.dac.blk.{bid}.snake",
+    MODEL_TENSOR.A_GEN_WAV_DAC_UP_CONV:     "a.gen.wav.dac.blk.{bid}.conv",
+    MODEL_TENSOR.A_GEN_WAV_DAC_RES_ACT1:    "a.gen.wav.dac.blk.{bid}.res.{xid}.act1",
+    MODEL_TENSOR.A_GEN_WAV_DAC_RES_CONV1:   "a.gen.wav.dac.blk.{bid}.res.{xid}.conv1",
+    MODEL_TENSOR.A_GEN_WAV_DAC_RES_ACT2:    "a.gen.wav.dac.blk.{bid}.res.{xid}.act2",
+    MODEL_TENSOR.A_GEN_WAV_DAC_RES_CONV2:   "a.gen.wav.dac.blk.{bid}.res.{xid}.conv2",
+    MODEL_TENSOR.A_GEN_WAV_DAC_POST_SNAKE:  "a.gen.wav.dac.post_snake",
+    MODEL_TENSOR.A_GEN_WAV_DAC_POST_CONV:   "a.gen.wav.dac.post_conv",
     MODEL_TENSOR.A_MMPROJ:                  "mm.a.mlp.{bid}",
     MODEL_TENSOR.A_MMPROJ_FC:               "mm.a.fc",
     MODEL_TENSOR.A_MM_NORM_PRE:             "mm.a.norm_pre",
@@ -1898,6 +1972,42 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.A_GEN_CODE_FFN_UP,
         MODEL_TENSOR.A_GEN_CODE_FFN_DOWN,
         MODEL_TENSOR.A_GEN_CODE_OUTPUT_NORM,
+        MODEL_TENSOR.A_GEN_WAV_QUANT_FIRST_IN,
+        MODEL_TENSOR.A_GEN_WAV_QUANT_FIRST_OUT,
+        MODEL_TENSOR.A_GEN_WAV_QUANT_FIRST_CB,
+        MODEL_TENSOR.A_GEN_WAV_QUANT_REST_IN,
+        MODEL_TENSOR.A_GEN_WAV_QUANT_REST_OUT,
+        MODEL_TENSOR.A_GEN_WAV_QUANT_REST_CB,
+        MODEL_TENSOR.A_GEN_WAV_PRE_CONV,
+        MODEL_TENSOR.A_GEN_WAV_TFM_IN_PROJ,
+        MODEL_TENSOR.A_GEN_WAV_TFM_OUT_PROJ,
+        MODEL_TENSOR.A_GEN_WAV_TFM_OUTPUT_NORM,
+        MODEL_TENSOR.A_GEN_WAV_TFM_ATTN_NORM,
+        MODEL_TENSOR.A_GEN_WAV_TFM_ATTN_Q,
+        MODEL_TENSOR.A_GEN_WAV_TFM_ATTN_K,
+        MODEL_TENSOR.A_GEN_WAV_TFM_ATTN_V,
+        MODEL_TENSOR.A_GEN_WAV_TFM_ATTN_OUT,
+        MODEL_TENSOR.A_GEN_WAV_TFM_ATTN_SCALE,
+        MODEL_TENSOR.A_GEN_WAV_TFM_FFN_NORM,
+        MODEL_TENSOR.A_GEN_WAV_TFM_FFN_GATE,
+        MODEL_TENSOR.A_GEN_WAV_TFM_FFN_UP,
+        MODEL_TENSOR.A_GEN_WAV_TFM_FFN_DOWN,
+        MODEL_TENSOR.A_GEN_WAV_TFM_FFN_SCALE,
+        MODEL_TENSOR.A_GEN_WAV_UP_CONV,
+        MODEL_TENSOR.A_GEN_WAV_UP_DWCONV,
+        MODEL_TENSOR.A_GEN_WAV_UP_NORM,
+        MODEL_TENSOR.A_GEN_WAV_UP_PW1,
+        MODEL_TENSOR.A_GEN_WAV_UP_PW2,
+        MODEL_TENSOR.A_GEN_WAV_UP_GAMMA,
+        MODEL_TENSOR.A_GEN_WAV_DAC_ENTRY,
+        MODEL_TENSOR.A_GEN_WAV_DAC_UP_SNAKE,
+        MODEL_TENSOR.A_GEN_WAV_DAC_UP_CONV,
+        MODEL_TENSOR.A_GEN_WAV_DAC_RES_ACT1,
+        MODEL_TENSOR.A_GEN_WAV_DAC_RES_CONV1,
+        MODEL_TENSOR.A_GEN_WAV_DAC_RES_ACT2,
+        MODEL_TENSOR.A_GEN_WAV_DAC_RES_CONV2,
+        MODEL_TENSOR.A_GEN_WAV_DAC_POST_SNAKE,
+        MODEL_TENSOR.A_GEN_WAV_DAC_POST_CONV,
         MODEL_TENSOR.A_ENC_CONV_NORM_MEAN,
         MODEL_TENSOR.A_ENC_CONV_NORM_VAR,
         MODEL_TENSOR.A_ENC_MEL_FILTERS,
