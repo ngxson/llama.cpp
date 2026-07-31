@@ -86,18 +86,30 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx);
 bool clip_image_encode      (struct clip_ctx * ctx, int n_threads, const clip_image_f32 * img, std::vector<float> & out_vec);
 bool clip_image_batch_encode(struct clip_ctx * ctx, int n_threads, const struct clip_image_f32_batch * imgs, std::vector<float> & out_batch_embd);
 
+enum clip_gen_process_type {
+    CLIP_GEN_PROCESS_CODE_GEN, // h_state to codes
+    CLIP_GEN_PROCESS_CODE2WAV, // codes to raw PCM audio
+};
 struct clip_encode_params {
     int n_threads = 1;
     const clip_image_f32_batch * imgs = nullptr;
     std::vector<float> * out_embd = nullptr;
 
-    // note: for audio gen, imgs has expectly one entry of size (n_text_embd, 1), it's the hidden state from backbone
-    //       code0 is the sampled semantic code from backbone
-    //       out_embd holds the embd to be fed back to backbone
-    //       out_audio holds the generated audio samples (PCM float32)
+    // for audio gen, imgs has exactly one entry (unused content for CODE2WAV,
+    // for CODE_GEN it holds the hidden state from backbone, size (n_text_embd, 1))
+    clip_gen_process_type gen_process = CLIP_GEN_PROCESS_CODE_GEN;
+
+    // CODE_GEN: code0 is the sampled semantic code from backbone, out_codes
+    // receives this frame's 16 sampled codes, out_embd receives the embd to
+    // be fed back to the backbone for the next frame
     int32_t code0 = 0;
     int32_t top_k = 50;
     float   top_p = 1.0f;
+    std::vector<int32_t> * out_codes = nullptr;
+
+    // CODE2WAV: codes holds this frame's 16 RVQ codes, out_audio receives the
+    // decoded PCM samples (F32)
+    const std::vector<int32_t> * codes = nullptr;
     std::vector<float> * out_audio = nullptr;
 };
 bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params);

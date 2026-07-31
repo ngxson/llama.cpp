@@ -264,7 +264,9 @@ struct mtmd_context {
 
     // generation context
     struct clip_ctx * ctx_gen_a; // audio
-    std::vector<float> gen_out_audio; // decoded PCM samples for the current frame
+    std::vector<int32_t> gen_out_codes; // this frame's 16 sampled codes (CODE_GEN)
+    std::vector<float>   gen_out_embd;  // next-step hidden state fed back to backbone (CODE_GEN)
+    std::vector<float>   gen_out_audio; // decoded PCM samples for the current frame (CODE2WAV)
 
     bool print_timings;
     int n_threads;
@@ -1586,41 +1588,71 @@ static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_in
         return 1;
     }
 
-    const size_t n_embd = (size_t) clip_n_mmproj_embd(ctx_clip);
-    if (inp->n_embd != n_embd) {
-        LOG_ERR("%s: n_embd mismatch: model expects %zu, got %zu\n", __func__, n_embd, inp->n_embd);
-        return 1;
+    if (inp->type == MTMD_GEN_PROCESS_TYPE_GEN_CODE) {
+        const size_t n_embd = (size_t) clip_n_mmproj_embd(ctx_clip);
+
+        clip_image_f32 hidden_state;
+        hidden_state.set_size({(int) n_embd, 1}, false, true);
+        hidden_state.cpy_buf(std::vector<float>(inp->embd, inp->embd + n_embd));
+
+        clip_image_f32_batch batch;
+        batch.is_audio = true;
+        batch.entries.push_back(std::move(hidden_state));
+
+        std::vector<float>   out_embd(n_embd);
+        std::vector<int32_t> out_codes;
+
+        clip_encode_params params;
+        params.imgs        = &batch;
+        params.n_threads   = ctx->n_threads;
+        params.gen_process = CLIP_GEN_PROCESS_CODE_GEN;
+        params.out_embd    = &out_embd;
+        params.out_codes   = &out_codes;
+        params.code0       = inp->code0;
+        params.top_k       = inp->top_k;
+        params.top_p       = inp->top_p;
+
+        if (!clip_encode(ctx_clip, &params)) {
+            LOG_ERR("%s: clip_encode failed (gen_code)\n", __func__);
+            return 1;
+        }
+
+        ctx->gen_out_embd  = std::move(out_embd);
+        ctx->gen_out_codes = std::move(out_codes);
+
+        out->embd    = ctx->gen_out_embd.data();
+        out->codes   = ctx->gen_out_codes.data();
+        out->n_codes = ctx->gen_out_codes.size();
+        return 0;
     }
 
-    clip_image_f32 hidden_state;
-    hidden_state.set_size({(int) n_embd, 1}, false, true);
-    hidden_state.cpy_buf(std::vector<float>(inp->embd, inp->embd + n_embd));
+    // MTMD_GEN_PROCESS_TYPE_CODE2WAV
+    if (!inp->codes || inp->n_codes == 0) {
+        LOG_ERR("%s: codes required for code2wav\n", __func__);
+        return 1;
+    }
+    std::vector<int32_t> in_codes(inp->codes, inp->codes + inp->n_codes);
+
+    // code2wav has no hidden-state input, the batch entry is an unused placeholder
+    clip_image_f32 dummy;
+    dummy.set_size({1, 1}, false, true);
+    dummy.cpy_buf(std::vector<float>(1, 0.0f));
 
     clip_image_f32_batch batch;
     batch.is_audio = true;
-    batch.entries.push_back(std::move(hidden_state));
+    batch.entries.push_back(std::move(dummy));
 
-    std::vector<float> out_embd(n_embd);
-    ctx->gen_out_audio.clear();
     clip_encode_params params;
-    params.imgs      = &batch;
-    params.n_threads = ctx->n_threads;
-    params.out_embd  = &out_embd;
-    params.out_audio = &ctx->gen_out_audio;
-    params.code0     = inp->code0;
-    params.top_k     = inp->top_k;
-    params.top_p     = inp->top_p;
+    params.imgs        = &batch;
+    params.n_threads   = ctx->n_threads;
+    params.gen_process = CLIP_GEN_PROCESS_CODE2WAV;
+    params.codes       = &in_codes;
+    params.out_audio   = &ctx->gen_out_audio;
 
     if (!clip_encode(ctx_clip, &params)) {
-        LOG_ERR("%s: clip_encode failed\n", __func__);
+        LOG_ERR("%s: clip_encode failed (code2wav)\n", __func__);
         return 1;
     }
-
-    if (!out->embd || out->n_embd != out_embd.size()) {
-        LOG_ERR("%s: output buffer size mismatch: expected %zu, got %zu\n", __func__, out_embd.size(), out->n_embd);
-        return 1;
-    }
-    std::copy(out_embd.begin(), out_embd.end(), out->embd);
 
     out->audio     = ctx->gen_out_audio.data();
     out->n_samples = ctx->gen_out_audio.size();

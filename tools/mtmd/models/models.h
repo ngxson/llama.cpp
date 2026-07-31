@@ -227,11 +227,14 @@ struct clip_graph_qwen3tts_spkenc : clip_graph {
 };
 
 struct clip_graph_qwen3tts_gen : clip_graph {
-    clip_graph_qwen3tts_gen(clip_ctx * ctx, const clip_image_f32 & img, int top_k, float top_p)
-        : clip_graph(ctx, img), top_k(top_k), top_p(top_p) {}
+    clip_graph_qwen3tts_gen(clip_ctx * ctx, const clip_image_f32 & img, clip_gen_process_type gen_process, int top_k, float top_p)
+        : clip_graph(ctx, img), gen_process(gen_process), top_k(top_k), top_p(top_p) {}
     ggml_cgraph * build() override;
 
-    // sampling params, fixed at graph-build time
+    // which sub-graph build() constructs, fixed at graph-build time
+    clip_gen_process_type gen_process;
+
+    // sampling params, fixed at graph-build time (CODE_GEN only)
     int   top_k;
     float top_p;
 
@@ -242,6 +245,7 @@ struct clip_graph_qwen3tts_gen : clip_graph {
     struct code_gen : clip_graph {
         code_gen(const clip_graph & parent, int top_k, float top_p)
             : clip_graph(parent), top_k(top_k), top_p(top_p) {}
+        ggml_cgraph * build() override { GGML_ABORT("call prefill()/step() instead"); }
 
         int   top_k;
         float top_p;
@@ -293,14 +297,14 @@ struct clip_graph_qwen3tts_gen : clip_graph {
         ggml_tensor * causal_conv_transpose1d(ggml_tensor * x, ggml_tensor * w, ggml_tensor * b, int stride) const;
         ggml_tensor * snake(ggml_tensor * x, ggml_tensor * alpha, ggml_tensor * beta) const;
 
-        ggml_tensor * quant_decode(ggml_tensor * out_code_cache) const;
+        ggml_tensor * quant_decode(ggml_tensor * inp_codes) const;
         ggml_tensor * tfm_layer_forward(ggml_tensor * cur, const clip_layer & layer, ggml_tensor * pos0, ggml_tensor * mask) const;
         ggml_tensor * convnext_block(ggml_tensor * x, const clip_code2wav::upsample_block & blk) const;
         ggml_tensor * dac_res_unit(ggml_tensor * x, const clip_code2wav::dac_res & res, int dilation) const;
 
-        // out_code_cache: [1, n_codes] I32 (as produced by prefill()/step()).
+        // inp_codes: [1, n_codes] I32, one frame's RVQ codes.
         // returns audio samples, [n_samples] F32, clamped to [-1, 1].
-        ggml_tensor * decode(ggml_tensor * out_code_cache) const;
+        ggml_tensor * decode(ggml_tensor * inp_codes) const;
     };
 };
 

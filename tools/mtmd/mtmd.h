@@ -350,13 +350,15 @@ struct mtmd_gen_inp {
     float   top_p;
 
     // for MTMD_GEN_PROCESS_TYPE_CODE2WAV
-    int32_t * codes; // the sampled codebook entries, must have n_codes elements
-    size_t    n_codes;
+    int32_t * codes;
+    size_t n_codes;
 };
 struct mtmd_gen_out {
     // note: output memory is allocated by the context, valid until next process() call
 
     // for MTMD_GEN_PROCESS_TYPE_GEN_CODE
+    const int32_t * codes;
+    size_t n_codes;
     const float * embd; // the generated hidden state, to be fed back to backbone
                         // it must have n_text_embd elements
 

@@ -1056,9 +1056,10 @@ static std::unique_ptr<clip_graph> clip_get_graph_builder(clip_ctx * ctx, const 
             } break;
         case PROJECTOR_TYPE_QWEN3TTS_GEN:
             {
+                const auto  gen_process = params ? params->gen_process : CLIP_GEN_PROCESS_CODE_GEN;
                 const int   top_k = params ? params->top_k : 50;
                 const float top_p = params ? params->top_p : 1.0f;
-                builder = std::make_unique<clip_graph_qwen3tts_gen>(ctx, img, top_k, top_p);
+                builder = std::make_unique<clip_graph_qwen3tts_gen>(ctx, img, gen_process, top_k, top_p);
             } break;
         case PROJECTOR_TYPE_YOUTUVL:
             {
@@ -4163,8 +4164,9 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
         }
         set_input_f32("inp_raw", inp_raw);
 
-    } else {
-        // audio input
+    } else if (!(ctx->proj_type() == PROJECTOR_TYPE_QWEN3TTS_GEN && params->gen_process == CLIP_GEN_PROCESS_CODE2WAV)) {
+        // audio input (code2wav has no hidden-state/raw input at all, its
+        // only input is the "inp_codes" tensor handled in the switch below)
         GGML_ASSERT(imgs.entries.size() == 1);
 
         const auto & mel_inp = imgs.entries[0];
@@ -4722,17 +4724,23 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
             } break;
         case PROJECTOR_TYPE_QWEN3TTS_GEN:
             {
-                std::vector<int32_t> code0 = { params->code0 };
-                set_input_i32("inp_code0", code0);
+                if (params->gen_process == CLIP_GEN_PROCESS_CODE2WAV) {
+                    GGML_ASSERT(params->codes != nullptr);
+                    std::vector<int32_t> codes = *params->codes;
+                    set_input_i32("inp_codes", codes);
+                } else {
+                    std::vector<int32_t> code0 = { params->code0 };
+                    set_input_i32("inp_code0", code0);
 
-                // one uniform(0,1) draw per codebook, consumed by do_sampling()'s
-                // inverse-CDF token selection (inp_rand_0 .. inp_rand_{n_acoustic-1})
-                static std::mt19937 rng{ std::random_device{}() };
-                std::uniform_real_distribution<float> dist(0.0f, 1.0f);
-                const int64_t n_acoustic = model.gen_code_head_w->ne[2];
-                for (int64_t g = 0; g < n_acoustic; g++) {
-                    std::vector<float> r = { dist(rng) };
-                    set_input_f32(("inp_rand_" + std::to_string(g)).c_str(), r);
+                    // one uniform(0,1) draw per codebook, consumed by do_sampling()'s
+                    // inverse-CDF token selection (inp_rand_0 .. inp_rand_{n_acoustic-1})
+                    static std::mt19937 rng{ std::random_device{}() };
+                    std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+                    const int64_t n_acoustic = model.gen_code_head_w->ne[2];
+                    for (int64_t g = 0; g < n_acoustic; g++) {
+                        std::vector<float> r = { dist(rng) };
+                        set_input_f32(("inp_rand_" + std::to_string(g)).c_str(), r);
+                    }
                 }
             } break;
         case PROJECTOR_TYPE_HUNYUANVL:
@@ -5150,35 +5158,49 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
         return false;
     }
 
-    // the last node is the embedding tensor
-    ggml_tensor * embeddings = ggml_graph_node(gf, -1);
+    // the last node is the embedding tensor (not produced by the code2wav
+    // sub-graph, which has no out_embd at all)
+    ggml_tensor * embeddings = params->out_embd ? ggml_graph_node(gf, -1) : nullptr;
 
-    // sanity check (assuming that all images in batch have the same number of tokens, so we only check the first one)
-    const int n_tokens_out = embeddings->ne[1];
-    const int expected_n_tokens_out = clip_n_output_tokens(ctx, &imgs.entries[0]);
-    if (n_tokens_out != expected_n_tokens_out) {
-        LOG_ERR("%s: expected output %d tokens, got %d\n", __func__, expected_n_tokens_out, n_tokens_out);
-        GGML_ABORT("Invalid number of output tokens");
-    }
-
-    LOG_DBG("%s: output embedding shape [%d, %d, %d]\n", __func__,
-        (int)embeddings->ne[0], (int)embeddings->ne[1], (int)embeddings->ne[2]);
-
-    // copy output to user buffer if provided
-    // if output is empty, skip the copy
-    auto & out_batch_embd = *params->out_embd;
-    if (!out_batch_embd.empty()) {
-        if (out_batch_embd.size() != (size_t)ggml_nelements(embeddings)) {
-            LOG_ERR("%s: output buffer has %zu elements but expected %zu\n", __func__, out_batch_embd.size(), (size_t)ggml_nelements(embeddings));
-            GGML_ABORT("Output buffer size mismatch");
+    if (embeddings != nullptr) {
+        // sanity check (assuming that all images in batch have the same number of tokens, so we only check the first one)
+        const int n_tokens_out = embeddings->ne[1];
+        const int expected_n_tokens_out = clip_n_output_tokens(ctx, &imgs.entries[0]);
+        if (n_tokens_out != expected_n_tokens_out) {
+            LOG_ERR("%s: expected output %d tokens, got %d\n", __func__, expected_n_tokens_out, n_tokens_out);
+            GGML_ABORT("Invalid number of output tokens");
         }
-        ggml_backend_tensor_get(embeddings, out_batch_embd.data(), 0, ggml_nbytes(embeddings));
-    } else {
-        LOG_WRN("%s: output buffer is empty, skipping copy\n", __func__);
+
+        LOG_DBG("%s: output embedding shape [%d, %d, %d]\n", __func__,
+            (int)embeddings->ne[0], (int)embeddings->ne[1], (int)embeddings->ne[2]);
+
+        // copy output to user buffer if provided
+        // if output is empty, skip the copy
+        auto & out_batch_embd = *params->out_embd;
+        if (!out_batch_embd.empty()) {
+            if (out_batch_embd.size() != (size_t)ggml_nelements(embeddings)) {
+                LOG_ERR("%s: output buffer has %zu elements but expected %zu\n", __func__, out_batch_embd.size(), (size_t)ggml_nelements(embeddings));
+                GGML_ABORT("Output buffer size mismatch");
+            }
+            ggml_backend_tensor_get(embeddings, out_batch_embd.data(), 0, ggml_nbytes(embeddings));
+        } else {
+            LOG_WRN("%s: output buffer is empty, skipping copy\n", __func__);
+        }
     }
 
-    // for audio gen: also copy out the decoded PCM samples
-    // auto-sized to whatever the graph produced (fixed per model, but not known up-front)
+    //
+    // for audio gen models
+    //
+
+    if (params->out_codes != nullptr) {
+        ggml_tensor * codes = ggml_graph_get_tensor(gf, "out_codes");
+        if (codes == nullptr) {
+            GGML_ABORT("out_codes requested but graph has no \"out_codes\" tensor");
+        }
+        auto & out_codes = *params->out_codes;
+        out_codes.resize(ggml_nelements(codes));
+        ggml_backend_tensor_get(codes, out_codes.data(), 0, ggml_nbytes(codes));
+    }
     if (params->out_audio != nullptr) {
         ggml_tensor * audio = ggml_graph_get_tensor(gf, "out_audio");
         if (audio == nullptr) {
@@ -5189,8 +5211,11 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
         ggml_backend_tensor_get(audio, out_audio.data(), 0, ggml_nbytes(audio));
     }
 
+    //
     // Debug: dump final embeddings if MTMD_DEBUG_EMBEDDINGS is set
-    if (ctx->debug_output_embeddings) {
+    //
+
+    if (ctx->debug_output_embeddings && embeddings != nullptr) {
         const int64_t n_embd = embeddings->ne[0];
         const int64_t n_tokens = embeddings->ne[1];
         std::vector<float> emb_data(ggml_nelements(embeddings));

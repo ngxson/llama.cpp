@@ -357,17 +357,17 @@ ggml_tensor * clip_graph_qwen3tts_gen::code2wav::snake(ggml_tensor * x, ggml_ten
 // RVQ codebook decode: 16 codes -> 512-dim hidden (C-first, [512, 1]).
 // codebook 0 (semantic) and 1..15 (acoustic) are summed within their own
 // group, projected out_proj'd separately, then the two projections added.
-ggml_tensor * clip_graph_qwen3tts_gen::code2wav::quant_decode(ggml_tensor * out_code_cache) const {
+ggml_tensor * clip_graph_qwen3tts_gen::code2wav::quant_decode(ggml_tensor * inp_codes) const {
     const auto & c2w = model.c2w;
 
-    ggml_tensor * code0 = ggml_view_1d(ctx0, out_code_cache, 1, 0);
+    ggml_tensor * code0 = ggml_view_1d(ctx0, inp_codes, 1, 0);
     ggml_tensor * sem   = ggml_get_rows(ctx0, c2w.quant_first_cb_w, code0); // [256, 1]
     ggml_tensor * sem_out = ggml_mul_mat(ctx0, c2w.quant_first_out_w, sem); // [512, 1]
 
     ggml_tensor * acc = nullptr;
     const int64_t n_acoustic = c2w.quant_rest_cb_w->ne[2];
     for (int g = 1; g <= n_acoustic; g++) {
-        ggml_tensor * codeg = ggml_view_1d(ctx0, out_code_cache, 1, (size_t) g * out_code_cache->nb[1]);
+        ggml_tensor * codeg = ggml_view_1d(ctx0, inp_codes, 1, (size_t) g * inp_codes->nb[1]);
         ggml_tensor * cb_g  = ggml_view_2d(ctx0, c2w.quant_rest_cb_w, c2w.quant_rest_cb_w->ne[0], c2w.quant_rest_cb_w->ne[1],
                                            c2w.quant_rest_cb_w->nb[1], (size_t) (g - 1) * c2w.quant_rest_cb_w->nb[2]);
         ggml_tensor * embd = ggml_get_rows(ctx0, cb_g, codeg); // [256, 1]
@@ -466,11 +466,11 @@ ggml_tensor * clip_graph_qwen3tts_gen::code2wav::dac_res_unit(ggml_tensor * x, c
 }
 
 // RVQ codes -> raw PCM. Single frame only: no cross-call state.
-ggml_tensor * clip_graph_qwen3tts_gen::code2wav::decode(ggml_tensor * out_code_cache) const {
+ggml_tensor * clip_graph_qwen3tts_gen::code2wav::decode(ggml_tensor * inp_codes) const {
     const auto & c2w = model.c2w;
 
     // 1. quantizer decode: 16 codes -> [512, 1] (C-first)
-    ggml_tensor * hidden = quant_decode(out_code_cache);
+    ggml_tensor * hidden = quant_decode(inp_codes);
 
     // 2. pre_conv: [512, 1] -> T-first [1, 512] -> causal conv k=3 -> [1, 1024]
     ggml_tensor * x = ggml_cont(ctx0, ggml_transpose(ctx0, hidden)); // [1, 512]
@@ -534,9 +534,28 @@ ggml_tensor * clip_graph_qwen3tts_gen::code2wav::decode(ggml_tensor * out_code_c
     return x;
 }
 
+// master build(): switches on gen_process to construct either the code_gen
+// sub-graph (backbone hidden state -> 16 RVQ codes + next-step embd) or the
+// code2wav sub-graph (16 RVQ codes -> raw PCM), both hosted in this one clip_ctx.
 ggml_cgraph * clip_graph_qwen3tts_gen::build() {
     GGML_ASSERT(n_batch == 1); // this module only ever processes one frame at a time
 
+    if (gen_process == CLIP_GEN_PROCESS_CODE2WAV) {
+        const int64_t n_acoustic = model.gen_code_head_w->ne[2]; // 15
+        const int     n_codes    = (int) n_acoustic + 1;         // 16
+
+        ggml_tensor * inp_codes = ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, 1, n_codes);
+        ggml_set_name(inp_codes, "inp_codes");
+        ggml_set_input(inp_codes);
+
+        ggml_tensor * out_audio = code2wav(*this).decode(inp_codes);
+        ggml_set_name(out_audio, "out_audio");
+        ggml_set_output(out_audio);
+        ggml_build_forward_expand(gf, out_audio);
+        return gf;
+    }
+
+    // CLIP_GEN_PROCESS_CODE_GEN
     ggml_tensor * h_state = build_inp_raw(1);
     h_state = ggml_reshape_1d(ctx0, h_state, h_state->ne[0]);
     cb(h_state, "inp_h_state", -1);
@@ -582,11 +601,11 @@ ggml_cgraph * clip_graph_qwen3tts_gen::build() {
         out_code_cache = cg.step(k_cache, v_cache, out_code_cache, inp_rand, g);
     }
 
-    // output 1: raw PCM audio for this frame, decoded from the 16 sampled codes
-    ggml_tensor * out_audio = code2wav(*this).decode(out_code_cache);
-    ggml_set_name(out_audio, "out_audio");
-    ggml_set_output(out_audio);
-    ggml_build_forward_expand(gf, out_audio);
+    // output 1: this frame's 16 sampled codes, for the caller's code2wav window
+    ggml_tensor * out_codes = ggml_cont(ctx0, out_code_cache);
+    ggml_set_name(out_codes, "out_codes");
+    ggml_set_output(out_codes);
+    ggml_build_forward_expand(gf, out_codes);
 
     // output 2 (last node, read by clip_encode()): the sum of all 16
     // codebook embeddings, fed back to the talker backbone for the next frame
