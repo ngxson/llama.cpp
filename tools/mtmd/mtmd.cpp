@@ -267,6 +267,7 @@ struct mtmd_context {
     std::vector<int32_t> gen_out_codes; // this frame's 16 sampled codes (CODE_GEN)
     std::vector<float>   gen_out_embd;  // next-step hidden state fed back to backbone (CODE_GEN)
     std::vector<float>   gen_out_audio; // decoded PCM samples for the current frame (CODE2WAV)
+    std::vector<uint8_t> gen_out_state; // state to feed into the next CODE2WAV call
 
     bool print_timings;
     int n_threads;
@@ -1632,6 +1633,10 @@ static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_in
         return 1;
     }
     std::vector<int32_t> in_codes(inp->codes, inp->codes + inp->n_codes);
+    std::vector<uint8_t> in_state;
+    if (inp->state_data) {
+        in_state.assign(inp->state_data, inp->state_data + inp->state_size);
+    }
 
     // code2wav has no hidden-state input, the batch entry is an unused placeholder
     clip_image_f32 dummy;
@@ -1648,14 +1653,18 @@ static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_in
     params.gen_process = CLIP_GEN_PROCESS_CODE2WAV;
     params.codes       = &in_codes;
     params.out_audio   = &ctx->gen_out_audio;
+    params.state_in    = inp->state_data ? &in_state : nullptr;
+    params.state_out   = &ctx->gen_out_state;
 
     if (!clip_encode(ctx_clip, &params)) {
         LOG_ERR("%s: clip_encode failed (code2wav)\n", __func__);
         return 1;
     }
 
-    out->audio     = ctx->gen_out_audio.data();
-    out->n_samples = ctx->gen_out_audio.size();
+    out->audio      = ctx->gen_out_audio.data();
+    out->n_samples  = ctx->gen_out_audio.size();
+    out->state_data = (const char *) ctx->gen_out_state.data();
+    out->state_size = ctx->gen_out_state.size();
 
     return 0;
 }

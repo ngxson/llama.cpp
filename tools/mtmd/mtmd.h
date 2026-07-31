@@ -351,7 +351,9 @@ struct mtmd_gen_inp {
 
     // for MTMD_GEN_PROCESS_TYPE_CODE2WAV
     int32_t * codes;
-    size_t n_codes;
+    size_t    n_codes;
+    const char * state_data;
+    size_t       state_size;
 };
 struct mtmd_gen_out {
     // note: output memory is allocated by the context, valid until next process() call
@@ -364,7 +366,9 @@ struct mtmd_gen_out {
 
     // for MTMD_GEN_PROCESS_TYPE_CODE2WAV
     const float * audio;
-    size_t n_samples;
+    size_t        n_samples;
+    const char * state_data;
+    size_t       state_size;
 };
 MTMD_API int32_t mtmd_gen_audio_process(mtmd_context * ctx,
                                 const struct mtmd_gen_inp * inp,

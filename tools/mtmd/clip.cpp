@@ -1723,8 +1723,8 @@ struct clip_model_loader {
                         hparams.wav_upsample_n_block = 2;
                         hparams.wav_dac_n_block      = 4;
                         hparams.wav_dac_n_res        = 3;
-                        // code2wav keeps no state between calls, so it decodes this many frames each time to get enough left context
-                        hparams.wav_c2w_window_frames = 24;
+                        // matches the reference decoder's sliding_window (speech_tokenizer/config.json)
+                        hparams.wav_tfm_swa = 72;
                     } break;
                 case PROJECTOR_TYPE_PADDLEOCR:
                     {
@@ -4728,21 +4728,40 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                 if (params->gen_process == CLIP_GEN_PROCESS_CODE2WAV) {
                     GGML_ASSERT(params->codes != nullptr);
 
-                    // the caller sends codes frame-major (frame 0's codes, then frame 1's, ...). the graph wants them group-major (all frames of codebook 0, then all frames of codebook 1, ...). pad the front with code 0 if fewer frames than the window.
-                    const int64_t n_codes    = model.gen_code_head_w->ne[2] + 1;
-                    const int64_t n_frames_w = hparams.wav_c2w_window_frames;
+                    // the caller sends codes frame-major (frame 0's codes, then frame
+                    // 1's, ...), for however many frames it has (up to the window
+                    // size). the graph wants them group-major (all frames of codebook
+                    // 0, then all frames of codebook 1, ...), padded to exactly one
+                    // window. real frames go first (so their RoPE positions/state
+                    // stay in sequence), code 0 pads the rear if there are fewer --
+                    // the corresponding tail of out_audio is trimmed off below.
+                    const int64_t n_codes  = model.gen_code_head_w->ne[2] + 1;
+                    const int64_t n_frames_w = hparams.wav_tfm_swa;
                     const int64_t n_frames   = (int64_t) params->codes->size() / n_codes;
-                    const int64_t n_use      = std::min(n_frames, n_frames_w);
-                    const int64_t dst0       = n_frames_w - n_use; // front padding
-                    const int64_t src0       = n_frames   - n_use; // newest frames
+                    GGML_ASSERT(n_frames > 0 && n_frames <= n_frames_w);
 
                     std::vector<int32_t> codes(n_frames_w * n_codes, 0);
-                    for (int64_t f = 0; f < n_use; f++) {
+                    for (int64_t f = 0; f < n_frames; f++) {
                         for (int64_t g = 0; g < n_codes; g++) {
-                            codes[g * n_frames_w + dst0 + f] = (*params->codes)[(src0 + f) * n_codes + g];
+                            codes[g * n_frames_w + f] = (*params->codes)[f * n_codes + g];
                         }
                     }
                     set_input_i32("inp_codes", codes);
+
+                    // upload the state carried over from the previous call, or
+                    // zero-fill on a cold start (no previous state, or wrong size)
+                    size_t offset = 0;
+                    for (const auto & slot : list_c2w_state_slots(hparams, model)) {
+                        ggml_tensor * t = get_inp_tensor(("state_in_" + slot.name).c_str());
+                        const size_t nb = ggml_nbytes(t);
+                        if (params->state_in && params->state_in->size() >= offset + nb) {
+                            ggml_backend_tensor_set(t, params->state_in->data() + offset, 0, nb);
+                        } else {
+                            std::vector<uint8_t> zeros(nb, 0);
+                            ggml_backend_tensor_set(t, zeros.data(), 0, nb);
+                        }
+                        offset += nb;
+                    }
                 } else {
                     std::vector<int32_t> code0 = { params->code0 };
                     set_input_i32("inp_code0", code0);
@@ -5223,6 +5242,34 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
         auto & out_audio = *params->out_audio;
         out_audio.resize(ggml_nelements(audio));
         ggml_backend_tensor_get(audio, out_audio.data(), 0, ggml_nbytes(audio));
+
+        // a short (rear-padded) batch only has real audio for its real frames;
+        // the tail generated from the code-0 padding is discarded
+        const int64_t n_codes    = model.gen_code_head_w->ne[2] + 1;
+        const int64_t n_frames_w = hparams.wav_tfm_swa;
+        const int64_t n_frames   = (int64_t) params->codes->size() / n_codes;
+        if (n_frames < n_frames_w) {
+            const size_t hop = out_audio.size() / n_frames_w;
+            out_audio.resize((size_t) n_frames * hop);
+        }
+    }
+    if (params->state_out != nullptr) {
+        auto & state_out = *params->state_out;
+        size_t total = 0;
+        for (const auto & slot : list_c2w_state_slots(hparams, model)) {
+            total += (size_t) (slot.ne0 * slot.ne1) * sizeof(float);
+        }
+        state_out.resize(total);
+        size_t offset = 0;
+        for (const auto & slot : list_c2w_state_slots(hparams, model)) {
+            ggml_tensor * t = ggml_graph_get_tensor(gf, ("state_out_" + slot.name).c_str());
+            if (t == nullptr) {
+                GGML_ABORT("state_out requested but graph has no \"state_out_%s\" tensor", slot.name.c_str());
+            }
+            const size_t nb = ggml_nbytes(t);
+            ggml_backend_tensor_get(t, state_out.data() + offset, 0, nb);
+            offset += nb;
+        }
     }
 
     //

@@ -145,7 +145,7 @@ struct clip_hparams {
     int32_t wav_upsample_n_block = 0;
     int32_t wav_dac_n_block      = 0;
     int32_t wav_dac_n_res        = 0;
-    int32_t wav_c2w_window_frames = 0; // number of frames code2wav decodes per call
+    int32_t wav_tfm_swa          = 0; // pre_transformer's KV cache size, in frames
 
     // mimo-v2.5: LLM-side connector (input_local_transformer)
     int32_t audio_local_n_layer = 0;

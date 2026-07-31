@@ -14,6 +14,7 @@
 #include "gguf.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -105,24 +106,32 @@ static void save_wav16(const char * path, const std::vector<float> & pcm, int ra
     fclose(f);
 }
 
-// runs one CODE2WAV process() call on whatever frames are buffered, appends
-// the result to audio_out, then clears the buffer
-static bool flush_codes(mtmd_context * mctx, std::vector<int32_t> & codes_buf, std::vector<float> & audio_out) {
-    if (codes_buf.empty()) {
-        return true;
-    }
+// runs one CODE2WAV process() call on a batch of frames' codes (frame-major;
+// the model wants exactly one window's worth, clip.cpp front-pads a shorter
+// batch), carrying the persisted state (KV cache + conv left-context) across
+// batches; appends the resulting PCM to audio_out and updates state for the
+// next batch
+static bool code2wav_step(mtmd_context * mctx, const std::vector<int32_t> & codes, std::vector<uint8_t> & state,
+                          std::vector<float> & audio_out) {
     mtmd_gen_inp inp{};
-    inp.type    = MTMD_GEN_PROCESS_TYPE_CODE2WAV;
-    inp.codes   = codes_buf.data();
-    inp.n_codes = codes_buf.size();
+    inp.type       = MTMD_GEN_PROCESS_TYPE_CODE2WAV;
+    inp.codes      = const_cast<int32_t *>(codes.data());
+    inp.n_codes    = codes.size();
+    inp.state_data = state.empty() ? nullptr : (const char *) state.data();
+    inp.state_size = state.size();
 
     mtmd_gen_out out{};
-    if (mtmd_gen_audio_process(mctx, &inp, &out) != 0) {
+    const auto t0 = std::chrono::steady_clock::now();
+    const int  rc = mtmd_gen_audio_process(mctx, &inp, &out);
+    const auto t1 = std::chrono::steady_clock::now();
+    const double ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
+    LOG_INF("code2wav: %zu codes -> %zu samples in %.1f ms\n", codes.size() / 16, out.n_samples, ms);
+    if (rc != 0) {
         LOG_ERR("code2wav process failed\n");
         return false;
     }
     audio_out.insert(audio_out.end(), out.audio, out.audio + out.n_samples);
-    codes_buf.clear();
+    state.assign(out.state_data, out.state_data + out.state_size);
     return true;
 }
 
@@ -134,8 +143,6 @@ int main(int argc, char ** argv) {
     std::string  lang     = "english";
     int          max_new  = 512;
     int          n_gpu    = 999;
-    const int    n_codes_per_frame = 16;
-    const int    window_frames     = 24;
 
     for (int i = 1; i < argc; i++) {
         auto next = [&](const char * flag) -> const char * {
@@ -278,11 +285,16 @@ int main(int argc, char ** argv) {
     overlay.push_back(row(tts_eos));
     overlay.push_back(row(tts_pad));
 
+    // matches hparams.wav_tfm_sliding_window hardcoded in clip.cpp; code2wav
+    // batches exactly this many frames per call
+    const size_t C2W_WINDOW_FRAMES = 72;
+
     // AR loop: sample c0 among the semantic codec rows plus eos, hand the
     // hidden state to the code predictor (GEN_CODE), buffer the 16 codes it
-    // returns, feed its embedding back to the talker. Once window_frames
-    // frames are buffered, run CODE2WAV to turn them into PCM.
+    // returns. Once a full window is buffered, run CODE2WAV on it, carrying
+    // its state (KV cache + conv left-context) across batches.
     std::vector<float>   audio;
+    std::vector<uint8_t> c2w_state;
     std::vector<int32_t> codes_buf;
     std::vector<float>   h((size_t) n_embd), fb((size_t) n_embd);
     int n_frames = 0;
@@ -314,9 +326,9 @@ int main(int argc, char ** argv) {
         codes_buf.insert(codes_buf.end(), out.codes, out.codes + out.n_codes);
         memcpy(fb.data(), out.embd, (size_t) n_embd * sizeof(float));
 
-        if ((int) (codes_buf.size() / n_codes_per_frame) >= window_frames) {
-            if (!flush_codes(mctx, codes_buf, audio)) return 1;
-            LOG_INF("flushed a %d-frame window, %zu samples so far\n", window_frames, audio.size());
+        if (codes_buf.size() / 16 >= C2W_WINDOW_FRAMES) {
+            if (!code2wav_step(mctx, codes_buf, c2w_state, audio)) return 1;
+            codes_buf.clear();
         }
 
         const auto & ov = overlay[std::min((size_t) n_frames, overlay.size() - 1)];
@@ -336,9 +348,10 @@ int main(int argc, char ** argv) {
         if (llama_decode(lctx, batch) != 0) { LOG_ERR("decode failed at frame %d\n", n_frames); return 1; }
     }
 
-    // flush whatever's left, less than a full window (front-padded with
-    // code 0 by clip.cpp)
-    if (!flush_codes(mctx, codes_buf, audio)) return 1;
+    // flush whatever's left, less than a full window (front-padded with code 0 by clip.cpp)
+    if (!codes_buf.empty()) {
+        if (!code2wav_step(mctx, codes_buf, c2w_state, audio)) return 1;
+    }
 
     LOG_INF("generated %d frames, %zu samples (%.2f s)\n", n_frames, audio.size(), (double) audio.size() / 24000.0);
     save_wav16(out_path, audio, 24000);

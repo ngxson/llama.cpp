@@ -108,9 +108,13 @@ struct clip_encode_params {
     std::vector<int32_t> * out_codes = nullptr;
 
     // CODE2WAV: codes holds this frame's 16 RVQ codes, out_audio receives the
-    // decoded PCM samples (F32)
+    // decoded PCM samples (F32). state_in is the state from the previous
+    // call (null or wrong size means cold start, state is zero-filled).
+    // state_out receives the state to pass into the next call.
     const std::vector<int32_t> * codes = nullptr;
     std::vector<float> * out_audio = nullptr;
+    const std::vector<uint8_t> * state_in  = nullptr;
+    std::vector<uint8_t> *       state_out = nullptr;
 };
 bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params);
 
