@@ -157,6 +157,59 @@ MTMD_API int32_t mtmd_helper_video_read_next(mtmd_helper_video * ctx,
             mtmd_bitmap ** out_bitmap,
             char ** out_text);
 
+//
+// Audio generation helpers
+// (early-stage experimental, subjected to breaking changes)
+//
+
+// audio generation helper context
+// contains accumulator for generated audio features and PCM audio
+struct mtmd_helper_gen_audio;
+typedef struct mtmd_helper_gen_audio mtmd_helper_gen_audio;
+
+enum mtmd_helper_gen_audio_outtype {
+    MTMD_HELPER_GEN_AUDIO_OUTTYPE_PCM, // raw PCM
+    MTMD_HELPER_GEN_AUDIO_OUTTYPE_WAV, // WAV PCM 16-bit LE, mono
+};
+struct mtmd_helper_gen_audio_inp {
+    const char * prompt;
+    size_t       prompt_len;
+
+    mtmd_bitmap * speaker_ref; // optional, can be NULL
+    const char * lang; // optional, can be NULL
+
+    int32_t top_k;
+    float   top_p;
+
+    mtmd_helper_gen_audio_outtype out_type;
+};
+
+MTMD_API mtmd_helper_gen_audio * mtmd_helper_gen_audio_init(
+                                    struct llama_context * lctx,
+                                    struct mtmd_context * mctx);
+
+MTMD_API void mtmd_helper_gen_audio_free(mtmd_helper_gen_audio * ctx);
+
+MTMD_API void mtmd_helper_gen_audio_reset(mtmd_helper_gen_audio * ctx);
+
+MTMD_API int32_t mtmd_helper_gen_audio_set_input(
+                        mtmd_helper_gen_audio * ctx,
+                        const struct mtmd_helper_gen_audio_inp * inp);
+
+// h_state_out is valid until next step() or reset() call
+MTMD_API int32_t mtmd_helper_gen_audio_step(
+                        mtmd_helper_gen_audio * ctx,
+                        llama_token sampled,
+                        const float *  h_state_in,
+                        const float ** h_state_out);
+
+// out_data valid until next get_output() or reset() call
+MTMD_API int32_t mtmd_helper_gen_audio_get_output(
+                        mtmd_helper_gen_audio * ctx,
+                        int32_t * out_sample_rate,
+                        const char ** out_data,
+                        size_t * out_data_len);
+
 #ifdef __cplusplus
 } // extern "C"
 #endif
@@ -176,6 +229,28 @@ struct mtmd_helper_video_deleter {
     void operator()(mtmd_helper_video * val) { mtmd_helper_video_free(val); }
 };
 using video_ptr = std::unique_ptr<mtmd_helper_video, mtmd_helper_video_deleter>;
+
+// audio generation-related C++ wrappers
+struct mtmd_helper_gen_audio_deleter {
+    void operator()(mtmd_helper_gen_audio * val) { mtmd_helper_gen_audio_free(val); }
+};
+using gen_audio_ptr = std::unique_ptr<mtmd_helper_gen_audio, mtmd_helper_gen_audio_deleter>;
+struct gen_audio {
+    gen_audio_ptr ctx;
+    gen_audio(struct llama_context * lctx, struct mtmd_context * mctx) : ctx(mtmd_helper_gen_audio_init(lctx, mctx)) {}
+    void reset() {
+        mtmd_helper_gen_audio_reset(ctx.get());
+    }
+    int32_t set_input(const struct mtmd_helper_gen_audio_inp * inp) {
+        return mtmd_helper_gen_audio_set_input(ctx.get(), inp);
+    }
+    int32_t step(llama_token sampled, const float * h_state, const float ** h_state_out) {
+        return mtmd_helper_gen_audio_step(ctx.get(), sampled, h_state, h_state_out);
+    }
+    int32_t get_output(int32_t * out_sample_rate, const char ** out_data, size_t * out_data_len) {
+        return mtmd_helper_gen_audio_get_output(ctx.get(), out_sample_rate, out_data, out_data_len);
+    }
+};
 
 } // namespace mtmd_helper
 #endif

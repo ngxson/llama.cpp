@@ -1570,16 +1570,22 @@ float * mtmd_get_output_embd(mtmd_context * ctx) {
 // audio generation
 //
 
-mtmd_gen_audio_type mtmd_gen_audio_get_type(const mtmd_context * ctx) {
+mtmd_gen_audio_info mtmd_gen_audio_get_info(const mtmd_context * ctx) {
+    mtmd_gen_audio_info info;
     if (!ctx->ctx_gen_a) {
-        return MTMD_GEN_AUDIO_TYPE_NONE;
+        info.type = MTMD_GEN_AUDIO_TYPE_NONE;
+        return info;
     }
     switch (clip_get_projector_type(ctx->ctx_gen_a)) {
         case PROJECTOR_TYPE_QWEN3TTS_GEN:
-            return MTMD_GEN_AUDIO_TYPE_MTP;
+            info.type = MTMD_GEN_AUDIO_TYPE_QWEN3TTS;
+            info.sample_rate = 24000;
+            break;
         default:
-            return MTMD_GEN_AUDIO_TYPE_NONE;
+            info.type = MTMD_GEN_AUDIO_TYPE_NONE;
+            break;
     }
+    return info;
 }
 
 static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_inp * inp, mtmd_gen_out * out) {

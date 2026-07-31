@@ -330,11 +330,16 @@ MTMD_API struct mtmd_caps mtmd_get_cap_from_file(const char * mmproj_fname);
 /////////////////////////////////////////
 // EXPERIMENTAL API for audio generation, subjected to breaking changes
 
+// represent the pipeline type
 enum mtmd_gen_audio_type {
     MTMD_GEN_AUDIO_TYPE_NONE, // not supported
-    MTMD_GEN_AUDIO_TYPE_MTP,  // qwen3tts style, with MTP-like generation head
+    MTMD_GEN_AUDIO_TYPE_QWEN3TTS,
 };
-MTMD_API mtmd_gen_audio_type mtmd_gen_audio_get_type(const mtmd_context * ctx);
+struct mtmd_gen_audio_info {
+    mtmd_gen_audio_type type;
+    int32_t sample_rate; // in Hz, for example 24000 for qwen3tts
+};
+MTMD_API struct mtmd_gen_audio_info mtmd_gen_audio_get_info(const mtmd_context * ctx);
 
 enum mtmd_gen_process_type {
     MTMD_GEN_PROCESS_TYPE_GEN_CODE, // h_state to codes
@@ -370,6 +375,7 @@ struct mtmd_gen_out {
     const char * state_data;
     size_t       state_size;
 };
+// note: this API is stateless, caller must handle state management and audio frame accumulation
 MTMD_API int32_t mtmd_gen_audio_process(mtmd_context * ctx,
                                 const struct mtmd_gen_inp * inp,
                                 struct mtmd_gen_out * out);
