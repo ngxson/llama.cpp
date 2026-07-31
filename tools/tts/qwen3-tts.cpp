@@ -8,6 +8,7 @@
 
 #include "llama.h"
 #include "mtmd.h"
+#include "mtmd-helper.h"
 #include "common.h"
 #include "log.h"
 #include "ggml.h"
@@ -106,6 +107,46 @@ static void save_wav16(const char * path, const std::vector<float> & pcm, int ra
     fclose(f);
 }
 
+// loads a reference wav and runs it through the mmproj's speaker encoder (ECAPA-TDNN,
+// ctx_a in mtmd terms), returning the single x-vector embedding row it produces
+static bool encode_speaker_wav(mtmd_context * mctx, const llama_model * model, const char * path, std::vector<float> & out_embd) {
+    if (!mtmd_support_audio(mctx)) {
+        LOG_ERR("mmproj has no audio encoder, can't use --speaker\n");
+        return false;
+    }
+    mtmd_helper_bitmap_wrapper wrapper = mtmd_helper_bitmap_init_from_file(mctx, path, false);
+    if (!wrapper.bitmap) {
+        LOG_ERR("failed to load %s\n", path);
+        return false;
+    }
+    const std::string   marker = mtmd_default_marker();
+    mtmd_input_text      text{ marker.c_str(), marker.size(), false, true };
+    mtmd_input_chunks *  chunks = mtmd_input_chunks_init();
+    const mtmd_bitmap *  bitmap = wrapper.bitmap;
+    bool ok = mtmd_tokenize(mctx, chunks, &text, &bitmap, 1) == 0;
+    if (ok) {
+        ok = false;
+        for (size_t i = 0; i < mtmd_input_chunks_size(chunks); i++) {
+            const mtmd_input_chunk * chunk = mtmd_input_chunks_get(chunks, i);
+            if (mtmd_input_chunk_get_type(chunk) != MTMD_INPUT_CHUNK_TYPE_AUDIO) {
+                continue;
+            }
+            if (mtmd_encode_chunk(mctx, chunk) != 0) {
+                LOG_ERR("speaker encode failed\n");
+                break;
+            }
+            const float * embd = mtmd_get_output_embd(mctx);
+            const size_t  n_embd_out = (size_t) llama_model_n_embd_inp(model) * mtmd_input_chunk_get_n_tokens(chunk);
+            out_embd.assign(embd, embd + n_embd_out);
+            ok = true;
+            break;
+        }
+    }
+    mtmd_input_chunks_free(chunks);
+    mtmd_bitmap_free(wrapper.bitmap);
+    return ok;
+}
+
 // runs one CODE2WAV process() call on a batch of frames' codes (frame-major;
 // the model wants exactly one window's worth, clip.cpp front-pads a shorter
 // batch), carrying the persisted state (KV cache + conv left-context) across
@@ -139,6 +180,7 @@ int main(int argc, char ** argv) {
     const char * model_path  = nullptr;
     const char * mmproj_path = nullptr;
     const char * out_path    = "output.wav";
+    const char * speaker_path = nullptr;
     std::string  text;
     std::string  lang     = "english";
     int          max_new  = 512;
@@ -156,10 +198,11 @@ int main(int argc, char ** argv) {
         else if (!strcmp(argv[i], "--lang"))    lang        = next("--lang");
         else if (!strcmp(argv[i], "--max-new")) max_new     = atoi(next("--max-new"));
         else if (!strcmp(argv[i], "-ngl"))      n_gpu       = atoi(next("-ngl"));
+        else if (!strcmp(argv[i], "--speaker")) speaker_path = next("--speaker");
         else {
             fprintf(stderr,
                     "usage: %s -m talker.gguf --mmproj tts.gguf -p \"text\" [-o out.wav] [--lang english] "
-                    "[--max-new n] [-ngl n]\n", argv[0]);
+                    "[--max-new n] [-ngl n] [--speaker ref.wav]\n", argv[0]);
             return 1;
         }
     }
@@ -190,6 +233,12 @@ int main(int argc, char ** argv) {
     if (mtmd_gen_audio_get_type(mctx) == MTMD_GEN_AUDIO_TYPE_NONE) {
         LOG_ERR("mmproj does not support audio generation\n");
         return 1;
+    }
+
+    std::vector<float> speaker_embd;
+    if (speaker_path) {
+        if (!encode_speaker_wav(mctx, model, speaker_path, speaker_embd)) return 1;
+        LOG_INF("speaker: encoded %s into a %zu-dim x-vector\n", speaker_path, speaker_embd.size());
     }
 
     // vocab landmarks: the codec rows sit after the text vocab
@@ -227,6 +276,11 @@ int main(int argc, char ** argv) {
         for (size_t i = 0; i < va.size(); i++) va[i] += vb[i];
         return va;
     };
+    auto sum_vec = [&](llama_token a, const std::vector<float> & vb) {
+        std::vector<float> va = row(a);
+        for (size_t i = 0; i < va.size(); i++) va[i] += vb[i];
+        return va;
+    };
 
     // upstream wrap, then slices: [0:3] role, [3:-5] utterance body
     const std::string full = "<|im_start|>assistant\n" + text + "<|im_end|>\n<|im_start|>assistant\n";
@@ -242,6 +296,7 @@ int main(int argc, char ** argv) {
     prompt.push_back(sum_row(tts_pad, c_think_b));
     prompt.push_back(sum_row(tts_pad, c_lang));
     prompt.push_back(sum_row(tts_pad, c_think_e));
+    if (!speaker_embd.empty()) prompt.push_back(sum_vec(tts_pad, speaker_embd));
     prompt.push_back(sum_row(tts_bos, codec_pad));
     for (int i = 3; i < n_ids - 5; i++)  prompt.push_back(sum_row(ids[(size_t) i], codec_pad));
     prompt.push_back(sum_row(tts_eos, codec_pad));
