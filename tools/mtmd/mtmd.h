@@ -336,25 +336,35 @@ enum mtmd_gen_audio_type {
 };
 MTMD_API mtmd_gen_audio_type mtmd_gen_audio_get_type(const mtmd_context * ctx);
 
+enum mtmd_gen_process_type {
+    MTMD_GEN_PROCESS_TYPE_GEN_CODE, // h_state to codes
+    MTMD_GEN_PROCESS_TYPE_CODE2WAV, // codes to raw PCM audio
+};
 struct mtmd_gen_inp {
-    int32_t code0;  // the sampled codebook 0 entry from backbone
-    float * embd;   // the hidden state from backbone, size = n_embd * n_pos
-    size_t  n_embd; // only for validation
+    mtmd_gen_process_type type;
 
-    // sampling params
+    // for MTMD_GEN_PROCESS_TYPE_GEN_CODE
+    int32_t code0;  // the sampled codebook 0 entry from backbone
+    float * embd;   // the hidden state from backbone, must have n_text_embd elements
     int32_t top_k;
     float   top_p;
+
+    // for MTMD_GEN_PROCESS_TYPE_CODE2WAV
+    int32_t * codes; // the sampled codebook entries, must have n_codes elements
+    size_t    n_codes;
 };
 struct mtmd_gen_out {
-    float * embd;   // the generated hidden state, to be fed back to backbone
-    size_t  n_embd; // only for validation
+    // note: output memory is allocated by the context, valid until next process() call
 
-    // out: raw PCM samples (F32) decoded for this frame; owned by mtmd_context,
-    // valid until the next mtmd_gen_audio() call, caller does not allocate this
+    // for MTMD_GEN_PROCESS_TYPE_GEN_CODE
+    const float * embd; // the generated hidden state, to be fed back to backbone
+                        // it must have n_text_embd elements
+
+    // for MTMD_GEN_PROCESS_TYPE_CODE2WAV
     const float * audio;
     size_t n_samples;
 };
-MTMD_API int32_t mtmd_gen_audio(mtmd_context * ctx,
+MTMD_API int32_t mtmd_gen_audio_process(mtmd_context * ctx,
                                 const struct mtmd_gen_inp * inp,
                                 struct mtmd_gen_out * out);
 

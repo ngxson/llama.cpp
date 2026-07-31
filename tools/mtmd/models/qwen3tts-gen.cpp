@@ -3,7 +3,7 @@
 #include <string>
 
 // on-device sampling: top-k, top-p, then a random draw
-ggml_tensor * clip_graph_qwen3tts_gen::do_sampling(ggml_tensor * logits, ggml_tensor * inp_rand, int top_k, float top_p) const {
+ggml_tensor * clip_graph_qwen3tts_gen::code_gen::do_sampling(ggml_tensor * logits, ggml_tensor * inp_rand) const {
     logits = ggml_reshape_1d(ctx0, logits, ggml_nelements(logits));
     const int64_t n_vocab = logits->ne[0];
 
@@ -68,7 +68,7 @@ ggml_tensor * clip_graph_qwen3tts_gen::do_sampling(ggml_tensor * logits, ggml_te
 }
 
 // returns a new cache with row row_idx set to value
-ggml_tensor * clip_graph_qwen3tts_gen::cache_set(ggml_tensor * cache, int row_idx, ggml_tensor * value) const {
+ggml_tensor * clip_graph_qwen3tts_gen::code_gen::cache_set(ggml_tensor * cache, int row_idx, ggml_tensor * value) const {
     const int64_t n_embd  = cache->ne[0];
     const int64_t n_cache = cache->ne[1];
     GGML_ASSERT(row_idx >= 0 && row_idx < n_cache);
@@ -97,7 +97,7 @@ ggml_tensor * clip_graph_qwen3tts_gen::cache_set(ggml_tensor * cache, int row_id
 
 // builds a const i32 value with no host upload: view any tensor, cast to
 // f32 (ggml_scale only supports f32), scale it to 0, add the value, cast to i32
-ggml_tensor * clip_graph_qwen3tts_gen::const_i32(ggml_tensor * anchor, float value) const {
+ggml_tensor * clip_graph_qwen3tts_gen::code_gen::const_i32(ggml_tensor * anchor, float value) const {
     ggml_tensor * v = ggml_view_1d(ctx0, anchor, 1, 0);
     if (v->type != GGML_TYPE_F32) {
         v = ggml_cast(ctx0, v, GGML_TYPE_F32);
@@ -106,7 +106,7 @@ ggml_tensor * clip_graph_qwen3tts_gen::const_i32(ggml_tensor * anchor, float val
 }
 
 // causal keep-mask row for a query at position pos, window size n_kv_pad
-ggml_tensor * clip_graph_qwen3tts_gen::causal_mask_row(int64_t n_kv_pad, int pos) const {
+ggml_tensor * clip_graph_qwen3tts_gen::code_gen::causal_mask_row(int64_t n_kv_pad, int pos) const {
     ggml_tensor * ones = ggml_fill(ctx0, ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, n_kv_pad, n_kv_pad), 1.0f);
     ggml_tensor * keep = ggml_tri(ctx0, ones, GGML_TRI_TYPE_LOWER_DIAG);
     ggml_tensor * row  = ggml_view_1d(ctx0, keep, n_kv_pad, (size_t) pos * keep->nb[1]);
@@ -115,7 +115,7 @@ ggml_tensor * clip_graph_qwen3tts_gen::causal_mask_row(int64_t n_kv_pad, int pos
 }
 
 // talker hidden size -> predictor hidden size (small_to_mtp_projection)
-ggml_tensor * clip_graph_qwen3tts_gen::project_in(ggml_tensor * cur) const {
+ggml_tensor * clip_graph_qwen3tts_gen::code_gen::project_in(ggml_tensor * cur) const {
     if (!model.gen_code_proj_in_w) {
         return cur;
     }
@@ -128,7 +128,7 @@ ggml_tensor * clip_graph_qwen3tts_gen::project_in(ggml_tensor * cur) const {
 
 // one transformer layer at a single new position pos; writes k/v into
 // k_cache_layer/v_cache_layer at row pos
-ggml_tensor * clip_graph_qwen3tts_gen::layer_forward(
+ggml_tensor * clip_graph_qwen3tts_gen::code_gen::layer_forward(
         ggml_tensor * cur,
         const clip_layer & layer,
         ggml_tensor * inp_pos,
@@ -192,15 +192,13 @@ ggml_tensor * clip_graph_qwen3tts_gen::layer_forward(
 // position 0: hidden bridge, no sampling, only seeds the k/v cache.
 // position 1: embed(code0) via the talker's out_embd table, sample with
 // lm_head[0], write out_code_cache[1].
-void clip_graph_qwen3tts_gen::prefill(
+void clip_graph_qwen3tts_gen::code_gen::prefill(
         std::vector<ggml_tensor *> & k_cache,
         std::vector<ggml_tensor *> & v_cache,
         ggml_tensor *& out_code_cache,
         ggml_tensor * h_state,
         ggml_tensor * code0_embd,
-        ggml_tensor * inp_rand,
-        int top_k,
-        float top_p) const {
+        ggml_tensor * inp_rand) const {
     const int64_t n_kv_pad = k_cache[0]->ne[1];
 
     {
@@ -228,7 +226,7 @@ void clip_graph_qwen3tts_gen::prefill(
         ggml_tensor * head_g = ggml_view_2d(ctx0, head_w, head_w->ne[0], head_w->ne[1], head_w->nb[1], 0); // lm_head[0]
         ggml_tensor * logits = ggml_mul_mat(ctx0, head_g, cur);
 
-        ggml_tensor * sampled = do_sampling(logits, inp_rand, top_k, top_p);
+        ggml_tensor * sampled = do_sampling(logits, inp_rand);
         out_code_cache = cache_set(out_code_cache, 1, sampled);
     }
 }
@@ -242,14 +240,12 @@ void clip_graph_qwen3tts_gen::prefill(
 // out_code_cache: [1, n_codes] I32. inp_rand: [1] F32 draw for this step.
 // Create all input tensors in build(), not here.
 // step_idx range: [1, n_acoustic - 1]. Returns the new out_code_cache.
-ggml_tensor * clip_graph_qwen3tts_gen::step(
+ggml_tensor * clip_graph_qwen3tts_gen::code_gen::step(
         std::vector<ggml_tensor *> & k_cache,
         std::vector<ggml_tensor *> & v_cache,
         ggml_tensor * out_code_cache,
         ggml_tensor * inp_rand,
-        int step_idx,
-        int top_k,
-        float top_p) const {
+        int step_idx) const {
     const int64_t n_acoustic = model.gen_code_head_w->ne[2];
     GGML_ASSERT(step_idx >= 1 && step_idx < n_acoustic);
     GGML_ASSERT(k_cache.size() == model.layers.size());
@@ -290,7 +286,7 @@ ggml_tensor * clip_graph_qwen3tts_gen::step(
     ggml_tensor * logits = ggml_mul_mat(ctx0, head_g, cur);
     cb(logits, "step_logits", step_idx);
 
-    ggml_tensor * sampled = do_sampling(logits, inp_rand, top_k, top_p);
+    ggml_tensor * sampled = do_sampling(logits, inp_rand);
     cb(sampled, "step_sampled", step_idx);
 
     return cache_set(out_code_cache, pos, sampled);
@@ -568,20 +564,22 @@ ggml_cgraph * clip_graph_qwen3tts_gen::build() {
         v_cache[il] = ggml_fill(ctx0, ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, d_head * n_head_kv, n_kv_pad), 0.0f);
     }
 
+    code_gen cg(*this, top_k, top_p);
+
     ggml_tensor * out_code_cache = ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, 1, n_codes);
-    out_code_cache = cache_set(out_code_cache, 0, code0);
+    out_code_cache = cg.cache_set(out_code_cache, 0, code0);
 
     ggml_tensor * inp_rand0 = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, 1);
     ggml_set_name(inp_rand0, "inp_rand_0");
     ggml_set_input(inp_rand0);
 
-    prefill(k_cache, v_cache, out_code_cache, h_state, code0_embd, inp_rand0, top_k, top_p);
+    cg.prefill(k_cache, v_cache, out_code_cache, h_state, code0_embd, inp_rand0);
 
     for (int g = 1; g < n_acoustic; g++) {
         ggml_tensor * inp_rand = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, 1);
         ggml_set_name(inp_rand, ("inp_rand_" + std::to_string(g)).c_str());
         ggml_set_input(inp_rand);
-        out_code_cache = step(k_cache, v_cache, out_code_cache, inp_rand, g, top_k, top_p);
+        out_code_cache = cg.step(k_cache, v_cache, out_code_cache, inp_rand, g);
     }
 
     // output 1: raw PCM audio for this frame, decoded from the 16 sampled codes

@@ -235,42 +235,50 @@ struct clip_graph_qwen3tts_gen : clip_graph {
     int   top_k;
     float top_p;
 
-    ggml_tensor * cache_set(ggml_tensor * cache, int row_idx, ggml_tensor * value) const;
-    ggml_tensor * do_sampling(ggml_tensor * logits, ggml_tensor * inp_rand, int top_k, float top_p) const;
+    //
+    // code_gen: backbone hidden state + sampled code0 -> 16 RVQ codes.
+    // MTP-style autoregressive code predictor: one token per codebook, causal KV cache.
+    //
+    struct code_gen : clip_graph {
+        code_gen(const clip_graph & parent, int top_k, float top_p)
+            : clip_graph(parent), top_k(top_k), top_p(top_p) {}
 
-    ggml_tensor * const_i32(ggml_tensor * anchor, float value) const;
-    ggml_tensor * causal_mask_row(int64_t n_kv_pad, int pos) const;
-    ggml_tensor * project_in(ggml_tensor * cur) const;
+        int   top_k;
+        float top_p;
 
-    ggml_tensor * layer_forward(
-            ggml_tensor * cur,
-            const clip_layer & layer,
-            ggml_tensor * inp_pos,
-            ggml_tensor * kq_mask,
-            ggml_tensor *& k_cache_layer,
-            ggml_tensor *& v_cache_layer,
-            int64_t n_kv_pad,
-            int pos,
-            int il) const;
+        ggml_tensor * cache_set(ggml_tensor * cache, int row_idx, ggml_tensor * value) const;
+        ggml_tensor * do_sampling(ggml_tensor * logits, ggml_tensor * inp_rand) const;
 
-    void prefill(
-            std::vector<ggml_tensor *> & k_cache,
-            std::vector<ggml_tensor *> & v_cache,
-            ggml_tensor *& out_code_cache,
-            ggml_tensor * h_state,
-            ggml_tensor * code0_embd,
-            ggml_tensor * inp_rand,
-            int top_k,
-            float top_p) const;
+        ggml_tensor * const_i32(ggml_tensor * anchor, float value) const;
+        ggml_tensor * causal_mask_row(int64_t n_kv_pad, int pos) const;
+        ggml_tensor * project_in(ggml_tensor * cur) const;
 
-    ggml_tensor * step(
-            std::vector<ggml_tensor *> & k_cache,
-            std::vector<ggml_tensor *> & v_cache,
-            ggml_tensor * out_code_cache,
-            ggml_tensor * inp_rand,
-            int step_idx,
-            int top_k,
-            float top_p) const;
+        ggml_tensor * layer_forward(
+                ggml_tensor * cur,
+                const clip_layer & layer,
+                ggml_tensor * inp_pos,
+                ggml_tensor * kq_mask,
+                ggml_tensor *& k_cache_layer,
+                ggml_tensor *& v_cache_layer,
+                int64_t n_kv_pad,
+                int pos,
+                int il) const;
+
+        void prefill(
+                std::vector<ggml_tensor *> & k_cache,
+                std::vector<ggml_tensor *> & v_cache,
+                ggml_tensor *& out_code_cache,
+                ggml_tensor * h_state,
+                ggml_tensor * code0_embd,
+                ggml_tensor * inp_rand) const;
+
+        ggml_tensor * step(
+                std::vector<ggml_tensor *> & k_cache,
+                std::vector<ggml_tensor *> & v_cache,
+                ggml_tensor * out_code_cache,
+                ggml_tensor * inp_rand,
+                int step_idx) const;
+    };
 
     //
     // code2wav: RVQ codes -> raw PCM (quantizer + pre_conv + pre_transformer + upsample + DAC).

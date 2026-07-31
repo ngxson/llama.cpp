@@ -1579,7 +1579,7 @@ mtmd_gen_audio_type mtmd_gen_audio_get_type(const mtmd_context * ctx) {
     }
 }
 
-static int32_t mtmd_gen_audio_impl(mtmd_context * ctx, const mtmd_gen_inp * inp, mtmd_gen_out * out) {
+static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_inp * inp, mtmd_gen_out * out) {
     clip_ctx * ctx_clip = ctx->ctx_gen_a;
     if (!ctx_clip) {
         LOG_ERR("%s: model does not support audio generation\n", __func__);
@@ -1628,9 +1628,9 @@ static int32_t mtmd_gen_audio_impl(mtmd_context * ctx, const mtmd_gen_inp * inp,
     return 0;
 }
 
-int32_t mtmd_gen_audio(mtmd_context * ctx, const struct mtmd_gen_inp * inp, struct mtmd_gen_out * out) {
+int32_t mtmd_gen_audio_process(mtmd_context * ctx, const struct mtmd_gen_inp * inp, struct mtmd_gen_out * out) {
     try {
-        return mtmd_gen_audio_impl(ctx, inp, out);
+        return mtmd_gen_audio_process_impl(ctx, inp, out);
     } catch (const std::exception & e) {
         LOG_ERR("%s: error: %s\n", __func__, e.what());
         return 1;
