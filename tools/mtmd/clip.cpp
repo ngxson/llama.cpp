@@ -1723,6 +1723,8 @@ struct clip_model_loader {
                         hparams.wav_upsample_n_block = 2;
                         hparams.wav_dac_n_block      = 4;
                         hparams.wav_dac_n_res        = 3;
+                        // code2wav keeps no state between calls, so it decodes this many frames each time to get enough left context
+                        hparams.wav_c2w_window_frames = 24;
                     } break;
                 case PROJECTOR_TYPE_PADDLEOCR:
                     {
@@ -4165,8 +4167,7 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
         set_input_f32("inp_raw", inp_raw);
 
     } else if (!(ctx->proj_type() == PROJECTOR_TYPE_QWEN3TTS_GEN && params->gen_process == CLIP_GEN_PROCESS_CODE2WAV)) {
-        // audio input (code2wav has no hidden-state/raw input at all, its
-        // only input is the "inp_codes" tensor handled in the switch below)
+        // audio input (code2wav has no hidden-state/raw input at all, its only input is the "inp_codes" tensor handled in the switch below)
         GGML_ASSERT(imgs.entries.size() == 1);
 
         const auto & mel_inp = imgs.entries[0];
@@ -4726,7 +4727,21 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
             {
                 if (params->gen_process == CLIP_GEN_PROCESS_CODE2WAV) {
                     GGML_ASSERT(params->codes != nullptr);
-                    std::vector<int32_t> codes = *params->codes;
+
+                    // the caller sends codes frame-major (frame 0's codes, then frame 1's, ...). the graph wants them group-major (all frames of codebook 0, then all frames of codebook 1, ...). pad the front with code 0 if fewer frames than the window.
+                    const int64_t n_codes    = model.gen_code_head_w->ne[2] + 1;
+                    const int64_t n_frames_w = hparams.wav_c2w_window_frames;
+                    const int64_t n_frames   = (int64_t) params->codes->size() / n_codes;
+                    const int64_t n_use      = std::min(n_frames, n_frames_w);
+                    const int64_t dst0       = n_frames_w - n_use; // front padding
+                    const int64_t src0       = n_frames   - n_use; // newest frames
+
+                    std::vector<int32_t> codes(n_frames_w * n_codes, 0);
+                    for (int64_t f = 0; f < n_use; f++) {
+                        for (int64_t g = 0; g < n_codes; g++) {
+                            codes[g * n_frames_w + dst0 + f] = (*params->codes)[(src0 + f) * n_codes + g];
+                        }
+                    }
                     set_input_i32("inp_codes", codes);
                 } else {
                     std::vector<int32_t> code0 = { params->code0 };
@@ -5158,8 +5173,7 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
         return false;
     }
 
-    // the last node is the embedding tensor (not produced by the code2wav
-    // sub-graph, which has no out_embd at all)
+    // the last node is the embedding tensor (not produced by the code2wav sub-graph, which has no out_embd at all)
     ggml_tensor * embeddings = params->out_embd ? ggml_graph_node(gf, -1) : nullptr;
 
     if (embeddings != nullptr) {

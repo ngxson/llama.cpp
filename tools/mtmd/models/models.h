@@ -286,7 +286,7 @@ struct clip_graph_qwen3tts_gen : clip_graph {
 
     //
     // code2wav: RVQ codes -> raw PCM (quantizer + pre_conv + pre_transformer + upsample + DAC).
-    // Single-frame only for now: no cross-call state, RoPE position is always 0.
+    // Each call decodes a window of T frames from scratch, RoPE positions 0..T-1. No state is kept between calls. A window of about 24 frames gives enough left context without a persistent KV cache.
     //
     struct code2wav : clip_graph {
         code2wav(const clip_graph & parent) : clip_graph(parent) {}
@@ -298,12 +298,12 @@ struct clip_graph_qwen3tts_gen : clip_graph {
         ggml_tensor * snake(ggml_tensor * x, ggml_tensor * alpha, ggml_tensor * beta) const;
 
         ggml_tensor * quant_decode(ggml_tensor * inp_codes) const;
-        ggml_tensor * tfm_layer_forward(ggml_tensor * cur, const clip_layer & layer, ggml_tensor * pos0, ggml_tensor * mask) const;
+        ggml_tensor * tfm_layer_forward(ggml_tensor * cur, const clip_layer & layer, ggml_tensor * pos, ggml_tensor * mask) const;
         ggml_tensor * convnext_block(ggml_tensor * x, const clip_code2wav::upsample_block & blk) const;
         ggml_tensor * dac_res_unit(ggml_tensor * x, const clip_code2wav::dac_res & res, int dilation) const;
 
-        // inp_codes: [1, n_codes] I32, one frame's RVQ codes.
-        // returns audio samples, [n_samples] F32, clamped to [-1, 1].
+        // inp_codes: [T, n_codes] I32, T frames of RVQ codes (group-major: all T frames of codebook 0, then all T frames of codebook 1, etc.).
+        // returns audio samples for all T frames, [n_samples] F32, clamped to [-1, 1].
         ggml_tensor * decode(ggml_tensor * inp_codes) const;
     };
 };
