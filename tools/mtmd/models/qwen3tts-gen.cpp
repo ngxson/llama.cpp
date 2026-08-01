@@ -488,6 +488,14 @@ ggml_tensor * clip_graph_qwen3tts_gen::code2wav::tfm_layer_forward(ggml_tensor *
     ggml_tensor * causal_keep = ggml_step(ctx0, ggml_scale_bias(ctx0, diff, 1.0f, 0.5f));            // diff >= 0
     ggml_tensor * in_window   = ggml_step(ctx0, ggml_scale_bias(ctx0, diff, -1.0f, (float) W - 0.5f)); // diff < W
     ggml_tensor * keep = ggml_mul(ctx0, causal_keep, in_window);
+
+    // clamp the cold prefix: key j holds real state only when j >= prefix -
+    // tfm_pos, everything before is the zero-filled cold start and attending
+    // to zero keys dilutes the softmax instead of skipping them
+    ggml_tensor * warm = ggml_step(ctx0, ggml_scale_bias(ctx0, ggml_add(ctx0, pos_k, base),
+                                                         1.0f, 0.5f - (float) prefix)); // j + pos > prefix - 0.5
+    keep = ggml_mul(ctx0, keep, warm);
+
     ggml_tensor * mask = ggml_reshape_4d(ctx0, ggml_log(ctx0, keep), total_kv, N, 1, 1); // 0 = keep, -inf = masked
 
     ggml_tensor * q_cur = ggml_reshape_4d(ctx0, q, d_head, n_head, N, 1);
