@@ -1308,18 +1308,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
     } else if (ex == LLAMA_EXAMPLE_TOKENIZE) {
         params.parse_special = true; // parse special tokens by default, like the old tokenize tool
     } else if (ex == LLAMA_EXAMPLE_TTS) {
-        params.n_ctx      = 4096;
-        params.n_batch    = 4096;
-        params.embedding  = true; // the talker backbone's hidden states are read via llama_get_embeddings_ith
-        params.out_file   = "output.wav";
-        params.tts_lang    = "english";
-        // reference defaults (qwen_tts Qwen3TTSForConditionalGeneration.generate()):
-        // top_k=50, top_p=1.0, temperature=0.9, repetition_penalty=1.05 over the whole
-        // generated history -- without the penalty, runs degenerate into immediate
-        // no-speech (EOS) or endless non-terminating tails
-        params.sampling.top_k          = 50;
-        params.sampling.top_p          = 1.0f;
-        params.sampling.temp           = 0.9f;
+        params.out_file = "output.wav";
         params.sampling.penalty_repeat = 1.05f;
         params.sampling.penalty_last_n = -1;
     }

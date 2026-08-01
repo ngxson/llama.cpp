@@ -16,6 +16,22 @@
  * For contributors: please keep this code simple and easy to understand. Do not add unnecessary complexity. The goal is to have a simple CLI for testing TTS support.
  */
 
+struct tts_timings {
+    int64_t t_start_us = ggml_time_us();
+    int64_t t_last_us  = t_start_us;
+
+    void report(int n_frames) {
+        const int64_t t_now_us = ggml_time_us();
+        if (t_now_us - t_last_us < 2000000) {
+            return;
+        }
+        t_last_us = t_now_us;
+        const double t_elapsed_s = (t_now_us - t_start_us) / 1e6;
+        const double fps = t_elapsed_s > 0 ? n_frames / t_elapsed_s : 0.0;
+        LOG_INF("frames generated: %d, speed: %.2f frames/s\n", n_frames, fps);
+    }
+};
+
 static void print_usage(int, char ** argv) {
     LOG("\nexample usage:\n");
     LOG("\n    %s -m backbone.gguf -mm mmproj.gguf -p \"text to speak\" -o output.wav", argv[0]);
@@ -44,6 +60,9 @@ int main(int argc, char ** argv) {
         LOG_ERR("no mmproj provided, use --mmproj\n");
         return 1;
     }
+
+    // always enable embd, so that we can pass hidden states to the audio generation helper
+    params.embedding = true;
 
     llama_backend_init();
     llama_numa_init(params.numa);
@@ -88,10 +107,12 @@ int main(int argc, char ** argv) {
     inp.top_k       = params.sampling.top_k;
     inp.top_p       = params.sampling.top_p;
     inp.out_type    = MTMD_HELPER_GEN_AUDIO_OUTTYPE_WAV;
+    const int64_t t_prompt_start_us = ggml_time_us();
     if (gen.set_input(&inp) != 0) {
         LOG_ERR("set_input failed\n");
         return 1;
     }
+    LOG_INF("prompt eval took %.2f seconds\n", (ggml_time_us() - t_prompt_start_us) / 1e6);
 
     // codec_0 (backbone) EOS token: ordinary LLM sampling concern, kept out of the
     // model-agnostic audio-generation helper
@@ -115,6 +136,9 @@ int main(int argc, char ** argv) {
     int n_frames = 0;
     llama_token sampled = sample_codec0();
     const float * h_state = llama_get_embeddings_ith(lctx, -1);
+
+    tts_timings timings;
+
     for (; n_frames < max_new && sampled != codec_eos_tok; n_frames++) {
         const float * h_next = nullptr;
         if (gen.step(sampled, h_state, &h_next) != 0) {
@@ -123,6 +147,7 @@ int main(int argc, char ** argv) {
         }
         h_state = h_next;
         sampled = sample_codec0();
+        timings.report(n_frames + 1);
     }
 
     int32_t      sample_rate = 0;
