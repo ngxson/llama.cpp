@@ -7,6 +7,7 @@
 #include "mtmd.h"
 #include "mtmd-helper.h"
 #include "common.h"
+#include "sampling.h"
 #include "log.h"
 
 #include <cstdio>
@@ -90,29 +91,31 @@ int main(int argc, char ** argv) {
     if (gen.set_input(&inp) != 0) { LOG_ERR("set_input failed\n"); return 1; }
     mtmd_bitmap_free(speaker_wrapper.bitmap);
 
-    // vocab landmarks: only the backbone-level sampling policy (which tokens
-    // are valid codec_0 candidates, and which one means EOS) stays here, since
-    // that's ordinary LLM sampling, not part of the audio-generation pipeline
-    llama_token codec_0_tok = LLAMA_TOKEN_NULL;
+    // codec_0 (backbone) EOS token: only this and the sampling policy below are
+    // ordinary LLM sampling concerns, kept out of the audio-generation helper
     llama_token codec_eos_tok = LLAMA_TOKEN_NULL;
     for (llama_token t = 0; t < llama_vocab_n_tokens(vocab); t++) {
-        const char * piece = llama_vocab_get_text(vocab, t);
-        if (!strcmp(piece, "<|codec_0|>"))         codec_0_tok   = t;
-        else if (!strcmp(piece, "<|codec_eos_token|>")) codec_eos_tok = t;
+        if (!strcmp(llama_vocab_get_text(vocab, t), "<|codec_eos_token|>")) { codec_eos_tok = t; break; }
     }
-    if (codec_0_tok == LLAMA_TOKEN_NULL || codec_eos_tok == LLAMA_TOKEN_NULL) {
-        LOG_ERR("missing codec special tokens in vocab\n");
-        return 1;
-    }
+    if (codec_eos_tok == LLAMA_TOKEN_NULL) { LOG_ERR("missing codec eos token in vocab\n"); return 1; }
+
+    // reference defaults (qwen_tts Qwen3TTSForConditionalGeneration.generate()):
+    // top_k=50, top_p=1.0, temperature=0.9, repetition_penalty=1.05 over the whole
+    // generated history — without the penalty, runs degenerate into immediate
+    // no-speech (EOS) or endless non-terminating tails
+    common_params_sampling sparams;
+    sparams.top_k          = 50;
+    sparams.top_p          = 0.95f;
+    sparams.temp           = 0.9f;
+    sparams.penalty_repeat = 1.05f;
+    sparams.penalty_last_n = -1;
+    common_sampler * smpl = common_sampler_init(model, sparams);
+    if (!smpl) { LOG_ERR("failed to init sampler\n"); return 1; }
 
     auto sample_codec0 = [&]() -> llama_token {
-        const float * logits = llama_get_logits_ith(lctx, -1);
-        llama_token   best   = codec_eos_tok;
-        float         bestv  = logits[codec_eos_tok];
-        for (llama_token t = codec_0_tok; t < codec_0_tok + 2048; t++) {
-            if (logits[t] > bestv) { bestv = logits[t]; best = t; }
-        }
-        return best;
+        llama_token t = common_sampler_sample(smpl, lctx, -1);
+        common_sampler_accept(smpl, t, true);
+        return t;
     };
 
     int n_frames = 0;
@@ -120,10 +123,11 @@ int main(int argc, char ** argv) {
     const float * h_state = llama_get_embeddings_ith(lctx, -1);
     for (; n_frames < max_new && sampled != codec_eos_tok; n_frames++) {
         const float * h_next = nullptr;
-        if (gen.step(sampled, h_state, &h_next) != 0) { LOG_ERR("step failed at frame %d\n", n_frames); return 1; }
+        if (gen.step(sampled, h_state, &h_next) != 0) { LOG_ERR("step failed at frame %d\n", n_frames); common_sampler_free(smpl); return 1; }
         h_state = h_next;
         sampled = sample_codec0();
     }
+    common_sampler_free(smpl);
 
     int32_t       sample_rate = 0;
     const char *  data        = nullptr;
