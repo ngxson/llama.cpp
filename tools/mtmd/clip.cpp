@@ -4728,13 +4728,8 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                 if (params->gen_process == CLIP_GEN_PROCESS_CODE2WAV) {
                     GGML_ASSERT(params->codes != nullptr);
 
-                    // the caller sends codes frame-major (frame 0's codes, then frame
-                    // 1's, ...), for however many frames it has (up to the window
-                    // size). the graph wants them group-major (all frames of codebook
-                    // 0, then all frames of codebook 1, ...), padded to exactly one
-                    // window. real frames go first (so their RoPE positions/state
-                    // stay in sequence), code 0 pads the rear if there are fewer --
-                    // the corresponding tail of out_audio is trimmed off below.
+                    // reorder frame-major input to the group-major layout the graph wants,
+                    // padding the rear with code 0 up to one window (tail trimmed off below)
                     const int64_t n_codes  = model.gen_code_head_w->ne[2] + 1;
                     const int64_t n_frames_w = hparams.wav_tfm_swa;
                     const int64_t n_frames   = (int64_t) params->codes->size() / n_codes;

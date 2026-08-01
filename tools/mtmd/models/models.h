@@ -291,24 +291,17 @@ struct clip_graph_qwen3tts_gen : clip_graph {
 
     //
     // code2wav: RVQ codes -> raw PCM (quantizer + pre_conv + pre_transformer + upsample + DAC).
-    // Processes one frame per call (T=1). Every causal conv/transpose-conv and
-    // the pre_transformer's attention carry real state across calls (state_in
-    // / state_out), so there is no left-context zero-padding at call boundaries.
     //
     struct code2wav : clip_graph {
         code2wav(const clip_graph & parent) : clip_graph(parent) {}
         ggml_cgraph * build() override { GGML_ABORT("call decode() instead"); }
 
-        // state carried in from the previous call (by slot name, see
-        // list_c2w_state_slots()), filled in by build() before calling decode()
+        // state_in: previous call's persisted state, by slot name (see list_c2w_state_slots())
         std::map<std::string, ggml_tensor *> state_in;
-        // state to persist for the next call, filled in by decode(); each
-        // entry's tensor must be added to the graph outputs by build()
+        // state_out: this call's state to persist, added to the graph outputs by build()
         mutable std::vector<std::pair<std::string, ggml_tensor *>> state_out;
 
-        // stateful conv ops: read their left-context (or overlap-add tail, for
-        // the transpose conv) from state_in[state_name], append the updated
-        // state to state_out
+        // stateful conv ops: read/update their state via state_in/state_out[state_name]
         ggml_tensor * causal_conv1d(ggml_tensor * x, ggml_tensor * w, ggml_tensor * b, int dilation, const std::string & state_name) const;
         ggml_tensor * causal_conv1d_dw(ggml_tensor * x, ggml_tensor * w, ggml_tensor * b, const std::string & state_name) const;
         ggml_tensor * causal_conv_transpose1d(ggml_tensor * x, ggml_tensor * w, ggml_tensor * b, int stride, const std::string & state_name) const;
@@ -320,26 +313,18 @@ struct clip_graph_qwen3tts_gen : clip_graph {
         ggml_tensor * convnext_block(ggml_tensor * x, const clip_code2wav::upsample_block & blk, const std::string & state_prefix) const;
         ggml_tensor * dac_res_unit(ggml_tensor * x, const clip_code2wav::dac_res & res, int dilation, const std::string & state_name) const;
 
-        // inp_codes: [1, n_codes] I32, one frame of RVQ codes.
-        // returns this frame's audio samples, [n_samples] F32, clamped to [-1, 1].
+        // inp_codes [1, n_codes] I32 -> this frame's audio samples [n_samples] F32, clamped to [-1, 1]
         ggml_tensor * decode(ggml_tensor * inp_codes) const;
     };
 };
 
-// one persisted state buffer used by code2wav (conv left-context, transpose-conv
-// overlap tail, one layer's K/V slice of the pre_transformer's sliding-window
-// cache, or its running position counter), named so build() and clip.cpp's
-// (de)serialization agree on layout. ne0/ne1 is the tensor's own shape (conv
-// states are time-first [T, C] like their input; KV cache is channel-first
-// [C, T] like q/k/v).
+// one named, shaped (ne0, ne1) persisted state buffer used by code2wav; see qwen3tts-gen.cpp
 struct c2w_state_slot {
     std::string name;
     int64_t     ne0;
     int64_t     ne1;
 };
-// computed purely from hparams/model tensor shapes, no graph needed -- used by
-// both clip_graph_qwen3tts_gen::code2wav::decode() (to create/collect state
-// tensors) and clip.cpp (to (de)serialize the flat state_data byte buffer)
+// enumerates code2wav's persisted state buffers; see qwen3tts-gen.cpp
 std::vector<c2w_state_slot> list_c2w_state_slots(const clip_hparams & hparams, const clip_model & model);
 
 struct clip_graph_kimik25 : clip_graph {
