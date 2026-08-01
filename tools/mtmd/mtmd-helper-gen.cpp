@@ -8,6 +8,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #ifdef MTMD_INTERNAL_HEADER
@@ -17,6 +18,26 @@
 //
 // Audio generation helpers
 //
+
+// maps the 2-letter --tts-lang codes (see tools/tts/README.md) to the language
+// names used by the codec_language special tokens
+static const std::unordered_map<std::string, std::string> tts_lang_codes = {
+    { "cn", "chinese"    },
+    { "en", "english"    },
+    { "ge", "german"     },
+    { "it", "italian"    },
+    { "po", "portuguese" },
+    { "sp", "spanish"    },
+    { "ja", "japanese"   },
+    { "ko", "korean"     },
+    { "fr", "french"     },
+    { "ru", "russian"    },
+};
+
+static std::string tts_resolve_lang(const std::string & lang) {
+    auto it = tts_lang_codes.find(lang);
+    return it != tts_lang_codes.end() ? it->second : lang;
+}
 
 static llama_token find_special_token(const llama_vocab * vocab, const std::string & piece) {
     const int32_t n = llama_vocab_n_tokens(vocab);
@@ -97,7 +118,7 @@ public:
             return 1;
         }
 
-        const std::string lang   = (inp->lang && inp->lang[0]) ? inp->lang : "english";
+        const std::string lang   = tts_resolve_lang((inp->lang && inp->lang[0]) ? inp->lang : "english");
         const llama_token c_lang = find_special_token(vocab, ("<|codec_language_" + lang + "|>").c_str());
         if (c_lang == LLAMA_TOKEN_NULL) {
             LOG_ERR("mtmd_helper_gen_audio: unknown language '%s'\n", lang.c_str());
