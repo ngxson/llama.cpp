@@ -77,9 +77,8 @@ ggml_tensor * clip_graph_qwen3tts_gen::code_gen::cache_set(ggml_tensor * cache, 
     ggml_tensor * value_2d  = ggml_reshape_2d(ctx0, value, n_embd, 1);
     ggml_tensor * cache_ext = ggml_concat(ctx0, cache, value_2d, 1); // [n_embd, n_cache + 1]
 
-    // gather indices [0..row_idx-1, n_cache, row_idx+1..n_cache-1]: row_idx is a
-    // compile-time int, so this is built via concat rather than ggml_set_rows
-    // (which requires an F32/F16 value, not usable for an I32 index array)
+    // gather indices [0..row_idx-1, n_cache, row_idx+1..n_cache-1]
+    // built via concat, since ggml_set_rows needs F32/F16 values, not an I32 index array
     ggml_tensor * idx = const_i32(cache, (float) n_cache);
     if (row_idx > 0) {
         ggml_tensor * prefix = ggml_cast(ctx0, ggml_arange(ctx0, 0.0f, (float) row_idx, 1.0f), GGML_TYPE_I32);
@@ -95,8 +94,7 @@ ggml_tensor * clip_graph_qwen3tts_gen::code_gen::cache_set(ggml_tensor * cache, 
     return result;
 }
 
-// builds a const i32 value with no host upload: view any tensor, cast to
-// f32 (ggml_scale only supports f32), scale it to 0, add the value, cast to i32
+// builds a const i32 with no host upload: view a tensor, zero it via scale, add value, cast to i32
 ggml_tensor * clip_graph_qwen3tts_gen::code_gen::const_i32(ggml_tensor * anchor, float value) const {
     ggml_tensor * v = ggml_view_1d(ctx0, anchor, 1, 0);
     if (v->type != GGML_TYPE_F32) {
@@ -126,8 +124,7 @@ ggml_tensor * clip_graph_qwen3tts_gen::code_gen::project_in(ggml_tensor * cur) c
     return cur;
 }
 
-// one transformer layer at a single new position pos; writes k/v into
-// k_cache_layer/v_cache_layer at row pos
+// one transformer layer at position pos; writes k/v into k_cache_layer/v_cache_layer at row pos
 ggml_tensor * clip_graph_qwen3tts_gen::code_gen::layer_forward(
         ggml_tensor * cur,
         const clip_layer & layer,
@@ -189,9 +186,8 @@ ggml_tensor * clip_graph_qwen3tts_gen::code_gen::layer_forward(
     return ggml_add(ctx0, cur, down);
 }
 
-// position 0: hidden bridge, no sampling, only seeds the k/v cache.
-// position 1: embed(code0) via the talker's out_embd table, sample with
-// lm_head[0], write out_code_cache[1].
+// position 0: hidden bridge, seeds the k/v cache, no sampling
+// position 1: embed(code0), sample with lm_head[0], write out_code_cache[1]
 void clip_graph_qwen3tts_gen::code_gen::prefill(
         std::vector<ggml_tensor *> & k_cache,
         std::vector<ggml_tensor *> & v_cache,
@@ -208,7 +204,7 @@ void clip_graph_qwen3tts_gen::code_gen::prefill(
         for (size_t il = 0; il < model.layers.size(); il++) {
             cur = layer_forward(cur, model.layers[il], inp_pos, kq_mask, k_cache[il], v_cache[il], n_kv_pad, 0, (int) il);
         }
-        // position 0's own output is not used further, it only seeded the cache
+        // position 0's output is unused, it only seeded the cache
     }
 
     {
@@ -231,15 +227,12 @@ void clip_graph_qwen3tts_gen::code_gen::prefill(
     }
 }
 
-// one decode step of the 5-layer code_predictor.
-// at step_idx g: read code from out_code_cache[g], embed it with codebook
-// table g-1, write the new k/v at cache row g+1, sample with lm_head[g],
-// write the result to out_code_cache[g+1].
-//
-// k_cache/v_cache: per layer, [d_head * n_head_kv, n_kv_pad].
-// out_code_cache: [1, n_codes] I32. inp_rand: [1] F32 draw for this step.
-// Create all input tensors in build(), not here.
-// step_idx range: [1, n_acoustic - 1]. Returns the new out_code_cache.
+// one decode step of code_predictor
+// at step_idx g:
+// - read code from out_code_cache[g], then embed it with codebook table g-1
+// - write new kv at cache row g+1, sample with lm_head[g]
+// - write result to out_code_cache[g+1]
+// step_idx must be in [1, n_acoustic - 1]
 ggml_tensor * clip_graph_qwen3tts_gen::code_gen::step(
         std::vector<ggml_tensor *> & k_cache,
         std::vector<ggml_tensor *> & v_cache,
@@ -254,8 +247,7 @@ ggml_tensor * clip_graph_qwen3tts_gen::code_gen::step(
     const int64_t n_kv_pad = k_cache[0]->ne[1];
     const int     pos      = step_idx + 1; // new cache row and RoPE position
 
-    // embed the previous code through this step's codebook table
-    // (out_code_cache has ne[0] == 1, so one row is already a single scalar)
+    // embed the previous code via this step's codebook table (rows are already scalars)
     ggml_tensor * code_in = ggml_view_1d(ctx0, out_code_cache, 1, (size_t) step_idx * out_code_cache->nb[1]);
 
     ggml_tensor * embd_w = model.gen_code_embd_w; // [n_embd_talker, vocab, n_acoustic]
@@ -292,10 +284,8 @@ ggml_tensor * clip_graph_qwen3tts_gen::code_gen::step(
     return cache_set(out_code_cache, pos, sampled);
 }
 
-// causal conv1d, stride 1: prepend the persisted left-context (from the
-// previous call) instead of zero-padding, then a plain (unpadded) conv.
-// x: [T, IC] (T-first, matches ggml_conv_1d's native layout). w: [K, IC, OC].
-// state_name empty means K == 1, no left-context needed. returns [T, OC].
+// causal conv1d, stride 1: prepend persisted left-context instead of zero-padding, then a plain conv
+// x: [T, IC] (T-first). w: [K, IC, OC]. state_name empty means K == 1 (no left-context). returns [T, OC]
 ggml_tensor * clip_graph_qwen3tts_gen::code2wav::causal_conv1d(ggml_tensor * x, ggml_tensor * w, ggml_tensor * b, int dilation, const std::string & state_name) const {
     const int K   = (int) w->ne[0];
     const int pad = (K - 1) * dilation;
@@ -342,21 +332,18 @@ ggml_tensor * clip_graph_qwen3tts_gen::code2wav::causal_conv1d_dw(ggml_tensor * 
     return y;
 }
 
-// causal ConvTranspose1d with a persisted overlap-add tail: transposed conv
-// output windows from adjacent input frames overlap by (kernel - stride)
-// samples. The overlap that would otherwise leak into the next call's output
-// is carried forward as state and added in, instead of being discarded.
-// x: [T, IC] (plain matrix). w: [K, OC, IC]. state_name empty means
-// K == stride (no overlap, e.g. the upsample blocks here). returns [T * stride, OC].
+// causal ConvTranspose1d with persisted overlap-add tail: adjacent frames'
+// output windows overlap by (kernel - stride) samples; that overlap is
+// carried forward as state instead of being discarded
+// x: [T, IC], w: [K, OC, IC]. state_name empty means K == stride (no overlap). returns [T * stride, OC]
 ggml_tensor * clip_graph_qwen3tts_gen::code2wav::causal_conv_transpose1d(ggml_tensor * x, ggml_tensor * w, ggml_tensor * b, int stride, const std::string & state_name) const {
     const int     K        = (int) w->ne[0];
     const int     OC       = (int) w->ne[1];
     const int     trim     = K - stride;
     const int64_t emit_len = x->ne[0] * stride;
 
-    // transposed conv as GEMM + scatter-add: fold w [K, OC, IC] to [IC, K*OC]
-    // (k fastest), contract over IC, then col2im scatters each column to its
-    // strided output offset. y: [emit_len + trim, OC]
+    // transposed conv as GEMM + scatter-add: fold w [K, OC, IC] to [IC, K*OC], contract over IC
+    // then col2im scatters each column to its strided output offset. y: [emit_len + trim, OC]
     ggml_tensor * w2  = ggml_reshape_2d(ctx0, w, (int64_t) K * OC, w->ne[2]);
     w2                = ggml_cont(ctx0, ggml_transpose(ctx0, w2));
     ggml_tensor * xt  = ggml_cont(ctx0, ggml_transpose(ctx0, x));
@@ -382,15 +369,13 @@ ggml_tensor * clip_graph_qwen3tts_gen::code2wav::causal_conv_transpose1d(ggml_te
     return out;
 }
 
-// SnakeBeta activation: y = x + sin(alpha*x)^2 * inv_beta (alpha/inv_beta
-// already folded with exp()/reciprocal at conversion time).
-// x: [T, C]. alpha/beta: [C]. broadcasts over T.
+// SnakeBeta activation: y = x + sin(alpha*x)^2 * inv_beta (alpha/inv_beta folded via exp/reciprocal at conversion time)
+// x: [T, C]. alpha/beta: [C], broadcasts over T
 ggml_tensor * clip_graph_qwen3tts_gen::code2wav::snake(ggml_tensor * x, ggml_tensor * alpha, ggml_tensor * beta) const {
     ggml_tensor * a = ggml_reshape_2d(ctx0, alpha, 1, alpha->ne[0]);
     ggml_tensor * b = ggml_reshape_2d(ctx0, beta,  1, beta->ne[0]);
 
-    // expand the reshapes first so the mul/sin/sqr/mul/add chain lands as
-    // consecutive graph nodes, which backends match as one fused activation
+    // expand reshapes first so mul/sin/sqr/mul/add lands as consecutive nodes, letting backends fuse them
     ggml_build_forward_expand(gf, a);
     ggml_build_forward_expand(gf, b);
 
@@ -400,7 +385,8 @@ ggml_tensor * clip_graph_qwen3tts_gen::code2wav::snake(ggml_tensor * x, ggml_ten
     return ggml_add(ctx0, x, s);
 }
 
-// RVQ codebook decode: T frames of 16 codes -> 512-dim hidden (C-first, [512, T]). codebook 0 (semantic) and 1..15 (acoustic) are summed within their own group, projected out_proj'd separately, then the two projections added.
+// RVQ codebook decode: T frames of 16 codes -> 512-dim hidden (C-first, [512, T])
+// codebook 0 (semantic) and 1..15 (acoustic) sum within their group, project separately, then add
 ggml_tensor * clip_graph_qwen3tts_gen::code2wav::quant_decode(ggml_tensor * inp_codes) const {
     const auto & c2w = model.c2w;
     const int64_t T = inp_codes->ne[0];
@@ -428,15 +414,11 @@ ggml_tensor * clip_graph_qwen3tts_gen::code2wav::quant_decode(ggml_tensor * inp_
     return hidden;
 }
 
-// one pre_transformer layer, over a batch of N = sliding_window new frames.
-// Attention runs over [persisted (W-1)-frame prefix from the previous batch]
-// + [this batch's N new frames]: the prefix supplies left-context for the
-// batch's own early frames, a banded causal mask keeps each query within its
-// W-frame window, and RoPE uses a real, ever-increasing position counter
-// (persisted) so the prefix's already-baked-in rotation phase lines up with
-// the new frames'. The persisted state for the next batch is just the last
-// (W-1) frames of this batch (the old prefix falls out of every query's
-// window once a full new batch has passed).
+// one pre_transformer layer over a batch of N = sliding_window new frames
+// attention runs over [(W-1)-frame prefix from the last batch] + [N new frames]:
+// the prefix gives left-context, a banded causal mask keeps each query within its W-frame window,
+// and RoPE uses a persisted, ever-increasing position counter so phases line up across batches
+// next batch's persisted state is just this batch's last (W-1) frames
 ggml_tensor * clip_graph_qwen3tts_gen::code2wav::tfm_layer_forward(ggml_tensor * cur, const clip_layer & layer, int il) const {
     const int     n_head    = hparams.wav_tfm_n_head;
     const int     n_head_kv = hparams.wav_tfm_n_head_kv;
@@ -488,10 +470,8 @@ ggml_tensor * clip_graph_qwen3tts_gen::code2wav::tfm_layer_forward(ggml_tensor *
     state_out.push_back({"tfm_v_" + std::to_string(il),
         ggml_cont(ctx0, ggml_view_2d(ctx0, v_full, v_full->ne[0], prefix, v_full->nb[1], (size_t) N * v_full->nb[1]))});
 
-    // banded causal mask over [total_kv keys, N queries]: key j (local index
-    // into the concatenated prefix+batch) is visible to query i (local index
-    // into the batch, offset by `prefix` so it lines up with its own slot in
-    // the concatenated sequence) iff 0 <= (prefix+i) - j < W
+    // banded causal mask over [total_kv keys, N queries]: key j is visible to
+    // query i (offset by `prefix`) iff 0 <= (prefix+i) - j < W
     ggml_tensor * pos_k = ggml_reshape_2d(ctx0, ggml_arange(ctx0, 0.0f, (float) total_kv, 1.0f), total_kv, 1);
     ggml_tensor * pos_q = ggml_reshape_2d(ctx0, ggml_arange(ctx0, (float) prefix, (float) (prefix + N), 1.0f), 1, N);
     ggml_tensor * pos_q_grid = ggml_repeat_4d(ctx0, pos_q, total_kv, N, 1, 1);
@@ -501,9 +481,8 @@ ggml_tensor * clip_graph_qwen3tts_gen::code2wav::tfm_layer_forward(ggml_tensor *
     ggml_tensor * in_window   = ggml_step(ctx0, ggml_scale_bias(ctx0, diff, -1.0f, (float) W - 0.5f)); // diff < W
     ggml_tensor * keep = ggml_mul(ctx0, causal_keep, in_window);
 
-    // clamp the cold prefix: key j holds real state only when j >= prefix -
-    // tfm_pos, everything before is the zero-filled cold start and attending
-    // to zero keys dilutes the softmax instead of skipping them
+    // clamp the cold prefix: key j holds real state only when j >= prefix - tfm_pos
+    // earlier keys are zero-filled cold start; attending to them would dilute the softmax
     ggml_tensor * warm = ggml_step(ctx0, ggml_scale_bias(ctx0, ggml_add(ctx0, pos_k, base),
                                                          1.0f, 0.5f - (float) prefix)); // j + pos > prefix - 0.5
     keep = ggml_mul(ctx0, keep, warm);
@@ -534,9 +513,8 @@ ggml_tensor * clip_graph_qwen3tts_gen::code2wav::tfm_layer_forward(ggml_tensor *
     return ggml_add(ctx0, residual2, down);
 }
 
-// dwconv -> LayerNorm -> pwconv1 -> GELU -> pwconv2 -> layer scale -> residual.
-// x: [T, C] T-first; LayerNorm/pwconv need C on ne0, so this transposes in
-// and back out around them.
+// dwconv -> LayerNorm -> pwconv1 -> GELU -> pwconv2 -> layer scale -> residual
+// x: [T, C] T-first; LayerNorm/pwconv need C on ne0, so this transposes in and back out
 ggml_tensor * clip_graph_qwen3tts_gen::code2wav::convnext_block(ggml_tensor * x, const clip_code2wav::upsample_block & blk, const std::string & state_prefix) const {
     ggml_tensor * residual = x;
 
@@ -634,11 +612,9 @@ ggml_tensor * clip_graph_qwen3tts_gen::code2wav::decode(ggml_tensor * inp_codes)
     return x;
 }
 
-// enumerates code2wav's persisted state buffers: the running RoPE position
-// counter, one K/V slot per pre_transformer layer, and one left-context (or
-// overlap-add tail) slot per stateful conv. Pure hparams/tensor-shape lookup,
-// no graph needed -- shared by build() (to create/collect the state tensors)
-// and clip.cpp (to (de)serialize the flat state_data byte buffer).
+// enumerates code2wav's persisted state buffers: RoPE position counter, one
+// K/V slot per pre_transformer layer, one left-context/tail slot per stateful conv
+// pure shape lookup, no graph needed; shared by build() and clip.cpp's state (de)serialization
 std::vector<c2w_state_slot> list_c2w_state_slots(const clip_hparams & hparams, const clip_model & model) {
     const auto & c2w = model.c2w;
     std::vector<c2w_state_slot> slots;
@@ -682,44 +658,24 @@ std::vector<c2w_state_slot> list_c2w_state_slots(const clip_hparams & hparams, c
     return slots;
 }
 
-// master build(): switches on gen_process to construct either the code_gen sub-graph (backbone hidden state -> 16 RVQ codes + next-step embd) or the code2wav sub-graph (16 RVQ codes -> raw PCM), both hosted in this one clip_ctx.
+// builds both the code_gen sub-graph (h_state -> 16 RVQ codes + next embd) and the
+// code2wav sub-graph (16 RVQ codes -> raw PCM) into the same cgraph every call, then
+// selects which one runs via ggml_build_forward_select(), keeping topology constant
 ggml_cgraph * clip_graph_qwen3tts_gen::build() {
     GGML_ASSERT(n_batch == 1); // this module only ever processes one frame at a time
 
-    if (gen_process == CLIP_GEN_PROCESS_CODE2WAV) {
-        const int64_t n_acoustic = model.gen_code_head_w->ne[2]; // 15
-        const int     n_codes    = (int) n_acoustic + 1;         // 16
-        const int     n_frames   = hparams.wav_tfm_swa; // frames per batch, == the attention window
-
-        ggml_tensor * inp_codes = ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, n_frames, n_codes);
-        ggml_set_name(inp_codes, "inp_codes");
-        ggml_set_input(inp_codes);
-
-        code2wav cg(*this);
-        for (const auto & slot : list_c2w_state_slots(hparams, model)) {
-            ggml_tensor * t = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, slot.ne0, slot.ne1);
-            ggml_set_name(t, ("state_in_" + slot.name).c_str());
-            ggml_set_input(t);
-            cg.state_in[slot.name] = t;
-        }
-
-        ggml_tensor * out_audio = cg.decode(inp_codes);
-        ggml_set_name(out_audio, "out_audio");
-        ggml_set_output(out_audio);
-        ggml_build_forward_expand(gf, out_audio);
-
-        for (auto & slot : cg.state_out) {
-            ggml_set_name(slot.second, ("state_out_" + slot.first).c_str());
-            ggml_set_output(slot.second);
-            ggml_build_forward_expand(gf, slot.second);
-        }
-        return gf;
+    int idx;
+    switch (gen_process) {
+        case CLIP_GEN_PROCESS_CODE_GEN: idx = 0; break;
+        case CLIP_GEN_PROCESS_CODE2WAV: idx = 1; break;
+        default: GGML_ABORT("unknown gen_process");
     }
 
-    // CLIP_GEN_PROCESS_CODE_GEN
-    ggml_tensor * h_state = build_inp_raw(1);
-    h_state = ggml_reshape_1d(ctx0, h_state, h_state->ne[0]);
-    cb(h_state, "inp_h_state", -1);
+    // ---- CLIP_GEN_PROCESS_CODE_GEN: backbone hidden state -> 16 RVQ codes + next-step embd ----
+    // fixed-size [n_mmproj_embd] input; not build_inp_raw(), since a CODE2WAV call's `img` has no hidden-state data
+    ggml_tensor * h_state = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, n_mmproj_embd);
+    ggml_set_name(h_state, "inp_raw"); // must keep this exact name, clip_encode() sets it by name
+    ggml_set_input(h_state);
 
     ggml_tensor * code0 = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, 1);
     ggml_set_name(code0, "inp_code0");
@@ -766,10 +722,8 @@ ggml_cgraph * clip_graph_qwen3tts_gen::build() {
     ggml_tensor * out_codes = ggml_cont(ctx0, out_code_cache);
     ggml_set_name(out_codes, "out_codes");
     ggml_set_output(out_codes);
-    ggml_build_forward_expand(gf, out_codes);
 
-    // output 2 (last node, read by clip_encode()): the sum of all 16
-    // codebook embeddings, fed back to the talker backbone for the next frame
+    // output 2: sum of all 16 codebook embeddings, fed back to the talker for the next frame
     ggml_tensor * out_embd = code0_embd;
     for (int g = 1; g <= n_acoustic; g++) {
         ggml_tensor * code_g = ggml_view_1d(ctx0, out_code_cache, 1, (size_t) g * out_code_cache->nb[1]);
@@ -784,6 +738,42 @@ ggml_cgraph * clip_graph_qwen3tts_gen::build() {
     out_embd = ggml_reshape_2d(ctx0, out_embd, out_embd->ne[0], 1);
     cb(out_embd, "gen_audio_out", -1);
 
-    ggml_build_forward_expand(gf, out_embd);
+    // ---- CLIP_GEN_PROCESS_CODE2WAV: 16 RVQ codes -> raw PCM ----
+    const int n_frames = hparams.wav_tfm_swa; // frames per batch, == the attention window
+
+    ggml_tensor * inp_codes = ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, n_frames, n_codes);
+    ggml_set_name(inp_codes, "inp_codes");
+    ggml_set_input(inp_codes);
+
+    code2wav c2w(*this);
+    for (const auto & slot : list_c2w_state_slots(hparams, model)) {
+        ggml_tensor * t = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, slot.ne0, slot.ne1);
+        ggml_set_name(t, ("state_in_" + slot.name).c_str());
+        ggml_set_input(t);
+        c2w.state_in[slot.name] = t;
+    }
+
+    ggml_tensor * out_audio = c2w.decode(inp_codes);
+    ggml_set_name(out_audio, "out_audio");
+    ggml_set_output(out_audio);
+
+    for (auto & slot : c2w.state_out) {
+        ggml_set_name(slot.second, ("state_out_" + slot.first).c_str());
+        ggml_set_output(slot.second);
+    }
+
+    // select the active branch; both are always built above (constant topology), only the
+    // selected side's nodes actually compute. out_embd goes last so it ends up as the graph's
+    // last node, since clip_encode() reads it back via ggml_graph_node(gf, -1)
+    ggml_tensor * outs[2];
+    outs[0] = out_codes; outs[1] = out_audio;
+    ggml_build_forward_select(gf, outs, 2, idx);
+    for (auto & slot : c2w.state_out) {
+        outs[0] = out_codes; outs[1] = slot.second;
+        ggml_build_forward_select(gf, outs, 2, idx);
+    }
+    outs[0] = out_embd; outs[1] = out_audio;
+    ggml_build_forward_select(gf, outs, 2, idx);
+
     return gf;
 }
