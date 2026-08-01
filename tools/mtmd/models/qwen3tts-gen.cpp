@@ -349,12 +349,19 @@ ggml_tensor * clip_graph_qwen3tts_gen::code2wav::causal_conv1d_dw(ggml_tensor * 
 // x: [T, IC] (plain matrix). w: [K, OC, IC]. state_name empty means
 // K == stride (no overlap, e.g. the upsample blocks here). returns [T * stride, OC].
 ggml_tensor * clip_graph_qwen3tts_gen::code2wav::causal_conv_transpose1d(ggml_tensor * x, ggml_tensor * w, ggml_tensor * b, int stride, const std::string & state_name) const {
-    const int     K       = (int) w->ne[0];
-    const int     trim    = K - stride;
+    const int     K        = (int) w->ne[0];
+    const int     OC       = (int) w->ne[1];
+    const int     trim     = K - stride;
     const int64_t emit_len = x->ne[0] * stride;
 
-    ggml_tensor * y = ggml_conv_transpose_1d(ctx0, w, x, stride, 0, 1); // [emit_len + trim, OC, 1, 1]
-    y = ggml_reshape_2d(ctx0, y, y->ne[0], y->ne[1]);
+    // transposed conv as GEMM + scatter-add: fold w [K, OC, IC] to [IC, K*OC]
+    // (k fastest), contract over IC, then col2im scatters each column to its
+    // strided output offset. y: [emit_len + trim, OC]
+    ggml_tensor * w2  = ggml_reshape_2d(ctx0, w, (int64_t) K * OC, w->ne[2]);
+    w2                = ggml_cont(ctx0, ggml_transpose(ctx0, w2));
+    ggml_tensor * xt  = ggml_cont(ctx0, ggml_transpose(ctx0, x));
+    ggml_tensor * col = ggml_mul_mat(ctx0, w2, xt);
+    ggml_tensor * y   = ggml_col2im_1d(ctx0, col, stride, OC, 0);
 
     ggml_tensor * out = y;
     if (trim > 0) {
@@ -381,6 +388,11 @@ ggml_tensor * clip_graph_qwen3tts_gen::code2wav::causal_conv_transpose1d(ggml_te
 ggml_tensor * clip_graph_qwen3tts_gen::code2wav::snake(ggml_tensor * x, ggml_tensor * alpha, ggml_tensor * beta) const {
     ggml_tensor * a = ggml_reshape_2d(ctx0, alpha, 1, alpha->ne[0]);
     ggml_tensor * b = ggml_reshape_2d(ctx0, beta,  1, beta->ne[0]);
+
+    // expand the reshapes first so the mul/sin/sqr/mul/add chain lands as
+    // consecutive graph nodes, which backends match as one fused activation
+    ggml_build_forward_expand(gf, a);
+    ggml_build_forward_expand(gf, b);
 
     ggml_tensor * s = ggml_sin(ctx0, ggml_mul(ctx0, x, a));
     s = ggml_sqr(ctx0, s);
