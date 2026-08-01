@@ -49,7 +49,11 @@ static llama_token find_special_token(const llama_vocab * vocab, const std::stri
     return LLAMA_TOKEN_NULL;
 }
 
-static void write_wav16(std::vector<char> & buf, const std::vector<float> & pcm, int32_t rate) {
+static bool write_wav16(std::vector<char> & buf, const std::vector<float> & pcm, int32_t rate) {
+    // RIFF chunk sizes are 32-bit; refuse to emit a file with a truncated header
+    if (pcm.size() > ((size_t) UINT32_MAX - 36) / 2) {
+        return false;
+    }
     const uint32_t data_sz   = (uint32_t) (pcm.size() * 2);
     const uint32_t riff_sz   = 36 + data_sz;
     const uint32_t fmt_sz    = 16, byte_rate = (uint32_t) rate * 2;
@@ -68,6 +72,7 @@ static void write_wav16(std::vector<char> & buf, const std::vector<float> & pcm,
         int16_t s = (int16_t) (std::max(-1.0f, std::min(1.0f, v)) * 32767.0f);
         put(&s, 2);
     }
+    return true;
 }
 
 class mtmd_gen_audio_pipeline {
@@ -272,7 +277,10 @@ public:
         }
 
         out_buf.clear();
-        write_wav16(out_buf, audio_pcm, info.sample_rate);
+        if (!write_wav16(out_buf, audio_pcm, info.sample_rate)) {
+            LOG_ERR("mtmd_helper_gen_audio: output too large for WAV\n");
+            return 1;
+        }
         *out_data     = out_buf.data();
         *out_data_len = out_buf.size();
         return 0;
@@ -307,7 +315,10 @@ private:
             return false;
         }
         tok_embd.resize(n_tok_embd);
-        llama_model_get_tok_embd(model, tok_embd.data());
+        if (llama_model_get_tok_embd(model, tok_embd.data()) != n_tok_embd) {
+            LOG_ERR("mtmd_helper_gen_audio: token embedding copy failed\n");
+            return false;
+        }
         specials_ok = true;
         return true;
     }

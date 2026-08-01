@@ -186,7 +186,7 @@ llama_model_qwen3vl::graph::graph(const llama_model & model, const llm_graph_par
         cur = ggml_concat(ctx0, neg_inf, cur, 0); // [padded .. n_vocab_out, n_stream]
 
     } else if (n_vocab_in < n_vocab_out) {
-        GGML_ASSERT("invalid case");
+        GGML_ABORT("invalid case");
     }
 
     cb(cur, "result_output", -1);

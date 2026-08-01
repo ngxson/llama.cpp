@@ -386,6 +386,15 @@ struct mtmd_context {
                 "hint: you may be using wrong mmproj\n",
                 n_embd_text, n_embd_clip));
         }
+        if (ctx_gen_a) {
+            int n_embd_gen = clip_n_mmproj_embd(ctx_gen_a);
+            if (n_embd_text > 0 && n_embd_text != n_embd_gen) {
+                throw std::runtime_error(string_format(
+                    "mismatch between text model (n_embd = %d) and gen-audio mmproj (n_embd = %d)\n"
+                    "hint: you may be using wrong mmproj\n",
+                    n_embd_text, n_embd_gen));
+            }
+        }
         if (ctx_v) {
             init_vision();
         }

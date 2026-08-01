@@ -4745,6 +4745,22 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                     const int64_t n_frames   = (int64_t) params->codes->size() / n_codes;
                     GGML_ASSERT(n_frames > 0 && n_frames <= n_frames_w);
 
+                    // bound each code against its codebook's vocab before it becomes
+                    // a ggml_get_rows index into the codebook tensor
+                    const int64_t vocab_first = model.c2w.quant_first_cb_w->ne[1];
+                    const int64_t vocab_rest  = model.c2w.quant_rest_cb_w->ne[1];
+                    for (int64_t f = 0; f < n_frames; f++) {
+                        for (int64_t g = 0; g < n_codes; g++) {
+                            const int32_t c = (*params->codes)[f * n_codes + g];
+                            const int64_t vocab = (g == 0) ? vocab_first : vocab_rest;
+                            if (c < 0 || (int64_t) c >= vocab) {
+                                LOG_ERR("%s: code out of range (frame %lld, group %lld, code %d, vocab %lld)\n",
+                                        __func__, (long long) f, (long long) g, c, (long long) vocab);
+                                return false;
+                            }
+                        }
+                    }
+
                     std::vector<int32_t> codes(n_frames_w * n_codes, 0);
                     for (int64_t f = 0; f < n_frames; f++) {
                         for (int64_t g = 0; g < n_codes; g++) {
@@ -4768,6 +4784,12 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                         offset += nb;
                     }
                 } else {
+                    // code0 indexes gen_code_out_embd_w via ggml_get_rows; bound it
+                    const int64_t vocab0 = model.gen_code_out_embd_w->ne[1];
+                    if (params->code0 < 0 || (int64_t) params->code0 >= vocab0) {
+                        LOG_ERR("%s: code0 out of range (%d, vocab %lld)\n", __func__, params->code0, (long long) vocab0);
+                        return false;
+                    }
                     std::vector<int32_t> code0 = { params->code0 };
                     set_input_i32("inp_code0", code0);
 

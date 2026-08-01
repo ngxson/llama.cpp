@@ -821,7 +821,7 @@ bool mtmd_audio_preprocessor_qwen3tts_spk::preprocess(const float *             
 
     // reflect pad by (n_fft - hop) / 2 = 384, matching center=False STFT framing
     const int pad = (hparams.audio_n_fft - hparams.audio_hop_len) / 2;
-    if ((int) n_samples < pad + 1) {
+    if (n_samples < (size_t) pad + 1) {
         return false;
     }
 
