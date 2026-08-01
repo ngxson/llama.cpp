@@ -65,11 +65,14 @@ Due to wide variety of audio generation pipelines, the `mtmd_gen_audio` system i
         - If model used hard-coded embedding row ID, append them to token embeddings and assign token name for them (see `qwen3tts.py`)
         - If model have a specific output logits head for audio codes (usually semantic code), keep the head as-is and pad the logits at inference time (see `src/models/qwen3vl.cpp`)
     - Sidecar models (code2wav, bigvgan, etc) must live inside the mmproj GGUF (but can be in different `clip_context` if necessary)
+        - Note: it should use `ggml_build_forward_select` to select graphs if multiple graphs living in the same context
+    - Reuse existing GGUF metadata key name and tensor name whenever possible; think twice before adding extensive changes to GGUF writer. For example, Qwen3-TTS hard-code part of the hparams to `clip.cpp` as they won't likely to change.
 3. Make sure most of the changes happen inside `mtmd-helper-gen.cpp`. A good PR looks like this:
     - 10-20% changes is to add new backbone (text) model and conversion
     - 60% changes inside `mtmd-helper-gen.cpp`
     - 10% changes inside `libmtmd` and `clip.cpp` systems
     - The rest downstream code (CLI, server) should have no changes at all
+4. Update usage documentation in `tools/tts/README.md`
 
 IMPORTANT: If your model needs changes that don't fit the existing infrastructure, **open an issue first for discussion**.
 
