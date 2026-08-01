@@ -181,7 +181,7 @@ struct mtmd_helper_gen_audio_inp {
     int32_t top_k;
     float   top_p;
 
-    mtmd_helper_gen_audio_outtype out_type;
+    enum mtmd_helper_gen_audio_outtype out_type;
 };
 
 MTMD_API mtmd_helper_gen_audio * mtmd_helper_gen_audio_init(

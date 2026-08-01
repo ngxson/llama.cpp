@@ -336,7 +336,7 @@ enum mtmd_gen_audio_type {
     MTMD_GEN_AUDIO_TYPE_QWEN3TTS,
 };
 struct mtmd_gen_audio_info {
-    mtmd_gen_audio_type type;
+    enum mtmd_gen_audio_type type;
     int32_t sample_rate; // in Hz, for example 24000 for qwen3tts
 };
 MTMD_API struct mtmd_gen_audio_info mtmd_gen_audio_get_info(const mtmd_context * ctx);
@@ -346,7 +346,7 @@ enum mtmd_gen_process_type {
     MTMD_GEN_PROCESS_TYPE_CODE2WAV, // codes to raw PCM audio
 };
 struct mtmd_gen_inp {
-    mtmd_gen_process_type type;
+    enum mtmd_gen_process_type type;
 
     // for MTMD_GEN_PROCESS_TYPE_GEN_CODE
     int32_t code0;  // the sampled codebook 0 entry from backbone
