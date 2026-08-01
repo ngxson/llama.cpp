@@ -83,7 +83,7 @@ public:
     // (e.g. continuous/diffusion models); such pipelines read whatever they need
     // directly off h_state_in instead
     virtual int32_t step(llama_token sampled, const float * h_state_in, const float ** h_state_out) = 0;
-    virtual int32_t get_output(int32_t * out_sample_rate, const char ** out_data, size_t * out_data_len) = 0;
+    virtual int32_t get_output(int32_t * out_sample_rate, const char ** out_data, size_t * out_data_len, int64_t * out_n_samples) = 0;
 
 protected:
     llama_context * lctx;
@@ -255,12 +255,15 @@ public:
         return 0;
     }
 
-    int32_t get_output(int32_t * out_sample_rate, const char ** out_data, size_t * out_data_len) override {
+    int32_t get_output(int32_t * out_sample_rate, const char ** out_data, size_t * out_data_len, int64_t * out_n_samples) override {
         if (!flush_c2w()) {
             return 1;
         }
 
         *out_sample_rate = info.sample_rate;
+        if (out_n_samples) {
+            *out_n_samples = (int64_t) audio_pcm.size();
+        }
 
         if (out_type == MTMD_HELPER_GEN_AUDIO_OUTTYPE_PCM) {
             *out_data     = (const char *) audio_pcm.data();
@@ -445,9 +448,9 @@ int32_t mtmd_helper_gen_audio_step(mtmd_helper_gen_audio * ctx, llama_token samp
 }
 
 int32_t mtmd_helper_gen_audio_get_output(mtmd_helper_gen_audio * ctx, int32_t * out_sample_rate,
-                                         const char ** out_data, size_t * out_data_len) {
+                                         const char ** out_data, size_t * out_data_len, int64_t * out_n_samples) {
     if (!ctx->pipeline) {
         return 1;
     }
-    return ctx->pipeline->get_output(out_sample_rate, out_data, out_data_len);
+    return ctx->pipeline->get_output(out_sample_rate, out_data, out_data_len, out_n_samples);
 }

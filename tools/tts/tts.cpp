@@ -113,7 +113,6 @@ int main(int argc, char ** argv) {
         LOG_ERR("set_input failed\n");
         return 1;
     }
-    LOG_INF("prompt eval took %.2f seconds\n", (ggml_time_us() - t_prompt_start_us) / 1e6);
 
     // codec_0 (backbone) EOS token: ordinary LLM sampling concern, kept out of the
     // model-agnostic audio-generation helper
@@ -139,6 +138,7 @@ int main(int argc, char ** argv) {
     const float * h_state = llama_get_embeddings_ith(lctx, -1);
 
     tts_timings timings;
+    const int64_t t_gen_start_us = ggml_time_us();
 
     for (; n_frames < max_new && sampled != codec_eos_tok; n_frames++) {
         const float * h_next = nullptr;
@@ -150,16 +150,24 @@ int main(int argc, char ** argv) {
         sampled = sample_codec0();
         timings.report(n_frames + 1);
     }
+    const double t_gen_s = (ggml_time_us() - t_gen_start_us) / 1e6;
 
     int32_t      sample_rate = 0;
     const char * data        = nullptr;
     size_t       data_len    = 0;
-    if (gen.get_output(&sample_rate, &data, &data_len) != 0) {
+    int64_t      n_samples   = 0;
+    if (gen.get_output(&sample_rate, &data, &data_len, &n_samples) != 0) {
         LOG_ERR("get_output failed\n");
         return 1;
     }
 
     LOG_INF("generated %d frames, %zu bytes of WAV audio (%d Hz)\n", n_frames, data_len, sample_rate);
+
+    const double t_prompt_s = (t_gen_start_us - t_prompt_start_us) / 1e6;
+    const double t_total_s  = t_prompt_s + t_gen_s;
+    const double audio_s    = sample_rate > 0 ? (double) n_samples / sample_rate : 0.0;
+    LOG_INF("timings: prompt eval %.2fs + generation %.2fs = total %.2fs\n", t_prompt_s, t_gen_s, t_total_s);
+    LOG_INF("         output audio = %.2fs (audio time = %.2fx process time)\n", audio_s, t_total_s > 0 ? audio_s / t_total_s : 0.0);
     FILE * f = fopen(params.out_file.c_str(), "wb");
     if (!f) {
         LOG_ERR("failed to open %s\n", params.out_file.c_str());

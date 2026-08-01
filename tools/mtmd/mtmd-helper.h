@@ -204,11 +204,14 @@ MTMD_API int32_t mtmd_helper_gen_audio_step(
                         const float ** h_state_out);
 
 // out_data valid until next get_output() or reset() call
+// out_n_samples (optional, can be NULL) receives the number of generated PCM samples,
+// which combined with out_sample_rate gives the output audio duration
 MTMD_API int32_t mtmd_helper_gen_audio_get_output(
                         mtmd_helper_gen_audio * ctx,
                         int32_t * out_sample_rate,
                         const char ** out_data,
-                        size_t * out_data_len);
+                        size_t * out_data_len,
+                        int64_t * out_n_samples);
 
 #ifdef __cplusplus
 } // extern "C"
@@ -247,8 +250,8 @@ struct gen_audio {
     int32_t step(llama_token sampled, const float * h_state, const float ** h_state_out) {
         return mtmd_helper_gen_audio_step(ctx.get(), sampled, h_state, h_state_out);
     }
-    int32_t get_output(int32_t * out_sample_rate, const char ** out_data, size_t * out_data_len) {
-        return mtmd_helper_gen_audio_get_output(ctx.get(), out_sample_rate, out_data, out_data_len);
+    int32_t get_output(int32_t * out_sample_rate, const char ** out_data, size_t * out_data_len, int64_t * out_n_samples = nullptr) {
+        return mtmd_helper_gen_audio_get_output(ctx.get(), out_sample_rate, out_data, out_data_len, out_n_samples);
     }
 };
 
