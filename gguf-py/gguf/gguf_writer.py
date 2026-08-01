@@ -1427,7 +1427,6 @@ class GGUFWriter:
     def add_gen_audio_attention_layernorm_eps(self, value: float) -> None:
         self.add_float32(Keys.ClipGenAudio.Attention.LAYERNORM_EPS, value)
 
-
     def add_xielu_alpha_p(self, values: Sequence[float]):
         self.add_array(Keys.xIELU.ALPHA_P, values)
 

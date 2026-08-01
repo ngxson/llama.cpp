@@ -10,7 +10,7 @@ import torch.nn.functional as F
 if TYPE_CHECKING:
     from torch import Tensor
 
-from .base import ModelBase, MmprojModel, TextModel, gguf, logger
+from .base import ModelBase, MmprojModel, TextModel, gguf
 
 # Tricks being used to support this model via existing llama.cpp code paths:
 # - Text projection MLP is folded into the embedding table
@@ -168,11 +168,11 @@ class Qwen3TTSTalkerModel(TextModel):
             act_fn = _ACT2FN[self.hparams["hidden_act"]]
             embed = self._text_proj_buffer["model.text_embedding.weight"]
             hidden = act_fn(F.linear(embed,
-                                      self._text_proj_buffer["text_projection.linear_fc1.weight"],
-                                      self._text_proj_buffer["text_projection.linear_fc1.bias"]))
+                                     self._text_proj_buffer["text_projection.linear_fc1.weight"],
+                                     self._text_proj_buffer["text_projection.linear_fc1.bias"]))
             folded = F.linear(hidden,
-                               self._text_proj_buffer["text_projection.linear_fc2.weight"],
-                               self._text_proj_buffer["text_projection.linear_fc2.bias"])
+                              self._text_proj_buffer["text_projection.linear_fc2.weight"],
+                              self._text_proj_buffer["text_projection.linear_fc2.bias"])
             self._folded_text_embed = folded
             yield from self._maybe_emit_token_embd()
             return
