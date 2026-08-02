@@ -395,7 +395,8 @@ struct mtmd_context {
                     n_embd_text, n_embd_clip));
             }
         }
-        if (ctx_gen_a) {
+        if (ctx_gen_a && clip_get_projector_type(ctx_gen_a) != PROJECTOR_TYPE_CHATTERBOX) {
+            // the chatterbox gen mmproj emits mel channels, not text embeddings
             int n_embd_gen = clip_n_mmproj_embd(ctx_gen_a);
             if (n_embd_text > 0 && n_embd_text != n_embd_gen) {
                 throw std::runtime_error(string_format(

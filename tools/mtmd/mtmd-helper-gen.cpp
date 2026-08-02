@@ -545,9 +545,11 @@ public:
             }
         }
 
-        // text, wrapped in the start/stop text tokens of the reference config.
-        // the multilingual tokenizer expects lowercased text with spaces
-        // rewritten as the [SPACE] token, language tag left to the caller
+        // text preprocessing per variant. the multilingual tokenizer expects
+        // lowercased text with spaces rewritten as the [SPACE] token, language
+        // tag left to the caller; the turbo reference applies punc_norm:
+        // capitalized first letter, whitespace runs collapsed, uncommon
+        // punctuation replaced, and a trailing sentence ender enforced
         std::string txt(inp->prompt, inp->prompt_len);
         if (mtl) {
             std::string norm;
@@ -561,6 +563,43 @@ public:
                 }
             }
             txt = norm;
+        } else if (!txt.empty()) {
+            if (txt[0] >= 'a' && txt[0] <= 'z') {
+                txt[0] = (char) (txt[0] - 'a' + 'A');
+            }
+            std::string norm;
+            for (char c : txt) {
+                if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
+                    if (!norm.empty() && norm.back() != ' ') {
+                        norm += ' ';
+                    }
+                } else {
+                    norm += c;
+                }
+            }
+            auto replace_all = [&norm](const char * from, const char * to) {
+                const size_t nf = strlen(from);
+                const size_t nt = strlen(to);
+                for (size_t p = 0; (p = norm.find(from, p)) != std::string::npos; p += nt) {
+                    norm.replace(p, nf, to);
+                }
+            };
+            replace_all("\xE2\x80\xA6", ", "); // ellipsis
+            replace_all(":",            ",");
+            replace_all("\xE2\x80\x94", "-");  // em dash
+            replace_all("\xE2\x80\x93", "-");  // en dash
+            replace_all(" ,",           ",");
+            replace_all("\xE2\x80\x9C", "\""); // curly double quotes
+            replace_all("\xE2\x80\x9D", "\"");
+            replace_all("\xE2\x80\x98", "'");  // curly single quotes
+            replace_all("\xE2\x80\x99", "'");
+            while (!norm.empty() && norm.back() == ' ') {
+                norm.pop_back();
+            }
+            if (!norm.empty() && strchr(".!?-,", norm.back()) == nullptr) {
+                norm += '.';
+            }
+            txt = norm;
         }
         std::vector<llama_token> ids(txt.size() + 16);
         int n_ids = llama_tokenize(vocab, txt.c_str(), (int32_t) txt.size(), ids.data(), (int32_t) ids.size(),
@@ -570,8 +609,12 @@ public:
             return 1;
         }
         ids.resize((size_t) n_ids);
-        ids.insert(ids.begin(), text_start);
-        ids.push_back(text_stop);
+        if (mtl) {
+            // only the multilingual reference wraps the text in the start/stop
+            // text tokens; the turbo reference feeds the raw tokenizer output
+            ids.insert(ids.begin(), text_start);
+            ids.push_back(text_stop);
+        }
         for (size_t i = 0; i < ids.size(); i++) {
             prompt.push_back(row(ids[i]));
             if (mtl) {
@@ -615,7 +658,9 @@ public:
     int32_t step(llama_token sampled, const float * h_state_in, const float ** h_state_out) override {
         GGML_UNUSED(h_state_in);
 
-        if (sampled >= speech_base && sampled < speech_base + n_speech) {
+        // the s3gen speech vocab holds 6561 codes; the fused start/stop
+        // tokens and any ids beyond are dropped like the reference
+        if (sampled >= speech_base && sampled - speech_base < 6561) {
             codes_buf.push_back(sampled - speech_base);
         }
 
@@ -655,6 +700,12 @@ public:
         if (codes_buf.empty()) {
             LOG_ERR("mtmd_helper_gen_audio: no speech tokens generated\n");
             return 1;
+        }
+
+        if (t3_cond.empty()) {
+            // the turbo reference appends a short silence tail (3 tokens of
+            // the s3gen silence code) before vocoding
+            codes_buf.insert(codes_buf.end(), 3, 4299);
         }
 
         mtmd_gen_inp gen_inp{};
@@ -702,7 +753,8 @@ private:
         }
         n_speech = llama_vocab_n_tokens(vocab) - speech_base;
 
-        // reference turbo config: start_text_token = 255, stop_text_token = 0
+        // reference config: start_text_token = 255, stop_text_token = 0
+        // (only the multilingual prompt wraps the text with them)
         text_start = 255;
         text_stop  = 0;
 
