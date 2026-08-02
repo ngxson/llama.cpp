@@ -156,12 +156,6 @@ int main(int argc, char ** argv) {
 
     const int max_new = params.n_predict > 0 ? params.n_predict : 512;
     int n_frames = 0;
-    if (getenv("CBX_DUMP")) {
-        const float * lg = llama_get_logits_ith(lctx, -1);
-        FILE * f = fopen("/tmp/cbx-logits0.bin", "wb");
-        fwrite(lg, sizeof(float), llama_vocab_n_tokens(vocab), f);
-        fclose(f);
-    }
     llama_token sampled = sample_codec0();
     const float * h_state = llama_get_embeddings_ith(lctx, -1);
 

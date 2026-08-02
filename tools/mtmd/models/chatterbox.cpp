@@ -367,7 +367,7 @@ ggml_cgraph * clip_graph_chatterbox::build() {
     // upsample x2: nearest repeat, left pad 4, conv k=5
     {
         ggml_tensor * xt = ggml_cont(ctx0, ggml_transpose(ctx0, x));            // [T1, 512]
-        xt = ggml_upscale_ext(ctx0, xt, 2 * T1, 512, 1, 1, GGML_SCALE_MODE_NEAREST);
+        xt = ggml_interpolate(ctx0, xt, 2 * T1, 512, 1, 1, GGML_SCALE_MODE_NEAREST);
         ggml_tensor * z = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, 4, 512);
         z = ggml_scale(ctx0, z, 0.0f);
         xt = ggml_concat(ctx0, z, xt, 0);
@@ -389,9 +389,6 @@ ggml_cgraph * clip_graph_chatterbox::build() {
 
     // encoder projection to the mel channel count
     ggml_tensor * mu = cbx_linear(ctx0, cbx_t(model, "flow.encoder_proj.weight"), cbx_t(model, "flow.encoder_proj.bias"), x); // [80, T2]
-    ggml_set_name(mu, "out_mu");
-    ggml_set_output(mu);
-    ggml_build_forward_expand(gf, mu);
 
     // cfm solver, unrolled in the graph. meanflow (distilled): 2 euler steps
     // over t = 0 -> 0.5 -> 1, no cfg, time embeds mix t and r. classic: 10
@@ -453,10 +450,6 @@ ggml_cgraph * clip_graph_chatterbox::build() {
     for (int i = 0; i < n_steps; i++) {
         ggml_tensor * temb = step_temb(i);
         ggml_tensor * d = cbx_estimator(model, ctx0, mx, mu, spks, cond, temb, T2);
-        if (i == 0) {
-            ggml_set_name(d, "out_dcond");
-            ggml_set_output(d);
-        }
         if (!meanflow) {
             ggml_tensor * du = cbx_estimator(model, ctx0, mx, mu_zero, spks_zero, cond_zero, temb, T2);
             d = ggml_add(ctx0, ggml_scale(ctx0, d, 1.0f + cfg), ggml_scale(ctx0, du, -cfg));
@@ -695,7 +688,7 @@ static ggml_tensor * cbx_cam_layer(const clip_model & model, ggml_context * ctx0
         }
         ggml_tensor * pooled = ggml_pool_1d(ctx0, padded, GGML_OP_POOL_AVG, 100, 100, 0); // [S, C]
         pooled = ggml_mul(ctx0, pooled, segfix);
-        ggml_tensor * exp = ggml_upscale_ext(ctx0, pooled, S * 100, C, 1, 1, GGML_SCALE_MODE_NEAREST);
+        ggml_tensor * exp = ggml_interpolate(ctx0, pooled, S * 100, C, 1, 1, GGML_SCALE_MODE_NEAREST);
         exp = ggml_cont(ctx0, ggml_view_2d(ctx0, exp, T, C, exp->nb[1], 0));
         seg = ggml_cont(ctx0, ggml_transpose(ctx0, exp));        // [C, T]
     }

@@ -4922,18 +4922,6 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                     }
                 }
                 set_input_f32("inp_temb", temb);
-
-                if (getenv("CBX_DUMP")) {
-                    FILE * f = fopen("/tmp/cbx-noise.bin", "wb");
-                    fwrite(noise.data(), sizeof(float), noise.size(), f);
-                    fclose(f);
-                }
-
-                if (getenv("CBX_DUMP")) {
-                    FILE * f = fopen("/tmp/cbx-tokens.bin", "wb");
-                    fwrite(tokens.data(), sizeof(int32_t), tokens.size(), f);
-                    fclose(f);
-                }
             } break;
         case PROJECTOR_TYPE_GEMMA3:
         case PROJECTOR_TYPE_GEMMA3NV:
@@ -5506,12 +5494,6 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
             }
             (*params->out_codes)[(size_t) t] = code;
         }
-
-        if (getenv("CBX_DUMP")) {
-            FILE * f = fopen("/tmp/cbx-fsq.bin", "wb");
-            fwrite(h.data(), sizeof(float), h.size(), f);
-            fclose(f);
-        }
         return true;
     }
 
@@ -5524,37 +5506,10 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
     }
 
     if (ctx->proj_type() == PROJECTOR_TYPE_CHATTERBOX && params->gen_process == CLIP_GEN_PROCESS_TTS) {
-        ggml_tensor * mu = ggml_graph_get_tensor(gf, "out_mu");
-        GGML_ASSERT(mu != nullptr);
-        std::vector<float> mu_data(ggml_nelements(mu));
-        ggml_backend_tensor_get(mu, mu_data.data(), 0, ggml_nbytes(mu));
-
-        if (getenv("CBX_DUMP")) {
-            FILE * f = fopen("/tmp/cbx-mu.bin", "wb");
-            fwrite(mu_data.data(), sizeof(float), mu_data.size(), f);
-            fclose(f);
-            LOG_INF("%s: dumped out_mu [%d, %d] to /tmp/cbx-mu.bin\n", __func__, (int) mu->ne[0], (int) mu->ne[1]);
-        }
-
-        if (getenv("CBX_DUMP")) {
-            ggml_tensor * dc = ggml_graph_get_tensor(gf, "out_dcond");
-            std::vector<float> dc_data(ggml_nelements(dc));
-            ggml_backend_tensor_get(dc, dc_data.data(), 0, ggml_nbytes(dc));
-            FILE * f = fopen("/tmp/cbx-dcond.bin", "wb");
-            fwrite(dc_data.data(), sizeof(float), dc_data.size(), f);
-            fclose(f);
-        }
-
         ggml_tensor * mel = ggml_graph_get_tensor(gf, "out_mel");
         GGML_ASSERT(mel != nullptr);
         std::vector<float> mel_data(ggml_nelements(mel));
         ggml_backend_tensor_get(mel, mel_data.data(), 0, ggml_nbytes(mel));
-        if (getenv("CBX_DUMP")) {
-            FILE * f = fopen("/tmp/cbx-mel.bin", "wb");
-            fwrite(mel_data.data(), sizeof(float), mel_data.size(), f);
-            fclose(f);
-            LOG_INF("%s: dumped out_mel [%d, %d] to /tmp/cbx-mel.bin\n", __func__, (int) mel->ne[0], (int) mel->ne[1]);
-        }
 
         // hift bridge: f0 -> harmonic source -> source stft on the host,
         // then the vocoder graph, then the istft
@@ -5563,12 +5518,6 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
         const int n_mel_out = (int) ggml_nelements(f0_t);
         std::vector<float> f0(n_mel_out);
         ggml_backend_tensor_get(f0_t, f0.data(), 0, ggml_nbytes(f0_t));
-
-        if (getenv("CBX_DUMP")) {
-            FILE * f = fopen("/tmp/cbx-f0.bin", "wb");
-            fwrite(f0.data(), sizeof(float), f0.size(), f);
-            fclose(f);
-        }
 
         // source: f0 upsampled x480 nearest, 9 harmonics, cumulative phase,
         // uv gating and noise as in SineGen, merged by l_linear + tanh
@@ -5580,13 +5529,12 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
         GGML_ASSERT(clip_cbx_read_tensor(ctx, "hift.m_source.l_linear.weight", lw.data(), lw.size()) == 9);
         clip_cbx_read_tensor(ctx, "hift.m_source.l_linear.bias", &lb, 1);
 
-        const bool det = getenv("CBX_DUMP") != nullptr; // deterministic phases and no noise for validation
         std::mt19937 srng(1234);
         std::uniform_real_distribution<double> ud(-M_PI, M_PI);
         std::normal_distribution<float> snd(0.0f, 1.0f);
         double phase[9];
         for (int h = 0; h < 9; h++) {
-            phase[h] = (h == 0 || det) ? 0.0 : ud(srng);
+            phase[h] = h == 0 ? 0.0 : ud(srng);
         }
         std::vector<float> src((size_t) n_wav);
         double cum[9] = {0.0};
@@ -5599,7 +5547,7 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                 cum[h] += (double) f * (h + 1) / sr;
                 cum[h] -= floor(cum[h]);
                 float sine = 0.1f * (float) sin(2.0 * M_PI * cum[h] + phase[h]);
-                sine = sine * uv + (det ? 0.0f : namp * snd(srng));
+                sine = sine * uv + namp * snd(srng);
                 merged += lw[(size_t) h] * sine;
             }
             src[(size_t) t] = tanhf(merged);
@@ -5629,15 +5577,6 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
             }
         }
 
-        if (getenv("CBX_DUMP")) {
-            FILE * f = fopen("/tmp/cbx-src.bin", "wb");
-            fwrite(src.data(), sizeof(float), src.size(), f);
-            fclose(f);
-            f = fopen("/tmp/cbx-sstft.bin", "wb");
-            fwrite(sstft.data(), sizeof(float), sstft.size(), f);
-            fclose(f);
-        }
-
         // vocoder graph on mel + source stft
         std::vector<float> spec;
         {
@@ -5653,12 +5592,6 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                 LOG_ERR("%s: vocoder stage failed\n", __func__);
                 return false;
             }
-        }
-
-        if (getenv("CBX_DUMP")) {
-            FILE * f = fopen("/tmp/cbx-spec.bin", "wb");
-            fwrite(spec.data(), sizeof(float), spec.size(), f);
-            fclose(f);
         }
 
         // istft: mag = clipped exp, phase = sin, hann overlap-add

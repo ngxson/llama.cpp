@@ -1727,14 +1727,6 @@ static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_in
                         __func__, n_feat, ref_tokens.size());
                 return 1;
             }
-            if (getenv("CBX_DUMP")) {
-                FILE * f = fopen("/tmp/cbx-ref24k.bin", "wb");
-                fwrite(pcm24.data(), sizeof(float), pcm24.size(), f);
-                fclose(f);
-                f = fopen("/tmp/cbx-ref-feat.bin", "wb");
-                fwrite(ref_feat.data(), sizeof(float), ref_feat.size(), f);
-                fclose(f);
-            }
         }
 
         // the batch entry is unused, present to satisfy the encode interface

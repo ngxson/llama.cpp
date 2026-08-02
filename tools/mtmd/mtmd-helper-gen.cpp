@@ -489,23 +489,6 @@ public:
                 }
                 ref_cond.assign(go.embd, go.embd + go.n_embd);
             }
-            if (getenv("CBX_DUMP")) {
-                FILE * f = fopen("/tmp/cbx-spk80.bin", "wb");
-                fwrite(spk80.data(), sizeof(float), spk80.size(), f);
-                fclose(f);
-                f = fopen("/tmp/cbx-s3tok-gen.bin", "wb");
-                fwrite(ref_prompt_tokens.data(), sizeof(int32_t), ref_prompt_tokens.size(), f);
-                fclose(f);
-                f = fopen("/tmp/cbx-s3tok-t3.bin", "wb");
-                fwrite(ref_t3_tokens.data(), sizeof(int32_t), ref_t3_tokens.size(), f);
-                fclose(f);
-                f = fopen("/tmp/cbx-ref-cond.bin", "wb");
-                fwrite(ref_cond.data(), sizeof(float), ref_cond.size(), f);
-                fclose(f);
-                f = fopen("/tmp/cbx-ref-pcm16.bin", "wb");
-                fwrite(mtmd_bitmap_get_data(inp->speaker_ref), 1, mtmd_bitmap_get_n_bytes(inp->speaker_ref), f);
-                fclose(f);
-            }
         }
 
         const int n_e = n_embd;
@@ -638,12 +621,6 @@ public:
         decode_embd_batch batch_embd(embd_buf.data(), n_prompt, 1, n_e);
         batch_embd.set_position_normal(0, 0);
         batch_embd.batch.logits[n_prompt - 1] = 1;
-
-        if (getenv("CBX_DUMP")) {
-            FILE * f = fopen("/tmp/cbx-prompt-embd.bin", "wb");
-            fwrite(embd_buf.data(), sizeof(float), embd_buf.size(), f);
-            fclose(f);
-        }
 
         if (llama_decode(lctx, batch_embd.batch) != 0) {
             LOG_ERR("mtmd_helper_gen_audio: prefill decode failed\n");
