@@ -439,10 +439,8 @@ public:
         }
 
         if (inp->speaker_ref) {
-            // the turbo reference is loudness-normalized before any use
-            // (speaker encoder included), and its talker conditioning prompt
-            // is capped at 15 s / 375 tokens where the multilingual variant
-            // uses 6 s / 150
+            // turbo reference chain: loudness normalize the clip, then cap
+            // the talker conditioning at 15 s (multilingual: 6 s)
             mtmd_gen_audio_norm_ref(mctx, inp->speaker_ref);
             const size_t t3_cap = (size_t) (t3_cond.empty() ? 15 : 6) * 16000;
 
@@ -528,11 +526,8 @@ public:
             }
         }
 
-        // text preprocessing per variant. the multilingual tokenizer expects
-        // lowercased text with spaces rewritten as the [SPACE] token, language
-        // tag left to the caller; the turbo reference applies punc_norm:
-        // capitalized first letter, whitespace runs collapsed, uncommon
-        // punctuation replaced, and a trailing sentence ender enforced
+        // text preprocessing per variant: multilingual lowercases with [SPACE]
+        // tokens (language tag left to the caller), turbo applies punc_norm
         std::string txt(inp->prompt, inp->prompt_len);
         if (mtl) {
             std::string norm;
@@ -593,8 +588,7 @@ public:
         }
         ids.resize((size_t) n_ids);
         if (mtl) {
-            // only the multilingual reference wraps the text in the start/stop
-            // text tokens; the turbo reference feeds the raw tokenizer output
+            // only the multilingual prompt wraps the text in start/stop tokens
             ids.insert(ids.begin(), text_start);
             ids.push_back(text_stop);
         }
@@ -635,8 +629,7 @@ public:
     int32_t step(llama_token sampled, const float * h_state_in, const float ** h_state_out) override {
         GGML_UNUSED(h_state_in);
 
-        // the s3gen speech vocab holds 6561 codes; the fused start/stop
-        // tokens and any ids beyond are dropped like the reference
+        // keep only the 6561 s3gen codes, dropping start/stop and oov ids
         if (sampled >= speech_base && sampled - speech_base < 6561) {
             codes_buf.push_back(sampled - speech_base);
         }
@@ -680,8 +673,7 @@ public:
         }
 
         if (t3_cond.empty()) {
-            // the turbo reference appends a short silence tail (3 tokens of
-            // the s3gen silence code) before vocoding
+            // turbo appends a short silence tail before vocoding
             codes_buf.insert(codes_buf.end(), 3, 4299);
         }
 

@@ -856,11 +856,7 @@ bool mtmd_audio_preprocessor_qwen3tts_spk::preprocess(const float *             
     return true;
 }
 
-// whisper style log-mel of the chatterbox s3 tokenizer, matching the
-// reference log_mel_spectrogram (s3tokenizer.py): torch.stft with a periodic
-// hann 400 window, hop 160, centered frames reflect-padded at the edges, the
-// last frame dropped, power spectrum against the librosa mel filters shipped
-// in the gguf, then the whisper normalization.
+// whisper style log-mel of the chatterbox s3 tokenizer (s3tokenizer.py)
 bool mtmd_audio_s3tok_log_mel(const float * samples, size_t n_samples,
                               const float * filters, int n_mel,
                               std::vector<float> & out, int & n_frames) {
@@ -951,10 +947,7 @@ void mtmd_audio_upsample_3_2(const float * samples, size_t n_samples, std::vecto
     }
 }
 
-// matcha style log-mel of the s3gen prompt features, matching the reference
-// mel_spectrogram (s3gen/utils/mel.py): (n_fft - hop) / 2 reflect padding,
-// torch.stft center false, hann 1920 periodic, magnitude spectrum, slaney
-// mel fmin 0 fmax 8000, natural log clamped to 1e-5.
+// matcha style log-mel of the s3gen prompt features (s3gen/utils/mel.py)
 bool mtmd_audio_matcha_log_mel(const float * samples, size_t n_samples,
                                std::vector<float> & out, int & n_frames) {
     const int n_fft  = 1920;
@@ -1108,9 +1101,7 @@ bool mtmd_audio_ve_mel(const float * samples, size_t n_samples,
     return true;
 }
 
-// ITU-R BS.1770 integrated loudness of a mono signal, matching pyloudnorm:
-// K-weighting as two RBJ biquads, 400 ms blocks with 75% overlap, absolute
-// -70 LUFS gate then a relative -10 LU gate
+// ITU-R BS.1770 integrated loudness of a mono signal, matching pyloudnorm
 float mtmd_audio_lufs(const float * samples, size_t n_samples, int sample_rate) {
     std::vector<double> y(samples, samples + n_samples);
 
