@@ -66,6 +66,13 @@ int main(int argc, char ** argv) {
     // always enable embd, so that we can pass hidden states to the audio generation helper
     params.embedding = true;
 
+    // provision a second sequence for pipelines that decode a cfg pair,
+    // scaling the context so the per-sequence window keeps the requested size
+    if (params.n_parallel < 2) {
+        params.n_parallel = 2;
+        params.n_ctx *= 2;
+    }
+
     llama_backend_init();
     llama_numa_init(params.numa);
 

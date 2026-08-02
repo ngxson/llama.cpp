@@ -575,6 +575,7 @@ public:
             ids.insert(ids.begin(), text_start);
             ids.push_back(text_stop);
         }
+        const size_t text0 = prompt.size();
         for (size_t i = 0; i < ids.size(); i++) {
             prompt.push_back(row(ids[i]));
             if (mtl) {
@@ -602,6 +603,27 @@ public:
         if (llama_decode(lctx, batch_embd.batch) != 0) {
             LOG_ERR("mtmd_helper_gen_audio: prefill decode failed\n");
             return 1;
+        }
+
+        if (mtl) {
+            // cfg second sequence: the same prompt with the text embeddings
+            // zeroed, keeping their learned positions (reference prepares the
+            // uncond branch before the position add)
+            std::vector<float> cond_logits;
+            cfg_read(cond_logits);
+            for (size_t i = 0; i < ids.size(); i++) {
+                std::vector<float> u((size_t) n_e, 0.0f);
+                add_pos(u, text_pos, (int) i);
+                memcpy(embd_buf.data() + (text0 + i) * (size_t) n_e, u.data(), (size_t) n_e * sizeof(float));
+            }
+            decode_embd_batch batch_uncond(embd_buf.data(), n_prompt, 1, n_e);
+            batch_uncond.set_position_normal(0, 1);
+            batch_uncond.batch.logits[n_prompt - 1] = 1;
+            if (llama_decode(lctx, batch_uncond.batch) != 0) {
+                LOG_ERR("mtmd_helper_gen_audio: cfg prefill decode failed\n");
+                return 1;
+            }
+            cfg_apply(cond_logits);
         }
 
         pos = n_prompt;
@@ -634,6 +656,17 @@ public:
                 LOG_ERR("mtmd_helper_gen_audio: step decode failed\n");
                 return 1;
             }
+            // cfg second sequence: the sampled token feeds both branches
+            std::vector<float> cond_logits;
+            cfg_read(cond_logits);
+            decode_embd_batch batch_uncond(e.data(), 1, 1, n_embd);
+            batch_uncond.set_position_normal(pos, 1);
+            batch_uncond.batch.logits[0] = 1;
+            if (llama_decode(lctx, batch_uncond.batch) != 0) {
+                LOG_ERR("mtmd_helper_gen_audio: cfg step decode failed\n");
+                return 1;
+            }
+            cfg_apply(cond_logits);
         } else {
             llama_batch batch = llama_batch_get_one(&sampled, 1);
             if (llama_decode(lctx, batch) != 0) {
@@ -690,6 +723,21 @@ public:
     }
 
 private:
+    // multilingual cfg, reference t3 combine: logits = cond + w * (cond - uncond)
+    // with the reference default weight 0.5. the cond row is saved after the
+    // first decode, the mix lands in the row the tool samples from (the last
+    // one with logits enabled, which the second decode produced)
+    void cfg_read(std::vector<float> & cond_logits) {
+        const float * c = llama_get_logits_ith(lctx, -1);
+        cond_logits.assign(c, c + llama_vocab_n_tokens(vocab));
+    }
+    void cfg_apply(const std::vector<float> & cond_logits) {
+        float * u = llama_get_logits_ith(lctx, -1);
+        for (size_t i = 0; i < cond_logits.size(); i++) {
+            u[i] = cond_logits[i] + 0.5f * (cond_logits[i] - u[i]);
+        }
+    }
+
     bool ensure_cache() {
         if (!tok_embd.empty()) {
             return true;

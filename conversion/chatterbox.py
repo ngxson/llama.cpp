@@ -48,6 +48,8 @@ SPEECH_EOS = 6562
 # common defaults never leak in when tools apply these as model defaults
 TURBO_SAMPLING = {"top_k": 1000, "min_p": 0.0,  "top_p": 0.95, "temp": 0.8, "penalty_repeat": 1.2}
 MTL_SAMPLING   = {"top_k": 0,    "min_p": 0.05, "top_p": 1.0,  "temp": 0.8, "penalty_repeat": 1.2}
+# the reference repetition penalty covers the whole generated history
+PENALTY_LAST_N = -1
 
 
 def _s3tok_mel_filters() -> Tensor:
@@ -240,6 +242,7 @@ class ChatterboxTalkerModel(TextModel):
         self.gguf_writer.add_sampling_top_p(sampling["top_p"])
         self.gguf_writer.add_sampling_temp(sampling["temp"])
         self.gguf_writer.add_sampling_penalty_repeat(sampling["penalty_repeat"])
+        self.gguf_writer.add_sampling_penalty_last_n(PENALTY_LAST_N)
 
     def generate_extra_tensors(self) -> Iterable[tuple[str, Tensor]]:
         if self.is_turbo:
