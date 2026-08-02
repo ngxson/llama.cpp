@@ -32,7 +32,7 @@ import torch.nn.functional as F
 if TYPE_CHECKING:
     from torch import Tensor
 
-from .base import ModelBase, TextModel, MmprojModel, LazyTorchTensor, gguf, logger
+from .base import ModelBase, TextModel, MmprojModel, LazyTorchTensor, gguf
 
 TURBO_TALKER = "t3_turbo_v1.safetensors"
 MTL_TALKER   = "t3_mtl23ls_v3.safetensors"
