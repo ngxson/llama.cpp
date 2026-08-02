@@ -1067,14 +1067,14 @@ static std::unique_ptr<clip_graph> clip_get_graph_builder(clip_ctx * ctx, const 
                     if (params->ref_tokens) {
                         n_tokens += (int) params->ref_tokens->size();
                     } else {
-                        auto it = ctx->model.cbx_tensors.find("cond.gen_prompt_token");
+                        auto it = ctx->model.cbx_tensors.find("a.gen.cond.gen_prompt_token");
                         GGML_ASSERT(it != ctx->model.cbx_tensors.end());
                         n_tokens += (int) it->second->ne[0];
                     }
                     if (params->ref_feat) {
                         n_prompt_mel = (int) (params->ref_feat->size() / 80);
                     } else {
-                        auto it = ctx->model.cbx_tensors.find("cond.gen_prompt_feat");
+                        auto it = ctx->model.cbx_tensors.find("a.gen.cond.gen_prompt_feat");
                         GGML_ASSERT(it != ctx->model.cbx_tensors.end());
                         n_prompt_mel = (int) it->second->ne[1];
                     }
@@ -2883,7 +2883,7 @@ struct clip_model_loader {
                     // the flow affine that maps its embedding to the s3gen dim
                     for (ggml_tensor * t = ggml_get_first_tensor(ctx_meta.get()); t; t = ggml_get_next_tensor(ctx_meta.get(), t)) {
                         const std::string name = t->name;
-                        if (name.rfind("spk.", 0) == 0 || name.rfind("flow.spk_embed_affine_layer.", 0) == 0) {
+                        if (name.rfind("a.spk.", 0) == 0 || name.rfind("a.spk_embed_affine_layer.", 0) == 0) {
                             model.cbx_tensors[name] = get_tensor(name.c_str());
                         }
                     }
@@ -4853,10 +4853,15 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                     tokens = *params->ref_tokens;
                     tokens.resize((size_t) n_prompt + n_gen);
                 } else {
-                    ggml_tensor * pt = model.cbx_tensors.at("cond.gen_prompt_token");
-                    n_prompt = (int) pt->ne[0];
+                    // precomputed prompt ids, stored as floats and converted
+                    // through the typed accessor like the other sidecar data
+                    n_prompt = (int) clip_cbx_read_tensor(ctx, "a.gen.cond.gen_prompt_token", nullptr, 0);
                     tokens.resize((size_t) n_prompt + n_gen);
-                    ggml_backend_tensor_get(pt, tokens.data(), 0, (size_t) n_prompt * sizeof(int32_t));
+                    std::vector<float> ids((size_t) n_prompt);
+                    clip_cbx_read_tensor(ctx, "a.gen.cond.gen_prompt_token", ids.data(), ids.size());
+                    for (int i = 0; i < n_prompt; i++) {
+                        tokens[(size_t) i] = (int32_t) ids[(size_t) i];
+                    }
                 }
                 memcpy(tokens.data() + n_prompt, params->codes->data(), (size_t) n_gen * sizeof(int32_t));
                 const int T1 = n_prompt + n_gen;
@@ -4868,7 +4873,7 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                 if (params->ref_feat) {
                     set_input_f32("inp_prompt_feat", *params->ref_feat);
                 } else {
-                    ggml_tensor * pf = model.cbx_tensors.at("cond.gen_prompt_feat");
+                    ggml_tensor * pf = model.cbx_tensors.at("a.gen.cond.gen_prompt_feat");
                     std::vector<float> feat(ggml_nelements(pf));
                     ggml_backend_tensor_get(pf, feat.data(), 0, ggml_nbytes(pf));
                     set_input_f32("inp_prompt_feat", feat);
@@ -4876,7 +4881,7 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                 if (params->ref_spk) {
                     set_input_f32("inp_spk", *params->ref_spk);
                 } else {
-                    ggml_tensor * sp = model.cbx_tensors.at("cond.gen_spk80");
+                    ggml_tensor * sp = model.cbx_tensors.at("a.gen.cond.gen_spk80");
                     std::vector<float> spk(ggml_nelements(sp));
                     ggml_backend_tensor_get(sp, spk.data(), 0, ggml_nbytes(sp));
                     set_input_f32("inp_spk", spk);
@@ -4909,7 +4914,7 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                 for (auto & f : noise) f = nd(rng);
                 set_input_f32("inp_noise", noise);
 
-                const bool meanflow = model.cbx_tensors.count("est.time_embed_mixer.weight") > 0;
+                const bool meanflow = model.cbx_tensors.count("a.gen.est.time_embed_mixer.weight") > 0;
                 const int n_steps = meanflow ? 2 : 10;
                 std::vector<float> temb((size_t) 320 * (n_steps + 1));
                 for (int s = 0; s <= n_steps; s++) {
@@ -5494,6 +5499,43 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
             }
             (*params->out_codes)[(size_t) t] = code;
         }
+
+        // embedding rows of the produced codes, gathered from the talker
+        // speech table shipped in the mmproj; the multilingual variant adds
+        // its learned speech positions so the rows feed the conditioning
+        // perceiver directly
+        if (params->out_code_embd) {
+            const auto & tensors = ctx->model.cbx_tensors;
+            auto tab_it = tensors.find("a.gen.code.out_embd.weight");
+            GGML_ASSERT(tab_it != tensors.end());
+            ggml_tensor * tab = tab_it->second;
+            GGML_ASSERT(tab->type == GGML_TYPE_F16 || tab->type == GGML_TYPE_F32);
+            const int n_e = (int) tab->ne[0];
+            auto pos_it = tensors.find("a.gen.t3.speech_pos_emb");
+            ggml_tensor * pos = pos_it == tensors.end() ? nullptr : pos_it->second;
+
+            params->out_code_embd->resize((size_t) n_tok * n_e);
+            std::vector<ggml_fp16_t> h16(n_e);
+            std::vector<float> pr(n_e);
+            for (int t = 0; t < n_tok; t++) {
+                float * dst = params->out_code_embd->data() + (size_t) t * n_e;
+                const size_t r = (size_t) (*params->out_codes)[(size_t) t] * n_e;
+                if (tab->type == GGML_TYPE_F16) {
+                    ggml_backend_tensor_get(tab, h16.data(), r * sizeof(ggml_fp16_t), (size_t) n_e * sizeof(ggml_fp16_t));
+                    for (int j = 0; j < n_e; j++) {
+                        dst[j] = ggml_fp16_to_fp32(h16[j]);
+                    }
+                } else {
+                    ggml_backend_tensor_get(tab, dst, r * sizeof(float), (size_t) n_e * sizeof(float));
+                }
+                if (pos) {
+                    ggml_backend_tensor_get(pos, pr.data(), (size_t) t * n_e * sizeof(float), (size_t) n_e * sizeof(float));
+                    for (int j = 0; j < n_e; j++) {
+                        dst[j] += pr[j];
+                    }
+                }
+            }
+        }
         return true;
     }
 
@@ -5526,8 +5568,8 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
         const int64_t n_wav = (int64_t) n_mel_out * ups_total;
         std::vector<float> lw(9);
         float lb = 0.0f;
-        GGML_ASSERT(clip_cbx_read_tensor(ctx, "hift.m_source.l_linear.weight", lw.data(), lw.size()) == 9);
-        clip_cbx_read_tensor(ctx, "hift.m_source.l_linear.bias", &lb, 1);
+        GGML_ASSERT(clip_cbx_read_tensor(ctx, "a.gen.hift.m_source.l_linear.weight", lw.data(), lw.size()) == 9);
+        clip_cbx_read_tensor(ctx, "a.gen.hift.m_source.l_linear.bias", &lb, 1);
 
         std::mt19937 srng(1234);
         std::uniform_real_distribution<double> ud(-M_PI, M_PI);

@@ -429,6 +429,8 @@ public:
         audio_pcm.clear();
         h_state_buf.clear();
         out_buf.clear();
+        ref_cond.clear();
+        ref_state.clear();
     }
 
     int32_t set_input(const mtmd_helper_gen_audio_inp * inp) override {
@@ -439,54 +441,21 @@ public:
         }
 
         if (inp->speaker_ref) {
-            // turbo reference chain: loudness normalize the clip, then cap
-            // the talker conditioning at 15 s (multilingual: 6 s)
-            mtmd_gen_audio_norm_ref(mctx, inp->speaker_ref);
-            const size_t t3_cap = (size_t) (t3_cond.empty() ? 15 : 6) * 16000;
-
-            if (!encode_speaker(inp->speaker_ref, spk80)) {
+            // one spk-ref call encodes the reference clip: conditioning rows
+            // for the talker prompt, opaque state for the flow decoder
+            const float * pcm = (const float *) mtmd_bitmap_get_data(inp->speaker_ref);
+            const size_t  n   = mtmd_bitmap_get_n_bytes(inp->speaker_ref) / sizeof(float);
+            mtmd_gen_inp gi{};
+            gi.type  = MTMD_GEN_PROCESS_TYPE_SPK_REF;
+            gi.pcm   = pcm;
+            gi.n_pcm = n;
+            mtmd_gen_out go{};
+            if (mtmd_gen_audio_process(mctx, &gi, &go) != 0) {
+                LOG_ERR("mtmd_helper_gen_audio: speaker reference encoding failed\n");
                 return 1;
             }
-            if (!tokenize_ref(inp->speaker_ref, 10 * 16000, ref_prompt_tokens) ||
-                !tokenize_ref(inp->speaker_ref, t3_cap, ref_t3_tokens)) {
-                return 1;
-            }
-
-            // the tts stage derives the mel-rate prompt features from the
-            // same capped reference clip
-            {
-                const float * pcm = (const float *) mtmd_bitmap_get_data(inp->speaker_ref);
-                const size_t  n   = mtmd_bitmap_get_n_bytes(inp->speaker_ref) / sizeof(float);
-                ref_pcm16.assign(pcm, pcm + std::min(n, (size_t) 10 * 16000));
-
-                // talker conditioning rows from the voice encoder chain; the
-                // multilingual perceiver consumes the embedding rows of the
-                // reference speech tokens, built from the fused talker vocab
-                std::vector<float> pse;
-                if (!t3_cond.empty()) {
-                    for (size_t i = 0; i < ref_t3_tokens.size(); i++) {
-                        std::vector<float> r(tok_embd.begin() + (size_t) (speech_base + ref_t3_tokens[i]) * n_embd,
-                                             tok_embd.begin() + (size_t) (speech_base + ref_t3_tokens[i] + 1) * n_embd);
-                        const float * p = speech_pos.data() + i * (size_t) n_embd;
-                        for (int j = 0; j < n_embd; j++) {
-                            r[(size_t) j] += p[j];
-                        }
-                        pse.insert(pse.end(), r.begin(), r.end());
-                    }
-                }
-                mtmd_gen_inp gi{};
-                gi.type  = MTMD_GEN_PROCESS_TYPE_SPEAKER_COND;
-                gi.pcm   = pcm;
-                gi.n_pcm = n;
-                gi.ref_speech_embd   = pse.empty() ? nullptr : pse.data();
-                gi.n_ref_speech_rows = pse.size() / (size_t) n_embd;
-                mtmd_gen_out go{};
-                if (mtmd_gen_audio_process(mctx, &gi, &go) != 0) {
-                    LOG_ERR("mtmd_helper_gen_audio: speaker conditioning failed\n");
-                    return 1;
-                }
-                ref_cond.assign(go.embd, go.embd + go.n_embd);
-            }
+            ref_cond.assign(go.embd, go.embd + go.n_embd);
+            ref_state.assign(go.state_data, go.state_data + go.state_size);
         }
 
         const int n_e = n_embd;
@@ -512,16 +481,19 @@ public:
                 prompt.emplace_back(cond.begin() + i * (size_t) n_e, cond.begin() + (i + 1) * (size_t) n_e);
             }
         } else {
-            // conditioning: projected speaker row, then the speech token prompt
-            // (already fused ids after the text vocab)
-            prompt.push_back(ref_cond.empty() ? cond_spkr : ref_cond);
+            // conditioning rows: the reference block from the spk-ref stage,
+            // or the precomputed default speaker row followed by the
+            // table-resolved prompt ids
             if (ref_cond.empty()) {
-                for (float f : cond_speech_tokens) {
-                    prompt.push_back(row(speech_base + (llama_token) f));
+                prompt.push_back(cond_spkr);
+                for (size_t i = 0; i < cond_speech_rows.size() / (size_t) n_e; i++) {
+                    prompt.emplace_back(cond_speech_rows.begin() + i * (size_t) n_e,
+                                        cond_speech_rows.begin() + (i + 1) * (size_t) n_e);
                 }
             } else {
-                for (int32_t t : ref_t3_tokens) {
-                    prompt.push_back(row(speech_base + t));
+                for (size_t i = 0; i < ref_cond.size() / (size_t) n_e; i++) {
+                    prompt.emplace_back(ref_cond.begin() + i * (size_t) n_e,
+                                        ref_cond.begin() + (i + 1) * (size_t) n_e);
                 }
             }
         }
@@ -678,19 +650,16 @@ public:
         }
 
         mtmd_gen_inp gen_inp{};
-        gen_inp.type    = MTMD_GEN_PROCESS_TYPE_TTS;
+        gen_inp.type    = MTMD_GEN_PROCESS_TYPE_CODE2WAV;
         gen_inp.codes   = codes_buf.data();
         gen_inp.n_codes = codes_buf.size();
-        if (!spk80.empty()) {
-            gen_inp.ref_spk      = spk80.data();
-            gen_inp.ref_tokens   = ref_prompt_tokens.data();
-            gen_inp.n_ref_tokens = ref_prompt_tokens.size();
-            gen_inp.ref_pcm      = ref_pcm16.data();
-            gen_inp.n_ref_pcm    = ref_pcm16.size();
+        if (!ref_state.empty()) {
+            gen_inp.state_data = ref_state.data();
+            gen_inp.state_size = ref_state.size();
         }
         mtmd_gen_out gen_out{};
         if (mtmd_gen_audio_process(mctx, &gen_inp, &gen_out) != 0) {
-            LOG_ERR("mtmd_helper_gen_audio: tts decode failed\n");
+            LOG_ERR("mtmd_helper_gen_audio: code2wav decode failed\n");
             return 1;
         }
         audio_pcm.assign(gen_out.audio, gen_out.audio + gen_out.n_samples);
@@ -738,12 +707,12 @@ private:
         // multilingual variant: the mmproj ships a precomputed t3 conditioning
         // block [spkr, perceiver, emotion] and the learned positional tables
         // that the backbone needs added to its input embeddings
-        size_t n_t3 = mtmd_gen_audio_read_tensor(mctx, "cond.t3_cond", nullptr, 0);
+        size_t n_t3 = mtmd_gen_audio_read_tensor(mctx, "a.gen.cond.t3_cond", nullptr, 0);
         if (n_t3 > 0) {
             t3_cond.resize(n_t3);
-            if (mtmd_gen_audio_read_tensor(mctx, "cond.t3_cond", t3_cond.data(), n_t3) != n_t3 ||
+            if (mtmd_gen_audio_read_tensor(mctx, "a.gen.cond.t3_cond", t3_cond.data(), n_t3) != n_t3 ||
                 n_t3 % (size_t) n_embd != 0) {
-                LOG_ERR("mtmd_helper_gen_audio: cond.t3_cond read failed\n");
+                LOG_ERR("mtmd_helper_gen_audio: a.gen.cond.t3_cond read failed\n");
                 return false;
             }
             auto read_table = [&](const char * name, std::vector<float> & dst) {
@@ -756,90 +725,48 @@ private:
                 }
                 return true;
             };
-            if (!read_table("t3.text_pos_emb", text_pos) || !read_table("t3.speech_pos_emb", speech_pos)) {
+            if (!read_table("a.gen.t3.text_pos_emb", text_pos) || !read_table("a.gen.t3.speech_pos_emb", speech_pos)) {
                 return false;
             }
             return true;
         }
 
         cond_spkr.resize((size_t) n_embd);
-        if (mtmd_gen_audio_read_tensor(mctx, "cond.spkr_default", cond_spkr.data(), cond_spkr.size()) != (size_t) n_embd) {
-            LOG_ERR("mtmd_helper_gen_audio: cond.spkr_default missing\n");
+        if (mtmd_gen_audio_read_tensor(mctx, "a.gen.cond.spkr_default", cond_spkr.data(), cond_spkr.size()) != (size_t) n_embd) {
+            LOG_ERR("mtmd_helper_gen_audio: a.gen.cond.spkr_default missing\n");
             return false;
         }
-        size_t n_ct = mtmd_gen_audio_read_tensor(mctx, "cond.prompt_speech_tokens", nullptr, 0);
-        cond_speech_tokens.resize(n_ct);
-        if (n_ct == 0 || mtmd_gen_audio_read_tensor(mctx, "cond.prompt_speech_tokens", cond_speech_tokens.data(), n_ct) != n_ct) {
-            LOG_ERR("mtmd_helper_gen_audio: cond.prompt_speech_tokens missing\n");
+        // resolve the precomputed conditioning ids through the speech
+        // embedding table shipped in the mmproj
+        size_t n_ct = mtmd_gen_audio_read_tensor(mctx, "a.gen.cond.prompt_speech_tokens", nullptr, 0);
+        std::vector<float> cond_ids(n_ct);
+        if (n_ct == 0 || mtmd_gen_audio_read_tensor(mctx, "a.gen.cond.prompt_speech_tokens", cond_ids.data(), n_ct) != n_ct) {
+            LOG_ERR("mtmd_helper_gen_audio: a.gen.cond.prompt_speech_tokens missing\n");
             return false;
+        }
+        const size_t n_tab = mtmd_gen_audio_read_tensor(mctx, "a.gen.code.out_embd.weight", nullptr, 0);
+        std::vector<float> table(n_tab);
+        if (n_tab == 0 || n_tab % (size_t) n_embd != 0 ||
+            mtmd_gen_audio_read_tensor(mctx, "a.gen.code.out_embd.weight", table.data(), n_tab) != n_tab) {
+            LOG_ERR("mtmd_helper_gen_audio: a.gen.code.out_embd.weight read failed\n");
+            return false;
+        }
+        cond_speech_rows.resize(n_ct * (size_t) n_embd);
+        for (size_t i = 0; i < n_ct; i++) {
+            const size_t r = (size_t) cond_ids[i] * (size_t) n_embd;
+            memcpy(cond_speech_rows.data() + i * (size_t) n_embd, table.data() + r, (size_t) n_embd * sizeof(float));
         }
         return true;
-    }
-
-    // runs the s3 tokenizer on the reference clip, capped to the reference
-    // conditioning length, into speech tokens for the flow prompt (10 s cap)
-    // and the talker conditioning (6 s cap)
-    bool tokenize_ref(mtmd_bitmap * bitmap, size_t n_cap, std::vector<int32_t> & out) {
-        const float * pcm = (const float *) mtmd_bitmap_get_data(bitmap);
-        const size_t  n   = mtmd_bitmap_get_n_bytes(bitmap) / sizeof(float);
-
-        mtmd_gen_inp gi{};
-        gi.type  = MTMD_GEN_PROCESS_TYPE_TOKENIZE;
-        gi.pcm   = pcm;
-        gi.n_pcm = std::min(n, n_cap);
-        mtmd_gen_out go{};
-        if (mtmd_gen_audio_process(mctx, &gi, &go) != 0) {
-            LOG_ERR("mtmd_helper_gen_audio: reference tokenize failed\n");
-            return false;
-        }
-        out.assign(go.codes, go.codes + go.n_codes);
-        return true;
-    }
-
-    // runs the speaker encoder on the reference clip through the standard
-    // audio chunk path; the CAMPPlus graph outputs the 80-dim s3gen vector
-    bool encode_speaker(mtmd_bitmap * bitmap, std::vector<float> & out) {
-        if (!mtmd_support_audio(mctx)) {
-            LOG_ERR("mtmd_helper_gen_audio: mmproj has no speaker/audio encoder\n");
-            return false;
-        }
-        const std::string  marker = mtmd_default_marker();
-        mtmd_input_text     text{ marker.c_str(), marker.size(), false, true };
-        mtmd_input_chunks * chunks = mtmd_input_chunks_init();
-        const mtmd_bitmap * bptr = bitmap;
-        bool ok = mtmd_tokenize(mctx, chunks, &text, &bptr, 1) == 0;
-        if (ok) {
-            ok = false;
-            for (size_t i = 0; i < mtmd_input_chunks_size(chunks); i++) {
-                const mtmd_input_chunk * chunk = mtmd_input_chunks_get(chunks, i);
-                if (mtmd_input_chunk_get_type(chunk) != MTMD_INPUT_CHUNK_TYPE_AUDIO) {
-                    continue;
-                }
-                if (mtmd_encode_chunk(mctx, chunk) != 0) {
-                    LOG_ERR("mtmd_helper_gen_audio: speaker encode failed\n");
-                    break;
-                }
-                const float * embd = mtmd_get_output_embd(mctx);
-                out.assign(embd, embd + 80);
-                ok = true;
-                break;
-            }
-        }
-        mtmd_input_chunks_free(chunks);
-        return ok;
     }
 
     std::vector<float> tok_embd;
     std::vector<float> cond_spkr;
-    std::vector<float> cond_speech_tokens;
+    std::vector<float> cond_speech_rows; // default conditioning ids resolved through the mmproj speech table
     std::vector<float> t3_cond;
     std::vector<float> text_pos;
     std::vector<float> speech_pos;
-    std::vector<float> spk80;
-    std::vector<int32_t> ref_prompt_tokens;
-    std::vector<int32_t> ref_t3_tokens;
-    std::vector<float> ref_pcm16;
     std::vector<float> ref_cond;
+    std::vector<char>  ref_state;
     llama_token speech_base = LLAMA_TOKEN_NULL;
     int n_speech = 0;
     llama_token text_start = LLAMA_TOKEN_NULL;

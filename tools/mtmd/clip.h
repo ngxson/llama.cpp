@@ -109,6 +109,10 @@ struct clip_encode_params {
     int32_t top_k = 50;
     float   top_p = 1.0f;
     std::vector<int32_t> * out_codes = nullptr;
+    // TOKENIZE: out_code_embd receives the speech embedding rows of the
+    // produced codes (kept apart from out_embd, which is reserved for graphs
+    // whose last node is the embedding tensor)
+    std::vector<float> * out_code_embd = nullptr;
 
     // CODE2WAV: codes holds this frame's 16 RVQ codes, out_audio receives the
     // decoded PCM samples (F32). state_in is the state from the previous
