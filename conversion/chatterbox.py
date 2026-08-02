@@ -43,9 +43,11 @@ MTL_S3GEN    = "s3gen_v3.safetensors"
 SPEECH_BOS = 6561
 SPEECH_EOS = 6562
 
-# reference sampling defaults (tts_turbo.py generate / mtl tts.py)
-TURBO_SAMPLING = {"top_k": 1000, "top_p": 0.95, "temp": 0.8, "penalty_repeat": 1.2}
-MTL_SAMPLING   = {"min_p": 0.05, "top_p": 1.0,  "temp": 0.8, "penalty_repeat": 1.2}
+# reference sampling defaults (tts_turbo.py generate / mtl tts.py); samplers
+# absent from the reference carry their explicit disable value, so that the
+# common defaults never leak in when tools apply these as model defaults
+TURBO_SAMPLING = {"top_k": 1000, "min_p": 0.0,  "top_p": 0.95, "temp": 0.8, "penalty_repeat": 1.2}
+MTL_SAMPLING   = {"top_k": 0,    "min_p": 0.05, "top_p": 1.0,  "temp": 0.8, "penalty_repeat": 1.2}
 
 
 def _s3tok_mel_filters() -> Tensor:
@@ -213,10 +215,8 @@ class ChatterboxTalkerModel(TextModel):
         self.gguf_writer.add_file_type(self.ftype)
 
         sampling = TURBO_SAMPLING if self.is_turbo else MTL_SAMPLING
-        if "top_k" in sampling:
-            self.gguf_writer.add_sampling_top_k(sampling["top_k"])
-        if "min_p" in sampling:
-            self.gguf_writer.add_sampling_min_p(sampling["min_p"])
+        self.gguf_writer.add_sampling_top_k(sampling["top_k"])
+        self.gguf_writer.add_sampling_min_p(sampling["min_p"])
         self.gguf_writer.add_sampling_top_p(sampling["top_p"])
         self.gguf_writer.add_sampling_temp(sampling["temp"])
         self.gguf_writer.add_sampling_penalty_repeat(sampling["penalty_repeat"])
