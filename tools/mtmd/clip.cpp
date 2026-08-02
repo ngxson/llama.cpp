@@ -1054,6 +1054,35 @@ static std::unique_ptr<clip_graph> clip_get_graph_builder(clip_ctx * ctx, const 
             {
                 builder = std::make_unique<clip_graph_qwen3tts_spkenc>(ctx, img);
             } break;
+        case PROJECTOR_TYPE_CHATTERBOX_SPKENC:
+            {
+                builder = std::make_unique<clip_graph_chatterbox_spkenc>(ctx, img);
+            } break;
+        case PROJECTOR_TYPE_CHATTERBOX:
+            {
+                const auto gen_process = params ? params->gen_process : CLIP_GEN_PROCESS_CODE_GEN;
+                int n_tokens = params && params->codes ? (int) params->codes->size() : 0;
+                int n_prompt_mel = 0;
+                if (n_tokens > 0) {
+                    if (params->ref_tokens) {
+                        n_tokens += (int) params->ref_tokens->size();
+                    } else {
+                        auto it = ctx->model.cbx_tensors.find("cond.gen_prompt_token");
+                        GGML_ASSERT(it != ctx->model.cbx_tensors.end());
+                        n_tokens += (int) it->second->ne[0];
+                    }
+                    if (params->ref_feat) {
+                        n_prompt_mel = (int) (params->ref_feat->size() / 80);
+                    } else {
+                        auto it = ctx->model.cbx_tensors.find("cond.gen_prompt_feat");
+                        GGML_ASSERT(it != ctx->model.cbx_tensors.end());
+                        n_prompt_mel = (int) it->second->ne[1];
+                    }
+                }
+                const int vnm = params ? params->vocode_n_mel  : 0;
+                const int vns = params ? params->vocode_n_stft : 0;
+                builder = std::make_unique<clip_graph_chatterbox>(ctx, img, gen_process, n_tokens, n_prompt_mel, vnm, vns);
+            } break;
         case PROJECTOR_TYPE_QWEN3TTS_GEN:
             {
                 const auto  gen_process = params ? params->gen_process : CLIP_GEN_PROCESS_CODE_GEN;
@@ -1708,6 +1737,15 @@ struct clip_model_loader {
                         hparams.audio_window_len  = 1024;
                         hparams.audio_hop_len     = 256;
                     } break;
+                case PROJECTOR_TYPE_CHATTERBOX_SPKENC:
+                    {
+                        // CAMPPlus x-vector; kaldi fbank front-end (povey
+                        // window, 25 ms / 10 ms framing, 512-point spectrum)
+                        hparams.audio_sample_rate = 16000;
+                        hparams.audio_n_fft       = 512;
+                        hparams.audio_window_len  = 400;
+                        hparams.audio_hop_len     = 160;
+                    } break;
                 case PROJECTOR_TYPE_QWEN3TTS_GEN:
                     {
                         // discrete-token autoregressive predictor, no mel-frontend needed
@@ -1727,6 +1765,11 @@ struct clip_model_loader {
                         hparams.wav_dac_n_res        = 3;
                         // matches the reference decoder's sliding_window (speech_tokenizer/config.json)
                         hparams.wav_tfm_swa = 72;
+                    } break;
+                case PROJECTOR_TYPE_CHATTERBOX:
+                    {
+                        // s3gen output rate; the s3 tokenizer mel front-end runs at 16 kHz
+                        get_u32("chatterbox.sample_rate", hparams.audio_sample_rate);
                     } break;
                 case PROJECTOR_TYPE_PADDLEOCR:
                     {
@@ -2057,7 +2100,9 @@ struct clip_model_loader {
 
         const bool has_standard_layers = (
             model.proj_type != PROJECTOR_TYPE_GEMMA3NV &&
-            model.proj_type != PROJECTOR_TYPE_QWEN3TTS_SPKENC);
+            model.proj_type != PROJECTOR_TYPE_QWEN3TTS_SPKENC &&
+            model.proj_type != PROJECTOR_TYPE_CHATTERBOX &&
+            model.proj_type != PROJECTOR_TYPE_CHATTERBOX_SPKENC);
 
         // layers
         const int n_layers_to_load = has_standard_layers ? hparams.n_layer : 0;
@@ -2821,6 +2866,26 @@ struct clip_model_loader {
                         c2w.dac_post_snake_beta  = get_tensor(string_format(TN_A_GEN_WAV_DAC_POST_SNAKE, "beta"));
                         c2w.dac_post_conv_w      = get_tensor(string_format(TN_A_GEN_WAV_DAC_POST_CONV,  "weight"));
                         c2w.dac_post_conv_b      = get_tensor(string_format(TN_A_GEN_WAV_DAC_POST_CONV,  "bias"));
+                    }
+                } break;
+            case PROJECTOR_TYPE_CHATTERBOX:
+                {
+                    // the chatterbox audio stack keeps its source tensor names,
+                    // load everything in the file and index by name for the
+                    // graph builders
+                    for (ggml_tensor * t = ggml_get_first_tensor(ctx_meta.get()); t; t = ggml_get_next_tensor(ctx_meta.get(), t)) {
+                        model.cbx_tensors[t->name] = get_tensor(t->name);
+                    }
+                } break;
+            case PROJECTOR_TYPE_CHATTERBOX_SPKENC:
+                {
+                    // this context only carries the CAMPPlus x-vector body and
+                    // the flow affine that maps its embedding to the s3gen dim
+                    for (ggml_tensor * t = ggml_get_first_tensor(ctx_meta.get()); t; t = ggml_get_next_tensor(ctx_meta.get(), t)) {
+                        const std::string name = t->name;
+                        if (name.rfind("spk.", 0) == 0 || name.rfind("flow.spk_embed_affine_layer.", 0) == 0) {
+                            model.cbx_tensors[name] = get_tensor(name.c_str());
+                        }
                     }
                 } break;
             case PROJECTOR_TYPE_VOXTRAL:
@@ -3688,6 +3753,17 @@ struct clip_init_result clip_init(const char * fname, struct clip_context_params
             ctx_gen_audio = new clip_ctx(ctx_params);
             loader.load_hparams(ctx_gen_audio->model, CLIP_MODALITY_GEN_AUDIO);
             loader.load_tensors(*ctx_gen_audio);
+            if (ctx_gen_audio->model.proj_type == PROJECTOR_TYPE_CHATTERBOX) {
+                // the classic cfm solver unrolls up to 10 steps x 2 cfg
+                // estimator evaluations in one graph
+                ctx_gen_audio->max_nodes = 65536;
+                ctx_gen_audio->sched.reset(
+                    ggml_backend_sched_new(ctx_gen_audio->backend_ptrs.data(), ctx_gen_audio->backend_buft.data(),
+                                           ctx_gen_audio->backend_ptrs.size(), ctx_gen_audio->max_nodes, false, true));
+                if (ctx_params.cb_eval != nullptr) {
+                    ggml_backend_sched_set_eval_callback(ctx_gen_audio->sched.get(), ctx_params.cb_eval, ctx_params.cb_eval_user_data);
+                }
+            }
             // TODO: fix warmup
             ctx_gen_audio->buf_compute_meta.resize(ctx_gen_audio->max_nodes * ggml_tensor_overhead() + ggml_graph_overhead());
         }
@@ -4024,6 +4100,12 @@ int clip_n_output_tokens(const clip_ctx * ctx, const clip_image_f32 * img) {
                 // a single speaker embedding vector, regardless of its length
                 n_patches = 1;
             } break;
+        case PROJECTOR_TYPE_CHATTERBOX_SPKENC:
+            {
+                // statistics pooling collapses the whole clip into a single
+                // speaker embedding vector, regardless of its length
+                n_patches = 1;
+            } break;
         case PROJECTOR_TYPE_QWEN3TTS_GEN:
             {
                 // one hidden-state vector fed back to the talker per call
@@ -4070,7 +4152,38 @@ bool clip_image_batch_encode(clip_ctx * ctx, int n_threads, const clip_image_f32
     return clip_encode(ctx, &params);
 }
 
+size_t clip_cbx_read_tensor(struct clip_ctx * ctx, const char * name, float * out, size_t n_max) {
+    const auto & tensors = ctx->model.cbx_tensors;
+    auto it = tensors.find(name);
+    if (it == tensors.end() || !it->second) {
+        return 0;
+    }
+    ggml_tensor * t = it->second;
+    const size_t n = (size_t) ggml_nelements(t);
+    if (!out) {
+        return n;
+    }
+    if (n_max < n) {
+        return 0;
+    }
+    if (t->type == GGML_TYPE_F32) {
+        ggml_backend_tensor_get(t, out, 0, n * sizeof(float));
+    } else if (t->type == GGML_TYPE_F16) {
+        std::vector<ggml_fp16_t> tmp(n);
+        ggml_backend_tensor_get(t, tmp.data(), 0, n * sizeof(ggml_fp16_t));
+        for (size_t i = 0; i < n; i++) out[i] = ggml_fp16_to_fp32(tmp[i]);
+    } else if (t->type == GGML_TYPE_I32) {
+        std::vector<int32_t> tmp(n);
+        ggml_backend_tensor_get(t, tmp.data(), 0, n * sizeof(int32_t));
+        for (size_t i = 0; i < n; i++) out[i] = (float) tmp[i];
+    } else {
+        return 0;
+    }
+    return n;
+}
+
 bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
+
     const clip_image_f32_batch & imgs = *params->imgs;
     int n_batch_cur = imgs.entries.size();
 
@@ -4172,7 +4285,8 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
         }
         set_input_f32("inp_raw", inp_raw);
 
-    } else if (!(ctx->proj_type() == PROJECTOR_TYPE_QWEN3TTS_GEN && params->gen_process == CLIP_GEN_PROCESS_CODE2WAV)) {
+    } else if (!(ctx->proj_type() == PROJECTOR_TYPE_QWEN3TTS_GEN && params->gen_process == CLIP_GEN_PROCESS_CODE2WAV) &&
+               !(ctx->proj_type() == PROJECTOR_TYPE_CHATTERBOX && (params->gen_process == CLIP_GEN_PROCESS_TTS || params->gen_process == CLIP_GEN_PROCESS_TTS_VOCODE))) {
         // audio input (code2wav has no hidden-state/raw input at all, its only input is the "inp_codes" tensor handled in the switch below)
         GGML_ASSERT(imgs.entries.size() == 1);
 
@@ -4711,6 +4825,116 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                     set_input_f32("qwen2_attn_mask", qwen2_mask);
                 }
             } break;
+        case PROJECTOR_TYPE_CHATTERBOX:
+            {
+                if (params->gen_process == CLIP_GEN_PROCESS_TTS_VOCODE) {
+                    set_input_f32("inp_mel",   *params->mel_in);
+                    set_input_f32("inp_sstft", *params->sstft_in);
+                    break;
+                }
+                if (params->gen_process == CLIP_GEN_PROCESS_TOKENIZE) {
+                    const int T1 = (imgs.entries[0].nx() - 1) / 2 + 1;
+                    const int T2 = (T1 - 1) / 2 + 1;
+                    std::vector<int32_t> pos(T2);
+                    for (int i = 0; i < T2; i++) {
+                        pos[(size_t) i] = i;
+                    }
+                    set_input_i32("inp_pos", pos);
+                    break;
+                }
+                if (params->gen_process != CLIP_GEN_PROCESS_TTS) {
+                    break;
+                }
+                const int n_gen = (int) params->codes->size();
+                int n_prompt = 0;
+                std::vector<int32_t> tokens;
+                if (params->ref_tokens) {
+                    n_prompt = (int) params->ref_tokens->size();
+                    tokens = *params->ref_tokens;
+                    tokens.resize((size_t) n_prompt + n_gen);
+                } else {
+                    ggml_tensor * pt = model.cbx_tensors.at("cond.gen_prompt_token");
+                    n_prompt = (int) pt->ne[0];
+                    tokens.resize((size_t) n_prompt + n_gen);
+                    ggml_backend_tensor_get(pt, tokens.data(), 0, (size_t) n_prompt * sizeof(int32_t));
+                }
+                memcpy(tokens.data() + n_prompt, params->codes->data(), (size_t) n_gen * sizeof(int32_t));
+                const int T1 = n_prompt + n_gen;
+                const int T2 = 2 * T1;
+                set_input_i32("inp_tokens", tokens);
+
+                // mel-rate reference conditioning, from the clip or the
+                // precomputed defaults shipped in the mmproj
+                if (params->ref_feat) {
+                    set_input_f32("inp_prompt_feat", *params->ref_feat);
+                } else {
+                    ggml_tensor * pf = model.cbx_tensors.at("cond.gen_prompt_feat");
+                    std::vector<float> feat(ggml_nelements(pf));
+                    ggml_backend_tensor_get(pf, feat.data(), 0, ggml_nbytes(pf));
+                    set_input_f32("inp_prompt_feat", feat);
+                }
+                if (params->ref_spk) {
+                    set_input_f32("inp_spk", *params->ref_spk);
+                } else {
+                    ggml_tensor * sp = model.cbx_tensors.at("cond.gen_spk80");
+                    std::vector<float> spk(ggml_nelements(sp));
+                    ggml_backend_tensor_get(sp, spk.data(), 0, ggml_nbytes(sp));
+                    set_input_f32("inp_spk", spk);
+                }
+
+                // espnet relative positional encoding, entry k holds the
+                // sinusoid of relative position (T-1) - k
+                auto fill_pos = [&](const char * name, int T) {
+                    const int d = 512;
+                    std::vector<float> pos((size_t) (2 * T - 1) * d);
+                    for (int k = 0; k < 2 * T - 1; k++) {
+                        const double rel = (double) (T - 1 - k);
+                        for (int i = 0; i < d / 2; i++) {
+                            const double div = exp(-(double) (2 * i) * log(10000.0) / d);
+                            pos[(size_t) k * d + 2 * i    ] = (float) sin(rel * div);
+                            pos[(size_t) k * d + 2 * i + 1] = (float) cos(rel * div);
+                        }
+                    }
+                    set_input_f32(name, pos);
+                };
+                fill_pos("inp_pos1", T1);
+                fill_pos("inp_pos2", T2);
+
+                // meanflow inputs: gaussian noise and the sinusoidal time
+                // embeddings of the solver span points, same schedule as the
+                // graph builder (matcha layout: sines then cosines, scale 1000)
+                std::vector<float> noise((size_t) 80 * T2);
+                std::mt19937 rng(42);
+                std::normal_distribution<float> nd(0.0f, 1.0f);
+                for (auto & f : noise) f = nd(rng);
+                set_input_f32("inp_noise", noise);
+
+                const bool meanflow = model.cbx_tensors.count("est.time_embed_mixer.weight") > 0;
+                const int n_steps = meanflow ? 2 : 10;
+                std::vector<float> temb((size_t) 320 * (n_steps + 1));
+                for (int s = 0; s <= n_steps; s++) {
+                    const double u = (double) s / n_steps;
+                    const double t = meanflow ? u : 1.0 - cos(u * M_PI / 2.0);
+                    for (int i = 0; i < 160; i++) {
+                        const double div = exp(-(double) i * log(10000.0) / 159.0);
+                        temb[(size_t) s * 320 + i      ] = (float) sin(1000.0 * t * div);
+                        temb[(size_t) s * 320 + i + 160] = (float) cos(1000.0 * t * div);
+                    }
+                }
+                set_input_f32("inp_temb", temb);
+
+                if (getenv("CBX_DUMP")) {
+                    FILE * f = fopen("/tmp/cbx-noise.bin", "wb");
+                    fwrite(noise.data(), sizeof(float), noise.size(), f);
+                    fclose(f);
+                }
+
+                if (getenv("CBX_DUMP")) {
+                    FILE * f = fopen("/tmp/cbx-tokens.bin", "wb");
+                    fwrite(tokens.data(), sizeof(int32_t), tokens.size(), f);
+                    fclose(f);
+                }
+            } break;
         case PROJECTOR_TYPE_GEMMA3:
         case PROJECTOR_TYPE_GEMMA3NV:
         case PROJECTOR_TYPE_IDEFICS3:
@@ -4732,6 +4956,19 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
         case PROJECTOR_TYPE_QWEN3TTS_SPKENC:
             {
                 // do nothing
+            } break;
+        case PROJECTOR_TYPE_CHATTERBOX_SPKENC:
+            {
+                // batchnorm epsilon and the ceil-mode correction of the cam
+                // seg pooling: pooled sums are divided by the full segment
+                // length, the last partial segment gets rescaled
+                set_input_f32("inp_eps", {1e-5f});
+                const int T1 = (imgs.entries[0].nx() - 1) / 2 + 1;
+                const int S  = (T1 + 99) / 100;
+                std::vector<float> segfix((size_t) S, 1.0f);
+                const int last = T1 - (S - 1) * 100;
+                segfix[(size_t) S - 1] = 100.0f / (float) last;
+                set_input_f32("inp_segfix", segfix);
             } break;
         case PROJECTOR_TYPE_QWEN3TTS_GEN:
             {
@@ -5252,6 +5489,223 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
     // for audio gen models
     //
 
+    if (ctx->proj_type() == PROJECTOR_TYPE_CHATTERBOX && params->gen_process == CLIP_GEN_PROCESS_TOKENIZE) {
+        ggml_tensor * fsq = ggml_graph_get_tensor(gf, "out_fsq");
+        GGML_ASSERT(fsq != nullptr && params->out_codes);
+        const int n_tok = (int) fsq->ne[1];
+        std::vector<float> h((size_t) 8 * n_tok);
+        ggml_backend_tensor_get(fsq, h.data(), 0, ggml_nbytes(fsq));
+
+        // fsq round to base 3: h in (-1, 1) maps to digits {0, 1, 2}
+        params->out_codes->resize(n_tok);
+        for (int t = 0; t < n_tok; t++) {
+            int32_t code = 0;
+            for (int i = 7; i >= 0; i--) {
+                const int32_t d = (int32_t) roundf(h[(size_t) t * 8 + i] * 0.9990000128746033f) + 1;
+                code = code * 3 + d;
+            }
+            (*params->out_codes)[(size_t) t] = code;
+        }
+
+        if (getenv("CBX_DUMP")) {
+            FILE * f = fopen("/tmp/cbx-fsq.bin", "wb");
+            fwrite(h.data(), sizeof(float), h.size(), f);
+            fclose(f);
+        }
+        return true;
+    }
+
+    if (ctx->proj_type() == PROJECTOR_TYPE_CHATTERBOX && params->gen_process == CLIP_GEN_PROCESS_TTS_VOCODE) {
+        ggml_tensor * sp = ggml_graph_get_tensor(gf, "out_spec");
+        GGML_ASSERT(sp != nullptr && params->out_spec);
+        params->out_spec->resize(ggml_nelements(sp));
+        ggml_backend_tensor_get(sp, params->out_spec->data(), 0, ggml_nbytes(sp));
+        return true;
+    }
+
+    if (ctx->proj_type() == PROJECTOR_TYPE_CHATTERBOX && params->gen_process == CLIP_GEN_PROCESS_TTS) {
+        ggml_tensor * mu = ggml_graph_get_tensor(gf, "out_mu");
+        GGML_ASSERT(mu != nullptr);
+        std::vector<float> mu_data(ggml_nelements(mu));
+        ggml_backend_tensor_get(mu, mu_data.data(), 0, ggml_nbytes(mu));
+
+        if (getenv("CBX_DUMP")) {
+            FILE * f = fopen("/tmp/cbx-mu.bin", "wb");
+            fwrite(mu_data.data(), sizeof(float), mu_data.size(), f);
+            fclose(f);
+            LOG_INF("%s: dumped out_mu [%d, %d] to /tmp/cbx-mu.bin\n", __func__, (int) mu->ne[0], (int) mu->ne[1]);
+        }
+
+        if (getenv("CBX_DUMP")) {
+            ggml_tensor * dc = ggml_graph_get_tensor(gf, "out_dcond");
+            std::vector<float> dc_data(ggml_nelements(dc));
+            ggml_backend_tensor_get(dc, dc_data.data(), 0, ggml_nbytes(dc));
+            FILE * f = fopen("/tmp/cbx-dcond.bin", "wb");
+            fwrite(dc_data.data(), sizeof(float), dc_data.size(), f);
+            fclose(f);
+        }
+
+        ggml_tensor * mel = ggml_graph_get_tensor(gf, "out_mel");
+        GGML_ASSERT(mel != nullptr);
+        std::vector<float> mel_data(ggml_nelements(mel));
+        ggml_backend_tensor_get(mel, mel_data.data(), 0, ggml_nbytes(mel));
+        if (getenv("CBX_DUMP")) {
+            FILE * f = fopen("/tmp/cbx-mel.bin", "wb");
+            fwrite(mel_data.data(), sizeof(float), mel_data.size(), f);
+            fclose(f);
+            LOG_INF("%s: dumped out_mel [%d, %d] to /tmp/cbx-mel.bin\n", __func__, (int) mel->ne[0], (int) mel->ne[1]);
+        }
+
+        // hift bridge: f0 -> harmonic source -> source stft on the host,
+        // then the vocoder graph, then the istft
+        ggml_tensor * f0_t = ggml_graph_get_tensor(gf, "out_f0");
+        GGML_ASSERT(f0_t != nullptr);
+        const int n_mel_out = (int) ggml_nelements(f0_t);
+        std::vector<float> f0(n_mel_out);
+        ggml_backend_tensor_get(f0_t, f0.data(), 0, ggml_nbytes(f0_t));
+
+        if (getenv("CBX_DUMP")) {
+            FILE * f = fopen("/tmp/cbx-f0.bin", "wb");
+            fwrite(f0.data(), sizeof(float), f0.size(), f);
+            fclose(f);
+        }
+
+        // source: f0 upsampled x480 nearest, 9 harmonics, cumulative phase,
+        // uv gating and noise as in SineGen, merged by l_linear + tanh
+        const int ups_total = 480;
+        const double sr = 24000.0;
+        const int64_t n_wav = (int64_t) n_mel_out * ups_total;
+        std::vector<float> lw(9);
+        float lb = 0.0f;
+        GGML_ASSERT(clip_cbx_read_tensor(ctx, "hift.m_source.l_linear.weight", lw.data(), lw.size()) == 9);
+        clip_cbx_read_tensor(ctx, "hift.m_source.l_linear.bias", &lb, 1);
+
+        const bool det = getenv("CBX_DUMP") != nullptr; // deterministic phases and no noise for validation
+        std::mt19937 srng(1234);
+        std::uniform_real_distribution<double> ud(-M_PI, M_PI);
+        std::normal_distribution<float> snd(0.0f, 1.0f);
+        double phase[9];
+        for (int h = 0; h < 9; h++) {
+            phase[h] = (h == 0 || det) ? 0.0 : ud(srng);
+        }
+        std::vector<float> src((size_t) n_wav);
+        double cum[9] = {0.0};
+        for (int64_t t = 0; t < n_wav; t++) {
+            const float f = f0[(size_t) (t / ups_total)];
+            const float uv = f > 10.0f ? 1.0f : 0.0f; // nsf_voiced_threshold
+            const float namp = uv * 0.003f + (1.0f - uv) * 0.1f / 3.0f;
+            float merged = lb;
+            for (int h = 0; h < 9; h++) {
+                cum[h] += (double) f * (h + 1) / sr;
+                cum[h] -= floor(cum[h]);
+                float sine = 0.1f * (float) sin(2.0 * M_PI * cum[h] + phase[h]);
+                sine = sine * uv + (det ? 0.0f : namp * snd(srng));
+                merged += lw[(size_t) h] * sine;
+            }
+            src[(size_t) t] = tanhf(merged);
+        }
+
+        // stft of the source: n_fft 16, hop 4, hann window, centered
+        const int n_fft = 16, hop = 4, n_bins = 9;
+        std::vector<float> win(n_fft);
+        for (int i = 0; i < n_fft; i++) win[(size_t) i] = 0.5f - 0.5f * cosf(2.0f * (float) M_PI * i / n_fft);
+        const int n_stft = (int) (n_wav / hop) + 1;
+        std::vector<float> sstft((size_t) n_stft * 18);
+        for (int fr = 0; fr < n_stft; fr++) {
+            const int64_t c0 = (int64_t) fr * hop - n_fft / 2; // centered, reflect padded
+            for (int k = 0; k < n_bins; k++) {
+                double re = 0.0, im = 0.0;
+                for (int i = 0; i < n_fft; i++) {
+                    int64_t idx = c0 + i;
+                    if (idx < 0) idx = -idx;
+                    if (idx >= n_wav) idx = 2 * (n_wav - 1) - idx;
+                    const double v = (double) src[(size_t) idx] * win[(size_t) i];
+                    const double a = 2.0 * M_PI * k * i / n_fft;
+                    re += v * cos(a);
+                    im -= v * sin(a);
+                }
+                sstft[(size_t) fr * 18 + k    ] = (float) re;
+                sstft[(size_t) fr * 18 + 9 + k] = (float) im;
+            }
+        }
+
+        if (getenv("CBX_DUMP")) {
+            FILE * f = fopen("/tmp/cbx-src.bin", "wb");
+            fwrite(src.data(), sizeof(float), src.size(), f);
+            fclose(f);
+            f = fopen("/tmp/cbx-sstft.bin", "wb");
+            fwrite(sstft.data(), sizeof(float), sstft.size(), f);
+            fclose(f);
+        }
+
+        // vocoder graph on mel + source stft
+        std::vector<float> spec;
+        {
+            clip_encode_params vp = *params;
+            vp.gen_process   = CLIP_GEN_PROCESS_TTS_VOCODE;
+            vp.mel_in        = &mel_data;
+            vp.sstft_in      = &sstft;
+            vp.vocode_n_mel  = n_mel_out;
+            vp.vocode_n_stft = n_stft;
+            vp.out_audio     = nullptr;
+            vp.out_spec      = &spec;
+            if (!clip_encode(ctx, &vp)) {
+                LOG_ERR("%s: vocoder stage failed\n", __func__);
+                return false;
+            }
+        }
+
+        if (getenv("CBX_DUMP")) {
+            FILE * f = fopen("/tmp/cbx-spec.bin", "wb");
+            fwrite(spec.data(), sizeof(float), spec.size(), f);
+            fclose(f);
+        }
+
+        // istft: mag = clipped exp, phase = sin, hann overlap-add
+        const int n_frames_out = (int) (spec.size() / 18);
+        const int64_t n_out = (int64_t) (n_frames_out - 1) * hop;
+        std::vector<double> acc((size_t) n_out + n_fft, 0.0);
+        std::vector<double> wsum((size_t) n_out + n_fft, 0.0);
+        for (int fr = 0; fr < n_frames_out; fr++) {
+            double frame[16];
+            for (int i = 0; i < n_fft; i++) {
+                double v = 0.0;
+                for (int k = 0; k < n_bins; k++) {
+                    const double mag = fmin(exp((double) spec[(size_t) fr * 18 + k]), 1e2);
+                    const double ph  = sin((double) spec[(size_t) fr * 18 + 9 + k]);
+                    const double re  = mag * cos(ph), im = mag * sin(ph);
+                    const double a   = 2.0 * M_PI * k * i / n_fft;
+                    const double w   = (k == 0 || k == n_fft / 2) ? 1.0 : 2.0;
+                    v += w * (re * cos(a) - im * sin(a));
+                }
+                frame[i] = v / n_fft;
+            }
+            const int64_t o = (int64_t) fr * hop;
+            for (int i = 0; i < n_fft; i++) {
+                acc [(size_t) (o + i)] += frame[i] * win[(size_t) i];
+                wsum[(size_t) (o + i)] += (double) win[(size_t) i] * win[(size_t) i];
+            }
+        }
+        GGML_ASSERT(params->out_audio);
+        auto & out_audio = *params->out_audio;
+        out_audio.resize((size_t) std::min<int64_t>(n_out - n_fft / 2, n_wav));
+        for (size_t i = 0; i < out_audio.size(); i++) {
+            const size_t j = i + n_fft / 2; // drop the centering pad
+            const double v = wsum[j] > 1e-11 ? acc[j] / wsum[j] : 0.0;
+            out_audio[(size_t) i] = (float) fmax(-0.99, fmin(0.99, v));
+        }
+
+        // the reference silences the first 20 ms and fades the next 20 ms in
+        // to hide the onset artifact of the flow prompt boundary (trim_fade)
+        const size_t n_trim = 24000 / 50;
+        for (size_t i = 0; i < 2 * n_trim && i < out_audio.size(); i++) {
+            const double g = i < n_trim ? 0.0
+                : (cos(M_PI * (1.0 - (double) (i - n_trim) / n_trim)) + 1.0) / 2.0;
+            out_audio[(size_t) i] *= (float) g;
+        }
+        return true;
+    }
+
     if (params->out_codes != nullptr) {
         ggml_tensor * codes = ggml_graph_get_tensor(gf, "out_codes");
         if (codes == nullptr) {
@@ -5434,6 +5888,13 @@ int clip_n_mmproj_embd(const struct clip_ctx * ctx) {
             return ctx->model.mm_fc_w->ne[2];
         case PROJECTOR_TYPE_QWEN3TTS_GEN:
             return ctx->model.gen_code_out_embd_w->ne[0];
+        case PROJECTOR_TYPE_CHATTERBOX:
+            // gen-only stack, no input projection into the backbone; the mel
+            // channel count stands in for the interface dimension
+            return 80;
+        case PROJECTOR_TYPE_CHATTERBOX_SPKENC:
+            // x-vector projected through the s3gen speaker affine
+            return 80;
         case PROJECTOR_TYPE_PARAKEET:
             return ctx->model.mm_1_w->ne[1];
         default:

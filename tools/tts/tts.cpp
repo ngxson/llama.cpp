@@ -1,3 +1,4 @@
+#include <limits>
 #include "arg.h"
 #include "common.h"
 #include "sampling.h"
@@ -122,6 +123,27 @@ int main(int argc, char ** argv) {
         if (!strcmp(llama_vocab_get_text(vocab, t), "<|codec_eos_token|>")) { codec_eos_tok = t; break; }
     }
     if (codec_eos_tok == LLAMA_TOKEN_NULL) {
+        // models without a dedicated codec eos (e.g. chatterbox) end the audio
+        // stream with the regular vocab eos
+        codec_eos_tok = llama_vocab_eos(vocab);
+
+        // fused text+speech vocab: the reference implementation samples the
+        // speech head only, mask the text zone out of the sampling chain
+        llama_token speech_base = LLAMA_TOKEN_NULL;
+        for (llama_token t = 0; t < llama_vocab_n_tokens(vocab); t++) {
+            if (!strcmp(llama_vocab_get_text(vocab, t), "<|speech_0|>")) { speech_base = t; break; }
+        }
+        if (speech_base != LLAMA_TOKEN_NULL) {
+            params.sampling.logit_bias.reserve(params.sampling.logit_bias.size() + speech_base);
+            for (llama_token t = 0; t < speech_base; t++) {
+                params.sampling.logit_bias.push_back(llama_logit_bias{t, -std::numeric_limits<float>::infinity()});
+            }
+            common_sampler_free(smpl);
+            smpl = common_sampler_init(model, params.sampling);
+            if (!smpl) { LOG_ERR("failed to reinit sampler\n"); return 1; }
+        }
+    }
+    if (codec_eos_tok == LLAMA_TOKEN_NULL) {
         LOG_ERR("missing codec eos token in vocab\n");
         return 1;
     }
@@ -134,6 +156,12 @@ int main(int argc, char ** argv) {
 
     const int max_new = params.n_predict > 0 ? params.n_predict : 512;
     int n_frames = 0;
+    if (getenv("CBX_DUMP")) {
+        const float * lg = llama_get_logits_ith(lctx, -1);
+        FILE * f = fopen("/tmp/cbx-logits0.bin", "wb");
+        fwrite(lg, sizeof(float), llama_vocab_n_tokens(vocab), f);
+        fclose(f);
+    }
     llama_token sampled = sample_codec0();
     const float * h_state = llama_get_embeddings_ith(lctx, -1);
 

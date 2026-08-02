@@ -151,6 +151,24 @@ struct clip_graph_conformer : clip_graph {
     ggml_cgraph * build() override;
 };
 
+struct clip_graph_chatterbox_spkenc : clip_graph {
+    clip_graph_chatterbox_spkenc(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
+    ggml_cgraph * build() override;
+};
+
+struct clip_graph_chatterbox : clip_graph {
+    clip_gen_process_type gen_process = CLIP_GEN_PROCESS_CODE_GEN;
+    int n_tokens = 0;
+    int n_prompt_mel  = 0;
+    int vocode_n_mel  = 0;
+    int vocode_n_stft = 0;
+    clip_graph_chatterbox(clip_ctx * ctx, const clip_image_f32 & img, clip_gen_process_type gen_process, int n_tokens,
+                          int n_prompt_mel, int vocode_n_mel, int vocode_n_stft)
+        : clip_graph(ctx, img), gen_process(gen_process), n_tokens(n_tokens), n_prompt_mel(n_prompt_mel),
+          vocode_n_mel(vocode_n_mel), vocode_n_stft(vocode_n_stft) {}
+    ggml_cgraph * build() override;
+};
+
 struct clip_graph_granite_speech : clip_graph {
     clip_graph_granite_speech(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     ggml_cgraph * build() override;

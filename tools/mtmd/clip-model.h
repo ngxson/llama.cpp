@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <map>
 #include <vector>
 #include <unordered_set>
 #include <cstdint>
@@ -686,6 +687,10 @@ struct clip_model {
 
     // qwen3tts code2wav: RVQ codes -> raw PCM
     clip_code2wav c2w;
+
+    // chatterbox audio stack: tensors are looked up by their source name at
+    // graph build time, the set is too large and too nested for named fields
+    std::map<std::string, ggml_tensor *> cbx_tensors;
 
     // cogvlm
     ggml_tensor * mm_post_fc_norm_w = nullptr;

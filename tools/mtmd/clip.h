@@ -89,6 +89,9 @@ bool clip_image_batch_encode(struct clip_ctx * ctx, int n_threads, const struct 
 enum clip_gen_process_type {
     CLIP_GEN_PROCESS_CODE_GEN, // h_state to codes
     CLIP_GEN_PROCESS_CODE2WAV, // codes to raw PCM audio
+    CLIP_GEN_PROCESS_TTS,      // full utterance of codes to raw PCM audio
+    CLIP_GEN_PROCESS_TTS_VOCODE, // internal: mel + source stft to istft input
+    CLIP_GEN_PROCESS_TOKENIZE,   // raw PCM audio to semantic speech tokens
 };
 struct clip_encode_params {
     int n_threads = 1;
@@ -112,11 +115,30 @@ struct clip_encode_params {
     // call (null or wrong size means cold start, state is zero-filled).
     // state_out receives the state to pass into the next call.
     const std::vector<int32_t> * codes = nullptr;
+    // TOKENIZE input
+    const float * pcm_in = nullptr;
+    size_t        n_pcm  = 0;
+    // TTS reference conditioning overriding the precomputed cond.gen_*
+    // defaults: speech tokens, mel-rate features and the 80-dim speaker
+    // vector of the reference clip (null means default)
+    const std::vector<int32_t> * ref_tokens = nullptr;
+    const std::vector<float> *   ref_feat   = nullptr;
+    const std::vector<float> *   ref_spk    = nullptr;
+    // TTS_VOCODE internal stage inputs
+    const std::vector<float> * mel_in   = nullptr;
+    const std::vector<float> * sstft_in = nullptr;
+    int vocode_n_mel  = 0;
+    int vocode_n_stft = 0;
+    std::vector<float> * out_spec = nullptr;
     std::vector<float> * out_audio = nullptr;
     const std::vector<uint8_t> * state_in  = nullptr;
     std::vector<uint8_t> *       state_out = nullptr;
 };
 bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params);
+
+// read a chatterbox tensor by source name, converted to F32. returns the
+// element count, 0 if not found. out may be null to only query the size.
+size_t clip_cbx_read_tensor(struct clip_ctx * ctx, const char * name, float * out, size_t n_max);
 
 bool clip_is_llava(const struct clip_ctx * ctx);
 // note for contributor: this clip_is_(model) pattern is deprecated

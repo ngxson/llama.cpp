@@ -50,6 +50,47 @@ struct mtmd_audio_cache {
     );
 };
 
+// whisper style log-mel used by the chatterbox s3 tokenizer front-end:
+// hann 400 periodic, hop 160, centered frames with reflect padding, power
+// spectrum, caller-supplied mel filters [n_mel x (n_fft / 2 + 1)], log10
+// clamped to 1e-10, global max - 8 dynamic range, (x + 4) / 4 scaling.
+// output layout matches the audio batch entries: out[m * n_frames + t].
+bool mtmd_audio_s3tok_log_mel(const float * samples, size_t n_samples,
+                              const float * filters, int n_mel,
+                              std::vector<float> & out, int & n_frames);
+
+// rational 3/2 upsampler (16 kHz -> 24 kHz), windowed sinc polyphase.
+// output length is exactly n_samples * 3 / 2 for even n_samples.
+void mtmd_audio_upsample_3_2(const float * samples, size_t n_samples, std::vector<float> & out);
+
+// matcha style log-mel of the chatterbox s3gen prompt features (utils/mel.py):
+// 24 kHz, n_fft 1920, hop 480, hann 1920 periodic, (n_fft - hop) / 2 reflect
+// padding with center false, magnitude spectrum, slaney mel 80 bins fmin 0
+// fmax 8000, natural log clamped to 1e-5.
+// output layout is frame major: out[t * n_mel + m], as the prompt features
+// are consumed row by row at mel rate.
+bool mtmd_audio_matcha_log_mel(const float * samples, size_t n_samples,
+                               std::vector<float> & out, int & n_frames);
+
+// librosa.effects.trim replica: rms over centered 2048/512 windows with zero
+// padding, threshold top_db below the loudest window, returns the sample
+// span [start, end) of the non-silent region (start == end when all silent).
+void mtmd_audio_trim_silence(const float * samples, size_t n_samples, float top_db,
+                             size_t & start, size_t & end);
+
+// power mel of the chatterbox voice encoder (voice_encoder/melspec.py):
+// 16 kHz, hann 400 periodic, hop 160, centered frames with reflect padding,
+// squared magnitude against slaney mel 40 bins fmin 0 fmax 8000, no log.
+// output layout is frame major: out[t * 40 + m].
+bool mtmd_audio_ve_mel(const float * samples, size_t n_samples,
+                       std::vector<float> & out, int & n_frames);
+
+// ITU-R BS.1770 integrated loudness (pyloudnorm replica, mono): K-weighting
+// (RBJ high shelf 1681.97 Hz +4 dB then high pass 38.14 Hz), 400 ms blocks
+// with 75% overlap, absolute -70 then relative -10 gating.
+// returns the loudness in LUFS, or -HUGE_VALF when everything is gated out.
+float mtmd_audio_lufs(const float * samples, size_t n_samples, int sample_rate);
+
 struct mtmd_audio_preprocessor {
     const clip_hparams & hparams;
 
@@ -127,6 +168,16 @@ struct mtmd_audio_preprocessor_qwen3tts_spk : mtmd_audio_preprocessor {
 
   private:
     mtmd_audio_cache cache;
+};
+
+struct mtmd_audio_preprocessor_chatterbox_spk : mtmd_audio_preprocessor {
+    mtmd_audio_preprocessor_chatterbox_spk(const clip_ctx * ctx) : mtmd_audio_preprocessor(ctx) {}
+    void initialize() override;
+    bool preprocess(const float * samples, size_t n_samples, std::vector<mtmd_audio_mel> & output) override;
+
+  private:
+    std::vector<float> window;  // povey window, frame_length points
+    std::vector<float> filters; // kaldi mel filterbank, n_mel x (n_fft / 2) dense
 };
 
 struct mtmd_audio_preprocessor_parakeet : mtmd_audio_preprocessor {

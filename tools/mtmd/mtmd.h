@@ -334,6 +334,7 @@ MTMD_API struct mtmd_caps mtmd_get_cap_from_file(const char * mmproj_fname);
 enum mtmd_gen_audio_type {
     MTMD_GEN_AUDIO_TYPE_NONE, // not supported
     MTMD_GEN_AUDIO_TYPE_QWEN3TTS,
+    MTMD_GEN_AUDIO_TYPE_CHATTERBOX,
 };
 struct mtmd_gen_audio_info {
     enum mtmd_gen_audio_type type;
@@ -341,9 +342,20 @@ struct mtmd_gen_audio_info {
 };
 MTMD_API struct mtmd_gen_audio_info mtmd_gen_audio_get_info(const mtmd_context * ctx);
 
+// read a named conditioning tensor from the gen audio model, converted to F32.
+// returns the element count, 0 if not found. out may be null to query the size.
+MTMD_API size_t mtmd_gen_audio_read_tensor(mtmd_context * ctx, const char * name, float * out, size_t n_max);
+
+// normalize a reference clip in place to the loudness the gen audio model
+// expects for voice cloning; no-op when the model does not require it.
+MTMD_API void mtmd_gen_audio_norm_ref(mtmd_context * ctx, mtmd_bitmap * bitmap);
+
 enum mtmd_gen_process_type {
     MTMD_GEN_PROCESS_TYPE_GEN_CODE, // h_state to codes
     MTMD_GEN_PROCESS_TYPE_CODE2WAV, // codes to raw PCM audio
+    MTMD_GEN_PROCESS_TYPE_TTS,      // full utterance of codes to raw PCM audio
+    MTMD_GEN_PROCESS_TYPE_TOKENIZE, // raw PCM audio to semantic speech tokens
+    MTMD_GEN_PROCESS_TYPE_SPEAKER_COND, // raw PCM audio to talker conditioning rows
 };
 struct mtmd_gen_inp {
     enum mtmd_gen_process_type type;
@@ -359,6 +371,27 @@ struct mtmd_gen_inp {
     size_t    n_codes;
     const char * state_data;
     size_t       state_size;
+
+    // for MTMD_GEN_PROCESS_TYPE_TOKENIZE and MTMD_GEN_PROCESS_TYPE_SPEAKER_COND
+    const float * pcm;   // mono float samples at the audio encoder sample rate
+    size_t        n_pcm;
+
+    // for MTMD_GEN_PROCESS_TYPE_SPEAKER_COND: the speech token embedding rows
+    // of the reference conditioning prompt (n_text_embd elements each), input
+    // to the perceiver of the multilingual variant (null on turbo)
+    const float * ref_speech_embd;
+    size_t        n_ref_speech_rows;
+
+    // for MTMD_GEN_PROCESS_TYPE_TTS: optional reference conditioning of the
+    // cloned voice, overriding the model's precomputed defaults (null means
+    // default). ref_spk is the 80-dim speaker vector, ref_tokens the speech
+    // tokens of the reference clip (from a TOKENIZE call), ref_pcm the same
+    // clip as mono float samples at the audio encoder sample rate.
+    const float *   ref_spk;
+    const int32_t * ref_tokens;
+    size_t          n_ref_tokens;
+    const float *   ref_pcm;
+    size_t          n_ref_pcm;
 };
 struct mtmd_gen_out {
     // note: output memory is allocated by the context, valid until next process() call
@@ -368,6 +401,9 @@ struct mtmd_gen_out {
     size_t n_codes;
     const float * embd; // the generated hidden state, to be fed back to backbone
                         // it must have n_text_embd elements
+    // for MTMD_GEN_PROCESS_TYPE_SPEAKER_COND: embd holds the conditioning
+    // rows and n_embd their total element count
+    size_t n_embd;
 
     // for MTMD_GEN_PROCESS_TYPE_CODE2WAV
     const float * audio;
