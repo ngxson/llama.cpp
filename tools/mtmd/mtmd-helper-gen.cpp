@@ -502,14 +502,25 @@ public:
         // tokens (language tag left to the caller), turbo applies punc_norm
         std::string txt(inp->prompt, inp->prompt_len);
         if (mtl) {
+            // lowercase matches the reference .lower() on the latin-1 range:
+            // ascii letters plus the accented uppercase (utf-8 c3 80..c3 9e
+            // maps to c3 a0..c3 be, the multiplication sign c3 97 excepted)
             std::string norm;
-            for (char c : txt) {
+            for (size_t i = 0; i < txt.size(); i++) {
+                const unsigned char c = (unsigned char) txt[i];
                 if (c == ' ') {
                     norm += "[SPACE]";
                 } else if (c >= 'A' && c <= 'Z') {
                     norm += (char) (c - 'A' + 'a');
+                } else if (c == 0xC3 && i + 1 < txt.size()
+                           && (unsigned char) txt[i + 1] >= 0x80
+                           && (unsigned char) txt[i + 1] <= 0x9E
+                           && (unsigned char) txt[i + 1] != 0x97) {
+                    norm += (char) 0xC3;
+                    norm += (char) ((unsigned char) txt[i + 1] + 0x20);
+                    i++;
                 } else {
-                    norm += c;
+                    norm += (char) c;
                 }
             }
             txt = norm;

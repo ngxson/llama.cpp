@@ -163,16 +163,31 @@ class ChatterboxTalkerModel(TextModel):
         self.gguf_writer.add_add_eos_token(False)
 
     def _set_vocab_mtl(self):
-        # custom multilingual BPE (mtl_tokenizer.json), extended with the speech tokens
+        # custom multilingual BPE (mtl_tokenizer.json), extended with the speech
+        # tokens. the reference tokenizer is char-level (raw unicode chars in
+        # the vocab), while the gpt2 tokenizer of llama.cpp is byte-level: the
+        # vocab and merges are re-encoded through the gpt2 byte-to-unicode map,
+        # and synthetic merges rebuild each multi-byte char from its bytes so
+        # that the byte-level closure reproduces the char-level tokenization
         with open(self.dir_model / "mtl_tokenizer.json", "r", encoding="utf-8") as f:
             tok = json.load(f)
+
+        byte_map = gguf.vocab.bytes_to_unicode()
+
+        def enc(s: str) -> str:
+            return "".join(byte_map[b] for b in s.encode("utf-8"))
 
         n_text = self.hparams["vocab_size"]
         tokens: list[str] = [f"[unused_{i}]" for i in range(n_text)]
         toktypes = [int(gguf.TokenType.UNUSED)] * n_text
+        char_merges: list[str] = []
         for t, i in tok["model"]["vocab"].items():
-            tokens[i] = t
+            tokens[i] = enc(t)
             toktypes[i] = int(gguf.TokenType.NORMAL)
+            if len(t) == 1 and len(t.encode("utf-8")) > 1:
+                parts = [byte_map[b] for b in t.encode("utf-8")]
+                for k in range(1, len(parts)):
+                    char_merges.append("".join(parts[:k]) + " " + parts[k])
         for entry in tok.get("added_tokens", []):
             tokens[entry["id"]] = entry["content"]
             toktypes[entry["id"]] = int(gguf.TokenType.CONTROL)
@@ -181,7 +196,12 @@ class ChatterboxTalkerModel(TextModel):
         tokens += self._speech_token_names(n_speech)
         toktypes += [int(gguf.TokenType.CONTROL)] * n_speech
 
-        merges = [" ".join(m) if isinstance(m, list) else m for m in tok["model"].get("merges", [])]
+        # char-building merges rank first: chars are atomic in the reference,
+        # they must form before any of its merges apply
+        merges = char_merges
+        for m in tok["model"].get("merges", []):
+            a, b = m if isinstance(m, list) else m.split(" ")
+            merges.append(enc(a) + " " + enc(b))
 
         self.gguf_writer.add_tokenizer_model("gpt2")
         self.gguf_writer.add_tokenizer_pre("default")
