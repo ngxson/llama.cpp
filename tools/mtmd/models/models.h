@@ -151,6 +151,15 @@ struct clip_graph_conformer : clip_graph {
     ggml_cgraph * build() override;
 };
 
+// chatterbox helpers shared between the gen and spkenc graphs
+// (defined in chatterbox-gen.cpp)
+ggml_tensor * cbx_t(const clip_model & model, const std::string & name);
+ggml_tensor * cbx_linear(ggml_context * ctx0, ggml_tensor * w, ggml_tensor * b, ggml_tensor * x);
+ggml_tensor * cbx_conv1d(ggml_context * ctx0, ggml_tensor * k, ggml_tensor * b, ggml_tensor * x,
+                         int stride, int pad_l, int pad_r);
+ggml_tensor * cbx_conv1d_dil(ggml_context * ctx0, ggml_tensor * k, ggml_tensor * b, ggml_tensor * x,
+                             int pad, int dil);
+
 struct clip_graph_chatterbox_spkenc : clip_graph {
     clip_graph_chatterbox_spkenc(clip_ctx * ctx, const clip_image_f32 & img) : clip_graph(ctx, img) {}
     ggml_cgraph * build() override;
