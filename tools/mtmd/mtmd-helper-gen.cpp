@@ -560,7 +560,10 @@ public:
                 memcpy(embd_buf.data() + (text0 + i) * (size_t) n_e, u.data(), (size_t) n_e * sizeof(float));
             }
             decode_embd_batch batch_uncond(embd_buf.data(), n_prompt, 1, n_e);
-            batch_uncond.set_position_normal(0, 1);
+            // the uncond branch runs in the paired sequence half a seq space
+            // away from the cond one (slot i pairs with n_seq_max / 2 + i)
+            const llama_seq_id seq_uncond = (llama_seq_id) (llama_n_seq_max(lctx) / 2);
+            batch_uncond.set_position_normal(0, seq_uncond);
             batch_uncond.batch.logits[n_prompt - 1] = 1;
             if (llama_decode(lctx, batch_uncond.batch) != 0) {
                 LOG_ERR("mtmd_helper_gen_audio: cfg prefill decode failed\n");
@@ -603,7 +606,8 @@ public:
             std::vector<float> cond_logits;
             cfg_read(cond_logits);
             decode_embd_batch batch_uncond(e.data(), 1, 1, n_embd);
-            batch_uncond.set_position_normal(pos, 1);
+            const llama_seq_id seq_uncond = (llama_seq_id) (llama_n_seq_max(lctx) / 2);
+            batch_uncond.set_position_normal(pos, seq_uncond);
             batch_uncond.batch.logits[0] = 1;
             if (llama_decode(lctx, batch_uncond.batch) != 0) {
                 LOG_ERR("mtmd_helper_gen_audio: cfg step decode failed\n");

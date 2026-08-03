@@ -66,12 +66,11 @@ int main(int argc, char ** argv) {
     // always enable embd, so that we can pass hidden states to the audio generation helper
     params.embedding = true;
 
-    // provision a second sequence for pipelines that decode a cfg pair,
-    // scaling the context so the per-sequence window keeps the requested size
-    if (params.n_parallel < 2) {
-        params.n_parallel = 2;
-        params.n_ctx *= 2;
-    }
+    // provision the cfg pair sequences for pipelines that decode one: each
+    // slot i pairs with the uncond sequence n_parallel + i, and the unified
+    // kv cache shares the window across sequences instead of splitting it
+    params.n_parallel *= 2;
+    params.kv_unified  = true;
 
     llama_backend_init();
     llama_numa_init(params.numa);
