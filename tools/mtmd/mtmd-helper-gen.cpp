@@ -501,70 +501,10 @@ public:
             }
         }
 
-        // text preprocessing per variant: multilingual lowercases with [SPACE]
-        // tokens (language tag left to the caller), turbo applies punc_norm
-        std::string txt(inp->prompt, inp->prompt_len);
-        if (mtl) {
-            // lowercase matches the reference .lower() on the latin-1 range:
-            // ascii letters plus the accented uppercase (utf-8 c3 80..c3 9e
-            // maps to c3 a0..c3 be, the multiplication sign c3 97 excepted)
-            std::string norm;
-            for (size_t i = 0; i < txt.size(); i++) {
-                const unsigned char c = (unsigned char) txt[i];
-                if (c == ' ') {
-                    norm += "[SPACE]";
-                } else if (c >= 'A' && c <= 'Z') {
-                    norm += (char) (c - 'A' + 'a');
-                } else if (c == 0xC3 && i + 1 < txt.size()
-                           && (unsigned char) txt[i + 1] >= 0x80
-                           && (unsigned char) txt[i + 1] <= 0x9E
-                           && (unsigned char) txt[i + 1] != 0x97) {
-                    norm += (char) 0xC3;
-                    norm += (char) ((unsigned char) txt[i + 1] + 0x20);
-                    i++;
-                } else {
-                    norm += (char) c;
-                }
-            }
-            txt = norm;
-        } else if (!txt.empty()) {
-            if (txt[0] >= 'a' && txt[0] <= 'z') {
-                txt[0] = (char) (txt[0] - 'a' + 'A');
-            }
-            std::string norm;
-            for (char c : txt) {
-                if (c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-                    if (!norm.empty() && norm.back() != ' ') {
-                        norm += ' ';
-                    }
-                } else {
-                    norm += c;
-                }
-            }
-            auto replace_all = [&norm](const char * from, const char * to) {
-                const size_t nf = strlen(from);
-                const size_t nt = strlen(to);
-                for (size_t p = 0; (p = norm.find(from, p)) != std::string::npos; p += nt) {
-                    norm.replace(p, nf, to);
-                }
-            };
-            replace_all("\xE2\x80\xA6", ", "); // ellipsis
-            replace_all(":",            ",");
-            replace_all("\xE2\x80\x94", "-");  // em dash
-            replace_all("\xE2\x80\x93", "-");  // en dash
-            replace_all(" ,",           ",");
-            replace_all("\xE2\x80\x9C", "\""); // curly double quotes
-            replace_all("\xE2\x80\x9D", "\"");
-            replace_all("\xE2\x80\x98", "'");  // curly single quotes
-            replace_all("\xE2\x80\x99", "'");
-            while (!norm.empty() && norm.back() == ' ') {
-                norm.pop_back();
-            }
-            if (!norm.empty() && strchr(".!?-,", norm.back()) == nullptr) {
-                norm += '.';
-            }
-            txt = norm;
-        }
+        // the raw prompt goes straight to the tokenizer: the multilingual
+        // vocab carries the [SPACE] substitution and the case folding lives
+        // in the embedding table, both baked in at conversion
+        const std::string txt(inp->prompt, inp->prompt_len);
         std::vector<llama_token> ids(txt.size() + 16);
         int n_ids = llama_tokenize(vocab, txt.c_str(), (int32_t) txt.size(), ids.data(), (int32_t) ids.size(),
                                    false, true);

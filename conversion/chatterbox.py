@@ -174,7 +174,11 @@ class ChatterboxTalkerModel(TextModel):
         # the vocab), while the gpt2 tokenizer of llama.cpp is byte-level: the
         # vocab and merges are re-encoded through the gpt2 byte-to-unicode map,
         # and synthetic merges rebuild each multi-byte char from its bytes so
-        # that the byte-level closure reproduces the char-level tokenization
+        # that the byte-level closure reproduces the char-level tokenization.
+        # the reference also lowercases and NFKD-normalizes its input; this
+        # port keeps composed characters (they live in the vocab with merges)
+        # and folds case in the embedding table instead, so the raw prompt
+        # needs no runtime text preprocessing at all
         with open(self.dir_model / "mtl_tokenizer.json", "r", encoding="utf-8") as f:
             tok = json.load(f)
 
@@ -188,6 +192,10 @@ class ChatterboxTalkerModel(TextModel):
         toktypes = [int(gguf.TokenType.UNUSED)] * n_text
         char_merges: list[str] = []
         for t, i in tok["model"]["vocab"].items():
+            if t == " ":
+                # the raw space char is a dead token (the reference substitutes
+                # [SPACE] before encoding), its slot stays unused
+                continue
             tokens[i] = enc(t)
             toktypes[i] = int(gguf.TokenType.NORMAL)
             if len(t) == 1 and len(t.encode("utf-8")) > 1:
@@ -197,6 +205,13 @@ class ChatterboxTalkerModel(TextModel):
         for entry in tok.get("added_tokens", []):
             tokens[entry["id"]] = entry["content"]
             toktypes[entry["id"]] = int(gguf.TokenType.CONTROL)
+
+        # the reference replaces ' ' with the [SPACE] token before encoding:
+        # that substitution is baked into the vocab by giving the [SPACE] slot
+        # the byte-level space as content, so raw spaces tokenize to it directly
+        space_id = tok["model"]["vocab"]["[SPACE]"]
+        tokens[space_id] = enc(" ")
+        toktypes[space_id] = int(gguf.TokenType.NORMAL)
 
         n_speech = self.hparams["speech_vocab_size"]
         tokens += self._speech_token_names(n_speech)
@@ -223,6 +238,21 @@ class ChatterboxTalkerModel(TextModel):
         # the reference samples the speech head only: suppress the text zone
         # so the sampling chain can never pick a text token
         self.gguf_writer.add_suppress_tokens(list(range(n_text)))
+
+    def _mtl_case_fold_pairs(self) -> list[tuple[int, int]]:
+        # single-char uppercase vocab entries whose lowercase form is also a
+        # single-char vocab entry, as (upper_id, lower_id) pairs. covers every
+        # script in the vocab (latin, latin-1 accented, cyrillic, greek, ...)
+        with open(self.dir_model / "mtl_tokenizer.json", "r", encoding="utf-8") as f:
+            vocab = json.load(f)["model"]["vocab"]
+        pairs: list[tuple[int, int]] = []
+        for t, i in vocab.items():
+            if len(t) != 1:
+                continue
+            low = t.lower()
+            if low != t and len(low) == 1 and low in vocab:
+                pairs.append((i, vocab[low]))
+        return pairs
 
     def set_gguf_parameters(self):
         if self.is_turbo:
@@ -301,6 +331,14 @@ class ChatterboxTalkerModel(TextModel):
             return
         # fused [text | speech] vocab: embeddings and output head
         if name == "text_emb.weight":
+            if not self.is_turbo:
+                # case folding baked into the embedding table: uppercase rows
+                # are replaced by their lowercase rows (the reference lowercases
+                # before encoding, so the uppercase rows are never trained)
+                fold = list(range(data_torch.shape[0]))
+                for upper, lower in self._mtl_case_fold_pairs():
+                    fold[upper] = lower
+                data_torch = data_torch[torch.tensor(fold)]
             self._text_embd = data_torch
             yield from self._maybe_emit_fused()
             return
