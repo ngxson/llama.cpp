@@ -303,7 +303,7 @@ MTMD_API float * mtmd_get_output_embd(mtmd_context * ctx);
 enum mtmd_embd_out_type {
     MTMD_EMBD_OUT_TYPE_REF_CODES, // speech codes of the reference clip
     MTMD_EMBD_OUT_TYPE_REF_FEAT,  // mel-rate features of the reference clip
-    MTMD_EMBD_OUT_TYPE_REF_SPK,   // speaker vector of the reference clip
+    MTMD_EMBD_OUT_TYPE_REF_SPK,   // raw x-vector of the reference clip
 };
 MTMD_API const float * mtmd_get_output_typed_embd(mtmd_context * ctx,
                                                   enum mtmd_embd_out_type type,

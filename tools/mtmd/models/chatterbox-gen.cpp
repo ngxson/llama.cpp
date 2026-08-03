@@ -436,9 +436,16 @@ ggml_cgraph * clip_graph_chatterbox::build() {
     ggml_tensor * zc = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, 80, T2 - n_prompt_mel);
     zc = ggml_scale(ctx0, zc, 0.0f);
     ggml_tensor * cond = ggml_concat(ctx0, pf, zc, 1); // [80, T2]
-    ggml_tensor * spks = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, 80);
-    ggml_set_name(spks, "inp_spk");
-    ggml_set_input(spks);
+    // raw 192-dim campplus x-vector from the speaker encoder or the
+    // precomputed default, normalized then through the flow speaker affine
+    ggml_tensor * xvec = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, 192);
+    ggml_set_name(xvec, "inp_xvec");
+    ggml_set_input(xvec);
+    ggml_tensor * n2 = ggml_sqrt(ctx0, ggml_sum(ctx0, ggml_mul(ctx0, xvec, xvec)));
+    ggml_tensor * unit = ggml_div(ctx0, xvec, n2);
+    ggml_tensor * spks = cbx_linear(c.spk_affine_w, c.spk_affine_b,
+                                    ggml_reshape_2d(ctx0, unit, 192, 1));
+    spks = ggml_cont(ctx0, ggml_reshape_1d(ctx0, spks, 80));
 
     const float cfg = 0.7f;
     ggml_tensor * mu_zero   = meanflow ? nullptr : ggml_scale(ctx0, mu, 0.0f);

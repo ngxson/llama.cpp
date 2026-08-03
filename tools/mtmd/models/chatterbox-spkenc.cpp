@@ -1,7 +1,7 @@
 #include "models.h"
 
 // Chatterbox speaker encoder: CAMPPlus x-vector on kaldi fbank features,
-// projected through the s3gen speaker affine. Mirrors s3gen/xvector.py.
+// output raw. Mirrors s3gen/xvector.py.
 
 // per-channel batchnorm on x [C, T]; scale = w / sqrt(var + eps), shift folds
 // the running mean. w/b stay null on the affine=False variant
@@ -147,22 +147,15 @@ ggml_cgraph * clip_graph_chatterbox_spkenc::build() {
                                             ggml_cont(ctx0, ggml_transpose(ctx0, sd)), 0); // [1024, 1]
     cb(stats, "spk_stats_pool", -1);
 
-    // dense 1024 -> 192, batchnorm without affine, into the x-vector
+    // dense 1024 -> 192, batchnorm without affine, into the raw x-vector:
+    // normalization and the s3gen speaker affine belong to the code2wav graph
     ggml_tensor * dw = ggml_reshape_2d(ctx0, c.spk_dense_w, 1024, 192);
     ggml_tensor * emb = ggml_mul_mat(ctx0, dw, stats);                           // [192, 1]
     emb = bn1d(c.spk_dense_bn, emb, eps);
-    emb = ggml_reshape_1d(ctx0, emb, 192);
+    emb = ggml_cont(ctx0, ggml_reshape_1d(ctx0, emb, 192));
+    cb(emb, "spk_embd", -1);
     ggml_set_name(emb, "out_xvec");
     ggml_set_output(emb);
     ggml_build_forward_expand(gf, emb);
-
-    // normalize then the s3gen speaker affine
-    ggml_tensor * n2 = ggml_sqrt(ctx0, ggml_sum(ctx0, ggml_mul(ctx0, emb, emb)));
-    ggml_tensor * unit = ggml_div(ctx0, emb, n2);
-    ggml_tensor * spk80 = cbx_linear(c.spk_affine_w, c.spk_affine_b,
-                                     ggml_reshape_2d(ctx0, unit, 192, 1));
-    spk80 = ggml_cont(ctx0, ggml_reshape_1d(ctx0, spk80, 80));
-    cb(spk80, "spk_embd", -1);
-    ggml_build_forward_expand(gf, spk80);
     return gf;
 }

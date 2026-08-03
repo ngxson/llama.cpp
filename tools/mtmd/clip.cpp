@@ -2952,6 +2952,8 @@ struct clip_model_loader {
 
                     // flow encoder
                     c.input_embedding_w = get_tensor("a.gen.flow.input_embedding.weight");
+                    c.spk_affine_w      = get_tensor("a.gen.flow.spk_embed_affine_layer.weight");
+                    c.spk_affine_b      = get_tensor("a.gen.flow.spk_embed_affine_layer.bias");
                     c.embed_linear_w    = get_tensor("a.gen.fenc.embed.out.0.weight");
                     c.embed_linear_b    = get_tensor("a.gen.fenc.embed.out.0.bias");
                     c.embed_norm_w      = get_tensor("a.gen.fenc.embed.out.1.weight");
@@ -3123,21 +3125,16 @@ struct clip_model_loader {
                     load_bn("a.spk.xvector.out_nonlinear.batchnorm", c.spk_out_bn);
                     c.spk_dense_w = get_tensor("a.spk.xvector.dense.linear.weight");
                     load_bn("a.spk.xvector.dense.nonlinear.batchnorm", c.spk_dense_bn);
-                    c.spk_affine_w = get_tensor("a.spk_embed_affine_layer.weight");
-                    c.spk_affine_b = get_tensor("a.spk_embed_affine_layer.bias");
 
                     // host-read side data, accessed by name through
                     // clip_cbx_read_tensor: voice encoder lstm, conditioning
-                    // encoder, speaker affine interface dim
+                    // encoder
                     for (ggml_tensor * t = ggml_get_first_tensor(ctx_meta.get()); t; t = ggml_get_next_tensor(ctx_meta.get(), t)) {
                         const std::string name = t->name;
                         if (name.rfind("a.ve.", 0) == 0 || name.rfind("a.cenc.", 0) == 0) {
                             model.cbx_tensors[name] = get_tensor(name);
                         }
                     }
-                    // the affine bias doubles as the host-side presence and
-                    // dimension probe of the speaker encoder
-                    model.cbx_tensors["a.spk_embed_affine_layer.bias"] = c.spk_affine_b;
                 } break;
             case PROJECTOR_TYPE_VOXTRAL:
                 {
@@ -5130,12 +5127,12 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                     set_input_f32("inp_prompt_feat", feat);
                 }
                 if (params->ref_spk) {
-                    set_input_f32("inp_spk", *params->ref_spk);
+                    set_input_f32("inp_xvec", *params->ref_spk);
                 } else {
-                    ggml_tensor * sp = model.cbx_tensors.at("a.gen.cond.gen_spk80");
+                    ggml_tensor * sp = model.cbx_tensors.at("a.gen.cond.gen_embedding");
                     std::vector<float> spk(ggml_nelements(sp));
                     ggml_backend_tensor_get(sp, spk.data(), 0, ggml_nbytes(sp));
-                    set_input_f32("inp_spk", spk);
+                    set_input_f32("inp_xvec", spk);
                 }
 
                 // espnet relative positional encoding, entry k holds the

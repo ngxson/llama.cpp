@@ -411,12 +411,9 @@ class ChatterboxMmprojModel(MmprojModel):
             ):
                 if name.startswith(src):
                     return dst + name[len(src):]
-            # the affine closes the speaker encoding chain, the rest of the
-            # flow module belongs to the generation stage
-            if name.startswith("flow.spk_embed_affine_layer."):
-                return "a." + name[len("flow."):]
             if name.startswith("flow."):
-                return "a.gen." + name  # input_embedding, encoder_proj
+                # input_embedding, encoder_proj, spk_embed_affine_layer
+                return "a.gen." + name
             return None
 
         def rename_ve(name: str) -> str | None:
@@ -527,14 +524,9 @@ class ChatterboxMmprojModel(MmprojModel):
         # default voice: precomputed s3gen conditioning from conds.pt
         yield ("a.gen.cond.gen_prompt_token", genc["prompt_token"][0].to(torch.int32))
         yield ("a.gen.cond.gen_prompt_feat", genc["prompt_feat"][0].float())
-        # the 80-dim flow speaker vector: spk_embed_affine_layer(normalize(campplus))
-        with gguf.utility.SafetensorsLocal(self.dir_model / (TURBO_S3GEN if self.is_turbo else MTL_S3GEN)) as parts:
-            aw = parts["flow.spk_embed_affine_layer.weight"]
-            ab = parts["flow.spk_embed_affine_layer.bias"]
-            affine_w = torch.from_numpy(aw.mmap_bytes()).view(LazyTorchTensor._dtype_str_map[aw.dtype]).reshape(aw.shape).float()
-            affine_b = torch.from_numpy(ab.mmap_bytes()).view(LazyTorchTensor._dtype_str_map[ab.dtype]).reshape(ab.shape).float()
-        emb = F.normalize(genc["embedding"][0].float(), dim=0)
-        yield ("a.gen.cond.gen_spk80", affine_w @ emb + affine_b)
+        # raw 192-dim campplus x-vector of the default voice: normalization
+        # and the flow speaker affine run inside the code2wav graph
+        yield ("a.gen.cond.gen_embedding", genc["embedding"][0].float())
 
         spkr_w = talker_tensor("cond_enc.spkr_enc.weight").float()
         spkr_b = talker_tensor("cond_enc.spkr_enc.bias").float()

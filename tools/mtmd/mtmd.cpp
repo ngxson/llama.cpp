@@ -1700,11 +1700,10 @@ size_t mtmd_gen_audio_read_tensor(mtmd_context * ctx, const char * name, float *
     return clip_cbx_read_tensor(ctx->ctx_gen_a, name, out, n_max);
 }
 
-// 80-dim flow speaker vector of the reference clip: the precomputed fbank
+// raw 192-dim campplus x-vector of the reference clip: the precomputed fbank
 // entry through the CAMPPlus graph of the speaker encoding context
-static bool cbx_ref_spk80(mtmd_context * ctx, const clip_image_f32 & fbank, std::vector<float> & spk80) {
-    const size_t n = clip_cbx_read_tensor(ctx->ctx_a, "a.spk_embed_affine_layer.bias", nullptr, 0);
-    if (n == 0) {
+static bool cbx_ref_xvec(mtmd_context * ctx, const clip_image_f32 & fbank, std::vector<float> & xvec) {
+    if (!ctx->ctx_a || clip_get_projector_type(ctx->ctx_a) != PROJECTOR_TYPE_CHATTERBOX_SPKENC) {
         LOG_ERR("%s: mmproj has no speaker encoder\n", __func__);
         return false;
     }
@@ -1714,8 +1713,8 @@ static bool cbx_ref_spk80(mtmd_context * ctx, const clip_image_f32 & fbank, std:
     clip_image_f32_batch batch;
     batch.is_audio = true;
     batch.entries.push_back(std::move(mel_img));
-    spk80.resize(n);
-    if (!clip_image_batch_encode(ctx->ctx_a, ctx->n_threads, &batch, spk80)) {
+    xvec.resize(192);
+    if (!clip_image_batch_encode(ctx->ctx_a, ctx->n_threads, &batch, xvec)) {
         LOG_ERR("%s: speaker encoder failed\n", __func__);
         return false;
     }
@@ -2011,8 +2010,8 @@ static int32_t cbx_ref_encode(mtmd_context * ctx, const mtmd_audio_tokens * audi
     const auto & entries = audio_tokens->batch_f32.entries;
     GGML_ASSERT(entries.size() == 5);
 
-    std::vector<float> spk80;
-    if (!cbx_ref_spk80(ctx, entries[0], spk80)) {
+    std::vector<float> xvec;
+    if (!cbx_ref_xvec(ctx, entries[0], xvec)) {
         return 1;
     }
 
@@ -2049,7 +2048,7 @@ static int32_t cbx_ref_encode(mtmd_context * ctx, const mtmd_audio_tokens * audi
     ctx->gen_out_ref_codes.assign(flow_codes.begin(), flow_codes.end());
     ctx->gen_out_ref_feat.assign(entries[3].get_ro_buf().begin(),
                                  entries[3].get_ro_buf().begin() + n_feat);
-    ctx->gen_out_ref_spk = std::move(spk80);
+    ctx->gen_out_ref_spk = std::move(xvec);
 
     out_embd = std::move(rows);
     return 0;
@@ -2111,7 +2110,7 @@ static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_in
         std::vector<float>   out_audio;
 
         // optional voice cloning reference from the encoded reference chunk:
-        // flow prompt codes, mel-rate prompt features, 80-dim speaker vector;
+        // flow prompt codes, mel-rate prompt features, raw x-vector;
         // all null selects the model's precomputed default voice
         std::vector<int32_t> ref_tokens;
         std::vector<float>   ref_feat;
