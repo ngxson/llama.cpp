@@ -37,6 +37,7 @@ TEXT_MODEL_MAP: dict[str, str] = {
     "BloomModel": "bloom",
     "CamembertModel": "bert",
     "ChameleonForCausalLM": "chameleon",
+    "ChatterboxModel": "chatterbox",
     "ChameleonForConditionalGeneration": "chameleon",
     "ChatGLMForConditionalGeneration": "chatglm",
     "ChatGLMModel": "chatglm",
@@ -260,6 +261,7 @@ TEXT_MODEL_MAP: dict[str, str] = {
 
 
 MMPROJ_MODEL_MAP: dict[str, str] = {
+    "ChatterboxModel": "chatterbox",
     "AudioFlamingo3ForConditionalGeneration": "ultravox",
     "CogVLMForCausalLM": "cogvlm",
     "DeepseekOCR2ForCausalLM": "deepseek",

@@ -27,6 +27,8 @@ add_library(mtmd
             clip-model.h
             clip-graph.h
             models/models.h
+            models/chatterbox-gen.cpp
+            models/chatterbox-spkenc.cpp
             models/cogvlm.cpp
             models/conformer.cpp
             models/dotsocr.cpp

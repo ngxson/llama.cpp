@@ -91,6 +91,40 @@ public:
     virtual int32_t get_output(int32_t * out_sample_rate, const char ** out_data, size_t * out_data_len, int64_t * out_n_samples) = 0;
 
 protected:
+    // encodes a speaker reference clip through the standard audio path:
+    // bitmap to chunks to chunk encode, out receives the encoder embeddings
+    bool encode_speaker(mtmd_bitmap * bitmap, std::vector<float> & out) {
+        if (!mtmd_support_audio(mctx)) {
+            LOG_ERR("mtmd_helper_gen_audio: mmproj has no speaker/audio encoder\n");
+            return false;
+        }
+        const std::string  marker = mtmd_default_marker();
+        mtmd_input_text     text{ marker.c_str(), marker.size(), false, true };
+        mtmd_input_chunks * chunks = mtmd_input_chunks_init();
+        const mtmd_bitmap * bptr = bitmap;
+        bool ok = mtmd_tokenize(mctx, chunks, &text, &bptr, 1) == 0;
+        if (ok) {
+            ok = false;
+            for (size_t i = 0; i < mtmd_input_chunks_size(chunks); i++) {
+                const mtmd_input_chunk * chunk = mtmd_input_chunks_get(chunks, i);
+                if (mtmd_input_chunk_get_type(chunk) != MTMD_INPUT_CHUNK_TYPE_AUDIO) {
+                    continue;
+                }
+                if (mtmd_encode_chunk(mctx, chunk) != 0) {
+                    LOG_ERR("mtmd_helper_gen_audio: speaker encode failed\n");
+                    break;
+                }
+                const float * embd = mtmd_get_output_embd(mctx);
+                const size_t  n = (size_t) llama_model_n_embd_inp(model) * mtmd_input_chunk_get_n_tokens(chunk);
+                out.assign(embd, embd + n);
+                ok = true;
+                break;
+            }
+        }
+        mtmd_input_chunks_free(chunks);
+        return ok;
+    }
+
     llama_context * lctx;
     mtmd_context  * mctx;
     const llama_model * model;
@@ -325,38 +359,6 @@ private:
 
     // encodes a reference wav (already loaded as a bitmap) through the mmproj's
     // speaker encoder, returning the single x-vector embedding row it produces
-    bool encode_speaker(mtmd_bitmap * bitmap, std::vector<float> & out) {
-        if (!mtmd_support_audio(mctx)) {
-            LOG_ERR("mtmd_helper_gen_audio: mmproj has no speaker/audio encoder\n");
-            return false;
-        }
-        const std::string  marker = mtmd_default_marker();
-        mtmd_input_text     text{ marker.c_str(), marker.size(), false, true };
-        mtmd_input_chunks * chunks = mtmd_input_chunks_init();
-        const mtmd_bitmap * bptr = bitmap;
-        bool ok = mtmd_tokenize(mctx, chunks, &text, &bptr, 1) == 0;
-        if (ok) {
-            ok = false;
-            for (size_t i = 0; i < mtmd_input_chunks_size(chunks); i++) {
-                const mtmd_input_chunk * chunk = mtmd_input_chunks_get(chunks, i);
-                if (mtmd_input_chunk_get_type(chunk) != MTMD_INPUT_CHUNK_TYPE_AUDIO) {
-                    continue;
-                }
-                if (mtmd_encode_chunk(mctx, chunk) != 0) {
-                    LOG_ERR("mtmd_helper_gen_audio: speaker encode failed\n");
-                    break;
-                }
-                const float * embd = mtmd_get_output_embd(mctx);
-                const size_t  n = (size_t) llama_model_n_embd_inp(model) * mtmd_input_chunk_get_n_tokens(chunk);
-                out.assign(embd, embd + n);
-                ok = true;
-                break;
-            }
-        }
-        mtmd_input_chunks_free(chunks);
-        return ok;
-    }
-
     // runs one CODE2WAV process() call on whatever is currently buffered, carrying
     // the persisted state (KV cache + conv left-context) across batches
     bool flush_c2w() {
@@ -413,10 +415,387 @@ private:
     std::vector<char> out_buf;
 };
 
+
+// Chatterbox: single-track discrete AR (the backbone emits the s3 speech tokens
+// directly) into a one-shot flow-matching mel decode and NSF-iSTFT vocoder.
+// The prompt is pure embedding concat [spkr, cond speech, text, speech bos],
+// positions are handled by the backbone (gpt2 wpe / llama learned pos).
+class chatterbox_gen_audio_pipeline : public mtmd_gen_audio_pipeline {
+public:
+    using mtmd_gen_audio_pipeline::mtmd_gen_audio_pipeline;
+
+    void reset() override {
+        pos = 0;
+        ar_idx = 0;
+        codes_buf.clear();
+        audio_pcm.clear();
+        h_state_buf.clear();
+        out_buf.clear();
+        ref_cond.clear();
+        ref_codes.clear();
+        ref_feat.clear();
+        ref_spk.clear();
+    }
+
+    int32_t set_input(const mtmd_helper_gen_audio_inp * inp) override {
+        reset();
+
+        if (!ensure_cache()) {
+            return 1;
+        }
+
+        if (inp->speaker_ref) {
+            // the reference clip goes through the standard audio encode path:
+            // the chunk encodes to the talker conditioning rows, the flow
+            // decoder reference comes back through the typed side outputs
+            if (!encode_speaker(inp->speaker_ref, ref_cond)) {
+                LOG_ERR("mtmd_helper_gen_audio: speaker reference encoding failed\n");
+                return 1;
+            }
+            size_t n = 0;
+            const float * p = mtmd_get_output_typed_embd(mctx, MTMD_EMBD_OUT_TYPE_REF_CODES, &n);
+            ref_codes.assign(p, p + n);
+            p = mtmd_get_output_typed_embd(mctx, MTMD_EMBD_OUT_TYPE_REF_FEAT, &n);
+            ref_feat.assign(p, p + n);
+            p = mtmd_get_output_typed_embd(mctx, MTMD_EMBD_OUT_TYPE_REF_SPK, &n);
+            ref_spk.assign(p, p + n);
+        }
+
+        const int n_e = n_embd;
+        auto row = [&](llama_token t) {
+            return std::vector<float>(tok_embd.begin() + (size_t) t * n_e,
+                                       tok_embd.begin() + (size_t) (t + 1) * n_e);
+        };
+        auto add_pos = [&](std::vector<float> & r, const std::vector<float> & tab, int idx) {
+            const float * p = tab.data() + (size_t) idx * n_e;
+            for (int j = 0; j < n_e; j++) {
+                r[(size_t) j] += p[j];
+            }
+        };
+        const bool mtl = !t3_cond.empty();
+
+        std::vector<std::vector<float>> prompt;
+
+        if (mtl) {
+            // conditioning: [spkr, perceiver, emotion] block, cloned from the
+            // reference clip when present, precomputed default otherwise
+            const auto & cond = ref_cond.empty() ? t3_cond : ref_cond;
+            for (size_t i = 0; i < cond.size() / (size_t) n_e; i++) {
+                prompt.emplace_back(cond.begin() + i * (size_t) n_e, cond.begin() + (i + 1) * (size_t) n_e);
+            }
+        } else {
+            // conditioning rows: the reference block from the spk-ref stage,
+            // or the precomputed default speaker row followed by the
+            // table-resolved prompt ids
+            if (ref_cond.empty()) {
+                prompt.push_back(cond_spkr);
+                for (size_t i = 0; i < cond_speech_rows.size() / (size_t) n_e; i++) {
+                    prompt.emplace_back(cond_speech_rows.begin() + i * (size_t) n_e,
+                                        cond_speech_rows.begin() + (i + 1) * (size_t) n_e);
+                }
+            } else {
+                for (size_t i = 0; i < ref_cond.size() / (size_t) n_e; i++) {
+                    prompt.emplace_back(ref_cond.begin() + i * (size_t) n_e,
+                                        ref_cond.begin() + (i + 1) * (size_t) n_e);
+                }
+            }
+        }
+
+        // the raw prompt goes straight to the tokenizer: the multilingual
+        // vocab carries the [SPACE] substitution and the case folding lives
+        // in the embedding table, both baked in at conversion
+        const std::string txt(inp->prompt, inp->prompt_len);
+        std::vector<llama_token> ids(txt.size() + 16);
+        int n_ids = llama_tokenize(vocab, txt.c_str(), (int32_t) txt.size(), ids.data(), (int32_t) ids.size(),
+                                   false, true);
+        if (n_ids < 1) {
+            LOG_ERR("mtmd_helper_gen_audio: tokenization failed\n");
+            return 1;
+        }
+        ids.resize((size_t) n_ids);
+        if (mtl) {
+            // only the multilingual prompt wraps the text in start/stop tokens
+            ids.insert(ids.begin(), text_start);
+            ids.push_back(text_stop);
+        }
+        const size_t text0 = prompt.size();
+        for (size_t i = 0; i < ids.size(); i++) {
+            prompt.push_back(row(ids[i]));
+            if (mtl) {
+                add_pos(prompt.back(), text_pos, (int) i);
+            }
+        }
+
+        // speech bos opens the AR stream
+        prompt.push_back(row(llama_vocab_bos(vocab)));
+        if (mtl) {
+            add_pos(prompt.back(), speech_pos, 0);
+        }
+        ar_idx = 1;
+
+        const int n_prompt = (int) prompt.size();
+        std::vector<float> embd_buf((size_t) n_prompt * (size_t) n_e);
+        for (int i = 0; i < n_prompt; i++) {
+            memcpy(embd_buf.data() + (size_t) i * n_e, prompt[(size_t) i].data(), (size_t) n_e * sizeof(float));
+        }
+
+        decode_embd_batch batch_embd(embd_buf.data(), n_prompt, 1, n_e);
+        batch_embd.set_position_normal(0, 0);
+        batch_embd.batch.logits[n_prompt - 1] = 1;
+
+        if (llama_decode(lctx, batch_embd.batch) != 0) {
+            LOG_ERR("mtmd_helper_gen_audio: prefill decode failed\n");
+            return 1;
+        }
+
+        if (mtl) {
+            // cfg second sequence: the same prompt with the text embeddings
+            // zeroed, keeping their learned positions (reference prepares the
+            // uncond branch before the position add)
+            std::vector<float> cond_logits;
+            cfg_read(cond_logits);
+            for (size_t i = 0; i < ids.size(); i++) {
+                std::vector<float> u((size_t) n_e, 0.0f);
+                add_pos(u, text_pos, (int) i);
+                memcpy(embd_buf.data() + (text0 + i) * (size_t) n_e, u.data(), (size_t) n_e * sizeof(float));
+            }
+            decode_embd_batch batch_uncond(embd_buf.data(), n_prompt, 1, n_e);
+            // the uncond branch runs in the paired sequence half a seq space
+            // away from the cond one (slot i pairs with n_seq_max / 2 + i)
+            const llama_seq_id seq_uncond = (llama_seq_id) (llama_n_seq_max(lctx) / 2);
+            batch_uncond.set_position_normal(0, seq_uncond);
+            batch_uncond.batch.logits[n_prompt - 1] = 1;
+            if (llama_decode(lctx, batch_uncond.batch) != 0) {
+                LOG_ERR("mtmd_helper_gen_audio: cfg prefill decode failed\n");
+                return 1;
+            }
+            cfg_apply(cond_logits);
+        }
+
+        pos = n_prompt;
+        out_type = inp->out_type;
+        return 0;
+    }
+
+    int32_t step(llama_token sampled, const float * h_state_in, const float ** h_state_out) override {
+        GGML_UNUSED(h_state_in);
+
+        // keep only the 6561 s3gen codes, dropping start/stop and oov ids
+        if (sampled >= speech_base && sampled - speech_base < 6561) {
+            codes_buf.push_back(sampled - speech_base);
+        }
+
+        if (!t3_cond.empty()) {
+            // multilingual backbone reads embeddings with the learned speech
+            // position added on top of the token row
+            std::vector<float> e(tok_embd.begin() + (size_t) sampled * n_embd,
+                                 tok_embd.begin() + (size_t) (sampled + 1) * n_embd);
+            const float * p = speech_pos.data() + (size_t) ar_idx * n_embd;
+            for (int j = 0; j < n_embd; j++) {
+                e[(size_t) j] += p[j];
+            }
+            ar_idx++;
+            decode_embd_batch batch_embd(e.data(), 1, 1, n_embd);
+            batch_embd.set_position_normal(pos, 0);
+            batch_embd.batch.logits[0] = 1;
+            if (llama_decode(lctx, batch_embd.batch) != 0) {
+                LOG_ERR("mtmd_helper_gen_audio: step decode failed\n");
+                return 1;
+            }
+            // cfg second sequence: the sampled token feeds both branches
+            std::vector<float> cond_logits;
+            cfg_read(cond_logits);
+            decode_embd_batch batch_uncond(e.data(), 1, 1, n_embd);
+            const llama_seq_id seq_uncond = (llama_seq_id) (llama_n_seq_max(lctx) / 2);
+            batch_uncond.set_position_normal(pos, seq_uncond);
+            batch_uncond.batch.logits[0] = 1;
+            if (llama_decode(lctx, batch_uncond.batch) != 0) {
+                LOG_ERR("mtmd_helper_gen_audio: cfg step decode failed\n");
+                return 1;
+            }
+            cfg_apply(cond_logits);
+        } else {
+            llama_batch batch = llama_batch_get_one(&sampled, 1);
+            if (llama_decode(lctx, batch) != 0) {
+                LOG_ERR("mtmd_helper_gen_audio: step decode failed\n");
+                return 1;
+            }
+        }
+        pos++;
+
+        const float * h = llama_get_embeddings_ith(lctx, -1);
+        h_state_buf.assign(h, h + n_embd);
+        *h_state_out = h_state_buf.data();
+        return 0;
+    }
+
+    int32_t get_output(int32_t * out_sample_rate, const char ** out_data, size_t * out_data_len, int64_t * out_n_samples) override {
+        if (codes_buf.empty()) {
+            LOG_ERR("mtmd_helper_gen_audio: no speech tokens generated\n");
+            return 1;
+        }
+
+        if (t3_cond.empty()) {
+            // turbo appends a short silence tail before vocoding
+            codes_buf.insert(codes_buf.end(), 3, 4299);
+        }
+
+        mtmd_gen_inp gen_inp{};
+        gen_inp.type    = MTMD_GEN_PROCESS_TYPE_CODE2WAV;
+        gen_inp.codes   = codes_buf.data();
+        gen_inp.n_codes = codes_buf.size();
+        if (!ref_codes.empty()) {
+            gen_inp.ref_codes = ref_codes.data(); gen_inp.n_ref_codes = ref_codes.size();
+            gen_inp.ref_feat  = ref_feat.data();  gen_inp.n_ref_feat  = ref_feat.size();
+            gen_inp.ref_spk   = ref_spk.data();   gen_inp.n_ref_spk   = ref_spk.size();
+        }
+        mtmd_gen_out gen_out{};
+        if (mtmd_gen_audio_process(mctx, &gen_inp, &gen_out) != 0) {
+            LOG_ERR("mtmd_helper_gen_audio: code2wav decode failed\n");
+            return 1;
+        }
+        audio_pcm.assign(gen_out.audio, gen_out.audio + gen_out.n_samples);
+
+        *out_sample_rate = info.sample_rate;
+        *out_n_samples   = (int64_t) audio_pcm.size();
+        out_buf.clear();
+        if (out_type == MTMD_HELPER_GEN_AUDIO_OUTTYPE_WAV) {
+            write_wav16(out_buf, audio_pcm, info.sample_rate);
+        } else {
+            out_buf.resize(audio_pcm.size() * sizeof(float));
+            memcpy(out_buf.data(), audio_pcm.data(), out_buf.size());
+        }
+        *out_data     = out_buf.data();
+        *out_data_len = out_buf.size();
+        return 0;
+    }
+
+private:
+    // multilingual cfg, reference t3 combine: logits = cond + w * (cond - uncond)
+    // with the reference default weight 0.5. the cond row is saved after the
+    // first decode, the mix lands in the row the tool samples from (the last
+    // one with logits enabled, which the second decode produced)
+    void cfg_read(std::vector<float> & cond_logits) {
+        const float * c = llama_get_logits_ith(lctx, -1);
+        cond_logits.assign(c, c + llama_vocab_n_tokens(vocab));
+    }
+    void cfg_apply(const std::vector<float> & cond_logits) {
+        float * u = llama_get_logits_ith(lctx, -1);
+        for (size_t i = 0; i < cond_logits.size(); i++) {
+            u[i] = cond_logits[i] + 0.5f * (cond_logits[i] - u[i]);
+        }
+    }
+
+    bool ensure_cache() {
+        if (!tok_embd.empty()) {
+            return true;
+        }
+        // fused vocab layout: [text 0..speech_base) then the speech tokens
+        speech_base = find_special_token(vocab, "<|speech_0|>");
+        if (speech_base == LLAMA_TOKEN_NULL) {
+            LOG_ERR("mtmd_helper_gen_audio: fused speech tokens not found in vocab\n");
+            return false;
+        }
+        n_speech = llama_vocab_n_tokens(vocab) - speech_base;
+
+        // reference config: start_text_token = 255, stop_text_token = 0
+        // (only the multilingual prompt wraps the text with them)
+        text_start = 255;
+        text_stop  = 0;
+
+        const uint32_t n_tok_embd = llama_model_get_tok_embd(model, nullptr);
+        if (n_tok_embd != (uint32_t) llama_vocab_n_tokens(vocab) * (uint32_t) n_embd) {
+            LOG_ERR("mtmd_helper_gen_audio: unexpected token embedding size\n");
+            return false;
+        }
+        tok_embd.resize(n_tok_embd);
+        llama_model_get_tok_embd(model, tok_embd.data());
+
+        // multilingual variant: the mmproj ships a precomputed t3 conditioning
+        // block [spkr, perceiver, emotion] and the learned positional tables
+        // that the backbone needs added to its input embeddings
+        size_t n_t3 = mtmd_gen_audio_read_tensor(mctx, "a.gen.cond.t3_cond", nullptr, 0);
+        if (n_t3 > 0) {
+            t3_cond.resize(n_t3);
+            if (mtmd_gen_audio_read_tensor(mctx, "a.gen.cond.t3_cond", t3_cond.data(), n_t3) != n_t3 ||
+                n_t3 % (size_t) n_embd != 0) {
+                LOG_ERR("mtmd_helper_gen_audio: a.gen.cond.t3_cond read failed\n");
+                return false;
+            }
+            auto read_table = [&](const char * name, std::vector<float> & dst) {
+                size_t n = mtmd_gen_audio_read_tensor(mctx, name, nullptr, 0);
+                dst.resize(n);
+                if (n == 0 || mtmd_gen_audio_read_tensor(mctx, name, dst.data(), n) != n ||
+                    n % (size_t) n_embd != 0) {
+                    LOG_ERR("mtmd_helper_gen_audio: %s read failed\n", name);
+                    return false;
+                }
+                return true;
+            };
+            if (!read_table("a.gen.t3.text_pos_emb", text_pos) || !read_table("a.gen.t3.speech_pos_emb", speech_pos)) {
+                return false;
+            }
+            return true;
+        }
+
+        cond_spkr.resize((size_t) n_embd);
+        if (mtmd_gen_audio_read_tensor(mctx, "a.gen.cond.spkr_default", cond_spkr.data(), cond_spkr.size()) != (size_t) n_embd) {
+            LOG_ERR("mtmd_helper_gen_audio: a.gen.cond.spkr_default missing\n");
+            return false;
+        }
+        // resolve the precomputed conditioning ids through the speech
+        // embedding table shipped in the mmproj
+        size_t n_ct = mtmd_gen_audio_read_tensor(mctx, "a.gen.cond.prompt_speech_tokens", nullptr, 0);
+        std::vector<float> cond_ids(n_ct);
+        if (n_ct == 0 || mtmd_gen_audio_read_tensor(mctx, "a.gen.cond.prompt_speech_tokens", cond_ids.data(), n_ct) != n_ct) {
+            LOG_ERR("mtmd_helper_gen_audio: a.gen.cond.prompt_speech_tokens missing\n");
+            return false;
+        }
+        const size_t n_tab = mtmd_gen_audio_read_tensor(mctx, "a.gen.code.out_embd.weight", nullptr, 0);
+        std::vector<float> table(n_tab);
+        if (n_tab == 0 || n_tab % (size_t) n_embd != 0 ||
+            mtmd_gen_audio_read_tensor(mctx, "a.gen.code.out_embd.weight", table.data(), n_tab) != n_tab) {
+            LOG_ERR("mtmd_helper_gen_audio: a.gen.code.out_embd.weight read failed\n");
+            return false;
+        }
+        cond_speech_rows.resize(n_ct * (size_t) n_embd);
+        for (size_t i = 0; i < n_ct; i++) {
+            const size_t r = (size_t) cond_ids[i] * (size_t) n_embd;
+            memcpy(cond_speech_rows.data() + i * (size_t) n_embd, table.data() + r, (size_t) n_embd * sizeof(float));
+        }
+        return true;
+    }
+
+    std::vector<float> tok_embd;
+    std::vector<float> cond_spkr;
+    std::vector<float> cond_speech_rows; // default conditioning ids resolved through the mmproj speech table
+    std::vector<float> t3_cond;
+    std::vector<float> text_pos;
+    std::vector<float> speech_pos;
+    std::vector<float> ref_cond;
+    std::vector<float> ref_codes; // flow reference codes carried as exact float values
+    std::vector<float> ref_feat;
+    std::vector<float> ref_spk;
+    llama_token speech_base = LLAMA_TOKEN_NULL;
+    int n_speech = 0;
+    llama_token text_start = LLAMA_TOKEN_NULL;
+    llama_token text_stop  = LLAMA_TOKEN_NULL;
+    int ar_idx = 0;
+
+    llama_pos pos = 0;
+    std::vector<int32_t> codes_buf;
+    std::vector<float> audio_pcm;
+    std::vector<float> h_state_buf;
+    std::vector<char> out_buf;
+    mtmd_helper_gen_audio_outtype out_type = MTMD_HELPER_GEN_AUDIO_OUTTYPE_WAV;
+};
+
 static std::unique_ptr<mtmd_gen_audio_pipeline> make_pipeline(llama_context * lctx, mtmd_context * mctx) {
     switch (mtmd_gen_audio_get_info(mctx).type) {
         case MTMD_GEN_AUDIO_TYPE_QWEN3TTS:
             return std::unique_ptr<mtmd_gen_audio_pipeline>(new qwen3tts_gen_audio_pipeline(lctx, mctx));
+        case MTMD_GEN_AUDIO_TYPE_CHATTERBOX:
+            return std::unique_ptr<mtmd_gen_audio_pipeline>(new chatterbox_gen_audio_pipeline(lctx, mctx));
         default:
             return nullptr;
     }

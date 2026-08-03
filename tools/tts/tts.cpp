@@ -1,3 +1,4 @@
+#include <limits>
 #include "arg.h"
 #include "common.h"
 #include "sampling.h"
@@ -65,6 +66,12 @@ int main(int argc, char ** argv) {
     // always enable embd, so that we can pass hidden states to the audio generation helper
     params.embedding = true;
 
+    // provision the cfg pair sequences for pipelines that decode one: each
+    // slot i pairs with the uncond sequence n_parallel + i, and the unified
+    // kv cache shares the window across sequences instead of splitting it
+    params.n_parallel *= 2;
+    params.kv_unified  = true;
+
     llama_backend_init();
     llama_numa_init(params.numa);
 
@@ -114,17 +121,10 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    // codec_0 (backbone) EOS token: ordinary LLM sampling concern, kept out of the
-    // model-agnostic audio-generation helper
+    // codec_0 (backbone) generation ends on the model's eog tokens; sampling is
+    // restricted to the audio zone by the tokenizer.ggml.suppress_tokens GGUF
+    // metadata, merged into the sampling chain by common_sampler_init
     const llama_vocab * vocab = llama_model_get_vocab(model);
-    llama_token codec_eos_tok = LLAMA_TOKEN_NULL;
-    for (llama_token t = 0; t < llama_vocab_n_tokens(vocab); t++) {
-        if (!strcmp(llama_vocab_get_text(vocab, t), "<|codec_eos_token|>")) { codec_eos_tok = t; break; }
-    }
-    if (codec_eos_tok == LLAMA_TOKEN_NULL) {
-        LOG_ERR("missing codec eos token in vocab\n");
-        return 1;
-    }
 
     auto sample_codec0 = [&]() -> llama_token {
         llama_token t = common_sampler_sample(smpl, lctx, -1);
@@ -140,7 +140,7 @@ int main(int argc, char ** argv) {
     tts_timings timings;
     const int64_t t_gen_start_us = ggml_time_us();
 
-    for (; n_frames < max_new && sampled != codec_eos_tok; n_frames++) {
+    for (; n_frames < max_new && !llama_vocab_is_eog(vocab, sampled); n_frames++) {
         const float * h_next = nullptr;
         if (gen.step(sampled, h_state, &h_next) != 0) {
             LOG_ERR("step failed at frame %d\n", n_frames);
