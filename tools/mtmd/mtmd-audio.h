@@ -50,46 +50,6 @@ struct mtmd_audio_cache {
     );
 };
 
-// whisper style log-mel used by the chatterbox s3 tokenizer front-end:
-// hann 400 periodic, hop 160, centered frames with reflect padding, power
-// spectrum, caller-supplied mel filters [n_mel x (n_fft / 2 + 1)], log10
-// clamped to 1e-10, global max - 8 dynamic range, (x + 4) / 4 scaling.
-// output layout matches the audio batch entries: out[m * n_frames + t].
-bool mtmd_audio_s3tok_log_mel(const float * samples, size_t n_samples,
-                              const float * filters, int n_mel,
-                              std::vector<float> & out, int & n_frames);
-
-// rational 3/2 upsampler (16 kHz -> 24 kHz), windowed sinc polyphase.
-// output length is exactly n_samples * 3 / 2 for even n_samples.
-void mtmd_audio_upsample_3_2(const float * samples, size_t n_samples, std::vector<float> & out);
-
-// matcha style log-mel of the chatterbox s3gen prompt features (utils/mel.py):
-// 24 kHz, n_fft 1920, hop 480, hann 1920 periodic, (n_fft - hop) / 2 reflect
-// padding with center false, magnitude spectrum, slaney mel 80 bins fmin 0
-// fmax 8000, natural log clamped to 1e-5.
-// output layout is frame major: out[t * n_mel + m], as the prompt features
-// are consumed row by row at mel rate.
-bool mtmd_audio_matcha_log_mel(const float * samples, size_t n_samples,
-                               std::vector<float> & out, int & n_frames);
-
-// librosa.effects.trim replica: rms over centered 2048/512 windows with zero
-// padding, threshold top_db below the loudest window, returns the sample
-// span [start, end) of the non-silent region (start == end when all silent).
-void mtmd_audio_trim_silence(const float * samples, size_t n_samples, float top_db,
-                             size_t & start, size_t & end);
-
-// power mel of the chatterbox voice encoder (voice_encoder/melspec.py):
-// 16 kHz, hann 400 periodic, hop 160, centered frames with reflect padding,
-// squared magnitude against slaney mel 40 bins fmin 0 fmax 8000, no log.
-// output layout is frame major: out[t * 40 + m].
-bool mtmd_audio_ve_mel(const float * samples, size_t n_samples,
-                       std::vector<float> & out, int & n_frames);
-
-// ITU-R BS.1770 integrated loudness (pyloudnorm replica, mono): K-weighting
-// (RBJ high shelf 1681.97 Hz +4 dB then high pass 38.14 Hz), 400 ms blocks
-// with 75% overlap, absolute -70 then relative -10 gating.
-// returns the loudness in LUFS, or -HUGE_VALF when everything is gated out.
-float mtmd_audio_lufs(const float * samples, size_t n_samples, int sample_rate);
 
 struct mtmd_audio_preprocessor {
     const clip_hparams & hparams;
@@ -170,14 +130,27 @@ struct mtmd_audio_preprocessor_qwen3tts_spk : mtmd_audio_preprocessor {
     mtmd_audio_cache cache;
 };
 
-struct mtmd_audio_preprocessor_chatterbox_spk : mtmd_audio_preprocessor {
-    mtmd_audio_preprocessor_chatterbox_spk(const clip_ctx * ctx) : mtmd_audio_preprocessor(ctx) {}
+// full reference chain front-end of the chatterbox speaker encoder: one
+// preprocess call emits the host DSP products of a reference clip as five
+// entries, consumed positionally by the encoder orchestration in mtmd.cpp
+//   0: CAMPPlus kaldi fbank            [80 x n_frames]  (mel major)
+//   1: s3 tokenizer log-mel, flow cap  [n_mel x n_frames] (mel major)
+//   2: s3 tokenizer log-mel, t3 cap    [n_mel x n_frames] (mel major)
+//   3: s3gen prompt features           [n_frames x 80]  (frame major, 24 kHz mel rate)
+//   4: voice encoder power mel         [n_frames x 40]  (frame major, trimmed, partial grid)
+// the turbo variant loudness-normalizes the clip to -27 LUFS first and caps
+// the t3 clip at 15 s instead of 6 s
+struct mtmd_audio_preprocessor_chatterbox_ref : mtmd_audio_preprocessor {
+    mtmd_audio_preprocessor_chatterbox_ref(const clip_ctx * ctx, bool is_mtl, std::vector<float> s3tok_filters)
+        : mtmd_audio_preprocessor(ctx), is_mtl(is_mtl), s3tok_filters(std::move(s3tok_filters)) {}
     void initialize() override;
     bool preprocess(const float * samples, size_t n_samples, std::vector<mtmd_audio_mel> & output) override;
 
   private:
-    std::vector<float> window;  // povey window, frame_length points
-    std::vector<float> filters; // kaldi mel filterbank, n_mel x (n_fft / 2) dense
+    bool               is_mtl;
+    std::vector<float> s3tok_filters; // s3 tokenizer filterbank [n_mel x (400 / 2 + 1)], from the mmproj
+    std::vector<float> window;        // povey window of the fbank front-end, frame_length points
+    std::vector<float> filters;       // kaldi mel filterbank of the fbank front-end, n_mel x (n_fft / 2) dense
 };
 
 struct mtmd_audio_preprocessor_parakeet : mtmd_audio_preprocessor {

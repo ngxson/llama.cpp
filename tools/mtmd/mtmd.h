@@ -295,6 +295,20 @@ MTMD_API int32_t mtmd_encode_chunk(mtmd_context * ctx,
 // llama_model_n_embd_inp(model) * mtmd_input_chunk_get_n_tokens(chunk) * sizeof(float)
 MTMD_API float * mtmd_get_output_embd(mtmd_context * ctx);
 
+// typed side outputs of the last encoded chunk, for encoders that produce
+// more than the backbone-space embeddings; entries are model-defined and
+// valid until the next encode call. n_elements receives the element count,
+// the return is null when the encoder has no output of the requested type.
+// integer outputs (audio codes) are carried as exact float values.
+enum mtmd_embd_out_type {
+    MTMD_EMBD_OUT_TYPE_REF_CODES, // speech codes of the reference clip
+    MTMD_EMBD_OUT_TYPE_REF_FEAT,  // mel-rate features of the reference clip
+    MTMD_EMBD_OUT_TYPE_REF_SPK,   // speaker vector of the reference clip
+};
+MTMD_API const float * mtmd_get_output_typed_embd(mtmd_context * ctx,
+                                                  enum mtmd_embd_out_type type,
+                                                  size_t * n_elements);
+
 
 // batch encoding API
 // chunks are not owned by the batch, they will not be freed by mtmd_batch_free()
@@ -351,8 +365,6 @@ MTMD_API size_t mtmd_gen_audio_read_tensor(mtmd_context * ctx, const char * name
 enum mtmd_gen_process_type {
     MTMD_GEN_PROCESS_TYPE_GEN_CODE, // h_state to codes
     MTMD_GEN_PROCESS_TYPE_CODE2WAV, // codes to raw PCM audio
-    MTMD_GEN_PROCESS_TYPE_SPK_REF,  // raw PCM audio to talker conditioning rows
-                                    // and the decoder reference state
 };
 struct mtmd_gen_inp {
     enum mtmd_gen_process_type type;
@@ -366,15 +378,15 @@ struct mtmd_gen_inp {
     // for MTMD_GEN_PROCESS_TYPE_CODE2WAV
     int32_t * codes;
     size_t    n_codes;
-    // opaque state: the decoder carry-over between calls, or the reference
-    // state returned by a MTMD_GEN_PROCESS_TYPE_SPK_REF call (null means the
-    // model's precomputed default voice)
+    // opaque state: the decoder carry-over between calls
     const char * state_data;
     size_t       state_size;
-
-    // for MTMD_GEN_PROCESS_TYPE_SPK_REF
-    const float * pcm;   // mono float samples at the audio encoder sample rate
-    size_t        n_pcm;
+    // voice cloning reference from mtmd_get_output_typed_embd after encoding
+    // the reference clip; all null selects the model's precomputed default
+    // voice
+    const float * ref_codes; size_t n_ref_codes;
+    const float * ref_feat;  size_t n_ref_feat;
+    const float * ref_spk;   size_t n_ref_spk;
 };
 struct mtmd_gen_out {
     // note: output memory is allocated by the context, valid until next process() call
@@ -384,16 +396,12 @@ struct mtmd_gen_out {
     size_t n_codes;
     const float * embd; // the generated hidden state, to be fed back to backbone
                         // it must have n_text_embd elements
-    // for MTMD_GEN_PROCESS_TYPE_SPK_REF: embd holds the talker conditioning
-    // rows of the reference clip and n_embd their total element count
     size_t n_embd;
 
     // for MTMD_GEN_PROCESS_TYPE_CODE2WAV
     const float * audio;
     size_t        n_samples;
-    // opaque state: the decoder carry-over to pass into the next CODE2WAV
-    // call, or, from MTMD_GEN_PROCESS_TYPE_SPK_REF, the encoded reference
-    // state of the cloned voice
+    // opaque state: the decoder carry-over to pass into the next CODE2WAV call
     const char * state_data;
     size_t       state_size;
 };

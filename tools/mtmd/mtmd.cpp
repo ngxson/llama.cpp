@@ -273,6 +273,13 @@ struct mtmd_context {
     std::vector<float>   gen_out_audio; // decoded PCM samples for the current frame (CODE2WAV)
     std::vector<uint8_t> gen_out_state; // state to feed into the next CODE2WAV call
 
+    // typed side outputs of the last encoded reference chunk (chatterbox):
+    // flow codes carried as exact float values, mel-rate features, speaker
+    // vector; read back through mtmd_get_output_typed_embd
+    std::vector<float> gen_out_ref_codes;
+    std::vector<float> gen_out_ref_feat;
+    std::vector<float> gen_out_ref_spk;
+
     bool print_timings;
     int n_threads;
     std::string media_marker;
@@ -383,10 +390,7 @@ struct mtmd_context {
 
         // since we already validate n_embd of vision and audio mmproj,
         // we can safely assume that they are the same
-        // gen-only mmproj has no input projection, and a speaker encoder
-        // attached to a gen model outputs a conditioning vector, not tokens
-        // in the backbone embedding space
-        if (ctx_v || (ctx_a && !ctx_gen_a)) {
+        if (ctx_v || ctx_a) {
             int n_embd_clip = clip_n_mmproj_embd(ctx_v ? ctx_v : ctx_a);
             if (n_embd_text > 0 && n_embd_text != n_embd_clip) {
                 throw std::runtime_error(string_format(
@@ -773,7 +777,22 @@ struct mtmd_context {
                 } break;
             case PROJECTOR_TYPE_CHATTERBOX_SPKENC:
                 {
-                    audio_preproc = std::make_unique<mtmd_audio_preprocessor_chatterbox_spk>(ctx_a);
+                    {
+                        // the ref-chain front-end needs the s3 tokenizer
+                        // filterbank of the generation context and the
+                        // variant to pick its caps and loudness handling
+                        std::vector<float> filt;
+                        bool is_mtl = false;
+                        if (ctx_gen_a) {
+                            const size_t n_filt = clip_cbx_read_tensor(ctx_gen_a, "a.s3tok.mel_filters", nullptr, 0);
+                            if (n_filt > 0) {
+                                filt.resize(n_filt);
+                                clip_cbx_read_tensor(ctx_gen_a, "a.s3tok.mel_filters", filt.data(), n_filt);
+                            }
+                            is_mtl = clip_cbx_read_tensor(ctx_gen_a, "a.gen.t3.speech_pos_emb", nullptr, 0) > 0;
+                        }
+                        audio_preproc = std::make_unique<mtmd_audio_preprocessor_chatterbox_ref>(ctx_a, is_mtl, std::move(filt));
+                    }
                 } break;
             default:
                 throw std::runtime_error(string_format("%s: unexpected audio projector type %d\n", __func__, proj));
@@ -1351,6 +1370,41 @@ struct mtmd_tokenizer {
                 }
             }
 
+            // the chatterbox reference encoder consumes the five DSP entries
+            // of one clip as a single chunk; its token count is the number of
+            // talker conditioning rows the clip encodes to (fixed on the
+            // multilingual variant, spkr row plus the t3 token grid on turbo)
+            if (clip_get_projector_type(ctx->ctx_a) == PROJECTOR_TYPE_CHATTERBOX_SPKENC) {
+                GGML_ASSERT(mel_spec_chunks.size() == 5);
+                const bool mtl = ctx->ctx_gen_a &&
+                    clip_cbx_read_tensor(ctx->ctx_gen_a, "a.gen.t3.speech_pos_emb", nullptr, 0) > 0;
+                const size_t n_tokens = mtl ? 34 : 1 + (size_t) mel_spec_chunks[2].n_len / 4;
+
+                clip_image_f32_batch batch_f32;
+                batch_f32.is_audio = true;
+                for (auto & mel_spec : mel_spec_chunks) {
+                    GGML_ASSERT(mel_spec.n_len <= INT32_MAX && mel_spec.n_len >= 0);
+                    GGML_ASSERT(mel_spec.n_mel <= INT32_MAX && mel_spec.n_mel >= 0);
+                    clip_image_f32 mel_f32;
+                    mel_f32.set_size({(int) mel_spec.n_len, (int) mel_spec.n_mel},
+                                     mel_spec.data.empty(), /* is_audio */ true);
+                    mel_f32.cpy_buf(mel_spec.data);
+                    batch_f32.entries.push_back(std::move(mel_f32));
+                }
+
+                mtmd_audio_tokens_ptr audio_tokens(new mtmd_audio_tokens);
+                audio_tokens->n_tokens  = (uint32_t) n_tokens;
+                audio_tokens->batch_f32 = std::move(batch_f32);
+                audio_tokens->id        = bitmap->id;
+
+                mtmd_input_chunk chunk{
+                    MTMD_INPUT_CHUNK_TYPE_AUDIO,
+                    {}, // text tokens
+                    nullptr, // image tokens
+                    std::move(audio_tokens),
+                };
+                cur.entries.emplace_back(std::move(chunk));
+            } else
             // consider each mel_spec as a separate audio chunk
             // TODO: maybe support batching, but this may come with memory cost
             for (auto & mel_spec : mel_spec_chunks) {
@@ -1521,6 +1575,10 @@ static int32_t mtmd_encode_impl(mtmd_context * ctx, const mtmd_image_tokens * im
     return ok ? 0 : 1;
 }
 
+// defined with the reference chain below; encodes a chatterbox reference
+// chunk into talker conditioning rows and the typed decoder reference outputs
+static int32_t cbx_ref_encode(mtmd_context * ctx, const mtmd_audio_tokens * audio_tokens, std::vector<float> & out_embd);
+
 static int32_t mtmd_encode_chunk_impl(mtmd_context * ctx, const mtmd_input_chunk * chunk, std::vector<float> & out_embd) {
     if (chunk->type == MTMD_INPUT_CHUNK_TYPE_TEXT) {
         LOG_WRN("mtmd_encode_chunk has no effect for text chunks\n");
@@ -1551,6 +1609,9 @@ static int32_t mtmd_encode_chunk_impl(mtmd_context * ctx, const mtmd_input_chunk
         if (chunk->tokens_audio->is_placeholder()) {
             LOG_ERR("%s: audio tokens batch is placeholder\n", __func__);
             return 1;
+        }
+        if (clip_get_projector_type(ctx->ctx_a) == PROJECTOR_TYPE_CHATTERBOX_SPKENC) {
+            return cbx_ref_encode(ctx, chunk->tokens_audio.get(), out_embd);
         }
         int n_mmproj_embd = ctx->n_embd_out();
         out_embd.resize((size_t)chunk->tokens_audio->n_tokens * n_mmproj_embd);
@@ -1589,6 +1650,23 @@ float * mtmd_get_output_embd(mtmd_context * ctx) {
     return ctx->out_embd.data();
 }
 
+const float * mtmd_get_output_typed_embd(mtmd_context * ctx,
+                                         enum mtmd_embd_out_type type,
+                                         size_t * n_elements) {
+    const std::vector<float> * buf = nullptr;
+    switch (type) {
+        case MTMD_EMBD_OUT_TYPE_REF_CODES: buf = &ctx->gen_out_ref_codes; break;
+        case MTMD_EMBD_OUT_TYPE_REF_FEAT:  buf = &ctx->gen_out_ref_feat;  break;
+        case MTMD_EMBD_OUT_TYPE_REF_SPK:   buf = &ctx->gen_out_ref_spk;   break;
+    }
+    if (!buf || buf->empty()) {
+        *n_elements = 0;
+        return nullptr;
+    }
+    *n_elements = buf->size();
+    return buf->data();
+}
+
 //
 // audio generation
 //
@@ -1622,45 +1700,21 @@ size_t mtmd_gen_audio_read_tensor(mtmd_context * ctx, const char * name, float *
     return clip_cbx_read_tensor(ctx->ctx_gen_a, name, out, n_max);
 }
 
-// turbo only: -27 LUFS loudness normalization of the reference clip
-// (tts_turbo.py); the multilingual variant is identified by its perceiver
-static void cbx_ref_norm(mtmd_context * ctx, float * pcm, size_t n) {
-    if (clip_cbx_read_tensor(ctx->ctx_gen_a, "a.cenc.perceiver.pre_attention_query", nullptr, 0) > 0 ||
-        clip_cbx_read_tensor(ctx->ctx_gen_a, "a.cenc.spkr_enc.weight", nullptr, 0) == 0) {
-        return;
-    }
-    const float lufs = mtmd_audio_lufs(pcm, n, clip_get_hparams(ctx->ctx_a ? ctx->ctx_a : ctx->ctx_gen_a)->audio_sample_rate);
-    if (lufs == -HUGE_VALF) {
-        return;
-    }
-    const float gain = powf(10.0f, (-27.0f - lufs) / 20.0f);
-    if (!std::isfinite(gain) || gain <= 0.0f) {
-        return;
-    }
-    for (size_t i = 0; i < n; i++) {
-        pcm[i] *= gain;
-    }
-}
-
-// 80-dim flow speaker vector of the reference clip: fbank features from the
-// audio preprocessor into the CAMPPlus graph of the speaker encoding context
-static bool cbx_ref_spk80(mtmd_context * ctx, const float * pcm, size_t n_pcm, std::vector<float> & spk80) {
-    if (!ctx->ctx_a || !ctx->audio_preproc) {
+// 80-dim flow speaker vector of the reference clip: the precomputed fbank
+// entry through the CAMPPlus graph of the speaker encoding context
+static bool cbx_ref_spk80(mtmd_context * ctx, const clip_image_f32 & fbank, std::vector<float> & spk80) {
+    const size_t n = clip_cbx_read_tensor(ctx->ctx_a, "a.spk_embed_affine_layer.bias", nullptr, 0);
+    if (n == 0) {
         LOG_ERR("%s: mmproj has no speaker encoder\n", __func__);
         return false;
     }
-    std::vector<mtmd_audio_mel> mels;
-    if (!ctx->audio_preproc->preprocess(pcm, n_pcm, mels) || mels.empty() || mels[0].data.empty()) {
-        LOG_ERR("%s: speaker features failed\n", __func__);
-        return false;
-    }
     clip_image_f32 mel_img;
-    mel_img.set_size({(int) mels[0].n_len, (int) mels[0].n_mel}, false, true);
-    mel_img.cpy_buf(std::move(mels[0].data));
+    mel_img.set_size(fbank.get_size(), false, true);
+    mel_img.cpy_buf(fbank.get_ro_buf());
     clip_image_f32_batch batch;
     batch.is_audio = true;
     batch.entries.push_back(std::move(mel_img));
-    spk80.resize((size_t) clip_n_mmproj_embd(ctx->ctx_a));
+    spk80.resize(n);
     if (!clip_image_batch_encode(ctx->ctx_a, ctx->n_threads, &batch, spk80)) {
         LOG_ERR("%s: speaker encoder failed\n", __func__);
         return false;
@@ -1668,37 +1722,14 @@ static bool cbx_ref_spk80(mtmd_context * ctx, const float * pcm, size_t n_pcm, s
     return true;
 }
 
-// runs the s3 speech tokenizer on a reference clip; rows, when requested,
-// receives the speech embedding rows of the codes (with the learned speech
-// positions added on the multilingual variant)
-static int32_t cbx_ref_tokenize(mtmd_context * ctx, const float * ref, size_t n_ref,
+// s3 speech tokens of a precomputed reference log-mel entry; rows, when
+// requested, receives the speech embedding rows of the codes (with the
+// learned speech positions added on the multilingual variant)
+static int32_t cbx_ref_tokenize(mtmd_context * ctx, const clip_image_f32 & mel,
                             std::vector<int32_t> & codes, std::vector<float> * rows) {
-clip_ctx * ctx_clip = ctx->ctx_gen_a;
-    // mel filters shipped in the mmproj, [n_mels x (n_fft / 2 + 1)]
-    const size_t n_filt = clip_cbx_read_tensor(ctx_clip, "a.s3tok.mel_filters", nullptr, 0);
-    if (n_filt == 0) {
-        LOG_ERR("%s: model has no s3 tokenizer\n", __func__);
-        return 1;
-    }
-    std::vector<float> filters(n_filt);
-    clip_cbx_read_tensor(ctx_clip, "a.s3tok.mel_filters", filters.data(), n_filt);
-    const int n_mel = (int) (n_filt / (400 / 2 + 1));
-
-    // pad to a whole number of 40 ms tokens so that the mel length stays
-    // twice the token length, as the reference prompt features expect
-    std::vector<float> pcm(ref, ref + n_ref);
-    pcm.resize((pcm.size() + 639) / 640 * 640, 0.0f);
-
-    std::vector<float> mel;
-    int n_frames = 0;
-    if (!mtmd_audio_s3tok_log_mel(pcm.data(), pcm.size(), filters.data(), n_mel, mel, n_frames)) {
-        LOG_ERR("%s: log mel failed\n", __func__);
-        return 1;
-    }
-
     clip_image_f32 mel_img;
-    mel_img.set_size({n_frames, n_mel}, false, true);
-    mel_img.cpy_buf(std::move(mel));
+    mel_img.set_size(mel.get_size(), false, true);
+    mel_img.cpy_buf(mel.get_ro_buf());
 
     clip_image_f32_batch batch;
     batch.is_audio = true;
@@ -1714,7 +1745,7 @@ clip_ctx * ctx_clip = ctx->ctx_gen_a;
     params.out_codes     = &out_codes;
     params.out_code_embd = rows ? &out_embd : nullptr;
 
-    if (!clip_encode(ctx_clip, &params)) {
+    if (!clip_encode(ctx->ctx_gen_a, &params)) {
         LOG_ERR("%s: clip_encode failed (tokenize)\n", __func__);
         return 1;
     }
@@ -1730,9 +1761,9 @@ clip_ctx * ctx_clip = ctx->ctx_gen_a;
 // talker conditioning rows of a reference clip: voice encoder chain and
 // speaker projection row; the multilingual variant appends its perceiver
 // output over the reference speech embedding rows and the emotion row
-static int32_t cbx_ref_cond(mtmd_context * ctx, const float * pcm, size_t n_pcm,
+static int32_t cbx_ref_cond(mtmd_context * ctx, const clip_image_f32 & ve_mel,
                         const std::vector<float> & pse, std::vector<float> & out_rows) {
-clip_ctx * ctx_clip = ctx->ctx_gen_a;
+    clip_ctx * ctx_clip = ctx->ctx_a;
     auto read_t = [&](const char * name, std::vector<float> & v) -> bool {
         const size_t n = clip_cbx_read_tensor(ctx_clip, name, nullptr, 0);
         if (n == 0) {
@@ -1742,33 +1773,15 @@ clip_ctx * ctx_clip = ctx->ctx_gen_a;
         return clip_cbx_read_tensor(ctx_clip, name, v.data(), n) == n;
     };
 
-    // voice encoder reference chain (embeds_from_wavs): silence trim,
-    // 40-bin power mel, overlapping 160-frame partials at rate 1.3,
-    // 3-layer lstm per partial, projected/relu/normalized embeddings
-    // averaged into the utterance embedding
-    size_t t0 = 0, t1 = 0;
-    mtmd_audio_trim_silence(pcm, n_pcm, 20.0f, t0, t1);
-    if (t1 <= t0) {
-        LOG_ERR("%s: reference clip is silent\n", __func__);
-        return 1;
-    }
-    std::vector<float> mel;
-    int n_frames = 0;
-    if (!mtmd_audio_ve_mel(pcm + t0, t1 - t0, mel, n_frames)) {
-        LOG_ERR("%s: voice encoder mel failed\n", __func__);
-        return 1;
-    }
-
+    // voice encoder reference chain (embeds_from_wavs) over the precomputed
+    // power mel entry, already on the 160-frame partial grid: 3-layer lstm
+    // per partial, projected/relu/normalized embeddings averaged into the
+    // utterance embedding
+    const std::vector<float> & mel = ve_mel.get_ro_buf();
     const int n_mel     = 40;
     const int n_partial = 160;
     const int step      = (int) lround((16000.0 / 1.3) / n_partial); // reference rate 1.3
-    int n_wins = std::max(n_frames - n_partial + step, 0) / step;
-    const int rem = std::max(n_frames - n_partial + step, 0) % step;
-    if (n_wins == 0 || (double) (rem + n_partial - step) / n_partial >= 0.8) {
-        n_wins++;
-    }
-    const int target = n_partial + step * (n_wins - 1);
-    mel.resize((size_t) target * n_mel, 0.0f); // zero pad (or trim) to the partial grid
+    const int n_wins    = (ve_mel.nx() - n_partial) / step + 1;
 
     std::vector<float> w_ih[3], w_hh[3], b_ih[3], b_hh[3];
     std::vector<float> w_proj, b_proj;
@@ -1985,6 +1998,63 @@ clip_ctx * ctx_clip = ctx->ctx_gen_a;
     return 0;
 }
 
+// encodes the five DSP entries of a chatterbox reference chunk (fbank, s3
+// log-mels at the flow and t3 caps, s3gen prompt features, voice encoder
+// mel): the primary output is the talker conditioning rows in the backbone
+// embedding space, the flow decoder reference (codes, mel-rate features,
+// speaker vector) lands in the typed side outputs
+static int32_t cbx_ref_encode(mtmd_context * ctx, const mtmd_audio_tokens * audio_tokens, std::vector<float> & out_embd) {
+    if (!ctx->ctx_gen_a) {
+        LOG_ERR("%s: reference encoding needs the audio generation context\n", __func__);
+        return 1;
+    }
+    const auto & entries = audio_tokens->batch_f32.entries;
+    GGML_ASSERT(entries.size() == 5);
+
+    std::vector<float> spk80;
+    if (!cbx_ref_spk80(ctx, entries[0], spk80)) {
+        return 1;
+    }
+
+    std::vector<int32_t> flow_codes, t3_codes;
+    std::vector<float> t3_rows;
+    if (cbx_ref_tokenize(ctx, entries[1], flow_codes, nullptr) != 0 ||
+        cbx_ref_tokenize(ctx, entries[2], t3_codes, &t3_rows) != 0) {
+        return 1;
+    }
+
+    const size_t n_feat = (size_t) entries[3].nx() * 80;
+    if ((size_t) entries[3].nx() != 2 * flow_codes.size()) {
+        LOG_ERR("%s: reference mel length %d does not match %zu codes\n",
+                __func__, entries[3].nx(), flow_codes.size());
+        return 1;
+    }
+
+    // conditioning rows: [spkr] then, multilingual, the perceiver block over
+    // the reference rows, or, turbo, the raw reference rows
+    const bool mtl = clip_cbx_read_tensor(ctx->ctx_a, "a.cenc.perceiver.pre_attention_query", nullptr, 0) > 0;
+    std::vector<float> pse;
+    if (mtl) {
+        pse = std::move(t3_rows);
+    }
+    std::vector<float> rows;
+    if (cbx_ref_cond(ctx, entries[4], pse, rows) != 0) {
+        return 1;
+    }
+    if (!mtl) {
+        rows.insert(rows.end(), t3_rows.begin(), t3_rows.end());
+    }
+    GGML_ASSERT(rows.size() == (size_t) audio_tokens->n_tokens * (size_t) ctx->n_embd_out());
+
+    ctx->gen_out_ref_codes.assign(flow_codes.begin(), flow_codes.end());
+    ctx->gen_out_ref_feat.assign(entries[3].get_ro_buf().begin(),
+                                 entries[3].get_ro_buf().begin() + n_feat);
+    ctx->gen_out_ref_spk = std::move(spk80);
+
+    out_embd = std::move(rows);
+    return 0;
+}
+
 
 static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_inp * inp, mtmd_gen_out * out) {
     clip_ctx * ctx_clip = ctx->ctx_gen_a;
@@ -2031,92 +2101,6 @@ static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_in
         return 0;
     }
 
-    if (inp->type == MTMD_GEN_PROCESS_TYPE_SPK_REF) {
-        if (!inp->pcm || inp->n_pcm == 0) {
-            LOG_ERR("%s: pcm required for spk ref\n", __func__);
-            return 1;
-        }
-
-        // the whole reference encoding chain runs inside this stage:
-        // loudness normalization, speaker vector, speech tokenization at the
-        // flow and talker caps, conditioning rows, mel-rate prompt features
-        std::vector<float> pcm(inp->pcm, inp->pcm + inp->n_pcm);
-        cbx_ref_norm(ctx, pcm.data(), pcm.size());
-
-        const bool mtl = clip_cbx_read_tensor(ctx_clip, "a.cenc.perceiver.pre_attention_query", nullptr, 0) > 0;
-        const size_t gen_cap = (size_t) 10 * 16000;
-        const size_t t3_cap  = (size_t) (mtl ? 6 : 15) * 16000;
-
-        std::vector<float> spk80;
-        if (!cbx_ref_spk80(ctx, pcm.data(), pcm.size(), spk80)) {
-            return 1;
-        }
-
-        std::vector<int32_t> flow_tokens, t3_tokens;
-        std::vector<float> t3_rows;
-        if (cbx_ref_tokenize(ctx, pcm.data(), std::min(pcm.size(), gen_cap), flow_tokens, nullptr) != 0 ||
-            cbx_ref_tokenize(ctx, pcm.data(), std::min(pcm.size(), t3_cap), t3_tokens, &t3_rows) != 0) {
-            return 1;
-        }
-
-        // conditioning rows: [spkr] then, multilingual, the perceiver block
-        // over the reference rows, or, turbo, the raw reference rows
-        std::vector<float> pse;
-        if (mtl) {
-            pse = std::move(t3_rows);
-        }
-        std::vector<float> rows;
-        if (cbx_ref_cond(ctx, pcm.data(), pcm.size(), pse, rows) != 0) {
-            return 1;
-        }
-        if (!mtl) {
-            rows.insert(rows.end(), t3_rows.begin(), t3_rows.end());
-        }
-
-        // mel-rate prompt features of the flow reference at the 24 kHz s3gen
-        // rate, padded to the token grid so that the mel length stays twice
-        // the token length
-        std::vector<float> feat;
-        {
-            std::vector<float> pcm16(pcm.begin(), pcm.begin() + std::min(pcm.size(), gen_cap));
-            pcm16.resize((pcm16.size() + 639) / 640 * 640, 0.0f);
-            std::vector<float> pcm24;
-            mtmd_audio_upsample_3_2(pcm16.data(), pcm16.size(), pcm24);
-            int n_feat = 0;
-            if (!mtmd_audio_matcha_log_mel(pcm24.data(), pcm24.size(), feat, n_feat)) {
-                LOG_ERR("%s: reference mel failed\n", __func__);
-                return 1;
-            }
-            if ((size_t) n_feat != 2 * flow_tokens.size()) {
-                LOG_ERR("%s: reference mel length %d does not match %zu tokens\n",
-                        __func__, n_feat, flow_tokens.size());
-                return 1;
-            }
-        }
-
-        // decoder reference state, opaque to the caller:
-        // [n_tokens, n_feat] i32 header, tokens, features, 80-dim speaker vector
-        std::vector<uint8_t> blob(2 * sizeof(int32_t)
-                                  + flow_tokens.size() * sizeof(int32_t)
-                                  + (feat.size() + spk80.size()) * sizeof(float));
-        {
-            uint8_t * q = blob.data();
-            const int32_t hdr[2] = { (int32_t) flow_tokens.size(), (int32_t) feat.size() };
-            memcpy(q, hdr, sizeof(hdr));                                     q += sizeof(hdr);
-            memcpy(q, flow_tokens.data(), flow_tokens.size() * sizeof(int32_t)); q += flow_tokens.size() * sizeof(int32_t);
-            memcpy(q, feat.data(), feat.size() * sizeof(float));             q += feat.size() * sizeof(float);
-            memcpy(q, spk80.data(), spk80.size() * sizeof(float));
-        }
-
-        ctx->gen_out_embd  = std::move(rows);
-        ctx->gen_out_state = std::move(blob);
-        out->embd       = ctx->gen_out_embd.data();
-        out->n_embd     = ctx->gen_out_embd.size();
-        out->state_data = (const char *) ctx->gen_out_state.data();
-        out->state_size = ctx->gen_out_state.size();
-        return 0;
-    }
-
     // MTMD_GEN_PROCESS_TYPE_CODE2WAV
     if (clip_get_projector_type(ctx_clip) == PROJECTOR_TYPE_CHATTERBOX) {
         if (!inp->codes || inp->n_codes == 0) {
@@ -2126,31 +2110,24 @@ static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_in
         std::vector<int32_t> in_codes(inp->codes, inp->codes + inp->n_codes);
         std::vector<float>   out_audio;
 
-        // optional reference state from the spk-ref stage: flow prompt
-        // tokens, mel-rate prompt features, 80-dim speaker vector; a null
-        // state selects the model's precomputed default voice
+        // optional voice cloning reference from the encoded reference chunk:
+        // flow prompt codes, mel-rate prompt features, 80-dim speaker vector;
+        // all null selects the model's precomputed default voice
         std::vector<int32_t> ref_tokens;
         std::vector<float>   ref_feat;
         std::vector<float>   ref_spk;
-        if (inp->state_data) {
-            int32_t hdr[2];
-            if (inp->state_size < sizeof(hdr)) {
-                LOG_ERR("%s: malformed reference state\n", __func__);
+        const bool has_ref = inp->ref_codes && inp->n_ref_codes > 0;
+        if (has_ref) {
+            if (!inp->ref_feat || inp->n_ref_feat == 0 || !inp->ref_spk || inp->n_ref_spk == 0) {
+                LOG_ERR("%s: incomplete cloning reference\n", __func__);
                 return 1;
             }
-            memcpy(hdr, inp->state_data, sizeof(hdr));
-            const size_t n_tok = (size_t) hdr[0], n_feat = (size_t) hdr[1];
-            if (inp->state_size != sizeof(hdr) + n_tok * sizeof(int32_t) + (n_feat + 80) * sizeof(float)) {
-                LOG_ERR("%s: malformed reference state\n", __func__);
-                return 1;
+            ref_tokens.resize(inp->n_ref_codes);
+            for (size_t i = 0; i < inp->n_ref_codes; i++) {
+                ref_tokens[i] = (int32_t) lroundf(inp->ref_codes[i]);
             }
-            const char * q = inp->state_data + sizeof(hdr);
-            ref_tokens.resize(n_tok);
-            memcpy(ref_tokens.data(), q, n_tok * sizeof(int32_t)); q += n_tok * sizeof(int32_t);
-            ref_feat.resize(n_feat);
-            memcpy(ref_feat.data(), q, n_feat * sizeof(float));    q += n_feat * sizeof(float);
-            ref_spk.resize(80);
-            memcpy(ref_spk.data(), q, 80 * sizeof(float));
+            ref_feat.assign(inp->ref_feat, inp->ref_feat + inp->n_ref_feat);
+            ref_spk.assign(inp->ref_spk, inp->ref_spk + inp->n_ref_spk);
         }
 
         // the batch entry is unused, present to satisfy the encode interface
@@ -2167,9 +2144,9 @@ static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_in
         params.gen_process = CLIP_GEN_PROCESS_TTS;
         params.codes       = &in_codes;
         params.out_audio   = &out_audio;
-        params.ref_tokens  = inp->state_data ? &ref_tokens : nullptr;
-        params.ref_feat    = inp->state_data ? &ref_feat   : nullptr;
-        params.ref_spk     = inp->state_data ? &ref_spk    : nullptr;
+        params.ref_tokens  = has_ref ? &ref_tokens : nullptr;
+        params.ref_feat    = has_ref ? &ref_feat   : nullptr;
+        params.ref_spk     = has_ref ? &ref_spk    : nullptr;
 
         if (!clip_encode(ctx_clip, &params)) {
             LOG_ERR("%s: clip_encode failed (code2wav)\n", __func__);

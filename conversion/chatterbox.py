@@ -164,6 +164,10 @@ class ChatterboxTalkerModel(TextModel):
         self.gguf_writer.add_add_bos_token(False)
         self.gguf_writer.add_add_eos_token(False)
 
+        # the reference samples the speech head only: suppress the text zone
+        # so the sampling chain can never pick a text token
+        self.gguf_writer.add_suppress_tokens(list(range(n_text)))
+
     def _set_vocab_mtl(self):
         # custom multilingual BPE (mtl_tokenizer.json), extended with the speech
         # tokens. the reference tokenizer is char-level (raw unicode chars in
@@ -215,6 +219,10 @@ class ChatterboxTalkerModel(TextModel):
         self.gguf_writer.add_eos_token_id(n_text + SPEECH_EOS)
         self.gguf_writer.add_add_bos_token(False)
         self.gguf_writer.add_add_eos_token(False)
+
+        # the reference samples the speech head only: suppress the text zone
+        # so the sampling chain can never pick a text token
+        self.gguf_writer.add_suppress_tokens(list(range(n_text)))
 
     def set_gguf_parameters(self):
         if self.is_turbo:

@@ -122,38 +122,10 @@ int main(int argc, char ** argv) {
         return 1;
     }
 
-    // codec_0 (backbone) EOS token: ordinary LLM sampling concern, kept out of the
-    // model-agnostic audio-generation helper
+    // codec_0 (backbone) generation ends on the model's eog tokens; sampling is
+    // restricted to the audio zone by the tokenizer.ggml.suppress_tokens GGUF
+    // metadata, merged into the sampling chain by common_sampler_init
     const llama_vocab * vocab = llama_model_get_vocab(model);
-    llama_token codec_eos_tok = LLAMA_TOKEN_NULL;
-    for (llama_token t = 0; t < llama_vocab_n_tokens(vocab); t++) {
-        if (!strcmp(llama_vocab_get_text(vocab, t), "<|codec_eos_token|>")) { codec_eos_tok = t; break; }
-    }
-    if (codec_eos_tok == LLAMA_TOKEN_NULL) {
-        // models without a dedicated codec eos (e.g. chatterbox) end the audio
-        // stream with the regular vocab eos
-        codec_eos_tok = llama_vocab_eos(vocab);
-
-        // fused text+speech vocab: the reference implementation samples the
-        // speech head only, mask the text zone out of the sampling chain
-        llama_token speech_base = LLAMA_TOKEN_NULL;
-        for (llama_token t = 0; t < llama_vocab_n_tokens(vocab); t++) {
-            if (!strcmp(llama_vocab_get_text(vocab, t), "<|speech_0|>")) { speech_base = t; break; }
-        }
-        if (speech_base != LLAMA_TOKEN_NULL) {
-            params.sampling.logit_bias.reserve(params.sampling.logit_bias.size() + speech_base);
-            for (llama_token t = 0; t < speech_base; t++) {
-                params.sampling.logit_bias.push_back(llama_logit_bias{t, -std::numeric_limits<float>::infinity()});
-            }
-            common_sampler_free(smpl);
-            smpl = common_sampler_init(model, params.sampling);
-            if (!smpl) { LOG_ERR("failed to reinit sampler\n"); return 1; }
-        }
-    }
-    if (codec_eos_tok == LLAMA_TOKEN_NULL) {
-        LOG_ERR("missing codec eos token in vocab\n");
-        return 1;
-    }
 
     auto sample_codec0 = [&]() -> llama_token {
         llama_token t = common_sampler_sample(smpl, lctx, -1);
@@ -169,7 +141,7 @@ int main(int argc, char ** argv) {
     tts_timings timings;
     const int64_t t_gen_start_us = ggml_time_us();
 
-    for (; n_frames < max_new && sampled != codec_eos_tok; n_frames++) {
+    for (; n_frames < max_new && !llama_vocab_is_eog(vocab, sampled); n_frames++) {
         const float * h_next = nullptr;
         if (gen.step(sampled, h_state, &h_next) != 0) {
             LOG_ERR("step failed at frame %d\n", n_frames);

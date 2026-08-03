@@ -1,81 +1,62 @@
 #include "models.h"
 
-#include <string>
-
 // Chatterbox speaker encoder: CAMPPlus x-vector on kaldi fbank features,
 // projected through the s3gen speaker affine. Mirrors s3gen/xvector.py.
 
 // per-channel batchnorm on x [C, T]; scale = w / sqrt(var + eps), shift folds
-// the running mean. pass null w/b for the affine=False variant
-static ggml_tensor * cbx_bn1d(const clip_model & model, ggml_context * ctx0, ggml_tensor * x,
-                              const std::string & p, ggml_tensor * eps) {
-    ggml_tensor * mean = cbx_t(model, p + ".running_mean");
-    ggml_tensor * var  = cbx_t(model, p + ".running_var");
-    ggml_tensor * sd   = ggml_sqrt(ctx0, ggml_add(ctx0, var, eps));
-    if (!model.cbx_tensors.count(p + ".weight")) {
-        return ggml_div(ctx0, ggml_sub(ctx0, x, mean), sd);
+// the running mean. w/b stay null on the affine=False variant
+ggml_tensor * clip_graph_chatterbox_spkenc::bn1d(const clip_chatterbox::bn & n, ggml_tensor * x, ggml_tensor * eps) {
+    ggml_tensor * sd = ggml_sqrt(ctx0, ggml_add(ctx0, n.var, eps));
+    if (!n.w) {
+        return ggml_div(ctx0, ggml_sub(ctx0, x, n.mean), sd);
     }
-    ggml_tensor * a     = ggml_div(ctx0, cbx_t(model, p + ".weight"), sd);
-    ggml_tensor * shift = ggml_sub(ctx0, cbx_t(model, p + ".bias"), ggml_mul(ctx0, mean, a));
+    ggml_tensor * a     = ggml_div(ctx0, n.w, sd);
+    ggml_tensor * shift = ggml_sub(ctx0, n.b, ggml_mul(ctx0, n.mean, a));
     return ggml_add(ctx0, ggml_mul(ctx0, x, a), shift);
 }
 
-// batchnorm + relu on a conv2d activation [W=T, H=F, C, 1], stats on ne2
-static ggml_tensor * cbx_bn2d_relu(const clip_model & model, ggml_context * ctx0, ggml_tensor * x,
-                                   const std::string & p, ggml_tensor * eps) {
+// batchnorm on a conv2d activation [W=T, H=F, C, 1], stats on ne2
+static ggml_tensor * cbx_bn2d(ggml_context * ctx0, const clip_chatterbox::bn & n, ggml_tensor * x, ggml_tensor * eps) {
     const int C = (int) x->ne[2];
-    ggml_tensor * mean = ggml_reshape_4d(ctx0, cbx_t(model, p + ".running_mean"), 1, 1, C, 1);
-    ggml_tensor * var  = ggml_reshape_4d(ctx0, cbx_t(model, p + ".running_var"),  1, 1, C, 1);
-    ggml_tensor * w    = ggml_reshape_4d(ctx0, cbx_t(model, p + ".weight"), 1, 1, C, 1);
-    ggml_tensor * b    = ggml_reshape_4d(ctx0, cbx_t(model, p + ".bias"),   1, 1, C, 1);
+    ggml_tensor * mean = ggml_reshape_4d(ctx0, n.mean, 1, 1, C, 1);
+    ggml_tensor * var  = ggml_reshape_4d(ctx0, n.var,  1, 1, C, 1);
+    ggml_tensor * w    = ggml_reshape_4d(ctx0, n.w, 1, 1, C, 1);
+    ggml_tensor * b    = ggml_reshape_4d(ctx0, n.b, 1, 1, C, 1);
     ggml_tensor * a     = ggml_div(ctx0, w, ggml_sqrt(ctx0, ggml_add(ctx0, var, eps)));
     ggml_tensor * shift = ggml_sub(ctx0, b, ggml_mul(ctx0, mean, a));
-    return ggml_relu(ctx0, ggml_add(ctx0, ggml_mul(ctx0, x, a), shift));
+    return ggml_add(ctx0, ggml_mul(ctx0, x, a), shift);
+}
+
+ggml_tensor * clip_graph_chatterbox_spkenc::bn2d_relu(const clip_chatterbox::bn & n, ggml_tensor * x, ggml_tensor * eps) {
+    return ggml_relu(ctx0, cbx_bn2d(ctx0, n, x, eps));
 }
 
 // fcm residual 2d block, stride on the frequency axis only
-static ggml_tensor * cbx_res2d(const clip_model & model, ggml_context * ctx0, ggml_tensor * x,
-                               const std::string & p, int stride, ggml_tensor * eps) {
-    ggml_tensor * cur = ggml_conv_2d(ctx0, cbx_t(model, p + ".conv1.weight"), x, 1, stride, 1, 1, 1, 1);
-    cur = cbx_bn2d_relu(model, ctx0, cur, p + ".bn1", eps);
-    cur = ggml_conv_2d(ctx0, cbx_t(model, p + ".conv2.weight"), cur, 1, 1, 1, 1, 1, 1);
+ggml_tensor * clip_graph_chatterbox_spkenc::res2d(const clip_chatterbox::spk_res2d & r, ggml_tensor * x,
+                                                  int stride, ggml_tensor * eps) {
+    ggml_tensor * cur = ggml_conv_2d(ctx0, r.conv1_w, x, 1, stride, 1, 1, 1, 1);
+    cur = bn2d_relu(r.bn1, cur, eps);
+    cur = ggml_conv_2d(ctx0, r.conv2_w, cur, 1, 1, 1, 1, 1, 1);
     // bn2 without the relu, applied before the residual add
-    {
-        const int C = (int) cur->ne[2];
-        ggml_tensor * mean = ggml_reshape_4d(ctx0, cbx_t(model, p + ".bn2.running_mean"), 1, 1, C, 1);
-        ggml_tensor * var  = ggml_reshape_4d(ctx0, cbx_t(model, p + ".bn2.running_var"),  1, 1, C, 1);
-        ggml_tensor * w    = ggml_reshape_4d(ctx0, cbx_t(model, p + ".bn2.weight"), 1, 1, C, 1);
-        ggml_tensor * b    = ggml_reshape_4d(ctx0, cbx_t(model, p + ".bn2.bias"),   1, 1, C, 1);
-        ggml_tensor * a     = ggml_div(ctx0, w, ggml_sqrt(ctx0, ggml_add(ctx0, var, eps)));
-        ggml_tensor * shift = ggml_sub(ctx0, b, ggml_mul(ctx0, mean, a));
-        cur = ggml_add(ctx0, ggml_mul(ctx0, cur, a), shift);
-    }
+    cur = cbx_bn2d(ctx0, r.bn2, cur, eps);
     ggml_tensor * res = x;
-    if (model.cbx_tensors.count(p + ".shortcut.0.weight")) {
-        res = ggml_conv_2d(ctx0, cbx_t(model, p + ".shortcut.0.weight"), x, 1, stride, 0, 0, 1, 1);
-        const int C = (int) res->ne[2];
-        ggml_tensor * mean = ggml_reshape_4d(ctx0, cbx_t(model, p + ".shortcut.1.running_mean"), 1, 1, C, 1);
-        ggml_tensor * var  = ggml_reshape_4d(ctx0, cbx_t(model, p + ".shortcut.1.running_var"),  1, 1, C, 1);
-        ggml_tensor * w    = ggml_reshape_4d(ctx0, cbx_t(model, p + ".shortcut.1.weight"), 1, 1, C, 1);
-        ggml_tensor * b    = ggml_reshape_4d(ctx0, cbx_t(model, p + ".shortcut.1.bias"),   1, 1, C, 1);
-        ggml_tensor * a     = ggml_div(ctx0, w, ggml_sqrt(ctx0, ggml_add(ctx0, var, eps)));
-        ggml_tensor * shift = ggml_sub(ctx0, b, ggml_mul(ctx0, mean, a));
-        res = ggml_add(ctx0, ggml_mul(ctx0, res, a), shift);
+    if (r.shortcut_w) {
+        res = ggml_conv_2d(ctx0, r.shortcut_w, x, 1, stride, 0, 0, 1, 1);
+        res = cbx_bn2d(ctx0, r.shortcut_bn, res, eps);
     }
     return ggml_relu(ctx0, ggml_add(ctx0, cur, res));
 }
 
 // cam dense tdnn layer: bottleneck then context-gated conv; x [C_in, T] -> [growth, T]
-static ggml_tensor * cbx_cam_layer(const clip_model & model, ggml_context * ctx0, ggml_tensor * x,
-                                   const std::string & p, int dil, ggml_tensor * eps, ggml_tensor * segfix) {
-    ggml_tensor * h = ggml_relu(ctx0, cbx_bn1d(model, ctx0, x, p + ".nonlinear1.batchnorm", eps));
-    h = cbx_conv1d(ctx0, cbx_t(model, p + ".linear1.weight"), nullptr, h, 1, 0, 0);
-    h = ggml_relu(ctx0, cbx_bn1d(model, ctx0, h, p + ".nonlinear2.batchnorm", eps));
+ggml_tensor * clip_graph_chatterbox_spkenc::cam_layer(const clip_chatterbox::spk_cam_layer & l, ggml_tensor * x,
+                                                      int dil, ggml_tensor * eps, ggml_tensor * segfix) {
+    ggml_tensor * h = ggml_relu(ctx0, bn1d(l.nl1_bn, x, eps));
+    h = cbx_conv1d(l.linear1_w, nullptr, h, 1, 0, 0);
+    h = ggml_relu(ctx0, bn1d(l.nl2_bn, h, eps));
 
-    const std::string cp = p + ".cam_layer";
-    ggml_tensor * k = cbx_t(model, cp + ".linear_local.weight");
+    ggml_tensor * k = l.local_w;
     const int pad = ((int) k->ne[0] - 1) / 2 * dil;
-    ggml_tensor * y = cbx_conv1d_dil(ctx0, k, nullptr, h, pad, dil);
+    ggml_tensor * y = cbx_conv1d_dil(k, nullptr, h, pad, dil);
 
     // context: global mean plus ceil-mode segment means of length 100
     const int T = (int) h->ne[1];
@@ -98,14 +79,16 @@ static ggml_tensor * cbx_cam_layer(const clip_model & model, ggml_context * ctx0
         seg = ggml_cont(ctx0, ggml_transpose(ctx0, exp));        // [C, T]
     }
     ggml_tensor * context = ggml_add(ctx0, seg, gmean);
-    context = cbx_conv1d(ctx0, cbx_t(model, cp + ".linear1.weight"), cbx_t(model, cp + ".linear1.bias"), context, 1, 0, 0);
+    context = cbx_conv1d(l.ctx1_w, l.ctx1_b, context, 1, 0, 0);
     context = ggml_relu(ctx0, context);
-    context = cbx_conv1d(ctx0, cbx_t(model, cp + ".linear2.weight"), cbx_t(model, cp + ".linear2.bias"), context, 1, 0, 0);
+    context = cbx_conv1d(l.ctx2_w, l.ctx2_b, context, 1, 0, 0);
     ggml_tensor * m = ggml_sigmoid(ctx0, context);
     return ggml_mul(ctx0, y, m);
 }
 
 ggml_cgraph * clip_graph_chatterbox_spkenc::build() {
+    const auto & c = model.cbx;
+
     ggml_tensor * eps = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, 1);
     ggml_set_name(eps, "inp_eps");
     ggml_set_input(eps);
@@ -122,37 +105,36 @@ ggml_cgraph * clip_graph_chatterbox_spkenc::build() {
 
     // fcm 2d front: [W=T, H=F=80, C=1] -> [T, 10, 32] -> [320, T]
     ggml_tensor * x = ggml_reshape_4d(ctx0, inp, T, 80, 1, 1);
-    x = ggml_conv_2d(ctx0, cbx_t(model, "a.spk.head.conv1.weight"), x, 1, 1, 1, 1, 1, 1);
-    x = cbx_bn2d_relu(model, ctx0, x, "a.spk.head.bn1", eps);
-    x = cbx_res2d(model, ctx0, x, "a.spk.head.layer1.0", 2, eps);
-    x = cbx_res2d(model, ctx0, x, "a.spk.head.layer1.1", 1, eps);
-    x = cbx_res2d(model, ctx0, x, "a.spk.head.layer2.0", 2, eps);
-    x = cbx_res2d(model, ctx0, x, "a.spk.head.layer2.1", 1, eps);
-    x = ggml_conv_2d(ctx0, cbx_t(model, "a.spk.head.conv2.weight"), x, 1, 2, 1, 1, 1, 1);
-    x = cbx_bn2d_relu(model, ctx0, x, "a.spk.head.bn2", eps);
+    x = ggml_conv_2d(ctx0, c.spk_conv1_w, x, 1, 1, 1, 1, 1, 1);
+    x = bn2d_relu(c.spk_bn1, x, eps);
+    x = res2d(c.spk_layer1_0, x, 2, eps);
+    x = res2d(c.spk_layer1_1, x, 1, eps);
+    x = res2d(c.spk_layer2_0, x, 2, eps);
+    x = res2d(c.spk_layer2_1, x, 1, eps);
+    x = ggml_conv_2d(ctx0, c.spk_conv2_w, x, 1, 2, 1, 1, 1, 1);
+    x = bn2d_relu(c.spk_bn2, x, eps);
     x = ggml_reshape_2d(ctx0, x, T, 320);
     x = ggml_cont(ctx0, ggml_transpose(ctx0, x));               // [320, T]
     cb(x, "spk_fcm", -1);
 
     // tdnn k5 stride 2 over time, then the three cam dense blocks
-    x = cbx_conv1d(ctx0, cbx_t(model, "a.spk.xvector.tdnn.linear.weight"), nullptr, x, 2, 2, 2); // [128, T1]
-    x = ggml_relu(ctx0, cbx_bn1d(model, ctx0, x, "a.spk.xvector.tdnn.nonlinear.batchnorm", eps));
+    x = cbx_conv1d(c.spk_tdnn_w, nullptr, x, 2, 2, 2); // [128, T1]
+    x = ggml_relu(ctx0, bn1d(c.spk_tdnn_bn, x, eps));
     cb(x, "spk_tdnn", -1);
 
     static const int block_dil[3] = {1, 2, 2};
+    const clip_chatterbox::spk_cam_block * blocks[3] = { &c.spk_block1, &c.spk_block2, &c.spk_block3 };
     for (int bi = 1; bi <= 3; bi++) {
-        const std::string bp = "a.spk.xvector.block" + std::to_string(bi);
-        for (int li = 1; model.cbx_tensors.count(bp + ".tdnnd" + std::to_string(li) + ".linear1.weight"); li++) {
-            ggml_tensor * out = cbx_cam_layer(model, ctx0, x, bp + ".tdnnd" + std::to_string(li),
-                                              block_dil[bi - 1], eps, segfix);
+        const auto & blk = *blocks[bi - 1];
+        for (const auto & l : blk.layers) {
+            ggml_tensor * out = cam_layer(l, x, block_dil[bi - 1], eps, segfix);
             x = ggml_concat(ctx0, x, out, 0);
         }
-        const std::string tp = "a.spk.xvector.transit" + std::to_string(bi);
-        x = ggml_relu(ctx0, cbx_bn1d(model, ctx0, x, tp + ".nonlinear.batchnorm", eps));
-        x = cbx_conv1d(ctx0, cbx_t(model, tp + ".linear.weight"), nullptr, x, 1, 0, 0);
+        x = ggml_relu(ctx0, bn1d(blk.transit_bn, x, eps));
+        x = cbx_conv1d(blk.transit_w, nullptr, x, 1, 0, 0);
         cb(x, "spk_block", bi);
     }
-    x = ggml_relu(ctx0, cbx_bn1d(model, ctx0, x, "a.spk.xvector.out_nonlinear.batchnorm", eps)); // [512, T1]
+    x = ggml_relu(ctx0, bn1d(c.spk_out_bn, x, eps)); // [512, T1]
 
     // statistics pooling: mean and unbiased std over time -> [1024, 1]
     ggml_tensor * xt = ggml_cont(ctx0, ggml_transpose(ctx0, x));                 // [T1, 512]
@@ -166,9 +148,9 @@ ggml_cgraph * clip_graph_chatterbox_spkenc::build() {
     cb(stats, "spk_stats_pool", -1);
 
     // dense 1024 -> 192, batchnorm without affine, into the x-vector
-    ggml_tensor * dw = ggml_reshape_2d(ctx0, cbx_t(model, "a.spk.xvector.dense.linear.weight"), 1024, 192);
+    ggml_tensor * dw = ggml_reshape_2d(ctx0, c.spk_dense_w, 1024, 192);
     ggml_tensor * emb = ggml_mul_mat(ctx0, dw, stats);                           // [192, 1]
-    emb = cbx_bn1d(model, ctx0, emb, "a.spk.xvector.dense.nonlinear.batchnorm", eps);
+    emb = bn1d(c.spk_dense_bn, emb, eps);
     emb = ggml_reshape_1d(ctx0, emb, 192);
     ggml_set_name(emb, "out_xvec");
     ggml_set_output(emb);
@@ -177,8 +159,7 @@ ggml_cgraph * clip_graph_chatterbox_spkenc::build() {
     // normalize then the s3gen speaker affine
     ggml_tensor * n2 = ggml_sqrt(ctx0, ggml_sum(ctx0, ggml_mul(ctx0, emb, emb)));
     ggml_tensor * unit = ggml_div(ctx0, emb, n2);
-    ggml_tensor * spk80 = cbx_linear(ctx0, cbx_t(model, "a.spk_embed_affine_layer.weight"),
-                                     cbx_t(model, "a.spk_embed_affine_layer.bias"),
+    ggml_tensor * spk80 = cbx_linear(c.spk_affine_w, c.spk_affine_b,
                                      ggml_reshape_2d(ctx0, unit, 192, 1));
     spk80 = ggml_cont(ctx0, ggml_reshape_1d(ctx0, spk80, 80));
     cb(spk80, "spk_embd", -1);

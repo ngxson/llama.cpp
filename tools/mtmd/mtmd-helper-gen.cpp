@@ -91,6 +91,40 @@ public:
     virtual int32_t get_output(int32_t * out_sample_rate, const char ** out_data, size_t * out_data_len, int64_t * out_n_samples) = 0;
 
 protected:
+    // encodes a speaker reference clip through the standard audio path:
+    // bitmap to chunks to chunk encode, out receives the encoder embeddings
+    bool encode_speaker(mtmd_bitmap * bitmap, std::vector<float> & out) {
+        if (!mtmd_support_audio(mctx)) {
+            LOG_ERR("mtmd_helper_gen_audio: mmproj has no speaker/audio encoder\n");
+            return false;
+        }
+        const std::string  marker = mtmd_default_marker();
+        mtmd_input_text     text{ marker.c_str(), marker.size(), false, true };
+        mtmd_input_chunks * chunks = mtmd_input_chunks_init();
+        const mtmd_bitmap * bptr = bitmap;
+        bool ok = mtmd_tokenize(mctx, chunks, &text, &bptr, 1) == 0;
+        if (ok) {
+            ok = false;
+            for (size_t i = 0; i < mtmd_input_chunks_size(chunks); i++) {
+                const mtmd_input_chunk * chunk = mtmd_input_chunks_get(chunks, i);
+                if (mtmd_input_chunk_get_type(chunk) != MTMD_INPUT_CHUNK_TYPE_AUDIO) {
+                    continue;
+                }
+                if (mtmd_encode_chunk(mctx, chunk) != 0) {
+                    LOG_ERR("mtmd_helper_gen_audio: speaker encode failed\n");
+                    break;
+                }
+                const float * embd = mtmd_get_output_embd(mctx);
+                const size_t  n = (size_t) llama_model_n_embd_inp(model) * mtmd_input_chunk_get_n_tokens(chunk);
+                out.assign(embd, embd + n);
+                ok = true;
+                break;
+            }
+        }
+        mtmd_input_chunks_free(chunks);
+        return ok;
+    }
+
     llama_context * lctx;
     mtmd_context  * mctx;
     const llama_model * model;
@@ -325,38 +359,6 @@ private:
 
     // encodes a reference wav (already loaded as a bitmap) through the mmproj's
     // speaker encoder, returning the single x-vector embedding row it produces
-    bool encode_speaker(mtmd_bitmap * bitmap, std::vector<float> & out) {
-        if (!mtmd_support_audio(mctx)) {
-            LOG_ERR("mtmd_helper_gen_audio: mmproj has no speaker/audio encoder\n");
-            return false;
-        }
-        const std::string  marker = mtmd_default_marker();
-        mtmd_input_text     text{ marker.c_str(), marker.size(), false, true };
-        mtmd_input_chunks * chunks = mtmd_input_chunks_init();
-        const mtmd_bitmap * bptr = bitmap;
-        bool ok = mtmd_tokenize(mctx, chunks, &text, &bptr, 1) == 0;
-        if (ok) {
-            ok = false;
-            for (size_t i = 0; i < mtmd_input_chunks_size(chunks); i++) {
-                const mtmd_input_chunk * chunk = mtmd_input_chunks_get(chunks, i);
-                if (mtmd_input_chunk_get_type(chunk) != MTMD_INPUT_CHUNK_TYPE_AUDIO) {
-                    continue;
-                }
-                if (mtmd_encode_chunk(mctx, chunk) != 0) {
-                    LOG_ERR("mtmd_helper_gen_audio: speaker encode failed\n");
-                    break;
-                }
-                const float * embd = mtmd_get_output_embd(mctx);
-                const size_t  n = (size_t) llama_model_n_embd_inp(model) * mtmd_input_chunk_get_n_tokens(chunk);
-                out.assign(embd, embd + n);
-                ok = true;
-                break;
-            }
-        }
-        mtmd_input_chunks_free(chunks);
-        return ok;
-    }
-
     // runs one CODE2WAV process() call on whatever is currently buffered, carrying
     // the persisted state (KV cache + conv left-context) across batches
     bool flush_c2w() {
@@ -430,7 +432,9 @@ public:
         h_state_buf.clear();
         out_buf.clear();
         ref_cond.clear();
-        ref_state.clear();
+        ref_codes.clear();
+        ref_feat.clear();
+        ref_spk.clear();
     }
 
     int32_t set_input(const mtmd_helper_gen_audio_inp * inp) override {
@@ -441,21 +445,20 @@ public:
         }
 
         if (inp->speaker_ref) {
-            // one spk-ref call encodes the reference clip: conditioning rows
-            // for the talker prompt, opaque state for the flow decoder
-            const float * pcm = (const float *) mtmd_bitmap_get_data(inp->speaker_ref);
-            const size_t  n   = mtmd_bitmap_get_n_bytes(inp->speaker_ref) / sizeof(float);
-            mtmd_gen_inp gi{};
-            gi.type  = MTMD_GEN_PROCESS_TYPE_SPK_REF;
-            gi.pcm   = pcm;
-            gi.n_pcm = n;
-            mtmd_gen_out go{};
-            if (mtmd_gen_audio_process(mctx, &gi, &go) != 0) {
+            // the reference clip goes through the standard audio encode path:
+            // the chunk encodes to the talker conditioning rows, the flow
+            // decoder reference comes back through the typed side outputs
+            if (!encode_speaker(inp->speaker_ref, ref_cond)) {
                 LOG_ERR("mtmd_helper_gen_audio: speaker reference encoding failed\n");
                 return 1;
             }
-            ref_cond.assign(go.embd, go.embd + go.n_embd);
-            ref_state.assign(go.state_data, go.state_data + go.state_size);
+            size_t n = 0;
+            const float * p = mtmd_get_output_typed_embd(mctx, MTMD_EMBD_OUT_TYPE_REF_CODES, &n);
+            ref_codes.assign(p, p + n);
+            p = mtmd_get_output_typed_embd(mctx, MTMD_EMBD_OUT_TYPE_REF_FEAT, &n);
+            ref_feat.assign(p, p + n);
+            p = mtmd_get_output_typed_embd(mctx, MTMD_EMBD_OUT_TYPE_REF_SPK, &n);
+            ref_spk.assign(p, p + n);
         }
 
         const int n_e = n_embd;
@@ -697,9 +700,10 @@ public:
         gen_inp.type    = MTMD_GEN_PROCESS_TYPE_CODE2WAV;
         gen_inp.codes   = codes_buf.data();
         gen_inp.n_codes = codes_buf.size();
-        if (!ref_state.empty()) {
-            gen_inp.state_data = ref_state.data();
-            gen_inp.state_size = ref_state.size();
+        if (!ref_codes.empty()) {
+            gen_inp.ref_codes = ref_codes.data(); gen_inp.n_ref_codes = ref_codes.size();
+            gen_inp.ref_feat  = ref_feat.data();  gen_inp.n_ref_feat  = ref_feat.size();
+            gen_inp.ref_spk   = ref_spk.data();   gen_inp.n_ref_spk   = ref_spk.size();
         }
         mtmd_gen_out gen_out{};
         if (mtmd_gen_audio_process(mctx, &gen_inp, &gen_out) != 0) {
@@ -825,7 +829,9 @@ private:
     std::vector<float> text_pos;
     std::vector<float> speech_pos;
     std::vector<float> ref_cond;
-    std::vector<char>  ref_state;
+    std::vector<float> ref_codes; // flow reference codes carried as exact float values
+    std::vector<float> ref_feat;
+    std::vector<float> ref_spk;
     llama_token speech_base = LLAMA_TOKEN_NULL;
     int n_speech = 0;
     llama_token text_start = LLAMA_TOKEN_NULL;
