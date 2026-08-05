@@ -762,6 +762,10 @@ struct mtmd_context {
                 {
                     audio_preproc = std::make_unique<mtmd_audio_preprocessor_qwen3tts_spk>(ctx_a);
                 } break;
+            case PROJECTOR_TYPE_POCKETTTS_SPKENC:
+                {
+                    audio_preproc = std::make_unique<mtmd_audio_preprocessor_pockettts>(ctx_a);
+                } break;
             default:
                 throw std::runtime_error(string_format("%s: unexpected audio projector type %d\n", __func__, proj));
         }
@@ -1591,6 +1595,10 @@ mtmd_gen_audio_info mtmd_gen_audio_get_info(const mtmd_context * ctx) {
             info.type = MTMD_GEN_AUDIO_TYPE_QWEN3TTS;
             info.sample_rate = 24000;
             break;
+        case PROJECTOR_TYPE_POCKETTTS_GEN:
+            info.type = MTMD_GEN_AUDIO_TYPE_POCKETTTS;
+            info.sample_rate = 24000;
+            break;
         default:
             info.type = MTMD_GEN_AUDIO_TYPE_NONE;
             break;
@@ -1688,6 +1696,9 @@ static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_in
     params.imgs        = &batch;
     params.n_threads   = ctx->n_threads;
     params.gen_process = CLIP_GEN_PROCESS_GEN_WAV;
+    // gen_wav draws no randomness, but the seed must still match so it does not reseed
+    // the rng in the middle of a generation
+    params.seed        = inp->seed;
     params.codes       = has_codes ? &in_codes : nullptr;
     params.feats       = has_feats ? &in_feats : nullptr;
     params.out_audio   = &ctx->gen_out_audio;

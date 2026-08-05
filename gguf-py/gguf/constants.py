@@ -1039,6 +1039,7 @@ class MODEL_TENSOR(IntEnum):
     A_ENC_SEANET_RES_CONV2   = auto() # residual unit, pointwise conv
     A_ENC_SEANET_SCALE_CONV  = auto() # strided downsample conv
     A_ENC_ATTN_SCALE         = auto() # layer scale (gamma) on the attn output
+    A_ENC_FFN_SCALE_LS       = auto() # layer scale (gamma) on the FFN output
     A_ENC_SPEAKER_PROJ       = auto() # voice latent -> backbone embd
     A_GEN_FLOW_INPUT_PROJ    = auto()
     A_GEN_FLOW_COND_EMBD     = auto()
@@ -1736,7 +1737,8 @@ TENSOR_NAMES: dict[MODEL_TENSOR, str] = {
     MODEL_TENSOR.A_ENC_SEANET_RES_CONV1:    "a.seanet.blk.{bid}.res_conv1",
     MODEL_TENSOR.A_ENC_SEANET_RES_CONV2:    "a.seanet.blk.{bid}.res_conv2",
     MODEL_TENSOR.A_ENC_SEANET_SCALE_CONV:   "a.seanet.blk.{bid}.scale_conv",
-    MODEL_TENSOR.A_ENC_ATTN_SCALE:          "a.blk.{bid}.attn_scale",
+    MODEL_TENSOR.A_ENC_ATTN_SCALE:          "a.blk.{bid}.ls1",
+    MODEL_TENSOR.A_ENC_FFN_SCALE_LS:        "a.blk.{bid}.ls2",
     MODEL_TENSOR.A_ENC_SPEAKER_PROJ:        "a.speaker_proj",
     MODEL_TENSOR.A_GEN_FLOW_INPUT_PROJ:     "a.gen.flow.input_proj",
     MODEL_TENSOR.A_GEN_FLOW_COND_EMBD:      "a.gen.flow.cond_embd",
@@ -2078,6 +2080,7 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.A_ENC_SEANET_RES_CONV2,
         MODEL_TENSOR.A_ENC_SEANET_SCALE_CONV,
         MODEL_TENSOR.A_ENC_ATTN_SCALE,
+        MODEL_TENSOR.A_ENC_FFN_SCALE_LS,
         MODEL_TENSOR.A_ENC_SPEAKER_PROJ,
         MODEL_TENSOR.A_GEN_FLOW_INPUT_PROJ,
         MODEL_TENSOR.A_GEN_FLOW_COND_EMBD,

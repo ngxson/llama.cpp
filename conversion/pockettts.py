@@ -50,21 +50,33 @@ class PocketTTSModel(TextModel):
     }
 
     def set_vocab(self):
+        # this is a unigram sentencepiece model; llama.cpp's SPM tokenizer greedily merges
+        # bigrams and cannot reproduce unigram segmentation, so use the UGM tokenizer instead
+        from sentencepiece import sentencepiece_model_pb2 as model
+
+        proto = model.ModelProto()  # pyright: ignore[reportAttributeAccessIssue] # ty: ignore[unresolved-attribute]
+        proto.ParseFromString(open(self.dir_model / "tokenizer.model", "rb").read())
+        assert proto.trainer_spec.model_type == 1, "expected a unigram tokenizer"
+
         tokens, scores, toktypes = self._create_vocab_sentencepiece()
 
         # the last 3 rows of the embedding table are not sentencepiece pieces: the conditioner's
-        # padding row, then the two learned vectors appended by generate_extra_tensors()
+        # padding row, then the two learned vectors appended by _embd_table()
         extra = ["<|pad|>", "<|bos_before_voice|>", "<|audio_bos|>"]
         for i, name in enumerate(extra):
             tokens[len(tokens) - len(extra) + i] = name.encode("utf-8")
             toktypes[len(tokens) - len(extra) + i] = SentencePieceTokenTypes.CONTROL
             scores[len(tokens) - len(extra) + i] = -1000.0
 
-        self.gguf_writer.add_tokenizer_model("llama")
+        self.gguf_writer.add_tokenizer_model("t5")
         self.gguf_writer.add_tokenizer_pre("default")
         self.gguf_writer.add_token_list(tokens)
         self.gguf_writer.add_token_scores(scores)
         self.gguf_writer.add_token_types(toktypes)
+        self.gguf_writer.add_add_space_prefix(proto.normalizer_spec.add_dummy_prefix)
+        self.gguf_writer.add_remove_extra_whitespaces(proto.normalizer_spec.remove_extra_whitespaces)
+        if proto.normalizer_spec.precompiled_charsmap:
+            self.gguf_writer.add_precompiled_charsmap(proto.normalizer_spec.precompiled_charsmap)
         self.gguf_writer.add_add_bos_token(False)
         self.gguf_writer.add_add_eos_token(False)
 
@@ -122,7 +134,7 @@ class PocketTTSMmprojModel(MmprojModel):
         "linear1":            (gguf.MODEL_TENSOR.A_ENC_FFN_UP,      gguf.MODEL_TENSOR.A_GEN_WAV_TFM_FFN_UP),
         "linear2":            (gguf.MODEL_TENSOR.A_ENC_FFN_DOWN,    gguf.MODEL_TENSOR.A_GEN_WAV_TFM_FFN_DOWN),
         "layer_scale_1.scale": (gguf.MODEL_TENSOR.A_ENC_ATTN_SCALE, gguf.MODEL_TENSOR.A_GEN_WAV_TFM_ATTN_SCALE),
-        "layer_scale_2.scale": (gguf.MODEL_TENSOR.A_ENC_FFN_SCALE,  gguf.MODEL_TENSOR.A_GEN_WAV_TFM_FFN_SCALE),
+        "layer_scale_2.scale": (gguf.MODEL_TENSOR.A_ENC_FFN_SCALE_LS, gguf.MODEL_TENSOR.A_GEN_WAV_TFM_FFN_SCALE),
     }
     _MIMI_TFM_QKV = (
         (gguf.MODEL_TENSOR.A_ENC_ATTN_Q, gguf.MODEL_TENSOR.A_ENC_ATTN_K, gguf.MODEL_TENSOR.A_ENC_ATTN_V),
@@ -143,6 +155,8 @@ class PocketTTSMmprojModel(MmprojModel):
         self.gguf_writer.add_audio_feed_forward_length(self.hparams_audio["intermediate_size"])
         self.gguf_writer.add_audio_head_count(self.hparams_audio["num_attention_heads"])
         self.gguf_writer.add_audio_attention_layernorm_eps(1e-5)
+        # mimi convolves the waveform directly, it is passed around as a 1-row "mel"
+        self.gguf_writer.add_audio_num_mel_bins(1)
 
         # generation: flow-matching decoder + mimi decoder
         # note: the SEANet and flow net hparams are hardcoded on the clip.cpp side for now
@@ -273,8 +287,7 @@ class PocketTTSMmprojModel(MmprojModel):
         if entry is None:
             return
         tensor = entry[1 if is_decoder else 0]
-        # layer_scale is stored without a .weight/.bias suffix
-        suffix = "" if key_with_suffix.endswith(".scale") else "." + suffix
+        suffix = ".weight" if key_with_suffix.endswith(".scale") else "." + suffix
         yield (self.format_tensor_name(tensor, bid, suffix=suffix), data_torch)
 
     def _seanet_tensor(self, name: str, data_torch: Tensor) -> Iterable[tuple[str, Tensor]]:

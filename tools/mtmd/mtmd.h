@@ -334,6 +334,7 @@ MTMD_API struct mtmd_caps mtmd_get_cap_from_file(const char * mmproj_fname);
 enum mtmd_gen_audio_type {
     MTMD_GEN_AUDIO_TYPE_NONE, // not supported
     MTMD_GEN_AUDIO_TYPE_QWEN3TTS,
+    MTMD_GEN_AUDIO_TYPE_POCKETTTS,
 };
 struct mtmd_gen_audio_info {
     enum mtmd_gen_audio_type type;
@@ -345,6 +346,7 @@ enum mtmd_gen_process_type {
     MTMD_GEN_PROCESS_TYPE_GEN_CODE, // h_state to semantic (codes, mel-spectrogram, etc.)
     MTMD_GEN_PROCESS_TYPE_GEN_WAV,  // convert semantic to PCM audio
                                     // for qwen3tts, this is code2wav
+                                    // for pocket-tts, this is mimi decoder
 };
 struct mtmd_gen_inp {
     enum mtmd_gen_process_type type;
