@@ -7,7 +7,7 @@ import torch
 if TYPE_CHECKING:
     from torch import Tensor
 
-from .base import ModelBase, MmprojModel, SentencePieceTokenTypes, TextModel, gguf
+from .base import ModelBase, MmprojModel, SentencePieceTokenTypes, TextModel, gguf, logger
 
 # Pocket TTS is a CALM: an autoregressive backbone conditions a flow-matching decoder that
 # generates one continuous 32-d latent per frame. There is no codebook anywhere in this model.
@@ -36,6 +36,26 @@ _DEC_RES_IDX   = lambda i: 3 + 3 * i  # noqa: E731
 _N_SEANET_STAGES = 3
 _SAMPLE_RATE = 24000
 
+# The flow decoder's noise scale is tuned per language pack and is not derivable from the
+# checkpoint: the english packs are byte-identical in shape and tokenizer yet disagree on it.
+# It lives only in the pip package's pocket_tts/config/<name>.yaml, so it is keyed on the
+# model directory name here. 0.7 is the reference default (Config.default_temperature).
+#
+# The packs also tune pad_with_spaces_for_short_inputs and remove_semicolons, which only
+# affect text normalization for one or two packs each. Those are not carried over.
+_DEFAULT_TEMP = 0.7
+_PACK_TEMP = {
+    "english":         0.3,
+    "english_2026-04": 0.3,
+}
+
+
+def _pack_temp(name: str) -> float:
+    if name not in _PACK_TEMP:
+        logger.warning("pocket-tts: no tuned temperature for language pack %r, using %.1f",
+                       name, _DEFAULT_TEMP)
+    return _PACK_TEMP.get(name, _DEFAULT_TEMP)
+
 
 @ModelBase.register("PocketTTSModel")
 class PocketTTSModel(TextModel):
@@ -60,9 +80,8 @@ class PocketTTSModel(TextModel):
 
         tokens, scores, toktypes = self._create_vocab_sentencepiece()
 
-        # the last 3 rows of the embedding table are not sentencepiece pieces: the conditioner's
-        # padding row, then the two learned vectors appended by _embd_table()
-        extra = ["<|pad|>", "<|bos_before_voice|>", "<|audio_bos|>"]
+        # the last rows of the embedding table are not sentencepiece pieces
+        extra = self._extra_tokens()
         for i, name in enumerate(extra):
             tokens[len(tokens) - len(extra) + i] = name.encode("utf-8")
             toktypes[len(tokens) - len(extra) + i] = SentencePieceTokenTypes.CONTROL
@@ -112,14 +131,27 @@ class PocketTTSModel(TextModel):
 
         return
 
+    def _extra_tokens(self) -> list[str]:
+        # the conditioner's padding row, then the learned vectors appended by _embd_table().
+        # bos_before_voice only exists when the pack sets insert_bos_before_voice
+        names = ["<|pad|>"]
+        if "flow_lm.bos_before_voice" in self.model_tensors:
+            names.append("<|bos_before_voice|>")
+        names.append("<|audio_bos|>")
+        return names
+
     def _embd_table(self, embed: Tensor) -> Tensor:
-        bos_before_voice = self.model_tensors["flow_lm.bos_before_voice"]().reshape(1, -1)
+        rows = [embed]
+        if "flow_lm.bos_before_voice" in self.model_tensors:
+            rows.append(self.model_tensors["flow_lm.bos_before_voice"]().reshape(1, -1).to(embed.dtype))
+
         # bos_emb is a latent, it only enters the backbone through input_linear
         bos_emb = self.model_tensors["flow_lm.bos_emb"]()
         input_linear = self.model_tensors["flow_lm.input_linear.weight"]()
         audio_bos = torch.nn.functional.linear(bos_emb.float(), input_linear.float()).reshape(1, -1)
+        rows.append(audio_bos.to(embed.dtype))
 
-        return torch.cat([embed, bos_before_voice.to(embed.dtype), audio_bos.to(embed.dtype)], dim=0)
+        return torch.cat(rows, dim=0)
 
 
 @ModelBase.register("PocketTTSModel")
@@ -168,6 +200,9 @@ class PocketTTSMmprojModel(MmprojModel):
         self.gguf_writer.add_gen_audio_block_count(self.hparams_audio["num_hidden_layers"])
         self.gguf_writer.add_gen_audio_head_count(self.hparams_audio["num_attention_heads"])
         self.gguf_writer.add_gen_audio_attention_layernorm_eps(1e-5)
+
+        # the flow decoder draws its noise at this scale, see lsd_decode() in the reference
+        self.gguf_writer.add_gen_audio_flow_temperature(_pack_temp(self.dir_model.name))
 
     def tensor_force_quant(self, name, new_name, bid, n_dims):
         del name, bid, n_dims

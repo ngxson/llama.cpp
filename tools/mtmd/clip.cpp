@@ -1432,7 +1432,7 @@ struct clip_model_loader {
                     } break;
                 case PROJECTOR_TYPE_PARAKEET:
                     {
-                        get_u32(KEY_AUDIO_SUBSAMPLING_FACTOR, hparams.subsampling_factor);
+                        get_u32(KEY_AUDIO_SUBSMPL_FACTOR, hparams.subsampling_factor);
                         GGML_ASSERT(hparams.subsampling_factor == 8 &&
                             "subsampling_factor must match the conv strides in clip_graph_parakeet::build()");
                         get_u32(KEY_A_CONV_KERNEL_SIZE,       hparams.audio_conv_kernel_size);
@@ -1754,10 +1754,13 @@ struct clip_model_loader {
                         // matches the reference transformer's "context"
                         hparams.mimi_tfm_context = 250;
                         hparams.rope_theta       = 10000.0f;
-                        // flow_lm defaults, see pocket_tts/default_parameters.py and the language config
+                        // flow_lm defaults, see pocket_tts/default_parameters.py
                         hparams.flow_n_step       = 1;
-                        hparams.flow_temp         = 0.3f;
                         hparams.gen_eos_threshold = -4.0f;
+                        // differs per language pack, the converter writes it out.
+                        // the fallback is the reference's own default
+                        hparams.flow_temp = 0.7f;
+                        get_f32(KEY_GEN_AUDIO_FLOW_TEMP, hparams.flow_temp, false);
                     } break;
                 case PROJECTOR_TYPE_PADDLEOCR:
                     {

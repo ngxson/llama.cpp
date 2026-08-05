@@ -503,6 +503,7 @@ public:
             LOG_ERR("mtmd_helper_gen_audio: empty prompt\n");
             return 1;
         }
+        // the model may pin the tail length, otherwise guess it from the text like the reference
         frames_after_eos = count_words(text) <= 4 ? 5 : 3;
 
         std::vector<llama_token> ids(text.size() + 16);
@@ -523,7 +524,9 @@ public:
 
         // sequence order is voice, then text, then the audio BOS that starts generation
         if (!voice.empty()) {
-            push_row(bos_before_voice);
+            if (bos_before_voice != LLAMA_TOKEN_NULL) {
+                push_row(bos_before_voice);
+            }
             prompt_embd_buf.insert(prompt_embd_buf.end(), voice.begin(), voice.end());
         }
         for (llama_token t : ids) {
@@ -651,13 +654,12 @@ private:
         if (specials_ok) {
             return true;
         }
+        // bos_before_voice is optional, some packs do not insert it
         bos_before_voice = find_special_token(vocab, "<|bos_before_voice|>");
         audio_bos        = find_special_token(vocab, "<|audio_bos|>");
-        for (llama_token t : { bos_before_voice, audio_bos }) {
-            if (t == LLAMA_TOKEN_NULL) {
-                LOG_ERR("mtmd_helper_gen_audio: missing a required special token in vocab\n");
-                return false;
-            }
+        if (audio_bos == LLAMA_TOKEN_NULL) {
+            LOG_ERR("mtmd_helper_gen_audio: missing <|audio_bos|> in vocab\n");
+            return false;
         }
         const uint32_t n_tok_embd = llama_model_get_tok_embd(model, nullptr);
         if (n_tok_embd == 0) {
@@ -678,7 +680,11 @@ private:
         std::string s;
         s.reserve(in.size() + 1);
         for (char c : in) {
-            s += (c == '\n' || c == '\r') ? ' ' : c;
+            if (c == '\n' || c == '\r') {
+                s += ' ';
+            } else {
+                s += c;
+            }
         }
         const size_t b = s.find_first_not_of(' ');
         const size_t e = s.find_last_not_of(' ');

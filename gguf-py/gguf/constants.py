@@ -400,6 +400,8 @@ class Keys:
 
     class ClipGenAudio:
         PROJECTOR_TYPE      = "clip.gen.audio.projector_type" # for mixed modality models
+        # noise scale of the flow decoder, differs between pocket-tts language packs
+        FLOW_TEMPERATURE    = "clip.gen.audio.flow_temperature"
         EMBEDDING_LENGTH    = "clip.gen.audio.embedding_length"
         FEED_FORWARD_LENGTH = "clip.gen.audio.feed_forward_length"
         BLOCK_COUNT         = "clip.gen.audio.block_count"

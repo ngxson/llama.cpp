@@ -92,7 +92,9 @@
 #define KEY_A_LOCAL_GROUP_SIZE     "clip.audio.local_group_size"     // mimo-v2.5: input_local_transformer grouping size
 // audio generation (gen-audio)-specific
 #define KEY_GEN_AUDIO_PROJ_TYPE    "clip.gen.audio.projector_type" // for models with mixed modalities
-#define KEY_AUDIO_SUBSAMPLING_FACTOR "clip.audio.subsampling_factor"
+// noise scale of the flow decoder, differs between pocket-tts language packs
+#define KEY_GEN_AUDIO_FLOW_TEMP    "clip.gen.audio.flow_temperature"
+#define KEY_AUDIO_SUBSMPL_FACTOR   "clip.audio.subsampling_factor"
 
 //
 // tensor name constants

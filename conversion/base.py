@@ -2652,8 +2652,9 @@ def _load_hparams_pockettts(shapes: dict[str, tuple[int, ...]]) -> dict[str, Any
         "max_position_embeddings": 4096,
         # not stored anywhere in the checkpoint, but every released variant uses head_dim 64
         "num_attention_heads": n_embd // 64,
-        # 2 learned vectors are appended to the embedding table as extra tokens, see pockettts.py
-        "vocab_size": n_vocab + 2,
+        # learned input vectors are appended to the embedding table as extra tokens, see
+        # pockettts.py. bos_before_voice only exists when the pack inserts it
+        "vocab_size": n_vocab + (2 if "flow_lm.bos_before_voice" in shapes else 1),
         "rope_theta": 10000.0,
         "layer_norm_eps": 1e-5,
         "audio_config": {
