@@ -265,6 +265,7 @@ struct mtmd_context {
     // generation context
     struct clip_ctx * ctx_gen_a; // audio
     std::vector<int32_t> gen_out_codes; // this frame's 16 sampled codes (GEN_CODE)
+    std::vector<float>   gen_out_feats; // this frame's continuous features, if any (GEN_CODE)
     std::vector<float>   gen_out_embd;  // next-step hidden state fed back to backbone (GEN_CODE)
     std::vector<float>   gen_out_audio; // decoded PCM samples for the current frame (GEN_WAV)
     std::vector<uint8_t> gen_out_state; // state to feed into the next GEN_WAV call
@@ -1580,7 +1581,7 @@ float * mtmd_get_output_embd(mtmd_context * ctx) {
 //
 
 mtmd_gen_audio_info mtmd_gen_audio_get_info(const mtmd_context * ctx) {
-    mtmd_gen_audio_info info;
+    mtmd_gen_audio_info info{};
     if (!ctx->ctx_gen_a) {
         info.type = MTMD_GEN_AUDIO_TYPE_NONE;
         return info;
@@ -1604,6 +1605,8 @@ static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_in
         return 1;
     }
 
+    *out = {};
+
     if (inp->type == MTMD_GEN_PROCESS_TYPE_GEN_CODE) {
         const size_t n_embd = (size_t) clip_n_mmproj_embd(ctx_clip);
 
@@ -1617,16 +1620,22 @@ static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_in
 
         std::vector<float>   out_embd(n_embd);
         std::vector<int32_t> out_codes;
+        std::vector<float>   out_feats;
+        bool is_eos = false;
 
         clip_encode_params params;
-        params.imgs        = &batch;
-        params.n_threads   = ctx->n_threads;
-        params.gen_process = CLIP_GEN_PROCESS_GEN_CODE;
-        params.out_embd    = &out_embd;
-        params.out_codes   = &out_codes;
-        params.code0       = inp->code0;
-        params.top_k       = inp->top_k;
-        params.top_p       = inp->top_p;
+        params.imgs          = &batch;
+        params.n_threads     = ctx->n_threads;
+        params.gen_process   = CLIP_GEN_PROCESS_GEN_CODE;
+        params.out_embd      = &out_embd;
+        params.out_codes     = &out_codes;
+        params.out_feats     = &out_feats;
+        params.code0         = inp->code0;
+        params.top_k         = inp->top_k;
+        params.top_p         = inp->top_p;
+        params.seed          = inp->seed;
+        params.n_steps       = inp->n_steps;
+        params.out_is_eos    = &is_eos;
 
         if (!clip_encode(ctx_clip, &params)) {
             LOG_ERR("%s: clip_encode failed (gen_code)\n", __func__);
@@ -1635,19 +1644,31 @@ static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_in
 
         ctx->gen_out_embd  = std::move(out_embd);
         ctx->gen_out_codes = std::move(out_codes);
+        ctx->gen_out_feats = std::move(out_feats);
 
-        out->embd    = ctx->gen_out_embd.data();
-        out->codes   = ctx->gen_out_codes.data();
-        out->n_codes = ctx->gen_out_codes.size();
+        out->embd      = ctx->gen_out_embd.data();
+        out->codes     = ctx->gen_out_codes.data();
+        out->n_codes   = ctx->gen_out_codes.size();
+        out->feats     = ctx->gen_out_feats.data();
+        out->n_feats   = ctx->gen_out_feats.size();
+        out->is_eos    = is_eos;
         return 0;
     }
 
     // MTMD_GEN_PROCESS_TYPE_GEN_WAV
-    if (!inp->codes || inp->n_codes == 0) {
-        LOG_ERR("%s: codes required for gen_wav\n", __func__);
+    const bool has_codes = inp->codes && inp->n_codes > 0;
+    const bool has_feats = inp->feats && inp->n_feats > 0;
+    if (has_codes == has_feats) {
+        LOG_ERR("%s: gen_wav requires exactly one of codes or feats\n", __func__);
         return 1;
     }
-    std::vector<int32_t> in_codes(inp->codes, inp->codes + inp->n_codes);
+    std::vector<int32_t> in_codes;
+    std::vector<float>   in_feats;
+    if (has_codes) {
+        in_codes.assign(inp->codes, inp->codes + inp->n_codes);
+    } else {
+        in_feats.assign(inp->feats, inp->feats + inp->n_feats);
+    }
     std::vector<uint8_t> in_state;
     if (inp->state_data) {
         in_state.assign(inp->state_data, inp->state_data + inp->state_size);
@@ -1667,7 +1688,8 @@ static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_in
     params.imgs        = &batch;
     params.n_threads   = ctx->n_threads;
     params.gen_process = CLIP_GEN_PROCESS_GEN_WAV;
-    params.codes       = &in_codes;
+    params.codes       = has_codes ? &in_codes : nullptr;
+    params.feats       = has_feats ? &in_feats : nullptr;
     params.out_audio   = &ctx->gen_out_audio;
     params.state_in    = inp->state_data ? &in_state : nullptr;
     params.state_out   = &ctx->gen_out_state;

@@ -174,6 +174,10 @@ struct clip_ctx {
 
     bool support_batch = false;
 
+    // for audio gen, reseeded only when the caller asks for another seed
+    std::mt19937 rng{std::random_device{}()};
+    uint32_t rng_seed = UINT32_MAX;
+
     clip_ctx(clip_context_params & ctx_params) {
         flash_attn_type = ctx_params.flash_attn_type;
         no_alloc = ctx_params.no_alloc;
@@ -4080,6 +4084,11 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
         clip_model_loader::warmup(*ctx, *params->imgs);
     }
 
+    if (params->seed != ctx->rng_seed) {
+        ctx->rng_seed = params->seed;
+        ctx->rng.seed(params->seed == UINT32_MAX ? std::random_device{}() : params->seed);
+    }
+
     // build the inference graph
     ggml_backend_sched_reset(ctx->sched.get());
     ggml_cgraph * gf = clip_get_graph_builder(ctx, imgs, params)->build();
@@ -4786,11 +4795,10 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                     set_input_i32("inp_code0", code0);
 
                     // one uniform(0,1) draw per codebook, used by do_sampling()
-                    static std::mt19937 rng{ std::random_device{}() };
                     std::uniform_real_distribution<float> dist(0.0f, 1.0f);
                     const int64_t n_acoustic = model.gen_code_head_w->ne[2];
                     for (int64_t g = 0; g < n_acoustic; g++) {
-                        std::vector<float> r = { dist(rng) };
+                        std::vector<float> r = { dist(ctx->rng) };
                         set_input_f32(("inp_rand_" + std::to_string(g)).c_str(), r);
                     }
                 }
@@ -5252,6 +5260,24 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
         out_codes.resize(ggml_nelements(codes));
         ggml_backend_tensor_get(codes, out_codes.data(), 0, ggml_nbytes(codes));
     }
+    // optional outputs, a missing tensor is not an error
+    if (params->out_feats != nullptr) {
+        ggml_tensor * feats = ggml_graph_get_tensor(gf, "out_feats");
+        if (feats != nullptr) {
+            auto & out_feats = *params->out_feats;
+            out_feats.resize(ggml_nelements(feats));
+            ggml_backend_tensor_get(feats, out_feats.data(), 0, ggml_nbytes(feats));
+        }
+    }
+    if (params->out_is_eos != nullptr) {
+        ggml_tensor * eos = ggml_graph_get_tensor(gf, "out_eos_score");
+        if (eos != nullptr) {
+            GGML_ASSERT(ggml_nelements(eos) == 1);
+            float score = 0.0f;
+            ggml_backend_tensor_get(eos, &score, 0, sizeof(float));
+            *params->out_is_eos = score > hparams.gen_eos_threshold;
+        }
+    }
     if (params->out_audio != nullptr) {
         ggml_tensor * audio = ggml_graph_get_tensor(gf, "out_audio");
         if (audio == nullptr) {
@@ -5262,9 +5288,9 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
         ggml_backend_tensor_get(audio, out_audio.data(), 0, ggml_nbytes(audio));
 
         // drop the tail audio that comes from the code-0 rear padding
-        const int64_t n_codes    = model.gen_code_head_w->ne[2] + 1;
+        const int64_t n_codes    = params->codes ? model.gen_code_head_w->ne[2] + 1 : 0;
         const int64_t n_frames_w = hparams.wav_tfm_swa;
-        const int64_t n_frames   = (int64_t) params->codes->size() / n_codes;
+        const int64_t n_frames   = params->codes ? (int64_t) params->codes->size() / n_codes : n_frames_w;
         if (n_frames < n_frames_w) {
             const size_t hop = out_audio.size() / n_frames_w;
             out_audio.resize((size_t) n_frames * hop);

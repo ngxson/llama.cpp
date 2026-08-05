@@ -87,7 +87,8 @@ public:
     virtual int32_t step_prompt(int32_t n_batch) = 0;
     // sampled can be LLAMA_TOKEN_NULL for pipelines with no discrete backbone token,
     // those read what they need from h_state_in instead
-    virtual int32_t step_gen(llama_token sampled, const float * h_state_in, const float ** h_state_out) = 0;
+    // set out_stop on end-of-speech, h_state_out must be null if no frame is generated
+    virtual int32_t step_gen(llama_token sampled, const float * h_state_in, const float ** h_state_out, bool * out_stop) = 0;
     virtual int32_t get_output(int32_t * out_sample_rate, const char ** out_data, size_t * out_data_len, int64_t * out_n_samples) = 0;
 
 protected:
@@ -203,6 +204,7 @@ public:
         pos = 0;
         top_k = inp->top_k > 0 ? inp->top_k : 50;
         top_p = inp->top_p > 0 ? inp->top_p : 1.0f;
+        seed  = inp->seed;
         out_type = inp->out_type;
 
         // the text stream keeps flowing during generation: after frame k, the input adds
@@ -244,13 +246,26 @@ public:
         return n_prompt - prompt_pos;
     }
 
-    int32_t step_gen(llama_token sampled, const float * h_state_in, const float ** h_state_out) override {
+    int32_t step_gen(llama_token sampled, const float * h_state_in, const float ** h_state_out, bool * out_stop) override {
+        if (sampled == LLAMA_TOKEN_NULL) {
+            LOG_ERR("mtmd_helper_gen_audio: qwen3tts requires a token sampled from the backbone\n");
+            return 1;
+        }
+
+        // backbone signals end-of-speech with a token, no frame for this step
+        if (sampled == codec_eos || llama_vocab_is_eog(vocab, sampled)) {
+            *out_stop    = true;
+            *h_state_out = nullptr;
+            return 0;
+        }
+
         mtmd_gen_inp inp{};
         inp.type  = MTMD_GEN_PROCESS_TYPE_GEN_CODE;
         inp.code0 = sampled - codec_0;
         inp.embd  = const_cast<float *>(h_state_in);
         inp.top_k = top_k;
         inp.top_p = top_p;
+        inp.seed  = seed;
         mtmd_gen_out out{};
         if (mtmd_gen_audio_process(mctx, &inp, &out) != 0) {
             LOG_ERR("mtmd_helper_gen_audio: gen_code process failed\n");
@@ -432,8 +447,9 @@ private:
     std::unique_ptr<decode_embd_batch> prompt_batch;
     int n_prompt = 0;
     int prompt_pos = 0;
-    int32_t top_k = 50;
-    float   top_p = 1.0f;
+    int32_t  top_k = 50;
+    float    top_p = 1.0f;
+    uint32_t seed  = UINT32_MAX;
     std::vector<int32_t> codes_buf;
     std::vector<uint8_t> c2w_state;
     std::vector<float>   audio_pcm;
@@ -489,11 +505,17 @@ int32_t mtmd_helper_gen_audio_step_prompt(mtmd_helper_gen_audio * ctx, int32_t n
 }
 
 int32_t mtmd_helper_gen_audio_step_gen(mtmd_helper_gen_audio * ctx, llama_token sampled,
-                                       const float * h_state_in, const float ** h_state_out) {
+                                       const float * h_state_in, const float ** h_state_out,
+                                       bool * out_stop) {
     if (!ctx->pipeline) {
         return 1;
     }
-    return ctx->pipeline->step_gen(sampled, h_state_in, h_state_out);
+    bool stop = false;
+    const int32_t ret = ctx->pipeline->step_gen(sampled, h_state_in, h_state_out, &stop);
+    if (out_stop) {
+        *out_stop = stop;
+    }
+    return ret;
 }
 
 int32_t mtmd_helper_gen_audio_get_output(mtmd_helper_gen_audio * ctx, int32_t * out_sample_rate,

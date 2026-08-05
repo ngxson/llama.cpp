@@ -136,6 +136,9 @@ struct clip_hparams {
     int32_t rvq_num_quantizers = 0;
     std::vector<int32_t> rvq_codebook_size; // per-quantizer bin count (ragged, e.g. 1024/1024/256/128x17)
 
+    // threshold for the "out_eos_score" graph output
+    float gen_eos_threshold = 0.0f;
+
     // qwen3tts code2wav
     int32_t wav_tfm_n_layer      = 0;
     int32_t wav_tfm_n_embd       = 0;

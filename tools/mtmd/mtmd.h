@@ -354,10 +354,15 @@ struct mtmd_gen_inp {
     float * embd;   // the hidden state from backbone, must have n_text_embd elements
     int32_t top_k;
     float   top_p;
+    uint32_t seed;    // UINT32_MAX for random
+    int32_t  n_steps; // integration steps, for flow-matching decoders (-1 for default)
 
     // for MTMD_GEN_PROCESS_TYPE_GEN_WAV
+    // pass either codes (discrete) or feats (continuous), depending on the pipeline
     int32_t * codes;
     size_t    n_codes;
+    const float * feats;
+    size_t        n_feats;
     const char * state_data;
     size_t       state_size;
 };
@@ -366,9 +371,12 @@ struct mtmd_gen_out {
 
     // for MTMD_GEN_PROCESS_TYPE_GEN_CODE
     const int32_t * codes;
-    size_t n_codes;
+    size_t          n_codes;
+    const float * feats; // continuous counterpart of codes
+    size_t        n_feats;
     const float * embd; // the generated hidden state, to be fed back to backbone
                         // it must have n_text_embd elements
+    bool is_eos; // only set by pipelines having the EOS head inside mmproj
 
     // for MTMD_GEN_PROCESS_TYPE_GEN_WAV
     const float * audio;
