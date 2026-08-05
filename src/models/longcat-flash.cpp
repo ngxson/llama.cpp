@@ -92,17 +92,17 @@ void llama_model_longcat_flash::load_arch_tensors(llama_model_loader &) {
         layer.ffn_up   = create_tensor(tn(LLM_TENSOR_FFN_UP,   "weight", i), {n_embd,   n_ff}, 0);
 
         // the shared MoE only attaches to the even block of each HF-layer pair (see conversion script)
-        layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert_full}, TENSOR_NOT_REQUIRED);
+        if (i % 2 == 0) {
+            layer.ffn_gate_inp = create_tensor(tn(LLM_TENSOR_FFN_GATE_INP, "weight", i), {n_embd, n_expert_full}, TENSOR_NOT_REQUIRED);
+        }
         if (layer.ffn_gate_inp) {
-            if (i % 2 != 0) {
-                throw std::runtime_error("longcat-flash: MoE tensors must be at even block indices");
-            }
-
             layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert_full}, TENSOR_NOT_REQUIRED);
 
             // +1: dummy all-zero expert appended at conversion time, see build_moe_ffn_custom
+            // create split gate/up tensors directly, build_moe_ffn_custom does not read the fused variant
             layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp, n_embd, n_expert + 1}, 0);
-            create_tensor_gate_up_exps(layer, i, n_embd, n_ff_exp, n_expert + 1, 0);
+            layer.ffn_gate_exps = create_tensor(tn(LLM_TENSOR_FFN_GATE_EXPS, "weight", i), {n_embd, n_ff_exp, n_expert + 1}, 0);
+            layer.ffn_up_exps   = create_tensor(tn(LLM_TENSOR_FFN_UP_EXPS,   "weight", i), {n_embd, n_ff_exp, n_expert + 1}, 0);
         }
     }
 }
