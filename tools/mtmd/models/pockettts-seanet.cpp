@@ -51,23 +51,29 @@ ggml_tensor * clip_graph_pockettts_seanet::conv1d(ggml_tensor * x, ggml_tensor *
 // output when streaming, and simply dropped otherwise
 ggml_tensor * clip_graph_pockettts_seanet::conv_transpose1d(ggml_tensor * x, ggml_tensor * w, ggml_tensor * b, int stride,
                                                             const std::string & state_name) const {
-    const int64_t p_total   = w->ne[0] - stride;
+    const int64_t K         = w->ne[0];
+    const int64_t T         = x->ne[0];
+    const int64_t p_total   = K - stride;
     const bool    depthwise = w->ne[1] == 1 && w->ne[2] > 1;
-    const int64_t emit_len  = x->ne[0] * stride;
+    const int64_t OC        = depthwise ? w->ne[2] : w->ne[1];
+    const int64_t emit_len  = T * stride;
 
-    ggml_tensor * full = nullptr;
+    // one column per input step, holding the [K, OC] window that col2im scatter-adds at t * stride
+    ggml_tensor * col;
     if (depthwise) {
-        // one group per channel, ggml_conv_transpose_1d has no grouped mode
-        for (int64_t ir = 0; ir < x->ne[1]; ir++) {
-            ggml_tensor * row = ggml_view_1d(ctx0, x, x->ne[0], ir * x->ne[0] * ggml_element_size(x));
-            ggml_tensor * krn = ggml_view_1d(ctx0, w, w->ne[0], ir * w->ne[0] * ggml_element_size(w));
-            row  = ggml_conv_transpose_1d(ctx0, krn, row, stride, 0, 1);
-            full = full ? ggml_concat(ctx0, full, row, 1) : row;
-        }
+        // one group per channel: a batched matmul over the channels scales the kernel by each step
+        ggml_tensor * krn = ggml_reshape_3d(ctx0, w, 1, K, OC);             // [1, K, OC]
+        ggml_tensor * xs  = ggml_reshape_3d(ctx0, x, 1, T, OC);             // [1, T, OC]
+        col = ggml_mul_mat(ctx0, krn, xs);                                  // [K, T, OC]
+        col = ggml_cont(ctx0, ggml_permute(ctx0, col, 0, 2, 1, 3));         // [K, OC, T]
+        col = ggml_reshape_2d(ctx0, col, K * OC, T);
     } else {
-        full = ggml_conv_transpose_1d(ctx0, w, x, stride, 0, 1);
+        ggml_tensor * w2 = ggml_reshape_2d(ctx0, w, K * OC, w->ne[2]);
+        w2               = ggml_cont(ctx0, ggml_transpose(ctx0, w2));       // [IC, K * OC]
+        ggml_tensor * xt = ggml_cont(ctx0, ggml_transpose(ctx0, x));        // [IC, T]
+        col = ggml_mul_mat(ctx0, w2, xt);
     }
-    full = ggml_cont(ctx0, full); // [emit_len + p_total, OC]
+    ggml_tensor * full = ggml_col2im_1d(ctx0, col, stride, OC, 0);          // [emit_len + p_total, OC]
 
     ggml_tensor * out;
     if (state_name.empty() || p_total == 0) {
