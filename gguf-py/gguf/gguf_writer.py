@@ -1208,6 +1208,20 @@ class GGUFWriter:
     def add_n_zero_experts(self, n: int) -> None:
         self.add_uint32(Keys.LLM.N_ZERO_EXPERTS.format(arch=self.arch), n)
 
+    # for n-gram input embeddings
+
+    def add_ngram_neighbor_count(self, n: int) -> None:
+        self.add_uint32(Keys.NGram.NEIGHBOR_COUNT.format(arch=self.arch), n)
+
+    def add_ngram_split_count(self, n: int) -> None:
+        self.add_uint32(Keys.NGram.SPLIT_COUNT.format(arch=self.arch), n)
+
+    def add_ngram_vocab_sizes(self, sizes: Sequence[int]) -> None:
+        self.add_array(Keys.NGram.VOCAB_SIZES.format(arch=self.arch), sizes)
+
+    def add_ngram_eos_token_id(self, id: int) -> None:
+        self.add_uint32(Keys.NGram.EOS_TOKEN_ID.format(arch=self.arch), id)
+
     # for vision models
 
     def add_clip_has_vision_encoder(self, value: bool) -> None:

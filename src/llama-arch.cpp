@@ -146,6 +146,7 @@ static const std::map<llm_arch, const char *> LLM_ARCH_NAMES = {
     { LLM_ARCH_NANBEIGE,         "nanbeige"         },
     { LLM_ARCH_QWEN3TTS,         "qwen3tts"         },
     { LLM_ARCH_LONGCAT_FLASH,    "longcat-flash"    },
+    { LLM_ARCH_LONGCAT_NGRAM,    "longcat-ngram"    },
     { LLM_ARCH_UNKNOWN,          "(unknown)"        },
 };
 
@@ -224,6 +225,10 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
     { LLM_KV_TOKEN_SHIFT_COUNT,                 "%s.token_shift_count"                 },
     { LLM_KV_INTERLEAVE_MOE_LAYER_STEP,         "%s.interleave_moe_layer_step"         },
     { LLM_KV_N_ZERO_EXPERTS,                    "%s.n_zero_experts"                    },
+    { LLM_KV_NGRAM_NEIGHBOR_COUNT,              "%s.ngram.neighbor_count"              },
+    { LLM_KV_NGRAM_SPLIT_COUNT,                 "%s.ngram.split_count"                 },
+    { LLM_KV_NGRAM_VOCAB_SIZES,                 "%s.ngram.vocab_sizes"                 },
+    { LLM_KV_NGRAM_EOS_TOKEN_ID,                "%s.ngram.eos_token_id"                },
     { LLM_KV_FULL_ATTENTION_INTERVAL,           "%s.full_attention_interval"           },
     { LLM_KV_NUM_LOOPS,                         "%s.num_loops"                         },
     { LLM_KV_SKIP_LOOP_FINAL_NORM,              "%s.skip_loop_final_norm"              },
@@ -385,6 +390,8 @@ static const std::map<llm_kv, const char *> LLM_KV_NAMES = {
 
 static const std::map<llm_tensor, const char *> LLM_TENSOR_NAMES = {
     { LLM_TENSOR_TOKEN_EMBD,                             "token_embd" },
+    { LLM_TENSOR_NGRAM_EMBD,                             "ngram_embd" },
+    { LLM_TENSOR_NGRAM_PROJ,                             "ngram_proj" },
     { LLM_TENSOR_OUTPUT_NORM,                            "output_norm" },
     { LLM_TENSOR_OUTPUT_NORM_LFM2,                       "token_embd_norm" }, // fix for wrong tensor name
     { LLM_TENSOR_OUTPUT,                                 "output" },
@@ -638,6 +645,8 @@ static const std::map<llm_tensor, const char *> LLM_TENSOR_NAMES = {
 //
 static const std::map<llm_tensor, llm_tensor_info> LLM_TENSOR_INFOS = {
     {LLM_TENSOR_TOKEN_EMBD,                 {LLM_TENSOR_LAYER_INPUT,     GGML_OP_GET_ROWS}},
+    {LLM_TENSOR_NGRAM_EMBD,                 {LLM_TENSOR_LAYER_INPUT,     GGML_OP_GET_ROWS}},
+    {LLM_TENSOR_NGRAM_PROJ,                 {LLM_TENSOR_LAYER_INPUT,     GGML_OP_MUL_MAT}},
     {LLM_TENSOR_POS_EMBD,                   {LLM_TENSOR_LAYER_INPUT,     GGML_OP_GET_ROWS}},
     {LLM_TENSOR_TOKEN_TYPES,                {LLM_TENSOR_LAYER_INPUT,     GGML_OP_GET_ROWS}},
     {LLM_TENSOR_TOKEN_EMBD_NORM,            {LLM_TENSOR_LAYER_REPEATING, GGML_OP_MUL}},  // do the norms on the first layer (not the input layer)
@@ -1033,6 +1042,7 @@ bool llm_arch_supports_sm_tensor(const llm_arch & arch) {
         case LLM_ARCH_KIMI_LINEAR:
         case LLM_ARCH_QWEN3TTS:
         case LLM_ARCH_LONGCAT_FLASH:
+        case LLM_ARCH_LONGCAT_NGRAM:
             return false;
         default:
             return true;

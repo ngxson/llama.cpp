@@ -1,3 +1,49 @@
+// WIP HANDOFF NOTE - remove before opening the PR
+//
+// This file now covers two archs:
+//   longcat-flash        LongCat-Flash-Chat
+//   longcat-ngram        LongCat-Flash-Lite, i.e. longcat-flash + hash-based n-gram input
+//                        embeddings. Same decoder, the graph branches on hparams.n_ngram().
+//
+// How the n-gram embeddings work (ref: modeling_longcat_ngram.py, NgramEmbedding):
+// every token is hashed together with its n-1 predecessors into k*(n-1) independent tables; the
+// lookups are projected to n_embd, summed onto the plain token embedding, and the total is divided
+// by 1 + k*(n-1) - note this scales down the token embedding too. The n-gram context restarts
+// after every EOS (_shift_right_ignore_eos).
+//
+// Implementation:
+//   - the predecessors come from the KV cache: apply_ubatch() stores the token id in
+//     llama_kv_cell_ext::tok, llama_kv_cache::get_prev_tokens() reads them back by (seq_id, pos)
+//   - the hashes are computed on the host in llm_graph_input_ngram_embd::set_input(), because the
+//     polynomial overflows int32. the graph only sees final row indices
+//   - conversion merges the 2*k*(n-1) reference tensors into ngram_embd + ngram_proj, so the whole
+//     lookup is one get_rows() plus one mul_mat, see LongcatNgramModel
+//
+// Verified so far (LongCat-Flash-Lite-slice vs. the HF reference, bf16, prompt "Hello, my name is"):
+//   - full prefill                                              NMSE 1.3e-06
+//   - prefill split into 1-token ubatches (-ub 1), i.e. the      NMSE 1.3e-06
+//     incremental decode path with the KV-cache lookback
+//   - prompt with EOS in the middle, both of the above           NMSE 8.0e-07
+//   - tests/test-llama-archs.cpp -a longcat-ngram                OK (incl. roundtrip)
+// Note: run the HF reference with attn_implementation="eager", sdpa mis-shapes attn_output because
+// v_head_dim != qk_head_dim. Q8_0 gives NMSE ~1e-2, use bf16 when comparing logits.
+//
+// Fixed along the way: longcat-flash never read rope.scaling.yarn_log_multiplier, so kq_scale was
+// missing YaRN's mscale^2. Harmless for Chat (no rope_scaling) but Lite uses YaRN.
+//
+// TODO before the PR:
+//   - re-verify longcat-flash against LongCat-Flash-Chat-slice, the kq_scale change touches it
+//   - session save/restore: llama_kv_cell_ext::tok now round-trips through has_cell_ext() +
+//     apply_ubatch(), but this is untested. exercise it (llama-cli --prompt-cache, or the
+//     state save/load tests) and confirm the logits after a restore still match
+//   - multi-sequence: get_prev_tokens() uses seq_id[i][0] and set_input() asserts n_seq_id == 1.
+//     decide whether a GGML_ASSERT is good enough or whether llama_decode should reject the batch
+//   - a prefix evicted by context shift / cache reuse silently yields zero-padded n-grams and thus
+//     diverges from the reference - warn instead of drifting quietly
+//   - perplexity run, quantized re-verify, and the rest of the skills/add-new-model checklist
+//   - convert_hf_to_gguf_update.py: Lite reuses the "longcat-flash" pre-tokenizer, confirm the
+//     tokenizer.json regexes really are identical between Chat and Lite
+
 #include "models.h"
 
 void llama_model_longcat_flash::load_arch_hparams(llama_model_loader & ml) {
@@ -17,6 +63,12 @@ void llama_model_longcat_flash::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_ATTENTION_Q_LORA_SCALE,  hparams.f_attn_q_lora_scale,  false);
     ml.get_key(LLM_KV_ATTENTION_KV_LORA_SCALE, hparams.f_attn_kv_lora_scale, false);
 
+    if (ml.get_key(LLM_KV_ROPE_SCALING_YARN_LOG_MUL, hparams.rope_yarn_log_mul, false)) {
+        // [TAG_DEEPSEEK2_YARN_LOG_MUL_FIX]
+        // cancel the factor from the convert script
+        hparams.rope_yarn_log_mul /= 0.1f;
+    }
+
     if (hparams.n_layer() % 2 != 0) {
         throw std::runtime_error("longcat-flash requires an even block_count (2 blocks per HF layer)");
     }
@@ -28,6 +80,53 @@ void llama_model_longcat_flash::load_arch_hparams(llama_model_loader & ml) {
     }
 
     type = LLM_TYPE_UNKNOWN;
+}
+
+void llama_model_longcat_ngram::load_arch_hparams(llama_model_loader & ml) {
+    llama_model_longcat_flash::load_arch_hparams(ml);
+
+    ml.get_key(LLM_KV_NGRAM_NEIGHBOR_COUNT, hparams.n_ngram_neighbor);
+    ml.get_key(LLM_KV_NGRAM_SPLIT_COUNT,    hparams.n_ngram_split);
+    uint32_t ngram_eos_id = 0;
+    ml.get_key(LLM_KV_NGRAM_EOS_TOKEN_ID, ngram_eos_id);
+    hparams.ngram_eos_id = ngram_eos_id;
+
+    std::vector<int32_t> vocab_sizes;
+    ml.get_arr(LLM_KV_NGRAM_VOCAB_SIZES, vocab_sizes);
+
+    if (hparams.n_ngram() == 0) {
+        throw std::runtime_error("longcat-ngram requires ngram.neighbor_count > 1 and ngram.split_count > 0");
+    }
+    if (hparams.n_ngram() > LLAMA_MAX_NGRAM) {
+        throw std::runtime_error(format("longcat-ngram: too many n-gram tables (%u > %d)",
+                    hparams.n_ngram(), LLAMA_MAX_NGRAM));
+    }
+    if (vocab_sizes.size() != hparams.n_ngram()) {
+        throw std::runtime_error(format("longcat-ngram expects %u n-gram vocab sizes, got %zu",
+                    hparams.n_ngram(), vocab_sizes.size()));
+    }
+
+    std::copy(vocab_sizes.begin(), vocab_sizes.end(), hparams.ngram_vocab_sizes.begin());
+}
+
+void llama_model_longcat_ngram::load_arch_tensors(llama_model_loader & ml) {
+    llama_model_longcat_flash::load_arch_tensors(ml);
+
+    LLAMA_LOAD_LOCALS;
+
+    const int64_t n_ngram = hparams.n_ngram();
+
+    // all n-gram tables are padded to the largest one and stacked, so that the whole lookup is a
+    // single get_rows(). n_embd_ngram is the width of one table, see LongcatNgramModel
+    const int64_t n_embd_ngram = n_embd/n_ngram;
+    if (n_embd_ngram*n_ngram != n_embd) {
+        throw std::runtime_error("longcat-ngram requires n_embd to be divisible by the number of n-gram tables");
+    }
+
+    const int64_t stride = hparams.n_ngram_stride();
+
+    ngram_embd = create_tensor(tn(LLM_TENSOR_NGRAM_EMBD, "weight"), {n_embd_ngram, stride*n_ngram}, 0);
+    ngram_proj = create_tensor(tn(LLM_TENSOR_NGRAM_PROJ, "weight"), {n_embd_ngram*n_ngram, n_embd},  0);
 }
 
 void llama_model_longcat_flash::load_arch_tensors(llama_model_loader &) {
@@ -129,12 +228,28 @@ llama_model_longcat_flash::graph::graph(const llama_model & model, const llm_gra
     GGML_ASSERT(kv_lora_rank > 0);
     GGML_ASSERT(n_layer % 2 == 0);
 
-    const float kq_scale = 1.0f / sqrtf(float(n_embd_head_k));
+    // YaRN pre-scales the attention logits, see the same computation in deepseek2
+    // [TAG_DEEPSEEK2_YARN_LOG_MUL_FIX]
+    GGML_ASSERT(ext_factor >= 0.0f);
+    const float attn_factor_org = attn_factor * (1.0f + 0.1f * logf(1.0f / freq_scale));
+
+    const float mscale   = attn_factor_org * (1.0f + 0.1f * hparams.rope_yarn_log_mul * logf(1.0f / freq_scale));
+    const float kq_scale = 1.0f * mscale * mscale / sqrtf(float(n_embd_head_k));
 
     ggml_tensor * cur;
     ggml_tensor * inpL;
 
     inpL = build_inp_embd(model.tok_embd);
+
+    // longcat-ngram mixes hash-based n-gram features into the input embeddings. note that the
+    // averaging at the end also scales down the plain token embedding
+    if (hparams.n_ngram() > 0) {
+        ggml_tensor * ngram = build_inp_ngram_embd(model.ngram_embd, model.ngram_proj, model.tok_embd->ne[1]);
+
+        inpL = ggml_add(ctx0, inpL, ngram);
+        inpL = ggml_scale(ctx0, inpL, 1.0f/(1 + hparams.n_ngram()));
+        cb(inpL, "inp_embd_ngram", -1);
+    }
 
     ggml_tensor * inp_pos = build_inp_pos();
 
