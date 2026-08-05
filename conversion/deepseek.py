@@ -513,7 +513,11 @@ class LongcatFlashModel(DeepseekV2Model):
             # shared MoE (mlp.router.*, mlp.experts.*), no sub-index, attaches to the even block
             new_bid = bid * 2
             new_name = name.replace(f"model.layers.{bid}.", f"model.layers.{new_bid}.", 1)
-            yield from super().modify_tensors(data_torch, new_name, new_bid)
+            for out_name, out_tensor in super().modify_tensors(data_torch, new_name, new_bid):
+                if out_name.endswith("_exps.weight"):
+                    # append a dummy all-zero expert, zero-computation experts route to it
+                    out_tensor = torch.cat([out_tensor, torch.zeros_like(out_tensor[:1])], dim=0)
+                yield out_name, out_tensor
             return
 
         yield from super().modify_tensors(data_torch, name, bid)

@@ -1257,6 +1257,10 @@ struct llama_model_longcat_flash : public llama_model_base {
 
     struct graph : public llm_graph_context {
         graph(const llama_model & model, const llm_graph_params & params);
+
+        // shared MoE where the router also picks identity ("zero-computation") experts,
+        // so build_moe_ffn cannot be reused
+        ggml_tensor * build_moe_ffn_custom(ggml_tensor * cur, const llama_layer & layer, int il) const;
     };
 
     std::unique_ptr<llm_graph_context> build_arch_graph(const llm_graph_params & params) const override;

@@ -10,10 +10,10 @@ void llama_model_longcat_flash::load_arch_hparams(llama_model_loader & ml) {
     ml.get_key(LLM_KV_EXPERT_WEIGHTS_SCALE,        hparams.expert_weights_scale, false);
     ml.get_key(LLM_KV_EXPERT_WEIGHTS_NORM,         hparams.expert_weights_norm,  false);
 
-    // the router selects among the real experts plus this many "zero-computation" (identity) experts
+    // the router picks among the real experts plus this many identity ("zero-computation") ones
     ml.get_key(LLM_KV_N_ZERO_EXPERTS, hparams.n_zero_experts);
 
-    // fixed MLA lora-rank compensation factors, applied at inference time in the graph
+    // fixed MLA lora-rank scale factors, applied in the graph
     ml.get_key(LLM_KV_ATTENTION_Q_LORA_SCALE,  hparams.f_attn_q_lora_scale,  false);
     ml.get_key(LLM_KV_ATTENTION_KV_LORA_SCALE, hparams.f_attn_kv_lora_scale, false);
 
@@ -100,8 +100,9 @@ void llama_model_longcat_flash::load_arch_tensors(llama_model_loader &) {
 
             layer.ffn_exp_probs_b = create_tensor(tn(LLM_TENSOR_FFN_EXP_PROBS_B, "bias", i), {n_expert_full}, TENSOR_NOT_REQUIRED);
 
-            layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp, n_embd, n_expert}, 0);
-            create_tensor_gate_up_exps(layer, i, n_embd, n_ff_exp, n_expert, 0);
+            // +1: dummy all-zero expert appended at conversion time, see build_moe_ffn_custom
+            layer.ffn_down_exps = create_tensor(tn(LLM_TENSOR_FFN_DOWN_EXPS, "weight", i), {n_ff_exp, n_embd, n_expert + 1}, 0);
+            create_tensor_gate_up_exps(layer, i, n_embd, n_ff_exp, n_expert + 1, 0);
         }
     }
 }
@@ -133,10 +134,8 @@ llama_model_longcat_flash::graph::graph(const llama_model & model, const llm_gra
     ggml_tensor * cur;
     ggml_tensor * inpL;
 
-    // {n_embd, n_tokens}
     inpL = build_inp_embd(model.tok_embd);
 
-    // inp_pos - contains the positions
     ggml_tensor * inp_pos = build_inp_pos();
 
     auto * inp_attn_k = build_attn_inp_k(); // MLA-only
@@ -151,15 +150,12 @@ llama_model_longcat_flash::graph::graph(const llama_model & model, const llm_gra
 
             ggml_tensor * inpSA = inpL;
 
-            // norm
             cur = build_norm(inpL, model.layers[il].attn_norm, NULL, LLM_NORM_RMS, il);
             cb(cur, "attn_norm", il);
 
             // self_attention
             {
                 ggml_tensor * q = NULL;
-
-                ///////// MLA implementation - same as deepseek2, plus the lora-rank scale factors below /////////
 
                 q = ggml_mul_mat(ctx0, model.layers[il].wq_a, cur);
                 cb(q, "q", il);
@@ -252,8 +248,6 @@ llama_model_longcat_flash::graph::graph(const llama_model & model, const llm_gra
                         model.layers[il].wo, NULL, NULL,
                         Qcur, Kcur, Vcur, nullptr, nullptr, model.layers[il].wv_b, kq_scale, il);
                 cb(cur, "attn_out", il);
-
-                ///////// End of MLA implementation /////////
             }
 
             const bool is_last_block = (il == n_layer - 1);
@@ -276,69 +270,7 @@ llama_model_longcat_flash::graph::graph(const llama_model & model, const llm_gra
 
             if (sub == 0 && model.layers[il].ffn_gate_inp) {
                 // shared MoE, its output is delayed and added in at the end of the next sub-block
-                ggml_tensor * logits = ggml_mul_mat(ctx0, model.layers[il].ffn_gate_inp, cur); // [n_expert_full, n_tokens]
-                cb(logits, "ffn_moe_logits", il);
-
-                // softmax over the full set (real + zero experts), matching the reference router
-                ggml_tensor * probs = ggml_soft_max(ctx0, logits); // [n_expert_full, n_tokens]
-                cb(probs, "ffn_moe_probs", il);
-
-                ggml_tensor * selection_probs = probs;
-                if (model.layers[il].ffn_exp_probs_b) {
-                    selection_probs = ggml_add(ctx0, probs, model.layers[il].ffn_exp_probs_b);
-                    cb(selection_probs, "ffn_moe_probs_biased", il);
-                }
-
-                // TODO: zero-computation experts are not implemented (a real zero-expert
-                // contributes weight_i * x instead of an FFN). Placeholder: slice them out of
-                // the softmax before top-k, so routing always lands on a real expert instead.
-                selection_probs = ggml_cont(ctx0, ggml_view_2d(ctx0, selection_probs, n_expert, n_tokens, selection_probs->nb[1], 0));
-                cb(selection_probs, "ffn_moe_probs_real", il);
-
-                ggml_tensor * probs_real = ggml_cont(ctx0, ggml_view_2d(ctx0, probs, n_expert, n_tokens, probs->nb[1], 0));
-
-                ggml_tensor * selected_experts = ggml_argsort_top_k(ctx0, selection_probs, n_expert_used); // [n_expert_used, n_tokens]
-                cb(selected_experts, "ffn_moe_topk", il);
-
-                ggml_tensor * weights = ggml_reshape_3d(ctx0, probs_real, 1, n_expert, n_tokens);
-                weights = ggml_get_rows(ctx0, weights, selected_experts); // [1, n_expert_used, n_tokens]
-                cb(weights, "ffn_moe_weights", il);
-
-                if (hparams.expert_weights_norm) {
-                    weights = ggml_reshape_2d(ctx0, weights, n_expert_used, n_tokens);
-                    ggml_tensor * weights_sum = ggml_sum_rows(ctx0, weights);
-                    weights_sum = ggml_clamp(ctx0, weights_sum, 6.103515625e-5f, INFINITY);
-                    weights = ggml_div(ctx0, weights, weights_sum);
-                    weights = ggml_reshape_3d(ctx0, weights, 1, n_expert_used, n_tokens);
-                    cb(weights, "ffn_moe_weights_norm", il);
-                }
-                if (hparams.expert_weights_scale != 0.0f && hparams.expert_weights_scale != 1.0f) {
-                    weights = ggml_scale(ctx0, weights, hparams.expert_weights_scale);
-                    cb(weights, "ffn_moe_weights_scaled", il);
-                }
-
-                ggml_tensor * cur_3d = ggml_reshape_3d(ctx0, cur, n_embd, 1, n_tokens);
-
-                ggml_tensor * up   = ggml_mul_mat_id(ctx0, model.layers[il].ffn_up_exps,   cur_3d, selected_experts); // [n_ff_exp, n_expert_used, n_tokens]
-                ggml_tensor * gate = ggml_mul_mat_id(ctx0, model.layers[il].ffn_gate_exps, cur_3d, selected_experts); // [n_ff_exp, n_expert_used, n_tokens]
-                cb(up,   "ffn_moe_up", il);
-                cb(gate, "ffn_moe_gate", il);
-
-                ggml_tensor * experts = ggml_swiglu_split(ctx0, gate, up);
-                cb(experts, "ffn_moe_swiglu", il);
-
-                experts = ggml_mul_mat_id(ctx0, model.layers[il].ffn_down_exps, experts, selected_experts); // [n_embd, n_expert_used, n_tokens]
-                cb(experts, "ffn_moe_down", il);
-
-                experts = ggml_mul(ctx0, experts, weights);
-                cb(experts, "ffn_moe_weighted", il);
-
-                moe_shortcut = ggml_view_2d(ctx0, experts, n_embd, n_tokens, experts->nb[2], 0);
-                for (int64_t i = 1; i < n_expert_used; ++i) {
-                    ggml_tensor * cur_expert = ggml_view_2d(ctx0, experts, n_embd, n_tokens, experts->nb[2], i*experts->nb[1]);
-                    moe_shortcut = ggml_add(ctx0, moe_shortcut, cur_expert);
-                }
-                cb(moe_shortcut, "ffn_moe_out", il);
+                moe_shortcut = build_moe_ffn_custom(cur, model.layers[il], il);
             }
 
             cur = build_ffn(cur,
@@ -376,4 +308,94 @@ llama_model_longcat_flash::graph::graph(const llama_model & model, const llm_gra
     res->t_logits = cur;
 
     ggml_build_forward_expand(gf, cur);
+}
+
+ggml_tensor * llama_model_longcat_flash::graph::build_moe_ffn_custom(ggml_tensor * cur, const llama_layer & layer, int il) const {
+    const int64_t n_expert_full = layer.ffn_gate_inp->ne[1];
+
+    ggml_tensor * logits = ggml_mul_mat(ctx0, layer.ffn_gate_inp, cur); // [n_expert_full, n_tokens]
+    cb(logits, "ffn_moe_logits", il);
+
+    // softmax over the full set (real + zero experts), matching the reference router
+    ggml_tensor * probs = ggml_soft_max(ctx0, logits); // [n_expert_full, n_tokens]
+    cb(probs, "ffn_moe_probs", il);
+
+    // the bias only steers which experts get picked below; the gathered weight always
+    // comes from the unbiased probs
+    ggml_tensor * selection_probs = probs;
+    if (layer.ffn_exp_probs_b) {
+        selection_probs = ggml_add(ctx0, probs, layer.ffn_exp_probs_b);
+        cb(selection_probs, "ffn_moe_probs_biased", il);
+    }
+
+    ggml_tensor * selected_experts = ggml_argsort_top_k(ctx0, selection_probs, n_expert_used); // [n_expert_used, n_tokens]
+    cb(selected_experts, "ffn_moe_topk", il);
+
+    ggml_tensor * weights = ggml_reshape_3d(ctx0, probs, 1, n_expert_full, n_tokens);
+    weights = ggml_get_rows(ctx0, weights, selected_experts); // [1, n_expert_used, n_tokens]
+    cb(weights, "ffn_moe_weights", il);
+
+    if (hparams.expert_weights_norm) {
+        weights = ggml_reshape_2d(ctx0, weights, n_expert_used, n_tokens);
+        ggml_tensor * weights_sum = ggml_sum_rows(ctx0, weights);
+        weights_sum = ggml_clamp(ctx0, weights_sum, 6.103515625e-5f, INFINITY);
+        weights = ggml_div(ctx0, weights, weights_sum);
+        weights = ggml_reshape_3d(ctx0, weights, 1, n_expert_used, n_tokens);
+        cb(weights, "ffn_moe_weights_norm", il);
+    }
+    if (hparams.expert_weights_scale != 0.0f && hparams.expert_weights_scale != 1.0f) {
+        weights = ggml_scale(ctx0, weights, hparams.expert_weights_scale);
+        cb(weights, "ffn_moe_weights_scaled", il);
+    }
+
+    // zero-computation experts are the selected slots with index >= n_expert. ggml has no
+    // integer math, so the index tensor is manipulated as f32 and cast back
+    ggml_tensor * ids_f32 = ggml_cast(ctx0, selected_experts, GGML_TYPE_F32);
+
+    // clamp them onto the dummy all-zero expert at index n_expert, so their FFN output is 0
+    // TODO: PR #26631 makes mul_mat_id skip an expert on index -1. once it lands, drop the dummy
+    // expert and map these slots to -1 with clamp(ids, -1, n_expert - 1) - n_expert*zero_mask
+    ggml_tensor * ids = ggml_cast(ctx0, ggml_clamp(ctx0, ids_f32, 0.0f, float(n_expert)), GGML_TYPE_I32);
+    cb(ids, "ffn_moe_topk_clamped", il);
+
+    // 0/1 mask of those slots. example with n_expert = 4:
+    //   ids     [  0,  1,  2, 3, 4, 5 ]
+    //   shifted [ -3, -2, -1, 0, 1, 2 ]
+    //   clamped [  0,  0,  0, 0, 1, 1 ]
+    ggml_tensor * zero_mask = ggml_scale_bias(ctx0, ids_f32, 1.0f, -float(n_expert - 1));
+    zero_mask = ggml_clamp(ctx0, zero_mask, 0.0f, 1.0f);
+    cb(zero_mask, "ffn_moe_zero_mask", il);
+
+    ggml_tensor * cur_3d = ggml_reshape_3d(ctx0, cur, n_embd, 1, n_tokens);
+
+    ggml_tensor * up   = ggml_mul_mat_id(ctx0, layer.ffn_up_exps,   cur_3d, ids); // [n_ff_exp, n_expert_used, n_tokens]
+    ggml_tensor * gate = ggml_mul_mat_id(ctx0, layer.ffn_gate_exps, cur_3d, ids); // [n_ff_exp, n_expert_used, n_tokens]
+    cb(up,   "ffn_moe_up", il);
+    cb(gate, "ffn_moe_gate", il);
+
+    ggml_tensor * experts = ggml_swiglu_split(ctx0, gate, up);
+    cb(experts, "ffn_moe_swiglu", il);
+
+    experts = ggml_mul_mat_id(ctx0, layer.ffn_down_exps, experts, ids); // [n_embd, n_expert_used, n_tokens]
+    cb(experts, "ffn_moe_down", il);
+
+    experts = ggml_mul(ctx0, experts, weights);
+    cb(experts, "ffn_moe_weighted", il);
+
+    ggml_tensor * moe_out = ggml_view_2d(ctx0, experts, n_embd, n_tokens, experts->nb[2], 0);
+    for (int64_t i = 1; i < n_expert_used; ++i) {
+        ggml_tensor * cur_expert = ggml_view_2d(ctx0, experts, n_embd, n_tokens, experts->nb[2], i*experts->nb[1]);
+        moe_out = ggml_add(ctx0, moe_out, cur_expert);
+    }
+
+    // an identity zero expert contributes weight_i * cur, and every such slot shares the same
+    // cur, so they collapse into one per-token weight sum
+    ggml_tensor * w_zero = ggml_mul(ctx0, ggml_reshape_2d(ctx0, weights, n_expert_used, n_tokens), zero_mask);
+    w_zero = ggml_sum_rows(ctx0, w_zero); // [1, n_tokens]
+    cb(w_zero, "ffn_moe_weights_zero", il);
+
+    moe_out = ggml_add(ctx0, moe_out, ggml_mul(ctx0, cur, w_zero));
+    cb(moe_out, "ffn_moe_out", il);
+
+    return moe_out;
 }
