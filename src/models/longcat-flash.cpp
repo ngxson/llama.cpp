@@ -123,8 +123,8 @@ llama_model_longcat_flash::graph::graph(const llama_model & model, const llm_gra
 
     const int64_t kv_lora_rank = hparams.n_lora_kv;
 
-    // MLA attention is copied from deepseek2; the block structure is not: each HF layer packs 2
-    // attention+dense-ffn sub-blocks, plus a shared MoE whose output is added a block later
+    // MLA attention is copied from deepseek2, but the block structure is not.
+    // Each HF layer packs 2 attn+dense-ffn sub-blocks, plus a shared MoE added a block later.
     GGML_ASSERT(is_mla);
     GGML_ASSERT(kv_lora_rank > 0);
     GGML_ASSERT(n_layer % 2 == 0);
@@ -256,8 +256,8 @@ llama_model_longcat_flash::graph::graph(const llama_model & model, const llm_gra
                 cur   = ggml_get_rows(ctx0, cur, inp_out_ids);
                 inpSA = ggml_get_rows(ctx0, inpSA, inp_out_ids);
                 if (moe_shortcut) {
-                    // the shortcut was computed on the full token set at sub==0; prune it the
-                    // same way so it can still be added into this (pruned) block's output
+                    // moe_shortcut was computed over the full token set at sub==0.
+                    // Prune it the same way here so it still lines up with cur/inpSA.
                     moe_shortcut = ggml_get_rows(ctx0, moe_shortcut, inp_out_ids);
                 }
             }
@@ -320,8 +320,7 @@ ggml_tensor * llama_model_longcat_flash::graph::build_moe_ffn_custom(ggml_tensor
     ggml_tensor * probs = ggml_soft_max(ctx0, logits); // [n_expert_full, n_tokens]
     cb(probs, "ffn_moe_probs", il);
 
-    // the bias only steers which experts get picked below; the gathered weight always
-    // comes from the unbiased probs
+    // the bias only steers which experts get picked below; the gathered weight always comes from the unbiased probs
     ggml_tensor * selection_probs = probs;
     if (layer.ffn_exp_probs_b) {
         selection_probs = ggml_add(ctx0, probs, layer.ffn_exp_probs_b);
@@ -348,13 +347,13 @@ ggml_tensor * llama_model_longcat_flash::graph::build_moe_ffn_custom(ggml_tensor
         cb(weights, "ffn_moe_weights_scaled", il);
     }
 
-    // zero-computation experts are the selected slots with index >= n_expert. ggml has no
-    // integer math, so the index tensor is manipulated as f32 and cast back
     ggml_tensor * ids_f32 = ggml_cast(ctx0, selected_experts, GGML_TYPE_F32);
 
+    // TODO: PR #26631 makes mul_mat_id skip an expert on index -1
+    //       once it lands, drop the dummy expert and map these slots to -1 with clamp(ids, -1, n_expert - 1) - n_expert*zero_mask
+    //       ref: https://github.com/ggml-org/llama.cpp/pull/26631
+
     // clamp them onto the dummy all-zero expert at index n_expert, so their FFN output is 0
-    // TODO: PR #26631 makes mul_mat_id skip an expert on index -1. once it lands, drop the dummy
-    // expert and map these slots to -1 with clamp(ids, -1, n_expert - 1) - n_expert*zero_mask
     ggml_tensor * ids = ggml_cast(ctx0, ggml_clamp(ctx0, ids_f32, 0.0f, float(n_expert)), GGML_TYPE_I32);
     cb(ids, "ffn_moe_topk_clamped", il);
 
@@ -388,8 +387,7 @@ ggml_tensor * llama_model_longcat_flash::graph::build_moe_ffn_custom(ggml_tensor
         moe_out = ggml_add(ctx0, moe_out, cur_expert);
     }
 
-    // an identity zero expert contributes weight_i * cur, and every such slot shares the same
-    // cur, so they collapse into one per-token weight sum
+    // an identity zero expert contributes weight_i * cur
     ggml_tensor * w_zero = ggml_mul(ctx0, ggml_reshape_2d(ctx0, weights, n_expert_used, n_tokens), zero_mask);
     w_zero = ggml_sum_rows(ctx0, w_zero); // [1, n_tokens]
     cb(w_zero, "ffn_moe_weights_zero", il);

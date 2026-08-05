@@ -471,8 +471,8 @@ class LongcatFlashModel(DeepseekV2Model):
         self.hparams["intermediate_size"]     = self.hparams["ffn_hidden_size"]
         self.hparams["moe_intermediate_size"] = self.hparams["expert_ffn_hidden_size"]
         self.hparams["num_experts_per_tok"]   = self.hparams["moe_topk"]
-        # modify_tensors() needs this to split kv_b_proj, runs before set_gguf_parameters()
-        # overwrites it to 1 for the GGUF MLA metadata
+        # modify_tensors() needs this to split kv_b_proj; set_gguf_parameters() later
+        # overwrites it to 1 for the GGUF MLA metadata.
         self.hparams["num_key_value_heads"]   = self.hparams["num_attention_heads"]
 
     @classmethod
@@ -491,8 +491,8 @@ class LongcatFlashModel(DeepseekV2Model):
         assert zero_expert_type == "identity", "cpp implementation only supports the 'identity' zero expert type"
         self.gguf_writer.add_n_zero_experts(zero_expert_num)
 
-        # fixed MLA lora-rank scale factors, applied at inference time (not folded into the
-        # weights: the multiplier is large enough to shift the weight range and hurt quantization)
+        # fixed MLA lora-rank scale factors, applied at inference time.
+        # Not folded into the weights: the multiplier is large enough to hurt quantization.
         if self.hparams.get("mla_scale_q_lora"):
             self.gguf_writer.add_q_lora_scale((self.hparams["hidden_size"] / self.hparams["q_lora_rank"]) ** 0.5)
         if self.hparams.get("mla_scale_kv_lora"):
