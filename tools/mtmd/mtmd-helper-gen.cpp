@@ -504,7 +504,8 @@ public:
             }
         }
 
-        const std::string text = prepare_text(std::string(inp->prompt, inp->prompt_len));
+        const std::string text = prepare_text(std::string(inp->prompt, inp->prompt_len),
+                                              info.pad_short_text);
         if (text.empty()) {
             LOG_ERR("mtmd_helper_gen_audio: empty prompt\n");
             return 1;
@@ -775,8 +776,9 @@ private:
     void arm_chunk_budget(size_t idx) {
         const int n_tok = (int) chunks[idx].size();
         chunk_budget = (int) std::ceil((n_tok / 3.0 + 2.0) * frame_rate);
-        // the reference guesses the tail from the word count, approximated here by tokens
-        frames_after_eos = n_tok <= 6 ? 5 : 3;
+        // the pack may pin the tail, otherwise the reference guesses it from the word count,
+        // approximated here by tokens
+        frames_after_eos = info.frames_after_eos > 0 ? info.frames_after_eos : (n_tok <= 6 ? 5 : 3);
         step_idx = 0;
         eos_step = -1;
     }
@@ -832,12 +834,14 @@ private:
     }
 
     // same normalization as prepare_text_prompt() in the reference, it affects quality
-    static std::string prepare_text(const std::string & in) {
+    static std::string prepare_text(const std::string & in, bool pad_short) {
         std::string s;
         s.reserve(in.size() + 1);
         for (char c : in) {
             if (c == '\n' || c == '\r') {
                 s += ' ';
+            } else if (c == ';') {
+                s += ',';
             } else {
                 s += c;
             }
@@ -854,6 +858,9 @@ private:
         const unsigned char last = (unsigned char) s.back();
         if (std::isalnum(last)) {
             s += '.';
+        }
+        if (pad_short && count_words(s) < 5) {
+            s = std::string(8, ' ') + s;
         }
         return s;
     }

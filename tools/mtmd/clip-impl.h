@@ -94,6 +94,8 @@
 #define KEY_GEN_AUDIO_PROJ_TYPE    "clip.gen.audio.projector_type" // for models with mixed modalities
 // noise scale of the flow decoder, differs between pocket-tts language packs
 #define KEY_GEN_AUDIO_FLOW_TEMP    "clip.gen.audio.flow_temperature"
+#define KEY_GEN_AUDIO_FRAMES_EOS   "clip.gen.audio.frames_after_eos"
+#define KEY_GEN_AUDIO_PAD_SHORT    "clip.gen.audio.pad_short_text"
 #define KEY_AUDIO_SUBSMPL_FACTOR   "clip.audio.subsampling_factor"
 
 //

@@ -339,6 +339,8 @@ enum mtmd_gen_audio_type {
 struct mtmd_gen_audio_info {
     enum mtmd_gen_audio_type type;
     int32_t sample_rate; // in Hz, for example 24000 for qwen3tts
+    int32_t frames_after_eos; // tail the model asks for, 0 to guess it from the text
+    bool pad_short_text; // the model wants short prompts padded with spaces
 };
 MTMD_API struct mtmd_gen_audio_info mtmd_gen_audio_get_info(const mtmd_context * ctx);
 

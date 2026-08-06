@@ -1760,7 +1760,9 @@ struct clip_model_loader {
                         // differs per language pack, the converter writes it out.
                         // the fallback is the reference's own default
                         hparams.flow_temp = 0.7f;
-                        get_f32(KEY_GEN_AUDIO_FLOW_TEMP, hparams.flow_temp, false);
+                        get_f32 (KEY_GEN_AUDIO_FLOW_TEMP,  hparams.flow_temp,            false);
+                        get_u32 (KEY_GEN_AUDIO_FRAMES_EOS, hparams.gen_frames_after_eos, false);
+                        get_bool(KEY_GEN_AUDIO_PAD_SHORT,  hparams.gen_pad_short_text,   false);
                     } break;
                 case PROJECTOR_TYPE_PADDLEOCR:
                     {

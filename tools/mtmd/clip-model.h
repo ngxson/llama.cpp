@@ -146,6 +146,8 @@ struct clip_hparams {
     int32_t mimi_tfm_context  = 0;      // attention window of the mimi transformers, in frames
     int32_t flow_n_step       = 1;      // lsd_decode steps
     float   flow_temp         = 0.0f;   // noise std is sqrt(temp), differs per language pack
+    int32_t gen_frames_after_eos = 0;   // tail the pack asks for, 0 leaves the guess to the caller
+    bool    gen_pad_short_text   = false;
 
     // qwen3tts code2wav
     int32_t wav_tfm_n_layer      = 0;

@@ -1596,9 +1596,13 @@ mtmd_gen_audio_info mtmd_gen_audio_get_info(const mtmd_context * ctx) {
             info.sample_rate = 24000;
             break;
         case PROJECTOR_TYPE_POCKETTTS_GEN:
-            info.type = MTMD_GEN_AUDIO_TYPE_POCKETTTS;
-            info.sample_rate = 24000;
-            break;
+            {
+                const clip_hparams * hp = clip_get_hparams(ctx->ctx_gen_a);
+                info.type = MTMD_GEN_AUDIO_TYPE_POCKETTTS;
+                info.sample_rate = 24000;
+                info.frames_after_eos = hp->gen_frames_after_eos;
+                info.pad_short_text = hp->gen_pad_short_text;
+            } break;
         default:
             info.type = MTMD_GEN_AUDIO_TYPE_NONE;
             break;

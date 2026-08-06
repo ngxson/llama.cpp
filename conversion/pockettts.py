@@ -41,12 +41,20 @@ _SAMPLE_RATE = 24000
 # It lives only in the pip package's pocket_tts/config/<name>.yaml, so it is keyed on the
 # model directory name here. 0.7 is the reference default (Config.default_temperature).
 #
-# The packs also tune pad_with_spaces_for_short_inputs and remove_semicolons, which only
-# affect text normalization for one or two packs each. Those are not carried over.
+# model_recommended_frames_after_eos and pad_with_spaces_for_short_inputs come from the same
+# per-pack yaml. remove_semicolons does too, but it maps ";" to "," and is applied to every
+# pack on the cpp side instead of being carried here.
 _DEFAULT_TEMP = 0.7
 _PACK_TEMP = {
     "english":         0.3,
     "english_2026-04": 0.3,
+}
+# 0 leaves the tail length to the caller, which guesses it from the text
+_PACK_FRAMES_AFTER_EOS = {
+    "french_24l": 8,
+}
+_PACK_PAD_SHORT_TEXT = {
+    "english_2026-01": True,
 }
 
 
@@ -203,6 +211,10 @@ class PocketTTSMmprojModel(MmprojModel):
 
         # the flow decoder draws its noise at this scale, see lsd_decode() in the reference
         self.gguf_writer.add_gen_audio_flow_temperature(_pack_temp(self.dir_model.name))
+        self.gguf_writer.add_gen_audio_frames_after_eos(
+            _PACK_FRAMES_AFTER_EOS.get(self.dir_model.name, 0))
+        self.gguf_writer.add_gen_audio_pad_short_text(
+            _PACK_PAD_SHORT_TEXT.get(self.dir_model.name, False))
 
     def tensor_force_quant(self, name, new_name, bid, n_dims):
         del name, bid, n_dims
