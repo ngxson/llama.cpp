@@ -463,6 +463,33 @@ private:
     std::vector<char> out_buf;
 };
 
+// Settings that live only in the reference's per-pack yaml and are not derivable from the
+// checkpoint: the english packs are identical in shape and tokenizer yet disagree on them.
+// They are keyed on the weight variant name that the mmproj carries.
+// remove_semicolons belongs here too, but it maps ";" to "," and is applied to every pack.
+struct pockettts_pack_settings {
+    float temp             = 0.7f; // Config.default_temperature
+    int   frames_after_eos = 0;    // 0 leaves the tail length to the caller
+    bool  pad_short_text   = false;
+};
+
+static pockettts_pack_settings pockettts_pack(const char * variant) {
+    static const std::unordered_map<std::string, pockettts_pack_settings> packs = {
+        { "english",         { 0.3f, 0, false } },
+        { "english_2026-01", { 0.7f, 0, true  } },
+        { "english_2026-04", { 0.3f, 0, false } },
+        { "french_24l",      { 0.7f, 8, false } },
+    };
+    auto it = packs.find(variant ? variant : "");
+    if (it == packs.end()) {
+        pockettts_pack_settings def;
+        LOG_WRN("mtmd_helper_gen_audio: no tuned settings for pocket-tts variant \"%s\", "
+                "using temperature %.1f\n", variant ? variant : "", def.temp);
+        return def;
+    }
+    return it->second;
+}
+
 // Pocket-TTS: the backbone emits no token at all, each step's hidden state is turned into one
 // continuous latent by the flow net, and the end-of-speech head lives in the mmproj
 class pockettts_gen_audio_pipeline : public mtmd_gen_audio_pipeline {
@@ -504,8 +531,10 @@ public:
             }
         }
 
+        pack = pockettts_pack(info.model_variant);
+
         const std::string text = prepare_text(std::string(inp->prompt, inp->prompt_len),
-                                              info.pad_short_text);
+                                              pack.pad_short_text);
         if (text.empty()) {
             LOG_ERR("mtmd_helper_gen_audio: empty prompt\n");
             return 1;
@@ -598,8 +627,9 @@ public:
         inp.embd    = const_cast<float *>(h_state_in);
         // the same seed every step: clip only reseeds when it changes, so the noise
         // stream keeps running instead of restarting on each frame
-        inp.seed    = seed;
-        inp.n_steps = -1;
+        inp.seed      = seed;
+        inp.n_steps   = -1;
+        inp.flow_temp = pack.temp;
         mtmd_gen_out out{};
         if (mtmd_gen_audio_process(mctx, &inp, &out) != 0) {
             LOG_ERR("mtmd_helper_gen_audio: flow decode failed\n");
@@ -778,7 +808,7 @@ private:
         chunk_budget = (int) std::ceil((n_tok / 3.0 + 2.0) * frame_rate);
         // the pack may pin the tail, otherwise the reference guesses it from the word count,
         // approximated here by tokens
-        frames_after_eos = info.frames_after_eos > 0 ? info.frames_after_eos : (n_tok <= 6 ? 5 : 3);
+        frames_after_eos = pack.frames_after_eos > 0 ? pack.frames_after_eos : (n_tok <= 6 ? 5 : 3);
         step_idx = 0;
         eos_step = -1;
     }
@@ -936,6 +966,7 @@ private:
         return true;
     }
 
+    pockettts_pack_settings pack;
     bool specials_ok = false;
     llama_token bos_before_voice = LLAMA_TOKEN_NULL;
     llama_token audio_bos        = LLAMA_TOKEN_NULL;

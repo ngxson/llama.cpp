@@ -1293,6 +1293,7 @@ struct clip_model_loader {
                 // these are unused, but still need to be set to avoid issues
                 hparams.image_size = 0;
                 hparams.patch_size = 1;
+                get_string(KEY_GEN_AUDIO_VARIANT, hparams.gen_model_variant, false);
 
             } else {
                 GGML_ASSERT(false && "unknown modality");
@@ -1757,12 +1758,6 @@ struct clip_model_loader {
                         // flow_lm defaults, see pocket_tts/default_parameters.py
                         hparams.flow_n_step       = 1;
                         hparams.gen_eos_threshold = -4.0f;
-                        // differs per language pack, the converter writes it out.
-                        // the fallback is the reference's own default
-                        hparams.flow_temp = 0.7f;
-                        get_f32 (KEY_GEN_AUDIO_FLOW_TEMP,  hparams.flow_temp,            false);
-                        get_u32 (KEY_GEN_AUDIO_FRAMES_EOS, hparams.gen_frames_after_eos, false);
-                        get_bool(KEY_GEN_AUDIO_PAD_SHORT,  hparams.gen_pad_short_text,   false);
                     } break;
                 case PROJECTOR_TYPE_PADDLEOCR:
                     {
@@ -4856,7 +4851,8 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                 } else {
                     // flow matching starts from gaussian noise, std = sqrt(temp)
                     ggml_tensor * t = get_inp_tensor("inp_noise");
-                    std::normal_distribution<float> dist(0.0f, std::sqrt(hparams.flow_temp));
+                    const float temp = params->flow_temp > 0.0f ? params->flow_temp : hparams.flow_temp;
+                    std::normal_distribution<float> dist(0.0f, std::sqrt(temp));
                     std::vector<float> noise(ggml_nelements(t));
                     for (auto & v : noise) {
                         v = dist(ctx->rng);

@@ -7,7 +7,7 @@ import torch
 if TYPE_CHECKING:
     from torch import Tensor
 
-from .base import ModelBase, MmprojModel, SentencePieceTokenTypes, TextModel, gguf, logger
+from .base import ModelBase, MmprojModel, SentencePieceTokenTypes, TextModel, gguf
 
 # Pocket TTS is a CALM: an autoregressive backbone conditions a flow-matching decoder that
 # generates one continuous 32-d latent per frame. There is no codebook anywhere in this model.
@@ -35,34 +35,6 @@ _DEC_RES_IDX   = lambda i: 3 + 3 * i  # noqa: E731
 
 _N_SEANET_STAGES = 3
 _SAMPLE_RATE = 24000
-
-# The flow decoder's noise scale is tuned per language pack and is not derivable from the
-# checkpoint: the english packs are byte-identical in shape and tokenizer yet disagree on it.
-# It lives only in the pip package's pocket_tts/config/<name>.yaml, so it is keyed on the
-# model directory name here. 0.7 is the reference default (Config.default_temperature).
-#
-# model_recommended_frames_after_eos and pad_with_spaces_for_short_inputs come from the same
-# per-pack yaml. remove_semicolons does too, but it maps ";" to "," and is applied to every
-# pack on the cpp side instead of being carried here.
-_DEFAULT_TEMP = 0.7
-_PACK_TEMP = {
-    "english":         0.3,
-    "english_2026-04": 0.3,
-}
-# 0 leaves the tail length to the caller, which guesses it from the text
-_PACK_FRAMES_AFTER_EOS = {
-    "french_24l": 8,
-}
-_PACK_PAD_SHORT_TEXT = {
-    "english_2026-01": True,
-}
-
-
-def _pack_temp(name: str) -> float:
-    if name not in _PACK_TEMP:
-        logger.warning("pocket-tts: no tuned temperature for language pack %r, using %.1f",
-                       name, _DEFAULT_TEMP)
-    return _PACK_TEMP.get(name, _DEFAULT_TEMP)
 
 
 @ModelBase.register("PocketTTSModel")
@@ -209,12 +181,7 @@ class PocketTTSMmprojModel(MmprojModel):
         self.gguf_writer.add_gen_audio_head_count(self.hparams_audio["num_attention_heads"])
         self.gguf_writer.add_gen_audio_attention_layernorm_eps(1e-5)
 
-        # the flow decoder draws its noise at this scale, see lsd_decode() in the reference
-        self.gguf_writer.add_gen_audio_flow_temperature(_pack_temp(self.dir_model.name))
-        self.gguf_writer.add_gen_audio_frames_after_eos(
-            _PACK_FRAMES_AFTER_EOS.get(self.dir_model.name, 0))
-        self.gguf_writer.add_gen_audio_pad_short_text(
-            _PACK_PAD_SHORT_TEXT.get(self.dir_model.name, False))
+        self.gguf_writer.add_gen_audio_model_variant(self.dir_model.name)
 
     def tensor_force_quant(self, name, new_name, bid, n_dims):
         del name, bid, n_dims

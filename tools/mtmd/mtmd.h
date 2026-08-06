@@ -339,8 +339,8 @@ enum mtmd_gen_audio_type {
 struct mtmd_gen_audio_info {
     enum mtmd_gen_audio_type type;
     int32_t sample_rate; // in Hz, for example 24000 for qwen3tts
-    int32_t frames_after_eos; // tail the model asks for, 0 to guess it from the text
-    bool pad_short_text; // the model wants short prompts padded with spaces
+    const char * model_variant; // name of the weight variant, empty if the mmproj has none
+                                // some pipelines have settings that only exist per-variant
 };
 MTMD_API struct mtmd_gen_audio_info mtmd_gen_audio_get_info(const mtmd_context * ctx);
 
@@ -360,6 +360,7 @@ struct mtmd_gen_inp {
     float   top_p;
     uint32_t seed;    // UINT32_MAX for random
     int32_t  n_steps; // integration steps, for flow-matching decoders (-1 for default)
+    float flow_temp;  // noise scale, for flow-matching decoders (0 for default)
 
     // for MTMD_GEN_PROCESS_TYPE_GEN_WAV
     // pass either codes (discrete) or feats (continuous), depending on the pipeline

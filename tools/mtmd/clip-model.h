@@ -139,15 +139,16 @@ struct clip_hparams {
     // threshold for the "out_eos_score" graph output
     float gen_eos_threshold = 0.0f;
 
+    // name of the weight variant, some pipelines tune themselves on it
+    std::string gen_model_variant;
+
     // pocket-tts
     int32_t seanet_n_stage    = 0;
     std::vector<int32_t> seanet_ratios; // encoder order (reversed compared to the config)
     int32_t mimi_downsample   = 0;      // encoder frame rate / model frame rate
     int32_t mimi_tfm_context  = 0;      // attention window of the mimi transformers, in frames
     int32_t flow_n_step       = 1;      // lsd_decode steps
-    float   flow_temp         = 0.0f;   // noise std is sqrt(temp), differs per language pack
-    int32_t gen_frames_after_eos = 0;   // tail the pack asks for, 0 leaves the guess to the caller
-    bool    gen_pad_short_text   = false;
+    float   flow_temp         = 0.7f;   // noise std is sqrt(temp), the caller can override it
 
     // qwen3tts code2wav
     int32_t wav_tfm_n_layer      = 0;

@@ -1438,14 +1438,8 @@ class GGUFWriter:
     def add_gen_audio_attention_layernorm_eps(self, value: float) -> None:
         self.add_float32(Keys.ClipGenAudio.Attention.LAYERNORM_EPS, value)
 
-    def add_gen_audio_flow_temperature(self, value: float) -> None:
-        self.add_float32(Keys.ClipGenAudio.FLOW_TEMPERATURE, value)
-
-    def add_gen_audio_frames_after_eos(self, value: int) -> None:
-        self.add_uint32(Keys.ClipGenAudio.FRAMES_AFTER_EOS, value)
-
-    def add_gen_audio_pad_short_text(self, value: bool) -> None:
-        self.add_bool(Keys.ClipGenAudio.PAD_SHORT_TEXT, value)
+    def add_gen_audio_model_variant(self, value: str) -> None:
+        self.add_string(Keys.ClipGenAudio.MODEL_VARIANT, value)
 
 
     def add_xielu_alpha_p(self, values: Sequence[float]):

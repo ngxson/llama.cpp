@@ -1586,23 +1586,21 @@ float * mtmd_get_output_embd(mtmd_context * ctx) {
 
 mtmd_gen_audio_info mtmd_gen_audio_get_info(const mtmd_context * ctx) {
     mtmd_gen_audio_info info{};
+    info.model_variant = "";
     if (!ctx->ctx_gen_a) {
         info.type = MTMD_GEN_AUDIO_TYPE_NONE;
         return info;
     }
+    info.model_variant = clip_get_hparams(ctx->ctx_gen_a)->gen_model_variant.c_str();
     switch (clip_get_projector_type(ctx->ctx_gen_a)) {
         case PROJECTOR_TYPE_QWEN3TTS_GEN:
             info.type = MTMD_GEN_AUDIO_TYPE_QWEN3TTS;
             info.sample_rate = 24000;
             break;
         case PROJECTOR_TYPE_POCKETTTS_GEN:
-            {
-                const clip_hparams * hp = clip_get_hparams(ctx->ctx_gen_a);
-                info.type = MTMD_GEN_AUDIO_TYPE_POCKETTTS;
-                info.sample_rate = 24000;
-                info.frames_after_eos = hp->gen_frames_after_eos;
-                info.pad_short_text = hp->gen_pad_short_text;
-            } break;
+            info.type = MTMD_GEN_AUDIO_TYPE_POCKETTTS;
+            info.sample_rate = 24000;
+            break;
         default:
             info.type = MTMD_GEN_AUDIO_TYPE_NONE;
             break;
@@ -1647,6 +1645,7 @@ static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_in
         params.top_p         = inp->top_p;
         params.seed          = inp->seed;
         params.n_steps       = inp->n_steps;
+        params.flow_temp     = inp->flow_temp;
         params.out_is_eos    = &is_eos;
 
         if (!clip_encode(ctx_clip, &params)) {
