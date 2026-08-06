@@ -1427,8 +1427,8 @@ std::vector<float> mtmd_audio_streaming_istft::flush() {
 //
 // mtmd_audio_preprocessor_pockettts
 //
-// mimi takes the raw 24kHz waveform, there is no mel front-end. the samples are handed over
-// as a single-row "mel" so they travel through the normal chunk path
+// mimi takes the raw 24kHz waveform, there is no mel front-end
+// the samples are handed over as a single-row "mel", to reuse the normal chunk path
 //
 
 bool mtmd_audio_preprocessor_pockettts::preprocess(const float *                 samples,

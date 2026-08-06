@@ -2,8 +2,8 @@
 
 // SEANet convolution stack of the mimi codec, see pocket_tts/modules/seanet.py
 //
-// tensors are T-first here: [T, C]. the convs are causal: they take left context from a
-// state slot when given, otherwise they pad (cold start / one-shot encode)
+// tensors are T-first here: [T, C]
+// the convs are causal: left context comes from a state slot, or from padding on a cold start
 
 static int64_t div_ceil(int64_t a, int64_t b) {
     return a / b + (a % b ? 1 : 0);
@@ -47,8 +47,7 @@ ggml_tensor * clip_graph_pockettts_seanet::conv1d(ggml_tensor * x, ggml_tensor *
 }
 
 // x: [T, IC], w: [K, OC/groups, IC] -> [T * stride, OC]
-// the K - stride overlap tail belongs to the next call: it is added to the head of the next
-// output when streaming, and simply dropped otherwise
+// the K - stride overlap tail belongs to the next call: added to its head when streaming, else dropped
 ggml_tensor * clip_graph_pockettts_seanet::conv_transpose1d(ggml_tensor * x, ggml_tensor * w, ggml_tensor * b, int stride,
                                                             const std::string & state_name) const {
     const int64_t K         = w->ne[0];
@@ -100,7 +99,6 @@ ggml_tensor * clip_graph_pockettts_seanet::conv_transpose1d(ggml_tensor * x, ggm
     return out;
 }
 
-// ELU -> dilated conv -> ELU -> pointwise conv, added back to the input
 ggml_tensor * clip_graph_pockettts_seanet::res_unit(ggml_tensor * x, const clip_seanet::stage & stage, int dilation,
                                                     const std::string & state_prefix) const {
     ggml_tensor * h = ggml_elu(ctx0, x);

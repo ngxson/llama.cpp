@@ -93,7 +93,6 @@ public:
     virtual int32_t step_gen(llama_token sampled, const float * h_state_in, const float ** h_state_out, bool * out_stop) = 0;
     virtual int32_t get_output(int32_t * out_sample_rate, const char ** out_data, size_t * out_data_len, int64_t * out_n_samples) = 0;
 
-
 protected:
     llama_context * lctx;
     mtmd_context  * mctx;
@@ -463,10 +462,8 @@ private:
     std::vector<char> out_buf;
 };
 
-// Settings that live only in the reference's per-pack yaml and are not derivable from the
-// checkpoint: the english packs are identical in shape and tokenizer yet disagree on them.
-// They are keyed on the weight variant name that the mmproj carries.
-// remove_semicolons belongs here too, but it maps ";" to "," and is applied to every pack.
+// settings that only live in the reference's per-pack yaml, not in the checkpoint
+// the english packs share the same shapes and tokenizer, but disagree on these
 struct pockettts_pack_settings {
     float temp             = 0.7f; // Config.default_temperature
     int   frames_after_eos = 0;    // 0 leaves the tail length to the caller
@@ -490,8 +487,8 @@ static pockettts_pack_settings pockettts_pack(const char * variant) {
     return it->second;
 }
 
-// Pocket-TTS: the backbone emits no token at all, each step's hidden state is turned into one
-// continuous latent by the flow net, and the end-of-speech head lives in the mmproj
+// pocket-tts: the backbone emits no token, the flow net turns each hidden state into a latent
+// the end-of-speech head also lives in the mmproj
 class pockettts_gen_audio_pipeline : public mtmd_gen_audio_pipeline {
 public:
     using mtmd_gen_audio_pipeline::mtmd_gen_audio_pipeline;
@@ -549,8 +546,8 @@ public:
         }
         ids.resize((size_t) n_ids);
 
-        // long inputs degrade badly, the reference splits them and restarts each piece from
-        // the voice conditioning, see split_into_best_sentences()
+        // long inputs degrade badly, so each chunk restarts from the voice conditioning
+        // see split_into_best_sentences() in the reference
         chunks = split_chunks(ids);
         chunk_idx = 0;
         if (chunks.size() > 1) {
@@ -625,8 +622,7 @@ public:
         mtmd_gen_inp inp{};
         inp.type    = MTMD_GEN_PROCESS_TYPE_GEN_CODE;
         inp.embd    = const_cast<float *>(h_state_in);
-        // the same seed every step: clip only reseeds when it changes, so the noise
-        // stream keeps running instead of restarting on each frame
+        // clip only reseeds when the seed changes, so pass the same one on every step
         inp.seed      = seed;
         inp.n_steps   = -1;
         inp.flow_temp = pack.temp;
@@ -806,8 +802,7 @@ private:
     void arm_chunk_budget(size_t idx) {
         const int n_tok = (int) chunks[idx].size();
         chunk_budget = (int) std::ceil((n_tok / 3.0 + 2.0) * frame_rate);
-        // the pack may pin the tail, otherwise the reference guesses it from the word count,
-        // approximated here by tokens
+        // the pack may pin the tail, else the reference guesses it from the word count
         frames_after_eos = pack.frames_after_eos > 0 ? pack.frames_after_eos : (n_tok <= 6 ? 5 : 3);
         step_idx = 0;
         eos_step = -1;
@@ -942,8 +937,7 @@ private:
         return ok;
     }
 
-    // decodes the buffered latents, carrying the mimi decoder state across calls so a window
-    // can be emitted as soon as it is full
+    // decodes the buffered latents, the mimi decoder state carries over between calls
     bool flush_gen_wav() {
         if (feats_buf.empty()) {
             return true;
@@ -983,7 +977,6 @@ private:
     int step_idx = 0;
     int eos_step = -1;
     int frames_after_eos = 3;
-    // long inputs are split, each chunk restarts from the voice conditioning
     static constexpr int max_chunk_tokens = 50;  // MAX_TOKEN_PER_CHUNK in the reference
     static constexpr double frame_rate    = 12.5;
     std::vector<std::vector<llama_token>> chunks;

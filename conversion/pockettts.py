@@ -9,17 +9,15 @@ if TYPE_CHECKING:
 
 from .base import ModelBase, MmprojModel, SentencePieceTokenTypes, TextModel, gguf
 
-# Pocket TTS is a CALM: an autoregressive backbone conditions a flow-matching decoder that
-# generates one continuous 32-d latent per frame. There is no codebook anywhere in this model.
-#
+# Pocket TTS is a CALM: the backbone conditions a flow-matching decoder that generates one
+# continuous 32-d latent per frame. There is no codebook in this model.
 # The checkpoint ships no config.json, hparams are derived in base.load_hparams_non_hf().
 #
 # Tricks being used to support this model via existing llama.cpp code paths:
-# - bos_before_voice and bos_emb are learned input vectors, not tokens. they are appended to
-#   the embedding table as extra tokens so the helper can look them up like any other row.
-#   bos_emb lives in latent space, so input_linear is folded into it here
-# - the backbone has no lm_head, the embedding table is reused as output so that a sampler
-#   can run over the (unused) logits
+# - bos_before_voice and bos_emb are learned input vectors, not tokens
+#   they are appended to the embedding table as extra tokens, to be looked up like any other row
+# - bos_emb lives in latent space, so input_linear is folded into it here
+# - the backbone has no lm_head, the embedding table is reused as output for the unused logits
 #
 # pipeline stage mapping:
 #   mimi encoder + speaker_proj --> mapped to normal mtmd audio encoder
@@ -50,8 +48,8 @@ class PocketTTSModel(TextModel):
     }
 
     def set_vocab(self):
-        # this is a unigram sentencepiece model; llama.cpp's SPM tokenizer greedily merges
-        # bigrams and cannot reproduce unigram segmentation, so use the UGM tokenizer instead
+        # this is a unigram sentencepiece model, llama.cpp's SPM tokenizer cannot do
+        # unigram segmentation, so use the UGM tokenizer instead
         from sentencepiece import sentencepiece_model_pb2 as model
 
         proto = model.ModelProto()  # pyright: ignore[reportAttributeAccessIssue] # ty: ignore[unresolved-attribute]

@@ -9,13 +9,12 @@
 //
 // there is no codebook anywhere, "codes" in the mtmd API are continuous features here
 
-// x * (1 + scale) + shift, all [D, 1]
 ggml_tensor * clip_graph_pockettts_gen::modulate(ggml_tensor * x, ggml_tensor * shift, ggml_tensor * scale) const {
     ggml_tensor * cur = ggml_mul(ctx0, x, ggml_scale_bias(ctx0, scale, 1.0f, 1.0f));
     return ggml_add(ctx0, cur, shift);
 }
 
-// cos/sin(t * freqs) -> Linear -> SiLU -> Linear -> RMSNorm, see TimestepEmbedder
+// see TimestepEmbedder in the reference
 ggml_tensor * clip_graph_pockettts_gen::time_embed(const clip_flow_net::time_embd & te, float t) const {
     // t is a graph-build constant, so the cos/sin table can be folded into a scaled copy
     ggml_tensor * args = ggml_scale(ctx0, te.freqs, t);
@@ -27,8 +26,8 @@ ggml_tensor * clip_graph_pockettts_gen::time_embed(const clip_flow_net::time_emb
     cur = build_mm(te.down_w, cur);
     cur = ggml_add(ctx0, cur, te.down_b);
 
-    // this "RMSNorm" divides by the unbiased variance, not the mean square, and it rescales
-    // the input rather than the centered value, see _rms_norm() in mlp.py
+    // this "RMSNorm" divides by the unbiased variance, not the mean square
+    // it also rescales the input, not the centered value, see _rms_norm() in mlp.py
     {
         const int64_t n = cur->ne[0];
         ggml_tensor * mean = ggml_mean(ctx0, cur);
@@ -99,7 +98,7 @@ ggml_tensor * clip_graph_pockettts_gen::flow_forward(ggml_tensor * cond, ggml_te
 }
 
 // state carried between GEN_WAV calls: rope offset, per-layer KV window, conv left context
-// and the transposed-conv overlap tails. shape lookup only, no graph needed
+// and the transposed-conv overlap tails
 std::vector<c2w_state_slot> list_pockettts_state_slots(const clip_hparams & hparams, const clip_model & model) {
     std::vector<c2w_state_slot> slots;
     if (model.gen_upsample_w == nullptr) {
@@ -208,8 +207,8 @@ ggml_cgraph * clip_graph_pockettts_gen::build() {
                                       GGML_TYPE_I32);
     seanet.state_out.push_back({"tfm_pos", ggml_scale_bias(ctx0, seanet.state_in.at("tfm_pos"), 1.0f, (float) n_pos)});
 
-    // banded causal mask over [cached prefix | this chunk], and a cold-start mask for the
-    // cache rows that hold no real frame yet
+    // banded causal mask over [cached prefix | this chunk]
+    // the last factor masks out cache rows that hold no real frame yet
     ggml_tensor * pos_k = ggml_reshape_2d(ctx0, ggml_arange(ctx0, 0.0f, (float) n_kv, 1.0f), n_kv, 1);
     ggml_tensor * pos_q = ggml_reshape_2d(ctx0, ggml_arange(ctx0, (float) prefix, (float) (prefix + n_pos), 1.0f), 1, n_pos);
     ggml_tensor * diff  = ggml_sub(ctx0, ggml_repeat_4d(ctx0, pos_q, n_kv, n_pos, 1, 1), pos_k);
