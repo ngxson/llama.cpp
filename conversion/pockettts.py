@@ -169,7 +169,7 @@ class PocketTTSMmprojModel(MmprojModel):
         self.gguf_writer.add_audio_num_mel_bins(1)
 
         # generation: flow-matching decoder + mimi decoder
-        # note: the SEANet and flow net hparams are hardcoded on the clip.cpp side for now
+        # the SEANet and flow net hparams are constant across the family, clip.cpp holds them
         self.gguf_writer.add_clip_has_gen_audio_encoder(True)
         self.gguf_writer.add_clip_gen_audio_projector_type(gguf.VisionProjectorType.POCKETTTS_GEN)
         self.gguf_writer.add_gen_audio_projection_dim(self.n_embd_text)

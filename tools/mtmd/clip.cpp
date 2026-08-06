@@ -4851,7 +4851,8 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                 } else {
                     // flow matching starts from gaussian noise, std = sqrt(temp)
                     ggml_tensor * t = get_inp_tensor("inp_noise");
-                    const float temp = params->flow_temp > 0.0f ? params->flow_temp : hparams.flow_temp;
+                    // Config.default_temperature, a caller that knows its variant overrides it
+                    const float temp = params->flow_temp > 0.0f ? params->flow_temp : 0.7f;
                     std::normal_distribution<float> dist(0.0f, std::sqrt(temp));
                     std::vector<float> noise(ggml_nelements(t));
                     for (auto & v : noise) {
