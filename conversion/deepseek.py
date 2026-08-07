@@ -494,6 +494,12 @@ class LongcatFlashModel(DeepseekV2Model):
         if self.hparams.get("mla_scale_kv_lora"):
             self.gguf_writer.add_kv_lora_scale((self.hparams["hidden_size"] / self.hparams["kv_lora_rank"]) ** 0.5)
 
+    def tensor_force_quant(self, name, new_name, bid, n_dims):
+        # the base class matches the router by bid, which block renumbering breaks
+        if new_name.endswith("ffn_gate_inp.weight"):
+            return gguf.GGMLQuantizationType.F32
+        return super().tensor_force_quant(name, new_name, bid, n_dims)
+
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         if name.startswith("model.mtp."):
             nextn_bid = self.block_count - 1
