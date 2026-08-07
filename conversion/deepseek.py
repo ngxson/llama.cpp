@@ -463,8 +463,9 @@ class LongcatFlashModel(DeepseekV2Model):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # 2 attention+dense-ffn sub-blocks per HF layer -> 2 llama.cpp blocks per HF layer
-        self.block_count = self.hparams["num_layers"] * 2
+        # 2 attention+dense-ffn sub-blocks per HF layer -> 2 llama.cpp blocks per HF layer,
+        # plus 1 extra block for the MTP head (loaded but unused until it has a graph)
+        self.block_count = self.hparams["num_layers"] * 2 + 1
         self.tensor_map = gguf.get_tensor_name_map(self.model_arch, self.block_count)
         # compat with the DeepseekV2Model hparam names this class reads from
         self.hparams["num_hidden_layers"]     = self.block_count
@@ -475,16 +476,11 @@ class LongcatFlashModel(DeepseekV2Model):
         # overwrites it to 1 for the GGUF MLA metadata.
         self.hparams["num_key_value_heads"]   = self.hparams["num_attention_heads"]
 
-    @classmethod
-    def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:
-        name, _ = item
-        # MTP speculative decoding head, not supported yet
-        if name.startswith("model.mtp."):
-            return None
-        return super().filter_tensors(item)
-
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
+
+        # 1 MTP block
+        self.gguf_writer.add_nextn_predict_layers(1)
 
         zero_expert_num  = self.hparams["zero_expert_num"]
         zero_expert_type = self.hparams["zero_expert_type"]
@@ -499,6 +495,18 @@ class LongcatFlashModel(DeepseekV2Model):
             self.gguf_writer.add_kv_lora_scale((self.hparams["hidden_size"] / self.hparams["kv_lora_rank"]) ** 0.5)
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        if name.startswith("model.mtp."):
+            nextn_bid = self.block_count - 1
+            rest = name.removeprefix("model.mtp.")
+            if rest.startswith("layers.0."):
+                rest = rest.removeprefix("layers.0.").removeprefix("transformer_layer.")
+                rest = rest.replace(".m.weight", ".weight")  # enorm.m / hnorm.m wrapper
+            elif rest == "norm.weight":
+                rest = "shared_head.norm.weight"
+            new_name = f"model.layers.{nextn_bid}.{rest}"
+            yield from super().modify_tensors(data_torch, new_name, nextn_bid)
+            return
+
         if bid is not None:
             # doubled sub-components, e.g. model.layers.{L}.self_attn.{0,1}.q_a_proj.weight
             match = re.match(r"model\.layers\.\d+\.(mlps|self_attn|input_layernorm|post_attention_layernorm)\.(\d+)\.(.*)", name)
