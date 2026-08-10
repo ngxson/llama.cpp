@@ -148,6 +148,7 @@ struct clip_hparams {
     std::string gen_model_variant;
 
     // pocket-tts
+    static constexpr int32_t pockettts_max_spk_seconds = 30;
     int32_t seanet_n_stage    = 0;
     std::vector<int32_t> seanet_ratios; // encoder order (reversed compared to the config)
     int32_t mimi_downsample   = 0;      // encoder frame rate / model frame rate

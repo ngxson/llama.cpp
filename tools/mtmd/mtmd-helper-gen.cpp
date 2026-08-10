@@ -549,16 +549,12 @@ public:
         }
 
         const int n_e = n_embd;
-        auto push_row = [&](llama_token t) {
-            prompt_embd_buf.insert(prompt_embd_buf.end(),
-                                   tok_embd.begin() + (size_t) t * n_e,
-                                   tok_embd.begin() + (size_t) (t + 1) * n_e);
-        };
 
         // sequence order is voice, then text, then the audio BOS that starts generation
         if (!voice.empty()) {
+            GGML_ASSERT(voice.size() % (size_t) n_e == 0);
             if (bos_before_voice != LLAMA_TOKEN_NULL) {
-                push_row(bos_before_voice);
+                push_embd_row(prompt_embd_buf, bos_before_voice);
             }
             prompt_embd_buf.insert(prompt_embd_buf.end(), voice.begin(), voice.end());
         }
@@ -566,9 +562,9 @@ public:
         n_voice_pos = (int) (prompt_embd_buf.size() / (size_t) n_e);
 
         for (llama_token t : chunks[0]) {
-            push_row(t);
+            push_embd_row(prompt_embd_buf, t);
         }
-        push_row(audio_bos);
+        push_embd_row(prompt_embd_buf, audio_bos);
         arm_chunk_budget(0);
 
         n_prompt = (int) (prompt_embd_buf.size() / (size_t) n_e);
@@ -712,8 +708,18 @@ private:
             LOG_ERR("mtmd_helper_gen_audio: token embedding copy failed\n");
             return false;
         }
+        GGML_ASSERT(n_embd > 0 && n_tok_embd % (uint32_t) n_embd == 0);
         specials_ok = true;
         return true;
+    }
+
+    // the table can be shorter than the vocab, so bound the row lookup
+    void push_embd_row(std::vector<float> & dst, llama_token t) const {
+        const size_t n_rows = tok_embd.size() / (size_t) n_embd;
+        GGML_ASSERT(t >= 0 && (size_t) t < n_rows);
+        dst.insert(dst.end(),
+                   tok_embd.begin() + (size_t) t * n_embd,
+                   tok_embd.begin() + (size_t) (t + 1) * n_embd);
     }
 
     // token ids of the pieces the reference splits on, see split_into_best_sentences().
@@ -824,17 +830,13 @@ private:
         const int n_e = n_embd;
         prompt_embd_buf.clear();
         for (llama_token t : chunks[chunk_idx]) {
-            prompt_embd_buf.insert(prompt_embd_buf.end(),
-                                   tok_embd.begin() + (size_t) t * n_e,
-                                   tok_embd.begin() + (size_t) (t + 1) * n_e);
+            push_embd_row(prompt_embd_buf, t);
         }
-        prompt_embd_buf.insert(prompt_embd_buf.end(),
-                               tok_embd.begin() + (size_t) audio_bos * n_e,
-                               tok_embd.begin() + (size_t) (audio_bos + 1) * n_e);
+        push_embd_row(prompt_embd_buf, audio_bos);
         arm_chunk_budget(chunk_idx);
 
-        // bounded by max_chunk_tokens + 1, so one decode is enough
         const int n_rows = (int) (prompt_embd_buf.size() / (size_t) n_e);
+        GGML_ASSERT(n_rows > 0);
         decode_embd_batch batch(prompt_embd_buf.data(), n_rows, 1, n_e);
         batch.set_position_normal(pos, seq_id);
         batch.batch.logits[n_rows - 1] = 1;

@@ -1072,6 +1072,13 @@ static std::unique_ptr<clip_graph> clip_get_graph_builder(clip_ctx * ctx, const 
                 const auto gen_process = params ? params->gen_process : CLIP_GEN_PROCESS_GEN_CODE;
                 const int  n_step = params && params->n_steps > 0 ? params->n_steps : ctx->model.hparams.flow_n_step;
                 const int64_t n_latent = ctx->model.gen_input_lin_w->ne[0];
+                GGML_ASSERT(n_step > 0);
+                GGML_ASSERT(n_latent > 0);
+                // "inp_feats" takes the caller's buffer as-is, the graph must consume all of it
+                if (params && params->feats) {
+                    GGML_ASSERT(params->feats->size() % (size_t) n_latent == 0);
+                    GGML_ASSERT(params->feats->size() >= (size_t) n_latent);
+                }
                 const int  n_frames = params && params->feats ? (int) (params->feats->size() / n_latent) : 1;
                 builder = std::make_unique<clip_graph_pockettts_gen>(ctx, img, gen_process, n_step, n_frames);
             } break;
@@ -4341,11 +4348,16 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
     // the mask is causal with a sliding window, see _build_attention_mask() in the reference
     auto set_pockettts_tfm_inputs = [&]() {
         const int64_t n_pos = ggml_nelements(get_inp_tensor("inp_pos"));
+        GGML_ASSERT(n_pos > 0);
         std::vector<int32_t> positions((size_t) n_pos);
         for (int64_t i = 0; i < n_pos; i++) {
             positions[(size_t) i] = (int32_t) i;
         }
         set_input_i32("inp_pos", positions);
+
+        // the preprocessor truncates the waveform to keep this mask bounded
+        const int64_t max_pos = (int64_t) clip_hparams::pockettts_max_spk_seconds * hparams.audio_sample_rate / 120;
+        GGML_ASSERT(n_pos <= max_pos && "pocket-tts speaker reference too long for a dense mask");
 
         const int64_t context = hparams.mimi_tfm_context;
         std::vector<float> mask((size_t) n_pos * n_pos, -INFINITY);

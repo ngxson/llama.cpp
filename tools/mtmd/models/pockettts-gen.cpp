@@ -106,6 +106,12 @@ std::vector<c2w_state_slot> list_pockettts_state_slots(const clip_hparams & hpar
     }
     const auto & seanet = model.seanet;
 
+    // the slots below are sized from these
+    GGML_ASSERT(!model.gen_tfm_layers.empty());
+    GGML_ASSERT((int) seanet.stages.size() >= hparams.seanet_n_stage);
+    GGML_ASSERT((int) hparams.seanet_ratios.size() >= hparams.seanet_n_stage);
+    GGML_ASSERT(hparams.mimi_tfm_context > 1 && hparams.mimi_downsample > 0);
+
     slots.push_back({"tfm_pos", 1, 1});
 
     const int64_t n_embd_a = model.gen_tfm_layers[0].q_w->ne[1];

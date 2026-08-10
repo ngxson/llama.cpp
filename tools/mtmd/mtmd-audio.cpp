@@ -1440,6 +1440,14 @@ bool mtmd_audio_preprocessor_pockettts::preprocess(const float *                
         return false;
     }
 
+    // the mimi transformer mask is dense, so cost is quadratic in the reference length
+    const int64_t max_samples = (int64_t) clip_hparams::pockettts_max_spk_seconds * hparams.audio_sample_rate;
+    if ((int64_t) n_samples > max_samples) {
+        LOG_WRN("%s: speaker reference is %.1f s, truncating to the first %d s\n", __func__,
+                (double) n_samples / hparams.audio_sample_rate, clip_hparams::pockettts_max_spk_seconds);
+        n_samples = (size_t) max_samples;
+    }
+
     const int64_t n_frames  = (int64_t) (n_samples + frame_size - 1) / frame_size;
     const int64_t n_padded  = n_frames * frame_size;
 
