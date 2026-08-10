@@ -106,8 +106,7 @@ struct clip_encode_params {
     std::vector<int32_t> * out_codes = nullptr; // this frame's 16 sampled codes
     std::vector<float> * out_feats = nullptr; // continuous counterpart of out_codes
     uint32_t seed = UINT32_MAX;               // UINT32_MAX for random
-    int32_t n_steps = -1;                     // integration steps, for flow-matching decoders
-    float   flow_temp = 0.0f;                 // noise scale of the flow decoder, 0 for default
+    float   temp = 0.0f;                      // sampling temperature, noise scale for flow-matching decoders
     bool * out_is_eos = nullptr;
 
     // GEN_WAV

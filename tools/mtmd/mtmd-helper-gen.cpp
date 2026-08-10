@@ -203,8 +203,9 @@ public:
         prompt_pos = 0;
 
         pos = 0;
-        top_k = inp->top_k > 0 ? inp->top_k : 50;
-        top_p = inp->top_p > 0 ? inp->top_p : 1.0f;
+        const mtmd_gen_inp def = mtmd_gen_inp_default(mctx);
+        top_k = inp->top_k > 0 ? inp->top_k : def.top_k;
+        top_p = inp->top_p > 0 ? inp->top_p : def.top_p;
         seed  = inp->seed;
         out_type = inp->out_type;
 
@@ -258,7 +259,7 @@ public:
             return 0;
         }
 
-        mtmd_gen_inp inp{};
+        mtmd_gen_inp inp = mtmd_gen_inp_default(mctx);
         inp.type  = MTMD_GEN_PROCESS_TYPE_GEN_CODE;
         inp.code0 = sampled - codec_0;
         inp.embd  = const_cast<float *>(h_state_in);
@@ -401,10 +402,11 @@ private:
         if (codes_buf.empty()) {
             return true;
         }
-        mtmd_gen_inp inp{};
+        mtmd_gen_inp inp = mtmd_gen_inp_default(mctx);
         inp.type       = MTMD_GEN_PROCESS_TYPE_GEN_WAV;
         inp.codes      = codes_buf.data();
         inp.n_codes    = codes_buf.size();
+        inp.seed       = seed; // same seed as gen_code, else clip reseeds mid-generation
         inp.state_data = c2w_state.empty() ? nullptr : (const char *) c2w_state.data();
         inp.state_size = c2w_state.size();
         mtmd_gen_out out{};
@@ -458,9 +460,10 @@ private:
 
 // settings that only live in the reference's per-pack yaml, not in the checkpoint
 // the english packs share the same shapes and tokenizer, but disagree on these
+// all three are 0 / false when the pack does not tune them, the model default is then used
 struct pockettts_pack_settings {
-    float temp             = 0.7f; // Config.default_temperature
-    int   frames_after_eos = 0;    // 0 leaves the tail length to the caller
+    float temp             = 0.0f;
+    int   frames_after_eos = 0;
     bool  pad_short_text   = false;
 };
 
@@ -473,10 +476,9 @@ static pockettts_pack_settings pockettts_pack(const char * variant) {
     };
     auto it = packs.find(variant ? variant : "");
     if (it == packs.end()) {
-        pockettts_pack_settings def;
-        LOG_WRN("mtmd_helper_gen_audio: no tuned settings for pocket-tts variant \"%s\", "
-                "using temperature %.1f\n", variant ? variant : "", def.temp);
-        return def;
+        LOG_WRN("mtmd_helper_gen_audio: no tuned settings for pocket-tts variant \"%s\"\n",
+                variant ? variant : "");
+        return {};
     }
     return it->second;
 }
@@ -609,13 +611,14 @@ public:
     int32_t step_gen(llama_token sampled, const float * h_state_in, const float ** h_state_out, bool * out_stop) override {
         (void) sampled; // the backbone output is continuous, there is no token to consume
 
-        mtmd_gen_inp inp{};
-        inp.type    = MTMD_GEN_PROCESS_TYPE_GEN_CODE;
-        inp.embd    = const_cast<float *>(h_state_in);
+        mtmd_gen_inp inp = mtmd_gen_inp_default(mctx);
+        inp.type = MTMD_GEN_PROCESS_TYPE_GEN_CODE;
+        inp.embd = const_cast<float *>(h_state_in);
         // clip only reseeds when the seed changes, so pass the same one on every step
-        inp.seed      = seed;
-        inp.n_steps   = -1;
-        inp.flow_temp = pack.temp;
+        inp.seed = seed;
+        if (pack.temp > 0.0f) {
+            inp.temp = pack.temp;
+        }
         mtmd_gen_out out{};
         if (mtmd_gen_audio_process(mctx, &inp, &out) != 0) {
             LOG_ERR("mtmd_helper_gen_audio: flow decode failed\n");
@@ -938,7 +941,7 @@ private:
         if (feats_buf.empty()) {
             return true;
         }
-        mtmd_gen_inp inp{};
+        mtmd_gen_inp inp = mtmd_gen_inp_default(mctx);
         inp.type       = MTMD_GEN_PROCESS_TYPE_GEN_WAV;
         inp.feats      = feats_buf.data();
         inp.n_feats    = feats_buf.size();

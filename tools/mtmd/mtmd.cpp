@@ -1826,6 +1826,31 @@ mtmd_gen_audio_info mtmd_gen_audio_get_info(const mtmd_context * ctx) {
     return info;
 }
 
+mtmd_gen_inp mtmd_gen_inp_default(const mtmd_context * ctx) {
+    mtmd_gen_inp inp{};
+    inp.type = MTMD_GEN_PROCESS_TYPE_GEN_CODE;
+    inp.seed = UINT32_MAX;
+    if (!ctx->ctx_gen_a) {
+        return inp;
+    }
+
+    const clip_hparams * hparams = clip_get_hparams(ctx->ctx_gen_a);
+    switch (clip_get_projector_type(ctx->ctx_gen_a)) {
+        case PROJECTOR_TYPE_QWEN3TTS_GEN:
+            // https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base/blob/main/generation_config.json
+            inp.top_k = 50;
+            inp.top_p = 1.0f;
+            inp.temp  = 0.9f; // TODO: handle this on graph
+            break;
+        case PROJECTOR_TYPE_POCKETTTS_GEN:
+            inp.temp = hparams->gen_flow_temp;
+            break;
+        default:
+            break;
+    }
+    return inp;
+}
+
 static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_inp * inp, mtmd_gen_out * out) {
     clip_ctx * ctx_clip = ctx->ctx_gen_a;
     if (!ctx_clip) {
@@ -1862,8 +1887,7 @@ static int32_t mtmd_gen_audio_process_impl(mtmd_context * ctx, const mtmd_gen_in
         params.top_k         = inp->top_k;
         params.top_p         = inp->top_p;
         params.seed          = inp->seed;
-        params.n_steps       = inp->n_steps;
-        params.flow_temp     = inp->flow_temp;
+        params.temp          = inp->temp;
         params.out_is_eos    = &is_eos;
 
         if (!clip_encode(ctx_clip, &params)) {

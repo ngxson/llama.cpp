@@ -346,12 +346,15 @@ enum mtmd_gen_audio_type {
     MTMD_GEN_AUDIO_TYPE_QWEN3TTS,
     MTMD_GEN_AUDIO_TYPE_POCKETTTS,
 };
+
 struct mtmd_gen_audio_info {
     enum mtmd_gen_audio_type type;
     int32_t sample_rate; // in Hz, for example 24000 for qwen3tts
     const char * model_variant; // name of the weight variant, can be nullptr if not applicable
 };
+
 MTMD_API struct mtmd_gen_audio_info mtmd_gen_audio_get_info(const mtmd_context * ctx);
+
 
 enum mtmd_gen_process_type {
     MTMD_GEN_PROCESS_TYPE_GEN_CODE, // h_state to semantic (codes, mel-spectrogram, etc.)
@@ -359,6 +362,7 @@ enum mtmd_gen_process_type {
                                     // for qwen3tts, this is code2wav
                                     // for pocket-tts, this is mimi decoder
 };
+
 struct mtmd_gen_inp {
     enum mtmd_gen_process_type type;
 
@@ -367,9 +371,8 @@ struct mtmd_gen_inp {
     float * embd;   // the hidden state from backbone, must have n_text_embd elements
     int32_t top_k;
     float   top_p;
-    uint32_t seed;    // UINT32_MAX for random
-    int32_t  n_steps; // integration steps, for flow-matching decoders (-1 for default)
-    float flow_temp;  // noise scale, for flow-matching decoders (0 for default)
+    uint32_t seed; // UINT32_MAX for random
+    float    temp; // sampling temperature, or noise scale for flow-matching decoders
 
     // for MTMD_GEN_PROCESS_TYPE_GEN_WAV
     // pass either codes (discrete) or feats (continuous), depending on the pipeline
@@ -380,6 +383,7 @@ struct mtmd_gen_inp {
     const char * state_data;
     size_t       state_size;
 };
+
 struct mtmd_gen_out {
     // note: output memory is allocated by the context, valid until next process() call
 
@@ -398,6 +402,10 @@ struct mtmd_gen_out {
     const char * state_data;
     size_t       state_size;
 };
+
+// defaults tuned for the loaded pipeline, callers override only what they care about
+MTMD_API struct mtmd_gen_inp mtmd_gen_inp_default(const mtmd_context * ctx);
+
 // note: this API is stateless, caller must handle state management and audio frame accumulation
 MTMD_API int32_t mtmd_gen_audio_process(mtmd_context * ctx,
                                 const struct mtmd_gen_inp * inp,

@@ -1070,7 +1070,7 @@ static std::unique_ptr<clip_graph> clip_get_graph_builder(clip_ctx * ctx, const 
         case PROJECTOR_TYPE_POCKETTTS_GEN:
             {
                 const auto gen_process = params ? params->gen_process : CLIP_GEN_PROCESS_GEN_CODE;
-                const int  n_step = params && params->n_steps > 0 ? params->n_steps : ctx->model.hparams.flow_n_step;
+                const int  n_step = ctx->model.hparams.flow_n_step;
                 const int64_t n_latent = ctx->model.gen_input_lin_w->ne[0];
                 GGML_ASSERT(n_step > 0);
                 GGML_ASSERT(n_latent > 0);
@@ -1784,6 +1784,7 @@ struct clip_model_loader {
                         // flow_lm defaults, see pocket_tts/default_parameters.py
                         hparams.flow_n_step       = 1;
                         hparams.gen_eos_threshold = -4.0f;
+                        hparams.gen_flow_temp     = 0.7f; // Config.default_temperature
                     } break;
                 case PROJECTOR_TYPE_PADDLEOCR:
                     {
@@ -4963,8 +4964,7 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                 } else {
                     // flow matching starts from gaussian noise, std = sqrt(temp)
                     ggml_tensor * t = get_inp_tensor("inp_noise");
-                    // Config.default_temperature, a caller that knows its variant overrides it
-                    const float temp = params->flow_temp > 0.0f ? params->flow_temp : 0.7f;
+                    const float temp = params->temp > 0.0f ? params->temp : hparams.gen_flow_temp;
                     std::normal_distribution<float> dist(0.0f, std::sqrt(temp));
                     std::vector<float> noise(ggml_nelements(t));
                     for (auto & v : noise) {
