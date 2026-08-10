@@ -1834,7 +1834,6 @@ mtmd_gen_inp mtmd_gen_inp_default(const mtmd_context * ctx) {
         return inp;
     }
 
-    const clip_hparams * hparams = clip_get_hparams(ctx->ctx_gen_a);
     switch (clip_get_projector_type(ctx->ctx_gen_a)) {
         case PROJECTOR_TYPE_QWEN3TTS_GEN:
             // https://huggingface.co/Qwen/Qwen3-TTS-12Hz-1.7B-Base/blob/main/generation_config.json
@@ -1843,7 +1842,10 @@ mtmd_gen_inp mtmd_gen_inp_default(const mtmd_context * ctx) {
             inp.temp  = 0.9f; // TODO: handle this on graph
             break;
         case PROJECTOR_TYPE_POCKETTTS_GEN:
-            inp.temp = hparams->gen_flow_temp;
+            // https://github.com/kyutai-labs/pocket-tts/blob/main/pocket_tts/default_parameters.py
+            inp.top_k = 50;
+            inp.top_p = 1.0f;
+            inp.temp  = 0.7f;
             break;
         default:
             break;

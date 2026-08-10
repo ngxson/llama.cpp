@@ -144,9 +144,6 @@ struct clip_hparams {
     // threshold for the "out_eos_score" graph output
     float gen_eos_threshold = 0.0f;
 
-    // default noise scale of a flow-matching decoder, see mtmd_gen_inp_default()
-    float gen_flow_temp = 0.0f;
-
     // name of the weight variant, some pipelines tune themselves on it
     std::string gen_model_variant;
 

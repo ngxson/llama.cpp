@@ -1784,7 +1784,6 @@ struct clip_model_loader {
                         // flow_lm defaults, see pocket_tts/default_parameters.py
                         hparams.flow_n_step       = 1;
                         hparams.gen_eos_threshold = -4.0f;
-                        hparams.gen_flow_temp     = 0.7f; // Config.default_temperature
                     } break;
                 case PROJECTOR_TYPE_PADDLEOCR:
                     {
@@ -4964,7 +4963,8 @@ bool clip_encode(struct clip_ctx * ctx, struct clip_encode_params * params) {
                 } else {
                     // flow matching starts from gaussian noise, std = sqrt(temp)
                     ggml_tensor * t = get_inp_tensor("inp_noise");
-                    const float temp = params->temp > 0.0f ? params->temp : hparams.gen_flow_temp;
+                    // Config.default_temperature, for a caller that does not set one
+                    const float temp = params->temp > 0.0f ? params->temp : 0.7f;
                     std::normal_distribution<float> dist(0.0f, std::sqrt(temp));
                     std::vector<float> noise(ggml_nelements(t));
                     for (auto & v : noise) {
