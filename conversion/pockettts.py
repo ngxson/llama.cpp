@@ -1,17 +1,19 @@
 from __future__ import annotations
 
-from typing import Iterable, TYPE_CHECKING
+import re
+from pathlib import Path
+from typing import Any, Iterable, TYPE_CHECKING
 
 import torch
 
 if TYPE_CHECKING:
     from torch import Tensor
 
-from .base import ModelBase, MmprojModel, SentencePieceTokenTypes, TextModel, gguf
+from .base import ModelBase, MmprojModel, SentencePieceTokenTypes, TextModel, gguf, logger
 
 # Pocket TTS is a CALM: the backbone conditions a flow-matching decoder that generates one
 # continuous 32-d latent per frame. There is no codebook in this model.
-# The checkpoint ships no config.json, hparams are derived in base.load_hparams_non_hf().
+# The checkpoint ships no config.json, hparams come from _load_hparams() below.
 #
 # Tricks being used to support this model via existing llama.cpp code paths:
 # - bos_before_voice and bos_emb are learned input vectors, not tokens
@@ -33,6 +35,45 @@ _DEC_RES_IDX   = lambda i: 3 + 3 * i  # noqa: E731
 
 _N_SEANET_STAGES = 3
 _SAMPLE_RATE = 24000
+
+
+def _tensor_shapes(dir_model: Path) -> dict[str, tuple[int, ...]]:
+    part_names = ModelBase.get_model_part_names(dir_model, "model", ".safetensors")
+    if len(part_names) != 1:
+        return {}
+    with gguf.utility.SafetensorsLocal(dir_model / part_names[0]) as part:
+        return {name: tuple(part[name].shape) for name in part.keys()}
+
+
+@ModelBase.register_hparams_loader(lambda dir_model: "flow_lm.bos_emb" in _tensor_shapes(dir_model))
+def _load_hparams(dir_model: Path) -> dict[str, Any]:
+    logger.info("gguf: detected pocket-tts checkpoint, deriving hparams from tensor shapes")
+    shapes = _tensor_shapes(dir_model)
+    n_vocab, n_embd = shapes["flow_lm.conditioner.embed.weight"]
+    n_layer = sum(1 for name in shapes if re.fullmatch(r"flow_lm\.transformer\.layers\.\d+\.norm1\.weight", name))
+    n_layer_a = sum(1 for name in shapes if re.fullmatch(r"mimi\.encoder_transformer\.transformer\.layers\.\d+\.norm1\.weight", name))
+    n_embd_a = shapes["mimi.encoder_transformer.transformer.layers.0.norm1.weight"][0]
+    return {
+        "architectures": ["PocketTTSModel"],
+        "model_type": "pockettts",
+        "num_hidden_layers": n_layer,
+        "hidden_size": n_embd,
+        "intermediate_size": shapes["flow_lm.transformer.layers.0.linear1.weight"][0],
+        # the transformer is fully causal with no context limit, this only bounds the KV cache
+        "max_position_embeddings": 4096,
+        # not in the checkpoint, but every released variant uses head_dim 64
+        "num_attention_heads": n_embd // 64,
+        # extra rows for the learned input vectors, see _embd_table()
+        "vocab_size": n_vocab + (2 if "flow_lm.bos_before_voice" in shapes else 1),
+        "rope_theta": 10000.0,
+        "layer_norm_eps": 1e-5,
+        "audio_config": {
+            "num_hidden_layers": n_layer_a,
+            "hidden_size": n_embd_a,
+            "intermediate_size": shapes["mimi.encoder_transformer.transformer.layers.0.linear1.weight"][0],
+            "num_attention_heads": n_embd_a // 64,
+        },
+    }
 
 
 @ModelBase.register("PocketTTSModel")
@@ -324,7 +365,7 @@ class PocketTTSMmprojModel(MmprojModel):
             return
 
         for stage in range(_N_SEANET_STAGES):
-            res_idx   = _DEC_RES_IDX(stage)   if is_decoder else _ENC_RES_IDX(stage)
+            res_idx = _DEC_RES_IDX(stage) if is_decoder else _ENC_RES_IDX(stage)
             scale_idx = _DEC_SCALE_IDX(stage) if is_decoder else _ENC_SCALE_IDX(stage)
             if idx == scale_idx:
                 yield (self.format_tensor_name(scale, stage, suffix=suffix), data_torch)

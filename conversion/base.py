@@ -58,6 +58,11 @@ logger = logging.getLogger("hf-to-gguf")
 AnyModel = TypeVar("AnyModel", bound="type[ModelBase]")
 
 
+# for checkpoints that ship no config.json, we will try to provide a synthetic one
+HparamsMatcher = Callable[[Path], bool]
+HparamsLoader = Callable[[Path], dict[str, Any]]
+
+
 class SentencePieceTokenTypes(IntEnum):
     NORMAL = 1
     UNKNOWN = 2
@@ -77,6 +82,7 @@ class ModelBase:
         ModelType.TEXT: {},
         ModelType.MMPROJ: {},
     }
+    _hparams_loaders: list[tuple[HparamsMatcher, HparamsLoader]] = []
 
     dir_model: Path
     ftype: gguf.LlamaFileType
@@ -1041,6 +1047,24 @@ class ModelBase:
         return part_names
 
     @staticmethod
+    def load_hparams_guess(dir_model: Path) -> dict[str, Any] | None:
+        # some models ship no config.json, will try to guess them
+        from conversion import load_all_models
+        load_all_models()
+
+        for matcher, loader in ModelBase._hparams_loaders:
+            if matcher(dir_model):
+                return loader(dir_model)
+        return None
+
+    @classmethod
+    def register_hparams_loader(cls, matcher: HparamsMatcher) -> Callable[[HparamsLoader], HparamsLoader]:
+        def inner(loader: HparamsLoader) -> HparamsLoader:
+            cls._hparams_loaders.append((matcher, loader))
+            return loader
+        return inner
+
+    @staticmethod
     def load_hparams(dir_model: Path, is_mistral_format: bool):
         if is_mistral_format:
             with open(dir_model / "params.json", "r", encoding="utf-8") as f:
@@ -1054,7 +1078,7 @@ class ModelBase:
         except Exception as e:
             logger.warning(f"Failed to load model config from {dir_model}: {e}")
             if not (dir_model / "config.json").is_file():
-                config = load_hparams_non_hf(dir_model)
+                config = ModelBase.load_hparams_guess(dir_model)
                 if config is not None:
                     return config
             logger.warning("Trying to load config.json instead")
@@ -2620,50 +2644,6 @@ else:
     # Older torch builds do not expose F8_E8M0. Keep the raw bytes so callers
     # that know the format can decode them explicitly.
     LazyTorchTensor._dtype_str_map["F8_E8M0"] = torch.uint8
-
-
-def load_hparams_non_hf(dir_model: Path) -> dict[str, Any] | None:
-    # some models ship no config.json at all, their hparams are derived from the checkpoint
-    part_names = ModelBase.get_model_part_names(dir_model, "model", ".safetensors")
-    if len(part_names) != 1:
-        return None
-    with gguf.utility.SafetensorsLocal(dir_model / part_names[0]) as part:
-        shapes = {name: tuple(part[name].shape) for name in part.keys()}
-
-    if "flow_lm.bos_emb" in shapes:
-        return _load_hparams_pockettts(shapes)
-
-    return None
-
-
-def _load_hparams_pockettts(shapes: dict[str, tuple[int, ...]]) -> dict[str, Any]:
-    logger.info("gguf: detected pocket-tts checkpoint, deriving hparams from tensor shapes")
-    n_vocab, n_embd = shapes["flow_lm.conditioner.embed.weight"]
-    n_layer = sum(1 for name in shapes if re.fullmatch(r"flow_lm\.transformer\.layers\.\d+\.norm1\.weight", name))
-    n_layer_a = sum(1 for name in shapes if re.fullmatch(r"mimi\.encoder_transformer\.transformer\.layers\.\d+\.norm1\.weight", name))
-    n_embd_a = shapes["mimi.encoder_transformer.transformer.layers.0.norm1.weight"][0]
-    return {
-        "architectures": ["PocketTTSModel"],
-        "model_type": "pockettts",
-        "num_hidden_layers": n_layer,
-        "hidden_size": n_embd,
-        "intermediate_size": shapes["flow_lm.transformer.layers.0.linear1.weight"][0],
-        # the transformer is fully causal with no context limit, this only bounds the KV cache
-        "max_position_embeddings": 4096,
-        # not stored anywhere in the checkpoint, but every released variant uses head_dim 64
-        "num_attention_heads": n_embd // 64,
-        # extra rows for the learned input vectors, see pockettts.py
-        # bos_before_voice only exists when the pack inserts it
-        "vocab_size": n_vocab + (2 if "flow_lm.bos_before_voice" in shapes else 1),
-        "rope_theta": 10000.0,
-        "layer_norm_eps": 1e-5,
-        "audio_config": {
-            "num_hidden_layers": n_layer_a,
-            "hidden_size": n_embd_a,
-            "intermediate_size": shapes["mimi.encoder_transformer.transformer.layers.0.linear1.weight"][0],
-            "num_attention_heads": n_embd_a // 64,
-        },
-    }
 
 
 def get_model_architecture(hparams: dict[str, Any], model_type: ModelType) -> str:
