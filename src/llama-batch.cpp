@@ -44,7 +44,7 @@ bool llama_batch_allocr::init(
     }
 
     const bool has_embd = !batch_inp.embd.empty();
-    const llama_memory_i * memory = batch_inp.memory;
+    const llama_memory_i * mem = batch_inp.mem;
 
     //
     // build flat token/embd array
@@ -267,7 +267,7 @@ bool llama_batch_allocr::init(
                 continue;
             }
 
-            const llama_pos p0 = memory ? memory->seq_pos_max(s) : -1;
+            const llama_pos p0 = mem ? mem->seq_pos_max(s) : -1;
 
             if (batch.token) {
                 if (p0 >= 0 && p0 >= seq_pos_min(s)) {
@@ -300,7 +300,7 @@ bool llama_batch_allocr::init(
                 continue;
             }
 
-            const llama_pos p0 = memory ? memory->seq_pos_max(s) : -1;
+            const llama_pos p0 = mem ? mem->seq_pos_max(s) : -1;
 
             if (p0 >= 0) {
                 bool ok = true;
@@ -328,12 +328,12 @@ bool llama_batch_allocr::init(
         }
     }
 
-    if (memory) {
+    if (mem) {
         for (uint32_t s0 = 0; s0 < n_seq_max; ++s0) {
             for (uint32_t s1 = 0; s1 < n_seq_max; ++s1) {
                 if (seq_cpl[s0][s1]) {
-                    if (memory->seq_pos_min(s0) != memory->seq_pos_min(s1) ||
-                        memory->seq_pos_max(s0) != memory->seq_pos_max(s1)) {
+                    if (mem->seq_pos_min(s0) != mem->seq_pos_min(s1) ||
+                        mem->seq_pos_max(s0) != mem->seq_pos_max(s1)) {
                         LLAMA_LOG_ERROR("%s: sequence %d is coupled to %d in the input batch, but have divereged\n", __func__, s0, s1);
                         return false;
                     }
@@ -1004,25 +1004,15 @@ llama_batch_ext::llama_batch_ext(llama_context * ctx) :
         n_tokens_max(llama_n_batch(ctx)),
         n_embd_inp(llama_model_n_embd_inp(llama_get_model(ctx))),
         n_seq_max(llama_n_seq_max(ctx)),
-        memory(llama_get_memory(ctx)),
+        mem(llama_get_memory(ctx)),
         n_vocab(llama_vocab_n_tokens(llama_model_get_vocab(llama_get_model(ctx)))),
         n_pos_per_embd(llama_get_model(ctx)->hparams.n_pos_per_embd()) {
-    clear(); // initialize pos_max
+    clear();
 }
 
 void llama_batch_ext::clear() {
     tokens.clear();
     embd  .clear();
-    pos_max.resize(n_seq_max);
-    for (llama_seq_id i = 0; i < n_seq_max; ++i) {
-        pos_max[i] = memory ? llama_memory_seq_pos_max(memory, i) + 1 : 0;
-    }
-}
-
-// advance the position and return the post-incremented value
-llama_pos llama_batch_ext::advance_pos(llama_seq_id seq_id) {
-    GGML_ASSERT(seq_id >= 0 && seq_id < n_seq_max);
-    return pos_max[seq_id]++;
 }
 
 int32_t llama_batch_ext::add_token(llama_seq_id seq_id) {
@@ -1033,9 +1023,10 @@ int32_t llama_batch_ext::add_token(llama_seq_id seq_id) {
         return -3; // invalid sequence id
     }
 
+    // position is left undefined (default-initialized) - the caller must set it
+    // explicitly via set_token_pos() before the batch is processed
     token t;
     t.seq_ids.insert(seq_id);
-    t.pos = { advance_pos(seq_id), 0, 0, 0 };
 
     tokens.push_back(t);
 
@@ -1097,12 +1088,6 @@ bool llama_batch_ext::set_token_pos(int32_t idx, llama_pos * pos_in) {
     size_t n_pos = t.id != LLAMA_TOKEN_NULL ? 1 : n_pos_per_embd;
     for (size_t i = 0; i < n_pos; ++i) {
         t.pos[i] = pos_in[i];
-    }
-
-    // also update seq pos_max
-    auto next_pos = pos_in[0] + 1;
-    for (llama_seq_id seq : t.seq_ids) {
-        pos_max[seq] = std::max(pos_max[seq], next_pos);
     }
 
     return true;
@@ -1182,6 +1167,13 @@ llama_batch_compat::llama_batch_compat(llama_context * ctx, const llama_batch & 
     static const llama_seq_id default_seq_id    = 0;
     static const int32_t      default_n_seq_id  = 1;
 
+    // local position tracker for auto-generating positions when batch_inp.pos is null,
+    // seeded from the memory's current max position per sequence (mirrors the logic in `master`)
+    std::vector<llama_pos> pos_next(batch_ext->n_seq_max);
+    for (llama_seq_id s = 0; s < (llama_seq_id) batch_ext->n_seq_max; ++s) {
+        pos_next[s] = llama_memory_seq_pos_max(batch_ext->mem, s) + 1; // assume next pos
+    }
+
     for (int32_t i = 0; i < batch_inp.n_tokens; ++i) {
         const int32_t      n_sid = batch_inp.n_seq_id ? batch_inp.n_seq_id[i]    : default_n_seq_id;
         const llama_seq_id * sids = batch_inp.seq_id  ? batch_inp.seq_id[i]      : &default_seq_id;
@@ -1206,7 +1198,7 @@ llama_batch_compat::llama_batch_compat(llama_context * ctx, const llama_batch & 
             }
         } else {
             // auto-generate position from the first seq_id
-            t.pos[0] = batch_ext->advance_pos(sids[0]);
+            t.pos[0] = pos_next[sids[0]]++;
         }
 
         // token id or embeddings

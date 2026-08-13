@@ -2115,8 +2115,13 @@ bool common_replay_last_token(struct llama_context * ctx, llama_token last_token
 llama_batch_ext_ptr common_batch_ext_get_one(llama_context * ctx, const llama_tokens & tokens) {
     llama_batch_ext_ptr batch(llama_batch_ext_init(ctx));
 
+    auto mem = llama_get_memory(ctx);
+    llama_pos pos = mem ? llama_memory_seq_pos_max(mem, 0) + 1 : 0;
+
     for (size_t i = 0; i < tokens.size(); ++i) {
-        llama_batch_ext_add_token(batch.get(), 0, tokens[i]);
+        const int32_t idx = llama_batch_ext_add_token(batch.get(), 0, tokens[i]);
+        llama_batch_ext_set_pos(batch.get(), idx, &pos);
+        pos++;
     }
 
     if (!tokens.empty()) {

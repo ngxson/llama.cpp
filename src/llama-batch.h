@@ -70,14 +70,12 @@ struct llama_ubatch {
 };
 
 struct llama_batch_ext {
-    const size_t n_tokens_max; // max number of tokens that can be stored in the batch
-    const size_t n_embd_inp; // number of embedding dimensions per token
+    const size_t n_tokens_max;     // max number of tokens that can be stored in the batch
+    const size_t n_embd_inp;       // number of embedding dimensions per token
     const llama_seq_id n_seq_max;  // max number of sequences
-    llama_memory_i * memory; // memory for position inference
-    const llama_token n_vocab; // max token ID that we accept
+    llama_memory_i * mem;          // memory for position inference
+    const llama_token n_vocab;     // max token ID that we accept
     const size_t n_pos_per_embd;
-
-    std::vector<llama_pos> pos_max; // keep track of the current position
 
     struct token {
         llama_token  id = LLAMA_TOKEN_NULL;
@@ -93,9 +91,8 @@ struct llama_batch_ext {
 
     void clear();
 
-    // advance the position and return the post-incremented value
-    llama_pos advance_pos(llama_seq_id seq_id);
-
+    // add an entry with an undefined position
+    // the caller must set it explicitly via set_token_pos()
     int32_t add_token(llama_seq_id seq_id);
 
     bool add_seq(int32_t idx, llama_seq_id seq_id);
