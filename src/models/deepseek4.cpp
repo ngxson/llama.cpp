@@ -7,6 +7,71 @@
 #include <stdexcept>
 #include <string>
 
+ggml_tensor * llama_model_deepseek4::graph::rope_freq_trail(
+        int64_t n_embd_head, int64_t n_rot, float freq_base_l) const {
+    for (const auto & e : rope_freq_trail_cache) {
+        if (std::get<0>(e) == n_embd_head && std::get<1>(e) == n_rot && std::get<2>(e) == freq_base_l) {
+            return std::get<3>(e);
+        }
+    }
+
+    ggml_tensor * cur = build_rope_freq_trail(n_embd_head, n_rot, freq_base_l);
+    rope_freq_trail_cache.emplace_back(n_embd_head, n_rot, freq_base_l, cur);
+
+    return cur;
+}
+
+ggml_tensor * llama_model_deepseek4::graph::build_rope_trail(
+        ggml_tensor * cur,
+        ggml_tensor * pos,
+          int64_t     n_embd_head,
+          int64_t     n_rot,
+          int32_t     n_ctx_orig_l,
+            float     freq_base_l,
+            float     freq_scale_l,
+            float     ext_factor_l,
+            float     attn_factor_l,
+            float     beta_fast_l,
+            float     beta_slow_l,
+             bool     backward) const {
+    GGML_ASSERT(cur->ne[0] == n_embd_head);
+
+    if (ext_factor_l == 0.0f) {
+        // rope scales all dims by mscale, also the ones it does not rotate
+        GGML_ASSERT(attn_factor_l == 1.0f);
+
+        ggml_tensor * freq = rope_freq_trail(n_embd_head, n_rot, freq_base_l);
+
+        return backward
+            ? ggml_rope_ext_back(ctx0, cur, pos, freq, n_embd_head, rope_type, n_ctx_orig_l,
+                    freq_base_l, freq_scale_l, ext_factor_l, attn_factor_l, beta_fast_l, beta_slow_l)
+            : ggml_rope_ext     (ctx0, cur, pos, freq, n_embd_head, rope_type, n_ctx_orig_l,
+                    freq_base_l, freq_scale_l, ext_factor_l, attn_factor_l, beta_fast_l, beta_slow_l);
+    }
+
+    // YaRN is active, the freq factors trick does not work, so split the head
+    const int64_t n_nope  = n_embd_head - n_rot;
+    const int64_t n_heads = cur->ne[1];
+    const int64_t n_pos   = cur->ne[2];
+
+    ggml_tensor * nope = ggml_view_3d(ctx0, cur, n_nope, n_heads, n_pos,
+            ggml_row_size(cur->type, n_embd_head),
+            ggml_row_size(cur->type, n_embd_head)*n_heads,
+            0);
+    ggml_tensor * pe = ggml_view_3d(ctx0, cur, n_rot, n_heads, n_pos,
+            ggml_row_size(cur->type, n_embd_head),
+            ggml_row_size(cur->type, n_embd_head)*n_heads,
+            ggml_row_size(cur->type, n_nope));
+
+    pe = backward
+        ? ggml_rope_ext_back(ctx0, pe, pos, nullptr, n_rot, rope_type, n_ctx_orig_l,
+                freq_base_l, freq_scale_l, ext_factor_l, attn_factor_l, beta_fast_l, beta_slow_l)
+        : ggml_rope_ext     (ctx0, pe, pos, nullptr, n_rot, rope_type, n_ctx_orig_l,
+                freq_base_l, freq_scale_l, ext_factor_l, attn_factor_l, beta_fast_l, beta_slow_l);
+
+    return ggml_concat(ctx0, nope, pe, 0);
+}
+
 static float dsv4_rope_attn_factor(float freq_scale, float ext_factor) {
     if (ext_factor == 0.0f) {
         return 1.0f;
@@ -473,7 +538,6 @@ ggml_tensor * llama_model_deepseek4::graph::build_hca_compressed_kv_from_state(
         const char * name,
         int il) const {
     const int64_t n_embd_head_rope = hparams.n_rot();
-    const int64_t n_embd_head_nope = n_embd_head - n_embd_head_rope;
     const int64_t n_blocks         = comp_pos ? comp_pos->ne[0] : 0;
 
     GGML_ASSERT(n_blocks > 0);
@@ -501,21 +565,9 @@ ggml_tensor * llama_model_deepseek4::graph::build_hca_compressed_kv_from_state(
     comp = build_norm(comp, norm, nullptr, LLM_NORM_RMS, il);
     cb(comp, name, il);
 
-    ggml_tensor * comp_nope = ggml_view_3d(ctx0, comp, n_embd_head_nope, 1, n_blocks,
-            ggml_row_size(comp->type, n_embd_head),
-            ggml_row_size(comp->type, n_embd_head),
-            0);
-    ggml_tensor * comp_pe = ggml_view_3d(ctx0, comp, n_embd_head_rope, 1, n_blocks,
-            ggml_row_size(comp->type, n_embd_head),
-            ggml_row_size(comp->type, n_embd_head),
-            ggml_row_size(comp->type, n_embd_head_nope));
-
-    comp_pe = ggml_rope_ext(ctx0, comp_pe, comp_pos, nullptr, n_embd_head_rope, rope_type, n_ctx_orig,
+    comp = build_rope_trail(comp, comp_pos, n_embd_head, n_embd_head_rope, n_ctx_orig,
             hparams.dsv4_compress_rope_base, freq_scale, ext_factor,
             dsv4_rope_attn_factor(freq_scale, ext_factor), beta_fast, beta_slow);
-    cb(comp_pe, name, il);
-
-    comp = ggml_concat(ctx0, comp_nope, comp_pe, 0);
     cb(comp, name, il);
 
     return comp;
@@ -532,7 +584,6 @@ ggml_tensor * llama_model_deepseek4::graph::build_overlap_compressed_kv_from_sta
         const char * name,
         int il) const {
     const int64_t n_embd_head_rope = hparams.n_rot();
-    const int64_t n_embd_head_nope = n_embd_head - n_embd_head_rope;
     const int64_t n_blocks         = comp_pos ? comp_pos->ne[0] : 0;
 
     GGML_ASSERT(n_blocks > 0);
@@ -585,21 +636,9 @@ ggml_tensor * llama_model_deepseek4::graph::build_overlap_compressed_kv_from_sta
     comp = build_norm(comp, norm, nullptr, LLM_NORM_RMS, il);
     cb(comp, name, il);
 
-    ggml_tensor * comp_nope = ggml_view_3d(ctx0, comp, n_embd_head_nope, 1, n_blocks,
-            ggml_row_size(comp->type, n_embd_head),
-            ggml_row_size(comp->type, n_embd_head),
-            0);
-    ggml_tensor * comp_pe = ggml_view_3d(ctx0, comp, n_embd_head_rope, 1, n_blocks,
-            ggml_row_size(comp->type, n_embd_head),
-            ggml_row_size(comp->type, n_embd_head),
-            ggml_row_size(comp->type, n_embd_head_nope));
-
-    comp_pe = ggml_rope_ext(ctx0, comp_pe, comp_pos, nullptr, n_embd_head_rope, rope_type, n_ctx_orig,
+    comp = build_rope_trail(comp, comp_pos, n_embd_head, n_embd_head_rope, n_ctx_orig,
             hparams.dsv4_compress_rope_base, freq_scale, ext_factor,
             dsv4_rope_attn_factor(freq_scale, ext_factor), beta_fast, beta_slow);
-    cb(comp_pe, name, il);
-
-    comp = ggml_concat(ctx0, comp_nope, comp_pe, 0);
     cb(comp, name, il);
 
     return comp;
@@ -616,7 +655,6 @@ ggml_tensor * llama_model_deepseek4::graph::build_lid_top_k(
     const auto & inp_lid = inp_dsv4->get_lid();
     const int64_t n_embd_indexer_head      = hparams.indexer_head_size;
     const int64_t n_embd_indexer_head_rope = hparams.n_rot();
-    const int64_t n_embd_indexer_head_nope = n_embd_indexer_head - n_embd_indexer_head_rope;
     const int64_t n_indexer_head           = hparams.indexer_n_head;
     const int64_t nt                       = cur->ne[1];
 
@@ -628,21 +666,11 @@ ggml_tensor * llama_model_deepseek4::graph::build_lid_top_k(
     indexer_q = ggml_reshape_3d(ctx0, indexer_q, n_embd_indexer_head, n_indexer_head, nt);
     cb(indexer_q, "lid_q", il);
 
-    ggml_tensor * indexer_q_nope = ggml_view_3d(ctx0, indexer_q, n_embd_indexer_head_nope, n_indexer_head, nt,
-            ggml_row_size(indexer_q->type, n_embd_indexer_head),
-            ggml_row_size(indexer_q->type, n_embd_indexer_head)*n_indexer_head,
-            0);
-    ggml_tensor * indexer_q_pe = ggml_view_3d(ctx0, indexer_q, n_embd_indexer_head_rope, n_indexer_head, nt,
-            ggml_row_size(indexer_q->type, n_embd_indexer_head),
-            ggml_row_size(indexer_q->type, n_embd_indexer_head)*n_indexer_head,
-            ggml_row_size(indexer_q->type, n_embd_indexer_head_nope));
-
-    indexer_q_pe = ggml_rope_ext(ctx0, indexer_q_pe, inp_pos, nullptr, n_embd_indexer_head_rope,
-            rope_type, n_ctx_orig, hparams.dsv4_compress_rope_base, freq_scale,
+    indexer_q = build_rope_trail(indexer_q, inp_pos, n_embd_indexer_head, n_embd_indexer_head_rope,
+            n_ctx_orig, hparams.dsv4_compress_rope_base, freq_scale,
             ext_factor, dsv4_rope_attn_factor(freq_scale, ext_factor), beta_fast, beta_slow);
-    cb(indexer_q_pe, "lid_q_pe", il);
+    cb(indexer_q, "lid_q_pe", il);
 
-    indexer_q = ggml_concat(ctx0, indexer_q_nope, indexer_q_pe, 0);
     indexer_q = llama_mul_mat_hadamard(ctx0, indexer_q, inp_lid.k_rot);
     cb(indexer_q, "lid_q_rot", il);
 
@@ -915,7 +943,6 @@ ggml_tensor * llama_model_deepseek4::graph::build_attention_impl(
 
     const int64_t n_embd_head      = hparams.n_embd_head_k();
     const int64_t n_embd_head_rope = hparams.n_rot();
-    const int64_t n_embd_head_nope = n_embd_head - n_embd_head_rope;
     const int64_t n_groups         = hparams.dsv4_o_group_count;
     const int64_t n_heads_group    = n_head / n_groups;
     const int64_t o_lora_rank      = hparams.dsv4_o_lora_rank;
@@ -945,18 +972,8 @@ ggml_tensor * llama_model_deepseek4::graph::build_attention_impl(
     q = ggml_rms_norm(ctx0, q, norm_rms_eps);
     cb(q, "q_norm", il);
 
-    ggml_tensor * q_nope = ggml_view_3d(ctx0, q, n_embd_head_nope, n_head, nt,
-            ggml_row_size(q->type, n_embd_head),
-            ggml_row_size(q->type, n_embd_head)*n_head,
-            0);
-    ggml_tensor * q_pe = ggml_view_3d(ctx0, q, n_embd_head_rope, n_head, nt,
-            ggml_row_size(q->type, n_embd_head),
-            ggml_row_size(q->type, n_embd_head)*n_head,
-            ggml_row_size(q->type, n_embd_head_nope));
-    q_pe = ggml_rope_ext(ctx0, q_pe, inp_pos, nullptr, n_embd_head_rope, rope_type, n_ctx_orig_l,
+    q = build_rope_trail(q, inp_pos, n_embd_head, n_embd_head_rope, n_ctx_orig_l,
             freq_base_l, freq_scale_l, ext_factor_l, attn_factor_l, beta_fast_l, beta_slow_l);
-    cb(q_pe, "q_pe", il);
-    q = ggml_concat(ctx0, q_nope, q_pe, 0);
     cb(q, "q", il);
 
     ggml_tensor * kv = build_lora_mm(layer.wkv, cur);
@@ -964,18 +981,8 @@ ggml_tensor * llama_model_deepseek4::graph::build_attention_impl(
     kv = ggml_reshape_3d(ctx0, kv, n_embd_head, 1, nt);
     cb(kv, "kv_norm", il);
 
-    ggml_tensor * kv_nope = ggml_view_3d(ctx0, kv, n_embd_head_nope, 1, nt,
-            ggml_row_size(kv->type, n_embd_head),
-            ggml_row_size(kv->type, n_embd_head),
-            0);
-    ggml_tensor * kv_pe = ggml_view_3d(ctx0, kv, n_embd_head_rope, 1, nt,
-            ggml_row_size(kv->type, n_embd_head),
-            ggml_row_size(kv->type, n_embd_head),
-            ggml_row_size(kv->type, n_embd_head_nope));
-    kv_pe = ggml_rope_ext(ctx0, kv_pe, inp_pos, nullptr, n_embd_head_rope, rope_type, n_ctx_orig_l,
+    kv = build_rope_trail(kv, inp_pos, n_embd_head, n_embd_head_rope, n_ctx_orig_l,
             freq_base_l, freq_scale_l, ext_factor_l, attn_factor_l, beta_fast_l, beta_slow_l);
-    cb(kv_pe, "kv_pe", il);
-    kv = ggml_concat(ctx0, kv_nope, kv_pe, 0);
     cb(kv, "kv", il);
 
     const int64_t ratio = hparams.dsv4_compress_ratios[il];
@@ -1245,17 +1252,9 @@ ggml_tensor * llama_model_deepseek4::graph::build_attention_impl(
     }
 
     out = ggml_reshape_3d(ctx0, out, n_embd_head, n_head, nt);
-    ggml_tensor * out_nope = ggml_view_3d(ctx0, out, n_embd_head_nope, n_head, nt,
-            ggml_row_size(out->type, n_embd_head),
-            ggml_row_size(out->type, n_embd_head)*n_head,
-            0);
-    ggml_tensor * out_pe = ggml_view_3d(ctx0, out, n_embd_head_rope, n_head, nt,
-            ggml_row_size(out->type, n_embd_head),
-            ggml_row_size(out->type, n_embd_head)*n_head,
-            ggml_row_size(out->type, n_embd_head_nope));
-    out_pe = ggml_rope_ext_back(ctx0, out_pe, inp_pos, nullptr, n_embd_head_rope, rope_type, n_ctx_orig_l,
-            freq_base_l, freq_scale_l, ext_factor_l, attn_factor_l, beta_fast_l, beta_slow_l);
-    out = ggml_concat(ctx0, out_nope, out_pe, 0);
+    out = build_rope_trail(out, inp_pos, n_embd_head, n_embd_head_rope, n_ctx_orig_l,
+            freq_base_l, freq_scale_l, ext_factor_l, attn_factor_l, beta_fast_l, beta_slow_l,
+            /*backward =*/ true);
     cb(out, "attn_derope", il);
 
     out = ggml_reshape_3d(ctx0, out, o_group_dim, n_groups, nt);

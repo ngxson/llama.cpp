@@ -172,6 +172,36 @@ void llm_graph_input_attn_temp::set_input(const llama_ubatch * ubatch) {
     }
 }
 
+void llm_graph_input_rope_freq_trail::set_input(const llama_ubatch * ubatch) {
+    GGML_UNUSED(ubatch);
+
+    if (!freq_factors) {
+        return;
+    }
+
+    // freq factors are indexed by pair, ie. i0/2
+    const int64_t n_pair      = n_embd_head/2;
+    const int64_t n_pair_rot  = n_rot/2;
+    const int64_t n_pair_nope = n_pair - n_pair_rot;
+
+    std::vector<float> data(n_pair);
+
+    for (int64_t ic = 0; ic < n_pair_nope; ++ic) {
+        // theta becomes 0 here, so the dim is not rotated
+        data[ic] = INFINITY;
+    }
+
+    // theta depends on n_dims, so divide out the change from n_rot to n_embd_head
+    // jc is the pair index inside the trailing block
+    for (int64_t ic = n_pair_nope; ic < n_pair; ++ic) {
+        const int64_t jc = ic - n_pair_nope;
+
+        data[ic] = std::pow(freq_base, 2.0*jc/n_rot - 2.0*ic/n_embd_head);
+    }
+
+    ggml_backend_tensor_set(freq_factors, data.data(), 0, n_pair*ggml_element_size(freq_factors));
+}
+
 void llm_graph_input_pos_bucket::set_input(const llama_ubatch * ubatch) {
     if (pos_bucket) {
         const int64_t n_tokens = ubatch->n_tokens;
@@ -2375,6 +2405,27 @@ ggml_tensor * llm_graph_context::build_inp_attn_scale() const {
     cur = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, 1, 1, n_tokens);
     ggml_set_input(cur);
     ggml_set_name(cur, "attn_scale");
+
+    res->add_input(std::move(inp));
+
+    return cur;
+}
+
+ggml_tensor * llm_graph_context::build_rope_freq_trail(int64_t n_embd_head, int64_t n_rot, float freq_base) const {
+    GGML_ASSERT(n_rot > 0 && n_rot <= n_embd_head);
+    GGML_ASSERT(n_rot % 2 == 0 && n_embd_head % 2 == 0);
+
+    // unsupported case (not used in practice by any known models)
+    GGML_ASSERT(ext_factor == 0.0f);
+    GGML_ASSERT(rope_type == LLAMA_ROPE_TYPE_NORM);
+
+    auto inp = std::make_unique<llm_graph_input_rope_freq_trail>(n_embd_head, n_rot, freq_base);
+
+    auto & cur = inp->freq_factors;
+
+    cur = ggml_new_tensor_1d(ctx0, GGML_TYPE_F32, n_embd_head/2);
+    ggml_set_input(cur);
+    ggml_set_name(cur, "rope_freq_trail");
 
     res->add_input(std::move(inp));
 

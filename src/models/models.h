@@ -1165,6 +1165,25 @@ struct llama_model_deepseek4 : public llama_model_base {
         graph(const llm_graph_params & params) : llm_graph_context(params) {}
         graph(const llama_model & model, const llm_graph_params & params);
 
+        ggml_tensor * rope_freq_trail(int64_t n_embd_head, int64_t n_rot, float freq_base) const;
+
+        mutable std::vector<std::tuple<int64_t, int64_t, float, ggml_tensor *>> rope_freq_trail_cache;
+
+        // rope the trailing n_rot dims of each head of cur {n_embd_head, n_heads, n_pos}
+        ggml_tensor * build_rope_trail(
+                ggml_tensor * cur,
+                ggml_tensor * pos,
+                  int64_t     n_embd_head,
+                  int64_t     n_rot,
+                  int32_t     n_ctx_orig_l,
+                    float     freq_base_l,
+                    float     freq_scale_l,
+                    float     ext_factor_l,
+                    float     attn_factor_l,
+                    float     beta_fast_l,
+                    float     beta_slow_l,
+                     bool     backward = false) const;
+
         ggml_tensor * build_hc_pre(
                 ggml_tensor * x,
                 ggml_tensor * hc_fn,

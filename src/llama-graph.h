@@ -183,6 +183,26 @@ public:
     const float    f_attn_temp_offset;
 };
 
+class llm_graph_input_rope_freq_trail : public llm_graph_input_i {
+public:
+    llm_graph_input_rope_freq_trail(int64_t n_embd_head, int64_t n_rot, float freq_base)
+        : n_embd_head(n_embd_head), n_rot(n_rot), freq_base(freq_base) {}
+    virtual ~llm_graph_input_rope_freq_trail() = default;
+
+    void set_input(const llama_ubatch * ubatch) override;
+
+    bool can_reuse(const llm_graph_params & params) override {
+        GGML_UNUSED(params);
+        return true;
+    }
+
+    ggml_tensor * freq_factors = nullptr; // F32 [n_embd_head/2]
+
+    const int64_t n_embd_head;
+    const int64_t n_rot;
+    const float   freq_base;
+};
+
 class llm_graph_input_pos_bucket : public llm_graph_input_i {
 public:
     llm_graph_input_pos_bucket(const llama_hparams & hparams) : hparams(hparams) {}
@@ -1124,6 +1144,10 @@ struct llm_graph_context {
     ggml_tensor * build_inp_pos_bucket_enc() const;
     ggml_tensor * build_inp_pos_bucket_dec() const;
     ggml_tensor * build_pos_bias(ggml_tensor * pos_bucket, ggml_tensor * attn_rel_b) const;
+
+    // used by DSA models (like deepseek4), to do rope with head layout [nope | rope]
+    // this generates the freq_factors tensor, used by ggml_rope_ext
+    ggml_tensor * build_rope_freq_trail(int64_t n_embd_head, int64_t n_rot, float freq_base) const;
 
     //
     // attention
