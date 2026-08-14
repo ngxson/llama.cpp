@@ -184,6 +184,9 @@ void llm_graph_input_rope_freq_trail::set_input(const llama_ubatch * ubatch) {
     const int64_t n_pair_rot  = n_rot/2;
     const int64_t n_pair_nope = n_pair - n_pair_rot;
 
+    float corr_dims[2];
+    ggml_rope_yarn_corr_dims(n_rot, rp.n_ctx_orig, rp.freq_base, rp.beta_fast, rp.beta_slow, corr_dims);
+
     std::vector<float> data(n_pair);
 
     for (int64_t ic = 0; ic < n_pair_nope; ++ic) {
@@ -191,12 +194,18 @@ void llm_graph_input_rope_freq_trail::set_input(const llama_ubatch * ubatch) {
         data[ic] = INFINITY;
     }
 
-    // theta depends on n_dims, so divide out the change from n_rot to n_embd_head
-    // jc is the pair index inside the trailing block
     for (int64_t ic = n_pair_nope; ic < n_pair; ++ic) {
         const int64_t jc = ic - n_pair_nope;
 
-        data[ic] = std::pow(freq_base, 2.0*jc/n_rot - 2.0*ic/n_embd_head);
+        const double freq = std::pow((double) rp.freq_base, -2.0*jc/n_rot);
+
+        // yarn interpolation, same as rope_yarn_ramp() in ggml. it only depends on the dim
+        // index, so the whole mix collapses into a per-dim scale of theta
+        const double y    = ((double) jc - corr_dims[0]) / std::max(0.001f, corr_dims[1] - corr_dims[0]);
+        const double ramp = 1.0 - std::min(1.0, std::max(0.0, y));
+        const double mix  = ramp*rp.ext_factor;
+
+        data[ic] = (float) (1.0 / (freq*(rp.freq_scale*(1.0 - mix) + mix)));
     }
 
     ggml_backend_tensor_set(freq_factors, data.data(), 0, n_pair*ggml_element_size(freq_factors));
@@ -2411,15 +2420,15 @@ ggml_tensor * llm_graph_context::build_inp_attn_scale() const {
     return cur;
 }
 
-ggml_tensor * llm_graph_context::build_rope_freq_trail(int64_t n_embd_head, int64_t n_rot, float freq_base) const {
+ggml_tensor * llm_graph_context::build_rope_freq_trail(
+        int64_t n_embd_head, int64_t n_rot, const llm_rope_params & rp) const {
     GGML_ASSERT(n_rot > 0 && n_rot <= n_embd_head);
     GGML_ASSERT(n_rot % 2 == 0 && n_embd_head % 2 == 0);
 
-    // unsupported case (not used in practice by any known models)
-    GGML_ASSERT(ext_factor == 0.0f);
+    // NEOX pairs (i, i + n_dims/2), which crosses the nope/rope border after widening
     GGML_ASSERT(rope_type == LLAMA_ROPE_TYPE_NORM);
 
-    auto inp = std::make_unique<llm_graph_input_rope_freq_trail>(n_embd_head, n_rot, freq_base);
+    auto inp = std::make_unique<llm_graph_input_rope_freq_trail>(n_embd_head, n_rot, rp);
 
     auto & cur = inp->freq_factors;
 

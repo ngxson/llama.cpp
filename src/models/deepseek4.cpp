@@ -8,15 +8,15 @@
 #include <string>
 
 ggml_tensor * llama_model_deepseek4::graph::rope_freq_trail(
-        int64_t n_embd_head, int64_t n_rot, float freq_base_l) const {
+        int64_t n_embd_head, int64_t n_rot, const llm_rope_params & rp) const {
     for (const auto & e : rope_freq_trail_cache) {
-        if (std::get<0>(e) == n_embd_head && std::get<1>(e) == n_rot && std::get<2>(e) == freq_base_l) {
+        if (std::get<0>(e) == n_embd_head && std::get<1>(e) == n_rot && std::get<2>(e) == rp) {
             return std::get<3>(e);
         }
     }
 
-    ggml_tensor * cur = build_rope_freq_trail(n_embd_head, n_rot, freq_base_l);
-    rope_freq_trail_cache.emplace_back(n_embd_head, n_rot, freq_base_l, cur);
+    ggml_tensor * cur = build_rope_freq_trail(n_embd_head, n_rot, rp);
+    rope_freq_trail_cache.emplace_back(n_embd_head, n_rot, rp, cur);
 
     return cur;
 }
@@ -36,40 +36,23 @@ ggml_tensor * llama_model_deepseek4::graph::build_rope_trail(
              bool     backward) const {
     GGML_ASSERT(cur->ne[0] == n_embd_head);
 
-    if (ext_factor_l == 0.0f) {
-        // rope scales all dims by mscale, also the ones it does not rotate
-        GGML_ASSERT(attn_factor_l == 1.0f);
+    // rope scales all dims by mscale, also the ones it does not rotate
+    const float mscale = ext_factor_l != 0.0f
+        ? attn_factor_l*(1.0f + 0.1f*logf(1.0f/freq_scale_l))
+        : attn_factor_l;
+    GGML_ASSERT(fabsf(mscale - 1.0f) < 1e-5f);
 
-        ggml_tensor * freq = rope_freq_trail(n_embd_head, n_rot, freq_base_l);
+    const llm_rope_params rp = {
+        freq_base_l, freq_scale_l, ext_factor_l, attn_factor_l,
+        beta_fast_l, beta_slow_l, n_ctx_orig_l,
+    };
 
-        return backward
-            ? ggml_rope_ext_back(ctx0, cur, pos, freq, n_embd_head, rope_type, n_ctx_orig_l,
-                    freq_base_l, freq_scale_l, ext_factor_l, attn_factor_l, beta_fast_l, beta_slow_l)
-            : ggml_rope_ext     (ctx0, cur, pos, freq, n_embd_head, rope_type, n_ctx_orig_l,
-                    freq_base_l, freq_scale_l, ext_factor_l, attn_factor_l, beta_fast_l, beta_slow_l);
-    }
+    ggml_tensor * freq = rope_freq_trail(n_embd_head, n_rot, rp);
 
-    // YaRN is active, the freq factors trick does not work, so split the head
-    const int64_t n_nope  = n_embd_head - n_rot;
-    const int64_t n_heads = cur->ne[1];
-    const int64_t n_pos   = cur->ne[2];
-
-    ggml_tensor * nope = ggml_view_3d(ctx0, cur, n_nope, n_heads, n_pos,
-            ggml_row_size(cur->type, n_embd_head),
-            ggml_row_size(cur->type, n_embd_head)*n_heads,
-            0);
-    ggml_tensor * pe = ggml_view_3d(ctx0, cur, n_rot, n_heads, n_pos,
-            ggml_row_size(cur->type, n_embd_head),
-            ggml_row_size(cur->type, n_embd_head)*n_heads,
-            ggml_row_size(cur->type, n_nope));
-
-    pe = backward
-        ? ggml_rope_ext_back(ctx0, pe, pos, nullptr, n_rot, rope_type, n_ctx_orig_l,
-                freq_base_l, freq_scale_l, ext_factor_l, attn_factor_l, beta_fast_l, beta_slow_l)
-        : ggml_rope_ext     (ctx0, pe, pos, nullptr, n_rot, rope_type, n_ctx_orig_l,
-                freq_base_l, freq_scale_l, ext_factor_l, attn_factor_l, beta_fast_l, beta_slow_l);
-
-    return ggml_concat(ctx0, nope, pe, 0);
+    // the frequencies are baked into freq, so rope only has to do theta = pos/freq
+    return backward
+        ? ggml_rope_ext_back(ctx0, cur, pos, freq, n_embd_head, rope_type, 0, 1.0f, 1.0f, 0.0f, mscale, 0.0f, 0.0f)
+        : ggml_rope_ext     (ctx0, cur, pos, freq, n_embd_head, rope_type, 0, 1.0f, 1.0f, 0.0f, mscale, 0.0f, 0.0f);
 }
 
 static float dsv4_rope_attn_factor(float freq_scale, float ext_factor) {

@@ -183,10 +183,30 @@ public:
     const float    f_attn_temp_offset;
 };
 
+// rope parameters needed to precompute per-dim frequencies
+struct llm_rope_params {
+    float   freq_base;
+    float   freq_scale;
+    float   ext_factor;
+    float   attn_factor;
+    float   beta_fast;
+    float   beta_slow;
+    int32_t n_ctx_orig;
+
+    bool operator==(const llm_rope_params & o) const {
+        return freq_base  == o.freq_base  && freq_scale  == o.freq_scale  &&
+               ext_factor == o.ext_factor && attn_factor == o.attn_factor &&
+               beta_fast  == o.beta_fast  && beta_slow   == o.beta_slow   &&
+               n_ctx_orig == o.n_ctx_orig;
+    }
+};
+
+// the whole per-dim frequency is baked in here, YaRN included, so that rope can run with
+// freq_base = 1, ie. theta_base = pos. INFINITY on the nope dims makes theta 0 there
 class llm_graph_input_rope_freq_trail : public llm_graph_input_i {
 public:
-    llm_graph_input_rope_freq_trail(int64_t n_embd_head, int64_t n_rot, float freq_base)
-        : n_embd_head(n_embd_head), n_rot(n_rot), freq_base(freq_base) {}
+    llm_graph_input_rope_freq_trail(int64_t n_embd_head, int64_t n_rot, const llm_rope_params & rp)
+        : n_embd_head(n_embd_head), n_rot(n_rot), rp(rp) {}
     virtual ~llm_graph_input_rope_freq_trail() = default;
 
     void set_input(const llama_ubatch * ubatch) override;
@@ -198,9 +218,9 @@ public:
 
     ggml_tensor * freq_factors = nullptr; // F32 [n_embd_head/2]
 
-    const int64_t n_embd_head;
-    const int64_t n_rot;
-    const float   freq_base;
+    const int64_t         n_embd_head;
+    const int64_t         n_rot;
+    const llm_rope_params rp;
 };
 
 class llm_graph_input_pos_bucket : public llm_graph_input_i {
@@ -1147,7 +1167,8 @@ struct llm_graph_context {
 
     // used by DSA models (like deepseek4), to do rope with head layout [nope | rope]
     // this generates the freq_factors tensor, used by ggml_rope_ext
-    ggml_tensor * build_rope_freq_trail(int64_t n_embd_head, int64_t n_rot, float freq_base) const;
+    // call ggml_rope_ext with n_dims = n_embd_head, freq_base = 1 and no yarn params
+    ggml_tensor * build_rope_freq_trail(int64_t n_embd_head, int64_t n_rot, const llm_rope_params & rp) const;
 
     //
     // attention
