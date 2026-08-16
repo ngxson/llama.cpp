@@ -38,6 +38,15 @@ class WebRTCStore {
 		return IS_WEB_ONLY && this.mode === 'off';
 	}
 
+	/**
+	 * A web-only build cannot render the app before the tunnel carries its
+	 * requests, so the splash stays up while a restored session connects and
+	 * when it fails, where it offers another code.
+	 */
+	get isBlocked(): boolean {
+		return IS_WEB_ONLY && this.status !== 'connected';
+	}
+
 	async joinAsClient(shareCode: string): Promise<void> {
 		if (shareCode.length < 40) throw new Error('Invalid code: must be 40 characters');
 

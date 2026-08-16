@@ -56,7 +56,7 @@
 
 	// A web-only build reaches no server before the tunnel is up, so the app is
 	// replaced by the code prompt and every request below is held back.
-	let waitingForCode = $derived(webrtcStore.needsCode);
+	let waitingForCode = $derived(webrtcStore.isBlocked);
 
 	// Keep the hook object intact: destructuring needRefreshByStorage reads the getter once and freezes it
 	const pwa = usePwa();
