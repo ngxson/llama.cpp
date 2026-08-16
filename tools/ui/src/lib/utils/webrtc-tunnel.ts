@@ -13,7 +13,7 @@
 const STUN_CONFIG: RTCConfiguration = {
 	iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }]
 };
-const TRACKER_URLS = ['wss://tracker.openwebtorrent.com', 'wss://tracker.btorrent.xyz'];
+const TRACKER_URLS = ['wss://tracker.openwebtorrent.com', 'wss://tracker.webtorrent.dev'];
 const ICE_GATHER_TIMEOUT_MS = 10_000;
 const CONNECT_TIMEOUT_MS = 30_000;
 const TRACKER_CONNECT_TIMEOUT_MS = 10_000;
