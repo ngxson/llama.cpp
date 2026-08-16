@@ -4,6 +4,8 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
+	import { CODE_LENGTHS } from '$lib/constants';
+	import { RemoteAccessMode, TunnelStatus } from '$lib/enums';
 	import { modelsStore, serverStore } from '$lib/stores';
 	import { webrtcStore } from '$lib/stores/webrtc.svelte';
 	import { fade } from 'svelte/transition';
@@ -36,8 +38,8 @@
 		joinError = '';
 		const code = joinInput.trim().replace(/\s/g, '');
 
-		if (code.length < 40) {
-			joinError = 'Code must be 40 characters';
+		if (code.length < CODE_LENGTHS.SHARE) {
+			joinError = `Code must be ${CODE_LENGTHS.SHARE} characters`;
 
 			return;
 		}
@@ -69,20 +71,20 @@
 				through the peer-to-peer tunnel.
 			</p>
 
-			{#if webrtcStore.mode === 'client'}
+			{#if webrtcStore.mode === RemoteAccessMode.CLIENT}
 				<div class="space-y-3">
 					<div class="flex items-center gap-3">
-						{#if webrtcStore.status === 'connecting'}
+						{#if webrtcStore.status === TunnelStatus.CONNECTING}
 							<Badge variant="secondary" class="gap-1.5">
 								<Loader2 class="h-3 w-3 animate-spin" />
 								Connecting...
 							</Badge>
-						{:else if webrtcStore.status === 'connected'}
+						{:else if webrtcStore.status === TunnelStatus.CONNECTED}
 							<Badge variant="default" class="gap-1.5">
 								<Wifi class="h-3 w-3" />
 								Connected to host
 							</Badge>
-						{:else if webrtcStore.status === 'error'}
+						{:else if webrtcStore.status === TunnelStatus.ERROR}
 							<Badge variant="destructive" class="gap-1.5">
 								<AlertCircle class="h-3 w-3" />
 								Disconnected
@@ -91,7 +93,7 @@
 						{/if}
 					</div>
 
-					{#if webrtcStore.status === 'error'}
+					{#if webrtcStore.status === TunnelStatus.ERROR}
 						<p class="text-sm text-muted-foreground">
 							Requests stay blocked while remote access is on, so nothing is sent to the server
 							hosting this page. Reconnect to the remote instance, or leave to use this server.
@@ -99,7 +101,7 @@
 					{/if}
 
 					<div class="flex flex-wrap gap-2">
-						{#if webrtcStore.status === 'error'}
+						{#if webrtcStore.status === TunnelStatus.ERROR}
 							<Button variant="outline" onclick={handleReconnect} disabled={reconnecting}>
 								{#if reconnecting}
 									<Loader2 class="h-4 w-4 animate-spin" />
@@ -123,7 +125,7 @@
 						<label for="join-code" class="text-sm font-medium">Access code</label>
 						<Input
 							id="join-code"
-							placeholder="Paste the 40-character code from the host"
+							placeholder="Paste the {CODE_LENGTHS.SHARE}-character code from the host"
 							bind:value={joinInput}
 							disabled={joining}
 							class="font-mono"
@@ -133,7 +135,10 @@
 						{/if}
 					</div>
 
-					<Button onclick={handleJoin} disabled={joining || joinInput.trim().length < 40}>
+					<Button
+						onclick={handleJoin}
+						disabled={joining || joinInput.trim().length < CODE_LENGTHS.SHARE}
+					>
 						{#if joining}
 							<Loader2 class="h-4 w-4 animate-spin" />
 							Connecting...

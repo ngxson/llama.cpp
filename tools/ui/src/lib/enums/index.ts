@@ -94,3 +94,5 @@ export {
 } from './tools.enums';
 
 export { SplashOrientation } from './splash.enums';
+
+export { RemoteAccessMode, TunnelStatus } from './webrtc.enums';

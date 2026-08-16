@@ -1,16 +1,17 @@
 import { browser } from '$app/environment';
+import { CODE_LENGTHS } from '$lib/constants';
 import { IS_WEB_ONLY } from '$lib/constants/web-only.constants';
+import { RemoteAccessMode, TunnelStatus } from '$lib/enums';
 import { ClientTunnel } from '$lib/utils/webrtc-tunnel';
 
 // Stores the active session for auto-reconnect on reload.
 const SESSION_KEY = 'llama_webrtc_session';
 
 type SessionData = { roomCode: string; passCode: string };
-type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error';
 
 class WebRTCStore {
-	mode = $state<'off' | 'client'>('off');
-	status = $state<ConnectionStatus>('idle');
+	mode = $state<RemoteAccessMode>(RemoteAccessMode.OFF);
+	status = $state<TunnelStatus>(TunnelStatus.IDLE);
 	errorMessage = $state('');
 
 	private clientTunnel: ClientTunnel | null = null;
@@ -26,7 +27,7 @@ class WebRTCStore {
 	}
 
 	get isConnected(): boolean {
-		return this.status === 'connected';
+		return this.status === TunnelStatus.CONNECTED;
 	}
 
 	/**
@@ -35,7 +36,7 @@ class WebRTCStore {
 	 * when the tunnel later fails, so a failed reconnect does not ask again.
 	 */
 	get needsCode(): boolean {
-		return IS_WEB_ONLY && this.mode === 'off';
+		return IS_WEB_ONLY && this.mode === RemoteAccessMode.OFF;
 	}
 
 	/**
@@ -44,14 +45,16 @@ class WebRTCStore {
 	 * when it fails, where it offers another code.
 	 */
 	get isBlocked(): boolean {
-		return IS_WEB_ONLY && this.status !== 'connected';
+		return IS_WEB_ONLY && this.status !== TunnelStatus.CONNECTED;
 	}
 
 	async joinAsClient(shareCode: string): Promise<void> {
-		if (shareCode.length < 40) throw new Error('Invalid code: must be 40 characters');
+		if (shareCode.length < CODE_LENGTHS.SHARE) {
+			throw new Error(`Invalid code: must be ${CODE_LENGTHS.SHARE} characters`);
+		}
 
-		const roomCode = shareCode.slice(0, 8);
-		const passCode = shareCode.slice(8);
+		const roomCode = shareCode.slice(0, CODE_LENGTHS.ROOM);
+		const passCode = shareCode.slice(CODE_LENGTHS.ROOM);
 
 		await this.activateClient(roomCode, passCode);
 	}
@@ -61,8 +64,8 @@ class WebRTCStore {
 		passCode: string,
 		keepOnError = false
 	): Promise<void> {
-		this.mode = 'client';
-		this.status = 'connecting';
+		this.mode = RemoteAccessMode.CLIENT;
+		this.status = TunnelStatus.CONNECTING;
 		this.errorMessage = '';
 		// Install the fetch interceptor synchronously (before any await) so that
 		// requests fired by layout effects on the same tick are already captured.
@@ -70,10 +73,10 @@ class WebRTCStore {
 
 		const tunnel = new ClientTunnel(roomCode, passCode, {
 			onConnected: () => {
-				this.status = 'connected';
+				this.status = TunnelStatus.CONNECTED;
 			},
 			onDisconnected: () => {
-				this.status = 'error';
+				this.status = TunnelStatus.ERROR;
 				this.errorMessage = 'Disconnected from host';
 			}
 		});
@@ -88,7 +91,7 @@ class WebRTCStore {
 			for (const w of waiters) w.resolve();
 		} catch (e) {
 			this.clientTunnel = null;
-			this.status = 'error';
+			this.status = TunnelStatus.ERROR;
 			this.errorMessage = e instanceof Error ? e.message : String(e);
 			// Reject queued requests.
 			const waiters = this.connectionWaiters.splice(0);
@@ -100,7 +103,7 @@ class WebRTCStore {
 			// place, so requests fail loudly instead of silently reaching the
 			// server that happens to serve this page.
 			if (!keepOnError) {
-				this.mode = 'off';
+				this.mode = RemoteAccessMode.OFF;
 				this.uninstallInterceptor();
 			}
 
@@ -126,8 +129,8 @@ class WebRTCStore {
 		this.uninstallInterceptor();
 		this.clientTunnel?.disconnect();
 		this.clientTunnel = null;
-		this.mode = 'off';
-		this.status = 'idle';
+		this.mode = RemoteAccessMode.OFF;
+		this.status = TunnelStatus.IDLE;
 		this.clearSession();
 	}
 
@@ -174,7 +177,7 @@ class WebRTCStore {
 		}
 
 		// If we are still connecting, queue the request until the tunnel opens.
-		if (this.mode === 'client' && this.status === 'connecting') {
+		if (this.mode === RemoteAccessMode.CLIENT && this.status === TunnelStatus.CONNECTING) {
 			return new Promise<void>((resolve, reject) => {
 				this.connectionWaiters.push({ reject, resolve });
 			}).then(() => this.clientTunnel!.fetch(input, init));

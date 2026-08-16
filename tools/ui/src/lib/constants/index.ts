@@ -58,5 +58,6 @@ export * from './ui.constants';
 export * from './uri-template.constants';
 export * from './url.constants';
 export * from './web-only.constants';
+export * from './webrtc.constants';
 export * from './working-directory.constants';
 export * from './read-media';
