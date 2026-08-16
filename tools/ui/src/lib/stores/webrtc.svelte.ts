@@ -1,31 +1,17 @@
 import { browser } from '$app/environment';
-import {
-	ClientTunnel,
-	generatePassCode,
-	generateRoomCode,
-	HostTunnel
-} from '$lib/utils/webrtc-tunnel';
+import { ClientTunnel } from '$lib/utils/webrtc-tunnel';
 
-// Stores the generated host codes; persists until explicitly regenerated.
-const HOST_CODES_KEY = 'llama_webrtc_host_codes';
-// Stores the active session (mode + codes) for auto-reconnect on reload.
+// Stores the active session for auto-reconnect on reload.
 const SESSION_KEY = 'llama_webrtc_session';
 
-type HostCodes = { roomCode: string; passCode: string };
-type SessionData = { mode: 'host' | 'client'; roomCode: string; passCode: string };
+type SessionData = { roomCode: string; passCode: string };
 type ConnectionStatus = 'idle' | 'connecting' | 'connected' | 'error';
 
 class WebRTCStore {
-	mode = $state<'off' | 'host' | 'client'>('off');
+	mode = $state<'off' | 'client'>('off');
 	status = $state<ConnectionStatus>('idle');
-	peerCount = $state(0);
 	errorMessage = $state('');
 
-	// Reflect the saved host codes; populated on init even when mode is 'off'.
-	private _roomCode = $state('');
-	private _passCode = $state('');
-
-	private hostTunnel: HostTunnel | null = null;
 	private clientTunnel: ClientTunnel | null = null;
 	// Requests that arrive while mode='client' but tunnel not yet open are held here.
 	private connectionWaiters: Array<{ resolve: () => void; reject: (e: Error) => void }> = [];
@@ -34,115 +20,13 @@ class WebRTCStore {
 
 	constructor() {
 		if (browser) {
-			// Load persisted host codes so the UI can show them before host is enabled.
-			const saved = this.readHostCodes();
-
-			if (saved) {
-				this._roomCode = saved.roomCode;
-				this._passCode = saved.passCode;
-			}
-
 			this.restoreSession();
 		}
-	}
-
-	get roomCode(): string {
-		return this._roomCode;
-	}
-
-	get passCode(): string {
-		return this._passCode;
-	}
-
-	// Full 40-char code shared with remote clients.
-	get shareCode(): string {
-		return this._roomCode + this._passCode;
 	}
 
 	get isConnected(): boolean {
 		return this.status === 'connected';
 	}
-
-	get hasHostCodes(): boolean {
-		return this._roomCode !== '' && this._passCode !== '';
-	}
-
-	// -------------------------------------------------------------------------
-	// Host
-	// -------------------------------------------------------------------------
-
-	async startHost(): Promise<void> {
-		if (this.mode !== 'off') return;
-
-		// Reuse the persisted codes; generate once if none exist yet.
-		let roomCode = this._roomCode;
-		let passCode = this._passCode;
-
-		if (!roomCode || !passCode) {
-			roomCode = generateRoomCode();
-			passCode = generatePassCode();
-			this._roomCode = roomCode;
-			this._passCode = passCode;
-			this.writeHostCodes({ passCode, roomCode });
-		}
-
-		await this.activateHost(roomCode, passCode);
-	}
-
-	/** Generate a fresh room + pass code. Restarts the tunnel if currently active. */
-	async regenerateCodes(): Promise<void> {
-		const roomCode = generateRoomCode();
-		const passCode = generatePassCode();
-
-		this._roomCode = roomCode;
-		this._passCode = passCode;
-		this.writeHostCodes({ passCode, roomCode });
-
-		if (this.mode === 'host') {
-			this.hostTunnel?.stop();
-			this.hostTunnel = null;
-			await this.activateHost(roomCode, passCode);
-		}
-	}
-
-	private async activateHost(roomCode: string, passCode: string): Promise<void> {
-		this.mode = 'host';
-		this.status = 'connecting';
-		this.errorMessage = '';
-		this.peerCount = 0;
-
-		const tunnel = new HostTunnel(roomCode, passCode, {
-			onPeerCountChange: (count) => {
-				this.peerCount = count;
-			}
-		});
-
-		try {
-			await tunnel.start();
-			this.hostTunnel = tunnel;
-			this.status = 'connected';
-			this.writeSession({ mode: 'host', passCode, roomCode });
-		} catch (e) {
-			this.hostTunnel = null;
-			this.status = 'error';
-			this.errorMessage = e instanceof Error ? e.message : String(e);
-		}
-	}
-
-	stopHost(): void {
-		this.hostTunnel?.stop();
-		this.hostTunnel = null;
-		this.mode = 'off';
-		this.status = 'idle';
-		this.peerCount = 0;
-		// Codes are intentionally kept: _roomCode/_passCode and HOST_CODES_KEY
-		// remain so the user can re-enable without a new code.
-		this.clearSession();
-	}
-
-	// -------------------------------------------------------------------------
-	// Client
-	// -------------------------------------------------------------------------
 
 	async joinAsClient(shareCode: string): Promise<void> {
 		if (shareCode.length < 40) throw new Error('Invalid code: must be 40 characters');
@@ -174,7 +58,7 @@ class WebRTCStore {
 		try {
 			await tunnel.connect();
 			this.clientTunnel = tunnel;
-			this.writeSession({ mode: 'client', passCode, roomCode });
+			this.writeSession({ passCode, roomCode });
 			// Release any requests that were queued while connecting.
 			const waiters = this.connectionWaiters.splice(0);
 
@@ -260,20 +144,6 @@ class WebRTCStore {
 	// Persistence helpers
 	// -------------------------------------------------------------------------
 
-	private readHostCodes(): HostCodes | null {
-		try {
-			const raw = localStorage.getItem(HOST_CODES_KEY);
-
-			return raw ? (JSON.parse(raw) as HostCodes) : null;
-		} catch {
-			return null;
-		}
-	}
-
-	private writeHostCodes(codes: HostCodes): void {
-		localStorage.setItem(HOST_CODES_KEY, JSON.stringify(codes));
-	}
-
 	private restoreSession(): void {
 		try {
 			const raw = localStorage.getItem(SESSION_KEY);
@@ -282,11 +152,7 @@ class WebRTCStore {
 
 			const session = JSON.parse(raw) as SessionData;
 
-			if (session.mode === 'host') {
-				void this.activateHost(session.roomCode, session.passCode);
-			} else if (session.mode === 'client') {
-				void this.activateClient(session.roomCode, session.passCode);
-			}
+			void this.activateClient(session.roomCode, session.passCode);
 		} catch {
 			// ignore corrupt storage
 		}
