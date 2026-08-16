@@ -12,8 +12,9 @@
 
 	let joinInput = $state('');
 	let joinError = $state('');
-	let joining = $state(false);
-	let reconnecting = $state(false);
+	// The store owns the connection state, so leaving mid-attempt re-enables
+	// the form right away.
+	let connecting = $derived(webrtcStore.status === TunnelStatus.CONNECTING);
 
 	// Models and props come from whichever backend served them, so they are
 	// refetched when the active backend changes.
@@ -23,14 +24,11 @@
 	}
 
 	async function handleReconnect() {
-		reconnecting = true;
 		try {
 			await webrtcStore.reconnect();
 			await refreshBackendState();
 		} catch {
 			// state is already reflected in the store
-		} finally {
-			reconnecting = false;
 		}
 	}
 
@@ -44,14 +42,11 @@
 			return;
 		}
 
-		joining = true;
 		try {
 			await webrtcStore.joinAsClient(code);
 			await refreshBackendState();
 		} catch (e) {
 			joinError = e instanceof Error ? e.message : String(e);
-		} finally {
-			joining = false;
 		}
 	}
 
@@ -102,8 +97,8 @@
 
 					<div class="flex flex-wrap gap-2">
 						{#if webrtcStore.status === TunnelStatus.ERROR}
-							<Button variant="outline" onclick={handleReconnect} disabled={reconnecting}>
-								{#if reconnecting}
+							<Button variant="outline" onclick={handleReconnect} disabled={connecting}>
+								{#if connecting}
 									<Loader2 class="h-4 w-4 animate-spin" />
 									Reconnecting...
 								{:else}
@@ -127,7 +122,7 @@
 							id="join-code"
 							placeholder="Paste the {CODE_LENGTHS.SHARE}-character code from the host"
 							bind:value={joinInput}
-							disabled={joining}
+							disabled={connecting}
 							class="font-mono"
 						/>
 						{#if joinError}
@@ -137,9 +132,9 @@
 
 					<Button
 						onclick={handleJoin}
-						disabled={joining || joinInput.trim().length < CODE_LENGTHS.SHARE}
+						disabled={connecting || joinInput.trim().length < CODE_LENGTHS.SHARE}
 					>
-						{#if joining}
+						{#if connecting}
 							<Loader2 class="h-4 w-4 animate-spin" />
 							Connecting...
 						{:else}

@@ -10,7 +10,9 @@
 
 	let code = $state('');
 	let error = $state('');
-	let connecting = $state(false);
+	// The store owns the connection state, so leaving mid-attempt re-enables
+	// the form right away.
+	let connecting = $derived(webrtcStore.status === TunnelStatus.CONNECTING);
 
 	async function handleConnect() {
 		error = '';
@@ -23,7 +25,6 @@
 			return;
 		}
 
-		connecting = true;
 		try {
 			await webrtcStore.joinAsClient(shareCode);
 			// The app read nothing from a server yet, so start it over with the
@@ -31,8 +32,6 @@
 			location.reload();
 		} catch (e) {
 			error = e instanceof Error ? e.message : String(e);
-		} finally {
-			connecting = false;
 		}
 	}
 
