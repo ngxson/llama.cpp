@@ -5,10 +5,9 @@
  * The room code is used as the info_hash rendezvous key; the pass code
  * authenticates the client on the data channel after the WebRTC handshake.
  *
- * Host:   announces periodically, accepts incoming offers, relays HTTP requests
- *         made by connected clients back to its own local server.
- * Client: sends an offer, authenticates via pass code, then all same-origin
- *         fetch calls are transparently forwarded through the data channel.
+ * The client sends an offer, authenticates via pass code, then all same-origin
+ * fetch calls are transparently forwarded through the data channel to the host
+ * running llama-connect next to its local server.
  */
 
 const STUN_CONFIG: RTCConfiguration = {
@@ -16,7 +15,6 @@ const STUN_CONFIG: RTCConfiguration = {
 };
 const TRACKER_URLS = ['wss://tracker.openwebtorrent.com', 'wss://tracker.btorrent.xyz'];
 const ICE_GATHER_TIMEOUT_MS = 10_000;
-const ANNOUNCE_INTERVAL_MS = 30_000;
 const CONNECT_TIMEOUT_MS = 30_000;
 const TRACKER_CONNECT_TIMEOUT_MS = 10_000;
 // Characters that are unambiguous to read aloud or type
@@ -31,14 +29,6 @@ function randomStr(len: number): string {
 	for (const b of bytes) result += CODE_CHARS[b % CODE_CHARS.length];
 
 	return result;
-}
-
-export function generateRoomCode(): string {
-	return randomStr(8);
-}
-
-export function generatePassCode(): string {
-	return randomStr(32);
 }
 
 // info_hash must be exactly 20 chars for WebTorrent trackers
@@ -79,7 +69,6 @@ class Tracker {
 	private readonly infoHash: string;
 	private readonly peerId: string;
 
-	onOffer?: (fromPeerId: string, offerId: string, offer: RTCSessionDescriptionInit) => void;
 	onAnswer?: (offerId: string, answer: RTCSessionDescriptionInit) => void;
 	onClose?: () => void;
 
@@ -113,13 +102,7 @@ class Tracker {
 				try {
 					const msg = JSON.parse(event.data as string) as TrackerMsg;
 
-					if (msg.offer && msg.peer_id && msg.offer_id) {
-						this.onOffer?.(
-							msg.peer_id as string,
-							msg.offer_id as string,
-							msg.offer as RTCSessionDescriptionInit
-						);
-					} else if (msg.answer && msg.offer_id) {
+					if (msg.answer && msg.offer_id) {
 						this.onAnswer?.(msg.offer_id as string, msg.answer as RTCSessionDescriptionInit);
 					}
 				} catch {
@@ -151,17 +134,6 @@ class Tracker {
 		if (opts.offers) msg.offers = opts.offers;
 
 		this.send(msg);
-	}
-
-	sendAnswer(toPeerId: string, offerId: string, answer: RTCSessionDescriptionInit): void {
-		this.send({
-			action: 'announce',
-			answer,
-			info_hash: this.infoHash,
-			offer_id: offerId,
-			peer_id: this.peerId,
-			to_peer_id: toPeerId
-		});
 	}
 
 	close(): void {
@@ -228,9 +200,6 @@ type TunnelMsg =
 	| AuthOkMsg
 	| AuthFailMsg;
 
-// Max bytes per res_chunk message (keeps data channel messages well below limits)
-const CHUNK_BYTES = 8192;
-
 function uint8ToBase64(bytes: Uint8Array): string {
 	let binary = '';
 
@@ -242,224 +211,6 @@ function uint8ToBase64(bytes: Uint8Array): string {
 function base64ToUint8(b64: string): Uint8Array {
 	return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0));
 }
-
-// ---------------------------------------------------------------------------
-// HostTunnel
-// ---------------------------------------------------------------------------
-
-export type HostCallbacks = {
-	onPeerCountChange?: (count: number) => void;
-};
-
-export class HostTunnel {
-	private readonly passCode: string;
-	private readonly infoHash: string;
-	private readonly peerId: string;
-	private readonly callbacks: HostCallbacks;
-
-	private trackers: Tracker[] = [];
-	private peers = new Map<string, { pc: RTCPeerConnection; channel: RTCDataChannel }>();
-	// AbortControllers for in-flight host-side fetch() calls, keyed by request id.
-	private activeRequests = new Map<string, AbortController>();
-	private announceTimer: ReturnType<typeof setInterval> | null = null;
-	private stopped = false;
-
-	constructor(roomCode: string, passCode: string, callbacks: HostCallbacks = {}) {
-		this.passCode = passCode;
-		this.infoHash = roomToInfoHash(roomCode);
-		this.peerId = randomStr(20);
-		this.callbacks = callbacks;
-	}
-
-	get peerCount(): number {
-		return this.peers.size;
-	}
-
-	async start(): Promise<void> {
-		await this.connectTrackers();
-		this.announceTimer = setInterval(() => {
-			for (const t of this.trackers) t.announce({ numwant: 0 });
-		}, ANNOUNCE_INTERVAL_MS);
-	}
-
-	private async connectTrackers(): Promise<void> {
-		for (const url of TRACKER_URLS) {
-			try {
-				await this.connectOneTracker(url);
-			} catch {
-				// try next
-			}
-		}
-	}
-
-	private async connectOneTracker(url: string): Promise<void> {
-		const tracker = new Tracker(this.infoHash, this.peerId);
-
-		tracker.onOffer = (fromPeerId, offerId, offer) => {
-			void this.handleOffer(tracker, fromPeerId, offerId, offer);
-		};
-		tracker.onClose = () => {
-			this.trackers = this.trackers.filter((t) => t !== tracker);
-
-			if (!this.stopped) {
-				setTimeout(() => void this.connectOneTracker(url), 5000);
-			}
-		};
-		await tracker.connect(url);
-		tracker.announce({ numwant: 0 });
-		this.trackers.push(tracker);
-	}
-
-	private async handleOffer(
-		tracker: Tracker,
-		fromPeerId: string,
-		offerId: string,
-		offer: RTCSessionDescriptionInit
-	): Promise<void> {
-		try {
-			const pc = new RTCPeerConnection(STUN_CONFIG);
-
-			await pc.setRemoteDescription(new RTCSessionDescription(offer));
-			const answer = await pc.createAnswer();
-
-			await pc.setLocalDescription(answer);
-			await waitForIceComplete(pc);
-			tracker.sendAnswer(fromPeerId, offerId, pc.localDescription!);
-
-			pc.ondatachannel = (event) => this.setupChannel(pc, fromPeerId, event.channel);
-		} catch {
-			// ignore failed handshakes
-		}
-	}
-
-	private setupChannel(pc: RTCPeerConnection, peerId: string, channel: RTCDataChannel): void {
-		let authenticated = false;
-
-		channel.onclose = () => {
-			if (this.peers.has(peerId)) {
-				this.peers.delete(peerId);
-				this.callbacks.onPeerCountChange?.(this.peers.size);
-			}
-
-			pc.close();
-		};
-
-		channel.onmessage = (event) => {
-			try {
-				const msg = JSON.parse(event.data as string) as TunnelMsg;
-
-				if (!authenticated) {
-					if (msg.type === 'auth') {
-						if (msg.pass === this.passCode) {
-							authenticated = true;
-							channel.send(JSON.stringify({ type: 'auth_ok' } satisfies AuthOkMsg));
-							this.peers.set(peerId, { channel, pc });
-							this.callbacks.onPeerCountChange?.(this.peers.size);
-						} else {
-							channel.send(JSON.stringify({ type: 'auth_fail' } satisfies AuthFailMsg));
-							channel.close();
-						}
-					}
-
-					return;
-				}
-
-				if (msg.type === 'req') {
-					void this.handleRequest(channel, msg);
-				} else if (msg.type === 'cancel') {
-					this.activeRequests.get(msg.id)?.abort();
-				}
-			} catch {
-				// ignore malformed messages
-			}
-		};
-	}
-
-	private async handleRequest(channel: RTCDataChannel, msg: ReqMsg): Promise<void> {
-		const { body, headers, id, method, path } = msg;
-		const t0 = performance.now();
-		const ac = new AbortController();
-
-		this.activeRequests.set(id, ac);
-
-		try {
-			const init: RequestInit = { headers, method, signal: ac.signal };
-
-			if (body !== null) init.body = base64ToUint8(body).buffer as ArrayBuffer;
-
-			const response = await fetch(path, init);
-			const resHeaders: Record<string, string> = {};
-
-			response.headers.forEach((v, k) => {
-				resHeaders[k] = v;
-			});
-
-			console.log(
-				`[rtc] ${method} ${path} -> ${response.status} (${Math.round(performance.now() - t0)}ms)`
-			);
-
-			channel.send(
-				JSON.stringify({
-					headers: resHeaders,
-					id,
-					status: response.status,
-					type: 'res_start'
-				} satisfies ResStartMsg)
-			);
-
-			const reader = response.body?.getReader();
-
-			if (reader) {
-				while (true) {
-					const { done, value } = await reader.read();
-
-					if (done) break;
-
-					for (let i = 0; i < value.length; i += CHUNK_BYTES) {
-						const slice = value.subarray(i, i + CHUNK_BYTES);
-
-						channel.send(
-							JSON.stringify({
-								data: uint8ToBase64(slice),
-								id,
-								type: 'res_chunk'
-							} satisfies ResChunkMsg)
-						);
-					}
-				}
-			}
-
-			channel.send(JSON.stringify({ id, type: 'res_end' } satisfies ResEndMsg));
-		} catch (e) {
-			// AbortError means the client cancelled — no need to send an error back.
-			if (!(e instanceof DOMException && e.name === 'AbortError')) {
-				const errMsg = e instanceof Error ? e.message : String(e);
-
-				console.error(`[rtc] ${method} ${path} -> error: ${errMsg}`);
-				channel.send(JSON.stringify({ id, message: errMsg, type: 'res_err' } satisfies ResErrMsg));
-			}
-		} finally {
-			this.activeRequests.delete(id);
-		}
-	}
-
-	stop(): void {
-		this.stopped = true;
-
-		if (this.announceTimer) clearInterval(this.announceTimer);
-
-		for (const t of this.trackers) t.close();
-		for (const { channel, pc } of this.peers.values()) {
-			channel.close();
-			pc.close();
-		}
-		for (const ac of this.activeRequests.values()) ac.abort();
-		this.trackers = [];
-		this.peers.clear();
-		this.activeRequests.clear();
-	}
-}
-
 // ---------------------------------------------------------------------------
 // ClientTunnel
 // ---------------------------------------------------------------------------
