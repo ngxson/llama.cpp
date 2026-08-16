@@ -1,5 +1,10 @@
 import { browser } from '$app/environment';
-import { ClientTunnel, HostTunnel, generatePassCode, generateRoomCode } from '$lib/utils/webrtc-tunnel';
+import {
+	ClientTunnel,
+	generatePassCode,
+	generateRoomCode,
+	HostTunnel
+} from '$lib/utils/webrtc-tunnel';
 
 // Stores the generated host codes; persists until explicitly regenerated.
 const HOST_CODES_KEY = 'llama_webrtc_host_codes';
@@ -31,10 +36,12 @@ class WebRTCStore {
 		if (browser) {
 			// Load persisted host codes so the UI can show them before host is enabled.
 			const saved = this.readHostCodes();
+
 			if (saved) {
 				this._roomCode = saved.roomCode;
 				this._passCode = saved.passCode;
 			}
+
 			this.restoreSession();
 		}
 	}
@@ -76,7 +83,7 @@ class WebRTCStore {
 			passCode = generatePassCode();
 			this._roomCode = roomCode;
 			this._passCode = passCode;
-			this.writeHostCodes({ roomCode, passCode });
+			this.writeHostCodes({ passCode, roomCode });
 		}
 
 		await this.activateHost(roomCode, passCode);
@@ -86,9 +93,10 @@ class WebRTCStore {
 	async regenerateCodes(): Promise<void> {
 		const roomCode = generateRoomCode();
 		const passCode = generatePassCode();
+
 		this._roomCode = roomCode;
 		this._passCode = passCode;
-		this.writeHostCodes({ roomCode, passCode });
+		this.writeHostCodes({ passCode, roomCode });
 
 		if (this.mode === 'host') {
 			this.hostTunnel?.stop();
@@ -113,7 +121,7 @@ class WebRTCStore {
 			await tunnel.start();
 			this.hostTunnel = tunnel;
 			this.status = 'connected';
-			this.writeSession({ mode: 'host', roomCode, passCode });
+			this.writeSession({ mode: 'host', passCode, roomCode });
 		} catch (e) {
 			this.hostTunnel = null;
 			this.status = 'error';
@@ -141,6 +149,7 @@ class WebRTCStore {
 
 		const roomCode = shareCode.slice(0, 8);
 		const passCode = shareCode.slice(8);
+
 		await this.activateClient(roomCode, passCode);
 	}
 
@@ -165,9 +174,10 @@ class WebRTCStore {
 		try {
 			await tunnel.connect();
 			this.clientTunnel = tunnel;
-			this.writeSession({ mode: 'client', roomCode, passCode });
+			this.writeSession({ mode: 'client', passCode, roomCode });
 			// Release any requests that were queued while connecting.
 			const waiters = this.connectionWaiters.splice(0);
+
 			for (const w of waiters) w.resolve();
 		} catch (e) {
 			this.clientTunnel = null;
@@ -178,7 +188,9 @@ class WebRTCStore {
 			// Reject queued requests.
 			const waiters = this.connectionWaiters.splice(0);
 			const err = e instanceof Error ? e : new Error(String(e));
+
 			for (const w of waiters) w.reject(err);
+
 			throw e;
 		}
 	}
@@ -198,28 +210,28 @@ class WebRTCStore {
 
 	private installInterceptor(): void {
 		if (this.originalFetch) return; // already installed
+
 		this.originalFetch = window.fetch.bind(window);
 		window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
 			try {
 				const url =
-					input instanceof Request
-						? input.url
-						: input instanceof URL
-							? input.href
-							: String(input);
+					input instanceof Request ? input.url : input instanceof URL ? input.href : String(input);
 				const parsed = new URL(url, window.location.href);
+
 				if (parsed.origin === window.location.origin) {
 					return this.tunnelFetch(input, init);
 				}
 			} catch {
 				// not a parseable URL — fall through
 			}
+
 			return this.originalFetch!(input, init);
 		};
 	}
 
 	private uninstallInterceptor(): void {
 		if (!this.originalFetch) return;
+
 		window.fetch = this.originalFetch;
 		this.originalFetch = null;
 	}
@@ -233,12 +245,14 @@ class WebRTCStore {
 		if (this.clientTunnel?.isConnected) {
 			return this.clientTunnel.fetch(input, init);
 		}
+
 		// If we are still connecting, queue the request until the tunnel opens.
 		if (this.mode === 'client' && this.status === 'connecting') {
 			return new Promise<void>((resolve, reject) => {
-				this.connectionWaiters.push({ resolve, reject });
+				this.connectionWaiters.push({ reject, resolve });
 			}).then(() => this.clientTunnel!.fetch(input, init));
 		}
+
 		throw new Error('tunnel not connected');
 	}
 
@@ -249,6 +263,7 @@ class WebRTCStore {
 	private readHostCodes(): HostCodes | null {
 		try {
 			const raw = localStorage.getItem(HOST_CODES_KEY);
+
 			return raw ? (JSON.parse(raw) as HostCodes) : null;
 		} catch {
 			return null;
@@ -262,8 +277,11 @@ class WebRTCStore {
 	private restoreSession(): void {
 		try {
 			const raw = localStorage.getItem(SESSION_KEY);
+
 			if (!raw) return;
+
 			const session = JSON.parse(raw) as SessionData;
+
 			if (session.mode === 'host') {
 				void this.activateHost(session.roomCode, session.passCode);
 			} else if (session.mode === 'client') {

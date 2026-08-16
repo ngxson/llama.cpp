@@ -1,12 +1,21 @@
 <script lang="ts">
-	import { fade } from 'svelte/transition';
-	import { Wifi, WifiOff, Copy, Check, Users, AlertCircle, Loader2, RefreshCw } from '@lucide/svelte';
+	import {
+		AlertCircle,
+		Check,
+		Copy,
+		Loader2,
+		RefreshCw,
+		Users,
+		Wifi,
+		WifiOff
+	} from '@lucide/svelte';
+	import { SettingsGroup } from '$lib/components/app/settings';
+	import * as AlertDialog from '$lib/components/ui/alert-dialog';
+	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
-	import { Badge } from '$lib/components/ui/badge';
-	import * as AlertDialog from '$lib/components/ui/alert-dialog';
-	import { SettingsGroup } from '$lib/components/app/settings';
 	import { webrtcStore } from '$lib/stores/webrtc.svelte';
+	import { fade } from 'svelte/transition';
 
 	// -- host state
 	let codeCopied = $state(false);
@@ -46,10 +55,13 @@
 	async function handleJoin() {
 		joinError = '';
 		const code = joinInput.trim().replace(/\s/g, '');
+
 		if (code.length < 40) {
 			joinError = 'Code must be 40 characters';
+
 			return;
 		}
+
 		joining = true;
 		try {
 			await webrtcStore.joinAsClient(code);
@@ -185,8 +197,8 @@
 	<SettingsGroup title="Join">
 		<div class="space-y-4">
 			<p class="text-sm text-muted-foreground">
-				Connect to a remote llama.cpp instance. All requests will be routed through the
-				peer-to-peer tunnel.
+				Connect to a remote llama.cpp instance. All requests will be routed through the peer-to-peer
+				tunnel.
 			</p>
 
 			{#if webrtcStore.mode === 'client'}
