@@ -1,5 +1,8 @@
 <script lang="ts">
 	import '../app.css';
+	// Constructing the store restores a saved remote session and installs the
+	// fetch interceptor before any page issues its first API call.
+	import '$lib/stores/webrtc.svelte';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { base } from '$app/paths';
