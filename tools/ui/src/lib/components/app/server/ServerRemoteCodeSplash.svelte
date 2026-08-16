@@ -3,8 +3,8 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
 	import Label from '$lib/components/ui/label/label.svelte';
-	import { APP_NAME, ICON_CLASS_DEFAULT } from '$lib/constants';
-	import { KeyboardKey } from '$lib/enums';
+	import { APP_NAME, CODE_LENGTHS, ICON_CLASS_DEFAULT } from '$lib/constants';
+	import { KeyboardKey, TunnelStatus } from '$lib/enums';
 	import { webrtcStore } from '$lib/stores/webrtc.svelte';
 	import { fade } from 'svelte/transition';
 
@@ -17,8 +17,8 @@
 
 		const shareCode = code.trim().replace(/\s/g, '');
 
-		if (shareCode.length < 40) {
-			error = 'Code must be 40 characters';
+		if (shareCode.length < CODE_LENGTHS.SHARE) {
+			error = `Code must be ${CODE_LENGTHS.SHARE} characters`;
 
 			return;
 		}
@@ -69,7 +69,7 @@
 		</div>
 
 		<div class="space-y-3">
-			{#if webrtcStore.status === 'connecting'}
+			{#if webrtcStore.status === TunnelStatus.CONNECTING}
 				<div class="flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground">
 					<Loader2 class="{ICON_CLASS_DEFAULT} animate-spin" />
 					Connecting to your server...
@@ -84,7 +84,7 @@
 
 					<Input
 						id="connect-code"
-						placeholder="Paste the 40-character code"
+						placeholder="Paste the {CODE_LENGTHS.SHARE}-character code"
 						bind:value={code}
 						onkeydown={handleKeydown}
 						disabled={connecting}
@@ -93,14 +93,14 @@
 
 					{#if error}
 						<p class="text-sm text-destructive">{error}</p>
-					{:else if webrtcStore.status === 'error' && webrtcStore.errorMessage}
+					{:else if webrtcStore.status === TunnelStatus.ERROR && webrtcStore.errorMessage}
 						<p class="text-sm text-destructive">{webrtcStore.errorMessage}</p>
 					{/if}
 				</div>
 
 				<Button
 					onclick={handleConnect}
-					disabled={connecting || code.trim().length < 40}
+					disabled={connecting || code.trim().length < CODE_LENGTHS.SHARE}
 					class="w-full"
 				>
 					{#if connecting}

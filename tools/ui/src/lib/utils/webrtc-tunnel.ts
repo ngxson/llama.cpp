@@ -11,16 +11,18 @@
  */
 
 import { base } from '$app/paths';
+import {
+	CODE_CHARS,
+	CODE_LENGTHS,
+	ID_LENGTHS,
+	STUN_URLS,
+	TRACKER_URLS,
+	WEBRTC_TIMEOUTS
+} from '$lib/constants';
 
 const STUN_CONFIG: RTCConfiguration = {
-	iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }]
+	iceServers: STUN_URLS.map((urls) => ({ urls }))
 };
-const TRACKER_URLS = ['wss://tracker.openwebtorrent.com', 'wss://tracker.webtorrent.dev'];
-const ICE_GATHER_TIMEOUT_MS = 10_000;
-const CONNECT_TIMEOUT_MS = 30_000;
-const TRACKER_CONNECT_TIMEOUT_MS = 10_000;
-// Characters that are unambiguous to read aloud or type
-const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
 
 function randomStr(len: number): string {
 	const bytes = new Uint8Array(len);
@@ -35,7 +37,7 @@ function randomStr(len: number): string {
 
 // info_hash must be exactly 20 chars for WebTorrent trackers
 function roomToInfoHash(roomCode: string): string {
-	return roomCode.padEnd(20, '0').slice(0, 20);
+	return roomCode.padEnd(CODE_LENGTHS.INFO_HASH, '0').slice(0, CODE_LENGTHS.INFO_HASH);
 }
 
 // Non-trickle ICE: the offer carries whatever candidates were gathered when
@@ -48,7 +50,7 @@ function waitForIceComplete(pc: RTCPeerConnection): Promise<void> {
 			return;
 		}
 
-		const timer = setTimeout(resolve, ICE_GATHER_TIMEOUT_MS);
+		const timer = setTimeout(resolve, WEBRTC_TIMEOUTS.ICE_GATHER_MS);
 
 		pc.addEventListener('icegatheringstatechange', () => {
 			if (pc.iceGatheringState === 'complete') {
@@ -85,7 +87,7 @@ class Tracker {
 			this.ws = ws;
 			const timer = setTimeout(
 				() => reject(new Error('tracker connect timeout')),
-				TRACKER_CONNECT_TIMEOUT_MS
+				WEBRTC_TIMEOUTS.TRACKER_CONNECT_MS
 			);
 
 			ws.onopen = () => {
@@ -242,7 +244,7 @@ export class ClientTunnel {
 	constructor(roomCode: string, passCode: string, callbacks: ClientCallbacks = {}) {
 		this.passCode = passCode;
 		this.infoHash = roomToInfoHash(roomCode);
-		this.peerId = randomStr(20);
+		this.peerId = randomStr(ID_LENGTHS.PEER);
 		this.callbacks = callbacks;
 	}
 
@@ -251,7 +253,7 @@ export class ClientTunnel {
 	}
 
 	async connect(): Promise<void> {
-		const offerId = randomStr(20);
+		const offerId = randomStr(ID_LENGTHS.OFFER);
 		const pc = new RTCPeerConnection(STUN_CONFIG);
 
 		this.pc = pc;
@@ -268,7 +270,7 @@ export class ClientTunnel {
 		return new Promise((resolve, reject) => {
 			const timer = setTimeout(() => {
 				reject(new Error('connection timed out waiting for host'));
-			}, CONNECT_TIMEOUT_MS);
+			}, WEBRTC_TIMEOUTS.CONNECT_MS);
 
 			channel.onopen = () => {
 				channel.send(JSON.stringify({ pass: this.passCode, type: 'auth' } satisfies AuthMsg));
@@ -393,7 +395,7 @@ export class ClientTunnel {
 
 		const request = new Request(input, init);
 		const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined);
-		const id = randomStr(16);
+		const id = randomStr(ID_LENGTHS.REQUEST);
 
 		if (signal?.aborted) {
 			return Promise.reject(new DOMException('Aborted', 'AbortError'));
