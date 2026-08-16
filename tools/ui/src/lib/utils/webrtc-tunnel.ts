@@ -12,30 +12,24 @@
  */
 
 const STUN_CONFIG: RTCConfiguration = {
-	iceServers: [
-		{ urls: 'stun:stun.l.google.com:19302' },
-		{ urls: 'stun:stun1.l.google.com:19302' }
-	]
+	iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }]
 };
-
-const TRACKER_URLS = [
-	'wss://tracker.openwebtorrent.com',
-	'wss://tracker.btorrent.xyz'
-];
-
+const TRACKER_URLS = ['wss://tracker.openwebtorrent.com', 'wss://tracker.btorrent.xyz'];
 const ICE_GATHER_TIMEOUT_MS = 10_000;
 const ANNOUNCE_INTERVAL_MS = 30_000;
 const CONNECT_TIMEOUT_MS = 30_000;
 const TRACKER_CONNECT_TIMEOUT_MS = 10_000;
-
 // Characters that are unambiguous to read aloud or type
 const CODE_CHARS = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789';
 
 function randomStr(len: number): string {
 	const bytes = new Uint8Array(len);
+
 	crypto.getRandomValues(bytes);
 	let result = '';
+
 	for (const b of bytes) result += CODE_CHARS[b % CODE_CHARS.length];
+
 	return result;
 }
 
@@ -56,12 +50,15 @@ function waitForIceComplete(pc: RTCPeerConnection): Promise<void> {
 	return new Promise((resolve, reject) => {
 		if (pc.iceGatheringState === 'complete') {
 			resolve();
+
 			return;
 		}
+
 		const timer = setTimeout(
 			() => reject(new Error('ICE gathering timed out')),
 			ICE_GATHER_TIMEOUT_MS
 		);
+
 		pc.addEventListener('icegatheringstatechange', () => {
 			if (pc.iceGatheringState === 'complete') {
 				clearTimeout(timer);
@@ -94,6 +91,7 @@ class Tracker {
 	connect(url: string): Promise<void> {
 		return new Promise((resolve, reject) => {
 			const ws = new WebSocket(url);
+
 			this.ws = ws;
 			const timer = setTimeout(
 				() => reject(new Error('tracker connect timeout')),
@@ -114,6 +112,7 @@ class Tracker {
 			ws.onmessage = (event) => {
 				try {
 					const msg = JSON.parse(event.data as string) as TrackerMsg;
+
 					if (msg.offer && msg.peer_id && msg.offer_id) {
 						this.onOffer?.(
 							msg.peer_id as string,
@@ -136,28 +135,32 @@ class Tracker {
 		}
 	}
 
-	announce(opts: {
-		numwant?: number;
-		offers?: Array<{ offer_id: string; offer: RTCSessionDescriptionInit }>;
-	} = {}): void {
+	announce(
+		opts: {
+			numwant?: number;
+			offers?: Array<{ offer_id: string; offer: RTCSessionDescriptionInit }>;
+		} = {}
+	): void {
 		const msg: TrackerMsg = {
 			action: 'announce',
 			info_hash: this.infoHash,
-			peer_id: this.peerId,
-			numwant: opts.numwant ?? 0
+			numwant: opts.numwant ?? 0,
+			peer_id: this.peerId
 		};
+
 		if (opts.offers) msg.offers = opts.offers;
+
 		this.send(msg);
 	}
 
 	sendAnswer(toPeerId: string, offerId: string, answer: RTCSessionDescriptionInit): void {
 		this.send({
 			action: 'announce',
-			info_hash: this.infoHash,
-			peer_id: this.peerId,
-			to_peer_id: toPeerId,
 			answer,
-			offer_id: offerId
+			info_hash: this.infoHash,
+			offer_id: offerId,
+			peer_id: this.peerId,
+			to_peer_id: toPeerId
 		});
 	}
 
@@ -230,7 +233,9 @@ const CHUNK_BYTES = 8192;
 
 function uint8ToBase64(bytes: Uint8Array): string {
 	let binary = '';
+
 	for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+
 	return btoa(binary);
 }
 
@@ -289,11 +294,13 @@ export class HostTunnel {
 
 	private async connectOneTracker(url: string): Promise<void> {
 		const tracker = new Tracker(this.infoHash, this.peerId);
+
 		tracker.onOffer = (fromPeerId, offerId, offer) => {
 			void this.handleOffer(tracker, fromPeerId, offerId, offer);
 		};
 		tracker.onClose = () => {
 			this.trackers = this.trackers.filter((t) => t !== tracker);
+
 			if (!this.stopped) {
 				setTimeout(() => void this.connectOneTracker(url), 5000);
 			}
@@ -311,8 +318,10 @@ export class HostTunnel {
 	): Promise<void> {
 		try {
 			const pc = new RTCPeerConnection(STUN_CONFIG);
+
 			await pc.setRemoteDescription(new RTCSessionDescription(offer));
 			const answer = await pc.createAnswer();
+
 			await pc.setLocalDescription(answer);
 			await waitForIceComplete(pc);
 			tracker.sendAnswer(fromPeerId, offerId, pc.localDescription!);
@@ -331,6 +340,7 @@ export class HostTunnel {
 				this.peers.delete(peerId);
 				this.callbacks.onPeerCountChange?.(this.peers.size);
 			}
+
 			pc.close();
 		};
 
@@ -343,13 +353,14 @@ export class HostTunnel {
 						if (msg.pass === this.passCode) {
 							authenticated = true;
 							channel.send(JSON.stringify({ type: 'auth_ok' } satisfies AuthOkMsg));
-							this.peers.set(peerId, { pc, channel });
+							this.peers.set(peerId, { channel, pc });
 							this.callbacks.onPeerCountChange?.(this.peers.size);
 						} else {
 							channel.send(JSON.stringify({ type: 'auth_fail' } satisfies AuthFailMsg));
 							channel.close();
 						}
 					}
+
 					return;
 				}
 
@@ -365,60 +376,67 @@ export class HostTunnel {
 	}
 
 	private async handleRequest(channel: RTCDataChannel, msg: ReqMsg): Promise<void> {
-		const { id, method, path, headers, body } = msg;
+		const { body, headers, id, method, path } = msg;
 		const t0 = performance.now();
 		const ac = new AbortController();
+
 		this.activeRequests.set(id, ac);
 
 		try {
-			const init: RequestInit = { method, headers, signal: ac.signal };
+			const init: RequestInit = { headers, method, signal: ac.signal };
+
 			if (body !== null) init.body = base64ToUint8(body).buffer as ArrayBuffer;
 
 			const response = await fetch(path, init);
-
 			const resHeaders: Record<string, string> = {};
+
 			response.headers.forEach((v, k) => {
 				resHeaders[k] = v;
 			});
 
-			console.log(`[rtc] ${method} ${path} -> ${response.status} (${Math.round(performance.now() - t0)}ms)`);
+			console.log(
+				`[rtc] ${method} ${path} -> ${response.status} (${Math.round(performance.now() - t0)}ms)`
+			);
 
 			channel.send(
 				JSON.stringify({
-					type: 'res_start',
+					headers: resHeaders,
 					id,
 					status: response.status,
-					headers: resHeaders
+					type: 'res_start'
 				} satisfies ResStartMsg)
 			);
 
 			const reader = response.body?.getReader();
+
 			if (reader) {
 				while (true) {
 					const { done, value } = await reader.read();
+
 					if (done) break;
+
 					for (let i = 0; i < value.length; i += CHUNK_BYTES) {
 						const slice = value.subarray(i, i + CHUNK_BYTES);
+
 						channel.send(
 							JSON.stringify({
-								type: 'res_chunk',
+								data: uint8ToBase64(slice),
 								id,
-								data: uint8ToBase64(slice)
+								type: 'res_chunk'
 							} satisfies ResChunkMsg)
 						);
 					}
 				}
 			}
 
-			channel.send(JSON.stringify({ type: 'res_end', id } satisfies ResEndMsg));
+			channel.send(JSON.stringify({ id, type: 'res_end' } satisfies ResEndMsg));
 		} catch (e) {
 			// AbortError means the client cancelled — no need to send an error back.
 			if (!(e instanceof DOMException && e.name === 'AbortError')) {
 				const errMsg = e instanceof Error ? e.message : String(e);
+
 				console.error(`[rtc] ${method} ${path} -> error: ${errMsg}`);
-				channel.send(
-					JSON.stringify({ type: 'res_err', id, message: errMsg } satisfies ResErrMsg)
-				);
+				channel.send(JSON.stringify({ id, message: errMsg, type: 'res_err' } satisfies ResErrMsg));
 			}
 		} finally {
 			this.activeRequests.delete(id);
@@ -427,9 +445,11 @@ export class HostTunnel {
 
 	stop(): void {
 		this.stopped = true;
+
 		if (this.announceTimer) clearInterval(this.announceTimer);
+
 		for (const t of this.trackers) t.close();
-		for (const { pc, channel } of this.peers.values()) {
+		for (const { channel, pc } of this.peers.values()) {
 			channel.close();
 			pc.close();
 		}
@@ -480,31 +500,38 @@ export class ClientTunnel {
 
 	async connect(): Promise<void> {
 		let lastError: Error = new Error('no trackers available');
+
 		for (const url of TRACKER_URLS) {
 			try {
 				await this.connectViaTracker(url);
+
 				return;
 			} catch (e) {
 				lastError = e instanceof Error ? e : new Error(String(e));
 				this.cleanupConnection();
 			}
 		}
+
 		throw lastError;
 	}
 
 	private async connectViaTracker(trackerUrl: string): Promise<void> {
 		const offerId = randomStr(20);
 		const pc = new RTCPeerConnection(STUN_CONFIG);
+
 		this.pc = pc;
 
 		const channel = pc.createDataChannel('tunnel', { ordered: true });
+
 		this.channel = channel;
 
 		const offer = await pc.createOffer();
+
 		await pc.setLocalDescription(offer);
 		await waitForIceComplete(pc);
 
 		const tracker = new Tracker(this.infoHash, this.peerId);
+
 		this.tracker = tracker;
 		await tracker.connect(trackerUrl);
 
@@ -515,6 +542,7 @@ export class ClientTunnel {
 
 			tracker.onAnswer = async (_offerId, answer) => {
 				if (_offerId !== offerId) return;
+
 				try {
 					await pc.setRemoteDescription(new RTCSessionDescription(answer));
 				} catch (e) {
@@ -524,12 +552,13 @@ export class ClientTunnel {
 			};
 
 			channel.onopen = () => {
-				channel.send(JSON.stringify({ type: 'auth', pass: this.passCode } satisfies AuthMsg));
+				channel.send(JSON.stringify({ pass: this.passCode, type: 'auth' } satisfies AuthMsg));
 			};
 
 			channel.onmessage = (event) => {
 				try {
 					const msg = JSON.parse(event.data as string) as TunnelMsg;
+
 					if (msg.type === 'auth_ok') {
 						clearTimeout(timer);
 						this.callbacks.onConnected?.();
@@ -557,7 +586,7 @@ export class ClientTunnel {
 
 			tracker.announce({
 				numwant: 1,
-				offers: [{ offer_id: offerId, offer: pc.localDescription! }]
+				offers: [{ offer: pc.localDescription!, offer_id: offerId }]
 			});
 		});
 	}
@@ -570,7 +599,9 @@ export class ClientTunnel {
 			msg.type !== 'res_err'
 		)
 			return;
+
 		const req = this.pending.get(msg.id);
+
 		if (!req) return;
 
 		if (msg.type === 'res_start') {
@@ -616,26 +647,28 @@ export class ClientTunnel {
 		// Extract path+query so the host fetches relative to its own origin
 		const reqUrl = new URL(request.url);
 		const path = reqUrl.pathname + reqUrl.search;
-
 		const headers: Record<string, string> = {};
+
 		request.headers.forEach((v, k) => {
 			headers[k] = v;
 		});
 
 		let bodyB64: string | null = null;
+
 		const bodyBytes = await request.arrayBuffer();
+
 		if (bodyBytes.byteLength > 0) {
 			bodyB64 = uint8ToBase64(new Uint8Array(bodyBytes));
 		}
 
 		return new Promise((resolve, reject) => {
 			let streamController!: ReadableStreamDefaultController<Uint8Array>;
+
 			const stream = new ReadableStream<Uint8Array>({
 				start(ctrl) {
 					streamController = ctrl;
 				}
 			});
-
 			const abortHandler = () => {
 				this.pending.delete(id);
 				try {
@@ -644,18 +677,16 @@ export class ClientTunnel {
 					// stream may already be closed
 				}
 				reject(new DOMException('Aborted', 'AbortError'));
+
 				// Tell the host to stop the in-flight fetch
 				if (this.channel?.readyState === 'open') {
-					this.channel.send(JSON.stringify({ type: 'cancel', id } satisfies CancelMsg));
+					this.channel.send(JSON.stringify({ id, type: 'cancel' } satisfies CancelMsg));
 				}
 			};
 
 			signal?.addEventListener('abort', abortHandler, { once: true });
 
 			this.pending.set(id, {
-				onStart: (status, resHeaders) => {
-					resolve(new Response(stream, { status, headers: resHeaders }));
-				},
 				onChunk: (data) => {
 					streamController.enqueue(base64ToUint8(data));
 				},
@@ -672,17 +703,20 @@ export class ClientTunnel {
 					}
 					reject(new Error(message));
 					this.pending.delete(id);
+				},
+				onStart: (status, resHeaders) => {
+					resolve(new Response(stream, { headers: resHeaders, status }));
 				}
 			});
 
 			this.channel!.send(
 				JSON.stringify({
-					type: 'req',
+					body: bodyB64,
+					headers,
 					id,
 					method: request.method,
 					path,
-					headers,
-					body: bodyB64
+					type: 'req'
 				} satisfies ReqMsg)
 			);
 		});
