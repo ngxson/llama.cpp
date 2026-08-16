@@ -1,4 +1,5 @@
 import { browser } from '$app/environment';
+import { IS_WEB_ONLY } from '$lib/constants/web-only.constants';
 import { ClientTunnel } from '$lib/utils/webrtc-tunnel';
 
 // Stores the active session for auto-reconnect on reload.
@@ -26,6 +27,15 @@ class WebRTCStore {
 
 	get isConnected(): boolean {
 		return this.status === 'connected';
+	}
+
+	/**
+	 * A web-only build has no server of its own, so it stays unusable until a
+	 * code is stored. Restoring a saved session already sets mode='client', even
+	 * when the tunnel later fails, so a failed reconnect does not ask again.
+	 */
+	get needsCode(): boolean {
+		return IS_WEB_ONLY && this.mode === 'off';
 	}
 
 	async joinAsClient(shareCode: string): Promise<void> {
