@@ -199,8 +199,7 @@ class WebRTCStore {
 	private installInterceptor(): void {
 		if (this.originalFetch) return; // already installed
 		this.originalFetch = window.fetch.bind(window);
-		const store = this;
-		window.fetch = function (input: RequestInfo | URL, init?: RequestInit) {
+		window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
 			try {
 				const url =
 					input instanceof Request
@@ -210,12 +209,12 @@ class WebRTCStore {
 							: String(input);
 				const parsed = new URL(url, window.location.href);
 				if (parsed.origin === window.location.origin) {
-					return store.tunnelFetch(input, init);
+					return this.tunnelFetch(input, init);
 				}
 			} catch {
 				// not a parseable URL — fall through
 			}
-			return store.originalFetch!(input, init);
+			return this.originalFetch!(input, init);
 		};
 	}
 
