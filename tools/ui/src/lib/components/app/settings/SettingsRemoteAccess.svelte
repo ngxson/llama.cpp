@@ -4,6 +4,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import { Button } from '$lib/components/ui/button';
 	import { Input } from '$lib/components/ui/input';
+	import { modelsStore, serverStore } from '$lib/stores';
 	import { webrtcStore } from '$lib/stores/webrtc.svelte';
 	import { fade } from 'svelte/transition';
 
@@ -12,11 +13,18 @@
 	let joining = $state(false);
 	let reconnecting = $state(false);
 
+	// Models and props come from whichever backend served them, so they are
+	// refetched when the active backend changes.
+	async function refreshBackendState() {
+		await serverStore.fetch();
+		await modelsStore.fetch(true);
+	}
+
 	async function handleReconnect() {
 		reconnecting = true;
 		try {
 			await webrtcStore.reconnect();
-			location.reload();
+			await refreshBackendState();
 		} catch {
 			// state is already reflected in the store
 		} finally {
@@ -37,9 +45,7 @@
 		joining = true;
 		try {
 			await webrtcStore.joinAsClient(code);
-			// Models, props and capabilities were read from the server hosting
-			// this page, so reload to fetch them through the tunnel instead.
-			location.reload();
+			await refreshBackendState();
 		} catch (e) {
 			joinError = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -47,11 +53,11 @@
 		}
 	}
 
-	function handleLeave() {
+	async function handleLeave() {
 		webrtcStore.leaveAsClient();
 		joinInput = '';
 		joinError = '';
-		location.reload();
+		await refreshBackendState();
 	}
 </script>
 
