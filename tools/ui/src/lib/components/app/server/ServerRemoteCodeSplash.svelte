@@ -36,6 +36,12 @@
 		}
 	}
 
+	function handleUseAnotherCode() {
+		webrtcStore.leaveAsClient();
+		code = '';
+		error = '';
+	}
+
 	function handleKeydown(event: KeyboardEvent) {
 		if (event.key === KeyboardKey.ENTER) {
 			handleConnect();
@@ -63,36 +69,49 @@
 		</div>
 
 		<div class="space-y-3">
-			<div class="space-y-1.5">
-				<Label for="connect-code" class="text-sm font-medium">Access code</Label>
-
-				<Input
-					id="connect-code"
-					placeholder="Paste the 40-character code"
-					bind:value={code}
-					onkeydown={handleKeydown}
-					disabled={connecting}
-					class="font-mono"
-				/>
-
-				{#if error}
-					<p class="text-sm text-destructive">{error}</p>
-				{/if}
-			</div>
-
-			<Button
-				onclick={handleConnect}
-				disabled={connecting || code.trim().length < 40}
-				class="w-full"
-			>
-				{#if connecting}
+			{#if webrtcStore.status === 'connecting'}
+				<div class="flex items-center justify-center gap-2 py-2 text-sm text-muted-foreground">
 					<Loader2 class="{ICON_CLASS_DEFAULT} animate-spin" />
-					Connecting...
-				{:else}
-					<Wifi class={ICON_CLASS_DEFAULT} />
-					Connect
-				{/if}
-			</Button>
+					Connecting to your server...
+				</div>
+
+				<Button variant="outline" onclick={handleUseAnotherCode} class="w-full">
+					Use another code
+				</Button>
+			{:else}
+				<div class="space-y-1.5">
+					<Label for="connect-code" class="text-sm font-medium">Access code</Label>
+
+					<Input
+						id="connect-code"
+						placeholder="Paste the 40-character code"
+						bind:value={code}
+						onkeydown={handleKeydown}
+						disabled={connecting}
+						class="font-mono"
+					/>
+
+					{#if error}
+						<p class="text-sm text-destructive">{error}</p>
+					{:else if webrtcStore.status === 'error' && webrtcStore.errorMessage}
+						<p class="text-sm text-destructive">{webrtcStore.errorMessage}</p>
+					{/if}
+				</div>
+
+				<Button
+					onclick={handleConnect}
+					disabled={connecting || code.trim().length < 40}
+					class="w-full"
+				>
+					{#if connecting}
+						<Loader2 class="{ICON_CLASS_DEFAULT} animate-spin" />
+						Connecting...
+					{:else}
+						<Wifi class={ICON_CLASS_DEFAULT} />
+						Connect
+					{/if}
+				</Button>
+			{/if}
 		</div>
 
 		<p class="mt-6 text-center text-xs text-muted-foreground">
