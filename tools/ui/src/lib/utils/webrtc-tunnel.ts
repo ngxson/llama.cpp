@@ -36,18 +36,17 @@ function roomToInfoHash(roomCode: string): string {
 	return roomCode.padEnd(20, '0').slice(0, 20);
 }
 
+// Non-trickle ICE: the offer carries whatever candidates were gathered when
+// the deadline hits, since a single slow candidate must not sink the offer.
 function waitForIceComplete(pc: RTCPeerConnection): Promise<void> {
-	return new Promise((resolve, reject) => {
+	return new Promise((resolve) => {
 		if (pc.iceGatheringState === 'complete') {
 			resolve();
 
 			return;
 		}
 
-		const timer = setTimeout(
-			() => reject(new Error('ICE gathering timed out')),
-			ICE_GATHER_TIMEOUT_MS
-		);
+		const timer = setTimeout(resolve, ICE_GATHER_TIMEOUT_MS);
 
 		pc.addEventListener('icegatheringstatechange', () => {
 			if (pc.iceGatheringState === 'complete') {

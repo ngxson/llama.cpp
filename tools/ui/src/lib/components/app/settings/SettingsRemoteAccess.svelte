@@ -16,6 +16,7 @@
 		reconnecting = true;
 		try {
 			await webrtcStore.reconnect();
+			location.reload();
 		} catch {
 			// state is already reflected in the store
 		} finally {
@@ -36,6 +37,9 @@
 		joining = true;
 		try {
 			await webrtcStore.joinAsClient(code);
+			// Models, props and capabilities were read from the server hosting
+			// this page, so reload to fetch them through the tunnel instead.
+			location.reload();
 		} catch (e) {
 			joinError = e instanceof Error ? e.message : String(e);
 		} finally {
@@ -47,6 +51,7 @@
 		webrtcStore.leaveAsClient();
 		joinInput = '';
 		joinError = '';
+		location.reload();
 	}
 </script>
 
