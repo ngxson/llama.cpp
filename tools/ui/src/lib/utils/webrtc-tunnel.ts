@@ -10,6 +10,8 @@
  * running llama-connect next to its local server.
  */
 
+import { base } from '$app/paths';
+
 const STUN_CONFIG: RTCConfiguration = {
 	iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }]
 };
@@ -397,9 +399,14 @@ export class ClientTunnel {
 			return Promise.reject(new DOMException('Aborted', 'AbortError'));
 		}
 
-		// Extract path+query so the host fetches relative to its own origin
+		// The base path belongs to where this page is served, not to the remote
+		// server, so strip it and send the path the host can resolve.
 		const reqUrl = new URL(request.url);
-		const path = reqUrl.pathname + reqUrl.search;
+		const pathname =
+			base && reqUrl.pathname.startsWith(base)
+				? reqUrl.pathname.slice(base.length) || '/'
+				: reqUrl.pathname;
+		const path = pathname + reqUrl.search;
 		const headers: Record<string, string> = {};
 
 		request.headers.forEach((v, k) => {
