@@ -96,4 +96,4 @@ export {
 
 export { SplashOrientation } from './splash.enums';
 
-export { RemoteAccessMode, TunnelStatus } from './webrtc.enums';
+export { RemoteAccessMode, ServerType, TunnelStatus } from './webrtc.enums';

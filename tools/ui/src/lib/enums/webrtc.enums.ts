@@ -1,4 +1,12 @@
 /**
+ * Stored server type enum - discriminates the entries of the server registry
+ */
+export enum ServerType {
+	/** Reached through a WebRTC tunnel, addressed by its share code */
+	TUNNEL = 'tunnel'
+}
+
+/**
  * Remote access mode enum - whether requests go through the tunnel
  */
 export enum RemoteAccessMode {
