@@ -235,7 +235,7 @@ export class ClientTunnel {
 
 	private pc: RTCPeerConnection | null = null;
 	private channel: RTCDataChannel | null = null;
-	private tracker: Tracker | null = null;
+	private trackers: Tracker[] = [];
 	private pending = new Map<string, PendingReq>();
 
 	constructor(roomCode: string, passCode: string, callbacks: ClientCallbacks = {}) {
@@ -250,23 +250,6 @@ export class ClientTunnel {
 	}
 
 	async connect(): Promise<void> {
-		let lastError: Error = new Error('no trackers available');
-
-		for (const url of TRACKER_URLS) {
-			try {
-				await this.connectViaTracker(url);
-
-				return;
-			} catch (e) {
-				lastError = e instanceof Error ? e : new Error(String(e));
-				this.cleanupConnection();
-			}
-		}
-
-		throw lastError;
-	}
-
-	private async connectViaTracker(trackerUrl: string): Promise<void> {
 		const offerId = randomStr(20);
 		const pc = new RTCPeerConnection(STUN_CONFIG);
 
@@ -281,26 +264,10 @@ export class ClientTunnel {
 		await pc.setLocalDescription(offer);
 		await waitForIceComplete(pc);
 
-		const tracker = new Tracker(this.infoHash, this.peerId);
-
-		this.tracker = tracker;
-		await tracker.connect(trackerUrl);
-
 		return new Promise((resolve, reject) => {
 			const timer = setTimeout(() => {
 				reject(new Error('connection timed out waiting for host'));
 			}, CONNECT_TIMEOUT_MS);
-
-			tracker.onAnswer = async (_offerId, answer) => {
-				if (_offerId !== offerId) return;
-
-				try {
-					await pc.setRemoteDescription(new RTCSessionDescription(answer));
-				} catch (e) {
-					clearTimeout(timer);
-					reject(e);
-				}
-			};
 
 			channel.onopen = () => {
 				channel.send(JSON.stringify({ pass: this.passCode, type: 'auth' } satisfies AuthMsg));
@@ -335,10 +302,46 @@ export class ClientTunnel {
 				reject(new Error('data channel error'));
 			};
 
-			tracker.announce({
-				numwant: 1,
-				offers: [{ offer: pc.localDescription!, offer_id: offerId }]
-			});
+			// The host announces on every tracker, so the same offer goes out to
+			// all of them at once and the first answer back wins.
+			let answered = false;
+			let unreachable = 0;
+
+			for (const url of TRACKER_URLS) {
+				const tracker = new Tracker(this.infoHash, this.peerId);
+
+				this.trackers.push(tracker);
+
+				tracker.onAnswer = async (answeredOfferId, answer) => {
+					if (answeredOfferId !== offerId || answered) return;
+
+					answered = true;
+
+					try {
+						await pc.setRemoteDescription(new RTCSessionDescription(answer));
+					} catch (e) {
+						clearTimeout(timer);
+						reject(e);
+					}
+				};
+
+				tracker
+					.connect(url)
+					.then(() => {
+						tracker.announce({
+							numwant: 1,
+							offers: [{ offer: pc.localDescription!, offer_id: offerId }]
+						});
+					})
+					.catch(() => {
+						unreachable++;
+
+						if (unreachable === TRACKER_URLS.length) {
+							clearTimeout(timer);
+							reject(new Error('no tracker reachable'));
+						}
+					});
+			}
 		});
 	}
 
@@ -376,10 +379,10 @@ export class ClientTunnel {
 	private cleanupConnection(): void {
 		this.channel?.close();
 		this.pc?.close();
-		this.tracker?.close();
+		for (const tracker of this.trackers) tracker.close();
 		this.channel = null;
 		this.pc = null;
-		this.tracker = null;
+		this.trackers = [];
 	}
 
 	async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
