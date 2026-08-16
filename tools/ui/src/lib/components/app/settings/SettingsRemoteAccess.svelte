@@ -10,6 +10,18 @@
 	let joinInput = $state('');
 	let joinError = $state('');
 	let joining = $state(false);
+	let reconnecting = $state(false);
+
+	async function handleReconnect() {
+		reconnecting = true;
+		try {
+			await webrtcStore.reconnect();
+		} catch {
+			// state is already reflected in the store
+		} finally {
+			reconnecting = false;
+		}
+	}
 
 	async function handleJoin() {
 		joinError = '';
@@ -68,10 +80,31 @@
 						{/if}
 					</div>
 
-					<Button variant="outline" onclick={handleLeave}>
-						<WifiOff class="h-4 w-4" />
-						Leave
-					</Button>
+					{#if webrtcStore.status === 'error'}
+						<p class="text-sm text-muted-foreground">
+							Requests stay blocked while remote access is on, so nothing is sent to the server
+							hosting this page. Reconnect to the remote instance, or leave to use this server.
+						</p>
+					{/if}
+
+					<div class="flex flex-wrap gap-2">
+						{#if webrtcStore.status === 'error'}
+							<Button variant="outline" onclick={handleReconnect} disabled={reconnecting}>
+								{#if reconnecting}
+									<Loader2 class="h-4 w-4 animate-spin" />
+									Reconnecting...
+								{:else}
+									<Wifi class="h-4 w-4" />
+									Reconnect
+								{/if}
+							</Button>
+						{/if}
+
+						<Button variant="outline" onclick={handleLeave}>
+							<WifiOff class="h-4 w-4" />
+							Leave
+						</Button>
+					</div>
 				</div>
 			{:else}
 				<div class="space-y-3">

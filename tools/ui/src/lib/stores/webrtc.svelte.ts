@@ -37,7 +37,11 @@ class WebRTCStore {
 		await this.activateClient(roomCode, passCode);
 	}
 
-	private async activateClient(roomCode: string, passCode: string): Promise<void> {
+	private async activateClient(
+		roomCode: string,
+		passCode: string,
+		keepOnError = false
+	): Promise<void> {
 		this.mode = 'client';
 		this.status = 'connecting';
 		this.errorMessage = '';
@@ -65,18 +69,38 @@ class WebRTCStore {
 			for (const w of waiters) w.resolve();
 		} catch (e) {
 			this.clientTunnel = null;
-			this.mode = 'off';
 			this.status = 'error';
 			this.errorMessage = e instanceof Error ? e.message : String(e);
-			this.uninstallInterceptor();
 			// Reject queued requests.
 			const waiters = this.connectionWaiters.splice(0);
 			const err = e instanceof Error ? e : new Error(String(e));
 
 			for (const w of waiters) w.reject(err);
 
+			// A restored session stays in client mode with the interceptor in
+			// place, so requests fail loudly instead of silently reaching the
+			// server that happens to serve this page.
+			if (!keepOnError) {
+				this.mode = 'off';
+				this.uninstallInterceptor();
+			}
+
 			throw e;
 		}
+	}
+
+	/** Retry the saved session after a failed or dropped connection. */
+	async reconnect(): Promise<void> {
+		const raw = localStorage.getItem(SESSION_KEY);
+
+		if (!raw) return;
+
+		const session = JSON.parse(raw) as SessionData;
+
+		this.clientTunnel?.disconnect();
+		this.clientTunnel = null;
+
+		await this.activateClient(session.roomCode, session.passCode, true);
 	}
 
 	leaveAsClient(): void {
@@ -137,7 +161,11 @@ class WebRTCStore {
 			}).then(() => this.clientTunnel!.fetch(input, init));
 		}
 
-		throw new Error('tunnel not connected');
+		throw new Error(
+			'Remote access is enabled but the tunnel is not connected. ' +
+				'Requests are not sent to the server hosting this page. ' +
+				'Reconnect or leave remote access in settings.'
+		);
 	}
 
 	// -------------------------------------------------------------------------
@@ -152,7 +180,9 @@ class WebRTCStore {
 
 			const session = JSON.parse(raw) as SessionData;
 
-			void this.activateClient(session.roomCode, session.passCode);
+			void this.activateClient(session.roomCode, session.passCode, true).catch(() => {
+				// state is already reflected in status and errorMessage
+			});
 		} catch {
 			// ignore corrupt storage
 		}
