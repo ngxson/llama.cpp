@@ -1,13 +1,12 @@
 import { browser } from '$app/environment';
 import { CODE_LENGTHS } from '$lib/constants';
 import { IS_WEB_ONLY } from '$lib/constants/web-only.constants';
-import { RemoteAccessMode, TunnelStatus } from '$lib/enums';
+import { RemoteAccessMode, ServerType, TunnelStatus } from '$lib/enums';
+import type { StoredServer } from '$lib/types';
 import { ClientTunnel } from '$lib/utils/webrtc-tunnel';
 
-// Stores the active session for auto-reconnect on reload.
-const SESSION_KEY = 'llama_webrtc_session';
-
-type SessionData = { roomCode: string; passCode: string };
+// Registry of the servers the app can talk to, reconnected to on reload.
+const SERVERS_KEY = 'llama_servers';
 
 class WebRTCStore {
 	mode = $state<RemoteAccessMode>(RemoteAccessMode.OFF);
@@ -22,7 +21,7 @@ class WebRTCStore {
 
 	constructor() {
 		if (browser) {
-			this.restoreSession();
+			this.restoreServers();
 		}
 	}
 
@@ -84,7 +83,7 @@ class WebRTCStore {
 		try {
 			await tunnel.connect();
 			this.clientTunnel = tunnel;
-			this.writeSession({ passCode, roomCode });
+			this.writeServers([{ code: roomCode + passCode, type: ServerType.TUNNEL }]);
 			// Release any requests that were queued while connecting.
 			const waiters = this.connectionWaiters.splice(0);
 
@@ -111,18 +110,20 @@ class WebRTCStore {
 		}
 	}
 
-	/** Retry the saved session after a failed or dropped connection. */
+	/** Retry the saved server after a failed or dropped connection. */
 	async reconnect(): Promise<void> {
-		const raw = localStorage.getItem(SESSION_KEY);
+		const server = this.readTunnelServer();
 
-		if (!raw) return;
-
-		const session = JSON.parse(raw) as SessionData;
+		if (!server) return;
 
 		this.clientTunnel?.disconnect();
 		this.clientTunnel = null;
 
-		await this.activateClient(session.roomCode, session.passCode, true);
+		await this.activateClient(
+			server.code.slice(0, CODE_LENGTHS.ROOM),
+			server.code.slice(CODE_LENGTHS.ROOM),
+			true
+		);
 	}
 
 	leaveAsClient(): void {
@@ -131,7 +132,7 @@ class WebRTCStore {
 		this.clientTunnel = null;
 		this.mode = RemoteAccessMode.OFF;
 		this.status = TunnelStatus.IDLE;
-		this.clearSession();
+		this.clearServers();
 	}
 
 	// -------------------------------------------------------------------------
@@ -194,28 +195,42 @@ class WebRTCStore {
 	// Persistence helpers
 	// -------------------------------------------------------------------------
 
-	private restoreSession(): void {
+	private restoreServers(): void {
+		const server = this.readTunnelServer();
+
+		if (!server) return;
+
+		void this.activateClient(
+			server.code.slice(0, CODE_LENGTHS.ROOM),
+			server.code.slice(CODE_LENGTHS.ROOM),
+			true
+		).catch(() => {
+			// state is already reflected in status and errorMessage
+		});
+	}
+
+	/** First tunnel entry of the registry, the only one reachable for now. */
+	private readTunnelServer(): StoredServer | null {
 		try {
-			const raw = localStorage.getItem(SESSION_KEY);
+			const raw = localStorage.getItem(SERVERS_KEY);
 
-			if (!raw) return;
+			if (!raw) return null;
 
-			const session = JSON.parse(raw) as SessionData;
+			const servers = JSON.parse(raw) as StoredServer[];
 
-			void this.activateClient(session.roomCode, session.passCode, true).catch(() => {
-				// state is already reflected in status and errorMessage
-			});
+			return servers.find((server) => server.type === ServerType.TUNNEL) ?? null;
 		} catch {
 			// ignore corrupt storage
+			return null;
 		}
 	}
 
-	private writeSession(data: SessionData): void {
-		localStorage.setItem(SESSION_KEY, JSON.stringify(data));
+	private writeServers(servers: StoredServer[]): void {
+		localStorage.setItem(SERVERS_KEY, JSON.stringify(servers));
 	}
 
-	private clearSession(): void {
-		localStorage.removeItem(SESSION_KEY);
+	private clearServers(): void {
+		localStorage.removeItem(SERVERS_KEY);
 	}
 }
 
