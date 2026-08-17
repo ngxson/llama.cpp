@@ -1160,6 +1160,13 @@ bool llama_batch_ext_set_pos(llama_batch_ext * batch, int32_t idx, llama_pos * p
     return batch->set_token_pos(idx, pos);
 }
 
+bool llama_batch_ext_set_embd_state(llama_batch_ext * batch, int32_t idx, llama_embd embd) {
+    // TODO
+    GGML_UNUSED(batch);
+    GGML_UNUSED(idx);
+    GGML_UNUSED(embd);
+}
+
 bool llama_batch_ext_set_output_embd(llama_batch_ext * batch, int32_t idx, bool value) {
     return batch->set_output(idx, value);
 }
