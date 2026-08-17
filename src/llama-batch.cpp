@@ -44,14 +44,35 @@ bool llama_batch_allocr::init(
         return false;
     }
 
-    const bool has_embd = !batch_inp.embd.empty();
     const llama_memory_i * mem = batch_inp.mem;
+
+    //
+    // determine the content types of the batch
+    // an entry can carry a token id, a token embedding, or both (e.g. MTP hook batches)
+    // all entries must carry the same combination
+    //
+
+    const bool has_token = batch_inp.tokens[0].id != LLAMA_TOKEN_NULL;
+    const bool has_embd  = batch_inp.tokens[0].has_embd;
+
+    for (int32_t i = 1; i < n_tok; ++i) {
+        if ((batch_inp.tokens[i].id != LLAMA_TOKEN_NULL) != has_token ||
+             batch_inp.tokens[i].has_embd                != has_embd) {
+            LLAMA_LOG_ERROR("%s: all entries in the batch must have the same content types\n", __func__);
+            return false;
+        }
+    }
+
+    if (!has_token && !has_embd) {
+        LLAMA_LOG_ERROR("%s: batch has neither token ids nor embeddings\n", __func__);
+        return false;
+    }
 
     //
     // build flat token/embd array
     //
 
-    if (!has_embd) {
+    if (has_token) {
         token_vec.resize(n_tok);
         for (int32_t i = 0; i < n_tok; ++i) {
             const llama_token id = batch_inp.tokens[i].id;
@@ -61,7 +82,9 @@ bool llama_batch_allocr::init(
             }
             token_vec[i] = id;
         }
-    } else {
+    }
+
+    if (has_embd) {
         embd_vec = batch_inp.embd;
     }
 
@@ -72,9 +95,9 @@ bool llama_batch_allocr::init(
     //
 
     {
-        const int32_t n_pos_total = has_embd ? n_tok * (int32_t) n_pos_per_embd : n_tok;
+        const int32_t n_pos_total = has_token ? n_tok : n_tok * (int32_t) n_pos_per_embd;
         pos.resize(n_pos_total);
-        if (!has_embd) {
+        if (has_token) {
             for (int32_t i = 0; i < n_tok; ++i) {
                 pos[i] = batch_inp.tokens[i].pos[0];
             }
@@ -150,8 +173,8 @@ bool llama_batch_allocr::init(
     //
 
     batch.n_tokens = n_tok;
-    batch.token    = has_embd ? nullptr : token_vec.data();
-    batch.embd     = has_embd ? embd_vec.data() : nullptr;
+    batch.token    = has_token ? token_vec.data() : nullptr;
+    batch.embd     = has_embd  ? embd_vec.data()  : nullptr;
     batch.pos      = pos.data();
     batch.n_seq_id = n_seq_id.data();
     batch.seq_id   = seq_id.data();
@@ -1080,6 +1103,12 @@ bool llama_batch_ext::set_token_embd(int32_t idx, llama_embd embd_in) {
 
     token & t = tokens[idx];
 
+    if (t.has_embd) {
+        LLAMA_LOG_ERROR("%s: embedding for token %d is already set\n", __func__, idx);
+        return false;
+    }
+
+    t.has_embd = true;
     t.embd_off = embd.size();
     embd.insert(embd.end(), embd_in.data, embd_in.data + n_total);
 
@@ -1160,11 +1189,16 @@ bool llama_batch_ext_set_pos(llama_batch_ext * batch, int32_t idx, llama_pos * p
     return batch->set_token_pos(idx, pos);
 }
 
+bool llama_batch_ext_set_embd_token(llama_batch_ext * batch, int32_t idx, llama_embd embd) {
+    return batch->set_token_embd(idx, embd);
+}
+
 bool llama_batch_ext_set_embd_state(llama_batch_ext * batch, int32_t idx, llama_embd embd) {
     // TODO
     GGML_UNUSED(batch);
     GGML_UNUSED(idx);
     GGML_UNUSED(embd);
+    return false;
 }
 
 bool llama_batch_ext_set_output_embd(llama_batch_ext * batch, int32_t idx, bool value) {
@@ -1180,7 +1214,9 @@ bool llama_batch_ext_set_output_logits(llama_batch_ext * batch, int32_t idx, boo
 llama_batch_compat::llama_batch_compat(llama_context * ctx, const llama_batch & batch_inp) {
     batch_ext = new llama_batch_ext(ctx);
 
-    const bool is_embd = batch_inp.embd != nullptr;
+    // a batch can carry both, for example the MTP hook batches
+    const bool has_token = batch_inp.token != nullptr;
+    const bool has_embd  = batch_inp.embd  != nullptr;
 
     static const llama_seq_id default_seq_id    = 0;
     static const int32_t      default_n_seq_id  = 1;
@@ -1204,7 +1240,7 @@ llama_batch_compat::llama_batch_compat(llama_context * ctx, const llama_batch & 
 
         // position(s)
         if (batch_inp.pos) {
-            if (!is_embd) {
+            if (has_token) {
                 // token batch: one position per token
                 t.pos[0] = batch_inp.pos[i];
             } else {
@@ -1218,10 +1254,13 @@ llama_batch_compat::llama_batch_compat(llama_context * ctx, const llama_batch & 
             t.pos[0] = pos_next[sids[0]]++;
         }
 
-        // token id or embeddings
-        if (!is_embd) {
+        // token id and/or embeddings
+        if (has_token) {
             t.id = batch_inp.token[i];
-        } else {
+        }
+
+        if (has_embd) {
+            t.has_embd = true;
             t.embd_off = batch_ext->embd.size();
             const float * src = batch_inp.embd + (size_t) i * batch_ext->n_embd_inp;
             batch_ext->embd.insert(batch_ext->embd.end(), src, src + batch_ext->n_embd_inp);

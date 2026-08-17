@@ -85,6 +85,7 @@ struct llama_batch_ext {
 
     struct token {
         llama_token  id = LLAMA_TOKEN_NULL;
+        bool         has_embd = false; // whether embd_off is set
         size_t       embd_off = 0; // index offset in the embd array
         bool         output = false; // TODO: have dedicated output flags
         std::unordered_set<llama_seq_id> seq_ids;
