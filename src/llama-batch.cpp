@@ -1063,18 +1063,25 @@ bool llama_batch_ext::set_token_id(int32_t idx, llama_token id) {
     return true;
 }
 
-bool llama_batch_ext::set_token_embd(int32_t idx, float * embd_in) {
+bool llama_batch_ext::set_token_embd(int32_t idx, llama_embd embd_in) {
     if (idx < 0 || idx >= (int32_t) tokens.size()) {
         return false;
     }
-    if (!embd_in) {
+    if (!embd_in.data) {
+        return false;
+    }
+
+    const size_t n_total = embd_in.n_rows * embd_in.n_embd;
+    if (n_total != n_embd_inp) {
+        LLAMA_LOG_ERROR("%s: embedding size mismatch, got %zu rows x %zu = %zu, expected %zu\n",
+                __func__, embd_in.n_rows, embd_in.n_embd, n_total, n_embd_inp);
         return false;
     }
 
     token & t = tokens[idx];
 
     t.embd_off = embd.size();
-    embd.insert(embd.end(), embd_in, embd_in + n_embd_inp);
+    embd.insert(embd.end(), embd_in.data, embd_in.data + n_total);
 
     return true;
 }
@@ -1134,12 +1141,12 @@ int32_t llama_batch_ext_add_token(llama_batch_ext * batch, llama_seq_id seq_id, 
     return idx;
 }
 
-int32_t llama_batch_ext_add_embd_token(llama_batch_ext * batch, llama_seq_id seq_id, float * embd_token) {
+int32_t llama_batch_ext_add_embd_token(llama_batch_ext * batch, llama_seq_id seq_id, llama_embd embd) {
     int32_t idx = batch->add_token(seq_id);
     if (idx < 0) {
         return idx;
     }
-    if (!batch->set_token_embd(idx, embd_token)) {
+    if (!batch->set_token_embd(idx, embd)) {
         return -2;
     }
     return idx;

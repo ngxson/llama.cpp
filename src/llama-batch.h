@@ -103,7 +103,7 @@ struct llama_batch_ext {
 
     bool add_seq(int32_t idx, llama_seq_id seq_id);
     bool set_token_id(int32_t idx, llama_token id);
-    bool set_token_embd(int32_t idx, float * embd_in);
+    bool set_token_embd(int32_t idx, llama_embd embd_in);
     bool set_token_pos(int32_t idx, llama_pos * pos_in);
     bool set_output(int32_t idx, bool output_last);
 };

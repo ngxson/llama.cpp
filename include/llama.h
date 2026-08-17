@@ -993,6 +993,12 @@ extern "C" {
 
     struct llama_batch_ext;
 
+    struct llama_embd {
+        const float * data;
+        size_t n_rows; // number of embedding rows in data
+        size_t n_embd; // size of one row
+    };
+
     LLAMA_API struct llama_batch_ext * llama_batch_ext_init (struct llama_context * ctx);
     LLAMA_API void                     llama_batch_ext_free (struct llama_batch_ext * batch);
     LLAMA_API void                     llama_batch_ext_clear(struct llama_batch_ext * batch);
@@ -1006,12 +1012,11 @@ extern "C" {
     //     -1: batch is full
     //     -2: token is invalid (id == LLAMA_TOKEN_NULL or invalid embd)
     //     -3: invalid sequence id
-    LLAMA_API int32_t llama_batch_ext_add      (struct llama_batch_ext * batch, llama_seq_id seq_id);
+    LLAMA_API int32_t llama_batch_ext_add           (struct llama_batch_ext * batch, llama_seq_id seq_id);
 
     // Add an input token to the batch, with a specified token ID or token embedding
-    // "token" embedding here also covers mtmd embeddings, i.e. the input of build_inp_embd()
     LLAMA_API int32_t llama_batch_ext_add_token     (struct llama_batch_ext * batch, llama_seq_id seq_id, llama_token id);
-    LLAMA_API int32_t llama_batch_ext_add_embd_token(struct llama_batch_ext * batch, llama_seq_id seq_id, float * embd_token);
+    LLAMA_API int32_t llama_batch_ext_add_embd_token(struct llama_batch_ext * batch, llama_seq_id seq_id, struct llama_embd embd);
 
     // Add the token at index idx in the batch to another sequence id. The position will stays the same.
     // Note: this should be called before other _set() functions
@@ -1023,11 +1028,11 @@ extern "C" {
     // Set the "state" embedding for the token at index idx in the batch
     // "state" here means extra hidden state carried over from a previous stage, e.g.:
     //   - MTP: state from N layers of the target model
-    //   - Qwen3 VL (deepstack): state from N layers of vision encoder
+    //   - Qwen3 VL (deepstack): state from N layers of the vision encoder
     // LLAMA_API bool llama_batch_ext_set_embd_state(
     //                             struct llama_batch_ext * batch,
     //                                            int32_t   idx,
-    //                                              float * embd_state);
+    //                                  struct llama_embd   embd);
 
     // Set output embedding for the token at index idx in the batch
     // Note: for now, this is equivalent to setting the output logits
