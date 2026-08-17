@@ -1503,7 +1503,8 @@ common_init_result_ptr common_init_from_params(common_params & params, bool mode
         }
 
         if (llama_model_has_encoder(model)) {
-            llama_encode(lctx, llama_batch_get_one(tmp.data(), tmp.size()));
+            llama_batch_ext_ptr batch = common_batch_ext_get_one(lctx, tmp);
+            llama_process(lctx, LLAMA_PROCESS_TYPE_ENCODE, batch.get());
             llama_token decoder_start_token_id = llama_model_decoder_start_token(model);
             if (decoder_start_token_id == LLAMA_TOKEN_NULL) {
                 decoder_start_token_id = bos;
@@ -1512,7 +1513,9 @@ common_init_result_ptr common_init_from_params(common_params & params, bool mode
             tmp.push_back(decoder_start_token_id);
         }
         if (llama_model_has_decoder(model)) {
-            llama_decode(lctx, llama_batch_get_one(tmp.data(), std::min(tmp.size(), (size_t) params.n_batch)));
+            tmp.resize(std::min(tmp.size(), (size_t) params.n_batch));
+            llama_batch_ext_ptr batch = common_batch_ext_get_one(lctx, tmp);
+            llama_process(lctx, LLAMA_PROCESS_TYPE_DECODE, batch.get());
         }
         llama_memory_clear(llama_get_memory(lctx), true);
         llama_synchronize(lctx);
@@ -1571,9 +1574,13 @@ common_context_seq_rm_type common_context_can_seq_rm(llama_context * ctx) {
     tmp.push_back(0);
     tmp.push_back(0);
 
-    int ret = llama_decode(ctx, llama_batch_get_one(tmp.data(), tmp.size()));
+    int ret;
+    {
+        llama_batch_ext_ptr batch = common_batch_ext_get_one(ctx, tmp);
+        ret = llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get());
+    }
     if (ret != 0) {
-        COM_ERR("llama_decode() failed: %d\n", ret);
+        COM_ERR("llama_process() failed: %d\n", ret);
         res = COMMON_CONTEXT_SEQ_RM_TYPE_NO;
         goto done;
     }
@@ -2163,9 +2170,14 @@ float lr_opt::get_lr(float epoch) const {
 }
 
 bool common_replay_last_token(struct llama_context * ctx, llama_token last_token, int32_t pos) {
-    llama_batch batch = llama_batch_get_one(&last_token, 1);
-    batch.pos = &pos;
-    if (llama_decode(ctx, batch)) {
+    llama_batch_ext_ptr batch(llama_batch_ext_init(ctx));
+
+    const int32_t idx = llama_batch_ext_add_token(batch.get(), 0, last_token);
+    llama_pos     p   = pos;
+    llama_batch_ext_set_pos(batch.get(), idx, &p);
+    llama_batch_ext_set_output_logits(batch.get(), idx, true);
+
+    if (llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get())) {
         LOG_ERR("%s: failed to replay last token\n", __func__);
         return false;
     }
