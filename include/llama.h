@@ -1025,14 +1025,21 @@ extern "C" {
                                                int32_t   idx,
                                           llama_seq_id   seq_id);
 
+    // Set the token embedding for the token at index idx in the batch
+    // use it after llama_batch_ext_add_token() to have an entry with both a token id and an embedding
+    LLAMA_API bool llama_batch_ext_set_embd_token(
+                                struct llama_batch_ext * batch,
+                                               int32_t   idx,
+                                     struct llama_embd   embd);
+
     // Set the "state" embedding for the token at index idx in the batch
     // "state" here means extra hidden state carried over from a previous stage, e.g.:
     //   - MTP: state from N layers of the target model
     //   - Qwen3 VL (deepstack): state from N layers of the vision encoder
-    // LLAMA_API bool llama_batch_ext_set_embd_state(
-    //                             struct llama_batch_ext * batch,
-    //                                            int32_t   idx,
-    //                                  struct llama_embd   embd);
+    LLAMA_API bool llama_batch_ext_set_embd_state(
+                                struct llama_batch_ext * batch,
+                                               int32_t   idx,
+                                     struct llama_embd   embd);
 
     // Set output embedding for the token at index idx in the batch
     // Note: for now, this is equivalent to setting the output logits
