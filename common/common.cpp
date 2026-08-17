@@ -2206,6 +2206,10 @@ bool common_batch::set_output(int32_t idx, bool value) {
     return llama_batch_ext_set_output_logits(batch.get(), idx, value);
 }
 
+bool common_batch::set_embd(int32_t idx, llama_embd embd) {
+    return llama_batch_ext_set_embd_token(batch.get(), idx, embd);
+}
+
 common_batch common_batch_get_one(llama_context * ctx, const llama_tokens & tokens) {
     common_batch batch(ctx);
 

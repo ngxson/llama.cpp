@@ -1027,6 +1027,9 @@ struct common_batch {
 
     bool set_output(int32_t idx, bool value);
 
+    // attach a token embedding to the entry at idx, can only be set once per entry
+    bool set_embd(int32_t idx, llama_embd embd);
+
     int32_t size() const { return (int32_t) tokens.size(); }
 };
 
