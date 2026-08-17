@@ -69,6 +69,12 @@ struct llama_ubatch {
     std::shared_ptr<data_t> data;
 };
 
+struct llama_hparams;
+
+// MTP hook batches carry the target model's hidden state (n_embd_out size).
+// Normal batches carry token embeddings (n_embd_inp size).
+size_t llama_batch_ext_select_n_embd_inp(llama_context_type ctx_type, const llama_hparams & hparams);
+
 struct llama_batch_ext {
     const size_t n_tokens_max;     // max number of tokens that can be stored in the batch
     const size_t n_embd_inp;       // number of embedding dimensions per token

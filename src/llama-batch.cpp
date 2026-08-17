@@ -5,6 +5,7 @@
 #include "llama-memory.h"
 #include "llama-hparams.h"
 #include "llama-model.h"
+#include "llama-context.h"
 
 #include <cassert>
 #include <cstring>
@@ -1000,9 +1001,13 @@ void llama_batch_free(struct llama_batch batch) {
 
 // llama_batch_ext
 
+size_t llama_batch_ext_select_n_embd_inp(llama_context_type ctx_type, const llama_hparams & hparams) {
+    return ctx_type == LLAMA_CONTEXT_TYPE_MTP ? hparams.n_embd_out() : hparams.n_embd_inp();
+}
+
 llama_batch_ext::llama_batch_ext(llama_context * ctx) :
         n_tokens_max(llama_n_batch(ctx)),
-        n_embd_inp(llama_model_n_embd_inp(llama_get_model(ctx))),
+        n_embd_inp(llama_batch_ext_select_n_embd_inp(ctx->get_cparams().ctx_type, llama_get_model(ctx)->hparams)),
         n_seq_max(llama_n_seq_max(ctx)),
         mem(llama_get_memory(ctx)),
         n_vocab(llama_vocab_n_tokens(llama_model_get_vocab(llama_get_model(ctx)))),
@@ -1023,8 +1028,7 @@ int32_t llama_batch_ext::add_token(llama_seq_id seq_id) {
         return -3; // invalid sequence id
     }
 
-    // position is left undefined (default-initialized) - the caller must set it
-    // explicitly via set_token_pos() before the batch is processed
+    // position is left undefined; call set_token_pos() before decoding
     token t;
     t.seq_ids.insert(seq_id);
 
@@ -1167,8 +1171,7 @@ llama_batch_compat::llama_batch_compat(llama_context * ctx, const llama_batch & 
     static const llama_seq_id default_seq_id    = 0;
     static const int32_t      default_n_seq_id  = 1;
 
-    // local position tracker for auto-generating positions when batch_inp.pos is null,
-    // seeded from the memory's current max position per sequence (mirrors the logic in `master`)
+    // auto-generates positions locally when batch_inp.pos is null, continuing from memory
     std::vector<llama_pos> pos_next(batch_ext->n_seq_max);
     for (llama_seq_id s = 0; s < (llama_seq_id) batch_ext->n_seq_max; ++s) {
         pos_next[s] = llama_memory_seq_pos_max(batch_ext->mem, s) + 1; // assume next pos
