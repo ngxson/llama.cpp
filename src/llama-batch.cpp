@@ -1170,7 +1170,7 @@ int32_t llama_batch_ext_add_token(llama_batch_ext * batch, llama_seq_id seq_id, 
     return idx;
 }
 
-int32_t llama_batch_ext_add_embd_token(llama_batch_ext * batch, llama_seq_id seq_id, llama_embd embd) {
+int32_t llama_batch_ext_add_embd(llama_batch_ext * batch, llama_seq_id seq_id, llama_embd embd) {
     int32_t idx = batch->add_token(seq_id);
     if (idx < 0) {
         return idx;
