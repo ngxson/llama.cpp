@@ -1020,9 +1020,39 @@ void common_batch_add(
     const std::vector<llama_seq_id> & seq_ids,
                                bool   logits);
 
+// wrapper around llama_batch_ext that provide getter functions for downstream code
+struct common_batch {
+    struct token {
+        llama_token  id;
+        llama_pos    pos;
+        llama_seq_id seq_id;
+        bool         output;
+    };
+
+    std::vector<token> tokens; // mirror of the entries, tokens[i] describes batch index i
+    llama_batch_ext_ptr batch;
+
+    common_batch() = default;
+    common_batch(struct llama_context * ctx) : batch(llama_batch_ext_init(ctx)) {}
+
+    llama_batch_ext * get() const { return batch.get(); }
+
+    void clear();
+
+    // returns the batch index (>= 0), or a negative error from llama_batch_ext_add_token()
+    int32_t add(llama_token id, llama_pos pos, llama_seq_id seq_id, bool output);
+
+    bool set_output(int32_t idx, bool value);
+
+    // attach a token embedding to the entry at idx, can only be set once per entry
+    bool set_embd(int32_t idx, llama_embd embd);
+
+    int32_t size() const { return (int32_t) tokens.size(); }
+};
+
 // create a single-sequence batch from a list of tokens
 // last token always have output_logits set to true
-llama_batch_ext_ptr common_batch_ext_get_one(struct llama_context * ctx, const llama_tokens & tokens);
+common_batch common_batch_get_one(struct llama_context * ctx, const llama_tokens & tokens);
 
 // decodes a single batch of tokens for a prompt and manages session tokens
 //
