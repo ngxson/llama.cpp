@@ -1021,11 +1021,11 @@ extern "C" {
     //     -1: batch is full
     //     -2: token is invalid (id == LLAMA_TOKEN_NULL or invalid embd)
     //     -3: invalid sequence id
-    LLAMA_API int32_t llama_batch_ext_add           (struct llama_batch_ext * batch, llama_seq_id seq_id);
+    LLAMA_API int32_t llama_batch_ext_add      (struct llama_batch_ext * batch, llama_seq_id seq_id);
 
     // Add an input token to the batch, with a specified token ID or token embedding
-    LLAMA_API int32_t llama_batch_ext_add_token     (struct llama_batch_ext * batch, llama_seq_id seq_id, llama_token id);
-    LLAMA_API int32_t llama_batch_ext_add_embd_token(struct llama_batch_ext * batch, llama_seq_id seq_id, struct llama_embd embd);
+    LLAMA_API int32_t llama_batch_ext_add_token(struct llama_batch_ext * batch, llama_seq_id seq_id, llama_token id);
+    LLAMA_API int32_t llama_batch_ext_add_embd (struct llama_batch_ext * batch, llama_seq_id seq_id, struct llama_embd embd);
 
     // Add the token at index idx in the batch to another sequence id. The position will stays the same.
     // Note: this should be called before other _set() functions
