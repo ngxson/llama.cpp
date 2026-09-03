@@ -68,16 +68,34 @@ function waitForIceComplete(pc: RTCPeerConnection): Promise<void> {
 type TrackerMsg = Record<string, unknown>;
 
 class Tracker {
-	private ws: WebSocket | null = null;
-	private readonly infoHash: string;
-	private readonly peerId: string;
-
 	onAnswer?: (offerId: string, answer: RTCSessionDescriptionInit) => void;
 	onClose?: () => void;
+	private readonly infoHash: string;
 
-	constructor(infoHash: string, peerId: string) {
-		this.infoHash = infoHash;
-		this.peerId = peerId;
+	private readonly peerId: string;
+	private ws: WebSocket | null = null;
+
+	announce(
+		opts: {
+			numwant?: number;
+			offers?: Array<{ offer_id: string; offer: RTCSessionDescriptionInit }>;
+		} = {}
+	): void {
+		const msg: TrackerMsg = {
+			action: 'announce',
+			info_hash: this.infoHash,
+			numwant: opts.numwant ?? 0,
+			peer_id: this.peerId
+		};
+
+		if (opts.offers) msg.offers = opts.offers;
+
+		this.send(msg);
+	}
+
+	close(): void {
+		this.ws?.close();
+		this.ws = null;
 	}
 
 	connect(url: string): Promise<void> {
@@ -115,33 +133,15 @@ class Tracker {
 		});
 	}
 
+	constructor(infoHash: string, peerId: string) {
+		this.infoHash = infoHash;
+		this.peerId = peerId;
+	}
+
 	private send(msg: TrackerMsg): void {
 		if (this.ws?.readyState === WebSocket.OPEN) {
 			this.ws.send(JSON.stringify(msg));
 		}
-	}
-
-	announce(
-		opts: {
-			numwant?: number;
-			offers?: Array<{ offer_id: string; offer: RTCSessionDescriptionInit }>;
-		} = {}
-	): void {
-		const msg: TrackerMsg = {
-			action: 'announce',
-			info_hash: this.infoHash,
-			numwant: opts.numwant ?? 0,
-			peer_id: this.peerId
-		};
-
-		if (opts.offers) msg.offers = opts.offers;
-
-		this.send(msg);
-	}
-
-	close(): void {
-		this.ws?.close();
-		this.ws = null;
 	}
 }
 
@@ -231,22 +231,15 @@ type PendingReq = {
 };
 
 export class ClientTunnel {
-	private readonly passCode: string;
-	private readonly infoHash: string;
-	private readonly peerId: string;
 	private readonly callbacks: ClientCallbacks;
+	private channel: RTCDataChannel | null = null;
+	private readonly infoHash: string;
+	private readonly passCode: string;
 
 	private pc: RTCPeerConnection | null = null;
-	private channel: RTCDataChannel | null = null;
-	private trackers: Tracker[] = [];
+	private readonly peerId: string;
 	private pending = new Map<string, PendingReq>();
-
-	constructor(roomCode: string, passCode: string, callbacks: ClientCallbacks = {}) {
-		this.passCode = passCode;
-		this.infoHash = roomToInfoHash(roomCode);
-		this.peerId = randomStr(ID_LENGTHS.PEER);
-		this.callbacks = callbacks;
-	}
+	private trackers: Tracker[] = [];
 
 	get isConnected(): boolean {
 		return this.channel?.readyState === 'open';
@@ -348,44 +341,16 @@ export class ClientTunnel {
 		});
 	}
 
-	private routeResponseMsg(msg: TunnelMsg): void {
-		if (
-			msg.type !== 'res_start' &&
-			msg.type !== 'res_chunk' &&
-			msg.type !== 'res_end' &&
-			msg.type !== 'res_err'
-		)
-			return;
-
-		const req = this.pending.get(msg.id);
-
-		if (!req) return;
-
-		if (msg.type === 'res_start') {
-			req.onStart(msg.status, msg.headers);
-		} else if (msg.type === 'res_chunk') {
-			req.onChunk(msg.data);
-		} else if (msg.type === 'res_end') {
-			req.onEnd();
-			this.pending.delete(msg.id);
-		} else if (msg.type === 'res_err') {
-			req.onError(msg.message);
-			this.pending.delete(msg.id);
-		}
+	constructor(roomCode: string, passCode: string, callbacks: ClientCallbacks = {}) {
+		this.passCode = passCode;
+		this.infoHash = roomToInfoHash(roomCode);
+		this.peerId = randomStr(ID_LENGTHS.PEER);
+		this.callbacks = callbacks;
 	}
 
-	private rejectAllPending(reason: string): void {
-		for (const req of this.pending.values()) req.onError(reason);
-		this.pending.clear();
-	}
-
-	private cleanupConnection(): void {
-		this.channel?.close();
-		this.pc?.close();
-		for (const tracker of this.trackers) tracker.close();
-		this.channel = null;
-		this.pc = null;
-		this.trackers = [];
+	disconnect(): void {
+		this.rejectAllPending('disconnected');
+		this.cleanupConnection();
 	}
 
 	async fetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
@@ -484,8 +449,43 @@ export class ClientTunnel {
 		});
 	}
 
-	disconnect(): void {
-		this.rejectAllPending('disconnected');
-		this.cleanupConnection();
+	private cleanupConnection(): void {
+		this.channel?.close();
+		this.pc?.close();
+		for (const tracker of this.trackers) tracker.close();
+		this.channel = null;
+		this.pc = null;
+		this.trackers = [];
+	}
+
+	private rejectAllPending(reason: string): void {
+		for (const req of this.pending.values()) req.onError(reason);
+		this.pending.clear();
+	}
+
+	private routeResponseMsg(msg: TunnelMsg): void {
+		if (
+			msg.type !== 'res_start' &&
+			msg.type !== 'res_chunk' &&
+			msg.type !== 'res_end' &&
+			msg.type !== 'res_err'
+		)
+			return;
+
+		const req = this.pending.get(msg.id);
+
+		if (!req) return;
+
+		if (msg.type === 'res_start') {
+			req.onStart(msg.status, msg.headers);
+		} else if (msg.type === 'res_chunk') {
+			req.onChunk(msg.data);
+		} else if (msg.type === 'res_end') {
+			req.onEnd();
+			this.pending.delete(msg.id);
+		} else if (msg.type === 'res_err') {
+			req.onError(msg.message);
+			this.pending.delete(msg.id);
+		}
 	}
 }
