@@ -53,7 +53,7 @@
 </svelte:head>
 
 <div class="flex h-dvh items-center justify-center">
-	<div class="w-full max-w-md px-4" in:fade={{ duration: 300 }}>
+	<div in:fade={{ duration: 300 }} class="w-full max-w-md px-4">
 		<div class="mb-6 text-center">
 			<div class="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
 				<Radio class="h-8 w-8" />
@@ -74,20 +74,20 @@
 					Connecting to your server...
 				</div>
 
-				<Button variant="outline" onclick={handleUseAnotherCode} class="w-full">
+				<Button class="w-full" onclick={handleUseAnotherCode} variant="outline">
 					Use another code
 				</Button>
 			{:else}
 				<div class="space-y-1.5">
-					<Label for="connect-code" class="text-sm font-medium">Access code</Label>
+					<Label class="text-sm font-medium" for="connect-code">Access code</Label>
 
 					<Input
-						id="connect-code"
-						placeholder="Paste the {CODE_LENGTHS.SHARE}-character code"
 						bind:value={code}
-						onkeydown={handleKeydown}
-						disabled={connecting}
 						class="font-mono"
+						disabled={connecting}
+						id="connect-code"
+						onkeydown={handleKeydown}
+						placeholder="Paste the {CODE_LENGTHS.SHARE}-character code"
 					/>
 
 					{#if error}
@@ -98,9 +98,9 @@
 				</div>
 
 				<Button
-					onclick={handleConnect}
-					disabled={connecting || code.trim().length < CODE_LENGTHS.SHARE}
 					class="w-full"
+					disabled={connecting || code.trim().length < CODE_LENGTHS.SHARE}
+					onclick={handleConnect}
 				>
 					{#if connecting}
 						<Loader2 class="{ICON_CLASS_DEFAULT} animate-spin" />

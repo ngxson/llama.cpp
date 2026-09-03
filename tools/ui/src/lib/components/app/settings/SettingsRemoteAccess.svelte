@@ -58,7 +58,7 @@
 	}
 </script>
 
-<div class="space-y-12" in:fade={{ duration: 150 }}>
+<div in:fade={{ duration: 150 }} class="space-y-12">
 	<SettingsGroup title="Join">
 		<div class="space-y-4">
 			<p class="text-sm text-muted-foreground">
@@ -70,20 +70,21 @@
 				<div class="space-y-3">
 					<div class="flex items-center gap-3">
 						{#if webrtcStore.status === TunnelStatus.CONNECTING}
-							<Badge variant="secondary" class="gap-1.5">
+							<Badge class="gap-1.5" variant="secondary">
 								<Loader2 class="h-3 w-3 animate-spin" />
 								Connecting...
 							</Badge>
 						{:else if webrtcStore.status === TunnelStatus.CONNECTED}
-							<Badge variant="default" class="gap-1.5">
+							<Badge class="gap-1.5" variant="default">
 								<Wifi class="h-3 w-3" />
 								Connected to host
 							</Badge>
 						{:else if webrtcStore.status === TunnelStatus.ERROR}
-							<Badge variant="destructive" class="gap-1.5">
+							<Badge class="gap-1.5" variant="destructive">
 								<AlertCircle class="h-3 w-3" />
 								Disconnected
 							</Badge>
+
 							<span class="text-sm text-destructive">{webrtcStore.errorMessage}</span>
 						{/if}
 					</div>
@@ -97,7 +98,7 @@
 
 					<div class="flex flex-wrap gap-2">
 						{#if webrtcStore.status === TunnelStatus.ERROR}
-							<Button variant="outline" onclick={handleReconnect} disabled={connecting}>
+							<Button disabled={connecting} onclick={handleReconnect} variant="outline">
 								{#if connecting}
 									<Loader2 class="h-4 w-4 animate-spin" />
 									Reconnecting...
@@ -108,7 +109,7 @@
 							</Button>
 						{/if}
 
-						<Button variant="outline" onclick={handleLeave}>
+						<Button onclick={handleLeave} variant="outline">
 							<WifiOff class="h-4 w-4" />
 							Leave
 						</Button>
@@ -117,22 +118,24 @@
 			{:else}
 				<div class="space-y-3">
 					<div class="space-y-1.5">
-						<label for="join-code" class="text-sm font-medium">Access code</label>
+						<label class="text-sm font-medium" for="join-code">Access code</label>
+
 						<Input
+							bind:value={joinInput}
+							class="font-mono"
+							disabled={connecting}
 							id="join-code"
 							placeholder="Paste the {CODE_LENGTHS.SHARE}-character code from the host"
-							bind:value={joinInput}
-							disabled={connecting}
-							class="font-mono"
 						/>
+
 						{#if joinError}
 							<p class="text-sm text-destructive">{joinError}</p>
 						{/if}
 					</div>
 
 					<Button
-						onclick={handleJoin}
 						disabled={connecting || joinInput.trim().length < CODE_LENGTHS.SHARE}
+						onclick={handleJoin}
 					>
 						{#if connecting}
 							<Loader2 class="h-4 w-4 animate-spin" />

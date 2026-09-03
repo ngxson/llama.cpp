@@ -9,9 +9,9 @@ import { ClientTunnel } from '$lib/utils/webrtc-tunnel';
 const SERVERS_KEY = 'llama_servers';
 
 class WebRTCStore {
+	errorMessage = $state('');
 	mode = $state<RemoteAccessMode>(RemoteAccessMode.OFF);
 	status = $state<TunnelStatus>(TunnelStatus.IDLE);
-	errorMessage = $state('');
 
 	private clientTunnel: ClientTunnel | null = null;
 	// Requests that arrive while mode='client' but tunnel not yet open are held here.
@@ -19,10 +19,13 @@ class WebRTCStore {
 	// The original window.fetch saved before the interceptor is installed.
 	private originalFetch: typeof window.fetch | null = null;
 
-	constructor() {
-		if (browser) {
-			this.restoreServers();
-		}
+	/**
+	 * A web-only build cannot render the app before the tunnel carries its
+	 * requests, so the splash stays up while a restored session connects and
+	 * when it fails, where it offers another code.
+	 */
+	get isBlocked(): boolean {
+		return IS_WEB_ONLY && this.status !== TunnelStatus.CONNECTED;
 	}
 
 	get isConnected(): boolean {
@@ -38,13 +41,10 @@ class WebRTCStore {
 		return IS_WEB_ONLY && this.mode === RemoteAccessMode.OFF;
 	}
 
-	/**
-	 * A web-only build cannot render the app before the tunnel carries its
-	 * requests, so the splash stays up while a restored session connects and
-	 * when it fails, where it offers another code.
-	 */
-	get isBlocked(): boolean {
-		return IS_WEB_ONLY && this.status !== TunnelStatus.CONNECTED;
+	constructor() {
+		if (browser) {
+			this.restoreServers();
+		}
 	}
 
 	async joinAsClient(shareCode: string): Promise<void> {
@@ -57,6 +57,55 @@ class WebRTCStore {
 
 		await this.activateClient(roomCode, passCode);
 	}
+
+	leaveAsClient(): void {
+		this.uninstallInterceptor();
+		this.clientTunnel?.disconnect();
+		this.clientTunnel = null;
+		this.mode = RemoteAccessMode.OFF;
+		this.status = TunnelStatus.IDLE;
+		this.clearServers();
+	}
+
+	/** Retry the saved server after a failed or dropped connection. */
+	async reconnect(): Promise<void> {
+		const server = this.readTunnelServer();
+
+		if (!server) return;
+
+		this.clientTunnel?.disconnect();
+		this.clientTunnel = null;
+
+		await this.activateClient(
+			server.code.slice(0, CODE_LENGTHS.ROOM),
+			server.code.slice(CODE_LENGTHS.ROOM),
+			true
+		);
+	}
+
+	tunnelFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+		// If the tunnel is open, forward immediately.
+		if (this.clientTunnel?.isConnected) {
+			return this.clientTunnel.fetch(input, init);
+		}
+
+		// If we are still connecting, queue the request until the tunnel opens.
+		if (this.mode === RemoteAccessMode.CLIENT && this.status === TunnelStatus.CONNECTING) {
+			return new Promise<void>((resolve, reject) => {
+				this.connectionWaiters.push({ reject, resolve });
+			}).then(() => this.clientTunnel!.fetch(input, init));
+		}
+
+		throw new Error(
+			'Remote access is enabled but the tunnel is not connected. ' +
+				'Requests are not sent to the server hosting this page. ' +
+				'Reconnect or leave remote access in settings.'
+		);
+	}
+
+	// -------------------------------------------------------------------------
+	// Fetch interceptor (installed synchronously when client mode activates)
+	// -------------------------------------------------------------------------
 
 	private async activateClient(
 		roomCode: string,
@@ -110,33 +159,12 @@ class WebRTCStore {
 		}
 	}
 
-	/** Retry the saved server after a failed or dropped connection. */
-	async reconnect(): Promise<void> {
-		const server = this.readTunnelServer();
-
-		if (!server) return;
-
-		this.clientTunnel?.disconnect();
-		this.clientTunnel = null;
-
-		await this.activateClient(
-			server.code.slice(0, CODE_LENGTHS.ROOM),
-			server.code.slice(CODE_LENGTHS.ROOM),
-			true
-		);
-	}
-
-	leaveAsClient(): void {
-		this.uninstallInterceptor();
-		this.clientTunnel?.disconnect();
-		this.clientTunnel = null;
-		this.mode = RemoteAccessMode.OFF;
-		this.status = TunnelStatus.IDLE;
-		this.clearServers();
+	private clearServers(): void {
+		localStorage.removeItem(SERVERS_KEY);
 	}
 
 	// -------------------------------------------------------------------------
-	// Fetch interceptor (installed synchronously when client mode activates)
+	// Fetch proxy
 	// -------------------------------------------------------------------------
 
 	private installInterceptor(): void {
@@ -160,54 +188,9 @@ class WebRTCStore {
 		};
 	}
 
-	private uninstallInterceptor(): void {
-		if (!this.originalFetch) return;
-
-		window.fetch = this.originalFetch;
-		this.originalFetch = null;
-	}
-
-	// -------------------------------------------------------------------------
-	// Fetch proxy
-	// -------------------------------------------------------------------------
-
-	tunnelFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
-		// If the tunnel is open, forward immediately.
-		if (this.clientTunnel?.isConnected) {
-			return this.clientTunnel.fetch(input, init);
-		}
-
-		// If we are still connecting, queue the request until the tunnel opens.
-		if (this.mode === RemoteAccessMode.CLIENT && this.status === TunnelStatus.CONNECTING) {
-			return new Promise<void>((resolve, reject) => {
-				this.connectionWaiters.push({ reject, resolve });
-			}).then(() => this.clientTunnel!.fetch(input, init));
-		}
-
-		throw new Error(
-			'Remote access is enabled but the tunnel is not connected. ' +
-				'Requests are not sent to the server hosting this page. ' +
-				'Reconnect or leave remote access in settings.'
-		);
-	}
-
 	// -------------------------------------------------------------------------
 	// Persistence helpers
 	// -------------------------------------------------------------------------
-
-	private restoreServers(): void {
-		const server = this.readTunnelServer();
-
-		if (!server) return;
-
-		void this.activateClient(
-			server.code.slice(0, CODE_LENGTHS.ROOM),
-			server.code.slice(CODE_LENGTHS.ROOM),
-			true
-		).catch(() => {
-			// state is already reflected in status and errorMessage
-		});
-	}
 
 	/** First tunnel entry of the registry, the only one reachable for now. */
 	private readTunnelServer(): StoredServer | null {
@@ -225,12 +208,29 @@ class WebRTCStore {
 		}
 	}
 
-	private writeServers(servers: StoredServer[]): void {
-		localStorage.setItem(SERVERS_KEY, JSON.stringify(servers));
+	private restoreServers(): void {
+		const server = this.readTunnelServer();
+
+		if (!server) return;
+
+		void this.activateClient(
+			server.code.slice(0, CODE_LENGTHS.ROOM),
+			server.code.slice(CODE_LENGTHS.ROOM),
+			true
+		).catch(() => {
+			// state is already reflected in status and errorMessage
+		});
 	}
 
-	private clearServers(): void {
-		localStorage.removeItem(SERVERS_KEY);
+	private uninstallInterceptor(): void {
+		if (!this.originalFetch) return;
+
+		window.fetch = this.originalFetch;
+		this.originalFetch = null;
+	}
+
+	private writeServers(servers: StoredServer[]): void {
+		localStorage.setItem(SERVERS_KEY, JSON.stringify(servers));
 	}
 }
 
