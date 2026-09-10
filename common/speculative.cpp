@@ -420,6 +420,7 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
 struct common_speculative_impl_draft_eagle3 : public common_speculative_impl {
     common_params_speculative_draft params;
     llama_batch batch;
+    common_batch batch_enc; // encoder input, built from the extracted target features
 
     std::vector<common_sampler_ptr> smpls;
 
@@ -478,6 +479,8 @@ struct common_speculative_impl_draft_eagle3 : public common_speculative_impl {
         // llama_batch_init allocates only one of token/embd; eagle3 decoder needs both.
         // TODO: fix, how to call without malloc
         batch.token = (llama_token *) malloc(sizeof(llama_token) * n_b);
+
+        batch_enc = common_batch(ctx_dft);
 
         smpls.resize(n_seq);
         for (auto & s : smpls) {
@@ -609,24 +612,23 @@ struct common_speculative_impl_draft_eagle3 : public common_speculative_impl {
 
         g_embd_buf.resize((size_t) n_tokens * n_embd_dec);
 
-        // llama_encode() requires the full encoder batch to fit in n_ubatch.
+        // llama_process() requires the full encoder batch to fit in n_ubatch.
         // Allow batch > ubatch: eagle3's per-token encoder can be chunked safely.
         const int32_t n_ubatch_dft = (int32_t) llama_n_ubatch(ctx_dft);
         for (int32_t i = 0; i < n_tokens; i += n_ubatch_dft) {
             const int32_t n_chunk = std::min(n_ubatch_dft, n_tokens - i);
 
-            llama_batch enc_batch = {
-                /*.n_tokens =*/ n_chunk,
-                /*.token    =*/ nullptr,
-                /*.embd     =*/ features_buf.data() + (size_t) i * n_embd_enc,
-                /*.pos      =*/ nullptr,
-                /*.n_seq_id =*/ nullptr,
-                /*.seq_id   =*/ nullptr,
-                /*.logits   =*/ nullptr,
-            };
-            const int32_t rc = llama_encode(ctx_dft, enc_batch);
+            // the per-token encoder does not use positions, generate placeholder ones from the memory state
+            batch_enc.clear();
+            llama_pos pos = llama_memory_seq_pos_max(llama_get_memory(ctx_dft), 0) + 1;
+            for (int32_t j = 0; j < n_chunk; ++j) {
+                batch_enc.add_embd({ features_buf.data() + (size_t) (i + j) * n_embd_enc, 1, (size_t) n_embd_enc }, &pos, 0, true);
+                pos++;
+            }
+
+            const int32_t rc = llama_process(ctx_dft, LLAMA_PROCESS_TYPE_ENCODE, batch_enc.get());
             if (rc != 0) {
-                SPC_ERR("llama_encode(ctx_dft) failed rc=%d (n_tokens=%d, offset=%d)\n",
+                SPC_ERR("llama_process(ctx_dft) failed rc=%d (n_tokens=%d, offset=%d)\n",
                         rc, (int) n_chunk, (int) i);
                 return false;
             }
@@ -898,8 +900,9 @@ struct common_speculative_impl_draft_eagle3 : public common_speculative_impl {
 struct common_speculative_impl_draft_dflash : public common_speculative_impl {
     common_params_speculative_draft params;
 
-    common_batch batch;       // noise tokens
-    llama_batch batch_inject; // target features for KV cache injection
+    common_batch batch;        // noise tokens
+    common_batch batch_enc;    // encoder input, built from the extracted target features
+    common_batch batch_inject; // target features for KV cache injection
 
     std::vector<common_sampler_ptr> smpls;
 
@@ -996,14 +999,11 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
         this->n_max = this->params.n_max;
 
         batch        = common_batch(ctx_dft);
-        batch_inject = llama_batch_init(llama_n_ubatch(ctx_dft), n_embd_enc, n_seq);
+        batch_enc    = common_batch(ctx_dft);
+        batch_inject = common_batch(ctx_dft);
 
-        // embd batches on an M-RoPE draft need 4 position rows per token
+        // embd batches on an M-RoPE draft carry 4 position rows per token
         is_mrope = llama_model_rope_type(model_dft) == LLAMA_ROPE_TYPE_MROPE;
-        if (is_mrope) {
-            free(batch_inject.pos);
-            batch_inject.pos = (llama_pos *) malloc(sizeof(llama_pos) * 4 * llama_n_batch(ctx_dft));
-        }
 
         smpls.resize(n_seq);
         for (auto & s : smpls) {
@@ -1052,8 +1052,6 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
             llama_sampler_free(backend_chains[seq_id]);
         }
         backend_chains.clear();
-
-        llama_batch_free(batch_inject);
     }
 
     void begin(llama_seq_id seq_id, const llama_tokens & prompt) override {
@@ -1142,21 +1140,36 @@ struct common_speculative_impl_draft_dflash : public common_speculative_impl {
                     }
                 }
 
+                // fuse extracted features through DFlash encoder
+                // M-RoPE drafts read 4 position rows per token, the encoder ignores them otherwise
+                batch_enc.clear();
+                llama_pos pos_auto = llama_memory_seq_pos_max(llama_get_memory(ctx_dft), 0) + 1;
+                for (int32_t i = 0; i < n_chunk; ++i) {
+                    const llama_pos p = is_mrope ? batch_in.pos[i_batch_beg[seq_id] + offset + i] : pos_auto++;
+                    const llama_pos pos_arr[4] = { p, p, p, 0 };
+                    batch_enc.add_embd({ features_buf.data() + (size_t) i * n_embd_enc, 1, (size_t) n_embd_enc }, pos_arr, 0, true);
+                }
+
+                int32_t rc = llama_process(ctx_dft, LLAMA_PROCESS_TYPE_ENCODE, batch_enc.get());
+                if (rc != 0) {
+                    LOG_ERR("%s: llama_process(ctx_dft) failed rc=%d (n_tokens=%d, offset=%d)\n",
+                            __func__, rc, (int) n_chunk, (int) offset);
+                    return false;
+                }
+
+                const float * inp_g = llama_get_embeddings_nextn(ctx_dft);
+                GGML_ASSERT(inp_g && "DFlash encoder produced no output.");
+
+                // inject the DFlash decoder K/V cache at the tokens' target positions
+                batch_inject.clear();
                 for (int32_t i = 0; i < n_chunk; ++i) {
                     const llama_pos p = batch_in.pos[i_batch_beg[seq_id] + offset + i];
-                    batch_inject.pos[i] = p;
-                    if (is_mrope) {
-                        batch_inject.pos[1 * n_chunk + i] = p;
-                        batch_inject.pos[2 * n_chunk + i] = p;
-                        batch_inject.pos[3 * n_chunk + i] = 0;
-                    }
-                    batch_inject.n_seq_id[i]  = 1;
-                    batch_inject.seq_id[i][0] = seq_id;
-                    batch_inject.logits[i]    = false;
+                    const llama_pos pos_arr[4] = { p, p, p, 0 };
+                    batch_inject.add_embd({ inp_g + (size_t) i * n_embd_dec, 1, (size_t) n_embd_dec }, pos_arr, seq_id, false);
                 }
-                const int32_t rc = llama_decode(ctx_dft, batch_inject);
+                rc = llama_process(ctx_dft, LLAMA_PROCESS_TYPE_DECODE, batch_inject.get());
                 if (rc != 0) {
-                    LOG_ERR("%s: llama_decode(ctx_dft) failed rc=%d (n_tokens=%d, offset=%d)\n",
+                    LOG_ERR("%s: llama_process(ctx_dft) failed rc=%d (n_tokens=%d, offset=%d)\n",
                             __func__, rc, (int) n_chunk, (int) offset);
                     return false;
                 }
