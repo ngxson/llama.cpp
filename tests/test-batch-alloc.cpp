@@ -3,6 +3,7 @@
 #include "llama.h"
 
 #include "../src/llama-batch.h"
+#include "../src/llama-arch.h"
 #include "../src/llama-hparams.h"
 #include "../src/llama-memory.h"
 #include "../src/llama-vocab.h"
@@ -659,18 +660,34 @@ static void test_mtp_embd_width(testing & t) {
         hparams.n_embd_out_impl    = 96;  // makes n_embd_out() = 96
 
         t.assert_equal("default context uses n_embd_inp (deepstack-aware)",
-                (size_t) 192, llama_batch_ext_select_n_embd_inp(LLAMA_CONTEXT_TYPE_DEFAULT, hparams));
+                (size_t) 192, llama_batch_ext_select_n_embd_inp(LLAMA_CONTEXT_TYPE_DEFAULT, LLM_ARCH_LLAMA, hparams));
 
         t.assert_equal("MTP context uses n_embd_out instead (target-model hidden state width)",
-                (size_t) 96, llama_batch_ext_select_n_embd_inp(LLAMA_CONTEXT_TYPE_MTP, hparams));
+                (size_t) 96, llama_batch_ext_select_n_embd_inp(LLAMA_CONTEXT_TYPE_MTP, LLM_ARCH_LLAMA, hparams));
     });
 
     t.test("mtp_falls_back_to_n_embd_when_no_override", [&](testing & t) {
         llama_hparams hparams = {};
         hparams.n_embd = 64; // no deepstack, no n_embd_out_impl override
 
-        t.assert_equal((size_t) 64, llama_batch_ext_select_n_embd_inp(LLAMA_CONTEXT_TYPE_DEFAULT, hparams));
-        t.assert_equal((size_t) 64, llama_batch_ext_select_n_embd_inp(LLAMA_CONTEXT_TYPE_MTP, hparams));
+        t.assert_equal((size_t) 64, llama_batch_ext_select_n_embd_inp(LLAMA_CONTEXT_TYPE_DEFAULT, LLM_ARCH_LLAMA, hparams));
+        t.assert_equal((size_t) 64, llama_batch_ext_select_n_embd_inp(LLAMA_CONTEXT_TYPE_MTP, LLM_ARCH_LLAMA, hparams));
+    });
+
+    t.test("dflash_uses_n_embd_inp_enc", [&](testing & t) {
+        llama_hparams hparams = {};
+        hparams.n_embd              = 64;
+        hparams.n_embd_inp_enc_impl = 128; // makes n_embd_inp_enc() = 128
+        hparams.n_embd_out_impl     = 96;  // makes n_embd_out() = 96
+
+        t.assert_equal("DFlash uses the encoder input width",
+                (size_t) 128, llama_batch_ext_select_n_embd_inp(LLAMA_CONTEXT_TYPE_DEFAULT, LLM_ARCH_DFLASH, hparams));
+
+        t.assert_equal("other archs ignore n_embd_inp_enc",
+                (size_t) 64, llama_batch_ext_select_n_embd_inp(LLAMA_CONTEXT_TYPE_DEFAULT, LLM_ARCH_LLAMA, hparams));
+
+        t.assert_equal("MTP takes precedence over DFlash",
+                (size_t) 96, llama_batch_ext_select_n_embd_inp(LLAMA_CONTEXT_TYPE_MTP, LLM_ARCH_DFLASH, hparams));
     });
 }
 
