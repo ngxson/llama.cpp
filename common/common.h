@@ -1047,6 +1047,10 @@ struct common_batch {
     // attach a token embedding to the entry at idx, can only be set once per entry
     bool set_embd(int32_t idx, llama_embd embd);
 
+    // add an embedding-only entry (no token id)
+    // pos points to 1 position, or to n_pos_per_embd positions for M-RoPE models
+    int32_t add_embd(llama_embd embd, const llama_pos * pos, llama_seq_id seq_id, bool output);
+
     int32_t size() const { return (int32_t) tokens.size(); }
 };
 

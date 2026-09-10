@@ -1071,7 +1071,7 @@ extern "C" {
     LLAMA_API bool llama_batch_ext_set_pos(
                                 struct llama_batch_ext * batch,
                                                int32_t   idx,
-                                             llama_pos * pos);
+                                       const llama_pos * pos);
 
     // TODO: implement get_embeddings() and get_logits() for llama_batch_ext
 

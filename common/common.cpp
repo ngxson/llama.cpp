@@ -2237,6 +2237,19 @@ bool common_batch::set_embd(int32_t idx, llama_embd embd) {
     return llama_batch_ext_set_embd_token(batch.get(), idx, embd);
 }
 
+int32_t common_batch::add_embd(llama_embd embd, const llama_pos * pos, llama_seq_id seq_id, bool output) {
+    const int32_t idx = llama_batch_ext_add_embd(batch.get(), seq_id, embd);
+    if (idx < 0) {
+        return idx;
+    }
+    llama_batch_ext_set_pos(batch.get(), idx, pos);
+    if (output) {
+        llama_batch_ext_set_output_logits(batch.get(), idx, true);
+    }
+    tokens.push_back({ LLAMA_TOKEN_NULL, pos[0], seq_id, output });
+    return idx;
+}
+
 common_batch common_batch_get_one(llama_context * ctx, const llama_tokens & tokens) {
     common_batch batch(ctx);
 
