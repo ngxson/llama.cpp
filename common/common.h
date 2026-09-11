@@ -8,6 +8,7 @@
 #include "ggml.h"
 #include "llama.h"
 
+#include <array>
 #include <list>
 #include <set>
 #include <sstream>
@@ -1025,18 +1026,25 @@ void common_batch_add(
 struct common_batch {
     struct token {
         llama_token  id;
-        llama_pos    pos;
+        std::array<llama_pos, GGML_MROPE_SECTIONS> pos; // only pos[0] is used for text tokens
         llama_seq_id seq_id;
         bool         output;
+        llama_embd   embd; // non-owning view of the data passed to add_embd()/set_embd(), data == NULL if none
     };
 
     std::vector<token> tokens; // mirror of the entries, tokens[i] describes batch index i
     llama_batch_ext_ptr batch;
 
+    int32_t n_pos = 1; // positions per embedding entry, GGML_MROPE_SECTIONS for M-RoPE models
+
     common_batch() = default;
-    common_batch(struct llama_context * ctx) : batch(llama_batch_ext_init(ctx)) {}
+    common_batch(struct llama_context * ctx);
 
     llama_batch_ext * get() const { return batch.get(); }
+
+    // content type of the batch, all entries carry the same combination
+    bool has_token() const { return !tokens.empty() && tokens[0].id != LLAMA_TOKEN_NULL; }
+    bool has_embd () const { return !tokens.empty() && tokens[0].embd.data != nullptr; }
 
     void clear();
 
@@ -1058,6 +1066,10 @@ struct common_batch {
 // create a single-sequence batch from a list of tokens
 // last token always have output_logits set to true
 common_batch common_batch_get_one(struct llama_context * ctx, const llama_tokens & tokens);
+
+// convert a legacy llama_batch, applying its defaults: seq 0, positions continue from memory, last token is output
+// the embd rows are read at the model input width
+common_batch common_batch_from_llama_batch(struct llama_context * ctx, const llama_batch & batch);
 
 // decodes a single batch of tokens for a prompt and manages session tokens
 //
