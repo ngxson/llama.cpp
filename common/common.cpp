@@ -614,34 +614,6 @@ std::string string_from(const struct llama_context * ctx, const std::vector<llam
     return buf.str();
 }
 
-std::string string_from(const struct llama_context * ctx, const struct llama_batch & batch) {
-    std::stringstream buf;
-
-    buf << "[ ";
-
-    bool first = true;
-    for (int i = 0; i < batch.n_tokens; ++i) {
-        if (!first) {
-            buf << ", ";
-        } else {
-            first = false;
-        }
-
-        auto detokenized = common_token_to_piece(ctx, batch.token[i]);
-
-        buf << "\n"          << std::to_string(i)
-            << ", token '"   << detokenized << "'"
-            << ", pos "      << std::to_string(batch.pos[i])
-            << ", n_seq_id " << std::to_string(batch.n_seq_id[i])
-            << ", seq_id "   << std::to_string(batch.seq_id[i][0])
-            << ", logits "   << std::to_string(batch.logits[i]);
-    }
-
-    buf << " ]";
-
-    return buf.str();
-}
-
 void string_process_escapes(std::string & input) {
     std::size_t input_len = input.length();
     std::size_t output_idx = 0;
