@@ -2207,6 +2207,10 @@ bool common_replay_last_token(struct llama_context * ctx, llama_token last_token
     return true;
 }
 
+common_batch::common_batch(llama_context * ctx) : batch(llama_batch_ext_init(ctx)) {
+    n_pos = llama_model_rope_type(llama_get_model(ctx)) == LLAMA_ROPE_TYPE_MROPE ? GGML_MROPE_SECTIONS : 1;
+}
+
 void common_batch::clear() {
     tokens.clear();
     llama_batch_ext_clear(batch.get());
@@ -2221,7 +2225,7 @@ int32_t common_batch::add(llama_token id, llama_pos pos, llama_seq_id seq_id, bo
     if (output) {
         llama_batch_ext_set_output_logits(batch.get(), idx, true);
     }
-    tokens.push_back({ id, pos, seq_id, output });
+    tokens.push_back({ id, { pos, 0, 0, 0 }, seq_id, output, { nullptr, 0, 0 } });
     return idx;
 }
 
@@ -2234,7 +2238,14 @@ bool common_batch::set_output(int32_t idx, bool value) {
 }
 
 bool common_batch::set_embd(int32_t idx, llama_embd embd) {
-    return llama_batch_ext_set_embd_token(batch.get(), idx, embd);
+    if (idx < 0 || idx >= (int32_t) tokens.size()) {
+        return false;
+    }
+    if (!llama_batch_ext_set_embd_token(batch.get(), idx, embd)) {
+        return false;
+    }
+    tokens[idx].embd = embd;
+    return true;
 }
 
 int32_t common_batch::add_embd(llama_embd embd, const llama_pos * pos, llama_seq_id seq_id, bool output) {
@@ -2246,8 +2257,65 @@ int32_t common_batch::add_embd(llama_embd embd, const llama_pos * pos, llama_seq
     if (output) {
         llama_batch_ext_set_output_logits(batch.get(), idx, true);
     }
-    tokens.push_back({ LLAMA_TOKEN_NULL, pos[0], seq_id, output });
+    token t = { LLAMA_TOKEN_NULL, { 0, 0, 0, 0 }, seq_id, output, embd };
+    for (int32_t j = 0; j < n_pos; ++j) {
+        t.pos[j] = pos[j];
+    }
+    tokens.push_back(t);
     return idx;
+}
+
+common_batch common_batch_from_llama_batch(llama_context * ctx, const llama_batch & batch) {
+    common_batch res(ctx);
+
+    const bool has_token = batch.token != nullptr;
+    const bool has_embd  = batch.embd  != nullptr;
+
+    const size_t n_embd = llama_model_n_embd_inp(llama_get_model(ctx));
+
+    // positions continue from the memory when none are given
+    auto * mem = llama_get_memory(ctx);
+    std::vector<llama_pos> pos_next(llama_n_seq_max(ctx));
+    for (llama_seq_id s = 0; s < (llama_seq_id) pos_next.size(); ++s) {
+        pos_next[s] = llama_memory_seq_pos_max(mem, s) + 1;
+    }
+
+    for (int32_t i = 0; i < batch.n_tokens; ++i) {
+        const int32_t      n_sid  = batch.n_seq_id ? batch.n_seq_id[i]  : 1;
+        const llama_seq_id seq_id = batch.seq_id   ? batch.seq_id[i][0] : 0;
+
+        llama_pos pos[GGML_MROPE_SECTIONS] = { 0, 0, 0, 0 };
+        if (!batch.pos) {
+            pos[0] = pos_next[seq_id]++;
+        } else if (has_token) {
+            pos[0] = batch.pos[i];
+        } else {
+            // embedding batch: section-major layout pos[j*n_tokens + i]
+            for (int32_t j = 0; j < res.n_pos; ++j) {
+                pos[j] = batch.pos[j * batch.n_tokens + i];
+            }
+        }
+
+        const bool output = batch.logits ? batch.logits[i] != 0 : i == batch.n_tokens - 1;
+
+        const llama_embd embd = { has_embd ? batch.embd + (size_t) i * n_embd : nullptr, 1, n_embd };
+
+        int32_t idx;
+        if (has_token) {
+            idx = res.add(batch.token[i], pos[0], seq_id, output);
+            if (has_embd) {
+                res.set_embd(idx, embd);
+            }
+        } else {
+            idx = res.add_embd(embd, pos, seq_id, output);
+        }
+
+        for (int32_t s = 1; s < n_sid; ++s) {
+            llama_batch_ext_add_seq(res.get(), idx, batch.seq_id[i][s]);
+        }
+    }
+
+    return res;
 }
 
 common_batch common_batch_get_one(llama_context * ctx, const llama_tokens & tokens) {
