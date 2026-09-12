@@ -1411,6 +1411,12 @@ int llama_context::encode(const llama_batch_ext & batch_inp) {
 
     const auto & hparams = model.hparams;
 
+    if (batch_inp.n_embd > 0 && batch_inp.n_embd != hparams.n_embd_inp_enc()) {
+        LLAMA_LOG_ERROR("%s: embd row width %zu does not match the encoder input %u\n",
+                __func__, batch_inp.n_embd, hparams.n_embd_inp_enc());
+        return -1;
+    }
+
     // eagle3/DFlash: features as encoder input, and non-draft paths fall back to model's input dim
     const int64_t n_vocab = model.vocab.n_tokens();
 
@@ -1644,6 +1650,12 @@ int llama_context::decode(const llama_batch_ext & batch_inp) {
 
     if (batch_inp.tokens.empty()) {
         LLAMA_LOG_ERROR("%s: n_tokens == 0\n", __func__);
+        return -1;
+    }
+
+    if (batch_inp.n_embd > 0 && batch_inp.n_embd != batch_inp.n_embd_inp) {
+        LLAMA_LOG_ERROR("%s: embd row width %zu does not match the decoder input %zu\n",
+                __func__, batch_inp.n_embd, batch_inp.n_embd_inp);
         return -1;
     }
 
@@ -4222,7 +4234,7 @@ size_t llama_state_seq_load_file(llama_context * ctx, const char * filepath, lla
 // compat: llama_batch -> llama_batch_ext -> encode/decode
 
 int llama_context::encode(const llama_batch & batch_inp) {
-    llama_batch_compat compat(this, batch_inp);
+    llama_batch_compat compat(this, batch_inp, model.hparams.n_embd_inp_enc());
     return encode(*compat.batch_ext);
 }
 

@@ -1015,7 +1015,7 @@ extern "C" {
     // Add an input token to the batch, with default values:
     //     id = LLAMA_TOKEN_NULL
     //     embd = nullptr
-    //     pos = next available position for the sequence id
+    //     pos = not set, the caller must set it with llama_batch_ext_set_pos()
     // Returns the batch index (>= 0)
     // On error:
     //     -1: batch is full
@@ -1071,7 +1071,7 @@ extern "C" {
     LLAMA_API bool llama_batch_ext_set_pos(
                                 struct llama_batch_ext * batch,
                                                int32_t   idx,
-                                             llama_pos * pos);
+                                       const llama_pos * pos);
 
     // TODO: implement get_embeddings() and get_logits() for llama_batch_ext
 

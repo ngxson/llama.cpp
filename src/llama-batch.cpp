@@ -32,7 +32,7 @@ bool llama_batch_allocr::init(
     clear();
 
     this->vocab     = &vocab;
-    this->n_embd    = batch_inp.n_embd_inp;
+    this->n_embd    = batch_inp.n_embd > 0 ? batch_inp.n_embd : batch_inp.n_embd_inp;
     this->n_seq_max = batch_inp.n_seq_max;
 
     const int32_t n_tok = (int32_t) batch_inp.tokens.size();
@@ -1037,6 +1037,7 @@ size_t llama_batch_ext_select_n_embd_inp(llama_context_type ctx_type, llm_arch a
 llama_batch_ext::llama_batch_ext(llama_context * ctx) :
         n_tokens_max(llama_n_batch(ctx)),
         n_embd_inp(llama_batch_ext_select_n_embd_inp(ctx->get_cparams().ctx_type, llama_get_model(ctx)->arch, llama_get_model(ctx)->hparams)),
+        n_embd_inp_enc(llama_get_model(ctx)->hparams.n_embd_inp_enc()),
         n_seq_max(llama_n_seq_max(ctx)),
         mem(llama_get_memory(ctx)),
         n_vocab(llama_vocab_n_tokens(llama_model_get_vocab(llama_get_model(ctx)))),
@@ -1047,6 +1048,7 @@ llama_batch_ext::llama_batch_ext(llama_context * ctx) :
 void llama_batch_ext::clear() {
     tokens.clear();
     embd  .clear();
+    n_embd = 0;
 }
 
 int32_t llama_batch_ext::add_token(llama_seq_id seq_id) {
@@ -1101,9 +1103,16 @@ bool llama_batch_ext::set_token_embd(int32_t idx, llama_embd embd_in) {
     }
 
     const size_t n_total = embd_in.n_rows * embd_in.n_embd;
-    if (n_total != n_embd_inp) {
+    if (n_embd == 0) {
+        if (n_total != n_embd_inp && n_total != n_embd_inp_enc) {
+            LLAMA_LOG_ERROR("%s: embedding size mismatch, got %zu rows x %zu = %zu, expected %zu or %zu\n",
+                    __func__, embd_in.n_rows, embd_in.n_embd, n_total, n_embd_inp, n_embd_inp_enc);
+            return false;
+        }
+        n_embd = n_total;
+    } else if (n_total != n_embd) {
         LLAMA_LOG_ERROR("%s: embedding size mismatch, got %zu rows x %zu = %zu, expected %zu\n",
-                __func__, embd_in.n_rows, embd_in.n_embd, n_total, n_embd_inp);
+                __func__, embd_in.n_rows, embd_in.n_embd, n_total, n_embd);
         return false;
     }
 
@@ -1121,7 +1130,7 @@ bool llama_batch_ext::set_token_embd(int32_t idx, llama_embd embd_in) {
     return true;
 }
 
-bool llama_batch_ext::set_token_pos(int32_t idx, llama_pos * pos_in) {
+bool llama_batch_ext::set_token_pos(int32_t idx, const llama_pos * pos_in) {
     if (idx < 0 || idx >= (int32_t) tokens.size()) {
         return false;
     }
@@ -1191,7 +1200,7 @@ bool llama_batch_ext_add_seq(llama_batch_ext * batch, int32_t idx, llama_seq_id 
     return batch->add_seq(idx, seq_id);
 }
 
-bool llama_batch_ext_set_pos(llama_batch_ext * batch, int32_t idx, llama_pos * pos) {
+bool llama_batch_ext_set_pos(llama_batch_ext * batch, int32_t idx, const llama_pos * pos) {
     return batch->set_token_pos(idx, pos);
 }
 
@@ -1217,8 +1226,12 @@ bool llama_batch_ext_set_output_logits(llama_batch_ext * batch, int32_t idx, boo
 
 // llama_batch_compat
 
-llama_batch_compat::llama_batch_compat(llama_context * ctx, const llama_batch & batch_inp) {
+llama_batch_compat::llama_batch_compat(llama_context * ctx, const llama_batch & batch_inp, size_t n_embd_row) {
     batch_ext = new llama_batch_ext(ctx);
+
+    if (n_embd_row == 0) {
+        n_embd_row = batch_ext->n_embd_inp;
+    }
 
     // a batch can carry both, for example the MTP hook batches
     const bool has_token = batch_inp.token != nullptr;
@@ -1268,8 +1281,9 @@ llama_batch_compat::llama_batch_compat(llama_context * ctx, const llama_batch & 
         if (has_embd) {
             t.has_embd = true;
             t.embd_off = batch_ext->embd.size();
-            const float * src = batch_inp.embd + (size_t) i * batch_ext->n_embd_inp;
-            batch_ext->embd.insert(batch_ext->embd.end(), src, src + batch_ext->n_embd_inp);
+            const float * src = batch_inp.embd + (size_t) i * n_embd_row;
+            batch_ext->embd.insert(batch_ext->embd.end(), src, src + n_embd_row);
+            batch_ext->n_embd = n_embd_row;
         }
 
         // output flag
