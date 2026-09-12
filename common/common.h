@@ -1012,21 +1012,12 @@ struct common_memory {
 // Batch utils
 //
 
-void common_batch_clear(struct llama_batch & batch);
-
-void common_batch_add(
-                 struct llama_batch & batch,
-                        llama_token   id,
-                          llama_pos   pos,
-    const std::vector<llama_seq_id> & seq_ids,
-                               bool   logits);
-
 // wrapper around llama_batch_ext that provide getter functions for downstream code
 struct common_batch {
     struct token {
         llama_token  id;
         std::array<llama_pos, GGML_MROPE_SECTIONS> pos; // only pos[0] is used for text tokens
-        llama_seq_id seq_id;
+        llama_seq_id seq_id; // the first sequence id, see add_seq()
         bool         output;
         llama_embd   embd; // non-owning view of the data passed to add_embd()/set_embd(), data == NULL if none
     };
@@ -1050,6 +1041,12 @@ struct common_batch {
     // returns the batch index (>= 0), or a negative error from llama_batch_ext_add_token()
     int32_t add(llama_token id, llama_pos pos, llama_seq_id seq_id, bool output);
 
+    // same, with the entry shared by all seq_ids (must not be empty)
+    int32_t add(llama_token id, llama_pos pos, const std::vector<llama_seq_id> & seq_ids, bool output);
+
+    // add the entry at idx to another sequence, tokens[idx].seq_id keeps the first one
+    bool add_seq(int32_t idx, llama_seq_id seq_id);
+
     bool set_output(int32_t idx, bool value);
 
     // attach a token embedding to the entry at idx, can only be set once per entry
@@ -1063,12 +1060,33 @@ struct common_batch {
 };
 
 // create a single-sequence batch from a list of tokens
-// last token always have output_logits set to true
+// positions continue from the memory, last token always have output_logits set to true
+common_batch common_batch_get_one(struct llama_context * ctx, const llama_token * tokens, int32_t n_tokens);
 common_batch common_batch_get_one(struct llama_context * ctx, const llama_tokens & tokens);
 
-// convert a legacy llama_batch, applying its defaults: seq 0, positions continue from memory, last token is output
-// the embd rows are read at the model input width
-common_batch common_batch_from_llama_batch(struct llama_context * ctx, const llama_batch & batch);
+// entries for a batch larger than n_batch, rendered into a common_batch one chunk at a time
+struct common_batch_staged {
+    struct entry {
+        llama_token id;
+        llama_pos   pos;
+        std::vector<llama_seq_id> seq_ids;
+        bool        output;
+    };
+
+    std::vector<entry> entries;
+
+    void clear() { entries.clear(); }
+
+    int32_t size() const { return (int32_t) entries.size(); }
+
+    // returns the index of the new entry
+    int32_t add(llama_token id, llama_pos pos, const std::vector<llama_seq_id> & seq_ids, bool output);
+
+    void set_output(int32_t idx, bool value);
+
+    // render entries [off, off + n) into dst, index i in dst is index off + i here
+    void render(common_batch & dst, int32_t off, int32_t n) const;
+};
 
 // decodes a single batch of tokens for a prompt and manages session tokens
 //
