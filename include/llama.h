@@ -1015,7 +1015,7 @@ extern "C" {
     // Add an input token to the batch, with default values:
     //     id = LLAMA_TOKEN_NULL
     //     embd = nullptr
-    //     pos = undefined, set it with llama_batch_ext_set_pos()
+    //     pos = not set, the caller must set it with llama_batch_ext_set_pos()
     // Returns the batch index (>= 0)
     // On error:
     //     -1: batch is full
