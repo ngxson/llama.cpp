@@ -1405,6 +1405,14 @@ std::vector<llama_adapter_lora_ptr> & common_init_result::lora() {
     return pimpl->lora;
 }
 
+// MTP contexts take a hidden state per token, probe decodes use zeros, other contexts ignore the call
+static void common_batch_set_zero_state(common_batch & batch, const llama_model * model) {
+    const std::vector<float> state(llama_model_n_embd_out(model), 0.0f);
+    for (int32_t i = 0; i < batch.size(); ++i) {
+        batch.set_embd_state(i, { state.data(), 1, state.size() });
+    }
+}
+
 common_init_result_ptr common_init_from_params(common_params & params, bool model_only) {
     common_init_result_ptr res(new common_init_result(params, model_only));
 
@@ -1511,6 +1519,7 @@ common_init_result_ptr common_init_from_params(common_params & params, bool mode
         if (llama_model_has_decoder(model)) {
             tmp.resize(std::min(tmp.size(), (size_t) params.n_batch));
             common_batch batch = common_batch_get_one(lctx, tmp);
+            common_batch_set_zero_state(batch, model);
             llama_process(lctx, LLAMA_PROCESS_TYPE_DECODE, batch.get());
         }
         llama_memory_clear(llama_get_memory(lctx), true);
@@ -1573,6 +1582,7 @@ common_context_seq_rm_type common_context_can_seq_rm(llama_context * ctx) {
     int ret;
     {
         common_batch batch = common_batch_get_one(ctx, tmp);
+        common_batch_set_zero_state(batch, llama_get_model(ctx));
         ret = llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get());
     }
     if (ret != 0) {
@@ -2197,7 +2207,7 @@ int32_t common_batch::add(llama_token id, llama_pos pos, llama_seq_id seq_id, bo
     if (output) {
         llama_batch_ext_set_output_logits(batch.get(), idx, true);
     }
-    tokens.push_back({ id, { pos, 0, 0, 0 }, seq_id, output, { nullptr, 0, 0 } });
+    tokens.push_back({ id, { pos, 0, 0, 0 }, seq_id, output, { nullptr, 0, 0 }, { nullptr, 0, 0 } });
     return idx;
 }
 
@@ -2220,6 +2230,17 @@ bool common_batch::set_embd(int32_t idx, llama_embd embd) {
     return true;
 }
 
+bool common_batch::set_embd_state(int32_t idx, llama_embd state) {
+    if (idx < 0 || idx >= (int32_t) tokens.size()) {
+        return false;
+    }
+    if (!llama_batch_ext_set_embd_state(batch.get(), idx, state)) {
+        return false;
+    }
+    tokens[idx].state = state;
+    return true;
+}
+
 int32_t common_batch::add_embd(llama_embd embd, const llama_pos * pos, llama_seq_id seq_id, bool output) {
     const int32_t idx = llama_batch_ext_add_embd(batch.get(), seq_id, embd);
     if (idx < 0) {
@@ -2229,7 +2250,7 @@ int32_t common_batch::add_embd(llama_embd embd, const llama_pos * pos, llama_seq
     if (output) {
         llama_batch_ext_set_output_logits(batch.get(), idx, true);
     }
-    token t = { LLAMA_TOKEN_NULL, { 0, 0, 0, 0 }, seq_id, output, embd };
+    token t = { LLAMA_TOKEN_NULL, { 0, 0, 0, 0 }, seq_id, output, embd, { nullptr, 0, 0 } };
     for (int32_t j = 0; j < n_pos; ++j) {
         t.pos[j] = pos[j];
     }
