@@ -170,8 +170,8 @@ static void launch_mm_ids_helper(
 static __global__ void mm_ids_zero_dst(
         const int32_t * __restrict__ ids, float * __restrict__ dst,
         const int ne0, const int si1, const int64_t s1, const int64_t s2) {
-    const int iex = blockIdx.x; // slot
-    const int it  = blockIdx.y; // token
+    const int it  = blockIdx.x; // token
+    const int iex = blockIdx.y; // slot
 
     if (ids[it*si1 + iex] != -1) {
         return;
@@ -188,7 +188,7 @@ void ggml_cuda_launch_mm_ids_zero_dst(
         const int32_t * ids, float * dst,
         const int n_tokens, const int n_expert_used, const int ne0, const int si1,
         const int64_t s1, const int64_t s2, cudaStream_t stream) {
-    const dim3 num_blocks(n_expert_used, n_tokens, 1);
+    const dim3 num_blocks(n_tokens, n_expert_used, 1);
     mm_ids_zero_dst<<<num_blocks, CUDA_MM_IDS_ZERO_BLOCK_SIZE, 0, stream>>>(ids, dst, ne0, si1, s1, s2);
 }
 
