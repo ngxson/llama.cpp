@@ -1058,7 +1058,7 @@ extern "C" {
                                                int32_t   idx,
                                      struct llama_embd   embd);
 
-    // Set output embedding for the token at index idx in the batch
+    // Set if output embeddings should be available for the token at index idx in the batch
     // Note: for now, this is equivalent to setting the output logits
     LLAMA_API bool llama_batch_ext_set_output_embd(
                                 struct llama_batch_ext * batch,
