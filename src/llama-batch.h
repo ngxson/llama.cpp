@@ -103,6 +103,16 @@ struct llama_batch_ext {
 
     llama_batch_ext(llama_context * ctx);
 
+    // build without a llama_context, used by tests
+    llama_batch_ext(
+            size_t n_tokens_max,
+            size_t n_embd_inp,
+            size_t n_embd_inp_enc,
+            llama_seq_id n_seq_max,
+            llama_memory_i * mem,
+            llama_token n_vocab,
+            size_t n_pos_per_embd);
+
     void clear();
 
     // add an entry with an undefined position
