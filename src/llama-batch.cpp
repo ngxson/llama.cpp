@@ -1244,8 +1244,8 @@ bool llama_batch_ext_set_output_logits(llama_batch_ext * batch, int32_t idx, boo
 
 // llama_batch_compat
 
-llama_batch_compat::llama_batch_compat(llama_context * ctx, const llama_batch & batch_inp, size_t n_embd_row) {
-    batch_ext = new llama_batch_ext(ctx);
+void llama_batch_compat::init(llama_batch_ext & dst, const llama_batch & batch_inp, size_t n_embd_row) {
+    llama_batch_ext * batch_ext = &dst;
 
     if (n_embd_row == 0) {
         n_embd_row = batch_ext->n_embd_inp;
@@ -1312,6 +1312,11 @@ llama_batch_compat::llama_batch_compat(llama_context * ctx, const llama_batch & 
 
         batch_ext->tokens.push_back(t);
     }
+}
+
+llama_batch_compat::llama_batch_compat(llama_context * ctx, const llama_batch & batch_inp, size_t n_embd_row) {
+    batch_ext = new llama_batch_ext(ctx);
+    init(*batch_ext, batch_inp, n_embd_row);
 }
 
 llama_batch_compat::~llama_batch_compat() {

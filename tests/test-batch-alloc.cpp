@@ -794,6 +794,215 @@ static void test_mrope(testing & t) {
     });
 }
 
+// conversion from the old llama_batch API (llama_batch_compat::init)
+static void test_compat(testing & t) {
+    llama_vocab vocab;
+
+    t.test("token_batch_explicit_fields", [&](testing & t) {
+        llama_token  token[3]    = { 5, 6, 7 };
+        llama_pos    pos[3]      = { 3, 4, 5 };
+        int32_t      n_seq_id[3] = { 1, 1, 2 };
+        llama_seq_id s0[1]       = { 1 };
+        llama_seq_id s1[1]       = { 1 };
+        llama_seq_id s2[2]       = { 1, 2 };
+        llama_seq_id * seq_id[4] = { s0, s1, s2, nullptr };
+        int8_t       logits[3]   = { 0, 1, 0 };
+
+        llama_batch lb = {};
+        lb.n_tokens = 3;
+        lb.token    = token;
+        lb.pos      = pos;
+        lb.n_seq_id = n_seq_id;
+        lb.seq_id   = seq_id;
+        lb.logits   = logits;
+
+        batch_builder bb(2, nullptr, 4, 1, /*n_vocab*/ 100);
+        llama_batch_compat::init(bb.b, lb);
+
+        t.assert_equal((size_t) 3, bb.b.tokens.size());
+        t.assert_true("no embeddings", bb.b.embd.empty() && bb.b.n_embd == 0);
+        for (int i = 0; i < 3; ++i) {
+            t.assert_equal(token[i], bb.b.tokens[i].id);
+            t.assert_equal(pos[i],   bb.b.tokens[i].pos[0]);
+            t.assert_true(!bb.b.tokens[i].has_embd);
+            t.assert_equal(logits[i] != 0, bb.b.tokens[i].output);
+        }
+        t.assert_equal((size_t) 1, bb.b.tokens[0].seq_ids.size());
+        t.assert_true(bb.b.tokens[0].seq_ids.count(1) == 1);
+        t.assert_equal((size_t) 2, bb.b.tokens[2].seq_ids.size());
+        t.assert_true(bb.b.tokens[2].seq_ids.count(1) == 1 && bb.b.tokens[2].seq_ids.count(2) == 1);
+
+        // round trip through the allocator
+        llama_batch_allocr ba(1);
+        t.assert_true(ba.init(bb.b, vocab, false));
+        const llama_batch & batch = ba.get_batch();
+        t.assert_true(batch.token != nullptr && batch.embd == nullptr);
+        for (int i = 0; i < 3; ++i) {
+            t.assert_equal(token[i], batch.token[i]);
+            t.assert_equal(pos[i],   batch.pos[i]);
+        }
+        t.assert_equal(1u, ba.get_n_outputs());
+    });
+
+    t.test("defaults_for_null_fields", [&](testing & t) {
+        // llama_batch_get_one: only token and n_tokens are set
+        mock_memory mem;
+        mem.ranges[0] = {0, 9};
+
+        llama_token token[3] = { 5, 6, 7 };
+        llama_batch lb = llama_batch_get_one(token, 3);
+
+        batch_builder bb(2, &mem, 4, 1, /*n_vocab*/ 100);
+        llama_batch_compat::init(bb.b, lb);
+
+        t.assert_equal((size_t) 3, bb.b.tokens.size());
+        for (int i = 0; i < 3; ++i) {
+            t.assert_equal("pos continues after memory",  10 + i, bb.b.tokens[i].pos[0]);
+            t.assert_equal("seq_id defaults to 0",        (size_t) 1, bb.b.tokens[i].seq_ids.size());
+            t.assert_true(bb.b.tokens[i].seq_ids.count(0) == 1);
+        }
+        t.assert_true("only the last token is an output", !bb.b.tokens[0].output && !bb.b.tokens[1].output && bb.b.tokens[2].output);
+
+        llama_batch_allocr ba(1);
+        t.assert_true(ba.init(bb.b, vocab, false));
+        t.assert_equal(10, ba.seq_pos_min(0));
+        t.assert_equal(12, ba.seq_pos_max(0));
+    });
+
+    t.test("auto_pos_starts_at_zero_without_memory", [&](testing & t) {
+        llama_token token[2] = { 5, 6 };
+        llama_batch lb = llama_batch_get_one(token, 2);
+
+        batch_builder bb(2, nullptr, 4, 1, /*n_vocab*/ 100);
+        llama_batch_compat::init(bb.b, lb);
+
+        t.assert_equal(0, bb.b.tokens[0].pos[0]);
+        t.assert_equal(1, bb.b.tokens[1].pos[0]);
+    });
+
+    t.test("auto_pos_is_tracked_per_seq", [&](testing & t) {
+        mock_memory mem;
+        mem.ranges[0] = {0, 9}; // seq 1 is empty
+
+        llama_token  token[4]    = { 5, 6, 7, 8 };
+        int32_t      n_seq_id[4] = { 1, 1, 1, 1 };
+        llama_seq_id s0[1] = { 0 };
+        llama_seq_id s1[1] = { 1 };
+        llama_seq_id * seq_id[5] = { s0, s1, s0, s1, nullptr };
+
+        llama_batch lb = {};
+        lb.n_tokens = 4;
+        lb.token    = token;
+        lb.n_seq_id = n_seq_id;
+        lb.seq_id   = seq_id;
+
+        batch_builder bb(2, &mem, 4, 1, /*n_vocab*/ 100);
+        llama_batch_compat::init(bb.b, lb);
+
+        t.assert_equal("seq 0 continues after memory", 10, bb.b.tokens[0].pos[0]);
+        t.assert_equal("seq 1 starts from 0",           0, bb.b.tokens[1].pos[0]);
+        t.assert_equal(11, bb.b.tokens[2].pos[0]);
+        t.assert_equal( 1, bb.b.tokens[3].pos[0]);
+    });
+
+    t.test("embd_batch_with_mrope_positions", [&](testing & t) {
+        const uint32_t n_pos  = 4;
+        const uint32_t n_embd = 2;
+
+        float embd[2*n_embd] = { 0, 1, 100, 101 };
+        // section-major layout: pos[j*n_tokens + i]
+        llama_pos pos[n_pos*2] = {
+            10, 11, // temporal
+             5,  6, // y
+             7,  8, // x
+             0,  0,
+        };
+
+        llama_batch lb = {};
+        lb.n_tokens = 2;
+        lb.embd     = embd;
+        lb.pos      = pos;
+
+        batch_builder bb(n_embd, nullptr, 4, n_pos);
+        llama_batch_compat::init(bb.b, lb);
+
+        t.assert_equal((size_t) 2, bb.b.tokens.size());
+        t.assert_equal("batch width", (size_t) n_embd, bb.b.n_embd);
+        for (int i = 0; i < 2; ++i) {
+            t.assert_true(bb.b.tokens[i].has_embd);
+            t.assert_equal(LLAMA_TOKEN_NULL, bb.b.tokens[i].id);
+            t.assert_equal((size_t) i*n_embd, bb.b.tokens[i].embd_off);
+            for (uint32_t j = 0; j < n_pos; ++j) {
+                t.assert_equal(pos[j*2 + i], bb.b.tokens[i].pos[j]);
+            }
+        }
+        t.assert_equal(100.0f, bb.b.embd[2]);
+        t.assert_equal(101.0f, bb.b.embd[3]);
+
+        llama_batch_allocr ba(n_pos);
+        t.assert_true(ba.init(bb.b, vocab, false));
+        llama_ubatch ub = ba.split_simple(2);
+        const llama_pos expected[8] = {10, 11, 5, 6, 7, 8, 0, 0};
+        for (int i = 0; i < 8; ++i) {
+            t.assert_equal(expected[i], ub.pos[i]);
+        }
+    });
+
+    t.test("token_and_embd_both_set", [&](testing & t) {
+        // e.g. MTP hook batches
+        llama_token token[2] = { 5, 6 };
+        float       embd[4]  = { 0, 1, 100, 101 };
+        llama_pos   pos[2]   = { 3, 4 };
+
+        llama_batch lb = {};
+        lb.n_tokens = 2;
+        lb.token    = token;
+        lb.embd     = embd;
+        lb.pos      = pos;
+
+        batch_builder bb(2, nullptr, 4, 1, /*n_vocab*/ 100);
+        llama_batch_compat::init(bb.b, lb);
+
+        for (int i = 0; i < 2; ++i) {
+            t.assert_equal(token[i], bb.b.tokens[i].id);
+            t.assert_true(bb.b.tokens[i].has_embd);
+            t.assert_equal("one position per token", pos[i], bb.b.tokens[i].pos[0]);
+        }
+        t.assert_equal(100.0f, bb.b.embd[2]);
+
+        llama_batch_allocr ba(1);
+        t.assert_true(ba.init(bb.b, vocab, false));
+        const llama_batch & batch = ba.get_batch();
+        t.assert_true("both kept", batch.token != nullptr && batch.embd != nullptr);
+    });
+
+    t.test("embd_row_width_override", [&](testing & t) {
+        // encoder input (e.g. eagle3/dflash) is wider than the decoder input
+        const uint32_t n_embd_enc = 6;
+        float embd[2*n_embd_enc];
+        for (int i = 0; i < 2*6; ++i) {
+            embd[i] = (float) i;
+        }
+
+        llama_batch lb = {};
+        lb.n_tokens = 2;
+        lb.embd     = embd;
+
+        batch_builder bb(2, nullptr, 4, 1, 0, n_embd_enc);
+        llama_batch_compat::init(bb.b, lb, n_embd_enc);
+
+        t.assert_equal((size_t) n_embd_enc, bb.b.n_embd);
+        t.assert_equal((size_t) 2*n_embd_enc, bb.b.embd.size());
+        t.assert_equal((size_t) n_embd_enc, bb.b.tokens[1].embd_off);
+        t.assert_equal(6.0f, bb.b.embd[n_embd_enc]);
+
+        llama_batch_allocr ba(1);
+        t.assert_true(ba.init(bb.b, vocab, false));
+        llama_ubatch ub = ba.split_simple(2);
+        t.assert_equal("ubatch uses the encoder stride", 6.0f, ub.embd[n_embd_enc]);
+    });
+}
+
 static void test_mtp_embd_width(testing & t) {
     t.test("mtp_uses_n_embd_out", [&](testing & t) {
         llama_hparams hparams = {};
@@ -850,6 +1059,7 @@ int main(int argc, char ** argv) {
 
     t.test("init",           test_init);
     t.test("content_types",  test_content_types);
+    t.test("compat",         test_compat);
     t.test("split",          test_split);
     t.test("keep_tail",      test_keep_tail);
     t.test("mrope",          test_mrope);

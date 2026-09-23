@@ -232,7 +232,12 @@ private:
 // RAII translation layer: converts a llama_batch (old API) into a llama_batch_ext
 struct llama_batch_compat {
     llama_batch_ext * batch_ext;
+
     // n_embd_row is the embd row width of batch_inp, 0 = use the decoder width
     llama_batch_compat(llama_context * ctx, const llama_batch & batch_inp, size_t n_embd_row = 0);
     ~llama_batch_compat();
+
+    // fill an existing llama_batch_ext from a llama_batch (old API)
+    // note: this is called directly by the tests, skipping llama_context creation
+    static void init(llama_batch_ext & batch_ext, const llama_batch & batch_inp, size_t n_embd_row = 0);
 };
