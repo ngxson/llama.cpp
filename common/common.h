@@ -1034,7 +1034,7 @@ struct common_batch {
     std::vector<token> tokens; // mirror of the entries, tokens[i] describes batch index i
     llama_batch_ext_ptr batch;
 
-    int32_t n_pos = 1; // positions per embedding entry, GGML_MROPE_SECTIONS for M-RoPE models
+    int32_t n_pos = 1; // positions per embedding entry, GGML_MROPE_SECTIONS for MROPE/IMROPE
 
     common_batch() = default;
     common_batch(struct llama_context * ctx);
@@ -1047,7 +1047,7 @@ struct common_batch {
 
     void clear();
 
-    // returns the batch index (>= 0), or a negative error from llama_batch_ext_add_token()
+    // returns the batch index (>= 0), aborts if the entry cannot be added (batch full, invalid token or seq id)
     int32_t add(llama_token id, llama_pos pos, llama_seq_id seq_id, bool output);
 
     bool set_output(int32_t idx, bool value);
@@ -1055,8 +1055,8 @@ struct common_batch {
     // attach a token embedding to the entry at idx, can only be set once per entry
     bool set_embd(int32_t idx, llama_embd embd);
 
-    // add an embedding-only entry (no token id)
-    // pos points to 1 position, or to n_pos_per_embd positions for M-RoPE models
+    // add an embedding-only entry (no token id), aborts like add() on failure
+    // pos points to n_pos positions
     int32_t add_embd(llama_embd embd, const llama_pos * pos, llama_seq_id seq_id, bool output);
 
     int32_t size() const { return (int32_t) tokens.size(); }

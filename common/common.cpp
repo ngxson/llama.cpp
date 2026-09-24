@@ -2179,7 +2179,8 @@ bool common_replay_last_token(struct llama_context * ctx, llama_token last_token
 }
 
 common_batch::common_batch(llama_context * ctx) : batch(llama_batch_ext_init(ctx)) {
-    n_pos = llama_model_rope_type(llama_get_model(ctx)) == LLAMA_ROPE_TYPE_MROPE ? GGML_MROPE_SECTIONS : 1;
+    const auto rope_type = llama_model_rope_type(llama_get_model(ctx));
+    n_pos = rope_type == LLAMA_ROPE_TYPE_MROPE || rope_type == LLAMA_ROPE_TYPE_IMROPE ? GGML_MROPE_SECTIONS : 1;
 }
 
 void common_batch::clear() {
@@ -2190,7 +2191,7 @@ void common_batch::clear() {
 int32_t common_batch::add(llama_token id, llama_pos pos, llama_seq_id seq_id, bool output) {
     const int32_t idx = llama_batch_ext_add_token(batch.get(), seq_id, id);
     if (idx < 0) {
-        return idx;
+        GGML_ABORT("%s: failed to add token %d to the batch (error %d, n_tokens = %d)\n", __func__, id, idx, size());
     }
     llama_batch_ext_set_pos(batch.get(), idx, &pos);
     if (output) {
@@ -2222,7 +2223,7 @@ bool common_batch::set_embd(int32_t idx, llama_embd embd) {
 int32_t common_batch::add_embd(llama_embd embd, const llama_pos * pos, llama_seq_id seq_id, bool output) {
     const int32_t idx = llama_batch_ext_add_embd(batch.get(), seq_id, embd);
     if (idx < 0) {
-        return idx;
+        GGML_ABORT("%s: failed to add embedding to the batch (error %d, n_tokens = %d)\n", __func__, idx, size());
     }
     llama_batch_ext_set_pos(batch.get(), idx, pos);
     if (output) {
