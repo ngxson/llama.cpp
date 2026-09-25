@@ -181,6 +181,9 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
 
     common_batch batch;
 
+    // zero row at the draft input width, stands in for target embeddings the draft cannot read
+    std::vector<float> zeros;
+
     std::vector<common_sampler_ptr> smpls;
 
     common_speculative_impl_draft_simple(const common_params_speculative & params, uint32_t n_seq)
@@ -193,6 +196,8 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
         if (!ctx_dft) {
             throw std::runtime_error("draft-simple requires a draft context");
         }
+
+        zeros.assign(llama_model_n_embd_inp(llama_get_model(ctx_dft)), 0.0f);
 
         SPC_TRC("%s", "adding speculative implementation 'draft-simple'\n");
         SPC_TRC("- n_max=%d, n_min=%d, p_min=%f\n", this->params.n_max, this->params.n_min, this->params.p_min);
@@ -268,7 +273,10 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
                     batch.set_embd(idx, t.embd);
                 }
             } else {
-                batch.add_embd(t.embd, t.pos.data(), t.seq_id, output);
+                // a draft with a different width (e.g. a smaller model) gets zeros instead, keeping its positions contiguous
+                const bool same_width = t.embd.n_rows * t.embd.n_embd == zeros.size();
+                const llama_embd embd = same_width ? t.embd : llama_embd{ zeros.data(), 1, zeros.size() };
+                batch.add_embd(embd, t.pos.data(), t.seq_id, output);
             }
         }
 
