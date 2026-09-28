@@ -183,6 +183,7 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
 
     // zero row at the draft input width, stands in for target embeddings the draft cannot read
     std::vector<float> zeros;
+    bool zeros_warned = false; // the substitution is reported once
 
     std::vector<common_sampler_ptr> smpls;
 
@@ -273,8 +274,17 @@ struct common_speculative_impl_draft_simple : public common_speculative_impl {
                     batch.set_embd(idx, t.embd);
                 }
             } else {
-                // a draft with a different width (e.g. a smaller model) gets zeros instead, keeping its positions contiguous
-                const bool same_width = t.embd.n_rows * t.embd.n_embd == zeros.size();
+                // mtmd input is projected by the target encoder, a draft with a different width cannot read it
+                // it gets zeros instead, keeping its positions contiguous
+                // ref: https://github.com/ggml-org/llama.cpp/pull/29385#discussion_r4124743243
+                const size_t n_embd = t.embd.n_rows * t.embd.n_embd;
+                const bool same_width = n_embd == zeros.size();
+                if (!same_width && !zeros_warned) {
+                    SPC_WRN("target embeddings of size %zu do not fit the draft input width %zu, "
+                            "the draft receives zero rows for them and drafts after multimodal input will be poor\n",
+                            n_embd, zeros.size());
+                    zeros_warned = true;
+                }
                 const llama_embd embd = same_width ? t.embd : llama_embd{ zeros.data(), 1, zeros.size() };
                 batch.add_embd(embd, t.pos.data(), t.seq_id, output);
             }
