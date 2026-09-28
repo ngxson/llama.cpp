@@ -2122,52 +2122,41 @@ common_batch::common_batch(llama_context * ctx) : batch(llama_batch_ext_init(ctx
 
 void common_batch::clear() {
     tokens.clear();
-    llama_batch_ext_clear(batch.get());
 }
 
 int32_t common_batch::add(llama_token id, llama_pos pos, llama_seq_id seq_id, bool output) {
-    const int32_t idx = llama_batch_ext_add_token(batch.get(), seq_id, id);
-    if (idx < 0) {
-        GGML_ABORT("%s: failed to add token %d to the batch (error %d, n_tokens = %d)\n", __func__, id, idx, size());
-    }
-    llama_batch_ext_set_pos(batch.get(), idx, &pos);
-    if (output) {
-        llama_batch_ext_set_output_logits(batch.get(), idx, true);
-    }
-    tokens.push_back({ id, { pos, 0, 0, 0 }, seq_id, output, { nullptr, 0, 0 } });
-    return idx;
+    tokens.push_back({ id, { pos, 0, 0, 0 }, seq_id, output, { nullptr, 0, 0 }, {} });
+    return size() - 1;
 }
 
 int32_t common_batch::add(llama_token id, llama_pos pos, const std::vector<llama_seq_id> & seq_ids, bool output) {
     GGML_ASSERT(!seq_ids.empty());
 
     const int32_t idx = add(id, pos, seq_ids[0], output);
-    for (size_t s = 1; idx >= 0 && s < seq_ids.size(); ++s) {
+    for (size_t s = 1; s < seq_ids.size(); ++s) {
         add_seq(idx, seq_ids[s]);
     }
     return idx;
 }
 
 bool common_batch::add_seq(int32_t idx, llama_seq_id seq_id) {
-    if (idx < 0 || idx >= (int32_t) tokens.size()) {
+    if (idx < 0 || idx >= size()) {
         return false;
     }
-    return llama_batch_ext_add_seq(batch.get(), idx, seq_id);
+    tokens[idx].seq_ids_extra.push_back(seq_id);
+    return true;
 }
 
 bool common_batch::set_output(int32_t idx, bool value) {
-    if (idx < 0 || idx >= (int32_t) tokens.size()) {
+    if (idx < 0 || idx >= size()) {
         return false;
     }
     tokens[idx].output = value;
-    return llama_batch_ext_set_output_logits(batch.get(), idx, value);
+    return true;
 }
 
 bool common_batch::set_embd(int32_t idx, llama_embd embd) {
-    if (idx < 0 || idx >= (int32_t) tokens.size()) {
-        return false;
-    }
-    if (!llama_batch_ext_set_embd_token(batch.get(), idx, embd)) {
+    if (idx < 0 || idx >= size() || tokens[idx].embd.data != nullptr) {
         return false;
     }
     tokens[idx].embd = embd;
@@ -2175,20 +2164,54 @@ bool common_batch::set_embd(int32_t idx, llama_embd embd) {
 }
 
 int32_t common_batch::add_embd(llama_embd embd, const llama_pos * pos, llama_seq_id seq_id, bool output) {
-    const int32_t idx = llama_batch_ext_add_embd(batch.get(), seq_id, embd);
-    if (idx < 0) {
-        GGML_ABORT("%s: failed to add embedding to the batch (error %d, n_tokens = %d)\n", __func__, idx, size());
-    }
-    llama_batch_ext_set_pos(batch.get(), idx, pos);
-    if (output) {
-        llama_batch_ext_set_output_logits(batch.get(), idx, true);
-    }
-    token t = { LLAMA_TOKEN_NULL, { 0, 0, 0, 0 }, seq_id, output, embd };
+    token t = { LLAMA_TOKEN_NULL, { 0, 0, 0, 0 }, seq_id, output, embd, {} };
     for (int32_t j = 0; j < n_pos; ++j) {
         t.pos[j] = pos[j];
     }
     tokens.push_back(t);
-    return idx;
+    return size() - 1;
+}
+
+llama_batch_ext * common_batch::get_sub_batch(int32_t off, int32_t n) {
+    GGML_ASSERT(batch && "common_batch was not initialized with a context");
+    GGML_ASSERT(off >= 0 && n >= 0 && off + n <= size());
+
+    llama_batch_ext * res = batch.get();
+    llama_batch_ext_clear(res);
+
+    for (int32_t i = off; i < off + n; ++i) {
+        const token & t = tokens[i];
+
+        int32_t idx;
+        if (t.id != LLAMA_TOKEN_NULL) {
+            idx = llama_batch_ext_add_token(res, t.seq_id, t.id);
+            if (idx < 0) {
+                GGML_ABORT("%s: failed to add token %d at index %d (error %d, n = %d)\n", __func__, t.id, i, idx, n);
+            }
+            llama_batch_ext_set_pos(res, idx, t.pos.data());
+            if (t.embd.data && !llama_batch_ext_set_embd_token(res, idx, t.embd)) {
+                GGML_ABORT("%s: failed to set the embedding of token %d at index %d\n", __func__, t.id, i);
+            }
+        } else {
+            idx = llama_batch_ext_add_embd(res, t.seq_id, t.embd);
+            if (idx < 0) {
+                GGML_ABORT("%s: failed to add embedding at index %d (error %d, n = %d)\n", __func__, i, idx, n);
+            }
+            llama_batch_ext_set_pos(res, idx, t.pos.data());
+        }
+        GGML_ASSERT(idx == i - off);
+
+        for (const llama_seq_id seq_id : t.seq_ids_extra) {
+            if (!llama_batch_ext_add_seq(res, idx, seq_id)) {
+                GGML_ABORT("%s: failed to add seq %d to the entry at index %d\n", __func__, seq_id, i);
+            }
+        }
+        if (t.output) {
+            llama_batch_ext_set_output_logits(res, idx, true);
+        }
+    }
+
+    return res;
 }
 
 common_batch common_batch_get_one(llama_context * ctx, const llama_token * tokens, int32_t n_tokens) {
@@ -2208,28 +2231,6 @@ common_batch common_batch_get_one(llama_context * ctx, const llama_token * token
 
 common_batch common_batch_get_one(llama_context * ctx, const llama_tokens & tokens) {
     return common_batch_get_one(ctx, tokens.data(), (int32_t) tokens.size());
-}
-
-int32_t common_batch_staged::add(llama_token id, llama_pos pos, const std::vector<llama_seq_id> & seq_ids, bool output) {
-    GGML_ASSERT(!seq_ids.empty());
-    entries.push_back({ id, pos, seq_ids, output });
-    return (int32_t) entries.size() - 1;
-}
-
-void common_batch_staged::set_output(int32_t idx, bool value) {
-    GGML_ASSERT(idx >= 0 && idx < size());
-    entries[idx].output = value;
-}
-
-void common_batch_staged::render(common_batch & dst, int32_t off, int32_t n) const {
-    GGML_ASSERT(off >= 0 && n >= 0 && off + n <= size());
-
-    dst.clear();
-    for (int32_t i = off; i < off + n; ++i) {
-        const auto & e = entries[i];
-        const int32_t idx = dst.add(e.id, e.pos, e.seq_ids, e.output);
-        GGML_ASSERT(idx == i - off && "common_batch is full");
-    }
 }
 
 bool common_prompt_batch_decode(

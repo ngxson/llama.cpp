@@ -250,10 +250,7 @@ int main(int argc, char ** argv) {
 
     // the max batch size is as large as the context to handle cases where we get very long input prompt from multiple
     // users. regardless of the size, the main loop will chunk the batch into a maximum of params.n_batch tokens at a time
-    common_batch_staged batch;
-
-    // the chunk of the batch being decoded
-    common_batch batch_view(ctx);
+    common_batch batch(ctx);
 
     int32_t n_total_prompt = 0;
     int32_t n_total_gen    = 0;
@@ -269,12 +266,10 @@ int main(int argc, char ** argv) {
         LOG_INF("%s: Evaluating the system prompt ...\n", __func__);
 
         for (int32_t i = 0; i < n_tokens_system; ++i) {
-            batch.add(tokens_system[i], i, { 0 }, false);
+            batch.add(tokens_system[i], i, 0, false);
         }
 
-        batch.render(batch_view, 0, batch.size());
-
-        if (llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch_view.get()) != 0) {
+        if (llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get()) != 0) {
             LOG_ERR("%s: llama_decode() failed\n", __func__);
             return 1;
         }
@@ -300,7 +295,7 @@ int main(int argc, char ** argv) {
 
             client.i_batch = batch.size();
 
-            batch.add(client.sampled, client.n_past++, { client.id + 1 }, true);
+            batch.add(client.sampled, client.n_past++, client.id + 1, true);
 
             client.n_decoded += 1;
         }
@@ -353,7 +348,7 @@ int main(int argc, char ** argv) {
                     tokens_prompt = common_tokenize(ctx, client.prompt, false);
 
                     for (size_t i = 0; i < tokens_prompt.size(); ++i) {
-                        batch.add(tokens_prompt[i], client.n_past++, { client.id + 1 }, false);
+                        batch.add(tokens_prompt[i], client.n_past++, client.id + 1, false);
                     }
 
                     // extract the logits only for the last token
@@ -396,9 +391,7 @@ int main(int argc, char ** argv) {
 
             const int32_t n_tokens = std::min(n_batch, batch.size() - i);
 
-            batch.render(batch_view, i, n_tokens);
-
-            const int ret = llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch_view.get());
+            const int ret = llama_process(ctx, LLAMA_PROCESS_TYPE_DECODE, batch.get_sub_batch(i, n_tokens));
             if (ret != 0) {
                 if (n_batch == 1 || ret < 0) {
                     // if you get here, it means the KV cache is full - try increasing it via the context size
