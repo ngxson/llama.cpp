@@ -73,12 +73,24 @@ void llm_graph_input_embd::set_input(const llama_ubatch * ubatch) {
         ggml_backend_tensor_set(tokens, ubatch->token, 0, n_tokens*ggml_element_size(tokens));
     }
 
-    if (ubatch->embd) {
+    if (ubatch->embd && embd) {
         GGML_ASSERT(n_embd == embd->ne[0]);
 
         const int64_t n_tokens = ubatch->n_tokens;
 
         ggml_backend_tensor_set(embd, ubatch->embd, 0, n_tokens*n_embd*ggml_element_size(embd));
+    }
+
+    if (ubatch->is_mixed() && embd) {
+        GGML_ASSERT(tok_mask && "mixed token/embd ubatch is not supported here");
+
+        const int64_t n_tokens = ubatch->n_tokens;
+
+        std::vector<float> data(n_tokens);
+        for (int64_t i = 0; i < n_tokens; ++i) {
+            data[i] = ubatch->is_embd[i] ? 0.0f : 1.0f;
+        }
+        ggml_backend_tensor_set(tok_mask, data.data(), 0, n_tokens*ggml_element_size(tok_mask));
     }
 }
 
@@ -92,6 +104,8 @@ bool llm_graph_input_embd::can_reuse(const llm_graph_params & params) {
 }
 
 void llm_graph_input_embd_h::set_input(const llama_ubatch * ubatch) {
+    ASSERT_EMBD_OR_TOKEN(*ubatch);
+
     const int64_t n_tokens = ubatch->n_tokens;
 
     if (ubatch->token) {
@@ -128,7 +142,7 @@ void llm_graph_input_pos::set_input(const llama_ubatch * ubatch) {
     if (ubatch->pos && pos) {
         const int64_t n_tokens = ubatch->n_tokens;
 
-        if (ubatch->token && n_pos_per_embd == 4) {
+        if (ubatch->token && !ubatch->is_mixed() && n_pos_per_embd == 4) {
             // in case we're using M-RoPE with text tokens, convert the 1D positions to 4D
             // the 3 first dims are the same, and 4th dim is all 0
             std::vector<llama_pos> pos_data(n_tokens*n_pos_per_embd);
@@ -2368,7 +2382,7 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
 }
 
 // input embeddings with optional lora
-ggml_tensor * llm_graph_context::build_inp_embd(ggml_tensor * tok_embd) const {
+ggml_tensor * llm_graph_context::build_inp_embd(ggml_tensor * tok_embd, float tok_scale) const {
     const int64_t n_embd_inp = hparams.n_embd_inp();
     const int64_t n_embd     = hparams.n_embd;
 
@@ -2384,6 +2398,13 @@ ggml_tensor * llm_graph_context::build_inp_embd(ggml_tensor * tok_embd) const {
     inp->embd = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, n_embd_inp, ubatch.n_tokens);
     cb(inp->embd, "inp_embd", -1);
     ggml_set_input(inp->embd);
+
+    // NOTE: For deepstack models, only apply scale to token inputs (ie text-only input).
+    //  Raw embeddings are assumed to be multimodal inputs that should not be scaled.
+    const bool scale_tok_only = hparams.f_embedding_scale != 0.0f && hparams.n_deepstack_layers > 0;
+    if (scale_tok_only) {
+        tok_scale *= hparams.f_embedding_scale;
+    }
 
     // select one of the 2 inputs, based on the batch contents
     // ref: https://github.com/ggml-org/llama.cpp/pull/18550
@@ -2413,6 +2434,10 @@ ggml_tensor * llm_graph_context::build_inp_embd(ggml_tensor * tok_embd) const {
             cur = ggml_add(ctx0, cur, inpL_delta);
         }
 
+        if (tok_scale != 1.0f) {
+            cur = ggml_scale(ctx0, cur, tok_scale);
+        }
+
         if (n_embd_inp != n_embd) {
             cur = ggml_pad(ctx0, cur, hparams.n_embd_inp() - n_embd, 0, 0, 0);
         }
@@ -2428,7 +2453,18 @@ ggml_tensor * llm_graph_context::build_inp_embd(ggml_tensor * tok_embd) const {
     assert(ggml_are_same_shape (inps[0], inps[1]));
     assert(ggml_are_same_stride(inps[0], inps[1]));
 
-    ggml_tensor * cur = ggml_build_forward_select(gf, inps.data(), inps.size(), ubatch.token ? 0 : 1);
+    ggml_tensor * cur = nullptr;
+
+    if (ubatch.is_mixed()) {
+        // embd input is zero at token rows
+        inp->tok_mask = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, 1, ubatch.n_tokens);
+        cb(inp->tok_mask, "inp_tok_mask", -1);
+        ggml_set_input(inp->tok_mask);
+
+        cur = ggml_add(ctx0, ggml_mul(ctx0, inps[0], inp->tok_mask), inps[1]);
+    } else {
+        cur = ggml_build_forward_select(gf, inps.data(), inps.size(), ubatch.token ? 0 : 1);
+    }
 
     if (n_embd_inp != n_embd) {
         cur = ggml_view_2d(ctx0, cur, n_embd, n_tokens, cur->nb[1], 0);
@@ -2437,9 +2473,7 @@ ggml_tensor * llm_graph_context::build_inp_embd(ggml_tensor * tok_embd) const {
     res->t_inp_embd = cur;
 
     // For Granite architecture
-    // NOTE: For deepstack models, only apply scale to token inputs (ie text-only input).
-    //  Raw embeddings are assumed to be multimodal inputs that should not be scaled.
-    if (hparams.f_embedding_scale != 0.0f && (ubatch.token || hparams.n_deepstack_layers == 0)) {
+    if (hparams.f_embedding_scale != 0.0f && !scale_tok_only) {
         if (!ggml_is_contiguous(cur)) {
             cur = ggml_cont(ctx0, cur);
         }

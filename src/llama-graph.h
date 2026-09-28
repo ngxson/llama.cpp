@@ -134,8 +134,9 @@ public:
 
     bool can_reuse(const llm_graph_params & params) override;
 
-    ggml_tensor * tokens = nullptr; // I32 [n_batch]
-    ggml_tensor * embd   = nullptr; // F32 [n_embd, n_batch]
+    ggml_tensor * tokens   = nullptr; // I32 [n_batch]
+    ggml_tensor * embd     = nullptr; // F32 [n_embd, n_batch]
+    ggml_tensor * tok_mask = nullptr; // F32 [1, n_batch], 1 = token row, 0 = embd row
 
     const int64_t n_embd = 0;
 };
@@ -823,6 +824,7 @@ struct llm_graph_params {
             ubatch.n_seq_tokens == other.ubatch.n_seq_tokens &&
             ubatch.n_seqs       == other.ubatch.n_seqs &&
             ubatch.n_seqs_unq   == other.ubatch.n_seqs_unq &&
+            ubatch.is_mixed()   == other.ubatch.is_mixed() &&
             (
                 (!ubatch.token && !other.ubatch.token) ||
                 (!ubatch.embd  && !other.ubatch.embd)  ||
@@ -1166,7 +1168,8 @@ struct llm_graph_context {
     // inputs
     //
 
-    ggml_tensor * build_inp_embd(ggml_tensor * tok_embd) const;
+    // tok_scale: applied to token rows only
+    ggml_tensor * build_inp_embd(ggml_tensor * tok_embd, float tok_scale = 1.0f) const;
     ggml_tensor * build_inp_pos() const;
     ggml_tensor * build_inp_attn_scale() const;
     ggml_tensor * build_inp_out_ids() const;
