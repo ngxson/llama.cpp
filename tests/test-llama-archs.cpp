@@ -528,8 +528,10 @@ static std::vector<float> get_logits(
 }
 
 // entries [n/4, n/2) are embd rows, decoded either as token/embd/token chunks or as one mixed batch
-static std::vector<float> get_logits_mixed(
-        llama_model * model, llama_context * lctx, const std::vector<llama_token> & tokens, const std::vector<float> & embd, bool mixed) {
+// returns the llama_process() error code
+static int32_t get_logits_mixed(
+        llama_model * model, llama_context * lctx, const std::vector<llama_token> & tokens, const std::vector<float> & embd, bool mixed,
+        std::vector<float> & ret) {
     const uint32_t n_vocab  = llama_vocab_n_tokens(llama_model_get_vocab(model));
     const uint32_t n_embd   = llama_model_n_embd_inp(model);
     const uint32_t n_tokens = tokens.size();
@@ -543,7 +545,7 @@ static std::vector<float> get_logits_mixed(
     llama_memory_clear(llama_get_memory(lctx), true);
     llama_batch_ext_ptr batch(llama_batch_ext_init(lctx));
 
-    std::vector<float> ret;
+    ret.clear();
     ret.reserve(n_tokens*n_vocab);
     for (size_t c = 0; c + 1 < bounds.size(); c++) {
         llama_batch_ext_clear(batch.get());
@@ -557,15 +559,16 @@ static std::vector<float> get_logits_mixed(
             llama_batch_ext_set_pos(batch.get(), idx, pos);
             llama_batch_ext_set_output_logits(batch.get(), idx, true);
         }
-        if (llama_process(lctx, LLAMA_PROCESS_TYPE_DECODE, batch.get())) {
-            throw std::runtime_error("failed to decode mixed batch");
+        const int32_t err = llama_process(lctx, LLAMA_PROCESS_TYPE_DECODE, batch.get());
+        if (err != 0) {
+            return err;
         }
         for (uint32_t i = 0; i < bounds[c + 1] - bounds[c]; i++) {
             const float * logits_ith = llama_get_logits_ith(lctx, i);
             ret.insert(ret.end(), logits_ith, logits_ith + n_vocab);
         }
     }
-    return ret;
+    return 0;
 }
 
 static bool moe_mandatory(const llm_arch arch) {
@@ -899,21 +902,36 @@ static int test_backends(const std::string & arch_filter, const size_t seed, con
 
                         // chunked decode matches a single batch only with causal attention over a memory
                         llama_context * lctx_dev = model_and_ctx_dev.second.get();
-                        if (!encode && llm_arch_supports_mixed_batch(arch) && llama_get_memory(lctx_dev) != nullptr) {
+                        if (!encode && llama_get_memory(lctx_dev) != nullptr) {
                             std::vector<float> embd_mixed((size_t) llama_model_n_embd_inp(model_and_ctx_dev.first.get())*tokens.size()/4);
                             std::mt19937 gen(seed);
                             std::normal_distribution<float> dis(0.0f, stdev);
                             for (float & v : embd_mixed) {
                                 v = dis(gen);
                             }
-                            const std::vector<float> logits_chunks = get_logits_mixed(model_and_ctx_dev.first.get(), lctx_dev, tokens, embd_mixed, false);
-                            const std::vector<float> logits_mixed  = get_logits_mixed(model_and_ctx_dev.first.get(), lctx_dev, tokens, embd_mixed, true);
-                            const double nmse_mixed = nmse(logits_chunks, logits_mixed);
-                            snprintf(mixed_str, sizeof(mixed_str), "(%.2e)", nmse_mixed);
-                            status_mixed = "\033[1;32mOK\033[0m";
-                            if (nmse_mixed > 1e-4) {
-                                test_ok = false;
-                                status_mixed = "\033[1;31mFAIL\033[0m";
+                            std::vector<float> logits_mixed;
+                            std::vector<float> logits_chunks;
+                            if (llm_arch_supports_mixed_batch(arch)) {
+                                if (get_logits_mixed(model_and_ctx_dev.first.get(), lctx_dev, tokens, embd_mixed, false, logits_chunks) != 0 ||
+                                    get_logits_mixed(model_and_ctx_dev.first.get(), lctx_dev, tokens, embd_mixed, true,  logits_mixed)  != 0) {
+                                    throw std::runtime_error("failed to decode mixed batch");
+                                }
+                                const double nmse_mixed = nmse(logits_chunks, logits_mixed);
+                                snprintf(mixed_str, sizeof(mixed_str), "(%.2e)", nmse_mixed);
+                                status_mixed = "\033[1;32mOK\033[0m";
+                                if (nmse_mixed > 1e-4) {
+                                    test_ok = false;
+                                    status_mixed = "\033[1;31mFAIL\033[0m";
+                                }
+                            } else {
+                                // must be rejected as an invalid batch, mute the expected error log
+                                ud.verbosity = LOG_LEVEL_OUTPUT;
+                                const int32_t err = get_logits_mixed(model_and_ctx_cpu.first.get(), model_and_ctx_cpu.second.get(), tokens, embd_mixed, true, logits_mixed);
+                                ud.verbosity = verbosity;
+                                if (err != -1) {
+                                    test_ok = false;
+                                    status_mixed = "\033[1;31mFAIL\033[0m";
+                                }
                             }
                         }
                     }
