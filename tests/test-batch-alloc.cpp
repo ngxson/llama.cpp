@@ -489,11 +489,11 @@ static void test_mixed(testing & t) {
         t.assert_equal(0.0f, ub0.embd[0]);
         t.assert_equal(100.0f, ub0.embd[2]);
 
-        // stays mixed even with token rows only
+        // token rows only: a plain token ubatch
         llama_ubatch ub1 = ba.split_simple(3);
         t.assert_equal(1u, ub1.n_tokens);
-        t.assert_true(ub1.is_mixed());
-        t.assert_equal((int8_t) 0, ub1.is_embd[0]);
+        t.assert_true(!ub1.is_mixed());
+        t.assert_true(ub1.embd == nullptr);
         t.assert_equal(5, ub1.token[0]);
         t.assert_equal((llama_pos) 3, ub1.pos[0]);
 

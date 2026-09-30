@@ -849,9 +849,20 @@ llama_ubatch llama_batch_allocr::ubatch_add(const std::vector<int32_t> & idxs, u
 
     auto udata = std::make_shared<llama_ubatch::data_t>();
 
-    const bool mixed = !is_embd_vec.empty();
+    const bool mixed_batch = !is_embd_vec.empty();
 
-    const int64_t n_embd_all = batch.embd ? (int64_t) n_tokens*n_embd : 0;
+    // a ubatch with a single kind of rows is emitted as a plain token or embd ubatch
+    uint32_t n_embd_rows = 0;
+    if (mixed_batch) {
+        for (int32_t idx : idxs) {
+            n_embd_rows += is_embd_vec[idx];
+        }
+    }
+    const bool mixed     = mixed_batch && n_embd_rows > 0 && n_embd_rows < n_tokens;
+    const bool use_token = batch.token && !(mixed_batch && n_embd_rows == n_tokens);
+    const bool use_embd  = batch.embd  && !(mixed_batch && n_embd_rows == 0);
+
+    const int64_t n_embd_all = use_embd ? (int64_t) n_tokens*n_embd : 0;
     const int64_t n_pos_all  =              (int64_t) n_tokens*n_pos_per_embd;
 
     udata->token     .resize(n_tokens);
@@ -870,11 +881,11 @@ llama_ubatch llama_batch_allocr::ubatch_add(const std::vector<int32_t> & idxs, u
     seq_set_t seq_set_unq;
 
     for (size_t i = 0; i < idxs.size(); ++i) {
-        if (batch.token) {
+        if (use_token) {
             udata->token[i] = batch.token[idxs[i]];
         }
 
-        if (batch.embd) {
+        if (use_embd) {
             memcpy(udata->embd.data() + i*n_embd, batch.embd + (int64_t) idxs[i]*n_embd, n_embd*sizeof(float));
         }
 
@@ -887,7 +898,7 @@ llama_ubatch llama_batch_allocr::ubatch_add(const std::vector<int32_t> & idxs, u
             //     if the current batch is text, we need to broadcast the same position across all RoPE sections
             //     otherwise, the input batch is image embeddings, we copy the positions as-is
             // if we are not using M-RoPE, there is only one position per token (this loop runs only once)
-            size_t src_off = batch.token && !mixed ? 0 : j*batch.n_tokens;
+            size_t src_off = batch.token && !mixed_batch ? 0 : j*batch.n_tokens;
             udata->pos[j*n_tokens + i] = batch.pos[src_off + idxs[i]];
         }
 
@@ -927,8 +938,8 @@ llama_ubatch llama_batch_allocr::ubatch_add(const std::vector<int32_t> & idxs, u
         /*.n_seqs_unq   =*/ (uint32_t) udata->seq_id_unq.size(),
         /*.n_pos        =*/ n_pos_per_embd,
 
-        /*.token        =*/ batch.token ? udata->token.data() : nullptr,
-        /*.embd         =*/ batch.embd ? udata->embd.data() : nullptr,
+        /*.token        =*/ use_token ? udata->token.data() : nullptr,
+        /*.embd         =*/ use_embd  ? udata->embd.data()  : nullptr,
         /*.pos          =*/ udata->pos.data(),
         /*.n_seq_id     =*/ udata->n_seq_id.data(),
         /*.seq_id       =*/ udata->seq_id.data(),

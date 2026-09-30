@@ -73,7 +73,7 @@ void llm_graph_input_embd::set_input(const llama_ubatch * ubatch) {
         ggml_backend_tensor_set(tokens, ubatch->token, 0, n_tokens*ggml_element_size(tokens));
     }
 
-    if (ubatch->embd && embd) {
+    if (ubatch->embd && embd && !ubatch->is_mixed()) {
         GGML_ASSERT(n_embd == embd->ne[0]);
 
         const int64_t n_tokens = ubatch->n_tokens;
@@ -82,7 +82,7 @@ void llm_graph_input_embd::set_input(const llama_ubatch * ubatch) {
     }
 
     if (ubatch->is_mixed() && embd) {
-        GGML_ASSERT(tok_ids && tok_slots && "mixed token/embd ubatch is not supported here");
+        GGML_ASSERT(mixed_tokens && mixed_slots && mixed_embd && "mixed token/embd ubatch is not supported here");
 
         std::vector<int32_t> ids;
         std::vector<int64_t> slots;
@@ -92,13 +92,27 @@ void llm_graph_input_embd::set_input(const llama_ubatch * ubatch) {
                 slots.push_back(i);
             }
         }
-        GGML_ASSERT((int64_t) ids.size() == tok_ids->ne[0]);
+        GGML_ASSERT((int64_t) ids.size() == mixed_tokens->ne[0]);
+        GGML_ASSERT(n_embd == mixed_embd->ne[0]);
 
-        ggml_backend_tensor_set(tok_ids,   ids.data(),   0, ggml_nbytes(tok_ids));
-        ggml_backend_tensor_set(tok_slots, slots.data(), 0, ggml_nbytes(tok_slots));
+        ggml_backend_tensor_set(mixed_tokens, ids.data(),    0, ggml_nbytes(mixed_tokens));
+        ggml_backend_tensor_set(mixed_slots,  slots.data(),  0, ggml_nbytes(mixed_slots));
+        ggml_backend_tensor_set(mixed_embd,   ubatch->embd,  0, ggml_nbytes(mixed_embd));
+    }
+
+    if (scale_rows) {
+        const int64_t n_tokens = ubatch->n_tokens;
+
+        std::vector<float> data(n_tokens);
+        for (int64_t i = 0; i < n_tokens; ++i) {
+            const bool is_embd = !ubatch->token || (ubatch->is_mixed() && ubatch->is_embd[i]);
+            data[i] = is_embd ? 1.0f : scale_tok;
+        }
+        ggml_backend_tensor_set(scale_rows, data.data(), 0, ggml_nbytes(scale_rows));
     }
 }
 
+// number of token rows of the mixed path, a non-mixed ubatch is sized for the worst case
 static int64_t llm_graph_n_tok_rows(const llama_ubatch & ubatch) {
     if (!ubatch.is_mixed()) {
         return ubatch.n_tokens;
@@ -115,7 +129,9 @@ bool llm_graph_input_embd::can_reuse(const llm_graph_params & params) {
 
     res &= (!params.ubatch.token) || (tokens && tokens->ne[0] == params.ubatch.n_tokens);
     res &= (!params.ubatch.embd)  || (embd   &&   embd->ne[1] == params.ubatch.n_tokens);
-    res &= (!tok_ids) || tok_ids->ne[0] == llm_graph_n_tok_rows(params.ubatch);
+    res &= (!mixed_tokens) || mixed_tokens->ne[0] == llm_graph_n_tok_rows(params.ubatch);
+    res &= (!mixed_embd)   || mixed_embd->ne[1]   == params.ubatch.n_tokens;
+    res &= (!scale_rows) || scale_rows->ne[1] == params.ubatch.n_tokens;
 
     return res;
 }
@@ -2421,14 +2437,7 @@ ggml_tensor * llm_graph_context::build_inp_embd(ggml_tensor * tok_embd, float to
     cb(inp->embd, "inp_embd", -1);
     ggml_set_input(inp->embd);
 
-    // NOTE: For deepstack models, only apply scale to token inputs (ie text-only input).
-    //  Raw embeddings are assumed to be multimodal inputs that should not be scaled.
-    const bool scale_tok_only = hparams.f_embedding_scale != 0.0f && hparams.n_deepstack_layers > 0;
-    if (scale_tok_only) {
-        tok_scale *= hparams.f_embedding_scale;
-    }
-
-    // token embeddings with lora, scale and padding
+    // token embeddings with lora and padding
     auto build_tok = [&](ggml_tensor * ids) {
         ggml_tensor * cur = ggml_get_rows(ctx0, tok_embd, ids);
 
@@ -2450,10 +2459,6 @@ ggml_tensor * llm_graph_context::build_inp_embd(ggml_tensor * tok_embd, float to
             cur = ggml_add(ctx0, cur, inpL_delta);
         }
 
-        if (tok_scale != 1.0f) {
-            cur = ggml_scale(ctx0, cur, tok_scale);
-        }
-
         if (n_embd_inp != n_embd) {
             cur = ggml_pad(ctx0, cur, hparams.n_embd_inp() - n_embd, 0, 0, 0);
         }
@@ -2471,21 +2476,33 @@ ggml_tensor * llm_graph_context::build_inp_embd(ggml_tensor * tok_embd, float to
     // vector embeddings path (ubatch.embd != nullptr)
     inps[1] = inp->embd;
 
-    // mixed path (ubatch.is_mixed()): set_rows the token rows into a copy of embd, the result is a view that stays allocated in every graph
-    // not built for models that reject mixed batches
+    // mixed path (ubatch.is_mixed()): set_rows the token rows into a copy of the embd rows, with its own inputs as select branches must not share tensors
+    // TODO: use inp->tokens and inp->embd once ggml_build_forward_select allows it
     const bool has_mixed = llm_arch_supports_mixed_batch(arch) && cparams.ctx_type == LLAMA_CONTEXT_TYPE_DEFAULT;
     if (has_mixed) {
         const int64_t n_tok_rows = llm_graph_n_tok_rows(ubatch);
 
-        inp->tok_ids = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_tok_rows);
-        cb(inp->tok_ids, "inp_tok_ids", -1);
-        ggml_set_input(inp->tok_ids);
+        inp->mixed_tokens = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_tok_rows);
+        cb(inp->mixed_tokens, "inp_mixed_tokens", -1);
+        ggml_set_input(inp->mixed_tokens);
 
-        inp->tok_slots = ggml_new_tensor_1d(ctx0, GGML_TYPE_I64, n_tok_rows);
-        cb(inp->tok_slots, "inp_tok_slots", -1);
-        ggml_set_input(inp->tok_slots);
+        inp->mixed_slots = ggml_new_tensor_1d(ctx0, GGML_TYPE_I64, n_tok_rows);
+        cb(inp->mixed_slots, "inp_mixed_slots", -1);
+        ggml_set_input(inp->mixed_slots);
 
-        inps[2] = ggml_set_rows(ctx0, ggml_scale(ctx0, inp->embd, 1.0f), build_tok(inp->tok_ids), inp->tok_slots);
+        inp->mixed_embd = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, n_embd_inp, ubatch.n_tokens);
+        cb(inp->mixed_embd, "inp_mixed_embd", -1);
+        ggml_set_input(inp->mixed_embd);
+
+        // note: set_rows writes into its destination, so it gets a copy of the input
+        ggml_tensor * tok  = build_tok(inp->mixed_tokens);
+        ggml_tensor * embd = ggml_scale(ctx0, inp->mixed_embd, 1.0f);
+        inps[2] = ggml_set_rows(ctx0, embd, tok, inp->mixed_slots);
+
+        // keep the output on the CPU like the other paths, so that the graph has the same split inputs for any batch contents
+        ggml_backend_sched_set_tensor_backend(sched, tok,     backend_cpu);
+        ggml_backend_sched_set_tensor_backend(sched, embd,    backend_cpu);
+        ggml_backend_sched_set_tensor_backend(sched, inps[2], backend_cpu);
     }
 
     assert(ggml_are_same_shape (inps[0], inps[1]));
@@ -2501,12 +2518,29 @@ ggml_tensor * llm_graph_context::build_inp_embd(ggml_tensor * tok_embd, float to
 
     res->t_inp_embd = cur;
 
+    // NOTE: For deepstack models, only apply scale to token inputs (ie text-only input).
+    //  Raw embeddings are assumed to be multimodal inputs that should not be scaled.
+    const bool scale_tok_only = hparams.f_embedding_scale != 0.0f && hparams.n_deepstack_layers > 0;
+
     // For Granite architecture
     if (hparams.f_embedding_scale != 0.0f && !scale_tok_only) {
         if (!ggml_is_contiguous(cur)) {
             cur = ggml_cont(ctx0, cur);
         }
         cur = ggml_scale(ctx0, cur, hparams.f_embedding_scale);
+    }
+
+    // scale the token rows only, applied after the select so that the graph is the same for any batch contents
+    inp->scale_tok = tok_scale*(scale_tok_only ? hparams.f_embedding_scale : 1.0f);
+    if (inp->scale_tok != 1.0f) {
+        inp->scale_rows = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, 1, ubatch.n_tokens);
+        cb(inp->scale_rows, "inp_scale_rows", -1);
+        ggml_set_input(inp->scale_rows);
+
+        if (!ggml_is_contiguous(cur)) {
+            cur = ggml_cont(ctx0, cur);
+        }
+        cur = ggml_mul(ctx0, cur, inp->scale_rows);
     }
 
     cb(cur, "embd", -1);
