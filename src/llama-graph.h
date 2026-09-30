@@ -134,9 +134,10 @@ public:
 
     bool can_reuse(const llm_graph_params & params) override;
 
-    ggml_tensor * tokens   = nullptr; // I32 [n_batch]
-    ggml_tensor * embd     = nullptr; // F32 [n_embd, n_batch]
-    ggml_tensor * tok_mask = nullptr; // F32 [1, n_batch], 1 = token row, 0 = embd row
+    ggml_tensor * tokens    = nullptr; // I32 [n_batch]
+    ggml_tensor * embd      = nullptr; // F32 [n_embd, n_batch]
+    ggml_tensor * tok_ids   = nullptr; // I32 [n_tok_rows], mixed path: ids of the token rows
+    ggml_tensor * tok_slots = nullptr; // I64 [n_tok_rows], mixed path: batch index of the token rows
 
     const int64_t n_embd = 0;
 };

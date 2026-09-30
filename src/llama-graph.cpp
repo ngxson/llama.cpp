@@ -82,16 +82,32 @@ void llm_graph_input_embd::set_input(const llama_ubatch * ubatch) {
     }
 
     if (ubatch->is_mixed() && embd) {
-        GGML_ASSERT(tok_mask && "mixed token/embd ubatch is not supported here");
+        GGML_ASSERT(tok_ids && tok_slots && "mixed token/embd ubatch is not supported here");
 
-        const int64_t n_tokens = ubatch->n_tokens;
-
-        std::vector<float> data(n_tokens);
-        for (int64_t i = 0; i < n_tokens; ++i) {
-            data[i] = ubatch->is_embd[i] ? 0.0f : 1.0f;
+        std::vector<int32_t> ids;
+        std::vector<int64_t> slots;
+        for (uint32_t i = 0; i < ubatch->n_tokens; ++i) {
+            if (!ubatch->is_embd[i]) {
+                ids.push_back(ubatch->token[i]);
+                slots.push_back(i);
+            }
         }
-        ggml_backend_tensor_set(tok_mask, data.data(), 0, n_tokens*ggml_element_size(tok_mask));
+        GGML_ASSERT((int64_t) ids.size() == tok_ids->ne[0]);
+
+        ggml_backend_tensor_set(tok_ids,   ids.data(),   0, ggml_nbytes(tok_ids));
+        ggml_backend_tensor_set(tok_slots, slots.data(), 0, ggml_nbytes(tok_slots));
     }
+}
+
+static int64_t llm_graph_n_tok_rows(const llama_ubatch & ubatch) {
+    if (!ubatch.is_mixed()) {
+        return ubatch.n_tokens;
+    }
+    int64_t n = 0;
+    for (uint32_t i = 0; i < ubatch.n_tokens; ++i) {
+        n += !ubatch.is_embd[i];
+    }
+    return n;
 }
 
 bool llm_graph_input_embd::can_reuse(const llm_graph_params & params) {
@@ -99,6 +115,7 @@ bool llm_graph_input_embd::can_reuse(const llm_graph_params & params) {
 
     res &= (!params.ubatch.token) || (tokens && tokens->ne[0] == params.ubatch.n_tokens);
     res &= (!params.ubatch.embd)  || (embd   &&   embd->ne[1] == params.ubatch.n_tokens);
+    res &= (!tok_ids) || tok_ids->ne[0] == llm_graph_n_tok_rows(params.ubatch);
 
     return res;
 }
@@ -2406,15 +2423,9 @@ ggml_tensor * llm_graph_context::build_inp_embd(ggml_tensor * tok_embd, float to
         tok_scale *= hparams.f_embedding_scale;
     }
 
-    // select one of the 2 inputs, based on the batch contents
-    // ref: https://github.com/ggml-org/llama.cpp/pull/18550
-    std::array<ggml_tensor *, 2> inps;
-
-    // token embeddings path (ubatch.token != nullptr)
-    {
-        auto & cur = inps[0];
-
-        cur = ggml_get_rows(ctx0, tok_embd, inp->tokens);
+    // token embeddings with lora, scale and padding
+    auto build_tok = [&](ggml_tensor * ids) {
+        ggml_tensor * cur = ggml_get_rows(ctx0, tok_embd, ids);
 
         // apply lora for embedding tokens if needed
         for (const auto & lora : *loras) {
@@ -2428,7 +2439,7 @@ ggml_tensor * llm_graph_context::build_inp_embd(ggml_tensor * tok_embd, float to
 
             ggml_tensor * inpL_delta = ggml_scale(ctx0, ggml_mul_mat(
                         ctx0, lw->b, // non-transposed lora_b
-                        ggml_get_rows(ctx0, lw->a, inp->tokens)
+                        ggml_get_rows(ctx0, lw->a, ids)
                         ), scale);
 
             cur = ggml_add(ctx0, cur, inpL_delta);
@@ -2441,30 +2452,43 @@ ggml_tensor * llm_graph_context::build_inp_embd(ggml_tensor * tok_embd, float to
         if (n_embd_inp != n_embd) {
             cur = ggml_pad(ctx0, cur, hparams.n_embd_inp() - n_embd, 0, 0, 0);
         }
-    }
+
+        return cur;
+    };
+
+    // select one of the 3 inputs, based on the batch contents
+    // ref: https://github.com/ggml-org/llama.cpp/pull/18550
+    std::array<ggml_tensor *, 3> inps = {};
+
+    // token embeddings path (ubatch.token != nullptr)
+    inps[0] = build_tok(inp->tokens);
 
     // vector embeddings path (ubatch.embd != nullptr)
-    {
-        auto & cur = inps[1];
+    inps[1] = inp->embd;
 
-        cur = inp->embd;
+    // mixed path (ubatch.is_mixed()): set_rows the token rows into a copy of embd, the result is a view that stays allocated in every graph
+    // not built for models that reject mixed batches
+    const bool has_mixed = llm_arch_supports_mixed_batch(arch) && cparams.ctx_type == LLAMA_CONTEXT_TYPE_DEFAULT;
+    if (has_mixed) {
+        const int64_t n_tok_rows = llm_graph_n_tok_rows(ubatch);
+
+        inp->tok_ids = ggml_new_tensor_1d(ctx0, GGML_TYPE_I32, n_tok_rows);
+        cb(inp->tok_ids, "inp_tok_ids", -1);
+        ggml_set_input(inp->tok_ids);
+
+        inp->tok_slots = ggml_new_tensor_1d(ctx0, GGML_TYPE_I64, n_tok_rows);
+        cb(inp->tok_slots, "inp_tok_slots", -1);
+        ggml_set_input(inp->tok_slots);
+
+        inps[2] = ggml_set_rows(ctx0, ggml_scale(ctx0, inp->embd, 1.0f), build_tok(inp->tok_ids), inp->tok_slots);
     }
 
     assert(ggml_are_same_shape (inps[0], inps[1]));
     assert(ggml_are_same_stride(inps[0], inps[1]));
 
-    ggml_tensor * cur = nullptr;
+    const int idx = ubatch.is_mixed() ? 2 : ubatch.token ? 0 : 1;
 
-    if (ubatch.is_mixed()) {
-        // embd input is zero at token rows
-        inp->tok_mask = ggml_new_tensor_2d(ctx0, GGML_TYPE_F32, 1, ubatch.n_tokens);
-        cb(inp->tok_mask, "inp_tok_mask", -1);
-        ggml_set_input(inp->tok_mask);
-
-        cur = ggml_add(ctx0, ggml_mul(ctx0, inps[0], inp->tok_mask), inps[1]);
-    } else {
-        cur = ggml_build_forward_select(gf, inps.data(), inps.size(), ubatch.token ? 0 : 1);
-    }
+    ggml_tensor * cur = ggml_build_forward_select(gf, inps.data(), has_mixed ? 3 : 2, idx);
 
     if (n_embd_inp != n_embd) {
         cur = ggml_view_2d(ctx0, cur, n_embd, n_tokens, cur->nb[1], 0);
