@@ -69,6 +69,7 @@ struct llama_ubatch {
         std::vector<int32_t>        seq_idx;
         std::vector<int8_t>         output;
         std::vector<int8_t>         is_embd;
+        std::vector<int32_t>        batch_idxs;  // original batch index for each token
 
         std::vector<llama_seq_id> seq_id_data;
     };

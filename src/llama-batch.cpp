@@ -864,6 +864,7 @@ llama_ubatch llama_batch_allocr::ubatch_add(const std::vector<int32_t> & idxs, u
     udata->output    .resize(n_tokens);
     udata->is_embd   .resize(mixed ? n_tokens : 0);
 
+    udata->batch_idxs = idxs;
     udata->seq_id_data.reserve(n_tokens);
 
     seq_set_t seq_set_unq;
