@@ -149,6 +149,8 @@ struct server_task {
     // temporary store of child tasks for scheduling
     // note: accessing to elements is invalid after the task is moved to server_slot
     std::vector<server_task> child_tasks;
+    // if set on a parent, the children have their own prompt and only share its first n_tokens_shared tokens
+    int32_t n_tokens_shared = 0;
 
     // used by SERVER_TASK_TYPE_INFERENCE
     task_params   params;

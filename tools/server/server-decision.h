@@ -44,6 +44,9 @@ struct server_decision_context {
     // true if the result is read from the embeddings of each token
     bool need_embd() const { return type == SERVER_DECISION_TYPE_LAYA; }
 
+    // true if the questions of a request start with the same tokens, and the model can continue from them
+    bool can_share_prompt() const { return type == SERVER_DECISION_TYPE_OPENJEV; }
+
     // throw std::invalid_argument on bad input
     std::vector<server_decision_question> parse_questions(const json & body) const;
 
@@ -76,3 +79,8 @@ private:
 
     float get_temperature(const server_decision_question & question) const;
 };
+
+// group the tasks so that the common prefix of their prompts is evaluated only once
+// each group is one parent and its children, it takes at most n_slots slots
+// note: the order of the tasks is preserved
+std::vector<server_task> server_decision_group_tasks(std::vector<server_task> && tasks, size_t n_slots);

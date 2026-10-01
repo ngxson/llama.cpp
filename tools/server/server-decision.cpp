@@ -389,3 +389,39 @@ json server_decision_context::format_answer(const server_decision_question & que
     }
     return answer;
 }
+
+//
+// shared prompt prefix
+//
+
+std::vector<server_task> server_decision_group_tasks(std::vector<server_task> && tasks, size_t n_slots) {
+    n_slots = std::max(n_slots, (size_t) 1);
+
+    std::vector<server_task> groups;
+    for (size_t i = 0; i < tasks.size(); i += n_slots) {
+        const size_t end = std::min(tasks.size(), i + n_slots);
+        server_task & parent = tasks[i];
+
+        // every task must have at least one token of its own to evaluate
+        size_t n_shared = parent.tokens.size() - 1;
+        for (size_t j = i + 1; j < end; j++) {
+            n_shared = std::min(n_shared, parent.tokens.get_common_prefix(tasks[j].tokens));
+            n_shared = std::min(n_shared, tasks[j].tokens.size() - 1);
+        }
+
+        if (end - i < 2 || n_shared == 0) {
+            for (size_t j = i; j < end; j++) {
+                groups.push_back(std::move(tasks[j]));
+            }
+            continue;
+        }
+
+        parent.n_tokens_shared = n_shared;
+        for (size_t j = i + 1; j < end; j++) {
+            tasks[j].id_parent = parent.id;
+            parent.child_tasks.push_back(std::move(tasks[j]));
+        }
+        groups.push_back(std::move(parent));
+    }
+    return groups;
+}
