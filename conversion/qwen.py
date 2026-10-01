@@ -690,9 +690,14 @@ class OpenJevModel(Qwen3_5TextModel):
             "{% elif o.key == 'true' %}yes: {% if o.description %}" + description + "{% else %}The statement is true.{% endif %}"
             "{% else %}no: {% if o.description %}" + description + "{% else %}The statement is false.{% endif %}{% endif %}"
         )
+        # TODO: only the layout with one image is known (image first), the one with several images is not verified
+        images = (
+            "{% for image in images %}{{ image }}{% endfor %}"
+            "{% if images %}{{ 'The screenshot shows the current screen.\\n' }}{% endif %}"
+        )
         return (
             "{% set letters = '" + self._LETTERS + "' %}"
-            "<|im_start|>user\nState:\n" + jinja_str_or_json("state") + "\n\nQuestion: " + jinja_str_or_json("instructions")
+            "<|im_start|>user\n" + images + "State:\n" + jinja_str_or_json("state") + "\n\nQuestion: " + jinja_str_or_json("instructions")
             + "{% if type == 'score' %} Rate along the ordered levels below (lowest first).{% endif %}"
             "{{ '\\nOptions:\\n' }}"
             "{% for o in options %}[{{ letters[loop.index0] }}] " + option + "{{ '\\n' }}{% endfor %}"

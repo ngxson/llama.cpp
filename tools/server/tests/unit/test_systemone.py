@@ -110,3 +110,4 @@ def test_systemone_invalid_request(data: dict):
 # TODO: test the shared prompt prefix, it needs a small model of a type that supports it (e.g. openjev)
 # it can be checked with GET /metrics: for one request, prompt_tokens_cached_total must grow by
 # (shared tokens * number of child tasks) and prompt_tokens_total + prompt_tokens_cached_total == usage.input_tokens
+# TODO: test the image input ("images" and image_url parts of a chat-message state), it needs a small model with a mmproj

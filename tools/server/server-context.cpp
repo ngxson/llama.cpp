@@ -5332,6 +5332,13 @@ void server_routes::init_routes() {
         const json body = json::parse(req.body);
         const auto questions = decision.parse_questions(body);
 
+        std::vector<raw_buffer> files;
+        const json state = decision.parse_state(body, files);
+        if (!files.empty() && (!decision.can_use_images() || !meta->has_inp_image)) {
+            res->error(format_error_response("This server does not support image input for decisions. For a model that supports it, start it with `--mmproj`", ERROR_TYPE_NOT_SUPPORTED));
+            return res;
+        }
+
         // one task per question
         auto & rd = res->rd;
         {
@@ -5340,7 +5347,7 @@ void server_routes::init_routes() {
             for (const auto & question : questions) {
                 server_task task = server_task(SERVER_TASK_TYPE_DECISION);
                 task.id = rd.get_new_id();
-                decision.fill_task(body.at("state"), question, task);
+                decision.fill_task(state, question, files, ctx_server.mctx, ctx_server.init_opt, task);
                 tasks.push_back(std::move(task));
             }
             if (decision.can_share_prompt()) {

@@ -36,13 +36,41 @@ struct server_decision_context {
     void init(const llama_model * model);
 
     // true if the questions of a request start with the same tokens, and the model can continue from them
-    bool can_share_prompt() const { return type == COMMON_DECISION_TYPE_OPENJEV; }
+    bool can_share_prompt() const {
+        switch (type) {
+            case COMMON_DECISION_TYPE_OPENJEV:
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    // true if the prompt of the model has a place for images
+    bool can_use_images() const {
+        switch (type) {
+            case COMMON_DECISION_TYPE_OPENJEV:
+                return true;
+            default:
+                return false;
+        }
+    }
 
     // throw std::invalid_argument on bad input
     std::vector<server_decision_question> parse_questions(const json & body) const;
 
+    // returns the state without its images, they are appended to files in order
+    // images come from "images" and from the image_url parts of a state made of chat messages
+    json parse_state(const json & body, std::vector<raw_buffer> & files) const;
+
     // set the prompt of this question, and where to read its result
-    void fill_task(const json & state, const server_decision_question & question, server_task & task) const;
+    // mctx is only used if there are files
+    void fill_task(
+            const json & state,
+            const server_decision_question & question,
+            const std::vector<raw_buffer> & files,
+            mtmd_context * mctx,
+            const mtmd_helper_init_opt & init_opt,
+            server_task & task) const;
 
     // scores: one raw model output per option
     json format_answer(const server_decision_question & question, const std::vector<float> & scores) const;
@@ -65,7 +93,7 @@ private:
     size_t      max_head_tokens   = 0; // question + options
     size_t      max_option_tokens = 48;
 
-    std::string render(const json & state, const server_decision_question & question) const;
+    std::string render(const json & state, const server_decision_question & question, size_t n_images) const;
     void fill_task_laya(llama_tokens & tokens, const server_decision_question & question, server_task & task) const;
 
     float get_temperature(const server_decision_question & question) const;
