@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <regex>
 #include <stdexcept>
 
 static const char * decision_question_type_name(server_decision_question_type type) {
@@ -12,6 +13,9 @@ static const char * decision_question_type_name(server_decision_question_type ty
     }
     return "";
 }
+
+// lev reads noul from a rating scale: 0 = certainly no, 8 = certainly yes
+static const size_t DECISION_LEV_N_RATINGS = 9;
 
 static std::string decision_meta_str(const llama_model * model, const std::string & key) {
     char buf[256];
@@ -71,6 +75,36 @@ void server_decision_context::init(const llama_model * model) {
         }
         n_options_max   = labels.size();
         noul_true_first = true;
+    } else if (model_type == COMMON_DECISION_TYPE_LEV) {
+        // label codes are A..Z then AA..ZZ, only the ones that are a single token are used
+        std::vector<std::string> codes;
+        for (char a = 'A'; a <= 'Z'; a++) {
+            codes.push_back(std::string(1, a));
+        }
+        for (char a = 'A'; a <= 'Z'; a++) {
+            for (char b = 'A'; b <= 'Z'; b++) {
+                codes.push_back(std::string{a, b});
+            }
+        }
+        for (const auto & code : codes) {
+            const auto toks = common_tokenize(vocab, code, false, false);
+            if (toks.size() == 1 && labels.size() < 255) {
+                labels.push_back(toks[0]);
+                label_texts.push_back(code);
+            }
+        }
+        if (labels.size() < DECISION_LEV_N_RATINGS) {
+            throw std::runtime_error("not enough single-token labels for this decision model");
+        }
+        n_options_max = labels.size();
+    } else if (model_type == COMMON_DECISION_TYPE_KEV) {
+        // the hidden state of an option is read at the token that ends it
+        const auto toks = common_tokenize(vocab, "<|box_end|>", false, true);
+        if (toks.size() != 1) {
+            throw std::runtime_error("decision model has no <|box_end|> token");
+        }
+        token_marker  = toks[0];
+        n_options_max = 255;
     } else if (model_type == COMMON_DECISION_TYPE_LAYA) {
         token_marker = llama_vocab_mask(vocab);
         token_sep    = llama_vocab_sep(vocab);
@@ -254,22 +288,123 @@ static json decision_replace_text(const json & val, const std::string & search, 
     return val;
 }
 
-std::string server_decision_context::render(const json & state, const server_decision_question & question, size_t n_images) const {
+// sort the keys of all objects of a JSON value
+static json decision_sort_keys(const json & val) {
+    if (val.is_array()) {
+        json out = json::array();
+        for (const auto & item : val) {
+            out.push_back(decision_sort_keys(item));
+        }
+        return out;
+    }
+    if (val.is_object()) {
+        std::map<std::string, json> sorted;
+        for (const auto & [key, item] : val.items()) {
+            sorted[key] = decision_sort_keys(item);
+        }
+        json out = json::object();
+        for (const auto & [key, item] : sorted) {
+            out[key] = item;
+        }
+        return out;
+    }
+    return val;
+}
+
+// kev flattens a JSON value into text, the keys of an object are kept as labels (kev/api.py: render)
+static std::string decision_kev_render(const json & val, int indent = 0) {
+    const std::string pad(2 * indent, ' ');
+    if (val.is_null()) {
+        return "";
+    }
+    if (val.is_string()) {
+        return val.get<std::string>();
+    }
+    if (val.is_boolean()) {
+        return val.get<bool>() ? "True" : "False";
+    }
+    if (val.is_array()) {
+        std::string out;
+        for (const auto & item : val) {
+            const std::string text = decision_kev_render(item, indent + 1);
+            out += (out.empty() ? "" : "\n") + pad + "- " + text.substr(std::min(text.size(), text.find_first_not_of(" \t\n\r")));
+        }
+        return out;
+    }
+    if (val.is_object()) {
+        std::string out;
+        for (const auto & [key, item] : val.items()) {
+            const bool is_nested = item.is_object() || item.is_array();
+            out += (out.empty() ? "" : "\n") + pad + key + (is_nested ? ":\n" : ": ") + decision_kev_render(item, is_nested ? indent + 1 : 0);
+        }
+        return out;
+    }
+    return val.dump();
+}
+
+// kev text input: special tokens written in the text must not be parsed as such
+static std::string decision_kev_text(const json & val) {
+    static const std::regex re_special("<\\|([A-Za-z0-9_]+)\\|>");
+    return std::regex_replace(decision_kev_render(val), re_special, "<\xC2\xA6$1\xC2\xA6>");
+}
+
+size_t server_decision_context::n_variants(const server_decision_question & question) const {
+    // lev shows the options of a choice in 2 orders, to cancel the preference for the first label
+    if (type == COMMON_DECISION_TYPE_LEV && question.type == SERVER_DECISION_QUESTION_CHOICE && question.options.size() > 1) {
+        return 2;
+    }
+    return 1;
+}
+
+size_t server_decision_context::n_outputs(const server_decision_question & question) const {
+    if (type == COMMON_DECISION_TYPE_LEV && question.type == SERVER_DECISION_QUESTION_NOUL) {
+        return DECISION_LEV_N_RATINGS;
+    }
+    return question.options.size();
+}
+
+std::string server_decision_context::render(const json & state, const server_decision_question & question, size_t variant, size_t n_images) const {
+    const size_t n_options = question.options.size();
+
+    // the second variant shows the options in the reverse order
     json options = json::array();
-    for (const auto & opt : question.options) {
-        options.push_back(json{
+    for (size_t i = 0; i < n_options; i++) {
+        const auto & opt = question.options[variant == 0 ? i : n_options - 1 - i];
+        json option = json{
             {"key",         opt.key},
             {"description", opt.description},
-        });
+        };
+        if (type == COMMON_DECISION_TYPE_KEV) {
+            option["key"] = decision_kev_text(opt.key);
+            if (!opt.description.is_null()) {
+                option["description"] = decision_kev_text(opt.description);
+            }
+        }
+        if (!label_texts.empty()) {
+            option["label"] = label_texts[i];
+        }
+        options.push_back(option);
     }
 
     // the template is given raw JSON values, it serializes the ones that are not strings
     json inp = json{
+        {"id",           question.id},
         {"type",         decision_question_type_name(question.type)},
         {"instructions", question.instructions},
         {"state",        state},
         {"options",      options},
     };
+
+    // lev was trained with sorted keys
+    if (type == COMMON_DECISION_TYPE_LEV) {
+        inp = decision_sort_keys(inp);
+    }
+
+    // the kev template only takes text
+    if (type == COMMON_DECISION_TYPE_KEV) {
+        inp["state"]        = decision_kev_text(state);
+        inp["instructions"] = decision_kev_text(question.instructions);
+    }
 
     // the input must not contain the marker of the options
     if (!text_marker.empty()) {
@@ -296,14 +431,15 @@ std::string server_decision_context::render(const json & state, const server_dec
 void server_decision_context::fill_task(
         const json & state,
         const server_decision_question & question,
+        size_t variant,
         const std::vector<raw_buffer> & files,
         mtmd_context * mctx,
         const mtmd_helper_init_opt & init_opt,
         server_task & task) const {
-    const std::string prompt = render(state, question, files.size());
+    const std::string prompt = render(state, question, variant, files.size());
 
-    if (type == COMMON_DECISION_TYPE_OPENJEV) {
-        task.decision.labels.assign(labels.begin(), labels.begin() + question.options.size());
+    if (type == COMMON_DECISION_TYPE_OPENJEV || type == COMMON_DECISION_TYPE_LEV) {
+        task.decision.labels.assign(labels.begin(), labels.begin() + n_outputs(question));
         if (!files.empty()) {
             task.tokens = process_mtmd_prompt(mctx, prompt, files, init_opt);
             return;
@@ -313,6 +449,18 @@ void server_decision_context::fill_task(
     llama_tokens tokens = common_tokenize(vocab, prompt, false, true);
     if (type == COMMON_DECISION_TYPE_LAYA) {
         fill_task_laya(tokens, question, task);
+    }
+    if (type == COMMON_DECISION_TYPE_KEV) {
+        // an option is read at its end token, the question at the last token
+        for (size_t i = 0; i < tokens.size(); i++) {
+            if (tokens[i] == token_marker) {
+                task.decision.markers.push_back(i);
+            }
+        }
+        if (task.decision.markers.size() != question.options.size()) {
+            throw std::runtime_error("unexpected layout of the decision prompt");
+        }
+        task.decision.pointer = tokens.size() - 1;
     }
     task.tokens = server_tokens(tokens, false);
 }
@@ -381,7 +529,14 @@ void server_decision_context::fill_task_laya(llama_tokens & tokens, const server
 float server_decision_context::get_temperature(const server_decision_question & question) const {
     const size_t n = question.options.size();
     const std::string type_name = decision_question_type_name(question.type);
-    const std::string bucket    = n <= 2 ? "2" : n <= 5 ? "3_5" : n <= 10 ? "6_10" : "11";
+
+    // the temperature can depend on the number of options, the buckets are the ones used to fit it
+    std::string bucket;
+    if (type == COMMON_DECISION_TYPE_LEV) {
+        bucket = n <= 8 ? "small" : n <= 26 ? "mid" : "large";
+    } else {
+        bucket = n <= 2 ? "2" : n <= 5 ? "3_5" : n <= 10 ? "6_10" : "11";
+    }
 
     for (const auto & name : {type_name + "." + bucket, type_name}) {
         const auto it = temperatures.find(name);
@@ -420,28 +575,44 @@ static double decision_confidence_score(const std::vector<double> & probs) {
     return std::max(0.0, 1.0 - dist / dist_uniform);
 }
 
-json server_decision_context::format_answer(const server_decision_question & question, const std::vector<float> & scores) const {
-    const size_t n = question.options.size();
-    if (scores.size() != n) {
-        throw std::runtime_error("decision result does not match the number of options");
+json server_decision_context::format_answer(const server_decision_question & question, const std::vector<std::vector<float>> & scores) const {
+    const size_t n = n_outputs(question);
+    if (scores.size() != n_variants(question)) {
+        throw std::runtime_error("decision result does not match the number of variants");
     }
 
-    // softmax over the options
+    // softmax over the outputs of each variant, then the average of the variants
     const float temperature = get_temperature(question);
-    const float score_max   = *std::max_element(scores.begin(), scores.end());
-    std::vector<double> probs(n);
-    double sum = 0.0;
-    for (size_t i = 0; i < n; i++) {
-        probs[i] = std::exp((double) (scores[i] - score_max) / temperature);
-        sum += probs[i];
-    }
-    for (auto & p : probs) {
-        p /= sum;
+    std::vector<double> probs(n, 0.0);
+    for (size_t v = 0; v < scores.size(); v++) {
+        const auto & s = scores[v];
+        if (s.size() != n) {
+            throw std::runtime_error("decision result does not match the number of options");
+        }
+        const float score_max = *std::max_element(s.begin(), s.end());
+        std::vector<double> p(n);
+        double sum = 0.0;
+        for (size_t i = 0; i < n; i++) {
+            p[i] = std::exp((double) (s[i] - score_max) / temperature);
+            sum += p[i];
+        }
+        for (size_t i = 0; i < n; i++) {
+            // the second variant is in the reverse order
+            probs[v == 0 ? i : n - 1 - i] += p[i] / sum / scores.size();
+        }
     }
 
     json answer = json{{"type", decision_question_type_name(question.type)}};
 
     if (question.type == SERVER_DECISION_QUESTION_NOUL) {
+        if (type == COMMON_DECISION_TYPE_LEV) {
+            double expected = 0.0;
+            for (size_t i = 0; i < n; i++) {
+                expected += probs[i] * i / (n - 1);
+            }
+            answer["noul"] = expected;
+            return answer;
+        }
         for (size_t i = 0; i < n; i++) {
             if (question.options[i].key == "true") {
                 answer["noul"] = probs[i];

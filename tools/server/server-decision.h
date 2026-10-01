@@ -39,6 +39,8 @@ struct server_decision_context {
     bool can_share_prompt() const {
         switch (type) {
             case COMMON_DECISION_TYPE_OPENJEV:
+            case COMMON_DECISION_TYPE_LEV:
+            case COMMON_DECISION_TYPE_KEV:
                 return true;
             default:
                 return false;
@@ -62,18 +64,22 @@ struct server_decision_context {
     // images come from "images" and from the image_url parts of a state made of chat messages
     json parse_state(const json & body, std::vector<raw_buffer> & files) const;
 
-    // set the prompt of this question, and where to read its result
+    // number of prompts that are evaluated to answer this question, each one shows the options in a different order
+    size_t n_variants(const server_decision_question & question) const;
+
+    // set the prompt of one variant of this question, and where to read its result
     // mctx is only used if there are files
     void fill_task(
             const json & state,
             const server_decision_question & question,
+            size_t variant,
             const std::vector<raw_buffer> & files,
             mtmd_context * mctx,
             const mtmd_helper_init_opt & init_opt,
             server_task & task) const;
 
-    // scores: one raw model output per option
-    json format_answer(const server_decision_question & question, const std::vector<float> & scores) const;
+    // scores: the raw model outputs of each variant
+    json format_answer(const server_decision_question & question, const std::vector<std::vector<float>> & scores) const;
 
 private:
     const llama_vocab * vocab = nullptr;
@@ -83,17 +89,19 @@ private:
     size_t n_options_max   = 0;
     bool   noul_true_first = false; // noul options are [true, false] instead of [false, true]
 
-    // OPENJEV
+    // OPENJEV, LEV
     std::vector<llama_token> labels;
+    std::vector<std::string> label_texts; // only if the label of an option is given to the template
 
-    // LAYA
+    // LAYA, KEV
     llama_token token_marker      = LLAMA_TOKEN_NULL;
     llama_token token_sep         = LLAMA_TOKEN_NULL;
     std::string text_marker;
     size_t      max_head_tokens   = 0; // question + options
     size_t      max_option_tokens = 48;
 
-    std::string render(const json & state, const server_decision_question & question, size_t n_images) const;
+    std::string render(const json & state, const server_decision_question & question, size_t variant, size_t n_images) const;
+    size_t n_outputs(const server_decision_question & question) const;
     void fill_task_laya(llama_tokens & tokens, const server_decision_question & question, server_task & task) const;
 
     float get_temperature(const server_decision_question & question) const;

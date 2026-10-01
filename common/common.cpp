@@ -1192,6 +1192,22 @@ struct common_init_result::impl {
     std::vector<llama_sampler_seq_config> samplers_seq_config;
 };
 
+static std::map<common_decision_type, std::string> COMMON_DECISION_TYPE_NAMES = {
+    { COMMON_DECISION_TYPE_OPENJEV, "openjev" },
+    { COMMON_DECISION_TYPE_LEV,     "lev"     },
+    { COMMON_DECISION_TYPE_KEV,     "kev"     },
+    { COMMON_DECISION_TYPE_LAYA,    "laya"    },
+};
+
+static common_decision_type common_decision_type_from_string(const std::string & str) {
+    for (const auto & pair : COMMON_DECISION_TYPE_NAMES) {
+        if (pair.second == str) {
+            return pair.first;
+        }
+    }
+    return COMMON_DECISION_TYPE_UNKNOWN;
+}
+
 common_decision_type common_get_decision_type(const struct llama_model * model) {
     char buf[64];
     if (llama_model_meta_val_str(model, "general.architecture", buf, sizeof(buf)) < 0) {
@@ -1201,14 +1217,7 @@ common_decision_type common_get_decision_type(const struct llama_model * model) 
     if (llama_model_meta_val_str(model, key.c_str(), buf, sizeof(buf)) < 0) {
         return COMMON_DECISION_TYPE_NONE;
     }
-    const std::string type = buf;
-    if (type == "openjev") {
-        return COMMON_DECISION_TYPE_OPENJEV;
-    }
-    if (type == "laya") {
-        return COMMON_DECISION_TYPE_LAYA;
-    }
-    return COMMON_DECISION_TYPE_UNKNOWN;
+    return common_decision_type_from_string(buf);
 }
 
 common_init_result::common_init_result(common_params & params, bool model_only) :
@@ -1265,7 +1274,8 @@ common_init_result::common_init_result(common_params & params, bool model_only) 
 
     // this decision model returns a score for each token via the embeddings output
     // TODO: maybe improve this in the future
-    if (common_get_decision_type(model) == COMMON_DECISION_TYPE_LAYA) {
+    const auto decision_type = common_get_decision_type(model);
+    if (decision_type == COMMON_DECISION_TYPE_LAYA || decision_type == COMMON_DECISION_TYPE_KEV) {
         params.embedding    = true;
         params.pooling_type = LLAMA_POOLING_TYPE_NONE;
 
@@ -1274,7 +1284,7 @@ common_init_result::common_init_result(common_params & params, bool model_only) 
         cparams.n_outputs_max         = cparams.n_batch;
         cparams.n_outputs_max_per_seq = 1;
 
-        LOG_INF("%s", "laya decision model detected, enabling embedding mode\n");
+        LOG_INF("%s", "decision model reads the embeddings output, enabling embedding mode\n");
     }
 
     // load and optionally apply lora adapters
