@@ -1340,6 +1340,19 @@ class GGUFWriter:
     def add_classifier_pooling_type(self, value: PoolingType) -> None:
         self.add_uint32(Keys.Classifier.POOLING_TYPE.format(arch=self.arch), value.value)
 
+    def add_decision_type(self, value: str) -> None:
+        self.add_string(Keys.Decision.TYPE.format(arch=self.arch), value)
+
+    def add_decision_block_count(self, value: int) -> None:
+        self.add_uint32(Keys.Decision.BLOCK_COUNT.format(arch=self.arch), value)
+
+    def add_decision_max_head_tokens(self, value: int) -> None:
+        self.add_uint32(Keys.Decision.MAX_HEAD_TOKENS.format(arch=self.arch), value)
+
+    def add_decision_temperatures(self, value: Mapping[str, float]) -> None:
+        self.add_array(Keys.Decision.TEMPERATURE_KEYS.format(arch=self.arch), list(value.keys()))
+        self.add_array(Keys.Decision.TEMPERATURE_VALUES.format(arch=self.arch), list(value.values()))
+
     # for vision models
 
     def add_clip_has_vision_encoder(self, value: bool) -> None:

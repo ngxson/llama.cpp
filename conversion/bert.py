@@ -639,3 +639,121 @@ class ModernBertModel(BertModel):
                 name = "classifier.out_proj.bias"
 
         yield from super().modify_tensors(data_torch, name, bid)
+
+
+def _is_decision_checkpoint(dir_model: Path) -> bool:
+    if not (dir_model / "encoder" / "config.json").is_file():
+        return False
+    return (dir_model / "rl_agent_config.json").is_file() or (dir_model / "julia_config.json").is_file()
+
+
+@ModelBase.register_hparams_loader(_is_decision_checkpoint)
+def _load_decision_hparams(dir_model: Path) -> dict[str, Any]:
+    logger.info("gguf: detected ModernBert decision checkpoint")
+    with open(dir_model / "encoder" / "config.json", encoding="utf-8") as f:
+        hparams = json.load(f)
+    is_julia = (dir_model / "julia_config.json").is_file()
+    with open(dir_model / ("julia_config.json" if is_julia else "rl_agent_config.json"), encoding="utf-8") as f:
+        decision = json.load(f)
+    n_layer = hparams["num_hidden_layers"]
+    n_layer_head = decision["head_layers"]
+    hparams["architectures"] = ["ModernBertDecisionModel"]
+    hparams["decision"] = decision
+    # the head blocks are appended to the encoder blocks, they use a plain 4x MLP
+    hparams["num_hidden_layers"] = n_layer + n_layer_head
+    hparams["intermediate_size"] = [hparams["intermediate_size"]] * n_layer + [4 * hparams["hidden_size"]] * n_layer_head
+    return hparams
+
+
+@ModelBase.register("ModernBertDecisionModel")
+@ModelBase.example("convaiinnovations/laya", "SupersonicLabs/Julia-1")
+class ModernBertDecisionModel(ModernBertModel):
+    model_arch = gguf.MODEL_ARCH.MODERN_BERT
+
+    # nn.TransformerEncoderLayer -> ModernBert block
+    _HEAD_BLOCK_NAMES = {
+        "self_attn.in_proj_weight": "attn.Wqkv.weight",
+        "self_attn.in_proj_bias":   "attn.Wqkv.bias",
+        "self_attn.out_proj":       "attn.Wo",
+        "norm1":                    "attn_norm",
+        "norm2":                    "mlp_norm",
+        "linear1":                  "mlp.Wi",
+        "linear2":                  "mlp.Wo",
+    }
+    _HEAD_NAMES = {
+        "type_emb": "embeddings.token_type_embeddings",
+        "scorer.0": "head.norm",
+        "scorer.1": "head.dense",
+        "scorer.3": "classifier.out_proj",
+    }
+
+    def set_vocab(self):
+        # vocab loaders read self.dir_model, point it to the tokenizer sub-directory
+        dir_model = self.dir_model
+        self.dir_model = dir_model / "tokenizer"
+        try:
+            super().set_vocab()
+        finally:
+            self.dir_model = dir_model
+        self.gguf_writer.add_token_type_count(3)  # choice, score, noul
+        self.gguf_writer.add_chat_template([{"name": "systemone", "template": self._systemone_template()}])
+
+    def _systemone_template(self) -> str:
+        with open(self.dir_model / "tokenizer" / "tokenizer_config.json", encoding="utf-8") as f:
+            tokenizer_config = json.load(f)
+        tok_cls, tok_sep, tok_mask = (tokenizer_config[k] for k in ("cls_token", "sep_token", "mask_token"))
+        if self.hparams["decision"].get("architecture") == "JuliaDecisionModel":
+            option = "{% if o.description %}{{ o.description }}{% else %}{{ o.key }}{% endif %}"
+        else:
+            option = (
+                "{% if type == 'choice' %}{{ o.key }}{% if o.description %}: {{ o.description }}{% endif %}"
+                "{% elif type == 'score' %}level {{ o.key }}: {{ o.description }}"
+                "{% else %}{{ o.key }}: {% if o.description %}{{ o.description }}"
+                "{% elif o.key == 'true' %}yes, the statement holds"
+                "{% else %}no, the statement does not hold{% endif %}{% endif %}"
+            )
+        # one marker token per option
+        return (
+            tok_cls + "{{ type }} question: {{ instructions }}" + tok_sep
+            + "{% for o in options %}" + tok_mask + " " + option + "{% endfor %}"
+            + tok_sep + "{{ state }}" + tok_sep
+        )
+
+    def set_gguf_parameters(self):
+        super().set_gguf_parameters()
+        decision = self.hparams["decision"]
+        self.gguf_writer.add_decision_type(gguf.DecisionType.LAYA)
+        self.gguf_writer.add_decision_block_count(decision["head_layers"])
+        self.gguf_writer.add_decision_max_head_tokens(decision.get("head_max_len", 256))
+        temperatures = dict(zip(("choice", "score", "noul"), decision.get("temperature", [])))
+        temperatures.update(decision.get("temperature_by_options", {}))
+        self.gguf_writer.add_decision_temperatures(temperatures)
+
+    @classmethod
+    def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:
+        name, gen = item
+
+        # act_head is not used for the answer, the fitted temperatures come from the config
+        if name.startswith("act_head.") or name == "temperature":
+            return None
+
+        if name.startswith("encoder."):
+            name = name[8:]
+
+        return super().filter_tensors((name, gen))
+
+    def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
+        if name.startswith("head.layers.") and bid is not None:
+            bid += self.block_count - self.hparams["decision"]["head_layers"]
+            suffix = name.split(".", 3)[3]
+            for old, new in self._HEAD_BLOCK_NAMES.items():
+                if suffix.startswith(old):
+                    name = f"layers.{bid}.{new}{suffix[len(old):]}"
+                    break
+        else:
+            for old, new in self._HEAD_NAMES.items():
+                if name.startswith(old + "."):
+                    name = new + name[len(old):]
+                    break
+
+        yield from super().modify_tensors(data_torch, name, bid)
