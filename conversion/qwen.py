@@ -656,6 +656,11 @@ class Qwen3_5TextModel(_Qwen35MRopeMixin, _LinearAttentionVReorderBase):
     model_arch = gguf.MODEL_ARCH.QWEN35
 
 
+def _jinja_str(name: str) -> str:
+    # non-string values are rendered as JSON
+    return "{{ " + name + " if " + name + " is string else " + name + " | tojson }}"
+
+
 def _is_openjev_checkpoint(dir_model: Path) -> bool:
     return (dir_model / "helper" / "shim.py").is_file() and (dir_model / "config.json").is_file()
 
@@ -673,6 +678,7 @@ def _load_openjev_hparams(dir_model: Path) -> dict[str, Any]:
 @ModelBase.example("openjev/openjev")
 class OpenJevModel(Qwen3_5TextModel):
     model_arch = gguf.MODEL_ARCH.QWEN35
+    no_mtp = True  # the checkpoint has no MTP head
 
     # prompt and calibration follow helper/shim.py of the model repo (text lane)
     _LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -684,17 +690,17 @@ class OpenJevModel(Qwen3_5TextModel):
         self.gguf_writer.add_chat_template([{"name": "systemone", "template": self._systemone_template()}])
 
     def _systemone_template(self) -> str:
+        description = _jinja_str("o.description")
         option = (
-            "{% if type == 'noul' %}"
-            "{% if o.key == 'true' %}yes: {{ o.description or 'The statement is true.' }}"
-            "{% else %}no: {{ o.description or 'The statement is false.' }}{% endif %}"
-            "{% else %}{{ o.key }}: {{ o.description or '' }}{% endif %}"
+            "{% if type != 'noul' %}{{ o.key }}: {% if o.description %}" + description + "{% endif %}"
+            "{% elif o.key == 'true' %}yes: {% if o.description %}" + description + "{% else %}The statement is true.{% endif %}"
+            "{% else %}no: {% if o.description %}" + description + "{% else %}The statement is false.{% endif %}{% endif %}"
         )
         # newlines next to a block tag are emitted as expressions, so that trim_blocks cannot drop them
         return (
             "{% set letters = '" + self._LETTERS + "' %}"
-            "<|im_start|>user\nState:\n{{ state }}\n\nQuestion: {{ instructions }}"
-            "{% if type == 'score' %} Rate along the ordered levels below (lowest first).{% endif %}"
+            "<|im_start|>user\nState:\n" + _jinja_str("state") + "\n\nQuestion: " + _jinja_str("instructions")
+            + "{% if type == 'score' %} Rate along the ordered levels below (lowest first).{% endif %}"
             "{{ '\\nOptions:\\n' }}"
             "{% for o in options %}[{{ letters[loop.index0] }}] " + option + "{{ '\\n' }}{% endfor %}"
             "{{ '\\nAnswer with the letter of the best option only.<|im_end|>\\n<|im_start|>assistant\\n<think>\\n\\n</think>\\n\\n' }}"
@@ -703,11 +709,9 @@ class OpenJevModel(Qwen3_5TextModel):
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
         self.gguf_writer.add_decision_type(gguf.DecisionType.OPENJEV)
-        self.gguf_writer.add_decision_temperatures({
-            "choice": self._TEMPERATURE,
-            "score":  self._TEMPERATURE,
-            "noul":   self._TEMPERATURE * self._TEMPERATURE_NOUL,
-        })
+        self.gguf_writer.add_decision_temperature("choice", self._TEMPERATURE)
+        self.gguf_writer.add_decision_temperature("score",  self._TEMPERATURE)
+        self.gguf_writer.add_decision_temperature("noul",   self._TEMPERATURE * self._TEMPERATURE_NOUL)
 
 
 @ModelBase.register("Qwen3_5MoeForConditionalGeneration", "Qwen3_5MoeForCausalLM")

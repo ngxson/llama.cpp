@@ -325,8 +325,7 @@ class Keys:
         # note: single-use-case keys can be hard-coded in cpp code
         BLOCK_COUNT        = "{arch}.decision.block_count"
         MAX_HEAD_TOKENS    = "{arch}.decision.max_head_tokens"
-        TEMPERATURE_KEYS   = "{arch}.decision.temperature.keys"  # "<type>" or "<type>:<n_opt bucket>"
-        TEMPERATURE_VALUES = "{arch}.decision.temperature.values"
+        TEMPERATURE        = "{arch}.decision.temperature.{name}"  # name: "<type>" or "<type>.<n_opt bucket>"
 
     class Tokenizer:
         MODEL                = "tokenizer.ggml.model"

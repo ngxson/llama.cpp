@@ -641,6 +641,11 @@ class ModernBertModel(BertModel):
         yield from super().modify_tensors(data_torch, name, bid)
 
 
+def _jinja_str(name: str) -> str:
+    # non-string values are rendered as JSON
+    return "{{ " + name + " if " + name + " is string else " + name + " | tojson }}"
+
+
 def _is_decision_checkpoint(dir_model: Path) -> bool:
     if not (dir_model / "encoder" / "config.json").is_file():
         return False
@@ -702,21 +707,22 @@ class ModernBertDecisionModel(ModernBertModel):
         with open(self.dir_model / "tokenizer" / "tokenizer_config.json", encoding="utf-8") as f:
             tokenizer_config = json.load(f)
         tok_cls, tok_sep, tok_mask = (tokenizer_config[k] for k in ("cls_token", "sep_token", "mask_token"))
+        description = _jinja_str("o.description")
         if self.hparams["decision"].get("architecture") == "JuliaDecisionModel":
-            option = "{% if o.description %}{{ o.description }}{% else %}{{ o.key }}{% endif %}"
+            option = "{% if o.description %}" + description + "{% else %}{{ o.key }}{% endif %}"
         else:
             option = (
-                "{% if type == 'choice' %}{{ o.key }}{% if o.description %}: {{ o.description }}{% endif %}"
-                "{% elif type == 'score' %}level {{ o.key }}: {{ o.description }}"
-                "{% else %}{{ o.key }}: {% if o.description %}{{ o.description }}"
-                "{% elif o.key == 'true' %}yes, the statement holds"
+                "{% if type == 'choice' %}{{ o.key }}{% if o.description %}: " + description + "{% endif %}"
+                "{% elif type == 'score' %}level {{ o.key }}: " + description
+                + "{% else %}{{ o.key }}: {% if o.description %}" + description
+                + "{% elif o.key == 'true' %}yes, the statement holds"
                 "{% else %}no, the statement does not hold{% endif %}{% endif %}"
             )
         # one marker token per option
         return (
-            tok_cls + "{{ type }} question: {{ instructions }}" + tok_sep
+            tok_cls + "{{ type }} question: " + _jinja_str("instructions") + tok_sep
             + "{% for o in options %}" + tok_mask + " " + option + "{% endfor %}"
-            + tok_sep + "{{ state }}" + tok_sep
+            + tok_sep + _jinja_str("state") + tok_sep
         )
 
     def set_gguf_parameters(self):
@@ -725,9 +731,11 @@ class ModernBertDecisionModel(ModernBertModel):
         self.gguf_writer.add_decision_type(gguf.DecisionType.LAYA)
         self.gguf_writer.add_decision_block_count(decision["head_layers"])
         self.gguf_writer.add_decision_max_head_tokens(decision.get("head_max_len", 256))
-        temperatures = dict(zip(("choice", "score", "noul"), decision.get("temperature", [])))
-        temperatures.update(decision.get("temperature_by_options", {}))
-        self.gguf_writer.add_decision_temperatures(temperatures)
+        for name, value in zip(("choice", "score", "noul"), decision.get("temperature", [])):
+            self.gguf_writer.add_decision_temperature(name, value)
+        # "choice:3-5" -> "choice.3_5", "choice:11+" -> "choice.11"
+        for name, value in decision.get("temperature_by_options", {}).items():
+            self.gguf_writer.add_decision_temperature(name.replace(":", ".").replace("-", "_").rstrip("+"), value)
 
     @classmethod
     def filter_tensors(cls, item: tuple[str, Callable[[], Tensor]]) -> tuple[str, Callable[[], Tensor]] | None:

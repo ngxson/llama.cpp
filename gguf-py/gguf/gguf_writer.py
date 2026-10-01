@@ -1349,9 +1349,8 @@ class GGUFWriter:
     def add_decision_max_head_tokens(self, value: int) -> None:
         self.add_uint32(Keys.Decision.MAX_HEAD_TOKENS.format(arch=self.arch), value)
 
-    def add_decision_temperatures(self, value: Mapping[str, float]) -> None:
-        self.add_array(Keys.Decision.TEMPERATURE_KEYS.format(arch=self.arch), list(value.keys()))
-        self.add_array(Keys.Decision.TEMPERATURE_VALUES.format(arch=self.arch), list(value.values()))
+    def add_decision_temperature(self, name: str, value: float) -> None:
+        self.add_float32(Keys.Decision.TEMPERATURE.format(arch=self.arch, name=name), value)
 
     # for vision models
 
