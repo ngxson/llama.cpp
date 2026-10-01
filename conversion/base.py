@@ -1268,14 +1268,14 @@ class ModelBase:
         return inner
 
     @staticmethod
-    def load_hparams(dir_model: Path, is_mistral_format: bool):
+    def load_hparams(dir_model: Path, is_mistral_format: bool, guess: bool = True):
         if is_mistral_format:
             with open(dir_model / "params.json", "r", encoding="utf-8") as f:
                 config = json.load(f)
             return config
 
         # checkpoints with a non-HF layout are matched by their own loader
-        config = ModelBase.load_hparams_guess(dir_model) if dir_model.is_dir() else None
+        config = ModelBase.load_hparams_guess(dir_model) if guess and dir_model.is_dir() else None
         if config is not None:
             return config
 
@@ -2882,6 +2882,11 @@ else:
     # Older torch builds do not expose F8_E8M0. Keep the raw bytes so callers
     # that know the format can decode them explicitly.
     LazyTorchTensor._dtype_str_map["F8_E8M0"] = torch.uint8
+
+
+def jinja_str_or_json(name: str) -> str:
+    # jinja expression that renders a variable as-is if it is a string, as JSON otherwise
+    return "{{ " + name + " if " + name + " is string else " + name + " | tojson }}"
 
 
 def get_model_architecture(hparams: dict[str, Any], model_type: ModelType) -> str:

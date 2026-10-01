@@ -11,7 +11,7 @@ import torch
 if TYPE_CHECKING:
     from torch import Tensor
 
-from .base import ModelBase, SentencePieceTokenTypes, TextModel, gguf, logger
+from .base import ModelBase, SentencePieceTokenTypes, TextModel, gguf, jinja_str_or_json, logger
 
 
 @ModelBase.register("BertModel", "BertForMaskedLM", "CamembertModel", "BertForSequenceClassification")
@@ -641,11 +641,6 @@ class ModernBertModel(BertModel):
         yield from super().modify_tensors(data_torch, name, bid)
 
 
-def _jinja_str(name: str) -> str:
-    # non-string values are rendered as JSON
-    return "{{ " + name + " if " + name + " is string else " + name + " | tojson }}"
-
-
 def _is_decision_checkpoint(dir_model: Path) -> bool:
     if not (dir_model / "encoder" / "config.json").is_file():
         return False
@@ -655,8 +650,7 @@ def _is_decision_checkpoint(dir_model: Path) -> bool:
 @ModelBase.register_hparams_loader(_is_decision_checkpoint)
 def _load_decision_hparams(dir_model: Path) -> dict[str, Any]:
     logger.info("gguf: detected ModernBert decision checkpoint")
-    with open(dir_model / "encoder" / "config.json", encoding="utf-8") as f:
-        hparams = json.load(f)
+    hparams = ModelBase.load_hparams(dir_model / "encoder", False, guess=False)
     is_julia = (dir_model / "julia_config.json").is_file()
     with open(dir_model / ("julia_config.json" if is_julia else "rl_agent_config.json"), encoding="utf-8") as f:
         decision = json.load(f)
@@ -675,23 +669,6 @@ def _load_decision_hparams(dir_model: Path) -> dict[str, Any]:
 class ModernBertDecisionModel(ModernBertModel):
     model_arch = gguf.MODEL_ARCH.MODERN_BERT
 
-    # nn.TransformerEncoderLayer -> ModernBert block
-    _HEAD_BLOCK_NAMES = {
-        "self_attn.in_proj_weight": "attn.Wqkv.weight",
-        "self_attn.in_proj_bias":   "attn.Wqkv.bias",
-        "self_attn.out_proj":       "attn.Wo",
-        "norm1":                    "attn_norm",
-        "norm2":                    "mlp_norm",
-        "linear1":                  "mlp.Wi",
-        "linear2":                  "mlp.Wo",
-    }
-    _HEAD_NAMES = {
-        "type_emb": "embeddings.token_type_embeddings",
-        "scorer.0": "head.norm",
-        "scorer.1": "head.dense",
-        "scorer.3": "classifier.out_proj",
-    }
-
     def set_vocab(self):
         # vocab loaders read self.dir_model, point it to the tokenizer sub-directory
         dir_model = self.dir_model
@@ -707,7 +684,7 @@ class ModernBertDecisionModel(ModernBertModel):
         with open(self.dir_model / "tokenizer" / "tokenizer_config.json", encoding="utf-8") as f:
             tokenizer_config = json.load(f)
         tok_cls, tok_sep, tok_mask = (tokenizer_config[k] for k in ("cls_token", "sep_token", "mask_token"))
-        description = _jinja_str("o.description")
+        description = jinja_str_or_json("o.description")
         if self.hparams["decision"].get("architecture") == "JuliaDecisionModel":
             option = "{% if o.description %}" + description + "{% else %}{{ o.key }}{% endif %}"
         else:
@@ -718,11 +695,10 @@ class ModernBertDecisionModel(ModernBertModel):
                 + "{% elif o.key == 'true' %}yes, the statement holds"
                 "{% else %}no, the statement does not hold{% endif %}{% endif %}"
             )
-        # one marker token per option
         return (
-            tok_cls + "{{ type }} question: " + _jinja_str("instructions") + tok_sep
+            tok_cls + "{{ type }} question: " + jinja_str_or_json("instructions") + tok_sep
             + "{% for o in options %}" + tok_mask + " " + option + "{% endfor %}"
-            + tok_sep + _jinja_str("state") + tok_sep
+            + tok_sep + jinja_str_or_json("state") + tok_sep
         )
 
     def set_gguf_parameters(self):
@@ -752,16 +728,9 @@ class ModernBertDecisionModel(ModernBertModel):
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         if name.startswith("head.layers.") and bid is not None:
+            # the head blocks come after the encoder blocks
+            suffix = name.split(".", 3)[3].replace("in_proj_", "in_proj.")
             bid += self.block_count - self.hparams["decision"]["head_layers"]
-            suffix = name.split(".", 3)[3]
-            for old, new in self._HEAD_BLOCK_NAMES.items():
-                if suffix.startswith(old):
-                    name = f"layers.{bid}.{new}{suffix[len(old):]}"
-                    break
-        else:
-            for old, new in self._HEAD_NAMES.items():
-                if name.startswith(old + "."):
-                    name = new + name[len(old):]
-                    break
+            name = f"head.layers.{bid}.{suffix}"
 
         yield from super().modify_tensors(data_torch, name, bid)

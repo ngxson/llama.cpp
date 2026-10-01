@@ -11,7 +11,7 @@ import torch
 if TYPE_CHECKING:
     from torch import Tensor
 
-from .base import LazyTorchTensor, ModelBase, ModelType, TextModel, get_model_architecture, gguf, logger
+from .base import LazyTorchTensor, ModelBase, ModelType, TextModel, get_model_architecture, gguf, jinja_str_or_json, logger
 
 
 @ModelBase.register("QWenLMHeadModel")
@@ -656,11 +656,6 @@ class Qwen3_5TextModel(_Qwen35MRopeMixin, _LinearAttentionVReorderBase):
     model_arch = gguf.MODEL_ARCH.QWEN35
 
 
-def _jinja_str(name: str) -> str:
-    # non-string values are rendered as JSON
-    return "{{ " + name + " if " + name + " is string else " + name + " | tojson }}"
-
-
 def _is_openjev_checkpoint(dir_model: Path) -> bool:
     return (dir_model / "helper" / "shim.py").is_file() and (dir_model / "config.json").is_file()
 
@@ -668,8 +663,7 @@ def _is_openjev_checkpoint(dir_model: Path) -> bool:
 @ModelBase.register_hparams_loader(_is_openjev_checkpoint)
 def _load_openjev_hparams(dir_model: Path) -> dict[str, Any]:
     logger.info("gguf: detected OpenJev checkpoint")
-    with open(dir_model / "config.json", encoding="utf-8") as f:
-        hparams = json.load(f)
+    hparams = ModelBase.load_hparams(dir_model, False, guess=False)
     hparams["architectures"] = ["OpenJevModel"]
     return hparams
 
@@ -690,16 +684,15 @@ class OpenJevModel(Qwen3_5TextModel):
         self.gguf_writer.add_chat_template([{"name": "systemone", "template": self._systemone_template()}])
 
     def _systemone_template(self) -> str:
-        description = _jinja_str("o.description")
+        description = jinja_str_or_json("o.description")
         option = (
             "{% if type != 'noul' %}{{ o.key }}: {% if o.description %}" + description + "{% endif %}"
             "{% elif o.key == 'true' %}yes: {% if o.description %}" + description + "{% else %}The statement is true.{% endif %}"
             "{% else %}no: {% if o.description %}" + description + "{% else %}The statement is false.{% endif %}{% endif %}"
         )
-        # newlines next to a block tag are emitted as expressions, so that trim_blocks cannot drop them
         return (
             "{% set letters = '" + self._LETTERS + "' %}"
-            "<|im_start|>user\nState:\n" + _jinja_str("state") + "\n\nQuestion: " + _jinja_str("instructions")
+            "<|im_start|>user\nState:\n" + jinja_str_or_json("state") + "\n\nQuestion: " + jinja_str_or_json("instructions")
             + "{% if type == 'score' %} Rate along the ordered levels below (lowest first).{% endif %}"
             "{{ '\\nOptions:\\n' }}"
             "{% for o in options %}[{{ letters[loop.index0] }}] " + option + "{{ '\\n' }}{% endfor %}"
