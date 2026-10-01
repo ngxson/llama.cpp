@@ -606,6 +606,17 @@ class ModernBertModel(BertModel):
         self.gguf_writer.add_add_sep_token(True)
         self._set_vocab_gpt2()
 
+    def get_vocab_base(self) -> tuple[list[str], list[int], str]:
+        tokens, toktypes, tokpre = super().get_vocab_base()
+        if tokpre == "mmbert":
+            # the added tokens for runs of spaces are never matched by the reference tokenizer
+            space = b"\xe2\x96\x81".decode("utf-8")
+            for i, token in enumerate(tokens):
+                if toktypes[i] == gguf.TokenType.USER_DEFINED and token and not token.strip(" "):
+                    tokens[i] = space * len(token)
+                    toktypes[i] = gguf.TokenType.NORMAL
+        return tokens, toktypes, tokpre
+
     def set_gguf_parameters(self):
         super().set_gguf_parameters()
         self.gguf_writer.add_sliding_window(self.hparams["local_attention"])

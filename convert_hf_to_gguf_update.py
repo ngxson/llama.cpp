@@ -164,6 +164,7 @@ models = [
     {"name": "mellum2",          "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/JetBrains/Mellum2-12B-A2.5B-Base"},
     {"name": "laguna",           "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/poolside/Laguna-XS.2", },
     {"name": "ufakzeka",         "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/ufakai/ufakzeka-1", },
+    {"name": "mmbert",           "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/jhu-clsp/mmBERT-base", },
 ]
 
 # some models are known to be broken upstream, so we will skip them as exceptions
@@ -197,8 +198,6 @@ pre_computed_hashes = [
     # no-op here); the gemma4 pre (escape ws, split on newlines only) matches it.
     {"name": "gemma4", "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/danish-foundation-models/DFM-Mimir", "chkhsh": "846deafc5b0fa786186fa4ae6c7b49903cf2f1d1895bdb80b9120d60be135252"},
     {"name": "spark2_5", "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/XHToken/Spark-X2.5-1.7B", "chkhsh": "0a766d034107bc736a3f2dc4968fd62e54a3570f1454443e0c5a4cc6bd7941ed"},
-    # mmBERT uses the same SPM-style BPE as gemma4
-    {"name": "gemma4", "tokt": TOKENIZER_TYPE.BPE, "repo": "https://huggingface.co/jhu-clsp/mmBERT-base", "chkhsh": "4b05e02dad1c5ae07d266fd3342ddb644c6f6be058d728bc0a33af31a1d6ee66"},
 ]
 
 

@@ -93,8 +93,12 @@ void server_decision_context::init(const llama_model * model) {
                 label_texts.push_back(code);
             }
         }
-        if (labels.size() < DECISION_LEV_N_RATINGS) {
-            throw std::runtime_error("not enough single-token labels for this decision model");
+        for (size_t i = 0; i < DECISION_LEV_N_RATINGS; i++) {
+            const auto toks = common_tokenize(vocab, std::to_string(i), false, false);
+            if (toks.size() != 1) {
+                throw std::runtime_error("the ratings of this decision model must be single tokens");
+            }
+            labels_rating.push_back(toks[0]);
         }
         n_options_max = labels.size();
     } else if (model_type == COMMON_DECISION_TYPE_KEV) {
@@ -439,7 +443,11 @@ void server_decision_context::fill_task(
     const std::string prompt = render(state, question, variant, files.size());
 
     if (type == COMMON_DECISION_TYPE_OPENJEV || type == COMMON_DECISION_TYPE_LEV) {
-        task.decision.labels.assign(labels.begin(), labels.begin() + n_outputs(question));
+        if (type == COMMON_DECISION_TYPE_LEV && question.type == SERVER_DECISION_QUESTION_NOUL) {
+            task.decision.labels = labels_rating;
+        } else {
+            task.decision.labels.assign(labels.begin(), labels.begin() + question.options.size());
+        }
         if (!files.empty()) {
             task.tokens = process_mtmd_prompt(mctx, prompt, files, init_opt);
             return;

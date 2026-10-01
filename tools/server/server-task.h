@@ -183,6 +183,15 @@ struct server_task {
         int32_t                  column = 0;
         // if set, embeddings is [q | k], and the output is instead the scaled dot product of q[pointer] and k[marker]
         int32_t                  pointer = -1;
+
+        // first prompt position that is read, -1 if none
+        int32_t pos_first() const {
+            int32_t pos = pointer;
+            for (const int32_t marker : markers) {
+                pos = pos < 0 ? marker : std::min(pos, marker);
+            }
+            return pos;
+        }
     };
     decision decision;
 

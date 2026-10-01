@@ -51,18 +51,26 @@ class _DecisionLoraMixin:
 
         with open(dir_model / "adapter_config.json", encoding="utf-8") as f:
             lora_config = json.load(f)
+        # only a plain LoRA can be merged as scale * B @ A
+        assert lora_config["peft_type"] == "LORA"
+        assert lora_config.get("bias", "none") == "none"
+        assert not lora_config.get("use_dora") and not lora_config.get("use_rslora") and not lora_config.get("lora_bias")
+        assert not lora_config.get("rank_pattern") and not lora_config.get("alpha_pattern")
+        assert not lora_config.get("modules_to_save")
         self.lora_scale = lora_config["lora_alpha"] / lora_config["r"]
 
         # "layers.0.mlp.up_proj.weight" -> {"A": tensor, "B": tensor}
         self.lora: dict[str, dict[str, Tensor]] = {}
         for name, tensor in load_file(dir_model / "adapter_model.safetensors").items():
             base_name, _, part = name[name.index("layers."):].partition(".lora_")
+            assert part in ("A.weight", "B.weight"), f"unexpected LoRA tensor: {name}"
             self.lora.setdefault(base_name + ".weight", {})[part[0]] = tensor.float()
         self.lora_merged: set[str] = set()
 
     def modify_tensors(self, data_torch: Tensor, name: str, bid: int | None) -> Iterable[tuple[str, Tensor]]:
         lora = self.lora.get(name[name.index("layers."):]) if "layers." in name else None
         if lora is not None:
+            assert set(lora) == {"A", "B"} and data_torch.shape == (lora["B"].shape[0], lora["A"].shape[1])
             delta = self.lora_scale * (lora["B"] @ lora["A"])
             data_torch = data_torch.float() + LazyTorchTensor.from_eager(delta)
             self.lora_merged.add(name[name.index("layers."):])
@@ -137,7 +145,15 @@ class LevModel(_DecisionLoraMixin, Qwen3_5TextModel):
                 self.gguf_writer.add_decision_temperature(".".join([qtype] + band), value)
 
 
-@ModelBase.register_hparams_loader(lambda dir_model: (dir_model / "adapter_config.json").is_file() and (dir_model / "head.pt").is_file())
+def _is_kev_checkpoint(dir_model: Path) -> bool:
+    # a LoRA adapter with the pointer head and the config of the kev training code
+    if not all((dir_model / name).is_file() for name in ("adapter_config.json", "head.pt", "training_config.json")):
+        return False
+    with open(dir_model / "training_config.json", encoding="utf-8") as f:
+        return "head_dim" in json.load(f).get("args", {})
+
+
+@ModelBase.register_hparams_loader(_is_kev_checkpoint)
 def _load_kev_hparams(dir_model: Path) -> dict[str, Any]:
     logger.info("gguf: detected Kev checkpoint")
     return _load_decision_lora_hparams(dir_model, "KevModel")
@@ -154,6 +170,8 @@ class KevModel(_DecisionLoraMixin, Qwen3_5TextModel):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.head = torch.load(self.dir_adapter / "head.pt", map_location="cpu", weights_only=True)
+        assert set(self.head["head"]) == {"q.weight", "q.bias", "k.weight", "k.bias"}
+        assert self.head["head"]["q.weight"].shape[0] == self.head["head_dim"]
 
     def set_vocab(self):
         super().set_vocab()

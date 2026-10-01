@@ -292,9 +292,9 @@ ggml_tensor * llama_model_modern_bert::graph::build_decision_head(
 
         // scorer
         ggml_tensor * cur = build_norm(inpL, model.cls_norm, model.cls_norm_b, LLM_NORM, -1);
-        cur = ggml_add(ctx0, ggml_mul_mat(ctx0, model.cls, cur), model.cls_b);
+        cur = ggml_add(ctx0, build_lora_mm(model.cls, cur), model.cls_b);
         cur = ggml_gelu_erf(ctx0, cur);
-        cur = ggml_add(ctx0, ggml_mul_mat(ctx0, model.cls_out, cur), model.cls_out_b);
+        cur = ggml_add(ctx0, build_lora_mm(model.cls_out, cur), model.cls_out_b);
 
         scores = scores ? ggml_concat(ctx0, scores, cur, 0) : cur;
     }

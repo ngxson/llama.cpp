@@ -1712,9 +1712,6 @@ class TextModel(ModelBase):
         if chkhsh == "0a766d034107bc736a3f2dc4968fd62e54a3570f1454443e0c5a4cc6bd7941ed":
             # ref: https://huggingface.co/XHToken/Spark-X2.5-1.7B
             res = "spark2_5"
-        if chkhsh == "4b05e02dad1c5ae07d266fd3342ddb644c6f6be058d728bc0a33af31a1d6ee66":
-            # ref: https://huggingface.co/jhu-clsp/mmBERT-base
-            res = "gemma4"
         if chkhsh == "0ef9807a4087ebef797fc749390439009c3b9eda9ad1a097abbe738f486c01e5":
             # ref: https://huggingface.co/meta-llama/Meta-Llama-3-8B
             res = "llama-bpe"
@@ -1940,6 +1937,9 @@ class TextModel(ModelBase):
         if chkhsh == "653660222fb704f61cbf2b618a8ae6502b7f8b20c980f9a5de07ed78e13319cd":
             # ref: https://huggingface.co/ufakai/ufakzeka-1
             res = "ufakzeka"
+        if chkhsh == "4b05e02dad1c5ae07d266fd3342ddb644c6f6be058d728bc0a33af31a1d6ee66":
+            # ref: https://huggingface.co/jhu-clsp/mmBERT-base
+            res = "mmbert"
 
         if res is None:
             logger.warning("\n")

@@ -1192,7 +1192,7 @@ struct common_init_result::impl {
     std::vector<llama_sampler_seq_config> samplers_seq_config;
 };
 
-static std::map<common_decision_type, std::string> COMMON_DECISION_TYPE_NAMES = {
+static const std::map<common_decision_type, std::string> COMMON_DECISION_TYPE_NAMES = {
     { COMMON_DECISION_TYPE_OPENJEV, "openjev" },
     { COMMON_DECISION_TYPE_LEV,     "lev"     },
     { COMMON_DECISION_TYPE_KEV,     "kev"     },

@@ -220,7 +220,7 @@ llama_model_qwen35::graph::graph(const llama_model & model, const llm_graph_para
     res->t_embd = cur;
 
     if (model.cls_out) {
-        ggml_tensor * embd = ggml_mul_mat(ctx0, model.cls_out, cur);
+        ggml_tensor * embd = build_lora_mm(model.cls_out, cur);
         if (model.cls_out_b) {
             embd = ggml_add(ctx0, embd, model.cls_out_b);
         }

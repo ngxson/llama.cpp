@@ -3296,6 +3296,18 @@ private:
                                 return;
                             }
 
+                            // the outputs of a decision are read from one batch
+                            const int32_t n_decision_first = slot.task->type == SERVER_TASK_TYPE_DECISION ? slot.task->decision.pos_first() : -1;
+                            if (n_decision_first >= 0 && slot.task->n_tokens() - n_decision_first > n_batch) {
+                                send_error(slot,
+                                           string_format("the question and its options (%d tokens) are too large to process. "
+                                                         "increase the batch size (current batch size: %d)",
+                                                         slot.task->n_tokens() - n_decision_first, n_batch),
+                                           ERROR_TYPE_INVALID_REQUEST);
+                                slot.release();
+                                return;
+                            }
+
                             const bool is_stateless_task = slot.task->type == SERVER_TASK_TYPE_EMBEDDING || slot.task->type == SERVER_TASK_TYPE_RERANK;
 
                             if (slot.task->params.cache_prompt && !is_stateless_task) {
@@ -3627,6 +3639,8 @@ private:
                     const auto & spans = slot.task->params.message_spans;
                     const auto last_user_pos = spans.last_user_message_pos();
 
+                    const int32_t n_decision_first = slot.task->type == SERVER_TASK_TYPE_DECISION ? slot.task->decision.pos_first() : -1;
+
                     // add prompt tokens for processing in the current batch
                     while (slot.prompt.n_tokens() < slot.task->n_tokens() && batch.size() < n_batch) {
                         // get next token to process
@@ -3637,6 +3651,11 @@ private:
 
                         // stop at the end of the shared prefix, the children are started from this state
                         if (wait_shared && slot.prompt.n_tokens() == slot.task->n_tokens_shared) {
+                            break;
+                        }
+
+                        // the outputs of a decision are read from one batch, do not split them
+                        if (slot.prompt.n_tokens() == n_decision_first && batch.size() + slot.task->n_tokens() - n_decision_first > n_batch) {
                             break;
                         }
 
@@ -3883,6 +3902,8 @@ private:
                     SLT_TRC(slot, " - copying state to child %d\n", child->id);
 
                     GGML_ASSERT(child->state == SLOT_STATE_WAIT_OTHER);
+                    // children with their own prompt are started at the end of the shared prefix
+                    GGML_ASSERT(slot.task->n_tokens_shared == 0);
 
                     slot.copy_state_to(*child);
                     child->state = SLOT_STATE_DONE_PROMPT;
