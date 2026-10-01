@@ -647,6 +647,19 @@ class ServerPreset:
         return server
 
     @staticmethod
+    def tinyopenjev() -> ServerProcess:
+        server = ServerProcess()
+        server.offline = True # will be downloaded by load_all()
+        # mmproj is already provided by HF registry API
+        server.model_hf_file = None
+        server.model_hf_repo = "ggml-org/tinyopenjev-for-testing-gguf:Q8_0"
+        server.n_ctx = 4096
+        server.n_batch = 512
+        server.n_slots = 4
+        server.seed = 42
+        return server
+
+    @staticmethod
     def tinygemma3() -> ServerProcess:
         server = ServerProcess()
         server.offline = True # will be downloaded by load_all()
