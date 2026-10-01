@@ -11,12 +11,6 @@
 // typed decision models (TypeSafe /v1/systemone API)
 // the model answers each question in one forward pass, no token is generated
 
-enum server_decision_type {
-    SERVER_DECISION_TYPE_NONE,    // not a decision model
-    SERVER_DECISION_TYPE_OPENJEV, // logits of one label token per option, read at the last prompt token
-    SERVER_DECISION_TYPE_LAYA,    // score of one marker token per option, read from the embeddings output
-};
-
 enum server_decision_question_type {
     SERVER_DECISION_QUESTION_CHOICE,
     SERVER_DECISION_QUESTION_SCORE,
@@ -36,16 +30,13 @@ struct server_decision_question {
 };
 
 struct server_decision_context {
-    server_decision_type type = SERVER_DECISION_TYPE_NONE;
+    common_decision_type type = COMMON_DECISION_TYPE_NONE;
 
     // read the "<arch>.decision.*" metadata, type stays NONE if the model has none
     void init(const llama_model * model);
 
-    // true if the result is read from the embeddings of each token
-    bool need_embd() const { return type == SERVER_DECISION_TYPE_LAYA; }
-
     // true if the questions of a request start with the same tokens, and the model can continue from them
-    bool can_share_prompt() const { return type == SERVER_DECISION_TYPE_OPENJEV; }
+    bool can_share_prompt() const { return type == COMMON_DECISION_TYPE_OPENJEV; }
 
     // throw std::invalid_argument on bad input
     std::vector<server_decision_question> parse_questions(const json & body) const;

@@ -1192,6 +1192,25 @@ struct common_init_result::impl {
     std::vector<llama_sampler_seq_config> samplers_seq_config;
 };
 
+common_decision_type common_get_decision_type(const struct llama_model * model) {
+    char buf[64];
+    if (llama_model_meta_val_str(model, "general.architecture", buf, sizeof(buf)) < 0) {
+        return COMMON_DECISION_TYPE_NONE;
+    }
+    const std::string key = std::string(buf) + ".decision.type";
+    if (llama_model_meta_val_str(model, key.c_str(), buf, sizeof(buf)) < 0) {
+        return COMMON_DECISION_TYPE_NONE;
+    }
+    const std::string type = buf;
+    if (type == "openjev") {
+        return COMMON_DECISION_TYPE_OPENJEV;
+    }
+    if (type == "laya") {
+        return COMMON_DECISION_TYPE_LAYA;
+    }
+    return COMMON_DECISION_TYPE_UNKNOWN;
+}
+
 common_init_result::common_init_result(common_params & params, bool model_only) :
     pimpl(new impl{}) {
     auto mparams = common_model_params_to_llama(params);
@@ -1243,6 +1262,20 @@ common_init_result::common_init_result(common_params & params, bool model_only) 
     }
 
     const llama_vocab * vocab = llama_model_get_vocab(model);
+
+    // this decision model returns a score for each token via the embeddings output
+    // TODO: maybe improve this in the future
+    if (common_get_decision_type(model) == COMMON_DECISION_TYPE_LAYA) {
+        params.embedding    = true;
+        params.pooling_type = LLAMA_POOLING_TYPE_NONE;
+
+        cparams.embeddings            = true;
+        cparams.pooling_type          = LLAMA_POOLING_TYPE_NONE;
+        cparams.n_outputs_max         = cparams.n_batch;
+        cparams.n_outputs_max_per_seq = 1;
+
+        LOG_INF("%s", "laya decision model detected, enabling embedding mode\n");
+    }
 
     // load and optionally apply lora adapters
     for (auto & la : params.lora_adapters) {

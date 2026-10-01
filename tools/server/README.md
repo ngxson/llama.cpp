@@ -1665,6 +1665,110 @@ curl http://localhost:8080/v1/messages/count_tokens \
 {"input_tokens": 10}
 ```
 
+## TypeSafe-compatible API Endpoints
+
+### POST `/v1/systemone`: TypeSafe-compatible System One API
+
+Answers typed questions about a `state` with a decision model.
+
+Follows the [TypeSafe API](https://docs.typesafe.ai/api), streaming is not supported.
+
+*Options:*
+
+`state`: The content to evaluate. Can be a string, an object or an array. A value that is not a string is given to the model as JSON text.
+
+`questions`: An object that maps a question id to a question. Each question has these fields:
+
+- `type`: One of `choice`, `score`, `noul`.
+- `instructions`: The question. Can be a string, an object or an array.
+- `criteria`: The possible answers, the shape depends on `type`:
+  - `choice`: An object that maps each option to its description. The description can be `null`.
+  - `score`: An array of 2 to 10 level descriptions, lowest level first.
+  - `noul`: Optional. An object with the descriptions of `true` and `false`.
+
+The questions of a request are answered independently, an answer does not depend on the other questions.
+
+The number of options of a `choice` question is limited by the model, for example: 52 for openjev, 255 for laya. For laya, long questions and options are truncated to the token budget the model was trained with.
+
+*Response:*
+
+`answers`: An object that maps each question id to its answer. The fields depend on the question type:
+
+- `choice`:
+  - `choice`: The option with the highest probability.
+  - `probabilities`: The probability of each option, they sum to 1.
+  - `confidence`: A value from 0 to 1, where 0 means all options are equally likely.
+- `score`:
+  - `score`: The expected level index, weighted by probability. It can be between two levels.
+  - `legend`: The description of each level index.
+  - `probabilities`: The probability of each level index, they sum to 1.
+  - `confidence`: A value from 0 to 1.
+- `noul`:
+  - `noul`: The probability that the answer is true.
+
+`usage`: `input_tokens` is the number of prompt tokens of all questions. `output_tokens` is always 0.
+
+The probabilities are scaled with the temperatures stored in the model file. They are not guaranteed to be calibrated for your data.
+
+*Examples:*
+
+```shell
+curl http://127.0.0.1:8080/v1/systemone \
+    -H "Content-Type: application/json" \
+    -d '{
+        "state": "Customer message: I was charged twice for my order last week and nobody has replied.",
+        "questions": {
+            "route": {
+                "type": "choice",
+                "instructions": "Which team should handle this?",
+                "criteria": {"billing": null, "shipping": null, "technical": null}
+            },
+            "angry": {
+                "type": "noul",
+                "instructions": "Is the customer angry?"
+            },
+            "urgency": {
+                "type": "score",
+                "instructions": "How urgent is this?",
+                "criteria": ["can wait", "this week", "today", "right now"]
+            }
+        }
+    }' | jq
+```
+
+Response (values are shortened):
+
+```json
+{
+  "model": "openjev",
+  "answers": {
+    "route": {
+      "type": "choice",
+      "choice": "billing",
+      "probabilities": {"billing": 0.9998, "shipping": 0.0001, "technical": 0.0001},
+      "confidence": 0.9997
+    },
+    "angry": {
+      "type": "noul",
+      "noul": 0.6328
+    },
+    "urgency": {
+      "type": "score",
+      "score": 2.0858,
+      "legend": {"0": "can wait", "1": "this week", "2": "today", "3": "right now"},
+      "probabilities": {"0": 0.0023, "1": 0.116, "2": 0.6753, "3": 0.2064},
+      "confidence": 0.673
+    }
+  },
+  "usage": {
+    "input_tokens": 239,
+    "output_tokens": 0
+  }
+}
+```
+
+An invalid request returns the error `400`. A model that is not a decision model returns the error `501`.
+
 ## Server tools
 
 The server exposes a REST API under `/tools` that allows the Web UI to call server tools. This endpoint is intended to be used internally by the Web UI and subject to change or to be removed in the future.

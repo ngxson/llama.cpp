@@ -644,7 +644,6 @@ class ServerPreset:
         server.n_ubatch = 512
         server.n_slots = 2
         server.seed = 42
-        server.server_embeddings = True
         return server
 
     @staticmethod

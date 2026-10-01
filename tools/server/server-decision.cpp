@@ -26,11 +26,13 @@ static std::string decision_meta_str(const llama_model * model, const std::strin
 void server_decision_context::init(const llama_model * model) {
     *this = server_decision_context(); // the model can be reloaded
 
-    const std::string prefix    = decision_meta_str(model, "general.architecture") + ".decision.";
-    const std::string type_name = decision_meta_str(model, prefix + "type");
-    if (type_name.empty()) {
+    const common_decision_type model_type = common_get_decision_type(model);
+    if (model_type == COMMON_DECISION_TYPE_NONE) {
         return;
     }
+
+    const std::string prefix    = decision_meta_str(model, "general.architecture") + ".decision.";
+    const std::string type_name = decision_meta_str(model, prefix + "type");
 
     vocab = llama_model_get_vocab(model);
 
@@ -57,7 +59,7 @@ void server_decision_context::init(const llama_model * model) {
         temperatures[key + prefix_temp.size()] = temp;
     }
 
-    if (type_name == "openjev") {
+    if (model_type == COMMON_DECISION_TYPE_OPENJEV) {
         // one letter per option, each must be a single token
         const std::string letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
         for (const char c : letters) {
@@ -69,8 +71,7 @@ void server_decision_context::init(const llama_model * model) {
         }
         n_options_max   = labels.size();
         noul_true_first = true;
-        type            = SERVER_DECISION_TYPE_OPENJEV;
-    } else if (type_name == "laya") {
+    } else if (model_type == COMMON_DECISION_TYPE_LAYA) {
         token_marker = llama_vocab_mask(vocab);
         token_sep    = llama_vocab_sep(vocab);
         if (token_marker == LLAMA_TOKEN_NULL || token_sep == LLAMA_TOKEN_NULL) {
@@ -84,10 +85,10 @@ void server_decision_context::init(const llama_model * model) {
             throw std::runtime_error("decision model has no valid max_head_tokens");
         }
         n_options_max = 255;
-        type          = SERVER_DECISION_TYPE_LAYA;
     } else {
         throw std::runtime_error("unsupported decision model type: " + type_name);
     }
+    type = model_type;
 
     SRV_INF("decision model type: %s\n", type_name.c_str());
 }
@@ -223,7 +224,7 @@ std::string server_decision_context::render(const json & state, const server_dec
 void server_decision_context::fill_task(const json & state, const server_decision_question & question, server_task & task) const {
     llama_tokens tokens = common_tokenize(vocab, render(state, question), false, true);
 
-    if (type == SERVER_DECISION_TYPE_OPENJEV) {
+    if (type == COMMON_DECISION_TYPE_OPENJEV) {
         task.decision.labels.assign(labels.begin(), labels.begin() + question.options.size());
     } else {
         fill_task_laya(tokens, question, task);

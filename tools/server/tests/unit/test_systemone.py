@@ -107,17 +107,6 @@ def test_systemone_invalid_request(data: dict):
     assert "error" in res.body
 
 
-def test_systemone_requires_embedding():
-    global server
-    server.server_embeddings = False
-    server.start()
-    res = server.make_request("POST", "/v1/systemone", data={
-        "state": TEST_STATE,
-        "questions": TEST_QUESTIONS,
-    })
-    assert res.status_code == 501
-
-
 # TODO: test the shared prompt prefix, it needs a small model of a type that supports it (e.g. openjev)
 # it can be checked with GET /metrics: for one request, prompt_tokens_cached_total must grow by
 # (shared tokens * number of child tasks) and prompt_tokens_total + prompt_tokens_cached_total == usage.input_tokens

@@ -5324,12 +5324,8 @@ void server_routes::init_routes() {
     this->post_systemone = [this](const server_http_req & req) {
         auto res = create_response();
         const auto & decision = ctx_server.decision;
-        if (decision.type == SERVER_DECISION_TYPE_NONE) {
+        if (decision.type == COMMON_DECISION_TYPE_NONE) {
             res->error(format_error_response("This model is not a decision model", ERROR_TYPE_NOT_SUPPORTED));
-            return res;
-        }
-        if (decision.need_embd() && (!params.embedding || meta->pooling_type != LLAMA_POOLING_TYPE_NONE)) {
-            res->error(format_error_response("This decision model requires `--embedding --pooling none`", ERROR_TYPE_NOT_SUPPORTED));
             return res;
         }
 
