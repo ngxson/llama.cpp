@@ -2495,14 +2495,7 @@ ggml_tensor * llm_graph_context::build_inp_embd(ggml_tensor * tok_embd, float to
         ggml_set_input(inp->mixed_embd);
 
         // note: set_rows writes into its destination, so it gets a copy of the input
-        ggml_tensor * tok  = build_tok(inp->mixed_tokens);
-        ggml_tensor * embd = ggml_scale(ctx0, inp->mixed_embd, 1.0f);
-        inps[2] = ggml_set_rows(ctx0, embd, tok, inp->mixed_slots);
-
-        // keep the output on the CPU like the other paths, so that the graph has the same split inputs for any batch contents
-        ggml_backend_sched_set_tensor_backend(sched, tok,     backend_cpu);
-        ggml_backend_sched_set_tensor_backend(sched, embd,    backend_cpu);
-        ggml_backend_sched_set_tensor_backend(sched, inps[2], backend_cpu);
+        inps[2] = ggml_set_rows(ctx0, ggml_dup(ctx0, inp->mixed_embd), build_tok(inp->mixed_tokens), inp->mixed_slots);
     }
 
     assert(ggml_are_same_shape (inps[0], inps[1]));
