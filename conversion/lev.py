@@ -45,7 +45,7 @@ class _DecisionLoraMixin:
         repo_id, revision = _decision_lora_base(dir_model)
         logger.info(f"gguf: downloading the base model {repo_id}")
         dir_base = Path(snapshot_download(repo_id, revision=revision, allow_patterns=["*.json", "*.jinja", "*.safetensors"]))
-        super().__init__(dir_base, *args, **kwargs)
+        super().__init__(dir_base, *args, **kwargs)  # ty: ignore[too-many-positional-arguments]
         self.dir_adapter = dir_model
         self.dir_model_card = dir_model
 
