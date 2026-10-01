@@ -92,7 +92,6 @@ private:
     // OPENJEV, LEV
     std::vector<llama_token> labels;
     std::vector<std::string> label_texts; // only if the label of an option is given to the template
-    std::vector<llama_token> labels_rating; // LEV: the ratings 0..8 of a noul question
 
     // LAYA, KEV
     llama_token token_marker      = LLAMA_TOKEN_NULL;
