@@ -1,0 +1,391 @@
+#include "server-decision.h"
+
+#include <algorithm>
+#include <cmath>
+#include <stdexcept>
+
+static const char * decision_question_type_name(server_decision_question_type type) {
+    switch (type) {
+        case SERVER_DECISION_QUESTION_CHOICE: return "choice";
+        case SERVER_DECISION_QUESTION_SCORE:  return "score";
+        case SERVER_DECISION_QUESTION_NOUL:   return "noul";
+    }
+    return "";
+}
+
+static std::string decision_meta_str(const llama_model * model, const std::string & key) {
+    char buf[256];
+    const int32_t n = llama_model_meta_val_str(model, key.c_str(), buf, sizeof(buf));
+    return n < 0 ? "" : std::string(buf);
+}
+
+//
+// model-specific setup
+//
+
+void server_decision_context::init(const llama_model * model) {
+    *this = server_decision_context(); // the model can be reloaded
+
+    const std::string prefix    = decision_meta_str(model, "general.architecture") + ".decision.";
+    const std::string type_name = decision_meta_str(model, prefix + "type");
+    if (type_name.empty()) {
+        return;
+    }
+
+    vocab = llama_model_get_vocab(model);
+
+    const char * tmpl_src = llama_model_chat_template(model, "systemone");
+    if (tmpl_src == nullptr) {
+        throw std::runtime_error("decision model has no \"systemone\" template");
+    }
+    tmpl = std::make_shared<const common_chat_template>(tmpl_src, "", "");
+
+    const std::string prefix_temp = prefix + "temperature.";
+    for (int32_t i = 0; i < llama_model_meta_count(model); i++) {
+        char key[256];
+        char val[64];
+        if (llama_model_meta_key_by_index(model, i, key, sizeof(key)) < 0 || !string_starts_with(key, prefix_temp)) {
+            continue;
+        }
+        if (llama_model_meta_val_str_by_index(model, i, val, sizeof(val)) < 0) {
+            continue;
+        }
+        const float temp = std::strtof(val, nullptr);
+        if (temp <= 0.0f) {
+            throw std::runtime_error(string_format("invalid decision temperature: %s = %s", key, val));
+        }
+        temperatures[key + prefix_temp.size()] = temp;
+    }
+
+    if (type_name == "openjev") {
+        // one letter per option, each must be a single token
+        const std::string letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+        for (const char c : letters) {
+            const auto toks = common_tokenize(vocab, std::string(1, c), false, false);
+            if (toks.size() != 1) {
+                throw std::runtime_error(string_format("decision label '%c' is not a single token", c));
+            }
+            labels.push_back(toks[0]);
+        }
+        n_options_max   = labels.size();
+        noul_true_first = true;
+        type            = SERVER_DECISION_TYPE_OPENJEV;
+    } else if (type_name == "laya") {
+        token_marker = llama_vocab_mask(vocab);
+        token_sep    = llama_vocab_sep(vocab);
+        if (token_marker == LLAMA_TOKEN_NULL || token_sep == LLAMA_TOKEN_NULL) {
+            throw std::runtime_error("decision model has no mask or sep token");
+        }
+        text_marker = common_token_to_piece(vocab, token_marker, true);
+
+        const std::string val = decision_meta_str(model, prefix + "max_head_tokens");
+        max_head_tokens = std::strtoul(val.c_str(), nullptr, 10);
+        if (max_head_tokens == 0) {
+            throw std::runtime_error("decision model has no valid max_head_tokens");
+        }
+        n_options_max = 255;
+        type          = SERVER_DECISION_TYPE_LAYA;
+    } else {
+        throw std::runtime_error("unsupported decision model type: " + type_name);
+    }
+
+    SRV_INF("decision model type: %s\n", type_name.c_str());
+}
+
+//
+// request parsing
+//
+
+std::vector<server_decision_question> server_decision_context::parse_questions(const json & body) const {
+    if (!body.contains("state") || body.at("state").is_null()) {
+        throw std::invalid_argument("\"state\" must be provided");
+    }
+    if (!body.contains("questions") || !body.at("questions").is_object() || body.at("questions").empty()) {
+        throw std::invalid_argument("\"questions\" must be a non-empty object");
+    }
+
+    std::vector<server_decision_question> questions;
+    for (const auto & [id, q] : body.at("questions").items()) {
+        auto err = [&id = id](const std::string & msg) {
+            return std::invalid_argument("questions." + id + ": " + msg);
+        };
+        if (!q.is_object()) {
+            throw err("must be an object");
+        }
+        if (!q.contains("instructions") || q.at("instructions").is_null()) {
+            throw err("\"instructions\" must be provided");
+        }
+
+        server_decision_question question;
+        question.id           = id;
+        question.instructions = q.at("instructions");
+
+        const std::string type_name = json_value(q, "type", std::string());
+        const json        criteria  = q.contains("criteria") ? q.at("criteria") : json();
+
+        if (type_name == "choice") {
+            question.type = SERVER_DECISION_QUESTION_CHOICE;
+            if (!criteria.is_object() || criteria.empty()) {
+                throw err("\"criteria\" must be a non-empty object");
+            }
+            for (const auto & [key, description] : criteria.items()) {
+                question.options.push_back({key, description});
+            }
+        } else if (type_name == "score") {
+            question.type = SERVER_DECISION_QUESTION_SCORE;
+            if (!criteria.is_array() || criteria.size() < 2 || criteria.size() > 10) {
+                throw err("\"criteria\" must be an array of 2 to 10 levels");
+            }
+            for (size_t i = 0; i < criteria.size(); i++) {
+                question.options.push_back({std::to_string(i), criteria.at(i)});
+            }
+        } else if (type_name == "noul") {
+            question.type = SERVER_DECISION_QUESTION_NOUL;
+            if (!criteria.is_null() && !criteria.is_object()) {
+                throw err("\"criteria\" must be an object");
+            }
+            for (const char * key : {"false", "true"}) {
+                question.options.push_back({key, criteria.is_object() && criteria.contains(key) ? criteria.at(key) : json()});
+            }
+            if (noul_true_first) {
+                std::swap(question.options[0], question.options[1]);
+            }
+        } else {
+            throw err("\"type\" must be one of: choice, score, noul");
+        }
+
+        if (question.options.size() > n_options_max) {
+            throw err(string_format("too many options (%zu), this model supports at most %zu", question.options.size(), n_options_max));
+        }
+
+        questions.push_back(std::move(question));
+    }
+    return questions;
+}
+
+//
+// prompt
+//
+
+// replace text in all strings of a JSON value
+static json decision_replace_text(const json & val, const std::string & search, const std::string & replace) {
+    if (val.is_string()) {
+        std::string str = val.get<std::string>();
+        string_replace_all(str, search, replace);
+        return str;
+    }
+    if (val.is_array()) {
+        json out = json::array();
+        for (const auto & item : val) {
+            out.push_back(decision_replace_text(item, search, replace));
+        }
+        return out;
+    }
+    if (val.is_object()) {
+        json out = json::object();
+        for (const auto & [key, item] : val.items()) {
+            out[key] = decision_replace_text(item, search, replace);
+        }
+        return out;
+    }
+    return val;
+}
+
+std::string server_decision_context::render(const json & state, const server_decision_question & question) const {
+    json options = json::array();
+    for (const auto & opt : question.options) {
+        options.push_back(json{
+            {"key",         opt.key},
+            {"description", opt.description},
+        });
+    }
+
+    // the template is given raw JSON values, it serializes the ones that are not strings
+    json inp = json{
+        {"type",         decision_question_type_name(question.type)},
+        {"instructions", question.instructions},
+        {"state",        state},
+        {"options",      options},
+    };
+
+    // the input must not contain the marker of the options
+    if (!text_marker.empty()) {
+        inp = decision_replace_text(inp, text_marker, " ");
+    }
+
+    jinja::context ctx(tmpl->source());
+    jinja::global_from_json(ctx, inp, false);
+    jinja::runtime runtime(ctx);
+    const jinja::value results = runtime.execute(tmpl->prog);
+    return jinja::runtime::gather_string_parts(results)->as_string().str();
+}
+
+void server_decision_context::fill_task(const json & state, const server_decision_question & question, server_task & task) const {
+    llama_tokens tokens = common_tokenize(vocab, render(state, question), false, true);
+
+    if (type == SERVER_DECISION_TYPE_OPENJEV) {
+        task.decision.labels.assign(labels.begin(), labels.begin() + question.options.size());
+    } else {
+        fill_task_laya(tokens, question, task);
+    }
+
+    task.tokens = server_tokens(tokens, false);
+}
+
+// the prompt is: [cls] question [sep] ([marker] option)* [sep] state [sep]
+// options and question are cut to fit max_head_tokens, the same way the model was trained
+void server_decision_context::fill_task_laya(llama_tokens & tokens, const server_decision_question & question, server_task & task) const {
+    const size_t n_options = question.options.size();
+
+    std::vector<size_t> markers;
+    for (size_t i = 0; i < tokens.size(); i++) {
+        if (tokens[i] == token_marker) {
+            markers.push_back(i);
+        }
+    }
+    const auto invalid = std::runtime_error("unexpected layout of the decision prompt");
+    if (markers.size() != n_options || markers[0] < 2 || tokens[markers[0] - 1] != token_sep || tokens.back() != token_sep) {
+        throw invalid;
+    }
+    const size_t head_end = markers[0] - 1;
+    const size_t opts_end = std::find(tokens.begin() + markers.back(), tokens.end(), token_sep) - tokens.begin();
+    if (opts_end + 1 >= tokens.size()) {
+        throw invalid;
+    }
+
+    // marker + text of each option
+    std::vector<llama_tokens> options;
+    size_t n_options_tokens = 0;
+    auto set_max = [&](size_t n_max) {
+        n_options_tokens = 0;
+        for (auto & opt : options) {
+            opt.resize(std::min(opt.size(), n_max));
+            n_options_tokens += opt.size();
+        }
+    };
+    for (size_t i = 0; i < n_options; i++) {
+        const size_t end = i + 1 < n_options ? markers[i + 1] : opts_end;
+        options.emplace_back(tokens.begin() + markers[i], tokens.begin() + end);
+    }
+    set_max(max_option_tokens + 1);
+    if (n_options_tokens + 16 > max_head_tokens) {
+        // too many or too long options, shrink them evenly
+        set_max(std::max((size_t) 4, (max_head_tokens - std::min(max_head_tokens, (size_t) 16)) / n_options));
+    }
+    const size_t n_question_max = std::max((size_t) 8, max_head_tokens - std::min(max_head_tokens, n_options_tokens));
+
+    llama_tokens out;
+    out.push_back(tokens[0]);
+    out.insert(out.end(), tokens.begin() + 1, tokens.begin() + std::min(head_end, 1 + n_question_max));
+    out.push_back(token_sep);
+    for (const auto & opt : options) {
+        task.decision.markers.push_back(out.size());
+        out.insert(out.end(), opt.begin(), opt.end());
+    }
+    out.insert(out.end(), tokens.begin() + opts_end, tokens.end());
+    tokens = std::move(out);
+
+    // the output has one score per question type
+    task.decision.column = question.type;
+}
+
+//
+// answer
+//
+
+float server_decision_context::get_temperature(const server_decision_question & question) const {
+    const size_t n = question.options.size();
+    const std::string type_name = decision_question_type_name(question.type);
+    const std::string bucket    = n <= 2 ? "2" : n <= 5 ? "3_5" : n <= 10 ? "6_10" : "11";
+
+    for (const auto & name : {type_name + "." + bucket, type_name}) {
+        const auto it = temperatures.find(name);
+        if (it != temperatures.end()) {
+            return it->second;
+        }
+    }
+    return 1.0f;
+}
+
+// confidence formulas are the ones published by TypeSafe
+
+static double decision_confidence_choice(const std::vector<double> & probs) {
+    if (probs.size() < 2) {
+        return 1.0;
+    }
+    const double uniform = 1.0 / probs.size();
+    const double p_max   = *std::max_element(probs.begin(), probs.end());
+    return std::max(0.0, (p_max - uniform) / (1.0 - uniform));
+}
+
+static double decision_confidence_score(const std::vector<double> & probs) {
+    if (probs.size() < 2) {
+        return 1.0;
+    }
+    const size_t n    = probs.size();
+    const size_t mode = std::max_element(probs.begin(), probs.end()) - probs.begin();
+
+    // mean distance to the mode, relative to the one of a uniform distribution around its center
+    double dist         = 0.0;
+    double dist_uniform = 0.0;
+    for (size_t i = 0; i < n; i++) {
+        dist         += probs[i] * std::fabs((double) i - (double) mode);
+        dist_uniform += std::fabs((double) i - (n - 1) / 2.0) / n;
+    }
+    return std::max(0.0, 1.0 - dist / dist_uniform);
+}
+
+json server_decision_context::format_answer(const server_decision_question & question, const std::vector<float> & scores) const {
+    const size_t n = question.options.size();
+    if (scores.size() != n) {
+        throw std::runtime_error("decision result does not match the number of options");
+    }
+
+    // softmax over the options
+    const float temperature = get_temperature(question);
+    const float score_max   = *std::max_element(scores.begin(), scores.end());
+    std::vector<double> probs(n);
+    double sum = 0.0;
+    for (size_t i = 0; i < n; i++) {
+        probs[i] = std::exp((double) (scores[i] - score_max) / temperature);
+        sum += probs[i];
+    }
+    for (auto & p : probs) {
+        p /= sum;
+    }
+
+    json answer = json{{"type", decision_question_type_name(question.type)}};
+
+    if (question.type == SERVER_DECISION_QUESTION_NOUL) {
+        for (size_t i = 0; i < n; i++) {
+            if (question.options[i].key == "true") {
+                answer["noul"] = probs[i];
+            }
+        }
+        return answer;
+    }
+
+    json probabilities = json::object();
+    for (size_t i = 0; i < n; i++) {
+        probabilities[question.options[i].key] = probs[i];
+    }
+
+    if (question.type == SERVER_DECISION_QUESTION_CHOICE) {
+        const size_t best = std::max_element(probs.begin(), probs.end()) - probs.begin();
+        answer["choice"]        = question.options[best].key;
+        answer["probabilities"] = probabilities;
+        answer["confidence"]    = decision_confidence_choice(probs);
+    } else {
+        double expected = 0.0;
+        json legend = json::object();
+        for (size_t i = 0; i < n; i++) {
+            expected += i * probs[i];
+            legend[question.options[i].key] = question.options[i].description;
+        }
+        answer["score"]         = expected;
+        answer["legend"]        = legend;
+        answer["probabilities"] = probabilities;
+        answer["confidence"]    = decision_confidence_score(probs);
+    }
+    return answer;
+}
