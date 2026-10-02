@@ -1275,6 +1275,7 @@ class ModelBase:
             return config
 
         # checkpoints with a non-HF layout are matched by their own loader
+        # models with a HF layout can also register a hparams loader to switch to a custom class
         config = ModelBase.load_hparams_guess(dir_model) if guess and dir_model.is_dir() else None
         if config is not None:
             return config

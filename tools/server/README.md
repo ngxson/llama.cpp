@@ -1671,13 +1671,13 @@ curl http://localhost:8080/v1/messages/count_tokens \
 
 Answers typed questions about a `state` with a decision model.
 
-Follows the [TypeSafe API](https://docs.typesafe.ai/api), streaming is not supported.
+Follows the [TypeSafe API](https://docs.typesafe.ai/api), streaming is not supported. Multimodal input is an extension to this API, see the [OpenJev multimodal API](https://jev-skills.github.io/openjev-multimodal/api) for reference.
 
 *Options:*
 
 `state`: The content to evaluate. Can be a string, an object or an array. A value that is not a string is given to the model as JSON text.
 
-`images`: Optional. An array of up to 8 images, each one is a data URL (`data:image/...;base64,...`). See the image input section below.
+`images`: Optional. An array of images, the maximum number may be limited depending on the model. Each one is a data URL (`data:image/...;base64,...`). See the image input section below.
 
 `questions`: An object that maps a question id to a question. Each question has these fields:
 
@@ -1701,7 +1701,7 @@ Images can be given in two ways, and both can be used in the same request:
 - The `images` field.
 - A `state` made of chat messages, either an array of messages or an object with a `messages` array. An `image_url` part in the `content` of a message is taken as an image, in the same format as chat completions. Only data URLs are accepted.
 
-All the images are placed before the state in the prompt, the ones from `images` first. The image parts are removed from the state. A request can have at most 8 images in total.
+All the images are placed before the state in the prompt, the ones from `images` first. The image parts are removed from the state.
 
 *Response:*
 
