@@ -165,7 +165,7 @@ class KevModel(_DecisionLoraMixin, Qwen3_5TextModel):
     model_arch = gguf.MODEL_ARCH.QWEN35
 
     # TODO: the server needs a question and its options in one batch, the state can be in previous batches
-    # TODO: the optional date_facts preprocessing of the state (kev/api.py) is not supported
+    # note: no plan to support date_facts (kev/api.py), its regex matching is fragile, a more generic impl is needed
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
