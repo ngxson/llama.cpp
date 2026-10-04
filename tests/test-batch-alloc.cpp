@@ -482,7 +482,7 @@ static void test_mixed(testing & t) {
         t.assert_true(ub0.is_mixed());
         const int8_t exp_is_embd[3] = { 0, 1, 1 };
         for (int i = 0; i < 3; ++i) {
-            t.assert_equal(exp_is_embd[i], ub0.is_embd[i]);
+            t.assert_equal(exp_is_embd[i], ub0.type[i]);
             t.assert_equal((llama_pos) i, ub0.pos[i]);
         }
         t.assert_equal(3, ub0.token[0]);

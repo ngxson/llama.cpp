@@ -1138,7 +1138,7 @@ void llama_kv_cache::apply_ubatch(const slot_info & sinfo, const llama_ubatch & 
                     ext.y = ubatch.pos[i + ubatch.n_tokens];
                 }
 
-                const bool is_embd = !ubatch.token || (ubatch.is_mixed() && ubatch.is_embd[i]);
+                const bool is_embd = !ubatch.token || (ubatch.is_mixed() && ubatch.type[i]);
 
                 if (!is_embd) {
                     ext.tok = ubatch.token[i];

@@ -307,7 +307,7 @@ bool llama_batch_allocr::init(
             /*.seq_id_unq   =*/ this->seq_id_unq.data(),
             /*.seq_idx      =*/ this->seq_idx.data(),
             /*.output       =*/ batch.logits,
-            /*.is_embd      =*/ is_embd_vec.empty() ? nullptr : is_embd_vec.data(),
+            /*.type         =*/ is_embd_vec.empty() ? nullptr : is_embd_vec.data(),
             /*.decision_order =*/ decision_order.empty() ? nullptr : decision_order.data(),
             /*.data         =*/ {},
         };
@@ -530,7 +530,7 @@ llama_ubatch llama_batch_allocr::ubatch_reserve(uint32_t n_seq_tokens, uint32_t 
         /*.seq_id_unq   =*/ udata->seq_id_unq.data(),
         /*.seq_idx      =*/ udata->seq_idx.data(),
         /*.output       =*/ udata->output.data(),
-        /*.is_embd      =*/ nullptr,
+        /*.type         =*/ nullptr,
         /*.decision_order =*/ nullptr,
         /*.data         =*/ std::move(udata),
     };
@@ -884,7 +884,7 @@ llama_ubatch llama_batch_allocr::ubatch_add(const std::vector<int32_t> & idxs, u
     udata->seq_id_unq.resize(0);
     udata->seq_idx   .resize(LLAMA_MAX_SEQ, -1);
     udata->output    .resize(n_tokens);
-    udata->is_embd   .resize(mixed ? n_tokens : 0);
+    udata->type      .resize(mixed ? n_tokens : 0);
     udata->decision_order.resize(decision_order.empty() ? 0 : n_tokens);
 
     udata->batch_idxs = idxs;
@@ -902,7 +902,7 @@ llama_ubatch llama_batch_allocr::ubatch_add(const std::vector<int32_t> & idxs, u
         }
 
         if (mixed) {
-            udata->is_embd[i] = is_embd_vec[idxs[i]];
+            udata->type[i] = is_embd_vec[idxs[i]];
         }
 
         for (size_t j = 0; j < (size_t)n_pos_per_embd; ++j) {
@@ -962,7 +962,7 @@ llama_ubatch llama_batch_allocr::ubatch_add(const std::vector<int32_t> & idxs, u
         /*.seq_id_unq   =*/ udata->seq_id_unq.data(),
         /*.seq_idx      =*/ udata->seq_idx.data(),
         /*.output       =*/ udata->output.data(),
-        /*.is_embd      =*/ mixed ? udata->is_embd.data() : nullptr,
+        /*.type         =*/ mixed ? udata->type.data() : nullptr,
         /*.decision_order =*/ udata->decision_order.empty() ? nullptr : udata->decision_order.data(),
         /*.data         =*/ std::move(udata),
     };
@@ -1013,7 +1013,7 @@ void llama_batch_allocr::ubatch_print(const llama_ubatch & ubatch, int debug) {
         LLAMA_LOG_DEBUG("%s:   seq_id_unq = %s\n", __func__, ss_seq_id_unq.str().c_str());
         LLAMA_LOG_DEBUG("%s:   seq_idx    = %s\n", __func__, ss_seq_idx.str().c_str());
         LLAMA_LOG_DEBUG("%s:   output     = %p\n", __func__, (void *) ubatch.output);
-        LLAMA_LOG_DEBUG("%s:   is_embd    = %p\n", __func__, (void *) ubatch.is_embd);
+        LLAMA_LOG_DEBUG("%s:   type       = %p\n", __func__, (void *) ubatch.type);
         LLAMA_LOG_DEBUG("%s:   n_outputs  = %d\n", __func__, n_outputs);
 
         if (debug > 0) {
@@ -1044,7 +1044,7 @@ void llama_batch_allocr::ubatch_print(const llama_ubatch & ubatch, int debug) {
                     }
                 }
 
-                if (ubatch.token && !(ubatch.is_mixed() && ubatch.is_embd[i])) {
+                if (ubatch.token && !(ubatch.is_mixed() && ubatch.type[i])) {
                     LLAMA_LOG_DEBUG("%s:  %4d: id = %6d (%16s), pos = %4d, n_seq_id = %2d, seq_id = [%s], output = %d\n",
                             __func__, i, ubatch.token[i], vocab->token_to_piece(ubatch.token[i]).c_str(),
                             ubatch.pos[i], ubatch.n_seq_id[i], ss.str().c_str(), ubatch.output[i]);

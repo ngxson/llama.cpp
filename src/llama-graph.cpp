@@ -87,7 +87,7 @@ void llm_graph_input_embd::set_input(const llama_ubatch * ubatch) {
         std::vector<int32_t> ids;
         std::vector<int64_t> slots;
         for (uint32_t i = 0; i < ubatch->n_tokens; ++i) {
-            if (!ubatch->is_embd[i]) {
+            if (!ubatch->type[i]) {
                 ids.push_back(ubatch->token[i]);
                 slots.push_back(i);
             }
@@ -105,7 +105,7 @@ void llm_graph_input_embd::set_input(const llama_ubatch * ubatch) {
 
         std::vector<float> data(n_tokens);
         for (int64_t i = 0; i < n_tokens; ++i) {
-            const bool is_embd = !ubatch->token || (ubatch->is_mixed() && ubatch->is_embd[i]);
+            const bool is_embd = !ubatch->token || (ubatch->is_mixed() && ubatch->type[i]);
             data[i] = is_embd ? 1.0f : scale_tok;
         }
         ggml_backend_tensor_set(scale_rows, data.data(), 0, ggml_nbytes(scale_rows));
@@ -119,7 +119,7 @@ static int64_t llm_graph_n_tok_rows(const llama_ubatch & ubatch) {
     }
     int64_t n = 0;
     for (uint32_t i = 0; i < ubatch.n_tokens; ++i) {
-        n += !ubatch.is_embd[i];
+        n += !ubatch.type[i];
     }
     return n;
 }

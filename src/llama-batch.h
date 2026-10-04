@@ -29,9 +29,9 @@ struct llama_ubatch {
         return n_pos >= 3;
     }
 
-    // mixed: is_embd picks token or embd per row, pos has n_pos sections for all rows
+    // mixed: type picks token or embd per row, pos has n_pos sections for all rows
     bool is_mixed() const {
-        return is_embd != nullptr;
+        return type != nullptr;
     }
 
     uint32_t b_equal_seqs; // note: this is a boolean, but we use an int32_t for alignment
@@ -57,7 +57,7 @@ struct llama_ubatch {
     llama_seq_id *  seq_id_unq; // [n_seqs_unq]       | s   | seq_id
     int32_t      *  seq_idx;    // [LLAMA_MAX_SEQ]    | -   | seq_idx
     int8_t       *  output;     // [n_tokens]         | i   | -
-    int8_t       *  is_embd;    // [n_tokens]         | i   | -     (mixed ubatch only)
+    int8_t       *  type;       // [n_tokens]         | i   | -     (mixed ubatch only, 0 - token, 1 - embd)
     int32_t      *  decision_order; // [n_tokens], NULL if no entry has one, see llama_batch_ext_set_decision_order()
 
     struct data_t {
@@ -69,7 +69,7 @@ struct llama_ubatch {
         std::vector<llama_seq_id>   seq_id_unq;
         std::vector<int32_t>        seq_idx;
         std::vector<int8_t>         output;
-        std::vector<int8_t>         is_embd;
+        std::vector<int8_t>         type;
         std::vector<int32_t>        batch_idxs;  // original batch index for each token
         std::vector<int32_t>        decision_order;
 
