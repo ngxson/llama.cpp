@@ -133,9 +133,14 @@ bool llama_batch_allocr::init(
     pos.resize((size_t) n_tok*n_pos_per_embd);
     for (int32_t i = 0; i < n_tok; ++i) {
         const auto & tok = batch_inp.tokens[i];
-        const bool is_tok = tok.id != LLAMA_TOKEN_NULL;
+        const bool expand = tok.id != LLAMA_TOKEN_NULL;
         for (uint32_t j = 0; j < n_pos_per_embd; ++j) {
-            pos[(size_t) j*n_tok + i] = is_tok ? (j < 3 ? tok.pos[0] : 0) : tok.pos[j];
+            llama_pos p = tok.pos[j];
+            if (expand) {
+                // expand [p] to [p, p, p, 0] for M-RoPE
+                p = j < 3 ? tok.pos[0] : 0;
+            }
+            pos[(size_t) j*n_tok + i] = p;
         }
     }
 
