@@ -166,6 +166,7 @@ static llama_ubatch dsv4_build_raw_write_ubatch(const llama_ubatch & ubatch) {
         /*.seq_idx      =*/ data->seq_idx.data(),
         /*.output       =*/ data->output.data(),
         /*.is_embd      =*/ nullptr,
+        /*.decision_order =*/ nullptr,
         /*.data         =*/ data,
     };
 

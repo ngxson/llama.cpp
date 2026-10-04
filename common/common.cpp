@@ -3,6 +3,9 @@
 
 #include "build-info.h"
 #include "common.h"
+
+#include "../src/llama-ext.h"
+
 #include "fit.h"
 #include "log.h"
 #include "llama.h"
@@ -1023,69 +1026,24 @@ std::filesystem::path fs_get_cache_file(const std::string & filename) {
     GGML_ASSERT(filename.find(DIRECTORY_SEPARATOR) == std::string::npos);
     const std::filesystem::path cache_directory = fs_get_cache_directory();
     std::error_code ec;
-    std::filesystem::create_directories(cache_directory, ec);
+    common_create_directories(cache_directory, ec);
     if (ec) {
         throw std::runtime_error("failed to create cache directory: " + fs_path_to_utf8(cache_directory));
     }
     return cache_directory / std::filesystem::u8path(filename);
 }
 
-std::vector<common_file_info> fs_list(const std::string & path, bool include_directories) {
-    std::vector<common_file_info> files;
-    if (path.empty()) return files;
-
-    std::filesystem::path dir(path);
-    if (!std::filesystem::exists(dir) || !std::filesystem::is_directory(dir)) {
-        return files;
-    }
-
-    for (const auto & entry : std::filesystem::directory_iterator(dir)) {
-        try {
-            // Only include regular files (skip directories)
-            const auto & p = entry.path();
-            if (std::filesystem::is_regular_file(p)) {
-                common_file_info info;
-                info.path   = p.string();
-                info.name   = p.filename().string();
-                info.is_dir = false;
-                try {
-                    info.size = static_cast<size_t>(std::filesystem::file_size(p));
-                } catch (const std::filesystem::filesystem_error &) {
-                    info.size = 0;
-                }
-                files.push_back(std::move(info));
-            } else if (include_directories && std::filesystem::is_directory(p)) {
-                common_file_info info;
-                info.path   = p.string();
-                info.name   = p.filename().string();
-                info.size   = 0; // Directories have no size
-                info.is_dir = true;
-                files.push_back(std::move(info));
-            }
-        } catch (const std::filesystem::filesystem_error &) {
-            // skip entries we cannot inspect
-            continue;
-        }
-    }
-
-    return files;
-}
-
-std::ifstream fs_open_ifstream(const std::string & fname, std::ios_base::openmode mode) {
-#ifdef _WIN32
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, fname.c_str(), -1, NULL, 0);
-    if (!wlen) { return std::ifstream(); }
-    std::vector<wchar_t> wfname(wlen);
-    (void)MultiByteToWideChar(CP_UTF8, 0, fname.c_str(), -1, wfname.data(), wlen);
-    return std::ifstream(wfname.data(), mode);
-#else
-    return std::ifstream(fname, mode);
-#endif
-}
-
 //
 // TTY utils
 //
+
+bool common_is_tty(FILE * file) {
+#if defined(_WIN32)
+    return _isatty(_fileno(file));
+#else
+    return isatty(fileno(file));
+#endif
+}
 
 bool tty_can_use_colors() {
     // Check NO_COLOR environment variable (https://no-color.org/)
@@ -1104,10 +1062,7 @@ bool tty_can_use_colors() {
 
     // Check if stdout and stderr are connected to a terminal
     // We check both because log messages can go to either
-    bool stdout_is_tty = isatty(fileno(stdout));
-    bool stderr_is_tty = isatty(fileno(stderr));
-
-    return stdout_is_tty || stderr_is_tty;
+    return common_is_tty(stdout) || common_is_tty(stderr);
 }
 
 //
@@ -1192,6 +1147,36 @@ struct common_init_result::impl {
     std::vector<llama_sampler_seq_config> samplers_seq_config;
 };
 
+static const std::map<common_decision_type, std::string> COMMON_DECISION_TYPE_NAMES = {
+    { COMMON_DECISION_TYPE_OPENJEV, "openjev" },
+    { COMMON_DECISION_TYPE_LEV,     "lev"     },
+    { COMMON_DECISION_TYPE_KEV,     "kev"     },
+    { COMMON_DECISION_TYPE_NIMBLE,  "nimble"  },
+    { COMMON_DECISION_TYPE_LAYA,    "laya"    },
+    { COMMON_DECISION_TYPE_CLEF,    "clef"    },
+};
+
+static common_decision_type common_decision_type_from_string(const std::string & str) {
+    for (const auto & pair : COMMON_DECISION_TYPE_NAMES) {
+        if (pair.second == str) {
+            return pair.first;
+        }
+    }
+    return COMMON_DECISION_TYPE_UNKNOWN;
+}
+
+common_decision_type common_get_decision_type(const struct llama_model * model) {
+    char buf[64];
+    if (llama_model_meta_val_str(model, "general.architecture", buf, sizeof(buf)) < 0) {
+        return COMMON_DECISION_TYPE_NONE;
+    }
+    const std::string key = std::string(buf) + ".decision.type";
+    if (llama_model_meta_val_str(model, key.c_str(), buf, sizeof(buf)) < 0) {
+        return COMMON_DECISION_TYPE_NONE;
+    }
+    return common_decision_type_from_string(buf);
+}
+
 common_init_result::common_init_result(common_params & params, bool model_only) :
     pimpl(new impl{}) {
     auto mparams = common_model_params_to_llama(params);
@@ -1243,6 +1228,29 @@ common_init_result::common_init_result(common_params & params, bool model_only) 
     }
 
     const llama_vocab * vocab = llama_model_get_vocab(model);
+
+    // these decision models return a score for each token via the embeddings output
+    // TODO: maybe improve this in the future
+    const auto decision_type = common_get_decision_type(model);
+    if (decision_type == COMMON_DECISION_TYPE_LAYA || decision_type == COMMON_DECISION_TYPE_KEV || decision_type == COMMON_DECISION_TYPE_CLEF) {
+        params.embedding    = true;
+        params.pooling_type = LLAMA_POOLING_TYPE_NONE;
+
+        cparams.embeddings            = true;
+        cparams.pooling_type          = LLAMA_POOLING_TYPE_NONE;
+        cparams.n_outputs_max         = cparams.n_batch;
+        cparams.n_outputs_max_per_seq = 1;
+
+        LOG_INF("%s", "decision model reads the embeddings output, enabling embedding mode\n");
+    }
+
+    // embeddings need the whole batch in one ubatch, so n_batch must not be larger than n_ubatch
+    // (server.cpp does this check for --embedding, but before the model is loaded)
+    if (cparams.embeddings && cparams.n_batch > cparams.n_ubatch) {
+        LOG_WRN("embeddings enabled: setting n_batch = n_ubatch = %u\n", cparams.n_ubatch);
+        cparams.n_batch = cparams.n_ubatch;
+        params.n_batch  = params.n_ubatch;
+    }
 
     // load and optionally apply lora adapters
     for (auto & la : params.lora_adapters) {
@@ -1622,7 +1630,7 @@ struct llama_model_params common_model_params_to_llama(common_params & params) {
     mparams.progress_callback           = params.load_progress_callback;
     mparams.progress_callback_user_data = params.load_progress_callback_user_data;
     mparams.no_alloc                    = params.no_alloc;
-    mparams.load_mtp                    = std::find(params.speculative.types.begin(), params.speculative.types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != params.speculative.types.end();
+    mparams.load_mtp                    = params.load_mtp || std::find(params.speculative.types.begin(), params.speculative.types.end(), COMMON_SPECULATIVE_TYPE_DRAFT_MTP) != params.speculative.types.end();
 
     return mparams;
 }
@@ -2177,6 +2185,9 @@ llama_batch_ext * common_batch::get_sub_batch(int32_t off, int32_t n) {
         }
         if (t.output) {
             llama_batch_ext_set_output_logits(res, idx, true);
+        }
+        if (t.decision_order != 0) {
+            llama_batch_ext_set_decision_order(res, idx, (llama_decision_order) t.decision_order);
         }
     }
 
