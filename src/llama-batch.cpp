@@ -125,31 +125,17 @@ bool llama_batch_allocr::init(
     }
 
     //
-    // build flat pos array
-    // token batch:     pos[i]            = tokens[i].pos[0]
-    // embedding batch: pos[j*n_tok + i]  = tokens[i].pos[j]  (section-major)
-    // mixed batch:     same as embedding batch, token pos is broadcast
+    // build flat pos array, section-major: pos[j*n_tok + i] = section j of entry i
+    // token entry: [p, p, p, 0] (M-RoPE text position)
+    // embd entry:  tokens[i].pos as-is
     //
 
-    {
-        const bool pos_1d = has_token && !mixed;
-        const int32_t n_pos_total = pos_1d ? n_tok : n_tok * (int32_t) n_pos_per_embd;
-        pos.resize(n_pos_total);
-        if (pos_1d) {
-            for (int32_t i = 0; i < n_tok; ++i) {
-                pos[i] = batch_inp.tokens[i].pos[0];
-            }
-        } else {
-            for (int32_t i = 0; i < n_tok; ++i) {
-                const bool expand = mixed && !is_embd_vec[i];
-                for (uint32_t j = 0; j < n_pos_per_embd; ++j) {
-                    llama_pos p = batch_inp.tokens[i].pos[j];
-                    if (expand) {
-                        p = j < 3 ? batch_inp.tokens[i].pos[0] : 0;
-                    }
-                    pos[(int32_t) j * n_tok + i] = p;
-                }
-            }
+    pos.resize((size_t) n_tok*n_pos_per_embd);
+    for (int32_t i = 0; i < n_tok; ++i) {
+        const auto & tok = batch_inp.tokens[i];
+        const bool is_tok = tok.id != LLAMA_TOKEN_NULL;
+        for (uint32_t j = 0; j < n_pos_per_embd; ++j) {
+            pos[(size_t) j*n_tok + i] = is_tok ? (j < 3 ? tok.pos[0] : 0) : tok.pos[j];
         }
     }
 
@@ -906,12 +892,7 @@ llama_ubatch llama_batch_allocr::ubatch_add(const std::vector<int32_t> & idxs, u
         }
 
         for (size_t j = 0; j < (size_t)n_pos_per_embd; ++j) {
-            // if we are using M-RoPE
-            //     if the current batch is text, we need to broadcast the same position across all RoPE sections
-            //     otherwise, the input batch is image embeddings, we copy the positions as-is
-            // if we are not using M-RoPE, there is only one position per token (this loop runs only once)
-            size_t src_off = batch.token && !mixed_batch ? 0 : j*batch.n_tokens;
-            udata->pos[j*n_tokens + i] = batch.pos[src_off + idxs[i]];
+            udata->pos[j*n_tokens + i] = batch.pos[j*batch.n_tokens + idxs[i]];
         }
 
         udata->n_seq_id[i] = batch.n_seq_id[idxs[i]];
