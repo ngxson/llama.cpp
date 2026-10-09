@@ -1403,8 +1403,7 @@ std::vector<llama_adapter_lora_ptr> & common_init_result::lora() {
     return pimpl->lora;
 }
 
-// MTP contexts take a hidden state per token, probe decodes use zeros, other contexts ignore the call
-// zeros must outlive the decode of the batch
+// only for warmup and probe decodes, fill zeros as dummy input
 static void common_batch_set_zero_state(common_batch & batch, const llama_model * model, std::vector<float> & zeros) {
     zeros.assign(llama_model_n_embd_out(model), 0.0f);
     for (int32_t i = 0; i < batch.size(); ++i) {
