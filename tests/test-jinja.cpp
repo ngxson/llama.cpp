@@ -2289,13 +2289,14 @@ static void test_caps(testing & t) {
 }
 
 static void test_string_parts(testing & t) {
-    static auto render = [](const std::string & tmpl, const json & vars) -> jinja::string {
+    static auto render = [](const std::string & tmpl, const json & vars, jinja::if_cb_fn if_cb = nullptr) -> jinja::string {
         jinja::lexer lexer;
         auto lexer_res = lexer.tokenize(tmpl);
 
         jinja::program ast = jinja::parse_from_tokens(lexer_res);
 
         jinja::context ctx(tmpl);
+        ctx.if_cb = std::move(if_cb);
         jinja::global_from_json(ctx, vars, true);
 
         jinja::runtime runtime(ctx);
@@ -2316,6 +2317,26 @@ static void test_string_parts(testing & t) {
         }
     });
 
+    t.test("if_cb marks parts conditioned by an input variable", [](testing & t) {
+        const uint32_t FLAG_GEN_PROMPT = 1u << 0;
+        auto if_cb = [&](const jinja::statement * test, const jinja::value &, bool) -> uint32_t {
+            auto id = dynamic_cast<const jinja::identifier *>(test);
+            return id && id->val == "add_generation_prompt" ? FLAG_GEN_PROMPT : 0;
+        };
+        jinja::string res = render(
+            "{% for m in messages %}<|{{ m.role }}|>{{ m.content }}<|end|>{% endfor %}"
+            "{% if add_generation_prompt %}<|assistant|>{% endif %}",
+            json{{"messages", json::array({json{{"role", "user"}, {"content", "hi"}}})}, {"add_generation_prompt", true}},
+            if_cb);
+
+        if (t.assert_true("has parts", !res.parts.empty())) {
+            const auto & last = res.parts.back();
+            t.assert_true("generation prompt is flagged", last.val == "<|assistant|>" && last.flags == FLAG_GEN_PROMPT);
+            for (size_t i = 0; i + 1 < res.parts.size(); i++) {
+                t.assert_true("part " + std::to_string(i) + " is not flagged", res.parts[i].flags == 0);
+            }
+        }
+    });
 }
 
 static void test_template_cpp(testing & t, const std::string & name, const std::string & tmpl, const json & vars, const std::string & expect) {

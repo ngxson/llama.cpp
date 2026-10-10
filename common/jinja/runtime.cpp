@@ -462,9 +462,10 @@ value unary_expression::execute_impl(context & ctx) const {
 
 value if_statement::execute_impl(context & ctx) const {
     value test_val = test->execute(ctx);
+    const bool is_true = test_val->as_bool();
 
     auto out = mk_val<value_array>();
-    if (test_val->as_bool()) {
+    if (is_true) {
         for (auto & stmt : body) {
             JJ_DEBUG("IF --> Executing THEN body, current block: %s", stmt->type().c_str());
             out->push_back(stmt->execute(ctx));
@@ -478,6 +479,12 @@ value if_statement::execute_impl(context & ctx) const {
     // convert to string parts
     value_string str = mk_val<value_string>();
     gather_string_parts_recursive(out, str);
+    if (ctx.if_cb) {
+        const uint32_t flags = ctx.if_cb(test.get(), test_val, is_true);
+        for (auto & part : str->val_str.parts) {
+            part.flags |= flags;
+        }
+    }
     return str;
 }
 

@@ -52,6 +52,10 @@ void enable_debug(bool enable);
 using visitor_pair = std::pair<std::string, std::vector<const statement *>>;
 using visitor_fn = std::function<void(bool, const statement *, std::vector<visitor_pair>)>;
 
+// called after an if test is evaluated, returned bits are OR'ed into string_part::flags of the executed branch
+// function signature: uint32_t(const statement * test, const value & test_val, bool is_true)
+using if_cb_fn = std::function<uint32_t(const statement *, const value &, bool)>;
+
 struct context {
     std::shared_ptr<std::string> src; // for debugging; use shared_ptr to avoid copying on scope creation
     std::time_t current_time; // for functions that need current time
@@ -59,6 +63,7 @@ struct context {
     bool is_get_stats = false; // whether to collect stats
 
     visitor_fn visitor;
+    if_cb_fn if_cb;
 
     // src is optional, used for error reporting
     context(std::string src = "") : src(std::make_shared<std::string>(std::move(src))) {
@@ -82,6 +87,7 @@ struct context {
         }
         current_time = parent.current_time;
         is_get_stats = parent.is_get_stats;
+        if_cb = parent.if_cb;
         src = parent.src;
     }
 
@@ -761,7 +767,7 @@ struct runtime {
         }
         size_t w = 0;
         for (size_t r = 1; r < p.size(); r++) {
-            if (p[w].is_input == p[r].is_input) {
+            if (p[w].is_input == p[r].is_input && p[w].flags == p[r].flags) {
                 p[w].val += p[r].val;
             } else {
                 w++;
