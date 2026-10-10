@@ -2289,14 +2289,15 @@ static void test_caps(testing & t) {
 }
 
 static void test_string_parts(testing & t) {
-    static auto render = [](const std::string & tmpl, const json & vars, jinja::if_cb_fn if_cb = nullptr) -> jinja::string {
+    static auto render = [](const std::string & tmpl, const json & vars, jinja::flags_cb_fn flags_cb = nullptr, void * flags_cb_data = nullptr) -> jinja::string {
         jinja::lexer lexer;
         auto lexer_res = lexer.tokenize(tmpl);
 
         jinja::program ast = jinja::parse_from_tokens(lexer_res);
 
         jinja::context ctx(tmpl);
-        ctx.if_cb = std::move(if_cb);
+        ctx.flags_cb = std::move(flags_cb);
+        ctx.flags_cb_data = flags_cb_data;
         jinja::global_from_json(ctx, vars, true);
 
         jinja::runtime runtime(ctx);
@@ -2317,24 +2318,74 @@ static void test_string_parts(testing & t) {
         }
     });
 
-    t.test("if_cb marks parts conditioned by an input variable", [](testing & t) {
+    t.test("flags_cb marks parts conditioned by an input variable", [](testing & t) {
         const uint32_t FLAG_GEN_PROMPT = 1u << 0;
-        auto if_cb = [&](const jinja::statement * test, const jinja::value &, bool) -> uint32_t {
-            auto id = dynamic_cast<const jinja::identifier *>(test);
-            return id && id->val == "add_generation_prompt" ? FLAG_GEN_PROMPT : 0;
+        // check if the test of an if statement references add_generation_prompt anywhere
+        static auto is_gen_prompt_cond = [](const jinja::statement * stmt) -> bool {
+            auto if_stmt = dynamic_cast<const jinja::if_statement *>(stmt);
+            if (!if_stmt) {
+                return false;
+            }
+            bool found = false;
+            jinja::context vctx;
+            vctx.visitor = [&](bool, const jinja::statement * node, std::vector<jinja::visitor_pair> children) {
+                auto id = dynamic_cast<const jinja::identifier *>(node);
+                found = found || (id && id->val == "add_generation_prompt");
+                for (auto & [label, nodes] : children) {
+                    for (auto * child : nodes) {
+                        if (child) {
+                            child->visit(vctx);
+                        }
+                    }
+                }
+            };
+            if_stmt->test->visit(vctx);
+            return found;
         };
-        jinja::string res = render(
-            "{% for m in messages %}<|{{ m.role }}|>{{ m.content }}<|end|>{% endfor %}"
-            "{% if add_generation_prompt %}<|assistant|>{% endif %}",
-            json{{"messages", json::array({json{{"role", "user"}, {"content", "hi"}}})}, {"add_generation_prompt", true}},
-            if_cb);
+        // user data: stack of active flags, one entry per statement being executed
+        auto flags_cb = [&](jinja::flags_cb_event event, const jinja::statement * stmt, void * data) -> uint32_t {
+            auto & stack = *static_cast<std::vector<uint32_t> *>(data);
+            switch (event) {
+                case jinja::FLAGS_CB_ENTER:
+                    stack.push_back(stack.back() | (is_gen_prompt_cond(stmt) ? FLAG_GEN_PROMPT : 0));
+                    return 0;
+                case jinja::FLAGS_CB_EXIT:
+                    stack.pop_back();
+                    return 0;
+                case jinja::FLAGS_CB_STRING:
+                    return stack.back();
+            }
+            return 0;
+        };
+        const std::string tmpl =
+            "{%- set ns = namespace(out='') -%}"
+            "{%- for m in messages -%}"
+            "    {%- set ns.out = ns.out ~ m.role ~ ': ' ~ m.content ~ '\n' -%}"
+            "{%- endfor -%}"
+            "{%- if add_generation_prompt and (messages|length == 0 or messages[-1].get('role') != 'assistant') -%}"
+            "    {%- if enable_thinking is true -%}"
+            "        {%- set ns.out = ns.out ~ 'assistant: <think>\n' -%}"
+            "    {%- else -%}"
+            "        {%- set ns.out = ns.out ~ 'assistant: ' -%}"
+            "    {%- endif -%}"
+            "{%- endif -%}"
+            "{{- ns.out -}}";
+        json messages = json::array({json{{"role", "user"}, {"content", "hi"}}});
 
+        std::vector<uint32_t> stack = {0};
+        jinja::string res = render(tmpl, json{{"messages", messages}, {"add_generation_prompt", true}, {"enable_thinking", true}}, flags_cb, &stack);
+        t.assert_true("stack is balanced", stack.size() == 1);
         if (t.assert_true("has parts", !res.parts.empty())) {
             const auto & last = res.parts.back();
-            t.assert_true("generation prompt is flagged", last.val == "<|assistant|>" && last.flags == FLAG_GEN_PROMPT);
+            t.assert_true("generation prompt is flagged", last.val == "assistant: <think>\n" && last.flags == FLAG_GEN_PROMPT);
             for (size_t i = 0; i + 1 < res.parts.size(); i++) {
                 t.assert_true("part " + std::to_string(i) + " is not flagged", res.parts[i].flags == 0);
             }
+        }
+
+        res = render(tmpl, json{{"messages", messages}, {"add_generation_prompt", false}}, flags_cb, &stack);
+        for (const auto & part : res.parts) {
+            t.assert_true("no flag without generation prompt", part.flags == 0);
         }
     });
 }

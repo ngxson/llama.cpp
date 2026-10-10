@@ -52,9 +52,10 @@ void enable_debug(bool enable);
 using visitor_pair = std::pair<std::string, std::vector<const statement *>>;
 using visitor_fn = std::function<void(bool, const statement *, std::vector<visitor_pair>)>;
 
-// called after an if test is evaluated, returned bits are OR'ed into string_part::flags of the executed branch
-// function signature: uint32_t(const statement * test, const value & test_val, bool is_true)
-using if_cb_fn = std::function<uint32_t(const statement *, const value &, bool)>;
+// ENTER/EXIT are called around each statement execution, STRING is called when a string literal is created
+// return value is only used for STRING, as string_part::flags of the new literal
+enum flags_cb_event { FLAGS_CB_ENTER, FLAGS_CB_EXIT, FLAGS_CB_STRING };
+using flags_cb_fn = std::function<uint32_t(flags_cb_event, const statement *, void *)>;
 
 struct context {
     std::shared_ptr<std::string> src; // for debugging; use shared_ptr to avoid copying on scope creation
@@ -63,7 +64,8 @@ struct context {
     bool is_get_stats = false; // whether to collect stats
 
     visitor_fn visitor;
-    if_cb_fn if_cb;
+    flags_cb_fn flags_cb;
+    void * flags_cb_data = nullptr;
 
     // src is optional, used for error reporting
     context(std::string src = "") : src(std::make_shared<std::string>(std::move(src))) {
@@ -87,7 +89,8 @@ struct context {
         }
         current_time = parent.current_time;
         is_get_stats = parent.is_get_stats;
-        if_cb = parent.if_cb;
+        flags_cb = parent.flags_cb;
+        flags_cb_data = parent.flags_cb_data;
         src = parent.src;
     }
 
@@ -403,8 +406,12 @@ struct string_literal : public expression {
     std::string val;
     explicit string_literal(const std::string & val) : val(val) {}
     std::string type() const override { return "StringLiteral"; }
-    value execute_impl(context &) const override {
-        return mk_val<value_string>(val);
+    value execute_impl(context & ctx) const override {
+        auto res = mk_val<value_string>(val);
+        if (ctx.flags_cb) {
+            res->val_str.parts[0].flags = ctx.flags_cb(FLAGS_CB_STRING, this, ctx.flags_cb_data);
+        }
+        return res;
     }
 };
 
